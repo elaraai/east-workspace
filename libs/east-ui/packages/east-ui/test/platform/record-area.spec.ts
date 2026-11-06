@@ -401,11 +401,11 @@ const indexType = ArrayType(RecordSliceIndexType);
 const box = { x: "x", y: "y", width: some("w"), height: some("h"), centre: true, cell: 2 ** -7 };
 // Each index's fields are the row fields it is led by alone (#1432): its key's `on`.
 const indexes = decodeBeast2For(indexType)(encodeBeast2For(indexType)([
-    { name: "by_hall", fields: ["hall"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none },
-    { name: "racks_by_area", fields: [], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none },
-    { name: "racks_by_hall_area", fields: ["hall"], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none },
-    { name: "racks_by_tag_area", fields: ["tags"], sets: new Set(["tags"]), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none },
-    { name: "zones_by_area", fields: ["floor"], sets: new Set(), structured: true, interval: none, area: some({ ...box, centre: false, optional: false }), series: none, summary: none },
+    { name: "by_hall", fields: ["hall"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none, entries: false },
+    { name: "racks_by_area", fields: [], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none, entries: false },
+    { name: "racks_by_hall_area", fields: ["hall"], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none, entries: false },
+    { name: "racks_by_tag_area", fields: ["tags"], sets: new Set(["tags"]), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none, entries: false },
+    { name: "zones_by_area", fields: ["floor"], sets: new Set(), structured: true, interval: none, area: some({ ...box, centre: false, optional: false }), series: none, summary: none, entries: false },
 ]));
 /** Each area index's `on` printer, from its key type, as the binding's index key types give them. */
 const keyOf_ = (on: StructType) => StructType({ on, area: IntegerType });
@@ -447,9 +447,9 @@ test("a window plans through the area index whose leading fields the narrowing f
 
 test("a narrowing choosing a field named `area` or `__area` beside a read by area's window is planned through an area index led by it: e3's parts are the kind's, never a field's name (#1432)", () => {
     const named = decodeBeast2For(indexType)(encodeBeast2For(indexType)([
-        { name: "by_area", fields: ["area"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none },
-        { name: "racks_by_area", fields: [], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none },
-        { name: "racks_by_area_area", fields: ["area", "__area"], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none },
+        { name: "by_area", fields: ["area"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none, entries: false },
+        { name: "racks_by_area", fields: [], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none, entries: false },
+        { name: "racks_by_area_area", fields: ["area", "__area"], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none, entries: false },
     ]));
     const On = StructType({ area: StringType, __area: StringType });
     const printers = recordOnPrinters({ racks_by_area: keyOf_(StructType({})), racks_by_area_area: keyOf_(On) });

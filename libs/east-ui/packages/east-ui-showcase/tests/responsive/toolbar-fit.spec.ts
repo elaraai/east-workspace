@@ -16,17 +16,25 @@
  * where that is not enough does the Elara eye give its room — never leaving
  * the toolbar (ruled 27 Oct 2026, "Into the View menu").
  *
+ * In a phone's frame — 560px or narrower (`Mobile Builder Frame Spec.md`, ruled
+ * 3 Nov 2026) — the history is the toolbar's second row, and the Elara eye
+ * before it: held there the same way, each item inside the row and each of
+ * Undo, Redo, Discard and Save taking the pointer at its centre.
+ *
  * Measured at the page's widths — 1440, 1024, 768, 390 and 360, where the
  * showcase's own chrome takes its share — and in a 294px parent, in both
  * themes, over each builder's example and each optimiser example. One test an
  * area (#1397): its examples share a workspace, which the page makes once.
  *
  * The eye of the Roster's and the Allocation's optimiser examples, whose View
- * bundles the period's controls on a phone, is a button in the row at 390 and
- * wider, and at 360 and in a 294px parent the View's entry: named as the eye
- * is, a run from it — the footer's line saying so — the entry then its Stop,
- * and Stop from it ending the run with nothing recorded; the history and Save
- * in the row throughout.
+ * bundles the period's controls on a phone, is a button in the first row while
+ * the frame is wider than a phone's; in a phone's frame of 312px or more a
+ * button in the second row before the history, never the View's entry; and in
+ * a narrower one — a 360px page's 294px frame — the first row's again (ruled
+ * 3 Nov 2026), a button there or, where the floor takes its room, the View's
+ * entry. Wherever it is: named as the eye is, a run from it — the loading line
+ * saying so — the eye then its Stop, and Stop from it ending the run with
+ * nothing recorded; the history and Save in their row throughout.
  *
  * Run: `pnpm exec playwright test toolbar-fit`.
  */
@@ -35,7 +43,8 @@ import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { sizeBuilder, visitBuilder } from "./builder-page";
 import { holdE3, installE3Faults, releaseE3 } from "./e3-faults";
-import { settled } from "./settle";
+import { escapeLayer, settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /** An area's builder examples, by their showcase routes: the builder's own, and its optimiser's where it has one. */
 const AREAS: readonly { readonly name: string; readonly routes: readonly string[] }[] = [
@@ -44,7 +53,7 @@ const AREAS: readonly { readonly name: string; readonly routes: readonly string[
     { name: "Roster", routes: ["e3/roster/roster/rosterWarehouse", "e3/roster/optimise/rosterOptimise"] },
     { name: "Calendar", routes: ["e3/calendar/calendar/calendarOperations", "e3/calendar/optimise/calendarOptimise"] },
     { name: "Allocation", routes: ["e3/allocation/allocation/allocationKilnYard", "e3/allocation/optimise/allocationOptimise"] },
-    { name: "Flowchart", routes: ["e3/flowchart/flowchart/flowchartFlows"] },
+    { name: "Flowchart", routes: ["e3/flowchart/flowchart/flowchartDepot"] },
     { name: "Studio", routes: ["e3/studio/studio/studioBuilder"] },
     { name: "Query", routes: ["e3/query/query/queryBuilder"] },
     { name: "Schematic", routes: ["e3/schematic/schematic/schematicDataCentre"] },
@@ -72,21 +81,32 @@ function rowFaults(entry: Locator, history: boolean): Promise<string[]> {
         const row = frame.querySelector<HTMLElement>("[data-frame-slot='toolbar'] [data-toolbar]");
         if (row === null) return ["no toolbar row"];
         row.scrollIntoView({ block: "center", inline: "nearest" });
-        const r = row.getBoundingClientRect();
-        const style = getComputedStyle(row);
-        const left = r.left + parseFloat(style.paddingLeft) + parseFloat(style.borderLeftWidth);
-        const right = r.right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth);
         const faults: string[] = [];
-        for (const item of row.querySelectorAll<HTMLElement>(":scope > [data-toolbar-item]")) {
-            const b = item.getBoundingClientRect();
-            if (b.width === 0) continue;
-            const key = item.getAttribute("data-toolbar-item");
-            if (b.right > right + 0.5) faults.push(`${key} runs ${(b.right - right).toFixed(1)}px past the row's end`);
-            if (b.left < left - 0.5) faults.push(`${key} starts ${(left - b.left).toFixed(1)}px before the row's start`);
-        }
-        const item = row.querySelector<HTMLElement>(":scope > [data-toolbar-item='history']");
+        /** Each of a row's items — the given children of it — past its content box. */
+        const inside = (box: HTMLElement, items: Iterable<Element>, name: string) => {
+            const r = box.getBoundingClientRect();
+            const style = getComputedStyle(box);
+            const left = r.left + parseFloat(style.paddingLeft) + parseFloat(style.borderLeftWidth);
+            const right = r.right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth);
+            for (const item of items) {
+                const b = item.getBoundingClientRect();
+                if (b.width === 0) continue;
+                const key = item.getAttribute("data-toolbar-item") ?? item.getAttribute("aria-label") ?? item.tagName.toLowerCase();
+                if (b.right > right + 0.5) faults.push(`${key} runs ${(b.right - right).toFixed(1)}px past the ${name}'s end`);
+                if (b.left < left - 0.5) faults.push(`${key} starts ${(left - b.left).toFixed(1)}px before the ${name}'s start`);
+            }
+        };
+        inside(row, row.querySelectorAll(":scope > [data-toolbar-item]"), "row");
+        // A phone's frame: the history is the second row's, never the first's.
+        const phone = frame.hasAttribute("data-phone");
+        const second = frame.querySelector<HTMLElement>(":scope > [data-frame-slot='sessionRow']");
+        if (phone && second !== null) inside(second, second.querySelectorAll("button"), "second row");
+        if (phone && row.querySelector(":scope > [data-toolbar-item='history']") !== null) faults.push("the history item is in a phone's first row");
+        const item = phone
+            ? second?.querySelector<HTMLElement>("[data-slot='history'][data-history-form='phone']") ?? null
+            : row.querySelector<HTMLElement>(":scope > [data-toolbar-item='history']");
         if (item === null) {
-            if (wanted) faults.push("the history item left the row");
+            if (wanted) faults.push(phone ? "the history left a phone's second row" : "the history item left the row");
             return faults;
         }
         const names = ["Undo", "Redo", "Discard", "Save"];
@@ -101,9 +121,10 @@ function rowFaults(entry: Locator, history: boolean): Promise<string[]> {
     }, history);
 }
 
-/** Whether an entry's builder shows a history item now. */
+/** Whether an entry's builder shows a history item now: in the first row, or a phone's second. */
 function hasHistory(entry: Locator): Promise<boolean> {
-    return entry.locator(ROOT).first().evaluate((frame) => frame.querySelector("[data-frame-slot='toolbar'] [data-toolbar] > [data-toolbar-item='history']") !== null);
+    return entry.locator(ROOT).first().evaluate((frame) => frame.querySelector("[data-frame-slot='toolbar'] [data-toolbar] > [data-toolbar-item='history']") !== null
+        || frame.querySelector("[data-frame-slot='sessionRow'] [data-slot='history']") !== null);
 }
 
 /** Lets the builder's box take the page's width again, after a spec sized it. */
@@ -113,16 +134,20 @@ async function unsizeBuilder(page: Page, entry: Locator): Promise<void> {
 }
 
 /**
- * The optimiser examples whose builder's View — the chip that bundles the period's controls on a phone — takes the
- * Elara eye as its entry where the row's floor needs the eye's room (ruled 27 Oct 2026, "Into the View menu").
+ * The optimiser examples whose builder's View — the chip that bundles the period's controls on a phone — took the Elara
+ * eye as its entry where the row's floor needed the eye's room (ruled 27 Oct 2026, "Into the View menu"); in a phone's
+ * frame the eye is the second row's, before the history (ruled 3 Nov 2026).
  */
 const VIEW_EYES: readonly { readonly name: string; readonly route: string }[] = [
     { name: "Roster", route: "e3/roster/optimise/rosterOptimise" },
     { name: "Allocation", route: "e3/allocation/optimise/allocationOptimise" },
 ];
 
-/** The page's widths at which the eye is a button in the row: 390 and wider. */
-const EYE_IN_ROW = [1440, 1024, 768, 390] as const;
+/** The page's widths the eye is checked at, widest first. */
+const EYE_WIDTHS = [1440, 1024, 768, 390, 360] as const;
+
+/** The narrowest frame whose second row takes the eye (east-ui-components' `EYE_SECOND_ROW_FROM`). */
+const EYE_SECOND_ROW_FROM = 312;
 
 /**
  * What is wrong with the eye in an entry's toolbar row, where it is a button there: no eye in the row, or one past the
@@ -143,6 +168,59 @@ function eyeInRowFaults(entry: Locator): Promise<string[]> {
         const inside = b.left >= r.left + parseFloat(style.paddingLeft) - 0.5 && b.right <= r.right - parseFloat(style.paddingRight) + 0.5;
         return b.width > 0 && inside ? [] : ["the eye's button is outside the row's content box"];
     });
+}
+
+/**
+ * The eye in a phone's frame: no button of it in the first row and no entry of it in the View, a button in the second
+ * row before Issues, the history and Save in that row taking the pointer; named as the eye was; a run from it — its
+ * call held on its way to e3, so the run stays out while the checks look — the loading line at the row's start saying
+ * so and the eye its Stop; and Stop from it, the run over, the eye named for the period again, and nothing recorded.
+ *
+ * @param page - The page
+ * @param entry - The example's entry
+ * @param named - What the eye was named at the widest width: `Optimise W10`
+ * @param at - Where the check is, for its messages
+ */
+async function checkPhoneEye(page: Page, entry: Locator, named: string, at: string): Promise<void> {
+    const frame = entry.locator(ROOT).first();
+    await expect(frame, `${at}: a phone's frame`).toHaveAttribute("data-phone", "");
+    const toolbar = frame.locator("[data-frame-slot='toolbar']");
+    const second = frame.locator("[data-frame-slot='sessionRow']");
+    expect(await rowFaults(entry, true), at).toEqual([]);
+    await expect(toolbar.locator("[data-optimise-button]"), `${at}: the eye is no button of the first row`).toHaveCount(0);
+    // Where the first row shows its View, the View lists no eye.
+    const viewChip = toolbar.getByRole("button", { name: "View", exact: true });
+    if (await viewChip.count() > 0) {
+        await viewChip.click();
+        await expect(page.getByRole("dialog").locator("[data-optimise-entry]"), `${at}: the View lists no eye`).toHaveCount(0);
+        await escapeLayer(page);
+        await expect(page.getByRole("dialog"), `${at}: the View closed`).toHaveCount(0);
+    }
+    const eye = second.locator("[data-optimise-button]");
+    await expect(eye, `${at}: the eye is the second row's`).toBeVisible();
+    await expect(eye, at).toBeEnabled();
+    await expect(eye, at).toHaveAccessibleName(named);
+    // Before the history's Issues, in the row's order.
+    const before = await second.evaluate((row) => {
+        const eyeAt = row.querySelector("[data-optimise-button]")!.getBoundingClientRect().left;
+        const issues = row.querySelector("[data-slot='history'] button")!.getBoundingClientRect().left;
+        return eyeAt < issues;
+    });
+    expect(before, `${at}: the eye before Issues`).toBe(true);
+    const hold = await holdE3(page, { kinds: ["call"] });
+    await eye.click();
+    const line = second.locator("[data-footer-line]");
+    await expect(line, `${at}: the row's line says the run`).toHaveAttribute("data-loading-line", "busy");
+    await expect(line.locator("[data-line-text]"), at).toHaveText(/^Optimising /);
+    await expect(eye, `${at}: the eye is the run's Stop`).toHaveAccessibleName("Stop optimising");
+    await eye.click();
+    await expect(eye, `${at}: Stop ended the run`).toHaveAccessibleName(named);
+    await expect(line, at).not.toHaveAttribute("data-loading-line", "busy");
+    await releaseE3(page, hold);
+    await settled(page);
+    // A late answer is ignored: nothing landed, and the rows hold what they show still.
+    await expect(frame.locator("[data-optimise-banner]"), at).toHaveCount(0);
+    expect(await rowFaults(entry, true), at).toEqual([]);
 }
 
 /**
@@ -208,8 +286,9 @@ async function checkViewEye(page: Page, entry: Locator, named: string, at: strin
     expect([rest.inside, rest.mark], `${at}: the entry whole in the View, its mark 14px`).toEqual([true, [14, 14]]);
     const hold = await holdE3(page, { kinds: ["call"] });
     await eye.click();
-    const line = frame.locator("[data-frame-slot='footer'] [data-footer-line]");
-    await expect(line, `${at}: the footer's line says the run`).toHaveAttribute("data-loading-line", "busy");
+    // The loading line: a phone's is the second row's start, else the footer's.
+    const line = frame.locator("[data-frame-slot='sessionRow'] [data-footer-line], [data-frame-slot='footer'] [data-footer-line]").first();
+    await expect(line, `${at}: the loading line says the run`).toHaveAttribute("data-loading-line", "busy");
     await expect(line.locator("[data-line-text]"), at).toHaveText(/^Optimising /);
     await expect(eye, `${at}: the entry is the run's Stop`).toHaveText("Stop optimising");
     await expect(eye, at).toHaveAccessibleName("Stop optimising");
@@ -227,7 +306,55 @@ async function checkViewEye(page: Page, entry: Locator, named: string, at: strin
     expect(await rowFaults(entry, true), at).toEqual([]);
 }
 
-for (const theme of ["light", "dark"] as const) {
+/**
+ * The eye in a frame too narrow for the second row to take it: in the first row, a button there — a run and its Stop
+ * from it — or, where the row's floor has taken its room, the View's entry ({@link checkViewEye}); never the second row's.
+ *
+ * @param page - The page
+ * @param entry - The example's entry
+ * @param named - What the eye was named at the widest width
+ * @param at - Where the check is, for its messages
+ */
+async function checkNarrowEye(page: Page, entry: Locator, named: string, at: string): Promise<void> {
+    const frame = entry.locator(ROOT).first();
+    await expect(frame.locator("[data-frame-slot='sessionRow'] [data-optimise-button]"), `${at}: the eye is no button of the second row`).toHaveCount(0);
+    const button = frame.locator("[data-frame-slot='toolbar'] [data-optimise-button]");
+    if (await button.count() === 0) { await checkViewEye(page, entry, named, at); return; }
+    expect(await eyeInRowFaults(entry), at).toEqual([]);
+    expect(await rowFaults(entry, true), at).toEqual([]);
+    await expect(button, at).toHaveAccessibleName(named);
+    const hold = await holdE3(page, { kinds: ["call"] });
+    await button.click();
+    const line = frame.locator("[data-frame-slot='sessionRow'] [data-footer-line], [data-frame-slot='footer'] [data-footer-line]").first();
+    await expect(line, `${at}: the loading line says the run`).toHaveAttribute("data-loading-line", "busy");
+    await expect(button, `${at}: the eye is the run's Stop`).toHaveAccessibleName("Stop optimising");
+    await button.click();
+    await expect(button, `${at}: Stop ended the run`).toHaveAccessibleName(named);
+    await releaseE3(page, hold);
+    await settled(page);
+    await expect(frame.locator("[data-optimise-banner]"), at).toHaveCount(0);
+    expect(await rowFaults(entry, true), at).toEqual([]);
+}
+
+/**
+ * The eye where the frame's width puts it: the first row's above a phone's frame, the second row's in a phone's of
+ * 312px or more, and the first row's again below that.
+ *
+ * @param page - The page
+ * @param entry - The example's entry
+ * @param named - What the eye was named at the widest width
+ * @param at - Where the check is, for its messages
+ */
+async function checkEye(page: Page, entry: Locator, named: string, at: string): Promise<void> {
+    const { phone, width } = await entry.locator(ROOT).first().evaluate((frame) => ({ phone: frame.hasAttribute("data-phone"), width: frame.getBoundingClientRect().width }));
+    if (!phone) {
+        expect(await eyeInRowFaults(entry), at).toEqual([]);
+        expect(await rowFaults(entry, true), at).toEqual([]);
+    } else if (width >= EYE_SECOND_ROW_FROM) await checkPhoneEye(page, entry, named, at);
+    else await checkNarrowEye(page, entry, named, at);
+}
+
+for (const theme of LAYOUT_THEMES) {
     for (const area of AREAS) {
         test(`${area.name}: the toolbar row holds what it shows, the history and Save in it and taking the pointer, at 1440 / 1024 / 768 / 390 / 360 and in a ${PARENT}px parent (${theme})`, async ({ page }) => {
             const faults: Record<string, string[]> = {};
@@ -252,7 +379,7 @@ for (const theme of ["light", "dark"] as const) {
     }
 
     for (const eye of VIEW_EYES) {
-        test(`${eye.name}: the Elara eye never leaves the toolbar — a button in the row at 1440 / 1024 / 768 / 390, the View's entry at 360 and in a ${PARENT}px parent, a run and its Stop from there, the history and Save in the row (${theme})`, async ({ page }) => {
+        test(`${eye.name}: the Elara eye never leaves the toolbar — the first row's above a phone's frame, the second row's in a phone's of ${EYE_SECOND_ROW_FROM}px or more, the first row's again below — a run and its Stop from it, at 1440 / 1024 / 768 / 390 / 360 and in a ${PARENT}px parent (${theme})`, async ({ page }) => {
             await installE3Faults(page);
             await page.setViewportSize({ width: WIDTHS[0], height: 900 });
             const entry = await visitBuilder(page, eye.route, ROOT, theme);
@@ -261,18 +388,14 @@ for (const theme of ["light", "dark"] as const) {
             await expect(button).toBeEnabled({ timeout: 30_000 });
             const named = (await button.getAttribute("aria-label")) ?? "";
             expect(named).toMatch(/^Optimise /);
-            for (const width of EYE_IN_ROW) {
+            for (const width of EYE_WIDTHS) {
                 await page.setViewportSize({ width, height: 900 });
                 await settled(page);
-                expect(await eyeInRowFaults(entry), `${width}px`).toEqual([]);
-                expect(await rowFaults(entry, true), `${width}px`).toEqual([]);
+                await checkEye(page, entry, named, `${width}px`);
             }
-            await page.setViewportSize({ width: 360, height: 900 });
-            await settled(page);
-            await checkViewEye(page, entry, named, "360px");
             await page.setViewportSize({ width: WIDTHS[0], height: 900 });
             await sizeBuilder(page, entry, ROOT, PARENT);
-            await checkViewEye(page, entry, named, `a ${PARENT}px parent`);
+            await checkNarrowEye(page, entry, named, `a ${PARENT}px parent`);
             await unsizeBuilder(page, entry);
             expect(await eyeInRowFaults(entry), `${WIDTHS[0]}px again`).toEqual([]);
         });

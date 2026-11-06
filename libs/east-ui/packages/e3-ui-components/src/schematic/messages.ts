@@ -45,9 +45,13 @@ import { none, some, variant } from "@elaraai/east";
 import type { Formatters } from "@elaraai/east-ui-components";
 import type { LoadingLineText } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
-import { hiddenByText, joinedWords, type HiddenWords } from "../shared/schedule/words.js";
+import { hiddenByText, joinedWords, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
+import type { SchematicValue } from "./data.js";
 import type { SchematicIssueWord } from "./issues.js";
 import type { SchematicTool } from "./tools.js";
+
+/** The app's words for what the Schematic draws, as the payload carries them. */
+export type SchematicVocabulary = SchematicValue["vocabulary"];
 
 /** A count as a message takes it: the number, for its plural, and the number as the locale prints it. */
 export interface SchematicCount {
@@ -377,154 +381,167 @@ function dropRefused(p: SchematicDropRefusalWord): string {
     }
 }
 
-/** Each of the library's own tabs' name. */
-const TAB_NAMES: { readonly [T in Exclude<SchematicLibraryTabWord, "tab">]: string } = {
-    templates: "Templates", backlog: "Backlog", index: "Index", layers: "Layers",
-};
-
-/** What each tab counts its cards as: one, several. */
-const TAB_NOUNS: { readonly [T in SchematicLibraryTabWord]: readonly [string, string] } = {
-    templates: ["template", "templates"], backlog: ["item", "items"], index: ["zone", "zones"], layers: ["layer", "layers"], tab: ["card", "cards"],
-};
-
 /** Each tool's name. */
 const TOOL_NAMES: { readonly [T in SchematicTool]: string } = {
     select: "Select", zoom: "Zoom box", marquee: "Marquee", connect: "Connect", move: "Move",
 };
 
-/** Each tool's line under the pointer. */
-const TOOL_HINTS: { readonly [T in SchematicTool]: string } = {
-    select: "Select — a tap selects, a drag on empty canvas pans (hold Space)",
-    zoom: "Zoom box — drag a box to zoom into (hold Ctrl)",
-    marquee: "Marquee — drag a box to select the items in it (Shift adds)",
-    connect: "Connect — drag from an item to another to record a link",
-    move: "Move — drag an item, or the selection, to move it",
+/** The words the Schematic draws with none given. */
+const DEFAULT_VOCABULARY: SchematicVocabulary = {
+    templates: { one: "Template", other: "Templates" }, backlog: "Backlog", index: "Index", layer: { one: "Layer", other: "Layers" },
+    zone: { one: "Zone", other: "Zones" }, net: { one: "Net", other: "Nets" }, link: { one: "Link", other: "Links" },
+    source: { one: "Source", other: "Sources" }, destination: { one: "Destination", other: "Destinations" },
 };
 
-/** The English table. */
-export const schematicMessages: SchematicMessages = {
-    ...pagedLoadingMessages,
-    frameLabel: () => "Schematic",
-    drawingNoun: () => "the drawing",
-    lineInView: ({ noun }) => [`Loading ${noun} in view`],
-    lineCounts: () => ["Loading counts"],
-    lineDetails: ({ count, noun }) => ["Loading details for ", { strong: count }, ` ${noun}`],
-    lineFailedInView: ({ noun }) => [`Couldn't read ${noun} in view`],
-    areaFailed: () => "Couldn't read this area",
-    canvasLabel: () => "Schematic canvas — arrow keys step through the items",
-    minimapHint: () => "Jump to a location",
-    toolsLabel: () => "Tool",
-    toolName: ({ tool }) => TOOL_NAMES[tool],
-    toolHint: ({ tool }) => TOOL_HINTS[tool],
-    connectDraws: () => "Connect draws",
-    connectKind: ({ name }) => `Connect · ${name}`,
-    zoomLabel: () => "Zoom",
-    zoomOut: () => "Zoom out",
-    zoomIn: () => "Zoom in",
-    fit: () => "Fit",
-    findLabel: () => "Find item",
-    findNoMatches: () => "No item's key matches. Keys are case-sensitive.",
-    findMark: ({ mark }) => ({ layer: "on a hidden layer", unplaced: "no position" })[mark],
-    foundOff: ({ item, mark }) => ({
-        layer: `${item} is on a hidden layer`,
-        unplaced: `${item} has no position: it is in the Backlog`,
-    })[mark],
-    viewLabel: () => "View",
-    stepLabel: () => "Step through items",
-    previousItem: () => "Previous item",
-    nextItem: () => "Next item",
-    densityNotice: ({ n, count, name, about, unfiltered }) =>
-        `Density: ${about ? "about " : ""}${count} ${plural(n, name, `${name}s`)}${unfiltered ? ", the filters not applied" : ""} — zoom in to draw ${plural(n, "it", "them")}`,
-    templatesNoun: ({ name }) => `${name} templates`,
-    retry: () => "Retry",
-    kindNoun: ({ name, plural }) => (plural ? `${name}s` : name),
-    detailsName: ({ name }) => `${name} details`,
-    endRefused: ({ kind, end, item }) => `${kind} can't ${end === "start" ? "start" : "end"} at ${item}`,
-    deleteRefused: ({ item, kind, key }) => `${item} isn't deleted: ${kind} ${key} names it, and is read only`,
-    step: ({ step, name, n }) => ({
-        move: `Move ${n} ${plural(n, "item", "items")}`,
-        connect: `Connect a ${name}`,
-        net: `Grow a ${name}`,
-        retarget: `Retarget a ${name}`,
-        extend: `Extend a ${name}`,
-        delete: `Delete ${n} ${plural(n, "row", "rows")}`,
-    })[step],
-    libraryPane: () => "Library",
-    libraryTab: ({ tab }) => TAB_NAMES[tab],
-    libraryNoun: ({ tab, n }) => plural(n, TAB_NOUNS[tab][0], TAB_NOUNS[tab][1]),
-    libraryEmpty: ({ tab, name }) => ({
-        templates: "No templates", backlog: "Nothing in the backlog", index: "No zones", layers: "No layers", tab: `Nothing in ${name}`,
-    })[tab],
-    libraryEmptyHint: ({ tab }) => ({
-        templates: "No template to drag onto the canvas.",
-        backlog: "Every item has a place on the drawing.",
-        index: "The drawing holds no zone.",
-        layers: "The drawing has no layer.",
-        tab: "No card to drag onto the canvas.",
-    })[tab],
-    libraryNarrowed: ({ tab, name }) => `No ${tab === "tab" ? name : TAB_NOUNS[tab][1]} match the filters`,
-    libraryNarrowedHint: ({ tab, name }) => `Change or clear the filters to see more ${tab === "tab" ? name : TAB_NOUNS[tab][1]}.`,
-    libraryGroupBy: () => "Group",
-    templateGroup: ({ kind, group }) => (group === undefined ? kind : `${kind} · ${group}`),
-    backlogLine: ({ kind, sublabel }) => (sublabel === undefined ? kind : `${kind} · ${sublabel}`),
-    indexSearch: () => "Search items",
-    indexNoMatch: ({ query }) => `No items match "${query}"`,
-    indexToggle: ({ zone, open }) => `${open ? "Close" : "Open"} ${zone}`,
-    indexCount: ({ n, count }) => `${count} ${plural(n, "item", "items")}`,
-    indexCrowded: ({ n, count, zone, name }) => `${zone} holds more than ${count} ${plural(n, name, `${name}s`)}: search to find one`,
-    indexMore: ({ n, count }) => `${count} more ${plural(n, "matches", "match")}: type more to find ${plural(n, "it", "them")}`,
-    layersShowAll: () => "Show all",
-    layerShow: ({ layer, shown }) => `${shown ? "Hide" : "Show"} ${layer}`,
-    layerIsolate: ({ layer, isolated }) => (isolated ? `Show every layer, not ${layer} alone` : `Isolate ${layer}`),
-    layerLock: ({ layer, locked }) => `${locked ? "Unlock" : "Lock"} ${layer}`,
-    layerCount: ({ n, count }) => `${count} ${plural(n, "entity", "entities")}`,
-    sourceUnavailable: ({ name }) => `${capital(name)} results unavailable`,
-    sourceChanged: ({ name }) => `${capital(name)} results changed; retry the narrowing.`,
-    sourceFailed: ({ name }) => `Could not load ${name} results`,
-    dropAt: ({ zone, x, y, unit }) => `${zone === undefined ? "" : `${zone} · `}${x}, ${y}${unit === undefined ? "" : ` ${unit}`}`,
-    dropOnto: ({ name }) => `onto ${name}`,
-    linkEnds: ({ from, to }) => `${from} → ${to}`,
-    netEnds: ({ sources, destinations }) => `${membersOf(sources)} → ${membersOf(destinations)}`,
-    dropMany: ({ n, count, name }) => `${count} ${plural(n, name, `${name}s`)}`,
-    dropRefused,
-    dropCanvas: () => "the canvas",
-    dropLabel: ({ card, where, onto }) => `Drop ${card} ${onto ? "on" : "at"} ${where}`,
-    inspectorPane: () => "Inspector",
-    inspectorTab: ({ tab }) => (tab === "details" ? "Details" : "Issues"),
-    inspectorDrawing: () => "Drawing",
-    inspectorSection,
-    inspectorField: ({ field }) => ({ x: "x", y: "y", from: "From", to: "To", sources: "Sources", destinations: "Destinations", kind: "Link kind" })[field],
-    inspectorAction: ({ action }) => ({ delete: "Delete", unplace: "Unplace", remove: "Remove", place: "Place" })[action],
-    inspectorUnplaced: () => "Not placed",
-    inspectorAt: ({ zone, x, y, unit }) => `${zone === undefined ? "" : `${zone} · `}${x}, ${y}${unit === undefined ? "" : ` ${unit}`}`,
-    inspectorSize: ({ width, height, unit }) => `${width} × ${height}${unit === undefined ? "" : ` ${unit}`}`,
-    inspectorSides: ({ sources, destinations }) =>
-        `${sources.count} ${plural(sources.n, "source", "sources")} → ${destinations.count} ${plural(destinations.n, "destination", "destinations")}`,
-    inspectorLeg: ({ end }) => (end === "source" ? "Source leg" : "Destination leg"),
-    inspectorSeveral: ({ count }) => `${count} selected`,
-    inspectorCount: ({ what, n }) => ({ zones: plural(n, "Zone", "Zones"), links: plural(n, "Link", "Links"), nets: plural(n, "Net", "Nets") })[what],
-    inspectorNotCounted: ({ names, why }) => `${capital(joinedWords(names, "and"))} not counted: ${({
-        layer: "a hidden layer may hold some of them", ends: "what they join is read as the view moves", filters: "the filters can't count those with no position",
-    })[why]}`,
-    inspectorKindCount: ({ n, count, name }) => `${count} ${plural(n, name, `${name}s`)}`,
-    inspectorNoRow: () => "Its record holds no row of it",
-    inspectorNoDetails: ({ name }) => `No ${name.toLowerCase()} details`,
-    inspectorJoin: ({ kind, end }) => (end === undefined ? kind : `${kind} · ${end === "source" ? "source" : "destination"}`),
-    inspectorSaved: ({ name, when, by }) => (by === undefined ? `${name} saved ${when}` : `${name} saved ${when} by ${by}`),
-    inspectorStep: ({ edit, name, from }) => ({
-        edit: `Edit ${name}`, unplace: `Unplace ${name}`, delete: `Delete ${name}`, remove: `Remove ${name} from ${from ?? ""}`,
-    })[edit],
-    inspectorSideEmpty: ({ side }) => `A net keeps one ${side === "sources" ? "source" : "destination"} at least: Delete takes the net`,
-    issueWhere: ({ kind, name }) => `${kind ?? "Layer"} · ${name}`,
-    issueText,
-    inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : "Every link names its items, and every shape and colour holds."),
-    inspectorUnchecked: ({ names }) => `${capital(joinedWords(names, "and"))} out of view are checked only as the view reaches them`,
-    hiddenByFilters: () => "hidden by the filters",
-    hiddenBy: ({ filters, also }) => hiddenByText(filters, also),
-    dimmedByFilters: () => "dimmed by the filters",
-    dimmedBy: ({ filters, also }) => hiddenByText(filters, also, "dimmed"),
-    hiddenUncleared: () => "The filters hiding it could not be cleared",
-};
+/**
+ * The English table, in the app's words for what the Schematic draws (#1516).
+ *
+ * @param v - The app's words
+ * @returns The table
+ */
+export function schematicMessagesOf(v: SchematicVocabulary): SchematicMessages {
+    const word = lowerWord;
+    const TAB_NAMES: { readonly [T in Exclude<SchematicLibraryTabWord, "tab">]: string } = {
+        templates: v.templates.other, backlog: v.backlog, index: v.index, layers: v.layer.other,
+    };
+    const TAB_NOUNS: { readonly [T in SchematicLibraryTabWord]: readonly [string, string] } = {
+        templates: [word(v.templates.one), word(v.templates.other)], backlog: ["item", "items"], index: [word(v.zone.one), word(v.zone.other)],
+        layers: [word(v.layer.one), word(v.layer.other)], tab: ["card", "cards"],
+    };
+    const TOOL_HINTS: { readonly [T in SchematicTool]: string } = {
+        select: "Select — a tap selects, a drag on empty canvas pans (hold Space)",
+        zoom: "Zoom box — drag a box to zoom into (hold Ctrl)",
+        marquee: "Marquee — drag a box to select the items in it (Shift adds)",
+        connect: `Connect — drag from an item to another to record ${article(v.link.one)} ${word(v.link.one)}`,
+        move: "Move — drag an item, or the selection, to move it",
+    };
+    return {
+        ...pagedLoadingMessages,
+        frameLabel: () => "Schematic",
+        drawingNoun: () => "the drawing",
+        lineInView: ({ noun }) => [`Loading ${noun} in view`],
+        lineCounts: () => ["Loading counts"],
+        lineDetails: ({ count, noun }) => ["Loading details for ", { strong: count }, ` ${noun}`],
+        lineFailedInView: ({ noun }) => [`Couldn't read ${noun} in view`],
+        areaFailed: () => "Couldn't read this area",
+        canvasLabel: () => "Schematic canvas — arrow keys step through the items",
+        minimapHint: () => "Jump to a location",
+        toolsLabel: () => "Tool",
+        toolName: ({ tool }) => TOOL_NAMES[tool],
+        toolHint: ({ tool }) => TOOL_HINTS[tool],
+        connectDraws: () => "Connect draws",
+        connectKind: ({ name }) => `Connect · ${name}`,
+        zoomLabel: () => "Zoom",
+        zoomOut: () => "Zoom out",
+        zoomIn: () => "Zoom in",
+        fit: () => "Fit",
+        findLabel: () => "Find item",
+        findNoMatches: () => "No item's key matches. Keys are case-sensitive.",
+        findMark: ({ mark }) => ({ layer: `on a hidden ${word(v.layer.one)}`, unplaced: "no position" })[mark],
+        foundOff: ({ item, mark }) => ({
+            layer: `${item} is on a hidden ${word(v.layer.one)}`,
+            unplaced: `${item} has no position: it is in the ${v.backlog}`,
+        })[mark],
+        viewLabel: () => "View",
+        stepLabel: () => "Step through items",
+        previousItem: () => "Previous item",
+        nextItem: () => "Next item",
+        densityNotice: ({ n, count, name, about, unfiltered }) =>
+            `Density: ${about ? "about " : ""}${count} ${plural(n, name, `${name}s`)}${unfiltered ? ", the filters not applied" : ""} — zoom in to draw ${plural(n, "it", "them")}`,
+        templatesNoun: ({ name }) => `${name} ${word(v.templates.other)}`,
+        retry: () => "Retry",
+        kindNoun: ({ name, plural }) => (plural ? `${name}s` : name),
+        detailsName: ({ name }) => `${name} details`,
+        endRefused: ({ kind, end, item }) => `${kind} can't ${end === "start" ? "start" : "end"} at ${item}`,
+        deleteRefused: ({ item, kind, key }) => `${item} isn't deleted: ${kind} ${key} names it, and is read only`,
+        step: ({ step, name, n }) => ({
+            move: `Move ${n} ${plural(n, "item", "items")}`,
+            connect: `Connect a ${name}`,
+            net: `Grow a ${name}`,
+            retarget: `Retarget a ${name}`,
+            extend: `Extend a ${name}`,
+            delete: `Delete ${n} ${plural(n, "row", "rows")}`,
+        })[step],
+        libraryPane: () => "Library",
+        libraryTab: ({ tab }) => TAB_NAMES[tab],
+        libraryNoun: ({ tab, n }) => plural(n, TAB_NOUNS[tab][0], TAB_NOUNS[tab][1]),
+        libraryEmpty: ({ tab, name }) => ({
+            templates: `No ${word(v.templates.other)}`, backlog: `Nothing in the ${word(v.backlog)}`, index: `No ${word(v.zone.other)}`, layers: `No ${word(v.layer.other)}`, tab: `Nothing in ${name}`,
+        })[tab],
+        libraryEmptyHint: ({ tab }) => ({
+            templates: `No ${word(v.templates.one)} to drag onto the canvas.`,
+            backlog: "Every item has a place on the drawing.",
+            index: `The drawing holds no ${word(v.zone.one)}.`,
+            layers: `The drawing has no ${word(v.layer.one)}.`,
+            tab: "No card to drag onto the canvas.",
+        })[tab],
+        libraryNarrowed: ({ tab, name }) => `No ${tab === "tab" ? name : TAB_NOUNS[tab][1]} match the filters`,
+        libraryNarrowedHint: ({ tab, name }) => `Change or clear the filters to see more ${tab === "tab" ? name : TAB_NOUNS[tab][1]}.`,
+        libraryGroupBy: () => "Group",
+        templateGroup: ({ kind, group }) => (group === undefined ? kind : `${kind} · ${group}`),
+        backlogLine: ({ kind, sublabel }) => (sublabel === undefined ? kind : `${kind} · ${sublabel}`),
+        indexSearch: () => "Search items",
+        indexNoMatch: ({ query }) => `No items match "${query}"`,
+        indexToggle: ({ zone, open }) => `${open ? "Close" : "Open"} ${zone}`,
+        indexCount: ({ n, count }) => `${count} ${plural(n, "item", "items")}`,
+        indexCrowded: ({ n, count, zone, name }) => `${zone} holds more than ${count} ${plural(n, name, `${name}s`)}: search to find one`,
+        indexMore: ({ n, count }) => `${count} more ${plural(n, "matches", "match")}: type more to find ${plural(n, "it", "them")}`,
+        layersShowAll: () => "Show all",
+        layerShow: ({ layer, shown }) => `${shown ? "Hide" : "Show"} ${layer}`,
+        layerIsolate: ({ layer, isolated }) => (isolated ? `Show every ${word(v.layer.one)}, not ${layer} alone` : `Isolate ${layer}`),
+        layerLock: ({ layer, locked }) => `${locked ? "Unlock" : "Lock"} ${layer}`,
+        layerCount: ({ n, count }) => `${count} ${plural(n, "entity", "entities")}`,
+        sourceUnavailable: ({ name }) => `${capital(name)} results unavailable`,
+        sourceChanged: ({ name }) => `${capital(name)} results changed; retry the narrowing.`,
+        sourceFailed: ({ name }) => `Could not load ${name} results`,
+        dropAt: ({ zone, x, y, unit }) => `${zone === undefined ? "" : `${zone} · `}${x}, ${y}${unit === undefined ? "" : ` ${unit}`}`,
+        dropOnto: ({ name }) => `onto ${name}`,
+        linkEnds: ({ from, to }) => `${from} → ${to}`,
+        netEnds: ({ sources, destinations }) => `${membersOf(sources)} → ${membersOf(destinations)}`,
+        dropMany: ({ n, count, name }) => `${count} ${plural(n, name, `${name}s`)}`,
+        dropRefused,
+        dropCanvas: () => "the canvas",
+        dropLabel: ({ card, where, onto }) => `Drop ${card} ${onto ? "on" : "at"} ${where}`,
+        inspectorPane: () => "Inspector",
+        inspectorTab: ({ tab }) => (tab === "details" ? "Details" : "Issues"),
+        inspectorDrawing: () => "Drawing",
+        inspectorSection,
+        inspectorField: ({ field }) => ({ x: "x", y: "y", from: "From", to: "To", sources: v.source.other, destinations: v.destination.other, kind: `${v.link.one} kind` })[field],
+        inspectorAction: ({ action }) => ({ delete: "Delete", unplace: "Unplace", remove: "Remove", place: "Place" })[action],
+        inspectorUnplaced: () => "Not placed",
+        inspectorAt: ({ zone, x, y, unit }) => `${zone === undefined ? "" : `${zone} · `}${x}, ${y}${unit === undefined ? "" : ` ${unit}`}`,
+        inspectorSize: ({ width, height, unit }) => `${width} × ${height}${unit === undefined ? "" : ` ${unit}`}`,
+        inspectorSides: ({ sources, destinations }) =>
+            `${sources.count} ${plural(sources.n, word(v.source.one), word(v.source.other))} → ${destinations.count} ${plural(destinations.n, word(v.destination.one), word(v.destination.other))}`,
+        inspectorLeg: ({ end }) => `${end === "source" ? v.source.one : v.destination.one} leg`,
+        inspectorSeveral: ({ count }) => `${count} selected`,
+        inspectorCount: ({ what, n }) => ({ zones: plural(n, v.zone.one, v.zone.other), links: plural(n, v.link.one, v.link.other), nets: plural(n, v.net.one, v.net.other) })[what],
+        inspectorNotCounted: ({ names, why }) => `${capital(joinedWords(names, "and"))} not counted: ${({
+            layer: `a hidden ${word(v.layer.one)} may hold some of them`, ends: "what they join is read as the view moves", filters: "the filters can't count those with no position",
+        })[why]}`,
+        inspectorKindCount: ({ n, count, name }) => `${count} ${plural(n, name, `${name}s`)}`,
+        inspectorNoRow: () => "Its record holds no row of it",
+        inspectorNoDetails: ({ name }) => `No ${name.toLowerCase()} details`,
+        inspectorJoin: ({ kind, end }) => (end === undefined ? kind : `${kind} · ${word(end === "source" ? v.source.one : v.destination.one)}`),
+        inspectorSaved: ({ name, when, by }) => (by === undefined ? `${name} saved ${when}` : `${name} saved ${when} by ${by}`),
+        inspectorStep: ({ edit, name, from }) => ({
+            edit: `Edit ${name}`, unplace: `Unplace ${name}`, delete: `Delete ${name}`, remove: `Remove ${name} from ${from ?? ""}`,
+        })[edit],
+        inspectorSideEmpty: ({ side }) => `${capital(article(v.net.one))} ${word(v.net.one)} keeps one ${word(side === "sources" ? v.source.one : v.destination.one)} at least: Delete takes the ${word(v.net.one)}`,
+        issueWhere: ({ kind, name }) => `${kind ?? v.layer.one} · ${name}`,
+        issueText,
+        inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : `Every ${word(v.link.one)} names its items, and every shape and colour holds.`),
+        inspectorUnchecked: ({ names }) => `${capital(joinedWords(names, "and"))} out of view are checked only as the view reaches them`,
+        hiddenByFilters: () => "hidden by the filters",
+        hiddenBy: ({ filters, also }) => hiddenByText(filters, also),
+        dimmedByFilters: () => "dimmed by the filters",
+        dimmedBy: ({ filters, also }) => hiddenByText(filters, also, "dimmed"),
+        hiddenUncleared: () => "The filters hiding it could not be cleared",
+    };
+}
+
+/** The English table, in the Schematic's own words. */
+export const schematicMessages: SchematicMessages = schematicMessagesOf(DEFAULT_VOCABULARY);
 
 /** The words a Schematic speaks: its message table, and its locale's formatters. */
 export interface SchematicWords extends Formatters {

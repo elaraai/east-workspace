@@ -157,11 +157,11 @@ export function RecordSliceSaveNotice({ slice, singular = "row", plural = "rows"
     const { result } = useTrackedEvaluation(read);
     useLayoutEffect(() => { if (result.ok) model.scope(result.value); }, [model, result]);
     if (!result.ok || model.where === undefined || !same(result.value, model.where)) return null;
-    if (model.error !== undefined) return <span role="status" data-record-save-notice="error">
+    if (model.error !== undefined) return <span role="status" data-record-save-notice="error" data-footer-live="">
         Saved; view update failed. <Button size="xs" variant="plain" onClick={model.retry}>Retry</Button>
     </span>;
-    if (model.pending) return <span role="status" data-record-save-notice="pending">Updating view…</span>;
-    return model.count === 0 ? null : <span role="status" data-record-save-notice="">
+    if (model.pending) return <span role="status" data-record-save-notice="pending" data-footer-live="">Updating view…</span>;
+    return model.count === 0 ? null : <span role="status" data-record-save-notice="" data-footer-live="">
         {model.count} {model.count === 1 ? singular : plural} left this view
     </span>;
 }

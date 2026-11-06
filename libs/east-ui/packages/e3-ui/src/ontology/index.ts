@@ -10,9 +10,11 @@
  * The Ontology card surfaces a ReactFlow-driven node/link graph editor over
  * the value of a single {@link Data.bind} binding whose source dataset is
  * typed as {@link OntologyType}. Mutations (add / delete / reconnect /
- * update node) write the whole next-ontology back through `binding.write`,
- * so the same staged-buffer + commit / discard / merge machinery that
- * powers `Diff` is reused unchanged.
+ * update node) write the whole next-ontology back through `binding.write`:
+ * a direct binding (the default) writes each edit to the dataset; a staged
+ * one holds them until they are applied or dropped — by the header's Apply
+ * and Discard, shown beside *Unsaved changes* while a change waits, or by
+ * the page through the handle's `commit()` and `discard()`.
  *
  * Declared via the `EastUI.component` extension API — the React renderer
  * lives in `@elaraai/e3-ui-components` and is wired via
@@ -42,6 +44,7 @@ import {
 import { EastUI, DensityType, type DensityLiteral, type UIComponentType } from '@elaraai/east-ui';
 
 import { DiffBindingType, type BoundValue } from '../bind/data.js';
+import { viewsProp, type ViewsProp } from '../utils/views.js';
 
 // ============================================================================
 // Ontology value schema — nodes, links, metadata.
@@ -281,7 +284,7 @@ export type OntologyViewType = typeof OntologyViewType;
 export type OntologyViewLiteral = 'graph' | 'table';
 
 // ============================================================================
-// Re-export the binding descriptor — same opaque carrier the Diff card uses.
+// Re-export the binding descriptor — the opaque carrier the editor commits through.
 // ============================================================================
 
 /** Re-exported from {@link Data}; see {@link DiffBindingType}. */
@@ -300,18 +303,18 @@ export { DiffBindingType } from '../bind/data.js';
  *   underlying source dataset must be typed as {@link OntologyType};
  *   this is a developer-side contract (the IR carrier itself is type-erased).
  * @property readonly - Render without per-node / per-link mutation
- *   surfaces. The footer commit-bar and the property drawer still render
- *   but Save / Delete / Add-node are hidden, and the canvas blocks
+ *   surfaces. The property drawer still renders but Save / Delete /
+ *   Add-node are hidden, and the canvas blocks
  *   drag-handles + context menus. Default `false`.
  * @property hideMiniMap - Suppress the minimap overlay. None ⇒ false.
  * @property hideSearch - Suppress the search field in the toolbar.
  *   None ⇒ false.
  * @property density - Information-density preset (`comfortable` | `compact`
  *   | `condensed`). Defaults to `comfortable`.
- * @property onCommitted - Fired after a successful commit (the bound
+ * @property onCommitted - Fired after the header's Apply commits (the bound
  *   dataset has been updated).
- * @property onDiscarded - Fired after a successful discard (the staging
- *   buffer was dropped).
+ * @property onDiscarded - Fired after the header's Discard drops the staged
+ *   change.
  * @property style - Visual style escape hatches — see
  *   {@link OntologyStyleType}.
  */
@@ -326,6 +329,8 @@ export const OntologyPayloadType = StructType({
     style:        OptionType(OntologyStyleType),
     /** Initial display mode — graph canvas (default) or process table. */
     defaultView:  OptionType(OntologyViewType),
+    /** The display modes the instance offers; none or empty, both. */
+    views:        OptionType(ArrayType(OntologyViewType)),
 });
 /** Type alias for {@link OntologyPayloadType}. */
 export type OntologyPayloadType = typeof OntologyPayloadType;
@@ -349,8 +354,8 @@ export const OntologyComponent = EastUI.component('Ontology', OntologyPayloadTyp
  *   {@link Data.bind} handle (`value={view}`) whose source dataset is typed as
  *   {@link OntologyType}. The handle's East type carries the source type, so a
  *   handle bound to any non-`OntologyType` dataset is a compile error here.
- * @property readonly - Render without mutation surfaces. The footer
- *   commit-bar and property drawer still render. Defaults to false.
+ * @property readonly - Render without mutation surfaces. The property
+ *   drawer still renders. Defaults to false.
  * @property hideMiniMap - Suppress the minimap overlay. Defaults to false.
  * @property hideSearch - Suppress the search field. Defaults to false.
  * @property density - Information-density preset (`comfortable` | `compact`
@@ -374,22 +379,28 @@ export interface OntologyOptions {
     hideSearch?: SubtypeExprOrValue<OptionType<BooleanType>>;
     /** Information-density preset. */
     density?: SubtypeExprOrValue<OptionType<DensityType>> | DensityLiteral;
-    /** Fired after a successful commit (the bound dataset is updated). */
+    /** Fired after the header's Apply commits (the bound dataset is updated). */
     onCommitted?: SubtypeExprOrValue<OptionType<FunctionType<[], NullType>>>;
-    /** Fired after a successful discard (the staging buffer was dropped). */
+    /** Fired after the header's Discard drops the staged change. */
     onDiscarded?: SubtypeExprOrValue<OptionType<FunctionType<[], NullType>>>;
     /** Visual style escape hatches — see {@link OntologyStyleType}. */
     style?: SubtypeExprOrValue<OptionType<OntologyStyleType>>;
     /** Initial display mode — `'graph'` (canvas, default) or `'table'`
      *  (objective-grouped process table). The header's segmented control
-     *  switches between them at runtime either way. */
+     *  switches between them at runtime, where {@link OntologyOptions.views}
+     *  offers both. */
     defaultView?: SubtypeExprOrValue<OptionType<OntologyViewType>> | OntologyViewLiteral;
+    /** The display modes this instance offers: literal tags (`['table']`),
+     *  `Ontology.Types.View` values, or an expression of an array of them, which a
+     *  page's state can choose as it runs. Omitted, or empty as the page runs,
+     *  both. One left, no switch shows, and a mode left out is never drawn. A
+     *  list in the code that leaves out a literal `defaultView` is refused. */
+    views?: ViewsProp<OntologyViewType, OntologyViewLiteral>;
 }
 
 /**
  * The Ontology component namespace. Surfaces a graph editor over an
- * `OntologyType`-bound dataset, with the same staged-buffer + merge-aware
- * commit pipeline that powers {@link Diff}.
+ * `OntologyType`-bound dataset, writing every edit through the binding.
  *
  * @remarks
  * Use `Ontology.Root({ value: view })` to render the editor.
@@ -438,6 +449,9 @@ export const Ontology = {
             : typeof options.defaultView === 'string'
                 ? some(East.value(variant(options.defaultView, null), OntologyViewType))
                 : options.defaultView;
+        const views = options.views === undefined
+            ? none
+            : some(viewsProp('Ontology', OntologyViewType, options.views, typeof options.defaultView === 'string' ? options.defaultView : undefined) as never);
         return OntologyComponent.Root({
             binding:     view.binding,
             readonly:    options.readonly    ?? none,
@@ -448,6 +462,7 @@ export const Ontology = {
             onDiscarded: options.onDiscarded ?? none,
             style:       options.style       ?? none,
             defaultView,
+            views,
         });
     },
     /**

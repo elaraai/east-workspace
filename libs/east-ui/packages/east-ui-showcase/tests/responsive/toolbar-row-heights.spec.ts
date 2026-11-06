@@ -24,6 +24,7 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /** One example of each builder laid out in a `BuilderFrame`, by its showcase entry. */
 const BUILDERS: readonly (readonly [name: string, hash: string])[] = [
@@ -32,7 +33,7 @@ const BUILDERS: readonly (readonly [name: string, hash: string])[] = [
     ["Roster", "e3/roster/roster/rosterWarehouse"],
     ["Calendar", "e3/calendar/calendar/calendarOperations"],
     ["Allocation", "e3/allocation/allocation/allocationKilnYard"],
-    ["Flowchart", "e3/flowchart/flowchart/flowchartFlows"],
+    ["Flowchart", "e3/flowchart/flowchart/flowchartDepot"],
     ["Studio", "e3/studio/studio/studioBuilder"],
     ["Query", "e3/query/query/queryBuilder"],
     ["Schematic", "e3/schematic/schematic/schematicDataCentre"],
@@ -94,7 +95,7 @@ test.describe("Every control in a builder's toolbar row", () => {
     // A test a builder: each lives in a showcase area of its own, whose workspace the page makes from its bundle the
     // first time it shows (#1397), so each test waits on its own area's start alone, unfolded and folded on the one
     // mount.
-    for (const theme of ["light", "dark"] as const) {
+    for (const theme of LAYOUT_THEMES) {
         for (const [name, hash] of BUILDERS) {
             test(`is 28px tall and centred on the row in the ${name}'s, unfolded and folded (${theme})`, async ({ page }) => {
                 await page.setViewportSize({ width: 1700, height: 1000 });

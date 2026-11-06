@@ -34,7 +34,7 @@
  *   the racks as dots, zoomed in through their pins to their cards.
  *
  * On a phone, 390px and 360px wide and in a 294px parent, the library opened
- * from its rail: a tap selects an owner's card, and a tap on the selected card
+ * from its tab: a tap selects an owner's card, and a tap on the selected card
  * with no rack selected is refused, the footer saying why; a rack tapped on
  * the canvas, a tap on the selected card sets the rack's owner, the card
  * staying selected, its change waiting on Save — the history's Discard on —
@@ -273,7 +273,9 @@ test.describe("The Schematic's drops on a phone (#1390)", () => {
         await page.setViewportSize({ width: 390, height: 844 });
         const root = await openSchematic(page, DATA_CENTRE);
         const library = async (open: boolean) => {
-            await pane(root).getByRole("button", { name: open ? "Expand Library" : "Collapse Library" }).tap();
+            if (open) await root.locator("[data-pane-tab='start']").tap();
+            else await page.keyboard.press("Escape");
+            await expect(root.locator("[data-pane-tab='start']")).toHaveAttribute("aria-selected", String(open));
             await settled(page);
         };
         // Nothing selected: the owner's card, tapped twice, is refused in the footer's words, nothing waiting on Save.

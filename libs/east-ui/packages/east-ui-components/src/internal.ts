@@ -82,8 +82,9 @@ export { SliceRangeContent } from "./slice/range/index.js";
 export { SliceChoiceGroup, SliceClearButton, SliceFieldChip, type SliceChoice } from "./slice/choice.js";
 export { RecordSliceFieldEditor, RecordSliceSummary, RecordSlicesSummary, recordSliceNoun, useRecordSliceToolbarItems, useRecordSlicesToolbarItems } from "./slice/record/index.js";
 // How the rail words a source's choice — `Status: Ready` — for a host that names choices as the rail's `Replaces …` does:
-// the Sheet's line for a row its narrowing hides, naming the filters that hide it.
-export { recordChoiceLabel } from "./slice/record/value.js";
+// the Sheet's line for a row its narrowing hides, naming the filters that hide it; and the choice alone — `Standard,
+// Priority` — for the Flowchart's line naming the picks its details weigh (#1522).
+export { recordChoiceLabel, recordChoiceSummary } from "./slice/record/value.js";
 // A record source's count, handed to its builder as soon as it lands, before its pages (#1398, problem 23).
 export { useRecordSliceCount, type RecordSliceCount } from "./slice/record/count.js";
 export { prepareRecordSliceSave, RecordSliceSaveNotice } from "./slice/record/save.js";
@@ -99,7 +100,7 @@ export { recordSliceWindow, recordSliceDomain, recordSliceWindowFits, setRecordS
 export {
     recordSliceSeeded, recordSlicePlace, recordSliceWithin, recordSliceWithinAt, recordSliceSeek, recordSliceCellRuns, recordSliceCellEntries,
     recordSliceCellJoins, recordSliceRows, recordSliceRevision, recordSlicePage, recordSliceBounds, recordSliceRunEntries, recordSliceRunJoins,
-    recordSliceOnPrinter,
+    recordSliceOnPrinter, recordSlicePosition,
 } from "./platform/slice/record.js";
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.
 export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";
@@ -158,3 +159,7 @@ export {
     type FooterMoreProps, type LoadingLineProps, type LoadingLineText, type LoadingLineValue,
 } from "./layout/builder-frame/loading-line.js";
 export { FOOTER_UNFIT, fitFooter, type FooterFit, type FooterFitInput, type LoadingLineForm } from "./layout/builder-frame/footer-fit.js";
+// Whether a pane's body is drawn in a phone's drawer: a builder's inspector draws its phone form there (SH12).
+export { FrameDrawer } from "./layout/builder-frame/drawer-context.js";
+// What a menu or a Select's list draws in: floating, or a view over the builder in a phone's frame (ruled 4 Nov 2026).
+export { FrameMenuLayer, FramePhoneLayer, FrameSelectLayer, type FrameMenuLayerProps, type FrameSelectLayerProps } from "./layout/builder-frame/frame-layer.js";

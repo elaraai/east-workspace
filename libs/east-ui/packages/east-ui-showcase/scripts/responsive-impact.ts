@@ -26,7 +26,11 @@ const componentSpecs = {
         "calendar.spec.ts", "calendar-glide.spec.ts", "calendar-loading.spec.ts", "calendar-narrowing.spec.ts", "calendar-paged-columns.spec.ts",
         "calendar-recentre.spec.ts", "calendar-records.spec.ts", "calendar-search.spec.ts", "calendar-steps.spec.ts", "optimise-calendar.spec.ts",
     ],
-    flowchart: ["flowchart-builder.spec.ts", "flowchart-drop.spec.ts", "flowchart-flows.spec.ts", "flowchart-frame.spec.ts", "flowchart-records.spec.ts"],
+    // The Flowchart's frame, library, drops and records, its details' looks and its phone's window of one lane over them.
+    flowchart: [
+        "flowchart-builder.spec.ts", "flowchart-details.spec.ts", "flowchart-drop.spec.ts", "flowchart-frame.spec.ts", "flowchart-lane-window.spec.ts",
+        "flowchart-records.spec.ts",
+    ],
     plan: [
         "optimise-plan.spec.ts", "plan-builder-dnd.spec.ts", "plan-builder.spec.ts", "plan-delete.spec.ts", "plan-far-moves.spec.ts", "plan-filters.spec.ts",
         "plan-frame.spec.ts", "plan-geometry.spec.ts", "plan-narrowing.spec.ts", "plan-records.spec.ts", "plan-run-focus.spec.ts", "plan-time-ruler.spec.ts",
@@ -127,14 +131,14 @@ export function changedPaths(base: string, head = "HEAD", cwd = process.cwd()): 
     } catch { return null; }
 }
 
-/** A job's share of the suite: ten minutes of its tests' recorded time. */
-const SHARD_MS = 10 * 60_000;
+/** A job's share of the suite: five minutes of its tests' recorded time. The jobs start together, so the longest job is the suite's wall clock. */
+const SHARD_MS = 5 * 60_000;
 
 /** The most jobs the suite runs in. */
 export const MAX_SHARDS = 24;
 
 /**
- * As many jobs as hold the tests' recorded time ten minutes each, at most
+ * As many jobs as hold the tests' recorded time five minutes each, at most
  * {@link MAX_SHARDS}: a small focused selection takes one.
  */
 export function shardCount(tests: readonly string[], timings?: Readonly<Record<string, number>>): number {

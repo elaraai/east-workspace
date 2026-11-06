@@ -17,6 +17,11 @@
  * row, the `select` for the height — its chevron and check Font Awesome's
  * (#1263) — and the `seg` strip for the alignment.
  *
+ * In a phone's frame (`Studio Mobile Spec.md` ST24–ST26) its sections stay and
+ * its layout is at touch size: the span stepper as the tile bar's, Row a readout
+ * with Move, which starts placing, Height a view of its options, and Align three
+ * 48 segments. With nothing selected, a checklist that says tap.
+ *
  * @packageDocumentation
  */
 
@@ -26,11 +31,12 @@ import {
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-    faArrowsToDot, faArrowsUpDown, faArrowsUpToLine, faCheck, faChevronDown, faLock, faMinus, faPlus,
+    faArrowsToDot, faArrowsUpDown, faArrowsUpToLine, faCheck, faChevronDown, faLock, faMinus, faPlus, faUpDownLeftRight,
 } from "@fortawesome/free-solid-svg-icons";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { StudioInspectorPayloadType } from "@elaraai/e3-ui/internal";
-import { useFormatters } from "@elaraai/east-ui-components";
+import { SliceEditPopover, useFormatters } from "@elaraai/east-ui-components";
+import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 
 import { useStudioMessages, type StudioMessages } from "./messages.js";
 
@@ -60,6 +66,8 @@ const ALIGNS = [
 export interface StudioInspectorProps {
     /** The selected placement, and where a layout edit goes. */
     value: StudioInspectorValue;
+    /** In a phone's frame: where the placement stands, whether its span is drafted, and what Move does. */
+    phone?: { rows: number; first: number; dirty: boolean; onMove: (key: string) => void } | undefined;
 }
 
 /**
@@ -113,8 +121,11 @@ function RowField({ row, onRow, css, id }: { row: number; onRow: (row: number) =
  * @param props - The selected placement, and where a layout edit goes
  * @returns The inspector's body
  */
-export const StudioInspector = memo(function StudioInspector({ value }: StudioInspectorProps) {
+export const StudioInspector = memo(function StudioInspector({ value, phone }: StudioInspectorProps) {
     const styles = useSlotRecipe({ key: "studioInspector" })() as Styles;
+    const ps = useSlotStyles("studioPhone");
+    const grid = useSlotStyles("snapGridPhone");
+    const [picking, setPicking] = useState(false);
     const stepper = useSlotRecipe({ key: "stepper" })({ tone: "brand", size: "md" }) as Styles;
     const seg = useSlotRecipe({ key: "seg" })() as Styles;
     const input = useRecipe({ key: "input" })({ variant: "numeric", size: "sm" }) as SystemStyleObject;
@@ -144,6 +155,17 @@ export const StudioInspector = memo(function StudioInspector({ value }: StudioIn
         ],
     }), [height, m, words]);
 
+    if (selection === undefined && phone !== undefined) {
+        return (
+            <Box css={styles.root} data-studio-inspector="">
+                <Box css={ps.inspectorEmpty} data-inspector="empty">
+                    <Box as="span" css={ps.inspectorEmptyGlyph} aria-hidden />
+                    <Box as="span" css={ps.inspectorEmptyTitle}>{m.nothingSelected()}</Box>
+                    <Box as="ul" css={ps.inspectorEmptyList}><li>{m.phoneNothingFirst()}</li><li>{m.phoneNothingThen()}</li></Box>
+                </Box>
+            </Box>
+        );
+    }
     if (selection === undefined) {
         return (
             <Box css={styles.root} data-studio-inspector="">
@@ -167,6 +189,7 @@ export const StudioInspector = memo(function StudioInspector({ value }: StudioIn
             <Box css={styles.selection} data-inspector="selection">
                 <Box as="span" css={styles.eyebrow}>{m.selectedComponent()}</Box>
                 <Box as="span" css={styles.name} data-inspector-name="">{selection.name}</Box>
+                {phone !== undefined && <Box as="span" css={ps.meta} data-inspector-where="">{m.phoneWhere({ row: words.number(Number(layout.row)), first: words.number(phone.first), last: words.number(phone.first + span - 1) })}</Box>}
             </Box>
             <Box css={styles.data} data-inspector="data">
                 <Box as="span" css={styles.eyebrow}>{m.data()}</Box>
@@ -192,6 +215,48 @@ export const StudioInspector = memo(function StudioInspector({ value }: StudioIn
             </Box>
             <Box css={styles.layout} data-inspector="layout">
                 <Box as="span" css={styles.eyebrow}>{m.layout()}</Box>
+                {phone !== undefined ? (
+                    <Box css={ps.layoutRows} data-inspector-phone="">
+                        <Box css={ps.layoutRow}>
+                            <Box as="span" css={ps.layoutLabel}>{m.columnSpan()}</Box>
+                            <Box css={grid.stepper} role="group" aria-label={m.columnSpan()}>
+                                <chakra.button type="button" css={grid.stepperButton} aria-label={m.decreaseSpan()} disabled={span <= LEAST_SPAN} onClick={() => ask(variant("span", BigInt(span - 1)))}><FontAwesomeIcon icon={faMinus} /></chakra.button>
+                                <Box as="output" css={grid.stepperValue} data-dirty={phone.dirty ? "" : undefined} data-inspector-span="">{m.spanOf({ span: words.number(span) })}</Box>
+                                <chakra.button type="button" css={grid.stepperButton} aria-label={m.increaseSpan()} disabled={span >= most} onClick={() => ask(variant("span", BigInt(span + 1)))}><FontAwesomeIcon icon={faPlus} /></chakra.button>
+                            </Box>
+                        </Box>
+                        <Box css={ps.layoutRow}>
+                            <Box as="span" css={ps.layoutLabel}>{m.row()}</Box>
+                            <Box css={ps.rowControl}>
+                                <Box as="span" css={ps.rowValue} data-inspector-row="">{m.phoneRowOf({ row: words.number(Number(layout.row)), rows: words.number(phone.rows) })}</Box>
+                                <chakra.button type="button" css={ps.move} data-inspector-move="" onClick={() => phone.onMove(selection.key)}><FontAwesomeIcon icon={faUpDownLeftRight} aria-hidden />{m.phoneMove()}</chakra.button>
+                            </Box>
+                        </Box>
+                        <Box css={ps.layoutRow}>
+                            <Box as="span" css={ps.layoutLabel}>{m.height()}</Box>
+                            <SliceEditPopover open={picking} onOpenChange={setPicking} label={m.height()}
+                                trigger={<chakra.button type="button" css={ps.heightTrigger} aria-label={m.height()} data-inspector-height=""><span>{heights.items.find((item) => item.value === heightKey)?.label}</span><FontAwesomeIcon icon={faChevronDown} aria-hidden /></chakra.button>}>
+                                <Box css={ps.heights} role="listbox" aria-label={m.height()} data-inspector-heights="">
+                                    {heights.items.map((item) => (
+                                        <chakra.button key={item.value} type="button" css={ps.heightRow} role="option" aria-selected={item.value === heightKey} onClick={() => {
+                                            setPicking(false);
+                                            if (item.value !== heightKey) ask(variant("height", item.px === undefined ? none : some(BigInt(item.px))));
+                                        }}>{item.label}{item.value === heightKey && <FontAwesomeIcon icon={faCheck} aria-hidden />}</chakra.button>
+                                    ))}
+                                </Box>
+                            </SliceEditPopover>
+                        </Box>
+                        <Box css={ps.layoutRow}>
+                            <Box as="span" css={ps.layoutLabel}>{m.align()}</Box>
+                            <Box css={ps.alignSeg} role="group" aria-label={m.align()}>
+                                {ALIGNS.map(({ align, icon, name }) => (
+                                    <chakra.button key={align} type="button" css={ps.alignItem} data-state={aligned === align ? "on" : "off"} aria-pressed={aligned === align} aria-label={name(m)}
+                                        onClick={() => ask(variant("align", variant(align, null)))}><FontAwesomeIcon icon={icon} /></chakra.button>
+                                ))}
+                            </Box>
+                        </Box>
+                    </Box>
+                ) : <>
                 <Box css={styles.field}>
                     <Box as="span" css={styles.fieldLabel}>{m.columnSpan()}</Box>
                     <Box css={stepper.root} role="group" aria-label={m.columnSpan()}>
@@ -260,6 +325,7 @@ export const StudioInspector = memo(function StudioInspector({ value }: StudioIn
                         ))}
                     </Box>
                 </Box>
+                </>}
             </Box>
             <Box css={styles.footer} data-inspector="footer">
                 <FontAwesomeIcon icon={faLock} />

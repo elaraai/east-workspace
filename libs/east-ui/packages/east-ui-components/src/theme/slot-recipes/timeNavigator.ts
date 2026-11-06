@@ -13,7 +13,8 @@ export const timeNavigatorSlotRecipe = defineSlotRecipe({
     slots: ["root", "trigger", "label", "body", "header", "heading", "weeks", "week", "days", "weekday", "day", "dayMark", "choices", "choice", "legend", "controls", "footer"],
     base: {
         root: { display: "inline-flex", alignItems: "center", gap: "4px", flexShrink: 0, whiteSpace: "nowrap" },
-        trigger: { gap: "6px", "& svg": fontAwesomeSize("10px") },
+        /* On a coarse pointer at least 44 wide: its icon alone, a phone's View, is a 44 target, the row's height its halo's. */
+        trigger: { gap: "6px", "& svg": fontAwesomeSize("10px"), _coarse: { minWidth: "44px" } },
         label: { whiteSpace: "nowrap" },
         body: { display: "flex", flexDirection: "column", gap: "12px", minWidth: 0 },
         header: { display: "flex", alignItems: "center", gap: "4px" },

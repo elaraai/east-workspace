@@ -125,6 +125,25 @@ export interface ToolbarItem {
     /** Changes when the item's content does: the widths its other forms were
      *  measured at are then forgotten, and measured again when next rendered. */
     version?: unknown;
+    /** In a phone's frame (560 px or narrower, `BuilderFrame`) the item leaves the row and draws this in the toolbar's
+     *  second row instead, always shown (`Mobile Builder Frame Spec.md` FR6): the history, and the Elara eye before it.
+     *  A toolbar outside a frame never draws it. */
+    secondRow?: ReactNode;
+    /** The narrowest frame, in px, whose second row takes the item: below it the item stays in the first row, folding
+     *  there as it does on a wider frame — the eye, whose room the second row's 44px buttons leave only from 312px.
+     *  Every phone's frame by default. */
+    secondRowFrom?: number | undefined;
+    /** In a phone's frame (560 px or narrower, `BuilderFrame`) the item's one form, in place of its ladder: the Filters
+     *  button the rail is there, the Search Records button the key search is (`Mobile Builder Frame Spec.md` FR2). Its
+     *  `order` places it in the row — items with none keep theirs, before those with one — and `grow` gives it the row's
+     *  slack (the view tabs, which scroll inside it). Where none grows and no item of the row's own ends it, the first
+     *  placed by its `order` that does not `shrink` leads the row's end cluster, the slack before it: the rail's button
+     *  and Search Records stand at the row's end. A toolbar outside a frame never draws it. */
+    phone?: { readonly form: ReactNode; readonly order?: number | undefined; readonly grow?: boolean | undefined; readonly shrink?: boolean | undefined } | undefined;
+    /** Takes the row's slack, and may shrink to nothing: set by the frame for a phone form that `grow`s. */
+    grow?: boolean | undefined;
+    /** Takes no slack, and gives way once the row has nothing left to fold, down to nothing: set by the frame for a phone form that `shrink`s, the count line. */
+    shrink?: boolean | undefined;
 }
 
 export interface ToolbarProps {
@@ -132,8 +151,8 @@ export interface ToolbarProps {
      *  start's). Falsy entries are skipped, so an item can be listed as
      *  `condition && { … }`. */
     items: ReadonlyArray<ToolbarItem | false | null | undefined>;
-    /** The gap between items: `md` 10px, `lg` 12px (the default). */
-    gap?: "md" | "lg" | undefined;
+    /** The gap between items: `md` 10px, `lg` 12px (the default), `none` — no gap and no padding, a phone's row. */
+    gap?: "md" | "lg" | "none" | undefined;
 }
 
 /** An open overlay inside an item: a Zag popover's or menu's trigger, open — never a tooltip's, which holds nothing. */
@@ -165,6 +184,20 @@ function isItem(it: ToolbarItem | false | null | undefined): it is ToolbarItem {
 
 function isEmptyForm(form: ReactNode): boolean {
     return form === null || form === undefined || form === false;
+}
+
+/**
+ * The width an item counts for in the row. One that gives way counts whole, whatever it has given: the row folds the
+ * rest first, and cuts it only where they cannot. Its whole is its content laid on one line (`data-toolbar-weighing`,
+ * the recipe's), as a line that wraps its parts away — a phone's count, its noun before its figures — is narrower
+ * than its whole once it has given way.
+ */
+function weigh(el: HTMLElement): number {
+    if (!el.hasAttribute("data-toolbar-shrink")) return el.getBoundingClientRect().width;
+    el.setAttribute("data-toolbar-weighing", "");
+    const whole = Math.max(el.scrollWidth, el.firstElementChild?.scrollWidth ?? 0);
+    el.removeAttribute("data-toolbar-weighing");
+    return whole;
 }
 
 /** An item's per-step ranks. */
@@ -226,8 +259,10 @@ export const Toolbar = memo(function Toolbar({ items, gap }: ToolbarProps) {
                 const el = entry.target as HTMLElement;
                 const key = el.dataset["toolbarItem"];
                 if (key === undefined) continue;
+                // An item that grows takes the slack the rest leave: weighed at no width, it moves nothing the toolbar chooses by.
+                if (el.hasAttribute("data-toolbar-grow")) continue;
                 const known = measured.current.get(key)?.widths.get(Number(el.dataset["toolbarForm"]));
-                if (known === undefined || Math.abs(known - el.getBoundingClientRect().width) > MOVED_PX) itemMoved = true;
+                if (known === undefined || Math.abs(known - weigh(el)) > MOVED_PX) itemMoved = true;
             }
             // A width change is taken before this frame paints: the frame
             // shows the configuration for the width it is painted at.
@@ -287,7 +322,8 @@ export const Toolbar = memo(function Toolbar({ items, gap }: ToolbarProps) {
             const m = key !== undefined ? cache.get(key) : undefined;
             if (key === undefined || m === undefined) continue;
             const form = Number(el.dataset["toolbarForm"]);
-            const px = el.getBoundingClientRect().width;
+            // An item that grows is weighed at no width: it takes the slack the rest leave, never a width of its own.
+            const px = el.hasAttribute("data-toolbar-grow") ? 0 : weigh(el);
             const was = m.widths.get(form);
             // Its content moved: what the other forms measured is not known any more.
             if (was !== undefined && Math.abs(was - px) > MOVED_PX) m.widths.clear();
@@ -410,7 +446,7 @@ export const Toolbar = memo(function Toolbar({ items, gap }: ToolbarProps) {
         if (isEmptyForm(node)) return null;
         return (
             <Box key={it.key} css={styles.item} data-toolbar-item={it.key} data-toolbar-form={form}
-                data-toolbar-end={firstEnd ? "" : undefined}>
+                data-toolbar-end={firstEnd ? "" : undefined} data-toolbar-grow={it.grow === true ? "" : undefined} data-toolbar-shrink={it.shrink === true ? "" : undefined}>
                 {node}
             </Box>
         );

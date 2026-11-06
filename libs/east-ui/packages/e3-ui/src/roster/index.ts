@@ -41,6 +41,7 @@ import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { ScheduleClockType, SchedulePeriodsKindType, ScheduleRosterKindType } from "../schedule/types.js";
 import { optimiseBinding, type OptimiseContract } from "../utils/optimise.js";
 import { recordSources } from "../utils/record-sources.js";
+import { firstView, literalViews, viewsProp, type ViewsProp } from "../utils/views.js";
 import { rosterCoverage, rosterWeekHours } from "./coverage.js";
 import { rosterAnswer, rosterFit } from "./fit.js";
 import { rosterActivitiesTab, rosterLibraryTab, rosterPatternsTab, rosterPeopleTab, type RosterLibraryTab } from "./library.js";
@@ -60,6 +61,8 @@ import * as T from "./types.js";
 export const RosterLayoutType = VariantType({ shifts: NullType, people: NullType });
 /** Roster's displayed period: Shifts shows a day or a week, People a week or a month (#1406); each layout keeps its own. */
 export const RosterPeriodType = VariantType({ day: NullType, week: NullType, month: NullType });
+/** The layouts, in the switch's order. */
+const ROSTER_LAYOUTS = ["shifts", "people"] as const;
 /** The periods each layout takes, in the Period segment's order. */
 export const ROSTER_LAYOUT_PERIODS: Readonly<Record<"shifts" | "people", readonly ("day" | "week" | "month")[]>> = { shifts: ["day", "week"], people: ["week", "month"] };
 /** Whether a People tile shows the shift's hours always, or only a duty's own times where they differ from the shift's (#1406). */
@@ -70,6 +73,23 @@ export const RosterTileTimesType = VariantType({ always: NullType, different: Nu
  */
 export const RosterLibraryTabType = VariantType({
     people: NullType, activities: NullType, patterns: StructType({ name: StringType, icon: StringType }), tab: ScheduleAuthorTabType,
+});
+
+/**
+ * The Roster's own words for who is on it, each the app's where it gives one (#1516).
+ *
+ * @property permanent - People and hours that are not agency: the legend, the inspector, the coverage bar
+ * @property permanentShort - Its short form in the coverage detail
+ * @property agency - A person whose `agency` accessor is true, and their hours
+ * @property agencyShort - Its short form in the coverage detail
+ * @property leads - The group of people in a lead position that day: the People tab, and a Find's needs
+ * @property others - The group of the others rostered that day
+ * @property trainers - A Find's needs' group of trainers
+ * @property available - The group of people not rostered that day, from the weekday's short name
+ */
+export const RosterVocabularyType = StructType({
+    permanent: StringType, permanentShort: StringType, agency: StringType, agencyShort: StringType, leads: StringType, others: StringType, trainers: StringType,
+    available: FunctionType([StringType], StringType),
 });
 
 /**
@@ -95,7 +115,8 @@ export const RosterLibraryTabType = VariantType({
  * @property inspector - Whether the inspector pane shows
  * @property narrowed - Each narrowed source's keys, paged through its part of `slice`: the people, the activities and the patterns that show (#1342)
  * @property slice - The narrowing's chrome: a Slice over the duties', the targets', the staff's and the activities' records, one rail
- * @property settings - The first view and the view settings: the layout, its period, the date, the week's start, the density, the chip skills, the requirement rows, read-only, and the People layout's `tileTimes` and `letters` (#1406)
+ * @property settings - The first view and the view settings: the layout, the layouts the instance offers (empty, every one), its period, the periods it offers (empty, every one its layout takes), the date, the week's start, the density, the chip skills, the requirement rows, read-only, and the People layout's `tileTimes` and `letters` (#1406)
+ * @property vocabulary - The Roster's own words for who is on it (#1516), today's where the app gives none
  * @property id - The viewer's identity
  */
 export const RosterPayloadType = StructType({
@@ -124,11 +145,12 @@ export const RosterPayloadType = StructType({
     }),
     slice: OptionType(RecordSlicesChromeType),
     settings: StructType({
-        layout: RosterLayoutType, period: RosterPeriodType, date: OptionType(DateTimeType),
+        layout: RosterLayoutType, views: ArrayType(RosterLayoutType), period: RosterPeriodType, viewPeriods: ArrayType(RosterPeriodType), date: OptionType(DateTimeType),
         weekStart: VariantType({ monday: NullType, sunday: NullType }),
         density: VariantType({ compact: NullType, comfortable: NullType }), chipSkills: BooleanType, requirements: BooleanType, readOnly: BooleanType,
         tileTimes: RosterTileTimesType, letters: BooleanType,
     }),
+    vocabulary: RosterVocabularyType,
     id: OptionType(StringType),
 });
 /** Carrier registered by e3-ui-components. */
@@ -137,6 +159,29 @@ export const RosterComponent = EastUI.component("Roster", RosterPayloadType, { o
 // ============================================================================
 // The props
 // ============================================================================
+
+/**
+ * The Roster's own words for who is on it (#1516): every one optional, an omitted one today's. A fit's reason is the fit's
+ * own, which runs on e3: `Roster.fit(R, { notALead })`.
+ */
+export interface RosterVocabulary {
+    /** People and hours that are not agency: "Permanent" (legend, inspector, coverage bar). */
+    permanent?: SubtypeExprOrValue<StringType>;
+    /** Its short form in the coverage detail: "perm". */
+    permanentShort?: SubtypeExprOrValue<StringType>;
+    /** A person whose `agency` accessor is true, and their hours: "Agency staff". */
+    agency?: SubtypeExprOrValue<StringType>;
+    /** Its short form in the coverage detail: "agency". */
+    agencyShort?: SubtypeExprOrValue<StringType>;
+    /** The group of people in a lead position that day (People tab, needs): "Leads". */
+    leads?: SubtypeExprOrValue<StringType>;
+    /** The group of the others rostered that day: "Associates". */
+    others?: SubtypeExprOrValue<StringType>;
+    /** The needs group of trainers: "Trainers". */
+    trainers?: SubtypeExprOrValue<StringType>;
+    /** The group of people not rostered that day, from the weekday's short name ("Mon"): `Off ${weekday} · available`. */
+    available?: SubtypeExprOrValue<FunctionType<[StringType], StringType>>;
+}
 
 /**
  * The Roster's props (§5.1).
@@ -214,6 +259,19 @@ export interface RosterProps<R extends EastType = EastType> {
      * (`"week"` by default, #1406); a period its layout does not take is refused at build. Each layout keeps its own period per viewer.
      */
     view?: { layout?: "shifts" | "people"; period?: "day" | "week" | "month"; date?: SubtypeExprOrValue<DateTimeType> };
+    /**
+     * The layouts this instance offers: literal tags (`["people"]`), `Roster.Types.Layout` values, or an expression of an array
+     * of them, which a page's state can choose as it runs. Omitted, or empty as the page runs, both. One left, no switch shows,
+     * in any form of the toolbar; a layout left out is never drawn, so a viewer's kept view of it opens on the first offered.
+     */
+    views?: ViewsProp<typeof RosterLayoutType, "shifts" | "people">;
+    /**
+     * The periods this instance offers: literal tags (`["week"]`), `Roster.Types.Period` values, or an expression of an array of
+     * them, which a page's state can choose as it runs. Omitted, or empty as the page runs, each layout's own — Day and Week for
+     * Shifts, Week and Month for People. One left for the layout in view, no Period switch shows. A layout offering none of the
+     * list keeps its own: written in the code, that is refused, naming the layout. (`periods` is what the Roster publishes.)
+     */
+    viewPeriods?: ViewsProp<typeof RosterPeriodType, "day" | "week" | "month">;
     /** Week boundary; Monday by default. */
     week?: { start?: "monday" | "sunday" };
     /** Assignment spacing; comfortable by default. */
@@ -228,9 +286,14 @@ export interface RosterProps<R extends EastType = EastType> {
     tileTimes?: "always" | "different";
     /** Whether a month's marks carry the shift's letter (#1406); `true` by default. */
     letters?: boolean;
+    /** The Roster's own words for who is on it, each optional: `{ permanent: "Employees", agency: "Contractors", others: "Colleagues" }` (#1516). */
+    vocabulary?: RosterVocabulary;
     /** Stable viewer identity when multiple Rosters share a surface. */
     id?: string;
 }
+
+/** Today's words for the group of people not rostered that day. */
+const ROSTER_AVAILABLE = East.function([StringType], StringType, (_$, weekday) => East.str`Off ${weekday} · available`);
 
 /** The props §2 removed, each refused by name with the form that replaces it. */
 const REMOVED: readonly (readonly [string, string])[] = [
@@ -403,7 +466,7 @@ function rosterOptimiseContract(rowType: EastType): OptimiseContract {
  *   kind with no `group`; `positions` beside a duty kind with no `position` role; `pay` without `currency`; a `pay`, a
  *   `check` or a `fit` over another type, or an `optimise` that is not `Func.bind` of a function from `OptimiseRequest(R)` to
  *   `OptimiseResult(R)` (#1409); a library tab listed twice; a `view.period` its layout does not take, naming each
- *   layout's periods; `Roster.library.patterns()` without `patterns`; a `tileTimes` other than `"always"` or
+ *   layout's periods; a `views` that lists nothing, names no layout, or leaves out `view.layout`; a `viewPeriods` that lists nothing, names no period, leaves out `view.period` or leaves a layout offered no period; `Roster.library.patterns()` without `patterns`; a `tileTimes` other than `"always"` or
  *   `"different"`, or a `letters` that is no boolean (#1406); and as `Schedule`'s checks, the duty kind's build
  *   (`buildRoster`) and the slice's (`recordSources`) do
  * @internal
@@ -438,8 +501,18 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
         }
     }
     // The first view: a period its layout takes (#1406).
-    const layout = props.view?.layout ?? "shifts";
-    const period = props.view?.period ?? (layout === "people" ? "week" : "day");
+    const layout = props.view?.layout ?? firstView(ROSTER_LAYOUTS, props.views);
+    const views = viewsProp("Roster", RosterLayoutType, props.views, props.view?.layout);
+    const period = props.view?.period ?? firstView(ROSTER_LAYOUT_PERIODS[layout], props.viewPeriods);
+    const viewPeriods = viewsProp("Roster", RosterPeriodType, props.viewPeriods, props.view?.period, "viewPeriods");
+    const listedPeriods = literalViews(props.viewPeriods);
+    for (const offered of literalViews(props.views) ?? ROSTER_LAYOUTS) {
+        const takes = ROSTER_LAYOUT_PERIODS[offered as "shifts" | "people"];
+        if (listedPeriods !== undefined && !takes.some(taken => listedPeriods.includes(taken))) {
+            throw new Error(`Roster: \`viewPeriods\` leaves the ${offered === "people" ? "People" : "Shifts"} layout no period — it takes ${takes.map(taken => `"${taken}"`).join(" or ")}: ` +
+                `list one, or leave the layout out of \`views\``);
+        }
+    }
     if (!ROSTER_LAYOUT_PERIODS[layout].includes(period)) {
         throw new Error(`Roster: \`view.period\` "${period}" is not a period of the ${layout === "people" ? "People" : "Shifts"} layout — ` +
             "Shifts takes \"day\" or \"week\", People takes \"week\" or \"month\"");
@@ -563,11 +636,17 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
             },
             slice: narrowing.chrome,
             settings: {
-                layout: variant(layout, null), period: variant(period, null),
+                layout: variant(layout, null), views, period: variant(period, null), viewPeriods,
                 date: props.view?.date === undefined ? none : some(props.view.date), weekStart: variant(props.week?.start ?? "monday", null),
                 density: variant(props.density ?? "comfortable", null), chipSkills: props.chipSkills ?? true,
                 requirements: props.requirements ?? true, readOnly: props.readOnly ?? false,
                 tileTimes: variant(props.tileTimes ?? "always", null), letters: props.letters ?? true,
+            },
+            vocabulary: {
+                permanent: props.vocabulary?.permanent ?? "Permanent", permanentShort: props.vocabulary?.permanentShort ?? "perm",
+                agency: props.vocabulary?.agency ?? "Agency staff", agencyShort: props.vocabulary?.agencyShort ?? "agency",
+                leads: props.vocabulary?.leads ?? "Leads", others: props.vocabulary?.others ?? "Associates", trainers: props.vocabulary?.trainers ?? "Trainers",
+                available: props.vocabulary?.available ?? ROSTER_AVAILABLE,
             },
             id: props.id === undefined ? none : some(props.id),
         } as never, RosterPayloadType);

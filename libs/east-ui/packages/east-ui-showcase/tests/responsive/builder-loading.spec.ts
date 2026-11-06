@@ -5,6 +5,7 @@
 /** Cold paints with fonts deliberately held, over the real e3-web examples. */
 import { expect, test } from "playwright/test";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 type Paint = { width: number; height: number; main: number; busy: boolean; visible: boolean; narrow: boolean; agenda: boolean; content: boolean };
 type Probe = { active: boolean; paints: Paint[] };
@@ -27,7 +28,7 @@ const BUILDERS: readonly { scope: string; name: string; main: string; narrows: b
 ];
 
 for (const { scope, name, main: mainSelector, narrows, cards, liveFooter, pitch } of BUILDERS) {
-    for (const theme of ["light", "dark"] as const) {
+    for (const theme of LAYOUT_THEMES) {
         test(`${scope} cold load uses a stable Chakra skeleton before the complete layout (${theme}) @narrow`, async ({ page }, info) => {
             if (info.project.name === "desktop") await page.setViewportSize({ width: 1440, height: 1080 });
             let release!: () => void;

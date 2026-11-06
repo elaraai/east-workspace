@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/e3-ui */
 import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, StringType, example, none, some, variant } from "@elaraai/east";
 import e3 from "@elaraai/e3";
-import { Box, Button, Field, HStack, Reactive, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Allocation, Data, Func, Record, Schedule } from "@elaraai/e3-ui";
 import {
     Bay, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,
@@ -162,6 +162,40 @@ export const allocationMinimal = example({
             }}
             arrivals={Allocation.arrivals(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays) })} />
         </Box>;
+    }}</Reactive>),
+});
+
+export const allocationViews = example({
+    description: "Which layouts an instance offers, chosen as the page runs: a multi-select wired into `views`, an expression of an array of Allocation.Types.Layout. Choose Table alone and Timeline is gone, its button and all; with one layout left no switch shows, and with none chosen, both. `views={[\"table\"]}` writes the same choice in the code.",
+    keywords: ["Allocation", "views", "Allocation.Types.Layout", "layout", "hide a view", "Timeline", "Table", "Select", "multiple", "onChangeMultiple", "State", "Reactive"], inputs: [],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const bins = $.let(Record.bind(minimalBins));
+        const loads = $.let(Data.bind(arrivals));
+        const yard = $.let(Data.bind(kilns));
+        const bays = $.let(Data.bind(yardBays));
+        const fit = $.let(Func.bind(minimalFit));
+        // The tags the multi-select holds, and the layouts they name.
+        const chosen = $.let(State.bind([ArrayType(StringType)], "ex.allocationViews.views", []));
+        const tags = $.let(chosen.read());
+        const onViews = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(chosen.write(next)); }));
+        const every = $.const([variant("timeline", null), variant("table", null)], ArrayType(Allocation.Types.Layout));
+        const views = $.let(every.filter(($, view) => tags.toSet().has(view.getTag())));
+        return <VStack gap="3" align="stretch" width="100%">
+            <HStack gap="2" align="center"><Text>Views</Text><Select value="" placeholder="Every view" multiple={true} onChangeMultiple={onViews}
+                items={[Select.Item("timeline", "Timeline"), Select.Item("table", "Table")]} /></HStack>
+            <Box width="100%" height="700px"><Allocation id="allocationViews" views={views} fit={fit} view={{ date: yardDay }}
+                events={{ bin: Schedule.events(bins, {
+                    name: "Bin", icon: "box",
+                    at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+                    quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
+                }) }}
+                resources={{
+                    bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
+                    kilns: Schedule.resources(yard.read(), { name: "Kilns", icon: "fire", label: k => k.name, min: k => k.min, max: k => k.max, jobs: k => k.charges }),
+                }}
+                arrivals={Allocation.arrivals(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays) })} />
+            </Box>
+        </VStack>;
     }}</Reactive>),
 });
 
@@ -342,6 +376,70 @@ export const allocationLabels = example({
             table={{ bands: [{ from: 0, label: "Night" }, { from: 6, label: "Day shift" }, { from: 18, label: "Evening" }] }}
             events={{ bin: Schedule.events(bins, {
                 name: "Bin", icon: "box", entries,
+                at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+                quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
+                fields: { specMeasured: Schedule.field.text({ label: "Spec measured" }), instruction: Schedule.field.text({ label: "Loading instruction" }) },
+            }) }}
+            resources={{
+                bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
+                kilns: Schedule.resources(yard.read(), { name: "Kilns", icon: "fire", label: k => k.name, group: k => k.group,
+                    meta: k => some(East.str`${k.group} · ${East.Float.roundHalf(k.max)} m³`), note: k => k.note,
+                    min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges }),
+            }}
+            arrivals={Allocation.arrivals(loads.read(), {
+                label: l => l.code, meta: l => some(East.str`${l.mill} · ${l.grade} · spec ${l.spec}`),
+                quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
+                due: l => some(l.due), window: l => some({ from: l.from, to: l.to }),
+                details: l => [{ label: "Settings", value: l.schedule }],
+                values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
+            })}
+            periods={Schedule.periods(days, { every: "day", status: { field: "state", draft: "draft", published: "issued" } })}
+            columns={[
+                { key: "spec", label: "Spec", text: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => b.specMeasured, () => East.str`booked ${b.specBooked} · measured ${b.specMeasured}`),
+                    tone: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
+                { key: "grade", label: "Grade", text: b => b.gradeMeasured.startsWith(b.gradeBooked).ifElse(() => b.gradeMeasured, () => East.str`booked ${b.gradeBooked} · measured ${b.gradeMeasured}`), table: false },
+            ]} />
+        </Box>;
+    }}</Reactive>),
+});
+
+export const allocationWording = example({
+    description: "The kiln yard in all its own words (#1516): beside the nouns, `labels` takes what the board books (`bin`), a slot held with nothing booked in it (`reservation`, `reserved`), the legend's jobs, the hold and the Library's groups, each kept in its place and its look whatever it is called.",
+    keywords: ["Allocation", "labels", "vocabulary", "bin", "reservation", "reserved", "hold", "groups", "Library", "Schedule.events", "Allocation.arrivals"], inputs: [],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const bins = $.let(Record.bind(kilnBins));
+        const entries = $.let(Data.bindPaged(kilnBins));
+        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
+        const days = $.let(Record.bind(yardDays));
+        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
+        const yard = $.let(Data.bind(kilns));
+        const loads = $.let(Data.bind(arrivals));
+        const bays = $.let(Data.bind(yardBays));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: ["yard_bays_by_area"] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: ["kilns_by_group"] }));
+        const slice = $.let(Slice.bindRecords("ex.allocationWording", {
+            bin: { source: byTime, range: "at" },
+            bays: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
+            kilns: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+        }, {
+            presets: [
+                { id: "halls", name: "Halls", where: { kilns: { group: ["Hall A", "Hall B"] } } },
+                { id: "small", name: "Compact and standard", where: { kilns: { group: ["Compact", "Standard"] } } },
+                { id: "large", name: "Large and bulk", where: { kilns: { group: ["Large", "Bulk"] } } },
+                { id: "north", name: "North bays, halls", where: { bays: { area: ["North"] }, kilns: { group: ["Hall A", "Hall B"] } } },
+            ],
+        }));
+        const fit = $.let(Func.bind(yardFit));
+        return <Box width="100%" height="900px"><Allocation id="allocationWording" title="Kiln loading" fit={fit} slice={{ slice }} inspector
+            library={[Allocation.library.arrivals(), Allocation.library.resources()]} view={{ layout: "timeline", date: yardDay }}
+            labels={{
+                lane: "Bay", arrival: { one: "Delivery", other: "Deliveries" }, resource: "Kiln", quantity: "Vol",
+                bin: { one: "Charge", other: "Charges" }, reservation: "Booking", reserved: "Booked", priorJob: "Last firing", nextJob: "Next firing", hold: "Dwell",
+                groups: { overdue: "Late", ready: "Due soon", removed: "Taken off", allocated: "Charged", free: "Idle", loading: "Filling", busy: "Firing" },
+            }}
+            table={{ bands: [{ from: 0, label: "Night" }, { from: 6, label: "Day shift" }, { from: 18, label: "Evening" }] }}
+            events={{ bin: Schedule.events(bins, {
+                name: "Charge", icon: "box", entries,
                 at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
                 quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
                 fields: { specMeasured: Schedule.field.text({ label: "Spec measured" }), instruction: Schedule.field.text({ label: "Loading instruction" }) },
@@ -603,7 +701,7 @@ export const allocationWindowed = example({
 });
 
 export const allocationMobile = example({
-    description: "The kiln yard in a 390px container: a card per kiln (or per slot in the Table) with Book, Reserve, Allocate, Unlink and Back to Arrivals in anchored popovers; no drag source or target.",
+    description: "The kiln yard in a 390px container: a card per kiln (or per slot in the Table) with Book, Reserve, Allocate, Unlink and Back to Arrivals in the bottom panel over the pane strip; no drag source or target.",
     keywords: ["Allocation", "mobile", "narrow", "cards", "Schedule.events", "Record.bind"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const bins = $.let(Record.bind(kilnBins));

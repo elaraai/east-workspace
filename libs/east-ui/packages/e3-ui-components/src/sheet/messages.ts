@@ -28,12 +28,13 @@
  */
 
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
-import { editingMessages, type EditingMessages } from "@elaraai/east-ui-components";
+import { editingMessages, getSomeorUndefined, type EditingMessages } from "@elaraai/east-ui-components";
 import { type EditHistoryWord } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import { hiddenByText } from "../shared/schedule/hidden.js";
 import { pluralKind } from "./link/grammar.js";
 import type { SheetKind } from "./model.js";
+import type { SheetValue } from "./frame/index.js";
 
 /** A date column's level, as the words name it (#844). */
 export type SheetLevelWord = "week" | "day" | "range" | "time";
@@ -503,8 +504,8 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     noticeRowFillDismissed: () => string;
     /** Rows, lines or groups deleted — `again`: the group is left empty, ⌫ again removes it. */
     noticeDeleted: (p: { n: number; count: string; what: "rows" | "lines" | "groups"; noun: string; nouns: string; again: boolean }) => string;
-    /** A paste. */
-    noticePasted: (p: { rows: string; cols: string; n: number; skipped: string }) => string;
+    /** A paste — `wrote` whether any cell took it; `nActions` the action cells it passed by, which take no paste (T7). */
+    noticePasted: (p: { rows: string; cols: string; n: number; skipped: string; wrote: boolean; nActions: number; actions: string }) => string;
     /** A copy. */
     noticeCopied: (p: { rows: string; cols: string }) => string;
     /** A new row discarded. */
@@ -531,6 +532,18 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     templateLines: (p: { n: number; count: string }) => string;
     /** A column's kind, as the Columns tab names it (SB36). */
     columnKind: (p: { kind: SheetKind }) => string;
+    /** A phone's Library (`Mobile Sheet Spec.md` SH11): what a tap on an author's card does — sets it on `target` — or, with nothing to set it on, what to select first. */
+    libraryPhoneSet: (p: { target: string | undefined }) => string;
+    /** …and on a template: adds it below `target`, or what to select first. */
+    libraryPhoneAdd: (p: { target: string | undefined }) => string;
+    /** The mark on the card the target holds now. */
+    libraryPhoneCurrent: () => string;
+    /** Over a phone's Columns: what stays pinned, where one does, and what a tap does. */
+    libraryPhoneColumns: (p: { pinned: string | undefined }) => string;
+    /** A phone's column row's kind, the pinned column's said so — `text · pinned`. */
+    libraryPhoneKind: (p: { kind: string; pinned: boolean }) => string;
+    /** A phone's column row's accessible name — `Go to Good`. */
+    libraryPhoneGo: (p: { header: string }) => string;
     /** A column's eye: shown, hidden, or the last one shown, which stays. */
     columnEye: (p: { hidden: boolean; last: boolean }) => string;
     /** The inspector pane's name. */
@@ -539,6 +552,8 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     inspectorTab: (p: { tab: SheetInspectorTabWord }) => string;
     /** What the inspector shows — `row 3`, `line 2 of WO-2201`, `order 4` — over its fields, and on the collapsed rail (#1188, SB46). */
     inspectorWhat: (p: { what: SheetInspectWord; number: string; title: string | undefined; noun: string }) => string;
+    /** A phone's Details' eyebrow names what is selected alone — `line 2`, `row 3`, `order 4` — its group by its id after it (SH12). */
+    inspectorPhoneWhat: (p: { what: SheetInspectWord; number: string; noun: string }) => string;
     /** A draft's chip: changed since the record held it, or never saved (SB47). */
     inspectorChip: (p: { state: "pending" | "new" }) => string;
     /** The lock on a row the upstream system owns, and its title. */
@@ -593,6 +608,86 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     dropGrip: (p: { what: string }) => string;
     /** Its title. */
     dropGripTitle: () => string;
+
+    // ── The action column (#1475–#1479) ────────────────────────────────────
+    /** An action cell with nothing taken and something offered (S8). */
+    actionNotStarted: () => string;
+    /** The ▾ part's accessible name (A2). */
+    actionMore: () => string;
+    /** A row whose draft lacks fields its actions need (T6) — `Fill Plan before taking an action`; `fields` are their labels. */
+    actionIncomplete: (p: { fields: readonly string[] }) => string;
+    /** The Menu's head over the direct actions (M5): how the author names the row, and its words beside it — `Step 30 · Fit`; neither, `Actions`. */
+    actionMenuHead: (p: { name: string | undefined; title: string | undefined }) => string;
+    /** The Menu's head over a choice's reasons (M5) — `Hold · reason`. */
+    actionMenuChoice: (p: { verb: string }) => string;
+    /** The popover's eyebrow (F4) — `Report · Step 30`. */
+    actionFormEyebrow: (p: { verb: string; name: string | undefined }) => string;
+    /** The popover's close button (F4). */
+    actionFormClose: () => string;
+    /** The popover's Cancel (F8). */
+    actionFormCancel: () => string;
+    /** What taking it writes (R5, F8) — `Sets Good 12 · Done 14:02`; nothing beside its field, `Sets nothing beside the action`. */
+    actionSets: (p: { facts: readonly string[] }) => string;
+    /** What a form's foot says while a required field is empty, in place of what it sets — `Needs Good parts`. */
+    actionNeeds: (p: { fields: readonly string[] }) => string;
+    /** The footer's line for ▾ on a range whose rows share no further case (T8). */
+    actionRangeNothing: () => string;
+    /** What a choice's preview says (R2) — `Pick a reason · sets …`. */
+    actionPickReason: (p: { facts: readonly string[] }) => string;
+    /** What a form's preview says (R2) — `Opens its form`. */
+    actionOpensForm: () => string;
+    /** The strip's label over an action (R2, R3) — `Report · Step 30`, or `Action · Step 30` for the ring's cell. */
+    actionStripLabel: (p: { verb: string | undefined; name: string | undefined }) => string;
+    /** The strip's line for the ring on an action cell (R3): its state and summary, then what it offers or why not. */
+    actionStripState: (p: { state: string | undefined; summary: string; offers: readonly string[]; blocked: string | undefined; incomplete: readonly string[] | undefined; readOnly: boolean }) => string;
+    /** The strip's keys hint on an action cell (R3). */
+    actionStripKeys: () => string;
+    /** The message a taken action leaves (T3) — `Completed Step 30 · set Good 12`. */
+    noticeActionTaken: (p: { state: string; name: string | undefined; n: number; count: string; facts: readonly string[] }) => string;
+    /** A phone's action bar: ← back to the row's actions (X7). */
+    actionBarBack: () => string;
+    /** A phone's action bar: the button listing the rest of the offer, past four (X6). */
+    actionBarMore: () => string;
+    /** A phone's action bar: ⌄ close (SH9). */
+    actionBarClose: () => string;
+    /** A phone's action bar over a row offered nothing further (SH9.1) — `No further actions · 24 good · done 08:42`. */
+    actionBarNothing: (p: { summary: string }) => string;
+    /** Why the field took no value (an action's `updates` threw, or its value could not be read): the gesture is refused. */
+    actionFailed: (p: { verb: string; reason: string }) => string;
+
+    // ── A phone's column pager (`Mobile Sheet Spec.md` SH1, SH2) ────────────
+    /** The readout's lead — `Columns`, before the range in view. */
+    pagerColumns: () => string;
+    /** What follows the range — `of 3`. */
+    pagerOf: (p: { n: number; total: string }) => string;
+    /** The readout's accessible name — `Columns 1–2 of 3 · go to a column`. */
+    pagerName: (p: { from: string; to: string; n: number; total: string }) => string;
+    /** The step back a column. */
+    pagerPrevious: () => string;
+    /** The step on a column. */
+    pagerNext: () => string;
+    /** The jump menu's eyebrow. */
+    pagerMenu: () => string;
+    /** The Row column's head, and its item in the jump menu (SH2). */
+    pagerRow: () => string;
+    /** What the jump menu says the Row column holds, as it says each column's kind (SH2). */
+    pagerRowKind: () => string;
+    /** The jump menu's checkbox that adds the Row column (SH2). */
+    pagerRowNumber: () => string;
+    /** Its note. */
+    pagerRowNumberNote: () => string;
+
+    // ── A phone's cell editor (`Mobile Sheet Spec.md` SH10) ────────────────
+    /** Its eyebrow: the column and the row — `Good · step 20 · Weld frame` as its action column names it, else `Good · line 2 of Frame assembly`. */
+    cellEditorEyebrow: (p: { header: string; what: string }) => string;
+    /** Its ⌄ close. */
+    cellEditorClose: () => string;
+    /** A number's − and + (SH10) — `Fewer Good`, `More Good`. */
+    cellEditorStep: (p: { header: string; more: boolean }) => string;
+    /** A time's Clear (SH10). */
+    cellEditorClear: () => string;
+    /** A time's help line (SH10). */
+    cellEditorTimeHelp: () => string;
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
@@ -824,7 +919,9 @@ export const sheetMessages: SheetMessages = {
             : `${count} ${what === "lines" ? plural(n, "line", "lines") : plural(n, "row", "rows")}`;
         return `Deleted ${deleted}${again ? ` — ⌫ again removes the ${noun}` : ""}`;
     },
-    noticePasted: ({ rows, cols, n, skipped }) => `Pasted ${rows}×${cols} from clipboard${n > 0 ? ` · ${skipped} unrecognised` : ""}`,
+    noticePasted: ({ rows, cols, n, skipped, wrote, nActions, actions }) => (!wrote
+        ? `Nothing pasted${nActions > 0 ? " — an action cell takes no paste" : ""}`
+        : `Pasted ${rows}×${cols} from clipboard${n > 0 ? ` · ${skipped} unrecognised` : ""}${nActions > 0 ? ` · ${actions} action ${plural(nActions, "cell", "cells")} skipped` : ""}`),
     noticeCopied: ({ rows, cols }) => `Copied ${rows}×${cols} to clipboard`,
     noticeDiscarded: () => "Discarded new row",
     noticeNewRow: () => "New row",
@@ -841,11 +938,18 @@ export const sheetMessages: SheetMessages = {
     libraryGroupBy: ({ tab }) => (tab === "rows" ? "Category" : "Group"),
     templateLines: ({ n, count }) => `${count} ${plural(n, "line", "lines")}`,
     columnKind: ({ kind }) => kind,
+    libraryPhoneSet: ({ target }) => (target === undefined ? "Select a row in the sheet, then tap a card here." : `Tap a card to set it on ${target}. On desktop you drag it there.`),
+    libraryPhoneAdd: ({ target }) => (target === undefined ? "Select a row in the sheet, then tap a template here." : `Tap a template to add it below ${target}. On desktop you drag it there.`),
+    libraryPhoneCurrent: () => "current",
+    libraryPhoneColumns: ({ pinned }) => (pinned === undefined ? "Tap a column to go to it." : `${pinned} stays pinned. Tap a column to go to it.`),
+    libraryPhoneKind: ({ kind, pinned }) => (pinned ? `${kind} · pinned` : kind),
+    libraryPhoneGo: ({ header }) => `Go to ${header}`,
     columnEye: ({ hidden, last }) => (hidden ? "Hidden — click to show" : last ? "Shown — the last column shown stays" : "Shown — click to hide"),
     inspectorPane: () => "Inspector",
     inspectorTab: ({ tab }) => (tab === "details" ? "Details" : "Issues"),
     inspectorWhat: ({ what, number, title, noun }) => (what === "row" ? `row ${number}`
         : what === "line" ? `line ${number} of ${title ?? `the ${noun}`}` : `${noun} ${number}`),
+    inspectorPhoneWhat: ({ what, number, noun }) => (what === "row" ? `row ${number}` : what === "line" ? `line ${number}` : `${noun} ${number}`),
     inspectorChip: ({ state }) => (state === "pending" ? "Pending" : "New"),
     inspectorOwned: () => "Owned upstream — its stamped cells are read only",
     inspectorSection: ({ section, n, count }) => (section === "issues" ? `${count} ${plural(n, "issue", "issues")}`
@@ -915,7 +1019,105 @@ export const sheetMessages: SheetMessages = {
     },
     dropGrip: ({ what }) => `Move ${what}`,
     dropGripTitle: () => "Drag to move it to another seam",
+
+    actionNotStarted: () => "not started",
+    actionMore: () => "More actions",
+    actionIncomplete: ({ fields }) => `Fill ${fields.join(", ")} before taking an action`,
+    actionMenuHead: ({ name, title }) => (name === undefined && title === undefined ? "Actions" : [name, title].filter((t) => t !== undefined && t !== "").join(" · ")),
+    actionMenuChoice: ({ verb }) => `${verb} · reason`,
+    actionFormEyebrow: ({ verb, name }) => (name === undefined || name === "" ? verb : `${verb} · ${name}`),
+    actionFormClose: () => "Close",
+    actionFormCancel: () => "Cancel",
+    actionSets: ({ facts }) => (facts.length === 0 ? "Sets nothing beside the action" : `Sets ${facts.join(" · ")}`),
+    actionNeeds: ({ fields }) => `Needs ${fields.join(", ")}`,
+    actionRangeNothing: () => "Nothing more is offered to every selected row",
+    actionPickReason: ({ facts }) => (facts.length === 0 ? "Pick a reason" : `Pick a reason · sets ${facts.join(" · ")}`),
+    actionOpensForm: () => "Opens its form",
+    actionStripLabel: ({ verb, name }) => [verb ?? "Action", name].filter((t) => t !== undefined && t !== "").join(" · "),
+    actionStripState: ({ state, summary, offers, blocked, incomplete, readOnly }) => {
+        const what = readOnly ? "read only"
+            : incomplete !== undefined ? `fill ${incomplete.join(", ")} first`
+                : blocked !== undefined ? blocked
+                    : offers.length > 0 ? `offers ${offers.join(", ")}` : "nothing further to take";
+        return [state ?? "not started", summary, what].filter((t) => t !== "").join(" · ");
+    },
+    actionStripKeys: () => "⏎ takes the next",
+    noticeActionTaken: ({ state, name, n, facts }) => {
+        const what = name === undefined || name === "" ? state : `${state} ${name}`;
+        return n === 0 || facts.length === 0 ? what : `${what} · set ${facts.join(" · ")}`;
+    },
+    actionBarBack: () => "Back to the actions",
+    actionBarMore: () => "More…",
+    actionBarClose: () => "Close action bar",
+    actionBarNothing: ({ summary }) => (summary === "" ? "No further actions" : `No further actions · ${summary}`),
+    actionFailed: ({ verb, reason }) => `${verb} could not be taken — ${reason}`,
+
+    pagerColumns: () => "Columns",
+    pagerOf: ({ total }) => `of ${total}`,
+    pagerName: ({ from, to, total }) => `Columns ${from}–${to} of ${total} · go to a column`,
+    pagerPrevious: () => "Previous column",
+    pagerNext: () => "Next column",
+    pagerMenu: () => "Go to column",
+    pagerRow: () => "Row",
+    pagerRowKind: () => "number",
+    pagerRowNumber: () => "Row number",
+    pagerRowNumberNote: () => "off by default",
+
+    cellEditorEyebrow: ({ header, what }) => `${header} · ${what}`,
+    cellEditorClose: () => "Close editor",
+    cellEditorStep: ({ header, more }) => `${more ? "More" : "Fewer"} ${header}`,
+    cellEditorClear: () => "Clear",
+    cellEditorTimeHelp: () => "24-hour time · digits fill a segment",
 };
+
+/** The app's words for what the sheet draws of its own, as the payload carries them (#1516). */
+export type SheetVocabulary = SheetValue["vocabulary"];
+
+/**
+ * A table in the app's own words (#1516): each word the app gave over the table above it, wherever the table says it, and
+ * the rest as they stood, so a host's translation stands where the app gave none.
+ *
+ * @param parent - The table above
+ * @param v - The app's words
+ * @returns The table
+ */
+export function sheetMessagesIn(parent: SheetMessages, v: SheetVocabulary): SheetMessages {
+    const members = getSomeorUndefined(v.members);
+    const unassigned = getSomeorUndefined(v.unassigned);
+    const source = getSomeorUndefined(v.source);
+    const destination = getSomeorUndefined(v.destination);
+    const wanted = getSomeorUndefined(v.wanted);
+    const actual = getSomeorUndefined(v.actual);
+    const holds = (n: number): string | undefined => (members === undefined ? undefined : plural(n, members.one, members.other));
+    /** A half, in the app's word where it gave one. */
+    const halfWord = (half: SheetHalfWord): string | undefined => (half === "from" ? source : destination);
+    const capital = (word: string): string => `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
+    /** The hop to the to half, in the key hints. */
+    const hops = (text: string): string => (destination === undefined ? text : text.replace("the To half", `the ${capital(destination)} half`));
+    return {
+        ...parent,
+        unassigned: () => unassigned ?? parent.unassigned(),
+        rangeSpan: (p) => (p.kind === undefined && members !== undefined ? `${p.count} ${members.other}` : parent.rangeSpan(p)),
+        candidateEnumerate: (p) => (members === undefined ? parent.candidateEnumerate(p) : `enumerate · ${p.count} ${members.other}`),
+        noticeMembersAdded: (p) => (members === undefined ? parent.noticeMembersAdded(p) : `Added ${p.count} ${holds(p.n)}`),
+        noticeMembersRemoved: (p) => (members === undefined ? parent.noticeMembersRemoved(p) : `${p.count} ${holds(p.n)} removed`),
+        noticePredictedTaken: (p) => (members === undefined ? parent.noticePredictedTaken(p) : `Took ${p.count} predicted ${holds(p.n)}`),
+        halfLabel: ({ half }) => halfWord(half) ?? parent.halfLabel({ half }),
+        halfTitle: ({ half }) => { const word = halfWord(half); return word === undefined ? parent.halfTitle({ half }) : capital(word); },
+        stripHalf: (p) => { const word = p.half === undefined ? undefined : halfWord(p.half); return word === undefined ? parent.stripHalf(p) : `${p.header} · ${word}`; },
+        editorLocked: (p) => { const word = halfWord(p.half); return word === undefined ? parent.editorLocked(p) : `This ${word} is locked — anything here is kept but flagged`; },
+        halfNone: (p) => { const word = halfWord(p.half); return word === undefined ? parent.halfNone(p) : `${p.driver} has no ${word}${p.lock !== undefined ? ` · ${p.lock}` : ""}`; },
+        noticeLockedHalf: (p) => (destination === undefined ? parent.noticeLockedHalf(p) : `${p.driver} has no ${destination} — kept, but flagged`),
+        stripKeysLinkTake: (p) => hops(parent.stripKeysLinkTake(p)),
+        stripKeysLinkAdd: (p) => hops(parent.stripKeysLinkAdd(p)),
+        actualTag: (p) => (p.tone === "on" && actual !== undefined ? actual : parent.actualTag(p)),
+        stripKeysDetail: (p) => (p.date && wanted !== undefined ? `⏎ edits the ${wanted} date` : parent.stripKeysDetail(p)),
+        detailNoWanted: () => (wanted === undefined ? parent.detailNoWanted() : `no ${wanted} date`),
+        detailHappenedTitle: (p) => (wanted === undefined ? parent.detailHappenedTitle(p) : `Happened ${p.when} — no ${wanted} date`),
+        detailWanted: (p) => (wanted === undefined ? parent.detailWanted(p) : `${wanted} ${p.text} · ${p.tag}`),
+        detailTitle: (p) => (wanted === undefined ? parent.detailTitle(p) : `Happened ${p.when} — ${wanted} ${p.text} (${p.tag}) · ${p.words}`),
+    };
+}
 
 const SheetMessagesContext = createContext<SheetMessages>(sheetMessages);
 
@@ -927,6 +1129,26 @@ const SheetMessagesContext = createContext<SheetMessages>(sheetMessages);
  */
 export function useSheetMessages(): SheetMessages {
     return useContext(SheetMessagesContext);
+}
+
+/** Props of {@link SheetVocabularyProvider}. */
+export interface SheetVocabularyProviderProps {
+    /** The app's words, the same object while they hold. */
+    vocabulary: SheetVocabulary;
+    /** The subtree they apply to. */
+    children?: ReactNode;
+}
+
+/**
+ * The app's own words for a sheet (#1516), over whatever table a host gives it.
+ *
+ * @param props - The words and the subtree
+ * @returns The provider
+ */
+export function SheetVocabularyProvider({ vocabulary, children }: SheetVocabularyProviderProps) {
+    const parent = useSheetMessages();
+    const value = useMemo(() => sheetMessagesIn(parent, vocabulary), [parent, vocabulary]);
+    return createElement(SheetMessagesContext.Provider, { value }, children);
 }
 
 /** Props of {@link SheetMessagesProvider}. */

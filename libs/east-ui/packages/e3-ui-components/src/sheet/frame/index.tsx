@@ -32,7 +32,9 @@
  *   author's tab the source it names, each counting what it shows (#1345) —
  *   and **the inspector**, the end pane, when the sheet is given one —
  *   Details for what is selected, its every field through the pane's form or
- *   the author's own Details, and the batch's Issues (#1188): `BuilderFrame`'s
+ *   the author's own Details, and the batch's Issues (#1188) — whose form, at
+ *   touch size, is a phone's cell editor in the grid's bottom container
+ *   (`Mobile Sheet Spec.md` SH10): `BuilderFrame`'s
  *   panes, whose open tab and collapsed state persist under the sheet's
  *   `name`. The library's Columns tab hides columns from the grid, per viewer,
  *   under the sheet's `name` too (SB36); a sheet whose library lists no
@@ -67,7 +69,7 @@ import { Box, Button } from "@chakra-ui/react";
 import { StringType, equalFor, equivalentFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import { SheetComponent, SheetPayloadType, sheetKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, usePersistedState, useTrackedEvaluation,
+    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, useDataStable, usePersistedState, useTrackedEvaluation,
     type EditIssue,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
@@ -80,8 +82,9 @@ import {
 } from "../index.js";
 import { todayUtc } from "../parse/date.js";
 import { authorOf } from "../../shared/records/author.js";
+import { SheetVocabularyProvider } from "../messages.js";
 import { issueText, useSheetWords, type SheetWords } from "../words.js";
-import { useSheetInspector, type SheetLastCommit } from "./inspector.js";
+import { sheetCellEditor, useSheetInspector, type SheetLastCommit } from "./inspector.js";
 import { tabLibrary, templateCardKey, templatesLibrary, useSheetLibrary } from "./library.js";
 import { followedNouns, followedSources } from "./sources.js";
 
@@ -93,6 +96,8 @@ type SheetKeys = ReturnType<typeof sheetKeys>;
 
 /** The payload's equivalence: its data, and its functions by their IR and what they capture. */
 const payloadEquivalent = equivalentFor(SheetPayloadType);
+/** Whether two sets of the app's words are one. */
+const vocabularyEqual = equalFor(SheetPayloadType.fields.vocabulary);
 const stringEqual = equalFor(StringType);
 
 /** No column hidden: what a viewer who has hidden none keeps. */
@@ -175,7 +180,14 @@ function useLastCommit(history: SheetValue["history"], words: SheetWords): Sheet
  * @param props - The payload and its storage key
  * @returns The sheet, in its frame
  */
-export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey }: EastChakraSheetProps) {
+export function EastChakraSheet({ value, storageKey }: EastChakraSheetProps) {
+    // The app's words (#1516), over whatever table a host gives it: everything below reads them.
+    const vocabulary = useDataStable(value.vocabulary, vocabularyEqual);
+    return <SheetVocabularyProvider vocabulary={vocabulary}><SheetPayloadFrame value={value} storageKey={storageKey} /></SheetVocabularyProvider>;
+}
+
+/** The sheet, inside the app's words. */
+const SheetPayloadFrame = memo(function SheetPayloadFrame({ value, storageKey }: EastChakraSheetProps) {
     const name = getSomeorUndefined(value.name);
     const keys = useMemo(() => sheetKeys(name), [name]);
     // The columns this viewer hides (SB36), kept under the sheet's name: the
@@ -198,8 +210,11 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const nouns = useMemo(() => followedNouns(value, words), [value, words]);
     // The app's optimiser (#1409): its binding, which the Elara eye calls by name.
     const optimise = value.optimise.type === "some" ? value.optimise.value.name : undefined;
-    // What the frame hands the parts: the columns the viewer hid, the drops the sheet takes, the sources' nouns, and the optimiser.
-    const host = useMemo((): SheetHost => ({ hidden, drop, nouns, optimise: optimise === undefined ? undefined : { name: optimise } }), [hidden, drop, nouns, optimise]);
+    // A phone's cell editor (`Mobile Sheet Spec.md` SH10, R9): the inspector's form at touch size, in the bottom container.
+    const cellEditor = useMemo(() => sheetCellEditor(value, words, hidden), [value, words, hidden]);
+    // What the frame hands the parts: the columns the viewer hid, the drops the sheet takes, the sources' nouns, the
+    // optimiser, and a phone's cell editor.
+    const host = useMemo((): SheetHost => ({ hidden, drop, nouns, optimise: optimise === undefined ? undefined : { name: optimise }, cellEditor }), [hidden, drop, nouns, optimise, cellEditor]);
     return (
         <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>
             <SheetFrame value={value} keys={keys} hidden={hidden} onToggleColumn={onToggleColumn} nouns={nouns} />

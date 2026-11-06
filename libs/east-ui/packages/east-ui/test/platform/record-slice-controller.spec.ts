@@ -19,7 +19,7 @@ const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
         ], format: none },
         { fieldId: "due", label: "Due", kind: "integer", optional: true, multiple: true, set: false, values: [{ value: ".none", label: "Unset" }], format: none },
     ],
-    indexes: [{ name: "by_status_due", fields: ["status", "due"], sets: new Set(), structured: true, interval: none, area: none, series: none, summary: none }],
+    indexes: [{ name: "by_status_due", fields: ["status", "due"], sets: new Set(), structured: true, interval: none, area: none, series: none, summary: none, entries: false }],
     range: some("due"), search: ["status"], presets: [],
 }));
 const Row = StructType({ status: StringType, due: OptionType(IntegerType) });
@@ -108,7 +108,7 @@ function intervals() {
         ],
         indexes: [{
             name: "jobs_by_press_time", fields: ["press"], sets: new Set(), structured: true,
-            interval: some({ from: "start", to: "end", optional: true }), area: none, series: none, summary: none,
+            interval: some({ from: "start", to: "end", optional: true }), area: none, series: none, summary: none, entries: false,
         }],
         range: some("start"), search: [], presets: [],
     }));
@@ -174,7 +174,7 @@ test("a field named `area`, `__area`, `tile` or `__tile` is offered, chosen and 
     const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
         fields: names.map(name => ({ fieldId: name, label: name, kind: "string", optional: false, multiple: true, set: false,
             values: [{ value: '"a"', label: "A" }, { value: '"b"', label: "B" }], format: none })),
-        indexes: names.map(name => ({ name: `by_${name}`, fields: [name], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none })),
+        indexes: names.map(name => ({ name: `by_${name}`, fields: [name], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none, entries: false })),
         range: none, search: [], presets: [],
     }));
     // Each field's index files its `a` rows first, as many as its place among the names plus one, then ten `b` rows.
@@ -433,8 +433,8 @@ function facets() {
             ], format: none },
         ],
         indexes: [
-            { name: "by_status_region", fields: ["status", "region"], sets: new Set(), structured: true, interval: none, area: none, series: none, summary: none },
-            { name: "by_region_status", fields: ["region", "status"], sets: new Set(), structured: true, interval: none, area: none, series: none, summary: none },
+            { name: "by_status_region", fields: ["status", "region"], sets: new Set(), structured: true, interval: none, area: none, series: none, summary: none, entries: false },
+            { name: "by_region_status", fields: ["region", "status"], sets: new Set(), structured: true, interval: none, area: none, series: none, summary: none, entries: false },
         ],
         range: none, search: [], presets: [],
     }));
@@ -477,4 +477,75 @@ test("each known value counts its own rows under the other fields' choices, as a
     assert.deepEqual(chips("status"), [["Held", some(3n), true], ["Late", some(7n), false]]);
     assert.deepEqual(chips("region"), [["North", some(3n), true], ["South", some(5n), false]]);
     assert.equal(controller.count().value, 3n, "a chosen value's own count is the narrowing's");
+});
+
+/**
+ * Seven stations by status and the services each holds (#1522): an entries index files each station's services, a
+ * service's entries one range of it in the services' order — Economy held by 1 station, Priority by 2, Standard by 4 —
+ * beside a status index, 3 held and 4 late. A service's picks weigh what a reader draws of each station, and narrow none.
+ */
+function services() {
+    const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
+        fields: [
+            { fieldId: "status", label: "Status", kind: "string", optional: false, multiple: true, set: false, values: [
+                { value: '"held"', label: "Held" }, { value: '"late"', label: "Late" },
+            ], format: none },
+            { fieldId: "byService", label: "Service", kind: "string", optional: false, multiple: true, set: false, values: [
+                { value: '"Economy"', label: "Economy" }, { value: '"Priority"', label: "Priority" }, { value: '"Standard"', label: "Standard" },
+            ], format: none },
+        ],
+        indexes: [
+            { name: "by_status", fields: ["status"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none, entries: false },
+            { name: "by_service", fields: ["byService"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none, entries: true },
+        ],
+        range: none, search: [], presets: [],
+    }));
+    const printString = printFor(StringType);
+    const held: readonly (readonly [string, bigint])[] = [["Economy", 1n], ["Priority", 2n], ["Standard", 4n]];
+    const asked: string[] = [];
+    const binding: RecordSliceBinding = {
+        id: "stations", recordId: "stations", defaultIndex: "primary", revision: () => some("A"), refresh: () => null,
+        total: () => some(7n), entryKeys: () => [], page: () => none,
+        seek(index, query) {
+            if (index === "by_service") {
+                // A service's range: an exact key of the entries index, every station's entry under it.
+                assert.equal(query.type, "key");
+                const key = query.type === "key" ? query.value : "";
+                asked.push(key);
+                let row = 0n;
+                for (const [service, count] of held) {
+                    if (key === printString(service)) return some({ found: true, row, count });
+                    row += count;
+                }
+                return some({ found: false, row, count: 0n });
+            }
+            // A status, the one field of its index: an exact key.
+            assert.equal(index, "by_status");
+            assert.equal(query.type, "key");
+            const status = query.type === "key" ? query.value : undefined;
+            return some(status === printString("held") ? { found: true, row: 0n, count: 3n } : { found: true, row: 3n, count: 4n });
+        },
+    };
+    let current = decodeBeast2For(RecordSliceStateType)(encodeBeast2For(RecordSliceStateType)({ where: new Map(), preset: none, resolution: none }));
+    const controller = new RecordSliceController(binding, config, StructType({ status: StringType, byService: SetType(StringType) }), () => current, next => { current = next; });
+    return { controller, asked, where: () => current.where };
+}
+
+test("an entries field's keys each count the stations holding them, whatever else is chosen; several are picked, beside other choices, and narrow none (#1522)", () => {
+    const { controller, asked, where } = services();
+    const chips = () => controller.values("byService").map(choice => [choice.label, choice.count, choice.selected]);
+    assert.deepEqual(chips(), [["Economy", some(1n), false], ["Priority", some(2n), false], ["Standard", some(4n), false]]);
+    assert.deepEqual(asked, ['"Economy"', '"Priority"', '"Standard"'], "each count a search of its key's range: the index alone, no row read");
+    controller.choose("byService", values('"Priority"', '"Standard"'));
+    assert.deepEqual(chips(), [["Economy", some(1n), false], ["Priority", some(2n), true], ["Standard", some(4n), true]]);
+    assert.equal(controller.count().value, 7n, "the picks weigh the stations and narrow none: every one still counts");
+    // The status narrows; the picks stand beside it, and each key still counts the stations holding it.
+    controller.choose("status", values('"held"'));
+    assert.equal(controller.count().value, 3n);
+    assert.deepEqual(chips(), [["Economy", some(1n), false], ["Priority", some(2n), true], ["Standard", some(4n), true]]);
+    assert.deepEqual([...where().keys()].sort(), ["byService", "status"]);
+    controller.choose("status", undefined);
+    assert.deepEqual([...where().keys()], ["byService"], "the status cleared, the picks kept");
+    controller.choose("byService", undefined);
+    assert.equal(where().size, 0);
 });

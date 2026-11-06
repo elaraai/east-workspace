@@ -18,12 +18,14 @@
  *
  * On a row short of room the button folds into the toolbar's ⋯ chip (#1229),
  * whose menu's Save as template… opens the same popover: its host then holds
- * it open and hangs it from the chip, as its `anchor`.
+ * it open and hangs it from the chip, as its `anchor`. On a phone (`Studio Mobile
+ * Spec.md` ST28) its host gives the trigger, and it opens as a view, its field
+ * labelled and a help line under it.
  *
  * @packageDocumentation
  */
 
-import { memo, useState, type ReactNode } from "react";
+import { memo, useState, type ReactElement, type ReactNode } from "react";
 import { Box, Button as ChakraButton, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { type ValueTypeOf } from "@elaraai/east";
 import { StudioSaveTemplatePayloadType } from "@elaraai/e3-ui/internal";
@@ -39,10 +41,18 @@ export type StudioSaveTemplateProps = {
     /** The open page's title, whether it can be saved, the names taken, and the save. */
     value: StudioSaveTemplateValue;
 } & (
-    | { anchor?: undefined }
+    | {
+        anchor?: undefined;
+        /** A phone's trigger, in place of its button: the first row's. */
+        phoneTrigger?: ReactElement;
+        /** The project, which a phone's help line names. */
+        project?: string | undefined;
+    }
     | {
         /** The chip it hangs from — the toolbar's ⋯, whose menu opened it. */
         anchor: ReactNode;
+        phoneTrigger?: undefined;
+        project?: undefined;
         /** Whether it is open. */
         open: boolean;
         /** Opens or closes it. */
@@ -74,7 +84,11 @@ export const StudioSaveTemplate = memo(function StudioSaveTemplate(props: Studio
         <NamePopover
             open={open}
             onOpenChange={(next) => setOpen(next && value.enabled)}
-            {...(props.anchor === undefined ? { trigger: button } : { anchor: props.anchor })}
+            {...(props.anchor === undefined ? { trigger: props.phoneTrigger ?? button } : { anchor: props.anchor })}
+            {...(props.anchor === undefined && props.phoneTrigger !== undefined ? {
+                nameLabel: m.templateName(),
+                ...(props.project !== undefined ? { nameHelp: m.phoneTemplateHelp({ project: props.project, page: value.title }) } : {}),
+            } : {})}
             label={<>{m.saveAsTemplate()} · <Box as="span" css={edit.clauseField}>{value.title}</Box></>}
             placeholder={m.templateName()}
             initial={m.templateNameFor({ page: value.title })}

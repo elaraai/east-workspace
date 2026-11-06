@@ -16,9 +16,10 @@
  * Distinct from the form-control `SegmentGroup` — this is the compact chrome
  * strip the Slice toolbar and the Plan toolbar mount.
  *
- * On a coarse pointer a segment keeps its size and takes a 44px-tall tap
- * target from its halo, its height alone, so it never takes a tap meant for
- * the segment beside it (#346, #1221). The strip clips nothing, which would
+ * On a coarse pointer a segment is at least 44px wide and takes a 44px-tall
+ * tap target from its halo, its height alone, so it never takes a tap meant
+ * for the segment beside it (#346, #1221; review of #1481, finding 8: LR · TD
+ * were 35 wide). A full-width strip's segments share its width, whatever it. The strip clips nothing, which would
  * clip the halos: its end segments round their own corners inside its border.
  *
  * In a toolbar's row the strip stands as tall as every control there, 28px
@@ -29,6 +30,9 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { IN_TOOLBAR_ROW, TOOLBAR_CONTROL_HEIGHT } from "../toolbar-row.js";
+
+/** A segment's tap halo, its height alone; on a coarse pointer the segment is at least 44 wide beside it. */
+const HALO = coarseHitArea({ position: true, axis: "block" }) as { position: string; _coarse: Record<string, unknown> };
 
 export const segSlotRecipe = defineSlotRecipe({
     className: "elara-seg",
@@ -64,7 +68,8 @@ export const segSlotRecipe = defineSlotRecipe({
             "& [data-seg-icon]": { marginInlineEnd: "6px" },
             // In a row, the strip's height its own: the segment fills it, its label centred.
             [IN_TOOLBAR_ROW]: { paddingBlock: "0" },
-            ...coarseHitArea({ position: true, axis: "block" }),
+            ...HALO,
+            _coarse: { ...HALO._coarse, minWidth: "44px" },
             // The strip's 6px corner, less its border, on the end segments.
             "&:first-of-type": {
                 borderLeftWidth: "0",
@@ -98,7 +103,7 @@ export const segSlotRecipe = defineSlotRecipe({
         fullWidth: {
             true: {
                 root: { width: "100%", minWidth: 0, display: "grid", gridAutoFlow: "column", gridAutoColumns: "minmax(0, 1fr)" },
-                item: { minWidth: 0, paddingInline: 0 },
+                item: { minWidth: 0, paddingInline: 0, _coarse: { minWidth: 0 } },
             },
         },
     },

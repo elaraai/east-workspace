@@ -50,6 +50,7 @@ import { parseSteps } from "./steps/parse.js";
 import { printSteps } from "./steps/print.js";
 import { shapeOf, type Shape } from "./steps/shape.js";
 import { isComplete, type StepKind, type StepQuery } from "./steps/values.js";
+import { shownView } from "../shared/views.js";
 import type { QueryView } from "./toolbar.js";
 
 /** A notice at the top of the Query tab: what just happened. */
@@ -108,6 +109,8 @@ export interface QueryEditorOptions {
     readonly version: number;
     /** The root. */
     readonly root: QueryRoot;
+    /** The views this builder offers, in the switch's order: the `views` prop's. */
+    readonly views: readonly QueryView[];
     /** The words. */
     readonly words: QueryWords;
     /** The builder's summaries, and the latest hash of each data source a run has read. */
@@ -148,6 +151,8 @@ export interface QueryEditor {
     readonly quick: readonly StepOption[];
     /** The view shown. */
     readonly view: QueryView;
+    /** The views this builder offers: Visual · jq shows only where there are two. */
+    readonly views: readonly QueryView[];
     /** Shows a view: to jq prints the program; back to visual parses it. */
     readonly setView: (view: QueryView) => void;
     /** The jq as typed, in the jq view. */
@@ -209,7 +214,7 @@ function slotElement(bounds: HTMLElement | null, key: string): HTMLElement | und
  * @returns What the surfaces draw, and what they do
  */
 export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
-    const { entries, current, gesture, version, root, words, summaries, saved, onOpenSaved, onShowQuery, bounds, sourceId, counts, arrival } = options;
+    const { entries, current, gesture, version, root, views, words, summaries, saved, onOpenSaved, onShowQuery, bounds, sourceId, counts, arrival } = options;
     const m = words.messages;
     const { header, query } = useMemo(() => entriesQuery(entries), [entries]);
     const isJq = header.jq.type === "some";
@@ -240,8 +245,8 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
     const jqText = typed.sourceId === sourceId ? typed.text : held;
     const setJqText = useCallback((text: string) => setTyped({ sourceId, text }), [sourceId]);
     const setJqNote = useCallback((note: string | undefined) => setNoteState({ sourceId, note }), [sourceId]);
-    // A program that is not steps shows as jq, and says why.
-    const view: QueryView = isJq ? "jq" : viewState.sourceId === sourceId ? viewState.view : "visual";
+    // A program that is not steps shows as jq, and says why, whatever the views offered: it can show no other way.
+    const view: QueryView = isJq ? "jq" : shownView(viewState.sourceId === sourceId ? viewState.view : "visual", views);
     const whyJq = useMemo(() => {
         if (!isJq) return undefined;
         const parsed = parseSteps(held, root.type);
@@ -504,7 +509,7 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
 
     return {
         header, query, checked, source, cards, quick,
-        view, setView, jqText, onJqText: setJqText, leaveJq, onJqFix, jqChecked: view === "jq" ? jqCheck : undefined, jqNote, root, summaries,
+        view, views, setView, jqText, onJqText: setJqText, leaveJq, onJqFix, jqChecked: view === "jq" ? jqCheck : undefined, jqNote, root, summaries,
         program: view === "jq" ? jqText : held,
         check, gives, notices, dismiss, actions, onQuick, popover,
     };

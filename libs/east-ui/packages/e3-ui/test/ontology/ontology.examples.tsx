@@ -21,13 +21,11 @@
  *   2. Inside `<Reactive>`, bind via `Data.bind(dataset)`.
  *   3. Pass the handle to `<Ontology value={view} />` — its East type pins the
  *      source to `OntologyType`, so a wrong-typed bind is a compile error.
- *   4. (Optional) Stack a `<Diff bindings={[view.binding]} />` next to it
- *      to surface the pending node/link patch.
  */
 
-import { East, none, some, variant, example } from '@elaraai/east';
-import { Card, Reactive, Text, UIComponentType, VStack } from '@elaraai/east-ui';
-import { Data, Diff, Ontology, OntologyType } from '@elaraai/e3-ui';
+import { ArrayType, East, NullType, StringType, none, some, variant, example } from '@elaraai/east';
+import { HStack, Reactive, Select, State, Text, UIComponentType, VStack } from '@elaraai/east-ui';
+import { Data, Ontology, OntologyType } from '@elaraai/e3-ui';
 import * as e3 from '@elaraai/e3';
 
 // ============================================================================
@@ -190,8 +188,49 @@ export const ontologyTableCycleView = example({
     inputs: [],
 });
 
+export const ontologyViews = example({
+    keywords: ['Ontology', 'views', 'Ontology.Types.View', 'graph', 'table', 'hide a view', 'Select', 'multiple', 'onChangeMultiple', 'State', 'Reactive'],
+    description: "Which display modes an instance offers, chosen as the page runs: a multi-select wired into `views`, an expression of an array of Ontology.Types.View. With one mode left no switch shows, and with none chosen, both. `views={['table']}` writes the same choice in the code.",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const view = $.let(Data.bind(tradingCycleOntologyInput));
+            // The tags the multi-select holds, and the modes they name.
+            const chosen = $.let(State.bind([ArrayType(StringType)], 'ex.ontologyViews.views', []));
+            const tags = $.let(chosen.read());
+            const onViews = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(chosen.write(next)); }));
+            const every = $.const([variant('graph', null), variant('table', null)], ArrayType(Ontology.Types.View));
+            const views = $.let(every.filter(($, mode) => tags.toSet().has(mode.getTag())));
+            return (
+                <VStack gap="3" align="stretch" width="100%">
+                    <HStack gap="2" align="center"><Text>Views</Text><Select value="" placeholder="Every view" multiple={true} onChangeMultiple={onViews}
+                        items={[Select.Item('graph', 'Graph'), Select.Item('table', 'Table')]} /></HStack>
+                    <Ontology value={view} views={views} />
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
 // ============================================================================
-// 3. Compact-density editor — the trading loop in tighter chrome.
+// 3. Staged edits — held until the header's Apply commits them, or its
+//    Discard drops them.
+// ============================================================================
+
+export const ontologyStaged = example({
+    keywords: ['Ontology', 'staged', 'Apply', 'Discard', 'commit', 'discard', 'pending', 'Data.bind', 'mode'],
+    description: "Staged editing: `Data.bind(…, { mode: 'staged' })` holds every edit while the header shows Unsaved changes with Discard and Apply — Apply commits the change to the dataset, Discard drops it",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const view = $.let(Data.bind(tradingCycleOntologyInput, { mode: 'staged' }));
+            return <Ontology value={view} defaultView="table" />;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// 4. Compact-density editor — the trading loop in tighter chrome.
 // ============================================================================
 
 export const compactDensityOntology = example({
@@ -202,34 +241,6 @@ export const compactDensityOntology = example({
             <Reactive>{$ => {
                 const view = $.let(Data.bind(tradingCycleOntologyInput, { mode: 'direct' }));
                 return <Ontology value={view} density="compact" />;
-            }}</Reactive>
-        );
-    }),
-    inputs: [],
-});
-
-// ============================================================================
-// 4. Ontology + Diff — editor on top, Diff card below shows the in-flight
-//    node/link patch before commit.
-// ============================================================================
-
-export const ontologyWithDiff = example({
-    keywords: ['Ontology', 'Diff', 'bindStaged', 'review'],
-    description: 'Ontology editor + Diff panel — pending node/link patch surfaces in Diff card',
-    fn: East.function([], UIComponentType, (_$) => {
-        return (
-            <Reactive>{$ => {
-                const view = $.let(Data.bind(supplyChainOntologyInput));
-                return (
-                    <Card>
-                        <VStack gap="4" align="stretch">
-                            <Text textStyle="heading-md">Fulfilment ontology</Text>
-                            <Text>Edit nodes and links above; review the pending patch below before applying.</Text>
-                            <Ontology value={view} />
-                            <Diff bindings={[view.binding]} hideUnchanged={some(true)} />
-                        </VStack>
-                    </Card>
-                );
             }}</Reactive>
         );
     }),

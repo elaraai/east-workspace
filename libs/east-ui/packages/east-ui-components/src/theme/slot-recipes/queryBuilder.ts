@@ -51,7 +51,7 @@ const dashed = {
 export const queryBuilderSlotRecipe = defineSlotRecipe({
     className: "elara-query-builder",
     slots: [
-        "root", "tab", "status",
+        "root", "tab", "status", "phoneSave", "phoneTabHint",
         // The toolbar's own items.
         "viewIcon", "copy", "menuLabel", "menuMeta",
         // The Query tab.
@@ -67,6 +67,10 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
         "dropZone", "dropTarget", "dropTitle", "dropMeta",
     ],
     base: {
+        /* A phone's Save…, half of the Query view's foot (QP29). */
+        phoneSave: { minHeight: "44px", width: "100%" },
+        /* What a tap does, at the foot of a phone's Datasets and Library (QP37). */
+        phoneTabHint: { flex: "none", minHeight: "44px", display: "flex", alignItems: "center", paddingX: "16px", paddingY: "4px", boxSizing: "border-box", fontFamily: "mono", fontSize: "label.lg", color: "fg.muted", background: "bg.surface", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle" },
         /* The builder's element around its frame: as tall as its host lets it be, and unframed; the autocomplete hangs inside it. */
         root: {
             position: "relative",

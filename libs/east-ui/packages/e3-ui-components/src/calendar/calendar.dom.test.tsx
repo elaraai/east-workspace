@@ -149,6 +149,23 @@ describe("the board keeps the keyboard (retest C4 and C5, 27 Oct 2026)", () => {
         expect(event(container, "job", "job1")).not.toBeNull();
     });
 
+    test("an Undo or a Redo leaves the keyboard where it stands, so the next key reaches the history too: an event's Delete, then Ctrl+Z, Ctrl+Shift+Z, ⌘Z and Ctrl+Y, each pressed where the focus is", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        const job = event(container, "job", "job1");
+        await press(job);
+        await act(async () => { job.focus(); });
+        await act(async () => { fireEvent.keyDown(job, { key: "Delete" }); }); await settle();
+        expect([event(container, "job", "job1"), document.activeElement]).toEqual([null, board(container)]);
+        const presses: [string, { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean }, boolean][] = [
+            ["z", { ctrlKey: true }, true], ["Z", { ctrlKey: true, shiftKey: true }, false], ["z", { metaKey: true }, true], ["y", { ctrlKey: true }, false],
+        ];
+        for (const [key, held, drawn] of presses) {
+            // A key goes where the focus is, as a keyboard's does: to the page itself once nothing holds it.
+            await act(async () => { fireEvent.keyDown(document.activeElement ?? document.body, { key, ...held }); }); await settle();
+            expect([event(container, "job", "job1") !== null, document.activeElement === board(container)], `${key} ${JSON.stringify(held)}`).toEqual([drawn, true]);
+        }
+    });
+
     test("a click on an empty part of the board, or of the Backlog, puts the keyboard in the Calendar: `]` and `[` step its period from there", async () => {
         const { container } = await h.mount(ex.calendarOperations);
         const user = userEvent.setup();

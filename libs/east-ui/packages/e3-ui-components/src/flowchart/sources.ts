@@ -4,58 +4,64 @@
  */
 
 /**
- * The sources of the Flowchart's rail its library follows (#1346): each
- * templates list's, whose shown keys narrow its tab's cards, and each
- * author's tab's that names one — and what the rail counts each source in,
- * the `flows` source among them. The shared `FollowSources` reads the
- * followed ones; the Flows tab pages the `flows` source itself.
+ * The sources of the Flowchart's rail it follows (#1502, `Flowchart Records
+ * Spec.md` R6, R14): each kind's cards' source, whose shown keys narrow its
+ * tab's cards; each author's tab's that names one; and, under `"dim"`, the
+ * states' and the transitions' own, whose shown keys say which rows draw as
+ * context — and what the rail counts each source in. The shared
+ * `FollowSources` reads them.
  *
  * @packageDocumentation
  */
 
 import { StringType, equalFor } from "@elaraai/east";
+import { getSomeorUndefined } from "@elaraai/east-ui-components";
+import { sourcePart } from "../shared/schedule/visibility.js";
+import { flowchartTabSource } from "./library.js";
 import type { FlowchartMessages } from "./messages.js";
 import type { FlowchartValue } from "./model.js";
+import { SOURCE_SORTS } from "./read.js";
 
 const stringEqual = equalFor(StringType);
 
 /**
- * The sources the library's data tabs follow: each templates list's, and each
- * author's tab's that names one — each once, in the library's order.
+ * The sources the Flowchart follows: each tab's — a kind's tab its cards', an
+ * author's tab its own — and, under `"dim"`, each kind read through its source
+ * of the rail, the states' and the transitions' — each once, in that order.
  *
  * @param value - The payload
  * @returns The sources' names
  */
 export function followedSources(value: FlowchartValue): string[] {
     const named = value.library.flatMap((tab) => {
-        switch (tab.type) {
-            case "flows": return [];
-            case "states":
-            case "transitions": return [tab.value.source];
-            case "tab": return tab.value.source.type === "some" ? [tab.value.source.value] : [];
-        }
+        const source = flowchartTabSource(value, tab);
+        return source === undefined ? [] : [source];
     });
+    if (value.narrowed.type === "dim") {
+        const chrome = getSomeorUndefined(value.slice);
+        for (const sort of SOURCE_SORTS) if (sourcePart(chrome, sort) !== undefined) named.push(sort);
+    }
     return named.filter((source, i) => named.findIndex((other) => stringEqual(other, source)) === i);
 }
 
 /**
- * What the rail counts each source in, by its name (#1346): the `flows`
- * source, flows; a templates list's, its templates; an author's tab's, its
- * name as running text writes it — the first tab that names a source naming it.
+ * What the rail counts each source in, by its name: a kind read through its
+ * source, its kind's name in the plural; a kind's cards' source, cards; an
+ * author's tab's, its name as a sentence writes it — the first that names a
+ * source naming it.
  *
  * @param value - The payload
- * @param m - The flowchart's messages
- * @param locale - The app's locale, which lowers a tab's name
+ * @param m - The Flowchart's messages
+ * @param locale - The app's locale, which lowers a name
  * @returns Each source's noun, by its name
  */
 export function sourceNouns(value: FlowchartValue, m: FlowchartMessages, locale: string): ReadonlyMap<string, string> {
-    const nouns = new Map<string, string>([["flows", m.flowNoun({ n: 2 })]]);
+    const nouns = new Map<string, string>();
+    for (const sort of SOURCE_SORTS) nouns.set(sort, m.kindNoun({ sort, n: 2 }));
     for (const tab of value.library) {
-        if (tab.type === "states" || tab.type === "transitions") {
-            if (!nouns.has(tab.value.source)) nouns.set(tab.value.source, m.templatesNoun({ tab: tab.type }));
-        } else if (tab.type === "tab" && tab.value.source.type === "some" && !nouns.has(tab.value.source.value)) {
-            nouns.set(tab.value.source.value, tab.value.name.toLocaleLowerCase(locale));
-        }
+        const source = flowchartTabSource(value, tab);
+        if (source === undefined || nouns.has(source)) continue;
+        nouns.set(source, tab.type === "tab" ? tab.value.name.toLocaleLowerCase(locale) : m.cardsNoun({ tab: tab.type }));
     }
     return nouns;
 }

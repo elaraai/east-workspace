@@ -123,7 +123,10 @@ export function noticeText(notice: SheetNotice, w: SheetWords): string {
         case "deleted": return m.noticeDeleted({
             n: notice.n, count: w.number(notice.n), what: notice.what, noun: noun(notice.noun), nouns: nouns(notice.nouns), again: notice.again,
         });
-        case "pasted": return m.noticePasted({ rows: w.number(notice.rows), cols: w.number(notice.cols), n: notice.skipped, skipped: w.number(notice.skipped) });
+        case "pasted": return m.noticePasted({
+            rows: w.number(notice.rows), cols: w.number(notice.cols), n: notice.skipped, skipped: w.number(notice.skipped),
+            wrote: notice.wrote ?? true, nActions: notice.actions ?? 0, actions: w.number(notice.actions ?? 0),
+        });
         case "copied": return m.noticeCopied({ rows: w.number(notice.rows), cols: w.number(notice.cols) });
         case "discarded": return m.noticeDiscarded();
         case "newRow": return m.noticeNewRow();

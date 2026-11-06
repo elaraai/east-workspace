@@ -29,6 +29,7 @@ import {
 import type { Formatters } from "@elaraai/east-ui-components";
 import { DAY, weekStart } from "../shared/schedule/window.js";
 import { isoWeekUTC, shiftCalendar } from "../shared/time/scale.js";
+import { shownViews } from "../shared/views.js";
 export { DAY, NARROW_WIDTH, dayStart, weekStart } from "../shared/schedule/window.js";
 
 /** The decoded payload. */
@@ -89,11 +90,35 @@ export type Selection = { type: "assignment" | "proposal" | "person"; key: strin
  *
  * @param layout - The layout
  * @param period - The period asked for
+ * @param offered - The periods this Roster offers (`viewPeriods`): a layout taking none of them keeps its own
  * @returns The period the layout shows
  */
-export function periodOf(layout: RosterLayout, period: RosterPeriod | undefined): RosterPeriod {
-    const takes = ROSTER_LAYOUT_PERIODS[layout];
+export function periodOf(layout: RosterLayout, period: RosterPeriod | undefined, offered: readonly { readonly type: string }[] = []): RosterPeriod {
+    const takes = shownViews(ROSTER_LAYOUT_PERIODS[layout], offered);
     return period !== undefined && takes.includes(period) ? period : takes[0]!;
+}
+
+/**
+ * Where pressing an issue goes, as its title's click takes it. In Week and Day, its day, with what it names selected. In
+ * Month, which draws no one duty, its week in Week (P24) — or, with Week not offered, the month stays and the person-week
+ * of the duty's person is selected: moving the date to a day of a week that starts in the month before would move the month.
+ *
+ * @param issue - The issue
+ * @param view - The view
+ * @param start - The first day of the issue's week
+ * @param week - The issue's week as drafted
+ * @param opensWeek - Whether the layout in view offers Week
+ * @returns The view to show and what to select; each `undefined` where it stays as it is
+ */
+export function issueGoesTo(issue: Issue, view: RosterView, start: Date, week: Week, opensWeek: boolean): { view: RosterView | undefined; select: Selection | undefined } {
+    const dated = issue.slot.type === "some" ? start.getTime() + Number(issue.slot.value.day) * DAY : undefined;
+    const named: Selection | undefined = issue.assignment.type === "some" ? { type: "assignment", key: issue.assignment.value }
+        : issue.fix.type === "some" && issue.fix.value.type === "accept" ? { type: "proposal", key: issue.fix.value.value }
+            : issue.slot.type === "some" ? { type: "slot", slot: issue.slot.value } : undefined;
+    if (view.period !== "month") return { view: dated === undefined ? undefined : { ...view, date: dated }, select: named };
+    if (opensWeek) return { view: { ...view, period: "week", date: dated ?? start.getTime() }, select: named };
+    const who = issue.assignment.type === "some" ? week.assignments.get(issue.assignment.value)?.who : undefined;
+    return { view: undefined, select: who?.type === "person" ? { type: "personWeek", key: who.value, start: start.getTime() } : undefined };
 }
 
 /**

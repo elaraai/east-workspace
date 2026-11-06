@@ -41,7 +41,7 @@ import type { AllocationEditing } from "./editing.js";
 import type { AllocationWords } from "./messages.js";
 import type { AllocationWindow } from "./window.js";
 import { DAY, allocationWords, type AllocationStyles, type AllocationValue, type Day, type Issue, type Load, type ResourceRow } from "./model.js";
-import { other, type Nouns } from "./nouns.js";
+import { counted, other, type Nouns } from "./nouns.js";
 
 /** Table, then Timeline, as the mock orders them. */
 const LAYOUTS = [{ key: "table", label: "Table", icon: faTable }, { key: "timeline", label: "Timeline", icon: faChartGantt }] as const;
@@ -98,6 +98,8 @@ interface ToolbarArgs extends AllocationWindow {
     words: AllocationWords;
     /** The day's status chip's words (A3): Not started, Draft, Published, or the app's own case; `undefined` without periods. */
     status: string | undefined;
+    /** Whether the day is published: its chip's tone, whatever its words. */
+    published: boolean;
     /**
      * Whether the day is not read yet (#1398, CL1): its status, its issues and Publish keep their slots, the status a
      * placeholder — never "Not started" before its row is read — and the issues one too, each unseen at its footprint
@@ -140,6 +142,9 @@ interface ToolbarArgs extends AllocationWindow {
 export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem | false | undefined> {
     const { value, view, setView, styles, commands, words, issues, editing } = args;
     const timeline = view.layout === "timeline";
+    // The layouts this board offers: its switch, in every form, only where there is a choice to make.
+    const layouts = LAYOUTS.filter(item => args.layouts.includes(item.key));
+    const switches = layouts.length > 1;
     // The narrowing: one rail over the bins, the lanes, the resources and the arrivals, in both layouts, each source counted in the board's noun
     // under the slot the app names it by (#1336, #1339); the bins' range is the board's own navigation, never a chip of the rail (#1372).
     const chrome = value.slice.type === "some" ? value.slice.value : undefined;
@@ -156,7 +161,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     // Search Records (#1398): primary-key navigation over the bins' record, at the row's end, its words saying so — `Search
     // bins by key`. Its box is the first thing the row folds, to its icon, before the rail and the day's steps (ruled 25 Oct
     // 2026); at the row's last step it goes into the View, beside the date and the controls.
-    const search = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK, label: words.m.keySearch() });
+    const search = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK, label: words.m.keySearch({ bins: other(value.labels.bin) }) });
     const summary = issueSummary(issues);
     const status = args.publishing ? "Publishing" : args.status;
     const unread = args.unread;
@@ -171,7 +176,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     if (!unread && historyHeld !== historyNow) setHistoryHeld(historyNow);
     const showHistory = history !== undefined && (historyNow || (unread && historyHeld));
     const layout = (key: "table" | "timeline") => setView({ ...view, layout: key });
-    const layoutSeg = (name: string) => <Seg label="Layout" scope="allocation" name={name} items={LAYOUTS} active={view.layout} onPick={layout} />;
+    const layoutSeg = (name: string) => <Seg label="Layout" scope="allocation" name={name} items={layouts} active={view.layout} onPick={layout} />;
     const focus = args.focus;
     // The Elara eye (#1409) and its entry: at the row's floor the eye goes into the View, which lists it in its place
     // (ruled 27 Oct 2026, "Into the View menu"); an eye with no entry keeps to the row.
@@ -181,7 +186,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     // where no Esc is (A13, A78).
     const controls = (withEye: boolean) => <Box css={styles.controls}>
         {search?.forms[0]}
-        {layoutSeg("compact-layout")}
+        {switches && layoutSeg("compact-layout")}
         {timeline && focus !== undefined && focusChip(false)}
         {value.inspector && summary.count > 0 && <Button size="xs" variant="ghost" onClick={args.onIssues}>{summary.label}</Button>}
         {withEye && eye?.entry}
@@ -192,7 +197,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         else if (key === "previous") args.step(-1); else if (key === "next") args.step(1);
         else if (key === "issues") args.onIssues(); else if (key === "publish" && canPublish) commands.publish();
     }}>
-        {LAYOUTS.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}
+        {layouts.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}
         <ChakraMenu.Separator /><ChakraMenu.Item value="previous">Previous day</ChakraMenu.Item><ChakraMenu.Item value="next">Next day</ChakraMenu.Item>
         {value.inspector && summary.count > 0 && <ChakraMenu.Item value="issues">{summary.label}</ChakraMenu.Item>}
         {heldPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish" disabled={!canPublish}>Publish</ChakraMenu.Item></>}
@@ -201,7 +206,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     function focusChip(compact: boolean) {
         if (focus === undefined) return null;
         const unit = value.bin.unit.type === "some" ? value.bin.unit.value : "";
-        const meta = `${plural(Number(focus.load.bins), "bin")} · ${allocationWords().quantity(focus.load.fill, unit)}${focus.hidden ? " · hidden by Filters" : ""}`;
+        const meta = `${counted(Number(focus.load.bins), value.labels.bin)} · ${allocationWords().quantity(focus.load.fill, unit)}${focus.hidden ? " · hidden by Filters" : ""}`;
         return <chakra.span css={chip({ tone: "brand", numeric: true })} title="The focus: its links are drawn · Esc returns to all" data-allocation-focus=""
             aria-label={`Focus ${focus.resource.label}, ${meta}`}>
             <span data-chip-icon=""><FontAwesomeIcon icon={faLink} /></span>
@@ -216,8 +221,9 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         controls={combined ? controls(withEye) : undefined} />;
     return [
         ...rail,
-        { key: "allocation.layout", side: "start", rank: HOST_RANK + 1, bundle: "allocation.view", forms: [layoutSeg("layout"), null] },
-        { key: "allocation.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["allocation.view", "allocation.controls"], forms: [null, menu, null] },
+        // With no switch, nothing folds into the View, so no View to fold to.
+        switches && { key: "allocation.layout", side: "start", rank: HOST_RANK + 1, bundle: "allocation.view", forms: [layoutSeg("layout"), null] },
+        switches && { key: "allocation.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["allocation.view", "allocation.controls"], forms: [null, menu, null] },
         // The day's navigation: compact, then the View holding the date and the controls; and, with an eye, at the row's
         // floor the View holding its entry too, in the step that takes the eye from the row (a rung of the floor).
         { key: "allocation.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6, OPTIMISE_RANK], bundle: [undefined, "allocation.controls", EYE_INTO_VIEW],
@@ -231,7 +237,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         status !== undefined && { key: "allocation.status", side: "start", rank: HOST_RANK, forms: [unread
             ? <Box css={[styles.status, styles.heldSlot]} data-allocation-status="" data-pending="" title="Plan status">
                 <PlaceholderShape kind="enum" index={0} /></Box>
-            : <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-allocation-status="" title="Plan status">{status}</Box>, null] },
+            : <Box css={styles.status} data-tone={args.published && !args.publishing ? "success" : "neutral"} data-allocation-status="" title="Plan status">{status}</Box>, null] },
         value.inspector && { key: "allocation.issues", side: "end", rank: HOST_RANK + 3, forms: [unread
             ? <Box css={styles.heldSlot} data-allocation-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
             : summary.count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} onClick={args.onIssues}

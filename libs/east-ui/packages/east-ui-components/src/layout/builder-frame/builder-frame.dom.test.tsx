@@ -26,6 +26,7 @@ import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
 import { pointAt } from "../../testing/drag-layer.js";
 import type { ToolbarItem } from "../../toolbar/index.js";
 import { BuilderFrame, type BuilderFrameDock, type BuilderFrameProps } from "./index.js";
+import { LoadingLine, type LoadingLineValue } from "./loading-line.js";
 import { keptName } from "../../platform/kept.js";
 
 // ── jsdom's layout, laid out by the test ────────────────────────────────────
@@ -326,22 +327,22 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
     });
 
     test("an overlay pane on a narrow frame is never wider than the frame less the other side's rail, less a 48px strip of main; an overlay narrower than that, and a pinned pane, keep their widths", async () => {
-        mount({ start: library(), end: properties() });
-        // A 324px phone: both panes overlay, each on its rail.
-        frameAt(324);
+        mount({ start: library({ size: "560px" }), end: properties({ size: "540px" }) });
+        // A 600px frame: both panes overlay, each on its rail.
+        frameAt(600);
         expect([paneOf("start"), paneOf("end")]).toEqual([["overlay", true], ["overlay", true]]);
-        // The 300px Properties take the frame less the Library's 44px rail, less the 48px strip.
+        // The 540px Properties take the frame less the Library's 44px rail, less the 48px strip.
         await press("Expand Properties");
-        expect([paneOf("end"), slot("end").style.width, sheet("end").style.width]).toEqual([["overlay", false], "44px", "232px"]);
-        // So do the 264px Library, beside the Properties' rail.
+        expect([paneOf("end"), slot("end").style.width, sheet("end").style.width]).toEqual([["overlay", false], "44px", "508px"]);
+        // So do the 560px Library, beside the Properties' rail.
         await press("Expand Library");
-        expect([paneOf("start"), slot("start").style.width, sheet("start").style.width]).toEqual([["overlay", false], "44px", "232px"]);
-        // On a wider phone the Library has the room: its own width.
-        frameAt(400);
-        expect([paneOf("start"), sheet("start").style.width]).toEqual([["overlay", false], "264px"]);
+        expect([paneOf("start"), slot("start").style.width, sheet("start").style.width]).toEqual([["overlay", false], "44px", "508px"]);
+        // On a wider frame the Library has the room: its own width.
+        frameAt(700);
+        expect([paneOf("start"), sheet("start").style.width]).toEqual([["overlay", false], "560px"]);
         // Pinned, a pane is its own width in the flow.
-        frameAt(1440);
-        expect([paneOf("start"), slot("start").style.width, sheet("start").style.width]).toEqual([["pinned", false], "264px", ""]);
+        frameAt(1800);
+        expect([paneOf("start"), slot("start").style.width, sheet("start").style.width]).toEqual([["pinned", false], "560px", ""]);
     });
 
     test("Esc closes the open overlay pane before anything else hears it — from the pane or from main — and returns the focus to its rail", async () => {
@@ -407,21 +408,22 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
         expect([paneOf("start"), scrim()]).toEqual([["overlay", true], null]);
     });
 
-    test("the scrim covers main while any overlay pane is open at 560px and narrower — and not on a wider frame", () => {
+    test("an overlay pane open at 560px and narrower is a phone's view over the whole builder, needing no scrim — and on a wider frame no scrim at all", () => {
         mount({ start: library({ mode: "overlay" }) });
         frameAt(561);
         expect([paneOf("start"), scrim()]).toEqual([["overlay", false], null]);
         frameAt(560);
-        expect(scrim()).not.toBeNull();
+        expect([scrim(), drawerOf("start").hasAttribute("data-open")]).toEqual([null, true]);
         frameAt(390);
-        expect(scrim()).not.toBeNull();
+        expect([scrim(), drawerOf("start").hasAttribute("data-open")]).toEqual([null, true]);
         frameAt(900);
         expect(scrim()).toBeNull();
     });
 
     test("a tap on the scrim with the focus in the pane puts the focus on its rail", async () => {
-        mount({ start: library({ mode: "overlay" }) });
-        frameAt(390);
+        mount({ start: library() });
+        frameAt(700);
+        await press("Expand Library");
         screen.getByRole("button", { name: "CARD" }).focus();
         await act(async () => { fireEvent.click(scrim()!); });
         expect([paneOf("start"), document.activeElement]).toEqual([["overlay", true], screen.getByRole("button", { name: "Expand Library" })]);
@@ -495,7 +497,7 @@ function Card() {
 describe("BuilderFrame — a drag (#1125 F1)", () => {
     test("while a drag is under way an open overlay pane slides off main and its scrim lifts; both come back when it ends", async () => {
         mount({ start: library({ tabs: [{ key: "cards", label: "Cards", body: <Card /> }] }) });
-        frameAt(390);
+        frameAt(700);
         await press("Expand Library");
         expect([sheet("start").style.transform, scrim() !== null]).toEqual(["", true]);
 
@@ -523,5 +525,158 @@ describe("BuilderFrame — a drag (#1125 F1)", () => {
         expect([sheet("start").style.transform, sheet("end").style.transform]).toEqual(["", "translateX(100%)"]);
         await act(async () => { fireEvent.pointerUp(document, { clientX: 10, clientY: 10 }); });
         expect(sheet("end").style.transform).toBe("");
+    });
+});
+
+// ── A phone's frame (Mobile Builder Frame Spec.md, ruled 3 Nov 2026) ──────────
+
+/** A pane's drawer on a phone. */
+const drawerOf = (side: "start" | "end"): HTMLElement => frame().querySelector<HTMLElement>(`[data-frame-drawer][data-frame-slot="${side}"]`)!;
+/** Which drawers are open. */
+const drawersOpen = () => (["start", "end"] as const).map((side) => drawerOf(side).hasAttribute("data-open"));
+/** A pane's tab on the strip. */
+const stripTab = (side: "start" | "end"): HTMLElement => frame().querySelector<HTMLElement>(`[data-pane-tab="${side}"]`)!;
+
+/** Items as a builder lists them: a name, the Elara eye and the history, each of the last two drawing a second row's form. */
+const phoneItems: ToolbarItem[] = [
+    { key: "name", forms: [<span>Untitled</span>] },
+    { key: "optimise", side: "end", forms: [<button type="button">EYE</button>], secondRow: <button type="button">EYE ROW</button> },
+    { key: "history", side: "end", forms: [<button type="button">SAVE</button>], secondRow: <span>HISTORY ROW</span> },
+];
+
+describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR4–FR6)", () => {
+    test("at 560px and narrower the frame stacks: the toolbar, its second row, main the whole width, the pane strip — the items that draw a second row leave the first for it, in item order", () => {
+        mount({ toolbar: phoneItems, start: library(), end: properties(), footer: <div>STATUS</div> });
+        frameAt(1440);
+        expect([regions(), across()]).toEqual([["toolbar", "body", "footer"], ["start", "main", "end"]]);
+        expect([...slot("toolbar").querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"))).toEqual(["name", "optimise", "history"]);
+        frameAt(560);
+        expect(frame().hasAttribute("data-phone")).toBe(true);
+        // No status given: the footer stays, its loading line has no other home. Each pane is a view over the whole
+        // builder, at the frame's root, and the overlay slot over every region.
+        expect([regions(), across()]).toEqual([["toolbar", "sessionRow", "sessionBand", "body", "bottomPanel", "paneStrip", "footer", "start", "end", "overlay"], ["main"]]);
+        expect([...slot("toolbar").querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"))).toEqual(["name"]);
+        expect(slot("sessionRow").textContent).toBe("EYE ROWHISTORY ROW");
+        frameAt(561);
+        expect([regions(), frame().hasAttribute("data-phone")]).toEqual([["toolbar", "body", "footer"], false]);
+    });
+
+    test("the footer's loading line is the second row's start on a phone, in its short form, leaving a marker the frame hides the footer by; on a wider frame it is the footer's", () => {
+        const line: LoadingLineValue = { kind: "failed", text: "Couldn't read rows 1–40", short: "Couldn't read", onRetry: () => undefined };
+        mount({ toolbar: phoneItems, start: library(), footer: <div><span>LEGEND</span><LoadingLine value={line} shown form="full" /></div> });
+        frameAt(1440);
+        expect([slot("footer").querySelector("[data-footer-line]")?.getAttribute("data-form"), slot("footer").querySelector("[data-footer-line-moved]")]).toEqual(["full", null]);
+        frameAt(390);
+        const status = slot("sessionRow").querySelector("[data-session-status]")!;
+        expect([status.querySelector("[data-footer-line]")?.getAttribute("data-form"), slot("sessionRow").firstElementChild]).toEqual(["short", status]);
+        expect([slot("footer").querySelector("[data-footer-line]"), slot("footer").querySelector("[data-footer-line-moved]") !== null, slot("footer").textContent]).toEqual([null, true, "LEGEND"]);
+        frameAt(1440);
+        expect([slot("footer").querySelector("[data-footer-line]") !== null, regions()]).toEqual([true, ["toolbar", "body", "footer"]]);
+    });
+
+    test("a footer with no loading line stays a phone's, and the row is drawn for the footer's line even with no item of its own", () => {
+        mount({ footer: <div>STATUS</div> });
+        frameAt(390);
+        expect([regions(), slot("footer").querySelector("[data-footer-line-moved]")]).toEqual([["sessionRow", "sessionBand", "body", "bottomPanel", "footer", "overlay"], null]);
+    });
+
+    test("each described pane is a tab of the strip — its icon, its label and its detail or badge — and opens as a drawer from it; again, it closes, the focus back on the tab", async () => {
+        mount({ start: library({ badge: 3 }), end: properties({ detail: "WO-1042", active: true }) });
+        frameAt(390);
+        expect(slot("paneStrip").getAttribute("role")).toBe("tablist");
+        expect([stripTab("start").textContent, stripTab("end").textContent]).toEqual(["Library 3", "Properties WO-1042"]);
+        expect([stripTab("start").querySelector("svg[data-icon=book]") !== null, stripTab("end").hasAttribute("data-active")]).toEqual([true, true]);
+        // Both closed at first: an auto pane overlaying closes.
+        expect([drawersOpen(), stripTab("start").getAttribute("aria-selected"), drawerOf("start").getAttribute("aria-hidden")]).toEqual([[false, false], "false", "true"]);
+        await act(async () => { fireEvent.click(stripTab("start")); });
+        expect([drawersOpen(), stripTab("start").getAttribute("aria-selected"), drawerOf("start").getAttribute("role"), drawerOf("start").getAttribute("aria-label")])
+            .toEqual([[true, false], "true", "region", "Library"]);
+        // The focus moves in, onto its open tab; the view covers the builder, no scrim (ruled 3 Nov 2026).
+        expect([document.activeElement, scrim()]).toEqual([screen.getByRole("tab", { name: "Cards" }), null]);
+        await act(async () => { fireEvent.click(stripTab("start")); });
+        expect([drawersOpen(), document.activeElement]).toEqual([[false, false], stripTab("start")]);
+    });
+
+    test("one drawer is open at a time; Esc and its collapse each close it, the focus back on its tab", async () => {
+        mount({ start: library(), end: properties() });
+        frameAt(390);
+        await act(async () => { fireEvent.click(stripTab("start")); });
+        await act(async () => { fireEvent.click(stripTab("end")); });
+        expect(drawersOpen()).toEqual([false, true]);
+        await told();
+        expect(drawersOpen()).toEqual([false, true]);
+
+        fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+        expect([drawersOpen(), document.activeElement]).toEqual([[false, false], stripTab("end")]);
+
+        await act(async () => { fireEvent.click(stripTab("start")); });
+        // Its collapse, at its head, points down toward the strip.
+        const collapse = screen.getByRole("button", { name: "Collapse Library" });
+        expect(collapse.querySelector("svg[data-icon=angles-down]")).not.toBeNull();
+        await act(async () => { fireEvent.click(collapse); });
+        await told();
+        expect([drawersOpen(), document.activeElement]).toEqual([[false, false], stripTab("start")]);
+    });
+
+    test("a drawer keeps the pane's open tab across the width, under the same storage key", async () => {
+        mount({ start: library() });
+        frameAt(1440);
+        await act(async () => { fireEvent.click(screen.getByRole("tab", { name: "Pages" })); });
+        frameAt(390);
+        await act(async () => { fireEvent.click(stripTab("start")); });
+        expect(openTab("start")).toEqual(["Pages"]);
+        expect(drawerOf("start").textContent).toContain("PAGES");
+    });
+
+    test("an item takes the second row only from its `secondRowFrom` up: the eye below a 312px frame stays in the first row, folding there (ruled 3 Nov 2026)", () => {
+        const items: ToolbarItem[] = [
+            phoneItems[0]!,
+            { ...phoneItems[1]!, secondRowFrom: 312 },
+            phoneItems[2]!,
+        ];
+        mount({ toolbar: items });
+        const firstRow = () => [...slot("toolbar").querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"));
+        frameAt(390);
+        expect([firstRow(), slot("sessionRow").textContent]).toEqual([["name"], "EYE ROWHISTORY ROW"]);
+        frameAt(311);
+        expect([firstRow(), slot("sessionRow").textContent]).toEqual([["name", "optimise"], "HISTORY ROW"]);
+        frameAt(312);
+        expect(firstRow()).toEqual(["name"]);
+    });
+
+    test("The rail's button and Search Records, placed by their phone order, stand at the first row's end, the slack before them — unless view tabs take it, or the builder's own items end the row (FR2)", () => {
+        const turn: ToolbarItem = { key: "turn", forms: [<button type="button">LR</button>] };
+        const rail: ToolbarItem = { key: "rail", forms: [<span>CHIPS</span>], phone: { form: <button type="button">RAIL</button>, order: 1 } };
+        const count: ToolbarItem = { key: "count", side: "end", forms: [<span>3 ROWS</span>], phone: { form: <span>3 ROWS</span>, shrink: true } };
+        const search: ToolbarItem = { key: "search", forms: [<input aria-label="FIND" />], phone: { form: <button type="button">SEARCH</button>, order: 2 } };
+        /** The first row's items, by key, the one the row's slack stands before (`data-toolbar-end`) marked. */
+        const firstRow = () => [...slot("toolbar").querySelectorAll("[data-toolbar-item]")]
+            .map((el) => `${el.hasAttribute("data-toolbar-end") ? "| " : ""}${el.getAttribute("data-toolbar-item")}`);
+        // No rail: Search Records at the row's end, after the builder's own item; on a wider frame, the row as listed.
+        mount({ toolbar: [search, turn] });
+        frameAt(390);
+        expect(firstRow()).toEqual(["turn", "| search"]);
+        frameAt(1440);
+        expect(firstRow()).toEqual(["search", "turn"]);
+        cleanup();
+        // The count gives way before the rail's button, which leads the row's end, Search Records after it.
+        mount({ toolbar: [turn, rail, count, search] });
+        frameAt(390);
+        expect(firstRow()).toEqual(["turn", "count", "| rail", "search"]);
+        cleanup();
+        // View tabs that grow take the slack; an end item of the builder's own keeps the row's end.
+        mount({ toolbar: [{ key: "tabs", forms: [<span>TABS</span>], phone: { form: <span>TABS</span>, grow: true } }, turn, search] });
+        frameAt(390);
+        expect(firstRow()).toEqual(["tabs", "turn", "search"]);
+        cleanup();
+        mount({ toolbar: [turn, search, { key: "publish", side: "end", forms: [<button type="button">PUBLISH</button>] }] });
+        frameAt(390);
+        expect(firstRow()).toEqual(["turn", "search", "| publish"]);
+    });
+
+    test("a pane that never collapses and an { element } pane stay pinned at their sides on a phone, with no strip tab", () => {
+        mount({ start: library({ collapsible: false }), end: { element: <aside>OWN PANE</aside> } });
+        frameAt(390);
+        expect([across(), slot("paneStrip")]).toEqual([["start", "main", "end"], null]);
     });
 });

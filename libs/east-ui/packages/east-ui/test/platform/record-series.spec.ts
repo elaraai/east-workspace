@@ -188,7 +188,7 @@ test("a summary's run is its tiles from the one before the range to the one afte
 const indexType = ArrayType(RecordSliceIndexType);
 const week = { key: "press", from: "start", to: "end", tile: variant("week", null) };
 const month = { ...week, tile: variant("month", null) };
-const plain = { interval: none, area: none, series: none, summary: none };
+const plain = { interval: none, area: none, series: none, summary: none, entries: false };
 // A generated index's fields are the row fields it is led by alone (#1432): its key's `on`.
 const indexes = decodeBeast2For(indexType)(encodeBeast2For(indexType)([
     { name: "jobs_by_time", fields: [], sets: new Set(), structured: true, ...plain, interval: some({ from: "start", to: "end", optional: false }) },

@@ -37,6 +37,8 @@ import { logControlsOf, type PreviewControls } from './preview-controls.js';
 import type { LogMatches } from './VirtualizedLogViewer.js';
 
 type ViewMode = 'output' | 'logs';
+/** The tabs, in the switch's order. */
+const VIEWS = [{ value: 'output', label: 'Output', icon: faCode }, { value: 'logs', label: 'Logs', icon: faTerminal }] as const;
 
 export interface DataTaskPreviewProps {
     apiUrl: string;
@@ -51,6 +53,8 @@ export interface DataTaskPreviewProps {
     view?: ViewMode;
     /** Told the tab the preview's switch picks. */
     onViewChange?: (view: ViewMode) => void;
+    /** The tabs this preview offers; omitted or empty, both. One left, no switch shows, and a tab left out is never drawn. */
+    views?: readonly ViewMode[];
     /** Max output bytes to render inline (above → download button). Default 200KB. */
     sizeLimit?: number;
     /** `false` draws no band — no Output/Logs switch; no key search, size or
@@ -107,6 +111,7 @@ export const DataTaskPreview = memo(function DataTaskPreview({
     initialView = 'output',
     view,
     onViewChange,
+    views,
     sizeLimit,
     toolbar = true,
     search,
@@ -124,7 +129,9 @@ export const DataTaskPreview = memo(function DataTaskPreview({
 }: DataTaskPreviewProps) {
     // The tab: the host's when it controls it, else the preview's own.
     const [ownView, setOwnView] = useState<ViewMode>(initialView);
-    const viewMode = view ?? ownView;
+    const offered = VIEWS.filter(({ value }) => views === undefined || views.length === 0 || views.includes(value));
+    const asked = view ?? ownView;
+    const viewMode: ViewMode = offered.some(({ value }) => value === asked) ? asked : offered[0]!.value;
     const pick = (next: ViewMode): void => {
         if (view === undefined) setOwnView(next);
         onViewChange?.(next);
@@ -143,7 +150,7 @@ export const DataTaskPreview = memo(function DataTaskPreview({
 
     return (
         <Box height="100%" display="flex" flexDirection="column" overflow="hidden">
-            {toolbar && (
+            {toolbar && offered.length > 1 && (
                 <Flex
                     px={4} py={2}
                     borderBottom="1px solid" borderColor="border.subtle" bg="bg.surface"
@@ -155,18 +162,14 @@ export const DataTaskPreview = memo(function DataTaskPreview({
                         onValueChange={(d) => pick(d.value as ViewMode)}
                     >
                         <SegmentGroup.Indicator />
-                        <SegmentGroup.Item value="output" title="Output">
-                            <SegmentGroup.ItemText>
-                                <FontAwesomeIcon icon={faCode} />
-                            </SegmentGroup.ItemText>
-                            <SegmentGroup.ItemHiddenInput />
-                        </SegmentGroup.Item>
-                        <SegmentGroup.Item value="logs" title="Logs">
-                            <SegmentGroup.ItemText>
-                                <FontAwesomeIcon icon={faTerminal} />
-                            </SegmentGroup.ItemText>
-                            <SegmentGroup.ItemHiddenInput />
-                        </SegmentGroup.Item>
+                        {offered.map(({ value, label, icon }) => (
+                            <SegmentGroup.Item key={value} value={value} title={label}>
+                                <SegmentGroup.ItemText>
+                                    <FontAwesomeIcon icon={icon} />
+                                </SegmentGroup.ItemText>
+                                <SegmentGroup.ItemHiddenInput />
+                            </SegmentGroup.Item>
+                        ))}
                     </SegmentGroup.Root>
                 </Flex>
             )}

@@ -215,7 +215,7 @@ const rowOf = (entry: string) => /k="([^"]+)"\)$/.exec(entry)![1]!;
 /** People of the picking group the box's first listing holds — A. Osier, D. Quarry — whom the rail's choice of picking shows: never asked of. */
 const PICKING: ReadonlySet<string> = new Set(["aosier", "dquarry"]);
 /** What hides a person of another group while the rail shows picking's, as the rail words the choice. */
-const BY_PICKING = "hidden by Group: picking — picking it clears that filter";
+const BY_PICKING = "hidden by Group: Picking — picking it clears that filter";
 const whereEqual = equalFor(RecordSliceWhereType);
 /** The duties' narrowing — the week's window the Roster writes into it — as the store keeps it. */
 const dutyWhere = (store: UIStore) => decodeBeast2For(RecordSliceStateType)(store.read("ex.rosterWarehouse.duty")!).where;

@@ -35,10 +35,11 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
 import { e3Requests, heldE3, holdE3, installE3Faults, mutateE3, releaseE3 } from "./e3-faults";
 import { drawnSel, openExample } from "./plan-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /** The nested series examples file, in the catalog. */
 const NESTED = "e3/plan/plan-nested";
-/** The example: every series a Plan reads a cell at a time, over two hundred works. */
+/** The example: every series a Plan reads a cell at a time, over a hundred works. */
 const ALL = "planNestedAll";
 /** The workspace of the Plan's area in the page's e3: the area's own name. */
 const WORKSPACE = "plan";
@@ -93,11 +94,11 @@ async function numbersOf(row: Locator): Promise<Map<string, number>> {
 
 /**
  * Leaves the series named on, and switches every other one the example shows off, from the library's Series tab — on a
- * phone, the library's rail opened for it and closed after.
+ * phone, the library's view opened for it and closed after.
  */
 async function onlySeries(page: Page, entry: Locator, keep: readonly string[]): Promise<void> {
     const narrow = narrowOf(page);
-    if (narrow) await entry.getByRole("button", { name: "Expand Library" }).click();
+    if (narrow) await entry.locator("[data-pane-tab='start']").click();
     const pane = entry.locator('[data-frame-slot="start"]');
     for (const title of SHOWN.filter((t) => !keep.includes(t))) {
         await pane.getByRole("button", { name: `Toggle ${title}`, exact: true }).click();
@@ -191,11 +192,11 @@ const GESTURES = {
         if (narrow) await entry.locator("[data-plan-more='rows']").click();
         else await entry.locator(SCROLLER).evaluate((el) => { el.scrollTop = 75 * 32; });
     },
-    // A week on: at 1440 the canvas's `]` on a row, whichever form the toolbar's navigation is in; on a phone, the View
-    // popover's Next week.
+    // A week on: at 1440 the canvas's `]` on a row, whichever form the toolbar's navigation is in; on a phone, the date
+    // navigator's popover's Next week.
     pan: async (page: Page, entry: Locator, narrow: boolean) => {
         if (narrow) {
-            await entry.getByRole("button", { name: "View" }).click();
+            await entry.getByRole("button", { name: "Choose plan dates" }).click();
             await page.getByRole("button", { name: "Next week", exact: true }).click();
             await page.keyboard.press("Escape");
         } else {
@@ -203,11 +204,12 @@ const GESTURES = {
             await page.keyboard.press("]");
         }
     },
-    // To a month: the toolbar's resolution, at 1440; on a phone, the View popover's.
+    // To a month: the toolbar's resolution, at 1440; on a phone, its chip's menu.
     zoom: async (page: Page, entry: Locator, narrow: boolean) => {
-        if (narrow) await entry.getByRole("button", { name: "View" }).click();
-        await (narrow ? page : entry.locator("[data-frame-slot='toolbar']")).getByRole("radio", { name: /^month$/i }).click();
-        if (narrow) await page.keyboard.press("Escape");
+        if (narrow) {
+            await entry.getByRole("button", { name: "Resolution" }).click();
+            await page.getByRole("menuitem", { name: /^month$/i }).click();
+        } else await entry.locator("[data-frame-slot='toolbar']").getByRole("radio", { name: /^month$/i }).click();
     },
 } as const;
 
@@ -229,7 +231,7 @@ async function crowd(page: Page): Promise<void> {
         [encodeBeast2For(PatchType(type))(diffFor(type)(keyed(works), keyed({ ...works, jobs })))]);
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test.describe(`${theme}: a Plan reading its rows' nested series a cell at a time (#1438)`, () => {
         test.use({ viewport: { width: 1440, height: 900 } });
         defineChecks(theme, "@desktop");
@@ -289,8 +291,12 @@ function defineChecks(theme: "light" | "dark", tag: "@desktop" | "@mobile"): voi
         const sum = works.locator(`[data-cell="${at}"]`);
         const was = (await numberIn(cell))!;
         const before = (await numberIn(sum))!;
-        if (narrow) await cell.tap();
-        else await cell.dblclick();
+        // In the window's middle on a phone: a popover flips above a cell at the window's foot, and this one is held to below it.
+        if (narrow) {
+            await cell.evaluate((el) => { el.scrollIntoView({ block: "center" }); });
+            await settled(page);
+            await cell.tap();
+        } else await cell.dblclick();
         const field = page.locator("[data-plan-typing]");
         const input = field.locator("input");
         await expect(input).toBeFocused();

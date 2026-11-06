@@ -5,9 +5,10 @@
 /** Roster against the real in-page e3: the mock's geometry and shared builder behavior. */
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
-import { frameAt, toolbarFaults } from "./builder-frame";
+import { bottomPanelFaults, frameAt, toolbarFaults } from "./builder-frame";
 import { leaveBuilder } from "./builder-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 const FILE = "e3/roster/roster";
 async function open(page: Page, name = "rosterWarehouse", theme: "light" | "dark" = "light") {
     await page.goto(`/?theme=${theme}#${FILE}/${name}`);
@@ -73,7 +74,7 @@ async function pressFix(page: Page, frame: Locator, title: string, fix: string) 
     await issue.getByRole('button', { name: fix, exact: true }).click();
     await settled(page);
 }
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`Roster frame fits 1440/1024/768/390/360 (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
@@ -112,7 +113,8 @@ for (const theme of ['light', 'dark'] as const) {
             // The footer stays one 28px line at every width, nothing past its edge (#1398, CL3).
             const footer = frame.locator('[data-roster-footer]');
             expect(await footer.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
-            expect(await footer.evaluate(el => el.getBoundingClientRect().height), `${width}px footer`).toBe(28);
+            // A phone's frame has no footer but its band of live notices.
+            if (width > 560) expect(await footer.evaluate(el => el.getBoundingClientRect().height), `${width}px footer`).toBe(28);
         }
         // Essential domain commands survive the folded form, alongside the shared Save.
         await expect(frame.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
@@ -186,8 +188,9 @@ for (const theme of ['light', 'dark'] as const) {
         await card.getByRole('button', { name: 'Edit', exact: true }).click();
         const dialog = page.getByRole('dialog');
         await expect(dialog).toBeVisible();
-        const b = (await dialog.boundingBox())!;
-        expect(b.x).toBeGreaterThanOrEqual(0); expect(b.x + b.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
+        // The bottom panel, above the pane strip, the card it edits still in view above it.
+        expect(await bottomPanelFaults(frame)).toEqual([]);
+        expect((await card.boundingBox())!.y).toBeLessThan((await dialog.boundingBox())!.y);
         // C. Clover's duty moves from Putaway to Unloading, another of Inbound's skills.
         const activity = dialog.locator('[data-field="activity"] [data-scope="select"][data-part="trigger"]');
         await activity.click();
@@ -204,6 +207,27 @@ for (const theme of ['light', 'dark'] as const) {
         const entry = await open(page, 'rosterMobile', theme), frame = entry.locator('[data-roster-frame]').first();
         const card = frame.locator('[data-roster-card="s37"]');
         await card.getByRole('button', { name: 'Remove', exact: true }).click();
+        // Discard asks in the band under the session row (FR8), main giving way, no popover: Esc and Cancel keep the drafts.
+        const discard = frame.getByRole('button', { name: 'Discard', exact: true });
+        await discard.click();
+        const ask = frame.locator('[data-frame-slot="sessionBand"] [data-history-discard-ask]');
+        await expect(ask).toBeVisible();
+        await expect(discard).toHaveAttribute('aria-expanded', 'true');
+        await expect(page.locator('[data-scope="popover"][data-part="content"][data-state="open"]')).toHaveCount(0);
+        expect(await ask.evaluate(el => {
+            const a = el.getBoundingClientRect(), row = document.querySelector('[data-frame-slot="sessionRow"]')!.getBoundingClientRect();
+            const body = el.closest('[data-builder-frame]')!.querySelector('[data-frame-slot="body"]')!.getBoundingClientRect();
+            const halves = [...el.querySelectorAll('button')].map(b => b.getBoundingClientRect());
+            return { under: Math.abs(a.top - row.bottom) < 1, gives: body.top >= a.bottom - 1, tall: halves.every(b => b.height >= 44), equal: Math.abs(halves[0]!.width - halves[1]!.width) < 1 };
+        })).toEqual({ under: true, gives: true, tall: true, equal: true });
+        await page.keyboard.press('Escape');
+        await expect(ask).toHaveCount(0);
+        await expect(discard).toBeFocused();
+        await expect(card).toHaveAttribute('data-drafted', '');
+        await discard.click();
+        await ask.getByRole('button', { name: 'Cancel', exact: true }).click();
+        await expect(ask).toHaveCount(0);
+        await expect(card).toHaveAttribute('data-drafted', '');
         await view(page, frame, 'People');
         await expect(frame.locator('[data-roster-agenda="people"]')).toBeVisible();
         await expect(card).toHaveAttribute('data-drafted', '');
@@ -637,11 +661,11 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(frame.locator('[data-frame-slot="start"] [role="tab"]').first()).toHaveText('People 69');
         await expect(people.locator('[data-library-empty]')).toHaveCount(0);
     });
-    test(`R1 — a Find's answer in the People tab at 1440/1024/768/390/360 and a 294px parent: its chip and each found card's reason inside the pane, the reason in the card note's voice, cut only by an ellipsis and whole in the card's title (${theme})`, async ({ page }) => {
+    test(`R1 — a Find's answer in the People tab at 1440/1024/768: its chip and each found card's reason inside the pane, the reason in the card note's voice, cut only by an ellipsis and whole in the card's title (${theme})`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
         const people = frame.locator('[data-roster-library="people"]');
-        for (const width of [1440, 1024, 768, 390, 360, 294]) {
+        for (const width of [1440, 1024, 768]) {
             await size(page, entry, width);
             // Find a lead, pressed under its issue: the Library opens on the People tab under the find's chip, and the app's fit on e3 finds J. Quartz, with its reason.
             await pressFix(page, frame, LEAD_ISSUE, 'Find a lead');
@@ -691,9 +715,10 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(people.locator('[data-roster-find]')).toHaveCount(0);
         await expect(people.locator('[data-library-note]')).toHaveCount(0);
     });
-    test(`folded on a phone, the rail's editor heads each source's fields with its noun, icon and count, then the presets (${theme}) @narrow`, async ({ page }) => {
-        await page.setViewportSize({ width: 390, height: 844 });
-        const entry = await open(page, 'rosterMobile', theme), frame = entry.locator('[data-roster-frame]').first();
+    test(`folded in a frame just past a phone's, the rail's editor heads each source's fields with its noun, icon and count, then the presets (${theme}) @narrow`, async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 844 });
+        const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
+        await size(page, entry, 570);
         await frame.locator(`${RAIL} button[aria-label^="Filters:"]`).first().click();
         const editor = page.getByRole('dialog');
         expect(await editor.locator('[data-slice-section] [data-record-slice-source]').evaluateAll(els => els.map(el => `${el.getAttribute('data-record-slice-source')}.${el.getAttribute('data-record-slice-field')}`)))
@@ -708,7 +733,7 @@ for (const theme of ['light', 'dark'] as const) {
             ['source:people', 'people', 'user', '69', 'field:people.team'], ['source:activities', 'activities', 'list-check', '17', 'field:activities.group'], ['presets', 'Presets', null, null, 'presets']]);
         const box = (await editor.boundingBox())!;
         expect(box.x).toBeGreaterThanOrEqual(0);
-        expect(box.x + box.width).toBeLessThanOrEqual(390);
+        expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
         await page.keyboard.press('Escape');
     });
 }

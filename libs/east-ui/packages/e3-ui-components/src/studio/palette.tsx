@@ -25,10 +25,15 @@
  * pinned beside the canvas on a desktop, over it on a narrow screen — and
  * each tab is the Library's.
  *
+ * On a phone (`Studio Mobile Spec.md` ST22, ST23) each tab opens with a line of
+ * what to do; a card has no grip, and a tap on it starts placing it; a card says
+ * when its component is on the page.
+ *
  * @packageDocumentation
  */
 
 import { useMemo } from "react";
+import { Box } from "@chakra-ui/react";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { PaletteCardType, PalettePageType, StudioComponentType } from "@elaraai/e3-ui/internal";
 import {
@@ -38,6 +43,7 @@ import {
     type LibraryItemValue,
     type LibraryValue,
 } from "@elaraai/east-ui-components";
+import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 
 import { useStudioMessages } from "./messages.js";
 
@@ -66,6 +72,8 @@ export interface StudioPaletteProps {
     onOpen: (page: string) => void;
     /** Where the palette's libraries keep their state. */
     storageKey: string;
+    /** In a phone's frame: what a card's tap starts, and the components on the page. */
+    phone?: { onPlace: (component: Component) => void; onPage: ReadonlySet<string> } | undefined;
 }
 
 /**
@@ -76,9 +84,10 @@ export interface StudioPaletteProps {
  * @returns The palette's pane: the Components and Pages tabs, 264px wide
  */
 export function useStudioPalette({
-    components, cards, pages, open, ids, onSelect, onOpen, storageKey,
+    components, cards, pages, open, ids, onSelect, onOpen, storageKey, phone,
 }: StudioPaletteProps): BuilderFrameDock {
     const m = useStudioMessages();
+    const styles = useSlotStyles("studioPhone");
     const words = useFormatters();
 
     const componentsLibrary = useMemo((): LibraryValue => ({
@@ -89,11 +98,11 @@ export function useStudioPalette({
             return {
                 key: component.key,
                 label: component.name,
-                sublabel: card === undefined ? none : some(card.meta),
+                sublabel: card === undefined ? none : some(phone?.onPage.has(component.key) === true && card.meta !== "" ? `${card.meta} · ${m.phoneOnPage()}` : card.meta),
                 icon: some(component.icon),
                 status: none,
                 trailing: some({ icon: "lock", label: m.logicFixed(), tone: none }),
-                draggable: true,
+                draggable: phone === undefined,
                 filtered: false,
                 placed: card?.placed ?? false,
                 media: none,
@@ -119,13 +128,18 @@ export function useStudioPalette({
         noun: some(m.componentNoun()),
         addLabel: none,
         onAdd: none,
-        onCardClick: some((key: string) => { onSelect(key); return null; }),
+        onCardClick: some((key: string) => {
+            const picked = phone === undefined ? undefined : components.find((c) => c.key === key);
+            if (picked !== undefined) phone?.onPlace(picked);
+            else onSelect(key);
+            return null;
+        }),
         slice: none,
         style: some({ height: some("fill"), maxHeight: none, virtualization: some(false), columns: none, mediaPlacement: none, mediaSize: none }),
         variant: none,
         layout: none,
         toolbar: true,
-    }), [ids.components, components, cards, m, onSelect]);
+    }), [ids.components, components, cards, m, onSelect, phone]);
 
     const pagesLibrary = useMemo((): LibraryValue => ({
         id: ids.pages,
@@ -176,8 +190,16 @@ export function useStudioPalette({
         badge: words.number(components.length),
         size: "264px",
         tabs: [
-            { key: "components", label: m.components(), body: <EastChakraLibrary value={componentsLibrary} storageKey={`${storageKey}.palette.components`} /> },
-            { key: "pages", label: m.pages(), body: <EastChakraLibrary value={pagesLibrary} storageKey={`${storageKey}.palette.pages`} /> },
+            {
+                key: "components", label: m.components(), count: phone === undefined ? undefined : words.number(components.length),
+                body: phone === undefined ? <EastChakraLibrary value={componentsLibrary} storageKey={`${storageKey}.palette.components`} />
+                    : <Box css={styles.paneBody} data-library-phone="studio"><Box css={styles.intro} data-studio-intro="">{m.phoneComponentsIntro()}</Box><EastChakraLibrary value={componentsLibrary} storageKey={`${storageKey}.palette.components`} /></Box>,
+            },
+            {
+                key: "pages", label: m.pages(), count: phone === undefined ? undefined : words.number(pages.length),
+                body: phone === undefined ? <EastChakraLibrary value={pagesLibrary} storageKey={`${storageKey}.palette.pages`} />
+                    : <Box css={styles.paneBody} data-library-phone="studio"><Box css={styles.intro} data-studio-intro="">{m.phonePagesIntro()}</Box><EastChakraLibrary value={pagesLibrary} storageKey={`${storageKey}.palette.pages`} /></Box>,
+            },
         ],
-    }), [m, words, components.length, componentsLibrary, pagesLibrary, storageKey]);
+    }), [m, words, components.length, pages.length, componentsLibrary, pagesLibrary, storageKey, phone, styles]);
 }

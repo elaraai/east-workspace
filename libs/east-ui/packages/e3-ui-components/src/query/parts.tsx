@@ -135,7 +135,7 @@ export function IconPart({ label, icon, disabled = false, css, onClick }: {
 }
 
 /** An input of a step card: typed in, and edited on leaving. */
-const InputPart = memo(function InputPart({ part, ps, actions }: {
+export const InputPart = memo(function InputPart({ part, ps, actions }: {
     part: Extract<CardPart, { t: "input" }>; ps: PartStyles; actions: PartActions;
 }) {
     // Interactive state: the text typed, seeded from the step, re-synced when the step's value moves.

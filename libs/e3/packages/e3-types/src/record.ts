@@ -326,6 +326,20 @@ export function nestedSpanName(index: string): string {
 }
 
 /**
+ * The name of the index an entries index's lean rows are kept in, beside it
+ * (#1521): the record's rows by key, each with the Dict field the entries
+ * index files emptied — an index of its record's, built with it and never
+ * declared, as a nested series index's span is. A reader of the entries reads
+ * the rows here, without the entries it reads apart.
+ *
+ * @param index - The entries index's name
+ * @returns Its lean rows'
+ */
+export function entriesRowsName(index: string): string {
+  return `${index}_rows`;
+}
+
+/**
  * One collection's totals in one summary tile (#1434), for one node, or for
  * its descendants' items under `subtreeTotals`.
  *

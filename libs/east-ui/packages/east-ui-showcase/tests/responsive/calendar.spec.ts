@@ -6,9 +6,10 @@
 /** Calendar against the real in-page e3: responsive geometry, explicit phone edits and desktop drag. */
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
-import { frameAt, toolbarFaults } from "./builder-frame";
+import { bottomPanelFaults, frameAt, toolbarFaults } from "./builder-frame";
 import { leaveBuilder } from "./builder-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 const FILE = "e3/calendar/calendar";
 async function open(page: Page, name = "calendarOperations", theme: "light" | "dark" = "light") {
     await page.goto(`/?theme=${theme}#${FILE}/${name}`);
@@ -36,8 +37,8 @@ async function movePointer(page: Page, source: Locator, x: number, y: number) {
     await page.mouse.move(box.x + box.width / 2 + 6, box.y + box.height / 2, { steps: 2 });
     await page.mouse.move(x, y, { steps: 10 });
 }
-for (const theme of ["light", "dark"] as const) {
-    test(`Calendar frame at 1440/1024/768/390/360 (${theme}) @narrow`, async ({ page }) => {
+for (const theme of LAYOUT_THEMES) {
+    test(`Calendar frame at 1440/1024/768/390/360 (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "calendarOperations", theme);
         for (const width of [1440, 1024, 768, 390, 360]) {
@@ -66,7 +67,7 @@ for (const theme of ["light", "dark"] as const) {
             }
         }
     });
-    test(`Resources omits period controls in expanded and folded toolbars (${theme}) @narrow`, async ({ page }) => {
+    test(`Resources omits period controls in expanded and folded toolbars (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await open(page, 'calendarOperations', theme), frame = entry.locator('[data-calendar-frame]').first();
         await size(page, entry, 1440); await viewChoice(page, frame, 'Week');
@@ -85,12 +86,12 @@ for (const theme of ["light", "dark"] as const) {
         await size(page, entry, 1440);
         await expect(frame.getByRole('radio', { name: 'Week', exact: true })).toHaveAttribute('aria-checked', 'true');
     });
-    test(`phone example schedules and saves a backlog row through e3 (${theme}) @narrow`, async ({ page }) => {
+    test(`phone example schedules and saves a backlog row through e3 (${theme}) @mobile`, async ({ page }) => {
         const entry = await open(page, "calendarMobile", theme);
         const frame = entry.locator("[data-calendar-frame]").first();
         await expect(frame.locator("[data-calendar-agenda]")).toBeVisible();
         expect(await toolbarFaults(entry.locator("[data-calendar-frame]").first())).toEqual([]);
-        await frame.getByRole("button", { name: "Expand Library" }).click();
+        await frame.locator("[data-pane-tab='start']").click();
         const backlog = frame.getByRole("tab", { name: "Backlog" });
         if (await backlog.isVisible()) await backlog.click();
         else {
@@ -99,10 +100,11 @@ for (const theme of ["light", "dark"] as const) {
         }
         await frame.locator('[data-library-item]').filter({ hasText: "Torque-test fixtures" }).click();
         await frame.getByRole("button", { name: "Schedule", exact: true }).click();
-        const dialog = page.getByRole("dialog");
+        // The bottom panel, at the foot of the pane's own view.
+        const dialog = page.getByRole("dialog").last();
         await expect(dialog).toBeVisible();
-        const box = await dialog.boundingBox();
-        expect(box!.x).toBeGreaterThanOrEqual(0); expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
+        expect(await bottomPanelFaults(frame)).toEqual([]);
+        await settled(page);
         await dialog.getByRole("button", { name: "Schedule", exact: true }).click();
         const collapse = frame.getByRole("button", { name: "Collapse Library" });
         if (await collapse.isVisible()) await collapse.click();
@@ -117,6 +119,18 @@ for (const theme of ["light", "dark"] as const) {
         await entry.scrollIntoViewIfNeeded();
         await settled(page);
         await expect(entry.locator('[data-calendar-card]').filter({ hasText: "Torque-test fixtures" }).first()).toBeVisible();
+    });
+    test(`in a phone's frame wide enough for a time grid, Enter on an event opens its Details: the Inspector's view, over the frame (${theme}) @mobile`, async ({ page }) => {
+        const entry = await open(page, "calendarOperations", theme);
+        await size(page, entry, 530);
+        const frame = entry.locator("[data-calendar-frame]").first();
+        await viewChoice(page, frame, "Timeline");
+        const event = frame.locator("[data-calendar-event]").first();
+        await expect(event).toBeVisible();
+        await event.focus();
+        await page.keyboard.press("Enter");
+        await expect(frame.locator("[data-pane-tab='end']")).toHaveAttribute("aria-selected", "true");
+        await expect(frame.locator("[data-frame-drawer][data-frame-slot='end']")).toHaveAttribute("data-open", "");
     });
     test(`desktop views preserve geometry, selection and view through resize (${theme})`, async ({ page }, info) => {
         test.skip(info.project.name !== "desktop", "Desktop geometry; explicit actions cover the phone projects.");
@@ -234,8 +248,8 @@ for (const theme of ["light", "dark"] as const) {
         await expect(frame.locator('[data-calendar-footer] > [data-footer-line]')).toHaveAttribute('data-idle', '');
         expect(calendarFooter.height).toBe(28);
         expect(calendarFooter.background).not.toBe('rgba(0, 0, 0, 0)');
-        await size(page, entry, 390);
-        // The rail never wraps (CL3): one 28px line at 390px, nothing past its edge, no legend item cut inside a word.
+        await size(page, entry, 600);
+        // The rail never wraps (CL3): one 28px line just past a phone's frame, which shows no footer at rest, nothing past its edge, no legend item cut inside a word.
         const footer = frame.locator('[data-calendar-footer]');
         expect(await footer.evaluate(el => ({ wrap: getComputedStyle(el).flexWrap, height: el.getBoundingClientRect().height }))).toEqual({ wrap: 'nowrap', height: 28 });
         expect(await footer.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
@@ -273,7 +287,7 @@ for (const theme of ["light", "dark"] as const) {
 
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`Calendar uses shared typography, one range line and quiet resize grips (${theme})`, async ({ page }, info) => {
         test.skip(info.project.name !== "desktop", "Desktop type and hover; agenda interaction is covered on phones.");
         await page.setViewportSize({ width: 2160, height: 1080 });
@@ -366,7 +380,7 @@ for (const theme of ["light", "dark"] as const) {
     });
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`Calendar timeline headers and collapsible groups share builder recipes (${theme})`, async ({ page }, info) => {
         test.skip(info.project.name !== "desktop", "Timeline is desktop; the test also checks the narrow agenda and return.");
         await page.setViewportSize({ width: 2160, height: 1080 });
@@ -452,7 +466,7 @@ for (const theme of ["light", "dark"] as const) {
     });
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`the Timeline's ruler sticks only the captions about where its view starts: the period it starts in keeps its caption beside the resource column, every other caption stands where its column starts — at every period, wherever it scrolls (#1398, CL9) (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await open(page, "calendarOperations", theme); await size(page, entry, 1440);
@@ -492,7 +506,7 @@ for (const theme of ["light", "dark"] as const) {
     });
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`what scrolls under a sticky part passes under it: the today line under the Day's and the Week's head scrolled down and under the hour column scrolled sideways, its dot wholly inside today's column; under the Timeline's resource column scrolled right; a dragged chip under the Month's weekdays (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await open(page, "calendarOperations", theme); await size(page, entry, 1440);
@@ -607,7 +621,7 @@ for (const theme of ["light", "dark"] as const) {
     });
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`the time grid keeps its place across a step — the hour at its top where the viewer left it, never back to the morning — and Today brings the now line into view (#1398, CL8) (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await open(page, "calendarOperations", theme); await size(page, entry, 1440);

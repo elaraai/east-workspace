@@ -96,7 +96,9 @@ import type { ScheduleCellNotice, ScheduleCellResources } from "../shared/schedu
 import { scheduleIssueName, useScheduleEditing, type ScheduleEditing, type ScheduleEventDraftsValue, type ScheduleHeldRows, type ScheduleRowRead } from "../shared/schedule/editing.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
+import { openFramePane } from "../shared/schedule/open-pane.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
+import { lowerWord } from "../shared/schedule/words.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { useNow } from "../shared/time/now-line.js";
 import { calendarCommands } from "./actions.js";
@@ -157,8 +159,8 @@ const NO_JOINED: Parameters<typeof useScheduleEditing>[0]["joined"] = [];
 const NO_ITEMS: CalendarItem[] = [];
 /** No layout's view has rested anywhere yet. */
 const NO_ANCHOR: CalendarAnchor = {};
-/** The row an event with no resource sits on. */
-const UNASSIGNED: CalendarRow = { key: "", label: "Unassigned", meta: "", group: "", resource: none };
+/** The row an event with no resource sits on, in the Calendar's word for it. */
+const unassignedRow = (label: string): CalendarRow => ({ key: "", label, meta: "", group: "", resource: none });
 /** No resource kind laid out: a view with no resource axis shades no resource (#1424). */
 const NO_CELL_RESOURCES: readonly ScheduleCellResources[] = [];
 /** A summary's tile the timeline shades a resource's row at, as the toolbar names the period (#1424). */
@@ -348,7 +350,7 @@ function CalendarFrame(props: HostProps) {
     const recipe = useSlotRecipe({ key: "calendar" });
     const styles = useMemo(() => recipe({}) as unknown as CalendarStyles, [recipe]);
     // The Calendar's words: its message table — the editing session's, and what Search Records searches — and the app's formatters.
-    const format = useFormatters(); const words = useMemo((): CalendarWords => ({ ...format, m: calendarMessages }), [format]);
+    const format = useFormatters(); const words = useMemo((): CalendarWords => ({ ...format, m: calendarMessages, backlog: lowerWord(value.vocabulary.backlog) }), [format, value.vocabulary.backlog]);
     const root = useRef<HTMLDivElement>(null);
     const main = useRef<HTMLDivElement>(null);
     const narrow = useContainerBelow(main, NARROW_WIDTH);
@@ -406,9 +408,7 @@ function CalendarFrame(props: HostProps) {
         requestAnimationFrame(() => clearOfPanes(element));
     }, []);
     // Enter on an event opens its Details, as the Schematic's Enter does (retest C5): the Inspector, folded, opened on it.
-    const openDetails = useCallback(() => {
-        root.current?.querySelector<HTMLButtonElement>('[data-builder-frame] button[aria-label="Expand Inspector"]')?.click();
-    }, []);
+    const openDetails = useCallback(() => { openFramePane(root.current, "Inspector", "end"); }, []);
     useEffect(() => {
         if (reveal === undefined || main.current === null) return;
         const key = CSS.escape(eventKey(reveal));
@@ -538,7 +538,8 @@ function CalendarFrame(props: HostProps) {
     }, [pending, editing?.version, editing]);
     // While a run is out (R2) every gesture is refused, the session the views read kept.
     const gestures = !available ? undefined : locked && commands !== undefined ? lockCalendarCommands(commands, optimiseMessages.locked({ period: periodName })) : commands;
-    const rows = useMemo(() => [...resourceRows(value.resources), ...pagedRows, UNASSIGNED], [value.resources, pagedRows]);
+    const unassigned = useMemo(() => unassignedRow(value.vocabulary.unassigned), [value.vocabulary.unassigned]);
+    const rows = useMemo(() => [...resourceRows(value.resources), ...pagedRows, unassigned], [value.resources, pagedRows, unassigned]);
     // The paged kind's Choosers search it by key (#1424, `chooser.tsx`), each resource named by a window held, else by its
     // own row read by its key (retest C6), and leave out what the kind's source of the slice hides, as the other Choosers
     // leave out what the rail hides.
@@ -546,9 +547,9 @@ function CalendarFrame(props: HostProps) {
     const chooser = useMemo((): CalendarChooser | undefined => {
         if (pagedValue === undefined || pagedKind === undefined) return undefined;
         const names = new Map(pagedRows.flatMap(row => row.resource.type === "some" ? [[row.resource.value.key, row.label] as const] : []));
-        return { paged: pagedValue, noun: pagedKind.name.toLocaleLowerCase(format.locale), nameOf: key => names.get(key), part: sourcePart(chrome, pagedValue.kind) };
-    }, [pagedValue, pagedKind, pagedRows, format.locale, chrome]);
-    const shownRows = useMemo(() => [...resourceRows(shown), UNASSIGNED], [shown]);
+        return { paged: pagedValue, unassigned: value.vocabulary.unassigned, noun: pagedKind.name.toLocaleLowerCase(format.locale), nameOf: key => names.get(key), part: sourcePart(chrome, pagedValue.kind) };
+    }, [pagedValue, pagedKind, pagedRows, format.locale, chrome, value.vocabulary.unassigned]);
+    const shownRows = useMemo(() => [...resourceRows(shown), unassigned], [shown, unassigned]);
     const overlaps = useMemo(() => scheduleOverlaps([items.filter(item => value.events.find(kind => kind.key === item.kind)?.overlaps.type === "warn")]), [items, value.events]);
     // Whether the overlaps chip shows (#1398): an overlap among what is drawn — on the timeline, one in the days it shows,
     // which the frame hears only as it turns, never as a day is crossed.
@@ -562,8 +563,11 @@ function CalendarFrame(props: HostProps) {
         backlogFlash: optimised?.backlogChanged === true && landing.lit, locked });
     const end = useCalendarInspector({ value, refs, range, commands: gestures, styles, storageKey, overlaps, visible: timeline ? visibleDays : undefined, select, selection, shown });
     const { acted } = parts;
+    // The history's acts: a field typed into lets go first, committing what it holds — the history's buttons take no
+    // focus from it. Anything else keeps the focus, the board or an event on it, so the next key — a Redo after an
+    // Undo — reaches the frame too, never the page.
     const onAction = useCallback((action: Parameters<ScheduleEditing["history"]["act"]>[0]) => {
-        const active = document.activeElement; if (active instanceof HTMLElement) active.blur();
+        const active = document.activeElement; if (active instanceof HTMLElement && typedInto(active)) active.blur();
         // A run's highlight ends with Undo, Apply and Discard; a Redo of its step replays its landing (R9, R16).
         acted(action, editing?.history.redoOrigin);
         editing?.history.act(action);
@@ -625,7 +629,7 @@ function CalendarFrame(props: HostProps) {
         resourcesShown, laysResources });
     const search = useMemo(() => (finder === undefined ? undefined : hiddenPick.search(finder)), [finder, hiddenPick]);
     // The window's own count: "…" while the period is read, never a count of another period's (#1398, CL13).
-    const toolbar = useCalendarToolbar({ view, setView, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now,
+    const toolbar = useCalendarToolbar({ view, setView, resourcesWord: value.vocabulary.resources.other, layouts: dates.layouts, periods: dates.periods, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now,
         count: current ? items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length : undefined, uncounted,
         chrome: dates.chrome, affordances: dates.affordances, nouns, windowParts: dates.windowParts,
         ...(timeline ? { visible: visibleDays, events: { items, covered } } : {}), onToday, search, optimise: parts.toolbarItem, locked,
@@ -714,7 +718,7 @@ function CalendarFrame(props: HostProps) {
         <LoadingReveal waiting={line?.kind === "loading"}>
         <CalendarChooserContext.Provider value={chooser}>
         <BuilderFrame storageKey={`${storageKey}.frame`} label="Calendar" loading={(!data.ready && data.loading && data.error === undefined) || cold} loadingPitch={pitch}
-            busy={reading || resourcesBusy || pages?.reading === true || cellsReading} liveFooter toolbar={toolbar} start={start} end={end}
+            busy={reading || resourcesBusy || pages?.reading === true || cellsReading} liveFooter phonePanel toolbar={toolbar} start={start} end={end}
             onKeyDown={event => {
                 // The keys, never while typing; each the Calendar acts on goes no further than the Calendar (#1398), so a
                 // shortcut of the page around it on the same key — the showcase's `[`, which folds its sidebar — never hears

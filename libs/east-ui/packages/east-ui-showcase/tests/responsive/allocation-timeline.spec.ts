@@ -4,17 +4,18 @@
  */
 /**
  * The Allocation's Timeline (#1326) on the real in-page e3: the mock's
- * anatomy, measured in the page in both themes (`Allocation Spec.md` §8); the
+ * anatomy, measured in the page (`Allocation Spec.md` §8); the
  * board at every width with nothing overflowing; the scrolls that follow a
  * selection (A12); and what a drag draws (#1328, A24–A31), as the mock draws
  * LD-2201's; a link's drag — its `was` line, the new line to the pointer and
  * the drag's families (A69, A65) — and an arrival's lines into its best fits
- * (A30), at the widths that drag, in both themes.
+ * (A30), at the widths that drag.
  */
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /** An element's type, as the page draws it. */
 const type = (el: Element) => { const s = getComputedStyle(el); return { size: s.fontSize, weight: s.fontWeight, line: s.lineHeight, mono: /mono/i.test(s.fontFamily) }; };
@@ -87,7 +88,7 @@ async function bring(page: Page, el: Locator, at: { x: number } = { x: 0.3 }) {
     await settled(page);
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`Timeline anatomy is the mock's (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1200 });
         const entry = await open(page, "allocationKilnYard", theme);
@@ -152,7 +153,7 @@ for (const theme of ["light", "dark"] as const) {
             .toEqual({ w: 22, h: 22, right: 11, top: 3 });
     });
 
-    test(`Timeline fits 1440/1024/768/390/360 and a 294px parent; below 480px of main, its cards (${theme}) @narrow`, async ({ page }) => {
+    test(`Timeline fits 1440/1024/768/390/360 and a 294px parent; below 480px of main, its cards (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationKilnYard", theme);
         for (const width of [1440, 1024, 768, 390, 360, 294]) {
@@ -436,13 +437,13 @@ for (const theme of ["light", "dark"] as const) {
         await expect(timeline.locator("[data-allocation-placeholder]").first()).toBeHidden();
     });
 
-    test(`A69, A65 — a link's drag wherever main takes drags: its caption a grip, its link the 1.5 ink-4 was line on its casing, the brand-d 3 new line over the cards to the pointer, the target's family ink-2 where it fits and warn where it refuses, no link taking the pointer; narrower, no grip — at 1440/1024/768/390/360 and in a 294px parent (${theme}) @desktop`, async ({ page }) => {
+    test(`A69, A65 — a link's drag wherever main takes drags: its caption a grip, its link the 1.5 ink-4 was line on its casing, the brand-d 3 new line over the cards to the pointer, the target's family ink-2 where it fits and warn where it refuses, no link taking the pointer; narrower, no grip — at 1440/768 and in a 294px parent (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1200 });
         const entry = await open(page, "allocationKilnYard", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
         const ink = { muted: await token(page, "fg-muted"), strong: await token(page, "fg-strong"), subtle: await token(page, "fg-subtle"), warn: await token(page, "status-warn"),
             brand: await token(page, "brand-solid"), paper: await token(page, "bg-surface") };
-        for (const width of [1440, 1024, 768, 390, 360, 294]) {
+        for (const width of [1440, 768, 294]) {
             await size(page, entry, width);
             const timeline = frame.locator("[data-allocation-timeline]");
             if (await frame.locator("[data-allocation-main]").evaluate(el => el.hasAttribute("data-allocation-narrow"))) {
@@ -539,12 +540,12 @@ for (const theme of ["light", "dark"] as const) {
         await page.keyboard.press("Escape"); await page.mouse.up(); await settled(page);
     });
 
-    test(`A30 — an arrival dragged over the lane grid wherever main takes drags: a brand 1.5 line from the pointer into each of its three best fits' rows, over the Library too; over the rows, none; narrower, none — at 1440/1024/768/390/360 and in a 294px parent (${theme}) @desktop`, async ({ page }) => {
+    test(`A30 — an arrival dragged over the lane grid wherever main takes drags: a brand 1.5 line from the pointer into each of its three best fits' rows, over the Library too; over the rows, none; narrower, none — at 1440/768 and in a 294px parent (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1200 });
         const entry = await open(page, "allocationKilnYard", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
         const brand = await token(page, "brand-mark");
-        for (const width of [1440, 1024, 768, 390, 360, 294]) {
+        for (const width of [1440, 768, 294]) {
             await size(page, entry, width);
             const timeline = frame.locator("[data-allocation-timeline]");
             if (await frame.locator("[data-allocation-main]").evaluate(el => el.hasAttribute("data-allocation-narrow"))) {

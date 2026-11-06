@@ -31,7 +31,7 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
-import { frameAt, tapScrim, type Box } from "./builder-frame";
+import { frameAt, type Box } from "./builder-frame";
 
 const HASH = "e3/query/query/queryBuilder";
 
@@ -174,14 +174,13 @@ test.describe("Query builder (#940)", () => {
         // the row's items fit keeps their forms, and one 2px narrower takes the ladder's next move.
         for (let move = 0; move + 1 < MOVES.length; move++) {
             const frame = await fitting();
+            // A phone's frame, 560px or narrower, has one form an item.
+            if (frame - 2 <= 560) break;
             await frameTo(frame);
             await expect.poll(folded, { message: `at ${frame.toFixed(2)}px, the row's items' width` }).toEqual(MOVES[move]);
             await frameTo(frame - 2);
             await expect.poll(folded, { message: `at ${(frame - 2).toFixed(2)}px` }).toEqual(MOVES[move + 1]);
         }
-        // Folded all the way: the ⋯ chip, Save…'s popover's anchor, in place of Copy jq and Save….
-        await expect(toolbar.locator("[data-query-more]")).toBeVisible();
-        await expect(toolbar.locator("[data-query-copy], [data-query-save-open]")).toHaveCount(0);
     });
 
     test("a step not finished is dashed; a slot with a problem is in the danger ink, as its problem's line is", async ({ page }) => {
@@ -264,38 +263,128 @@ test.describe("Query builder — its builder frame on a desktop (#1125 F3)", () 
     });
 });
 
-test.describe("Query builder — its builder frame on a phone (#1125 F3)", () => {
+test.describe("Query builder on a phone (`Query Builder Phone Spec.md`)", () => {
     test.skip(({ isMobile }) => !isMobile, "measured on the phone");
 
-    test("the pane rests on its 44px rail; opened, it covers the results from its edge, full height, the results where they were, under the scrim — and a tap on the scrim closes it", async ({ page }) => {
-        const builder = await openBuilder(page, "light", null);
-        const rest = await frameAt(builder);
-        expect({ mode: rest.start!.mode, collapsed: rest.start!.collapsed, rail: rest.start!.slot.w, scrim: rest.scrim })
-            .toEqual({ mode: "overlay", collapsed: true, rail: 44, scrim: null });
-        const resultsAtRest = within(rest.main, rest.body);
+    /** The phone's example, its result landed. */
+    async function openPhone(page: Page): Promise<Locator> {
+        const route = "e3/query/query/queryBuilderMobile";
+        await page.goto(`/?theme=light#${route}`);
+        const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${route}"]`) });
+        await entry.scrollIntoViewIfNeeded();
+        const frame = entry.locator("[data-builder-frame][data-phone]").first();
+        await expect(frame.locator("[data-query-results-view]")).toBeVisible({ timeout: 20_000 });
+        await settled(page);
+        return frame;
+    }
+    /** What no popover may be, on this phone: nothing floats (the spec's Answers). */
+    const nothingFloats = (page: Page) => expect(page.locator('[data-scope="popover"][data-part="content"][data-state="open"], [data-scope="menu"][data-part="content"][data-state="open"]')).toHaveCount(0);
 
-        await builder.getByRole("button", { name: "Expand Query" }).click();
-        await expect.poll(async () => {
-            const at = await frameAt(builder);
-            const pane = at.start!;
-            const sheet = within(pane.sheet, at.body);
+    test("the result: the first row (QP1–QP4), This result (QP34), the pager and the columns (QP8–QP11, QP34), and the strip's three tabs (QP17)", async ({ page }) => {
+        const frame = await openPhone(page);
+        expect(await frame.evaluate((root) => {
+            const row = root.querySelector("[data-query-phone-bar]")!.getBoundingClientRect();
+            const seg = root.querySelector("[data-query-result-view]")!.getBoundingClientRect();
+            const run = root.querySelector("[data-query-run] > span")!.getBoundingClientRect();
+            const target = root.querySelector("[data-query-run]")!.getBoundingClientRect();
             return {
-                open: !pane.collapsed,
-                // The results where they were, the rail in the flow.
-                results: within(at.main, at.body), rail: pane.slot.w,
-                // The pane from its edge — the frame's — over the results, its full height.
-                fromEdge: sheet.x, overResults: sheet.x + sheet.w > resultsAtRest.x, height: [sheet.y, sheet.h],
-                // The scrim over the results, in the theme's overlay.backdrop.
-                scrim: at.scrim === null ? null : within(at.scrim, at.body),
-                ink: at.ink.scrim === at.ink.backdrop,
+                row: row.height, seg: seg.height, runBox: run.height, runTarget: target.height, runFromEdge: Math.round(root.getBoundingClientRect().right - run.right),
+                tabs: [...root.querySelectorAll('[data-frame-slot="paneStrip"] [role=tab]')].map((t) => t.getAttribute("data-pane-tab")),
+                band: root.querySelector("[data-query-results-bar]") === null && root.querySelector("[data-query-results-footer]") === null && root.querySelector("[data-query-status]") === null,
             };
-        }).toEqual({
-            open: true, results: resultsAtRest, rail: 44, fromEdge: 0, overResults: true, height: [0, rest.body.h], scrim: resultsAtRest, ink: true,
-        });
-        await tapScrim(page, builder, "start");
-        await expect.poll(async () => {
-            const at = await frameAt(builder);
-            return { collapsed: at.start!.collapsed, scrim: at.scrim, results: within(at.main, at.body) };
-        }).toEqual({ collapsed: true, scrim: null, results: resultsAtRest });
+        })).toEqual({ row: 44, seg: 32, runBox: 32, runTarget: 44, runFromEdge: 12, tabs: ["start:query", "start:datasets", "start:library"], band: true });
+        // This result: a view over the builder, holding the read-outs and the downloads.
+        await frame.locator("[data-query-count]").click(); await settled(page);
+        const result = frame.locator("[data-query-this-result]");
+        await expect(result).toContainText("Top shipped orders, 2026");
+        await expect(result.locator("[data-query-download-format]")).toHaveCount(2);
+        expect((await result.locator("[data-query-download-format]").first().boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        await nothingFloats(page);
+        await page.keyboard.press("Escape"); await settled(page);
+        await expect(result).toHaveCount(0);
+        // The pager opens Columns as a view, the pinned column first and each with its kind.
+        await frame.locator("[data-table-pager-range]").click(); await settled(page);
+        const columns = frame.locator("[data-table-columns-view]");
+        await expect(columns.locator("[data-table-pager-columns] > *").first()).toContainText("pinned");
+        await nothingFloats(page);
+        await columns.getByRole("button", { name: "Back to the result" }).click(); await settled(page);
+    });
+
+    test("the Query view: sentences, one clause open, a slot's picker a full-height view, ⋯ inline, the foot's Save… and Run (QP20–QP29, QP33); Esc goes back a level at a time", async ({ page }) => {
+        const frame = await openPhone(page);
+        await frame.locator("[data-pane-tab='start:query']").click(); await settled(page);
+        const view = frame.locator("[data-query-phone-view]");
+        await expect(view).toBeVisible();
+        expect(await view.evaluate((root) => ({
+            head: root.querySelector("[data-query-head]") !== null,
+            clauses: [...root.querySelectorAll("[data-query-clause] > button")].every((b) => b.getBoundingClientRect().height >= 44),
+            sideways: root.scrollWidth - root.clientWidth <= 1,
+        }))).toEqual({ head: true, clauses: true, sideways: true });
+        // One clause open at a time.
+        const clauses = view.locator("[data-query-clause] > button");
+        await clauses.nth(2).click(); await settled(page);
+        await expect(view.locator("[data-query-clause-editor]")).toHaveCount(1);
+        await clauses.nth(1).click(); await settled(page);
+        await expect(view.locator("[data-query-clause-editor]")).toHaveCount(1);
+        // Its slots: a 44 row each, and the picker a view over the whole frame.
+        const slot = view.locator("[data-query-clause-editor] [data-slot-key]").first();
+        expect((await slot.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        await slot.click(); await settled(page);
+        const picker = frame.locator("[data-query-view-picker]");
+        const [p, f] = [(await picker.boundingBox())!, (await frame.boundingBox())!];
+        expect([Math.round(p.width), Math.round(p.height)]).toEqual([Math.round(f.width), Math.round(f.height)]);
+        expect(await picker.locator("[role=option]").evaluateAll((rows) => rows.every((r) => r.getBoundingClientRect().height >= 44))).toBe(true);
+        await nothingFloats(page);
+        // Esc closes the picker, and the Query view stays under it.
+        await page.keyboard.press("Escape"); await settled(page);
+        await expect(picker).toHaveCount(0);
+        await expect(view).toBeVisible();
+        // ⋯ opens the step's actions in the card; again, it closes them.
+        const more = view.locator("[data-query-step-more]").first();
+        await more.click(); await expect(view.locator("[data-query-step-actions]")).toHaveCount(1);
+        await more.click(); await expect(view.locator("[data-query-step-actions]")).toHaveCount(0);
+        // Save… is a view, its fields labelled, Cancel and Save equal halves; Esc leaves the Query view under it.
+        await view.locator("[data-query-save-open]").click(); await settled(page);
+        const save = frame.locator("[data-frame-view]");
+        await expect(save.getByText("Description", { exact: true })).toBeVisible();
+        const halves = await save.locator("[data-part], button").filter({ hasText: /^(Cancel|Save)$/ }).evaluateAll((els) => els.map((b) => Math.round(b.getBoundingClientRect().width)));
+        expect(halves[0]).toBe(halves[1]);
+        await nothingFloats(page);
+        await page.keyboard.press("Escape"); await settled(page);
+        await expect(view).toBeVisible();
+        // jq: nothing scrolls sideways; a wrapped line's number stands on its first row.
+        await view.locator("[data-query-view] button").nth(1).click(); await settled(page);
+        expect(await view.locator("[data-query-jq-editor]").evaluate((root) => {
+            const scroller = root.firstElementChild!;
+            const rows = [...root.querySelectorAll("[data-query-jq-highlight] > *")].map((r) => r.getBoundingClientRect());
+            const numbers = [...root.querySelectorAll("[data-query-jq-gutter] > *")].map((n) => n.getBoundingClientRect());
+            return { sideways: scroller.scrollWidth - scroller.clientWidth, aligned: rows.every((r, i) => Math.abs(r.top - numbers[i]!.top) < 1) };
+        })).toEqual({ sideways: 0, aligned: true });
+        await view.locator("[data-query-view] button").nth(0).click(); await settled(page);
+        // Run closes the view onto the result.
+        await view.locator("[data-query-run]").click(); await settled(page);
+        await expect(frame.locator("[data-frame-drawer][data-open]")).toHaveCount(0);
+    });
+
+    test("after an edit the result is stale: its band under the pager, Run again 44 (QP14); a new query opens on its steps and, closed, has nothing to read (QP15, QP38)", async ({ page }) => {
+        const frame = await openPhone(page);
+        await frame.locator("[data-pane-tab='start:query']").click(); await settled(page);
+        await frame.locator("[data-query-step-more]").last().click();
+        await frame.getByRole("button", { name: "Remove step" }).click(); await settled(page);
+        await page.keyboard.press("Escape"); await settled(page);
+        const stale = frame.locator('[data-tone="stale"]');
+        await expect(stale).toBeVisible();
+        const [pager, band] = [(await frame.locator("[data-table-pager]").boundingBox())!, (await stale.boundingBox())!];
+        expect(band.y).toBeGreaterThanOrEqual(pager.y + pager.height - 1);
+        expect((await frame.locator("[data-query-run-again]").boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        // Undone, the query is what ran again; a new query from Datasets.
+        await frame.getByRole("button", { name: "Discard", exact: true }).click();
+        await frame.locator("[data-history-discard-confirm]").click(); await settled(page);
+        await frame.locator("[data-pane-tab='start:datasets']").click(); await settled(page);
+        await frame.locator("[data-frame-drawer] [data-library-item]").filter({ hasText: "forecast" }).first().click(); await settled(page);
+        await expect(frame.locator("[data-query-phone-view] [data-query-empty]")).toBeVisible();
+        await page.keyboard.press("Escape"); await settled(page);
+        await expect(frame.locator("[data-query-results-idle]")).toBeVisible();
+        await expect(frame.locator("[data-query-count]")).toBeDisabled();
     });
 });

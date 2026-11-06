@@ -347,6 +347,51 @@ describe("DatasetKeySearch", () => {
         expect(onFind).toHaveBeenCalledTimes(2);
     });
 
+    test("a pick made while the query held is asked again keeps its place: the answer that lands after it counts the range and leaves the pick's place be", async () => {
+        const keys = ["a0", "a1", "a2"];
+        let land: (() => void) | undefined;
+        const answer = { found: true, row: 0, count: keys.length };
+        const onFind = vi.fn((_query: unknown, again?: boolean) => (again === true
+            ? new Promise<typeof answer>((resolve) => { land = () => resolve(answer); })
+            : Promise.resolve(answer)));
+        const onListRange = vi.fn(async (row: number, limit: number) => keys.slice(row, row + limit));
+        const props = { keyType: StringKey, onFind, onListRange, onJump: vi.fn() };
+        const view = render(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={0} /></ChakraProvider>);
+        const input = screen.getByPlaceholderText("Search Records") as HTMLInputElement;
+        await userEvent.type(input, "a");
+        await waitFor(() => expect(screen.getByRole("status").textContent).toBe("3 matches"));
+        // Asked again, its answer on its way; Enter picks the first match meanwhile.
+        view.rerender(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={1} /></ChakraProvider>);
+        await waitFor(() => expect(land).toBeDefined());
+        fireEvent.keyDown(input, { key: "Enter" });
+        await waitFor(() => expect(input.value).toBe("a0"));
+        await act(async () => { land!(); await Promise.resolve(); });
+        await waitFor(() => expect(screen.getByRole("status").textContent).toBe("1 of 3"));
+        expect(input.value).toBe("a0");
+    });
+
+    test("a pick the box is still reading the text of keeps its place as the query is asked again before that text lands: the answer counts the range and leaves the place be", async () => {
+        let land: (() => void) | undefined;
+        const lines = new Promise<string[]>((resolve) => { land = () => resolve(["a0"]); });
+        const answer = { found: true, row: 0, count: 3 };
+        const onFind = vi.fn(async (_query: unknown, _again?: boolean) => answer);
+        const props = { keyType: StringKey, onFind, onListRange: vi.fn(() => lines), onJump: vi.fn() };
+        const view = render(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={0} /></ChakraProvider>);
+        const input = screen.getByPlaceholderText("Search Records") as HTMLInputElement;
+        await userEvent.type(input, "a");
+        await waitFor(() => expect(screen.getByRole("status").textContent).toBe("3 matches"));
+        // Enter picks the first match, its text on its way; what the box lists moves before it lands.
+        fireEvent.keyDown(input, { key: "Enter" });
+        await waitFor(() => expect(screen.getByRole("status").textContent).toBe("1 of 3"));
+        view.rerender(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={1} /></ChakraProvider>);
+        await waitFor(() => expect(onFind).toHaveBeenLastCalledWith({ prefix: "a" }, true));
+        await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+        expect(screen.getByRole("status").textContent).toBe("1 of 3");
+        await act(async () => { land!(); await lines; });
+        await waitFor(() => expect(input.value).toBe("a0"));
+        expect(screen.getByRole("status").textContent).toBe("1 of 3");
+    });
+
     test("asked again at another snapshot, a match the box shows stays while the snapshot holds it at its place, and gives way to what was typed once it does not (#1199, #1404)", async () => {
         let keys = ["a0", "a1", "a2"];
         const onFind = vi.fn(async (_query: unknown, _again?: boolean) => ({ found: true, row: 0, count: keys.length }));

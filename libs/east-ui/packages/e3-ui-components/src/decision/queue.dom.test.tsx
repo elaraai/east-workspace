@@ -42,3 +42,10 @@ describe("DecisionQueue — a section's caret is Font Awesome's (#1263)", () => 
         expect(heads()[0]).toEqual(["Overdue · 1", "true", "fas caret-right"]);
     });
 });
+
+describe("DecisionQueue — one facet left", () => {
+    test("no facet tabs draw: there is nothing to choose", async () => {
+        const { container } = await h.mount(ex.decisionQueueOneFacet, { storageKey: "decision-queue-one", drag: false });
+        expect(container.querySelector("[aria-pressed]")).toBeNull();
+    });
+});

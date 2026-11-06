@@ -135,14 +135,14 @@ export function allocationDomain(rowType: EastTypeValue): AllocationDomain {
 let words: {
     quantity: (value: number, unit: string) => string;
     load: (fill: number, resource: ResourceRow, unit: string) => string;
-    line: (day: Date, resource: ResourceRow, load: Load, unit: string) => ResourceLine;
+    line: (day: Date, resource: ResourceRow, load: Load, unit: string, reserved: string) => ResourceLine;
     ms: (step: TimeStep) => bigint;
 } | undefined;
 export function allocationWords() {
     words ??= {
         quantity: East.compile(allocationQuantityText, []) as (value: number, unit: string) => string,
         load: East.compile(allocationLoadText, []) as (fill: number, resource: ResourceRow, unit: string) => string,
-        line: East.compile(allocationResourceLine, []) as unknown as (day: Date, resource: ResourceRow, load: Load, unit: string) => ResourceLine,
+        line: East.compile(allocationResourceLine, []) as unknown as (day: Date, resource: ResourceRow, load: Load, unit: string, reserved: string) => ResourceLine,
         ms: East.compile(allocationMilliseconds, []) as unknown as (step: TimeStep) => bigint,
     };
     return words;

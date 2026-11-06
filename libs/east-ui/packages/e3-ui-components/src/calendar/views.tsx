@@ -64,7 +64,7 @@ import {
 } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PeriodRead } from "../shared/loading.js";
 import type { ScheduleCellShade, ScheduleCellShading } from "../shared/schedule/cells.js";
-import { eventsNotCounted } from "../shared/schedule/words.js";
+import { eventsNotCounted, lowerWord } from "../shared/schedule/words.js";
 import type { CalendarBucket } from "./cells.js";
 import { NowChip, NowLine } from "../shared/time/now-line.js";
 import { drawSpan } from "../shared/time/drag.js";
@@ -249,8 +249,8 @@ function changedDaysOf(props: Pick<CalendarViewsProps, "optimised" | "items">): 
 }
 
 /** How an event stood before a run, as its provenance says it: its day and time, and its resource, or the backlog. */
-function previousWords(was: CalendarItem, props: Pick<CalendarViewsProps, "format" | "rows">): string {
-    if (was.start.type !== "some") return "backlog";
+function previousWords(was: CalendarItem, props: Pick<CalendarViewsProps, "format" | "rows" | "value">): string {
+    if (was.start.type !== "some") return lowerWord(props.value.vocabulary.backlog);
     return `${props.format.weekdayDate(was.start.value)} ${props.format.time(was.start.value)}${was.end.type === "some" ? `–${props.format.time(was.end.value)}` : ""} · ${resourceLabel(was, props.rows)}`;
 }
 
@@ -897,7 +897,7 @@ function DropLane({ props, from, to, resource, along = "y", wholeDay = false, ch
     const name = (coord: CellCoord): string => {
         const at = props.drag.readTime(coord.slot);
         const when = at === undefined ? "" : props.format.dateTime(at);
-        if (unassigned) return words.cell({ row: "Unassigned", slot: when });
+        if (unassigned) return words.cell({ row: props.value.vocabulary.unassigned, slot: when });
         if (resource.type === "none") return words.cell({ row: when, slot: "" });
         const own = resource.value;
         return words.cell({ row: props.rows.find(row => row.resource.type === "some" && sameResource(row.resource.value, own))?.label ?? own.key, slot: when });
@@ -1685,8 +1685,8 @@ function Timeline(props: CalendarViewsProps) {
     const pagedRetry = pages?.retry;
     const renderRow = useCallback((i: number) => {
         const line = lines[i]!;
-        if (line.kind === "group") return <GroupHeading scope="calendar" group={{ key: line.group, label: line.group || "Unassigned" }} styles={styles} collapsed={collapsed.includes(line.group)} toggle={toggle} measure={measureBand}>
-            <Box as="span" css={styles.groupMeta}>{format.number(line.count)} resources</Box>
+        if (line.kind === "group") return <GroupHeading scope="calendar" group={{ key: line.group, label: line.group || value.vocabulary.unassigned }} styles={styles} collapsed={collapsed.includes(line.group)} toggle={toggle} measure={measureBand}>
+            <Box as="span" css={styles.groupMeta}>{format.number(line.count)} {lowerWord(line.count === 1 ? value.vocabulary.resources.one : value.vocabulary.resources.other)}</Box>
         </GroupHeading>;
         if (line.kind === "run") {
             const failed = line.failed ? failedRange(line.from) : undefined;
@@ -1696,7 +1696,7 @@ function Timeline(props: CalendarViewsProps) {
         }
         const row = rowOf(line);
         return row === undefined ? null : <TimelineRow ctx={ctx} row={row} layout={layouts.get(row.key)!} span={span} index={i} r={line.r} measure={measureRow} />;
-    }, [lines, styles, collapsed, toggle, measureBand, ctx, layouts, span, measureRow, rowOf, failedRange, pagedRetry, pitch, format]);
+    }, [lines, styles, collapsed, toggle, measureBand, ctx, layouts, span, measureRow, rowOf, failedRange, pagedRetry, pitch, format, value.vocabulary]);
     // The paged kind's places the view shows, reported as its scroll rests (#1424, CL6): what its windows and the cells of
     // the events on it are read around — each row of it shown, and of a run under the view's centre the places from the
     // view's top to its foot, read from the px of it the centre is at; of a run beside that one, the place it meets the
@@ -1786,7 +1786,7 @@ function Timeline(props: CalendarViewsProps) {
     const words = useMemo(() => timeWords(format.locale), [format.locale]);
     const ticks = useMemo(() => timeScale({ window: { min: range.from, max: range.to }, resolution: view.period === "day" ? "hour" : "day", words })!, [range.from, range.to, view.period, words]);
     const units = useMemo(() => timeRulerUnits(ticks, words, view.period === "day" ? "day" : view.period === "week" ? "week" : "month")!, [ticks, words, view.period]);
-    const header = <Box css={styles.head} data-calendar-header="" data-timeline=""><Box css={styles.headerCaption} data-calendar-header-caption="">Resources</Box><Box css={styles.ruler}>
+    const header = <Box css={styles.head} data-calendar-header="" data-timeline=""><Box css={styles.headerCaption} data-calendar-header-caption="">{value.vocabulary.resources.other}</Box><Box css={styles.ruler}>
         <TimeRulerRow scale={units} styles={styles} band="units" owner="calendar" sticky={viewStart} />
         <TimeRulerRow scale={ticks} styles={styles} band="ticks" owner="calendar" sticky={viewStart} />
     </Box></Box>;

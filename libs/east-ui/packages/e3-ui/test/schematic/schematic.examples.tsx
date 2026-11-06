@@ -620,6 +620,178 @@ export const schematicConflictRacks = e3.record("schematic_conflict_racks", Dict
  * whose fields you changed in the panel, combines with theirs. Each press
  * saves their change again.
  */
+export const schematicWording = example({
+    keywords: [
+        "Schematic", "Schematic.items", "Schematic.zones", "Schematic.links", "Schematic.nets", "Schematic.details", "Schematic.templates",
+        "Schematic.layers", "Schematic.library", "Schematic.library.tab", "Schematic.patch", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "records",
+        "details", "templates", "backlog", "layers", "narrowed", "inspector", "accessor", "id", "onSelect", "canConnect", "Schematic.Types.Ref",
+        "Schematic.Types.Candidate", "veto", "editing", "Save", "undo", "Move", "Connect", "nets", "drag and drop", "drop",
+    ],
+    description: "The data centre floor in its own words (#1516): `vocabulary` names the library's templates, backlog, index and layers, and zones, links, nets and a net's sources and destinations, wherever the Schematic draws them.",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const racks = $.let(Record.bind(schematicRacks));
+            const rackEntries = $.let(Data.bindPaged(schematicRacks));
+            // The racks' loads, edited in the inspector: their patch door, read by key beside the racks' source.
+            const loads = $.let(Record.bind(schematicRackLoads));
+            const loadEntries = $.let(Data.bindPaged(schematicRackLoads));
+            const frames = $.let(Data.bind(schematicFrames));
+            const pdus = $.let(Data.bind(schematicPdus));
+            const cooling = $.let(Record.bind(schematicCooling));
+            const areas = $.let(Data.bind(schematicAreas));
+            const fibre = $.let(Record.bind(schematicFibre));
+            const feeds = $.let(Record.bind(schematicFeeds));
+            const trunks = $.let(Record.bind(schematicTrunks));
+            const systems = $.let(Data.bind(schematicSystems));
+            const rackTemplates = $.let(Data.bind(schematicRackTemplates));
+            const fibreTemplates = $.let(Data.bind(schematicFibreTemplates));
+            const owners = $.let(Data.bind(schematicOwners));
+            // A cooling unit's own Details: its setpoint, and a button that lowers it — the edited unit goes back through `update`.
+            const coolingDetails = $.const(East.function([DcCooling, FunctionType([DcCooling], NullType)], UIComponentType, ($2, unit, update) => {
+                const lower = $2.const(East.function([], NullType, ($3) => {
+                    // East has no struct spread: the unit, rebuilt with its new setpoint.
+                    const edited = $3.const({
+                        name: unit.name, x: unit.x, y: unit.y, w: unit.w, h: unit.h, radius: unit.radius, setpoint: unit.setpoint.subtract(1.0), system: unit.system,
+                    }, DcCooling);
+                    $3(update(edited));
+                }));
+                return (
+                    <VStack gap="2" align="stretch">
+                        <Text>{East.str`${unit.name} holds ${East.Float.printFixed(unit.setpoint, 1n)} °C`}</Text>
+                        <Button variant="outline" onClick={lower}>Lower the setpoint by 1 °C</Button>
+                    </VStack>
+                );
+            }));
+            // The whole selection, after each change — items, zones, links and nets alike, each by its kind's slot and
+            // key — kept where the rest of the app reads it.
+            const selected = $.let(State.bind([ArrayType(Schematic.Types.Ref)], "ex.schematicWording.selected", []));
+            const onSelect = $.const(East.function([ArrayType(Schematic.Types.Ref)], NullType, ($2, refs) => {
+                $2(selected.write(refs));
+            }));
+            // Two frames are joined by a cross-connect, never a fibre run, and the racks' trunks land on a fibre frame,
+            // never on the core: the veto's words refuse the pair — a drag's draft shows them, and the footer says them of
+            // the inspector's ends, sides and Connect to….
+            const canConnect = $.const(East.function([Schematic.Types.Candidate], OptionType(StringType), ($2, candidate) => {
+                const reason = $2.let(none, OptionType(StringType));
+                $2.if(candidate.from.kind.equal("network").and(() => candidate.to.kind.equal("network")), ($3) => {
+                    $3.assign(reason, some("Two frames are joined by a cross-connect"));
+                });
+                $2.if(candidate.kind.equal("trunks").and(() => candidate.to.key.equal("CORE-1")), ($3) => {
+                    $3.assign(reason, some("A trunk lands on a fibre frame, never the core"));
+                });
+                return reason;
+            }));
+            // One rail: the racks by name, hall and owner, and each templates list by its group or system.
+            const slice = $.let(Slice.bindRecords("ex.schematicWording", {
+                racks: { source: Data.bindPaged(schematicRacks, { indexes: ["schematic_racks_by_name", "schematic_racks_by_hall", "schematic_racks_by_owner"] }), icon: { prefix: "fas", name: "server" },
+                    search: ["name", "owner"], fields: {
+                        name: { label: "Rack" }, hall: { label: "Hall", hints: ["Cage A"] }, owner: { label: "Owner", hints: ["Harbour Labs", "Northwind Media", "Elmway College"] },
+                    } },
+                rackTemplates: { source: Data.bindPaged(schematicRackTemplates, { indexes: ["schematic_rack_templates_by_group"] }), fields: { group: { label: "Group", hints: ["Racks", "Half racks"] } } },
+                fibreTemplates: { source: Data.bindPaged(schematicFibreTemplates, { indexes: ["schematic_fibre_templates_by_system"] }), fields: { system: { label: "System", hints: ["network"] } } },
+            }));
+            return (
+                <Box height="640px">
+                    <Schematic
+                        vocabulary={{ templates: "Pattern", backlog: "Unplaced", index: "Map", layer: "Plane", zone: "Area", net: "Bus", link: "Run", source: "Feed", destination: "Tap" }}
+                        id="wording"
+                        inspector
+                        extent={{ width: 28, height: 14 }}
+                        scaleUnit="m"
+                        slice={{ slice }}
+                        narrowed="dim"
+                        onSelect={onSelect}
+                        canConnect={canConnect}
+                        items={{
+                            racks: Schematic.items(racks, {
+                                name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name", layer: "system", entries: rackEntries,
+                                sublabel: (r) => r.model,
+                                details: Schematic.details(loads, {
+                                    entries: loadEntries,
+                                    meter: (l) => ({ value: l.kw, max: l.capacity }),
+                                    metric: (l) => some(East.str`${East.Float.printFixed(l.kw, 1n)} kW`),
+                                    status: { field: "alarm", cases: {
+                                        ok: { label: "OK", tone: variant("success", null), ring: false },
+                                        warm: { label: "Warm", tone: variant("warning", null), ring: false },
+                                        hot: { label: "Hot", tone: variant("danger", null), ring: false },
+                                    } },
+                                }),
+                                templates: Schematic.templates(rackTemplates.read(), {
+                                    name: (t) => t.name, group: (t) => some(t.group), values: (t) => t.values, source: "rackTemplates",
+                                }),
+                            }),
+                            network: Schematic.items(frames, {
+                                name: "Network frame", icon: "network-wired", x: "x", y: "y", width: "w", height: "h", label: "name", layer: "system",
+                                sublabel: (f) => f.kind,
+                            }),
+                            cooling: Schematic.items(cooling, {
+                                name: "Cooling unit", icon: "fan", x: "x", y: "y", width: "w", height: "h", label: "name", layer: "system",
+                                footprint: (c) => some(Schematic.circle(c.radius)),
+                                sublabel: (c) => East.str`set ${East.Float.printFixed(c.setpoint, 1n)} °C`,
+                                inspector: coolingDetails,
+                            }),
+                            pdus: Schematic.items(pdus, {
+                                name: "Power distribution unit", icon: "plug", x: "x", y: "y", width: "w", height: "h", label: "name", layer: "system",
+                                sublabel: (p) => p.kind,
+                            }),
+                        }}
+                        zones={{
+                            areas: Schematic.zones(areas, {
+                                name: "Area", icon: "vector-square", x: "x", y: "y", width: "w", height: "h", label: "name", layer: "system",
+                                pattern: (a) => a.kind.match({
+                                    room: (_$2) => Schematic.outline(),
+                                    cold: (_$2) => Schematic.hatch({ tone: "brand" }),
+                                    hot: (_$2) => Schematic.hatch({ tone: "warning" }),
+                                }),
+                            }),
+                        }}
+                        links={{
+                            fibre: Schematic.links(fibre, {
+                                name: "Fibre run", icon: "bolt", layer: "system", via: "path",
+                                from: { field: "from", of: { rack: "racks", frame: "network" } },
+                                to: { field: "to", of: { rack: "racks", frame: "network" } },
+                                label: (f) => f.label, metric: (f) => f.speed,
+                                style: (f) => f.cable.match({ fibre: (_$2) => Schematic.solid(), logical: (_$2) => Schematic.dashed() }),
+                                templates: Schematic.templates(fibreTemplates.read(), {
+                                    name: (t) => t.name, group: (t) => some(t.system), values: (t) => t.values, source: "fibreTemplates",
+                                }),
+                            }),
+                        }}
+                        nets={{
+                            feeds: Schematic.nets(feeds, {
+                                name: "Power feed", icon: "plug-circle-bolt", layer: "system",
+                                sources: { field: "supply", of: "pdus" }, destinations: { field: "racks", of: "racks" },
+                                label: (f) => some(f.label), metric: (f) => some(f.load),
+                            }),
+                            // A Shift-connect from racks to a frame grows its first run into a trunk of them.
+                            trunks: Schematic.nets(trunks, {
+                                name: "Fibre trunk", icon: "diagram-project", layer: "system",
+                                sources: { field: "racks", of: "racks" }, destinations: { field: "frames", of: "network" },
+                                label: (t) => t.label,
+                            }),
+                        }}
+                        layers={Schematic.layers(systems.read(), {
+                            label: (s) => s.label, color: (s) => some(s.colour), order: (s) => s.order, locked: (s) => s.fixed, opacity: (s) => s.dim,
+                        })}
+                        library={[
+                            Schematic.library.templates(),
+                            Schematic.library.backlog(),
+                            Schematic.library.index(),
+                            Schematic.library.layers(),
+                            // The floor's owners: a card dropped on a rack — its patch is over a rack's row — makes it the rack's owner.
+                            Schematic.library.tab(owners.read(), {
+                                name: "Owners", icon: "building", label: (o) => o.name, meta: (o) => some(o.contact),
+                                drop: (o) => Schematic.patch(DcRack, { owner: o.name }),
+                            }),
+                        ]}
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
 export const schematicConflicts = example({
     keywords: ["Schematic", "conflict", "conflicts", "combine", "someone else", "Choose", "Move", "Schematic.items", "Record.bind", "mutate", "Button", "inspector", "Save"],
     description: "Your edits meeting someone else's save, in one window — move a rack sideways, then press Someone else saves, which saves another person's change to the same racks (every rack half a metre to the right), so yours conflict and wait to be chosen; a rack moved only up or down, or a field changed in the panel, combines with theirs",

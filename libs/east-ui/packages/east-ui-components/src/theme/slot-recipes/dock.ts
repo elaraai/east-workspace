@@ -70,6 +70,8 @@ export const dockSlotRecipe = defineSlotRecipe({
             borderBottomColor: "border.subtle",
             flexShrink: 0,
             "& > button:last-child": { marginLeft: "auto" },
+            /* A phone's drawer's head: padded 0 4 0 20, the designer's. */
+            "[data-frame-drawer] &": { paddingLeft: "20px", paddingRight: "{spacing.1}" },
         },
         /* The tabs and the `+n` menu: the room the row leaves beside the
          * collapse control, whatever the tabs take — what the fold measures. */
@@ -177,6 +179,8 @@ export const dockSlotRecipe = defineSlotRecipe({
             _focusVisible: { outline: "none", boxShadow: "focus" },
             /* Touch hit target (#350). */
             ...coarseHitArea({ position: true }),
+            /* A phone's drawer (`BuilderFrame`): its collapse a 44px square, as the strip's tabs are. */
+            "[data-frame-drawer] &": { width: "44px", height: "43px", fontSize: "14px" },
         },
         body: {
             flex: 1,

@@ -20,14 +20,14 @@
  */
 
 import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { Box, chakra, Menu as ChakraMenu, Portal, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, chakra, Menu as ChakraMenu, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRight, faCheck, faChevronRight, faEllipsisVertical, faGripVertical, faMinus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none } from "@elaraai/east";
 import {
     getSomeorUndefined, optimiseMessages, useDragEventChip, useDropCell, type CellCoord, type DragHandle, type DragPayload, type DropCellOptions,
 } from "@elaraai/east-ui-components";
-import { EastErrorBoundary, UnloadedRun, loadingLineText, type PlaceholderKind, type RunCell } from "@elaraai/east-ui-components/internal";
+import { EastErrorBoundary, FrameMenuLayer, UnloadedRun, loadingLineText, type PlaceholderKind, type RunCell } from "@elaraai/east-ui-components/internal";
 import {
     BAND_MIN_PX, TITLE_KEY, cellIsBlank, cellText, driverKeyOf, resolveMember,
     type LineGroup, type SheetBand, type SheetColumnIndex, type SheetColumnMeta, type SheetGroupIndex, type SheetKind, type SheetRegisterIndex, type SheetWindowFailure,
@@ -42,8 +42,16 @@ import type { SheetCellOp, SheetRowMarks } from "./optimise.js";
 import { SheetInsertPoint } from "./Insertion.js";
 import type { SheetRowDrop } from "./drop.js";
 import { useSheetWords } from "./words.js";
+import { ActionCellSlot } from "./actions/ActionCell.js";
+import { actionColumnOf } from "./actions/model.js";
+import type { SheetActionHost } from "./actions/host.js";
 
 type Styles = Record<string, Record<string, unknown>>;
+
+/** Whether a column's cell names a register member, which it shows by the member's label: an enum, a reference, a lookup. */
+export function namesMember(meta: SheetColumnMeta): boolean {
+    return meta.kind === "enum" || meta.kind === "reference" || meta.kind === "lookup";
+}
 
 /**
  * Test-only render probe (#858) — lets "a gesture re-renders only the rows it
@@ -262,13 +270,9 @@ function RowActions({ styles, r, grip, what, decisions, inserts }: {
                     <FontAwesomeIcon icon={faEllipsisVertical} />
                 </Box>
             </ChakraMenu.Trigger>
-            <Portal>
-                <ChakraMenu.Positioner>
-                    <ChakraMenu.Content>
+            <FrameMenuLayer label={m.rowActions({ what })}>
                         {items.map((item) => <ChakraMenu.Item key={item.value} value={item.value}>{item.label}</ChakraMenu.Item>)}
-                    </ChakraMenu.Content>
-                </ChakraMenu.Positioner>
-            </Portal>
+                    </FrameMenuLayer>
         </ChakraMenu.Root>
     );
 }
@@ -361,6 +365,8 @@ export interface SheetRowProps {
     inserts?: ((r: number) => readonly SheetRowAction[]) | undefined;
     /** What a run of the optimiser left on the row (#1409, R25), while it is the run's draft: each changed cell's mark, and its provenance on hover. */
     marks?: SheetRowMarks | undefined;
+    /** What the row's action cells ask of the sheet (#1475): absent on a sheet with no action column. Stable. */
+    actions?: SheetActionHost | undefined;
 }
 
 /** Renders one row. */
@@ -490,7 +496,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                 const selected = selC === c && !editing;
                 const inRange = range !== undefined && c >= range.c0 && c <= range.c1;
                 const unit = meta.kind === "quantity" && driverKey !== undefined ? meta.uom?.get(driverKey) : undefined;
-                const member = meta.kind === "enum" && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
+                const member = namesMember(meta) && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
                 const fill = !editing && cellIsBlank(cell) ? fills?.get(meta.key) : undefined;
                 const isTarget = !editing && nextTargetC === c && fill !== undefined;
                 // A date cell's level comes from the row (#844); once its actual is known, that instant prints and the wanted date becomes the cell's detail.
@@ -502,6 +508,9 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                 const op = marks?.cells.get(meta.key);
                 const provenance = op === undefined || marks === undefined ? undefined : cellProvenance(op, marks.previous.get(meta.key), meta, marks.run, words);
                 const title = issue ?? (provenance === undefined ? detail?.title : detail?.title === undefined ? provenance : `${provenance} · ${detail.title}`);
+                // An action cell (#1475): its state, its summary and the controls of what it offers, over its sheet's host.
+                const action = meta.kind === "action" && props.actions !== undefined && row !== undefined ? actionColumnOf(meta) : undefined;
+                const summaryCell = action !== undefined ? row?.cells.get(action.summary) : undefined;
                 return (
                     <Box
                         key={meta.key}
@@ -533,7 +542,10 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                         {issue !== undefined && <Box as="span" css={styles.cellIssue} id={issueId}>{issue}</Box>}
                         {inRange && <Box css={styles.rangeWash} data-slot="rangeWash" />}
                         {fill !== undefined && <Box css={styles.hatch} data-slot="hatch" aria-hidden="true" />}
-                        <SheetCellContent
+                        {action !== undefined && props.actions !== undefined ? (
+                            <ActionCellSlot host={props.actions} r={r} columnKey={meta.key} column={action} cell={cell}
+                                summary={summaryCell?.type === "String" ? summaryCell.value : ""} selected={selC === c} />
+                        ) : <SheetCellContent
                             styles={styles}
                             meta={meta}
                             cell={cell}
@@ -544,7 +556,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                             link={meta.kind === "link" ? linkCtx(row, meta) : undefined}
                             when={when}
                             marked={op !== undefined}
-                        />
+                        />}
                         {isTarget && <Box css={styles.nextTarget} data-slot="nextTarget" aria-hidden="true" />}
                         {fill !== undefined && hoverC === c && (
                             <Box
@@ -740,7 +752,7 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
             {columns.list.map((colMeta, c) => {
                 const cell = cells.get(colMeta.key);
                 const unit = colMeta.kind === "quantity" && driverKey !== undefined ? colMeta.uom?.get(driverKey) : undefined;
-                const member = colMeta.kind === "enum" && cell?.type === "String" ? resolveMember(registers, colMeta.register, cell.value) : undefined;
+                const member = namesMember(colMeta) && cell?.type === "String" ? resolveMember(registers, colMeta.register, cell.value) : undefined;
                 const when = colMeta.kind === "date" && colMeta.level !== undefined ? { level: colMeta.level(cells) } : undefined;
                 return (
                     <Box
@@ -782,7 +794,7 @@ const RUN_KINDS: Readonly<Record<SheetKind, PlaceholderKind>> = {
     text: "text", lookup: "text", reference: "text", custom: "text",
     date: "date", stamped: "date",
     quantity: "number", integer: "number",
-    enum: "enum", set: "chip", link: "link",
+    enum: "enum", set: "chip", link: "link", action: "enum",
 };
 
 export interface SheetRunRowProps {
@@ -843,7 +855,7 @@ export const SheetRunRow = memo(function SheetRunRow({
     // The gutter, then each column's cells: the column kind's shape on the sheet's own cell rules.
     const cells = useMemo((): RunCell[] => [
         { kind: "rowNumber", css: slot(styles, "runGutter") },
-        ...columns.list.map((meta): RunCell => ({ kind: RUN_KINDS[meta.kind], css: slot(styles, "runCell") })),
+        ...columns.list.map((meta): RunCell => ({ kind: RUN_KINDS[meta.kind], css: slot(styles, meta.kind === "action" ? "runActionCell" : "runCell") })),
     ], [styles, columns]);
     // A grouped sheet's elements: a band each, then the lines the ledger's rate says an element draws.
     const group = useMemo(() => {
@@ -1121,10 +1133,11 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                     const editing = editor?.c === c;
                     const selected = selC === c && !editing;
                     const inRange = range !== undefined && c >= range.c0 && c <= range.c1;
-                    const member = meta?.kind === "enum" && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
+                    const member = meta !== undefined && namesMember(meta) && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
                     const op = marks?.cells.get(colMeta.key);
                     const provenance = op === undefined || marks === undefined ? undefined : cellProvenance(op, marks.previous.get(colMeta.key), meta, marks.run, words);
-                    const bandTitle = m.bandCellTitle({ header: colMeta.header, value: cellText(cell, meta, words) });
+                    // A member by its label, as the cell shows it (the hand retest's 4).
+                    const bandTitle = m.bandCellTitle({ header: colMeta.header, value: member !== undefined && member.label !== "" ? member.label : cellText(cell, meta, words) });
                     return (
                         <Box
                             key={colMeta.key}

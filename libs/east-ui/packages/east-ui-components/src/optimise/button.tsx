@@ -31,11 +31,11 @@ type Styles = Record<string, SystemStyleObject>;
 /** How long the eye's one blink takes (§8): 560ms. */
 export const OPTIMISE_BLINK_MS = 560;
 
-/** The button's sizes: `md` 32 × 32 with a 16px mark, `sm` 24 × 24 with 14, `toolbar` 32 × 28 with 14 — a builder's toolbar row's, whose every control stands 28px. */
-export type OptimiseButtonSize = "md" | "sm" | "toolbar";
+/** The button's sizes: `md` 32 × 32 with a 16px mark, `sm` 24 × 24 with 14, `toolbar` 32 × 28 with 14 — a builder's toolbar row's, whose every control stands 28px — and `row` 44 × 44 with 16, a phone's second row's, beside the history's 44px buttons. */
+export type OptimiseButtonSize = "md" | "sm" | "toolbar" | "row";
 
 /** The mark's size at each of the button's. */
-const MARK: Readonly<Record<OptimiseButtonSize, ElaraEyeSize>> = { md: 16, sm: 14, toolbar: 14 };
+const MARK: Readonly<Record<OptimiseButtonSize, ElaraEyeSize>> = { md: 16, sm: 14, toolbar: 14, row: 16 };
 
 /** Props of {@link OptimiseButton}. */
 export interface OptimiseButtonProps {

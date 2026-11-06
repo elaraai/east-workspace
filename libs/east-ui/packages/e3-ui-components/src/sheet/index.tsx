@@ -157,12 +157,18 @@ import { SheetInsertLayer, SheetInsertStrip, type InsertionActions, type InsertS
 import { anchorAt, insertionGesture, insertsLoose, groupInsertionSide, type InsertRequest, type InsertionAnchor } from "./insertion-gesture.js";
 import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
-import { SheetRow, SheetRunRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry, type SheetRowAction } from "./Rows.js";
+import { SheetRow, SheetRunRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry, namesMember, type SheetRowAction } from "./Rows.js";
 import { NUMBER_PX, gutterFolds, gutterWidths } from "./gutter.js";
 import { SheetCellContent } from "./cells/Cell.js";
+import { actionCell, actionColumnOf, canTake, caseOf, offerOf, verbOf, type ActionCase } from "./actions/model.js";
+import { createActionStore, type SheetActionHost } from "./actions/host.js";
+import { ActionForm, ActionMenu, type ActionOverlayState } from "./actions/ActionOverlay.js";
+import { ActionPanel, type ActionPanelApi } from "./actions/ActionPanel.js";
+import { ActionBar } from "./actions/ActionBar.js";
 import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
+import { SheetPager, pageWindow, type SheetPagerColumn } from "./Pager.js";
 import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
-import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripSuggestInput } from "./Strip.js";
+import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripModel, type StripSuggestInput } from "./Strip.js";
 import type { SheetFooterProps, SheetLoadingLine } from "./Footer.js";
 import { useSheetEditing, type DraftEdit, type LocalLayer, type SheetSeeds } from "./use-editing.js";
 import { draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
@@ -462,6 +468,8 @@ interface CellWrite {
     key?: string | undefined;
     cell: SheetCellValue;
     extra?: number | undefined;
+    /** Written though its column is not the viewer's to edit: a band cell an action's `updates` sets (#1477). */
+    force?: boolean | undefined;
 }
 
 /** One copilot request — a run after a delay, or a result to deliver once the rows have rendered. */
@@ -530,6 +538,20 @@ export interface SheetParts {
     enter: (library: string, key: string) => void;
     /** What the frame places of a run of the app's optimiser (#1409). */
     optimise: SheetOptimiseParts;
+    /** A phone's Library (`Mobile Sheet Spec.md` SH11). */
+    phoneLibrary: SheetPhoneLibrary;
+}
+
+/** What a phone's Library reads of the sheet, and the taps it makes (`Mobile Sheet Spec.md` SH11, R7). */
+export interface SheetPhoneLibrary {
+    /** What a tap on a card of a library acts on, as the hint names it: its row, or its band; `undefined` with nothing to act on. */
+    targetOf: (library: string) => string | undefined;
+    /** Whether a card of a library is what its target holds now: every cell it sets is there. */
+    holds: (library: string, key: string) => boolean;
+    /** A tap on a card: its cells set on its target, or a template added below the ring's row, as one transaction. */
+    tap: (library: string, key: string) => void;
+    /** Pages the window to a column, by the least it must. Stable. */
+    goToColumn: (key: string) => void;
 }
 
 /**
@@ -583,6 +605,27 @@ export interface SheetHost {
      * the sheet has no eye.
      */
     optimise?: { readonly name: string } | undefined;
+    /**
+     * A phone's cell editor (`Mobile Sheet Spec.md` SH10, R9): what the bottom
+     * container shows for the ring's cell — the inspector's form at touch size,
+     * that cell's field — in the docked strip's place. Absent, or answering
+     * `undefined` for a cell its form has no field for, the strip shows.
+     */
+    cellEditor?: ((at: SheetCellEditorAt) => ReactNode | undefined) | undefined;
+}
+
+/** The cell a phone's bottom container edits ({@link SheetHost.cellEditor}). */
+export interface SheetCellEditorAt {
+    /** Its row-space row: a row, a line or a band. */
+    r: number;
+    /** Its column's key — on a band, its band cell's. */
+    columnKey: string;
+    /** On a group's band: its group's form. */
+    band: boolean;
+    /** How the row names itself where an action column names it — `step 10 · Cut tube stock`, as its action bar's head does; else `undefined`. */
+    name: string | undefined;
+    /** ⌄ close: the container goes until a cell is pressed again. */
+    onClose: () => void;
 }
 
 /** Where a gesture's new entry comes from when it is not the sheet's own: a dropped template's seeds, and its origin (#1187). */
@@ -608,6 +651,46 @@ interface SheetDropApi {
     /** A completed drag: run as one transaction — `false` when nothing changed. */
     drop: (event: DragEventValue) => boolean;
 }
+
+/** The action cells' calls as the sheet stands (#1475): made afresh each render, read through a ref by the one host. */
+interface SheetActionApi extends Omit<SheetActionHost, "subscribe" | "version"> {
+    /** ⏎ on an action cell (K2). */
+    enter: (r: number, key: string) => void;
+    /** Take a case with its value at a cell — on a range down its column, every row of it (T8) — as one transaction (T1); `false` where a row may not take it. */
+    take: (r: number, key: string, c: ActionCase, value: unknown) => boolean;
+    /** Take a case with its value on rows, as one transaction. */
+    takeOn: (rs: readonly number[], key: string, c: ActionCase, value: unknown) => boolean;
+    /** The strip over an action (R2, R3), where it shows one. */
+    strip: () => StripModel | undefined;
+    /** What taking a case with a value would write, worded (F8). */
+    consequence: (c: ActionCase, value: unknown) => string;
+    /** Close the overlay (K6). */
+    close: () => void;
+    /** What taking a case with a value at a row would write, worded. */
+    consequenceAt: (r: number, key: string, c: ActionCase, value: unknown) => string;
+    /** What a case's form opens with at a row (F10). */
+    initial: (r: number, key: string, c: ActionCase) => unknown;
+}
+
+/** The dwell before the strip previews the action the pointer rests on, and the grace before it lets it go (P8, N5). */
+const PREVIEW_MS = 120;
+
+/** A phone's frame (`Mobile Sheet Spec.md` SH4): a pinned column's width, at the left, beside the window of columns. */
+export const PHONE_PIN_PX = 150;
+
+/** How many columns a phone's frame shows at once beside any pinned one, unless the sheet's `narrow` says (SH1.4). */
+const PHONE_COLUMNS = 2;
+
+/** What the jump menu keys the Row column by (SH2): no column's key, a name no author's column reaches through the grid. */
+const ROW_COLUMN = "\u0000row";
+
+/** A phone's band, px (SH6): 44, whatever the density. */
+const PHONE_BAND_PX = 44;
+
+/** The rows' scroll element: sideways as wide as the columns; on a phone, snapping to a column — past a pinned one (SH1.3). */
+const WIDE_ROOT_CSS = { overflowX: "auto" } as const;
+const PHONE_ROOT_CSS = { overflowX: "auto", scrollSnapType: "x mandatory", scrollbarWidth: "none" } as const;
+const PHONE_PINNED_ROOT_CSS = { ...PHONE_ROOT_CSS, scrollPaddingLeft: `${PHONE_PIN_PX}px` } as const;
 
 /** A row-space item's drop row, printed — what its drop cell's `CellRef` carries. */
 function dropText(item: SheetBodyItem): string | undefined {
@@ -635,11 +718,31 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // when it would hide them all.
     const allColumns = useMemo(() => indexColumns(value.columns), [value.columns]);
     const hidden = host.hidden;
+    // The frame's width: inside it (`clientWidth`), the view a sub row's well
+    // keeps its content to; its box (`offsetWidth`, which no scrollbar of its
+    // own changes), what decides whether the gutter folds (#1215).
+    const [viewPx, setViewPx] = useState<number | undefined>(undefined);
+    const [framePx, setFramePx] = useState<number | undefined>(undefined);
+    // A phone's frame (`Mobile Sheet Spec.md`): 560 wide or less — a frame not laid out yet (0 wide) is none. The
+    // columns are a window the pager pages (SH1), no gutter (R5); the column the sheet's `narrow.pin` names, where it names
+    // one the grid draws, leads the row pinned at the left (SH4) — none by default (ruled 3 Nov 2026).
+    const phoneFrame = framePx !== undefined && framePx > 0 && framePx <= 560;
+    const narrow = useMemo(() => getSomeorUndefined(value.narrow), [value.narrow]);
+    const pinKey = narrow === undefined ? undefined : getSomeorUndefined(narrow.pin);
     const columns = useMemo(() => {
-        if (hidden === undefined || hidden.size === 0) return allColumns;
-        const shown = value.columns.filter((c) => !hidden.has(c.key));
-        return shown.length === 0 || shown.length === value.columns.length ? allColumns : indexColumns(shown);
-    }, [allColumns, value.columns, hidden]);
+        const shown = hidden === undefined || hidden.size === 0 ? value.columns : value.columns.filter((c) => !hidden.has(c.key));
+        const drawn = shown.length === 0 ? value.columns : shown;
+        const pinAt = !phoneFrame || pinKey === undefined ? -1 : drawn.findIndex((c) => stringEqual(c.key, pinKey));
+        // The pinned column first, the others in their order beside it.
+        if (pinAt > 0) return indexColumns([drawn[pinAt]!, ...drawn.slice(0, pinAt), ...drawn.slice(pinAt + 1)]);
+        return drawn.length === value.columns.length ? allColumns : indexColumns(drawn);
+    }, [allColumns, value.columns, hidden, phoneFrame, pinKey]);
+    // Whether a phone's frame pins a column: the one `narrow.pin` names, led into first place above.
+    const pinned = phoneFrame && pinKey !== undefined && columns.list[0] !== undefined && stringEqual(columns.list[0].key, pinKey);
+    const pinPx = pinned ? PHONE_PIN_PX : 0;
+    // A phone's Row column (SH2, R5): the row numbers as a column of the window, off until the jump menu's `Row number`.
+    const [rowNumbersOn, setRowNumbers] = useState(false);
+    const rowNumbers = phoneFrame && rowNumbersOn;
     const registers = useMemo(() => indexRegisters(value.registers), [value.registers]);
     const driver = useMemo(() => getSomeorUndefined(value.driver), [value.driver]);
     const driverColumn = driver?.column;
@@ -662,8 +765,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // row and stretch mounting was a compensation of the scroll the view could only round, and the view crept as the
     // narrowing's rows landed (#1398, CL8). On the grid each one measures as it was laid out, and rows land where their
     // placeholders stood.
-    const rowPx = devicePixels(Math.max(useDensityHeights(size).row, coarse ? 45 : 0));
-    const bandPx = devicePixels(Math.max(groupBandPx(size), coarse ? 46 : 42));
+    const densityRow = useDensityHeights(size).row;
+    // A phone's rows (SH5): 44 on a coarse pointer, 32 on a fine one, whatever the density — the rule included.
+    const rowPx = devicePixels(phoneFrame ? (coarse ? 44 : 32) : Math.max(densityRow, coarse ? 45 : 0));
+    const bandPx = devicePixels(phoneFrame ? PHONE_BAND_PX : Math.max(groupBandPx(size), coarse ? 46 : 42));
     // A sub row's least height; a wrapping detail grows it, and the rows are measured.
     const subRowPx = devicePixels(30);
     // The word for a group: the host's (#844), else the sheet's words (#861).
@@ -691,11 +796,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // What moves the rows, as the frame reports it (#856): the element they
     // scroll in, both ways.
     const [viewport, setViewport] = useState<RowsViewport | null>(null);
-    // The frame's width: inside it (`clientWidth`), the view a sub row's well
-    // keeps its content to; its box (`offsetWidth`, which no scrollbar of its
-    // own changes), what decides whether the gutter folds (#1215).
-    const [viewPx, setViewPx] = useState<number | undefined>(undefined);
-    const [framePx, setFramePx] = useState<number | undefined>(undefined);
     // The number column: as wide as the widest number the sheet shows, in the
     // number's own face (measured below, before the first paint), never
     // narrower than its least width — and every gutter grows by what it grows by.
@@ -705,16 +805,39 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const fullGutterPx = Math.max(parseWidth(style !== undefined ? getSomeorUndefined(style.gutterWidth) : undefined) ?? DEFAULT_GUTTER_PX, least.fine, coarse ? least.coarse : 0);
     // A frame too narrow for the touch gutter beside the first column folds it: one row-actions button holds each row's actions (#1215).
     const folded = gutterFolds(framePx, coarse, fullGutterPx, columns.list[0]?.width);
-    const gutterPx = folded ? least.folded : fullGutterPx;
+    // A phone's frame has no gutter (R5): its rows are picked by their pinned cell, and their actions are the Inspector's.
+    const gutterPx = phoneFrame ? 0 : folded ? least.folded : fullGutterPx;
+    // A phone's window (SH1.4): the frame's width less any pinned column, shared by the columns in view — as many as
+    // the sheet's `narrow.columns` says, else two.
+    const narrowColumns = narrow === undefined ? undefined : getSomeorUndefined(narrow.columns);
+    const phoneColumns = narrowColumns === undefined ? PHONE_COLUMNS : Number(narrowColumns);
+    const slotPx = phoneFrame && viewPx !== undefined ? Math.max(0, (viewPx - pinPx) / phoneColumns) : 0;
     // The frame's slack goes to the TEXT columns, each capped at 2.5× its
-    // width, and a trailing filler track takes the rest: a link or date
-    // column keeps its declared width on a wide screen instead of stretching
-    // to the frame.
+    // width, and the last column takes the rest, out to the frame's edge: the
+    // grid ends at its own last column, never at an empty track after it. A
+    // phone's frame: any pinned column, then a slot a column (SH1, SH4) — the
+    // gutter's cells drawn nowhere (the recipe), so they take no track, but as
+    // the Row column, a slot of its own first among the paged ones (SH2).
     const gridTemplate = useMemo(() => {
-        const tracks = columns.list.map((c) => (c.kind === "text" ? `minmax(${c.width}px, ${Math.round(c.width * 2.5)}px)` : `${c.width}px`));
-        return `${gutterPx}px ${tracks.join(" ")} minmax(0, 1fr)`;
-    }, [gutterPx, columns]);
-    const minWidth = gutterPx + columns.totalWidth;
+        if (phoneFrame) {
+            const tracks = columns.list.map((_c, i) => (i === 0 && pinned ? `${PHONE_PIN_PX}px` : `${slotPx}px`));
+            if (rowNumbers) tracks.splice(pinned ? 1 : 0, 0, `${slotPx}px`);
+            return tracks.join(" ");
+        }
+        const tracks = columns.list.map((c, i) => (i === columns.list.length - 1 ? `minmax(${c.width}px, 1fr)`
+            : c.kind === "text" ? `minmax(${c.width}px, ${Math.round(c.width * 2.5)}px)` : `${c.width}px`));
+        return `${gutterPx}px ${tracks.join(" ")}`;
+    }, [gutterPx, columns, phoneFrame, slotPx, pinned, rowNumbers]);
+    // The columns a phone's pager pages: every one but a pinned one; and what it pages, the Row column before them while it shows.
+    const pagedColumns = useMemo(() => (pinned ? columns.list.slice(1) : columns.list), [columns, pinned]);
+    const pagerColumns = useMemo((): readonly SheetPagerColumn[] => {
+        const each = pagedColumns.map((c): SheetPagerColumn => ({ key: c.key, header: c.header, kind: words.m.columnKind({ kind: c.kind }) }));
+        return rowNumbers ? [{ key: ROW_COLUMN, header: words.m.pagerRow(), kind: words.m.pagerRowKind() }, ...each] : each;
+    }, [pagedColumns, rowNumbers, words.m]);
+    const minWidth = phoneFrame ? pinPx + slotPx * pagerColumns.length : gutterPx + columns.list.reduce((n, c) => n + c.width, 0);
+    // The window as it stands, for a pick of the phone's Library (SH11).
+    const pagerRef = useRef({ list: pagerColumns, slot: slotPx, inView: phoneColumns });
+    pagerRef.current = { list: pagerColumns, slot: slotPx, inView: phoneColumns };
     const today = useMemo(() => todayUtc(), []);
 
     // Callbacks — taken from the latest value on every render.
@@ -749,7 +872,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // The copilot's declaration: the columns' fill providers and the proposers, as wire functions (§4.8).
     const suggestDecl = useMemo(() => getSomeorUndefined(value.suggest), [value.suggest]);
     const fillColumns = useMemo<FillColumn[]>(() => columns.list.map((m) => ({
-        key: m.key, kind: m.kind, editable: m.editable && m.kind !== "stamped", providers: m.raw.fill,
+        key: m.key, kind: m.kind, editable: m.editable && m.kind !== "stamped" && m.kind !== "action", providers: m.raw.fill,
     })), [columns]);
     const proposers = useMemo<SheetProposerValue[]>(() => suggestDecl?.propose ?? [], [suggestDecl]);
     const ahead = Number(suggestDecl?.ahead ?? 2n);
@@ -814,6 +937,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     });
     const ui = store.ui;
     const folds = ui.folds;
+    // A phone's bottom container — its action bar or its cell editor — ⌄ closed at a cell (SH9, SH10): it stays closed
+    // there until a press on a cell, that one or another.
+    const [barClosedAt, setBarClosedAt] = useState<{ r: number; c: number } | undefined>(undefined);
     const foldedOf = useCallback((row: SheetRowValue): boolean => folds.get(row.id) ?? getSomeorUndefined(row.band)?.folded ?? false, [folds]);
     // A line's sub rows fold under its id like a group under its own: `false` open, `true` closed, absent untouched.
     const subRowsOpenOf = useCallback((lineKey: string): boolean | undefined => { const f = folds.get(lineKey); return f === undefined ? undefined : !f; }, [folds]);
@@ -1172,7 +1298,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             const meta = metaAt(r, c);
             if (meta === undefined) return false;
             if (it.kind === "blank" && !canInsertRows) return false;
-            if (!meta.editable || meta.kind === "stamped") return false;
+            // An action column is written by its actions alone (T7): typed into, pasted over and cleared never.
+            if (!meta.editable || meta.kind === "stamped" || meta.kind === "action") return false;
             return true;
         },
         kindAt: (r, c) => metaAt(r, c)?.kind ?? "text",
@@ -1453,7 +1580,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     let g = g0;
                     for (const w of list) {
                         const meta = w.key !== undefined ? group.cells.get(w.key) : metaAt(r, w.c);
-                        if (meta === undefined || !meta.editable) continue;
+                        if (meta === undefined || (!meta.editable && w.force !== true)) continue;
                         if (cellEqual(g.cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
                         const cells = new Map(g.cells);
                         cells.set(meta.key, w.cell);
@@ -1591,7 +1718,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const proposalWrites = useCallback((cells: ReadonlyMap<string, SheetCellValue>): { key: string; cell: SheetCellValue }[] => {
         const writes: { key: string; cell: SheetCellValue }[] = [];
         for (const meta of allColumns.list) {
-            if (!meta.editable || meta.kind === "stamped") continue;
+            if (!meta.editable || meta.kind === "stamped" || meta.kind === "action") continue;
             const cell = cells.get(meta.key);
             if (cell !== undefined && !cellIsBlank(cell)) writes.push({ key: meta.key, cell });
         }
@@ -1787,7 +1914,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     for (let r = eff.r0; r <= eff.r1; r++) {
                         for (let c = eff.c0; c <= eff.c1; c++) {
                             const meta = metaAt(r, c);
-                            if (meta === undefined || meta.kind === "stamped" || !meta.editable || !canEdit) continue;
+                            if (meta === undefined || meta.kind === "stamped" || meta.kind === "action" || !meta.editable || !canEdit) continue;
                             if (cellIsBlank(cellAt(r, c))) continue;
                             writes.push({ r, c, cell: NULL_CELL });
                         }
@@ -1829,6 +1956,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     const laid = layoutPaste(matrix, columns.list, eff.c);
                     const writes: CellWrite[] = [];
                     let skipped = 0;
+                    // The action cells it passes by (T7): said apart, never as unrecognised (the hand test's F18).
+                    let actions = 0;
                     // On a grouped sheet a paste lands on the anchor's group — its lines from the ring, its blank line, then new lines past it — never across a band (G9).
                     const anchor = rowAt(eff.r);
                     const gid = group !== undefined && anchor !== undefined && (anchor.kind === "real" || anchor.kind === "blank") ? anchor.group?.row.id : undefined;
@@ -1841,6 +1970,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     for (const p of laid.cells) {
                         const meta = columns.list[p.c];
                         if (meta === undefined) continue;
+                        // An action cell takes no paste (T7).
+                        if (meta.kind === "action") { actions += 1; continue; }
                         const r = eff.r + p.dr;
                         const outcome = parseCell(meta, p.text, parseCtxFor(Math.min(r, blankR ?? r), meta));
                         const cell = outcome.kind === "unrecognised" ? variant("Invalid", p.text) : outcome.kind === "cell" ? outcome.cell : NULL_CELL;
@@ -1862,7 +1993,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     const wide = Math.max(1, laid.width);
                     dispatchStore({ t: "patch", patch: {
                         selEnd: { r: eff.r + matrix.length - 1, c: Math.min(colCount - 1, eff.c + wide - 1) },
-                        msg: { id: "pasted", rows: matrix.length, cols: matrix[0]?.length ?? 0, skipped },
+                        msg: { id: "pasted", rows: matrix.length, cols: matrix[0]?.length ?? 0, skipped, actions, wrote: writes.length > 0 },
                     } });
                     break;
                 }
@@ -1992,6 +2123,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const actedRef = useRef<(action: HistoryAction, redoOrigin: string | undefined) => void>(() => undefined);
     const executeHistory = useCallback((action: HistoryAction) => {
         actedRef.current(action, session.nextRedo?.origin);
+        // The footer's message said what the last gesture did: a step of the history moves past it (F13 of the hand test).
+        if (action !== "refresh") dispatchStore({ t: "patch", patch: { msg: null } });
         if (action === "apply") void session.apply();
         else if (action === "refresh") session.refresh();
         else session[action]();
@@ -2173,6 +2306,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         pressed.current = !e.shiftKey;
         dragging.current = false;
         ringGesture();
+        // A press opens a phone's action bar again, wherever it was closed (SH9).
+        setBarClosedAt(undefined);
         dispatch({ t: "cell.down", r, c, shift: e.shiftKey });
     }, [dispatch, ringGesture]);
     const onCellDouble = useCallback((r: number, c: number) => { ringGesture(); dispatch({ t: "cell.dbl", r, c }); }, [dispatch, ringGesture]);
@@ -2206,6 +2341,26 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         }
         // The browser's own clipboard keys become copy / paste events.
         if (meta && (e.key === "c" || e.key === "v" || e.key === "x" || e.key === "a")) return;
+        // ⏎ on an action cell takes the offer's first case (K2): a button at once, a choice's Menu, a form's Popover.
+        const single = store.ui.selEnd === null || (store.ui.selEnd.r === store.ui.sel.r && store.ui.selEnd.c === store.ui.sel.c);
+        if (e.key === "Enter" && !e.shiftKey && !meta && !e.altKey && single) {
+            const at = ctxRef.current.kindAt(store.ui.sel.r, store.ui.sel.c) === "action" ? columns.list[store.ui.sel.c] : undefined;
+            if (at !== undefined) {
+                takeKey(e);
+                actionApi.current?.enter(store.ui.sel.r, at.key);
+                return;
+            }
+        }
+        // On a phone's frame ← and → page the columns while the grid has the focus, the ring where it is (SH8.1, R4).
+        if (phoneFrame && (e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.shiftKey && !meta && !e.altKey) {
+            takeKey(e);
+            const frame = viewportRef.current?.frame;
+            if (frame !== undefined && slotPx > 0) {
+                const first = Math.round(frame.scrollLeft / slotPx);
+                pageWindow(frame, slotPx, Math.max(0, pagerColumns.length - phoneColumns), first + (e.key === "ArrowRight" ? 1 : -1));
+            }
+            return;
+        }
         const handled = ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Tab", "Enter", "F2", "Escape", "Backspace", "Delete"];
         const printable = e.key.length === 1 && !meta && !e.altKey;
         const toSearch = meta && (e.key === "/" || e.key === "f");
@@ -2225,7 +2380,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             && sheetReducer(uiRef.current, event, ctxRef.current).effects.some((fx) => fx.t === "seek.step" || fx.t === "seek.edge");
         ringGesture(seeks);
         dispatch(event);
-    }, [dispatch, store.ui.edit, store.ui.sel.r, onHistoryAction, onInsert, ringGesture]);
+    }, [dispatch, store.ui.edit, store.ui.sel.r, store.ui.sel.c, store.ui.selEnd, columns, onHistoryAction, onInsert, ringGesture, phoneFrame, slotPx, pagerColumns, phoneColumns]);
     // A band never copies (G9): a whole-group selection copies its lines.
     const isBandRow = useCallback((r: number) => { const k = rowAt(r)?.kind; return k === "group"; }, [rowAt]);
     const onCopy = useCallback((e: ClipboardEvent<HTMLDivElement>) => {
@@ -2842,10 +2997,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         return { folded: groups.length > 0 && groups.every((row) => foldedOf(row)), count: groups.length, noun, onFoldAll };
     }, [group, noun, rows, foldedOf, onFoldAll]);
     const hasQuery = narrowing !== undefined && narrowingQuery(narrowing).trim() !== "";
+    // Whether any source holds a choice: what a phone's strip offers `+ TAB` over, on the whole sheet (FR2).
+    const narrowed = narrowing !== undefined && narrowingScope(narrowing) !== "none";
     // The view tabs, as the toolbar folds them (#952): the strip in each of
     // its forms, how far it can fold, and what it shows — so a change of it
     // has the strip measured again.
-    const tabsVersion = `${tabViews.map((v) => `${v.id}:${v.name}:${v.count}`).join("|")}|${tabWholeCount}|${ui.tabs.active ?? ""}|${dirty}|${hasQuery}`;
+    const tabsVersion = `${tabViews.map((v) => `${v.id}:${v.name}:${v.count}`).join("|")}|${tabWholeCount}|${ui.tabs.active ?? ""}|${dirty}|${hasQuery}|${narrowed}`;
     // The view tabs show while the slice narrows the rows: each view is every source's narrowing.
     const tabs: SheetToolbarTabs | undefined = rowsPart !== undefined
         ? {
@@ -2860,6 +3017,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     active={ui.tabs.active}
                     dirty={dirty}
                     hasQuery={hasQuery}
+                    narrowed={narrowed}
                     renaming={ui.tabs.renaming}
                     renameVal={ui.tabs.renameVal}
                     fold={fold}
@@ -3131,6 +3289,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         measure();
         return () => observer.disconnect();
     }, [viewFrame]);
+    // The Row column shown or hidden puts the window back at its start (SH2): once it is laid out, for the browser re-snaps
+    // the scroll to the column it rested on as the tracks change.
+    const rowNumbersWere = useRef(rowNumbers);
+    useLayoutEffect(() => {
+        if (rowNumbersWere.current === rowNumbers) return;
+        rowNumbersWere.current = rowNumbers;
+        if (viewFrame !== undefined) viewFrame.scrollLeft = 0;
+    }, [rowNumbers, viewFrame]);
     // The widest number each of the gutter's numbers can show: a row's — a
     // flat sheet's blank padding and a proposal's among them — a band's, a
     // loose row's and a line's; and, apart, a line's with its sub rows'
@@ -3227,7 +3393,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const head = headerRef.current?.querySelectorAll<HTMLElement>('[data-slot="headerCell"]')[col];
         if (head !== undefined) {
             const box = frame.getBoundingClientRect();
-            const left = box.left + frame.clientLeft + gutterPx;
+            const left = box.left + frame.clientLeft + (phoneFrame ? pinPx : gutterPx);
             const right = box.left + frame.clientLeft + frame.clientWidth;
             const cell = head.getBoundingClientRect();
             if (cell.left < left) frame.scrollLeft -= left - cell.left;
@@ -3452,6 +3618,402 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const runLoading = useCallback((band: { at: string; from: number; to: number }): boolean => (band.at === "reading"
         ? lensReading.includes(band.from)
         : pendingWindows.some((w) => w * SHEET_PAGE_SIZE <= band.to && (w + 1) * SHEET_PAGE_SIZE - 1 >= band.from)), [pendingWindows, lensReading]);
+    // ── The action column (#1475–#1477) ────────────────────────────────
+    // Every row's action cells ask one host, held still for the sheet's life (#858); what they read is the sheet as it
+    // stands (`actionApi`, made afresh each render), and its store tells them to look again as the rows, the drafts or
+    // the overlay move — only they draw again. A taken action is one transaction (T1): its field's new case, the cells
+    // its `updates` writes on the row and on its group's band, and the entry drawn again as the record would show it.
+    const hasActions = useMemo(() => allColumns.list.some((col) => col.kind === "action"), [allColumns]);
+    const actionStore = useMemo(createActionStore, []);
+    const [actionOverlay, setActionOverlay] = useState<ActionOverlayState | undefined>(undefined);
+    const actionApi = useRef<SheetActionApi | undefined>(undefined);
+    // The action the pointer rests on, previewed in the strip (P8), and the dwell before it shows or goes.
+    const [actionPreview, setActionPreview] = useState<{ r: number; key: string; c: ActionCase } | undefined>(undefined);
+    const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    useEffect(() => () => { if (previewTimer.current !== undefined) clearTimeout(previewTimer.current); }, []);
+    // Auto mode: each action saved as it is taken, its dot's echo running until the save is acknowledged (T5).
+    const autoSave = value.editing.mode.type === "auto";
+    const actionHost = useMemo<SheetActionHost>(() => ({
+        subscribe: actionStore.subscribe,
+        version: actionStore.version,
+        offer: (r, key) => actionApi.current?.offer(r, key),
+        controls: (r, key) => actionApi.current?.controls(r, key) ?? false,
+        startable: (r, key) => actionApi.current?.startable(r, key) ?? false,
+        held: (r, key) => actionApi.current?.held(r, key),
+        dirty: (r, key) => actionApi.current?.dirty(r, key) ?? false,
+        live: (r, key) => actionApi.current?.live(r, key) ?? false,
+        next: (r, key, c, anchor) => actionApi.current?.next(r, key, c, anchor),
+        more: (r, key, anchor) => actionApi.current?.more(r, key, anchor),
+        preview: (r, key, c) => actionApi.current?.preview(r, key, c),
+    }), [actionStore]);
+    /** The action cell at a row: its row, its column and its machine — a line's or a flat row's, never a band's or a blank's. */
+    const actionAt = (r: number, key: string) => {
+        const it = rowAt(r);
+        const meta = allColumns.byKey.get(key);
+        const column = actionColumnOf(meta);
+        if (it === undefined || it.kind !== "real" || meta === undefined || column === undefined) return undefined;
+        return { it, meta, column, cell: it.row.cells.get(key), lg: it.group };
+    };
+    /** A rule cell's text on a row (an action column's summary, name or title), if it holds one. */
+    const ruleText = (row: SheetRowValue, key: string | undefined): string | undefined => {
+        const cell = key === undefined ? undefined : row.cells.get(key);
+        return cell?.type === "String" && cell.value !== "" ? cell.value : undefined;
+    };
+    /** What a case's `updates` would write, as facts (R5): each cell it changes, `{header} {value}`, the row's then the band's. */
+    const actionFacts = (r: number, key: string, c: ActionCase, bytes: Uint8Array): { updates: ReturnType<NonNullable<ActionCase["updates"]>> | undefined; facts: string[] } => {
+        const updates = c.updates?.(bytes, wireContextFor(r), new Date());
+        const facts: string[] = [];
+        const a = actionAt(r, key);
+        // A value in words: a register member by its label, anything else as its column prints it.
+        const said = (cell: SheetCellValue, meta: SheetColumnMeta): string => {
+            const member = meta.register !== undefined && cell.type === "String" ? resolveRegisterMember(registers, meta.register, cell.value) : undefined;
+            return member !== undefined && member.label !== "" ? member.label : cellText(cell, meta, words);
+        };
+        // The row's cells in the columns' order (R5), then the band's, named by the group: `WO-1042 On hold`.
+        for (const meta of allColumns.list) {
+            const cell = updates?.row.get(meta.key);
+            if (cell === undefined || (a !== undefined && cellEqual(a.it.row.cells.get(meta.key) ?? NULL_CELL, cell))) continue;
+            facts.push(`${meta.header} ${said(cell, meta)}`);
+        }
+        const groupName = a?.lg !== undefined ? a.lg.row.id : undefined;
+        for (const [k, cell] of updates?.group ?? []) {
+            const meta = group?.cells.get(k);
+            if (meta === undefined || (a?.lg !== undefined && cellEqual(a.lg.row.cells.get(k) ?? NULL_CELL, cell))) continue;
+            facts.push(`${groupName ?? meta.header} ${said(cell, meta)}`);
+        }
+        return { updates, facts };
+    };
+    const projectEntry = editingState.project;
+    /**
+     * Take a case with its value on rows, as one transaction (T1, T8): on each, its field's new case, the cells its
+     * `updates` writes on the row and on its group's band, and its entry drawn again as the record would show its draft.
+     * Every row must be offered the case now, or nothing is taken.
+     */
+    const takeAction = (rs: readonly number[], key: string, c: ActionCase, value: unknown): boolean => {
+        if (!canEdit || !editingState.available || rs.length === 0) return false;
+        const at = rs.map((r) => ({ r, a: actionAt(r, key) }));
+        if (at.some(({ r, a }) => {
+            if (a === undefined) return true;
+            const offer = offerOf(a.column, a.cell, wireContextFor(r));
+            return !canTake(offer) || !offer.offered.some((o) => o.name === c.name);
+        })) return false;
+        const writes: CellWrite[] = [];
+        const edits = new Map<string, DraftEdit>();
+        const facts: string[] = [];
+        let bytes: Uint8Array;
+        try {
+            bytes = c.encode(value);
+            for (const { r, a } of at) {
+                const taken = actionFacts(r, key, c, bytes);
+                if (rs.length === 1) for (const fact of taken.facts) facts.push(fact);
+                writes.push({ r, c: -1, key, cell: actionCell(c, bytes) });
+                for (const [k, cell] of taken.updates?.row ?? []) writes.push({ r, c: -1, key: k, cell });
+                const bandR = a!.lg !== undefined ? rowOf(a!.lg.row.id) : undefined;
+                if (bandR !== undefined) for (const [k, cell] of taken.updates?.group ?? []) writes.push({ r: bandR, c: -1, key: k, cell, force: true });
+                const entry = a!.lg !== undefined ? a!.lg.row.id : a!.it.row.id;
+                // The entry drawn again as the record would show its draft: its summary and every rule cell read the new case.
+                edits.set(entry, (version: EntryVersion): EntryVersion => {
+                    const projected = projectEntry(entry, version.draft, version.wire);
+                    if (projected === undefined || version.wire === undefined) return version;
+                    const keys = version.wire.lines;
+                    return { ...version, wire: { ...projected, id: version.wire.id, lines: projected.lines.map((line, i) => ({ ...line, key: keys[i]?.key ?? line.key })) } };
+                });
+            }
+        } catch (error) {
+            console.error(`[Sheet] the action "${c.name}" failed on column "${key}":`, error);
+            dispatchStore({ t: "patch", patch: { msg: { id: "text", text: words.m.actionFailed({ verb: c.label, reason: error instanceof Error ? error.message : String(error) }) } } });
+            return false;
+        }
+        gestureEvents.current = [];
+        let recorded = false;
+        try {
+            writeCells(writes, "typed");
+            recorded = recordGesture(gestureEvents.current, undefined, "action", edits, undefined, c.label);
+        } catch (error) {
+            console.error("Sheet transaction failure", error);
+            dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } });
+        } finally {
+            gestureEvents.current = [];
+        }
+        if (!recorded) return false;
+        // What the strip previewed is taken: the ring's cell says itself again (P8).
+        if (previewTimer.current !== undefined) { clearTimeout(previewTimer.current); previewTimer.current = undefined; }
+        setActionPreview(undefined);
+        const first = at[0]!.a!;
+        const name = rs.length === 1 ? ruleText(first.it.row, first.column.name) : words.m.inspectorSeveral({ n: rs.length, count: words.number(rs.length), lines: group !== undefined });
+        dispatchStore({ t: "patch", patch: { msg: { id: "text", text: words.m.noticeActionTaken({ state: c.state, name, n: facts.length, count: words.number(facts.length), facts }) } } });
+        return true;
+    };
+    /**
+     * The rows an action at a cell is taken on (T8): a range down the action column, every one of its rows an action
+     * row; else the cell's own row.
+     */
+    const actionRows = (r: number, key: string): number[] => {
+        const ci = columns.list.findIndex((col) => col.key === key);
+        const rect = selectionRect(ui);
+        if (ui.selEnd === null || rect.c0 !== ci || rect.c1 !== ci || r < rect.r0 || r > rect.r1 || rect.r0 === rect.r1) return [r];
+        const rs: number[] = [];
+        for (let k = rect.r0; k <= rect.r1; k++) if (actionAt(k, key) !== undefined) rs.push(k);
+        return rs.length === 0 ? [r] : rs;
+    };
+    /** What every row of a range is offered (T8): the first row's offer, less a case another row is not offered — none taken while any row may not act. */
+    const rangeOffer = (rs: readonly number[], key: string): ActionCase[] => {
+        const offers = rs.map((r) => { const a = actionAt(r, key); return a === undefined ? undefined : offerOf(a.column, a.cell, wireContextFor(r)); });
+        if (offers.some((o) => o === undefined || !canTake(o))) return [];
+        const [head, ...rest] = offers as NonNullable<(typeof offers)[number]>[];
+        return (head?.offered ?? []).filter((c) => rest.every((o) => o.offered.some((x) => x.name === c.name)));
+    };
+    /** The menu's head and the form's eyebrow name the row (M5, F4): its name and title rule cells, else its number. */
+    const actionHead = (r: number, key: string): { name: string | undefined; title: string | undefined } => {
+        const a = actionAt(r, key);
+        if (a === undefined) return { name: undefined, title: undefined };
+        const name = ruleText(a.it.row, a.column.name) ?? (a.lg !== undefined ? words.m.lineName({ number: String(a.lg.number), group: ruleText(a.lg.row, TITLE_KEY) ?? a.lg.row.id }) : words.m.rowName({ number: String(a.it.position + 1) }));
+        return { name, title: ruleText(a.it.row, a.column.title) };
+    };
+    /** What a form opens with (F10): the case's `initial`, else the row's value while it holds this case, else nothing. */
+    const initialOf = (r: number, key: string, c: ActionCase): unknown => {
+        const a = actionAt(r, key);
+        if (a === undefined) return undefined;
+        try {
+            return c.initial !== undefined ? c.decode(c.initial(wireContextFor(r)))
+                : a.cell?.type === "Action" && caseOf(a.cell) === c.name ? c.decode(a.cell.value.value) : undefined;
+        } catch (error) {
+            console.error(`[Sheet] the form of "${c.name}" could not open with its value:`, error);
+            return undefined;
+        }
+    };
+    const openForm = (r: number, key: string, c: ActionCase, anchor: HTMLElement, part: "next" | "more", rs: readonly number[] = [r]) => {
+        if (actionAt(r, key) === undefined) return;
+        const head = actionHead(r, key);
+        // A range's form asks once (T8): it opens on the first row's value, and its answer goes to every row.
+        setActionOverlay({ kind: "form", r, rs, key, part, anchor, case: c, initial: rs.length > 1 ? undefined : initialOf(r, key, c), name: head.name, meta: head.title });
+    };
+    /** What taking a case with a value would write, worded (F8, R2). */
+    const consequenceAt = (r: number, key: string, c: ActionCase, value: unknown): string => {
+        try { return words.m.actionSets({ facts: actionFacts(r, key, c, c.encode(value)).facts }); }
+        catch { return ""; }
+    };
+    /** Whether a row takes actions at a column (T9): a sheet that takes edits, a column it writes, a row no system owns. */
+    const actionWritable = (r: number, key: string): boolean => {
+        const a = actionAt(r, key);
+        return a !== undefined && canEdit && a.meta.editable && !(a.lg?.row ?? a.it.row).owned;
+    };
+    const ringOn = (r: number, key: string) => {
+        const c = columns.list.findIndex((col) => col.key === key);
+        if (c >= 0) { ringGesture(); dispatch({ t: "select.move", r, c }); }
+    };
+    /**
+     * A press on a cell's control takes no focus of its own (K1), so the grid takes it: ⏎ then takes the next case, and
+     * ⌘Z undoes the one taken — from a page whose focus was never in the grid too (review of #1481, finding 1). An
+     * overlay the press opens moves the focus into itself, and gives it back to the grid as it closes (K6).
+     */
+    const focusOnPress = () => { cardRef.current?.focus({ preventScroll: true }); };
+    const closeOverlay = () => {
+        setActionOverlay(undefined);
+        // What the overlay's items previewed goes with it, taken or not (P9; F2 of the hand retest).
+        if (previewTimer.current !== undefined) { clearTimeout(previewTimer.current); previewTimer.current = undefined; }
+        setActionPreview(undefined);
+        // Focus goes back to the grid, whose ring is on the cell (K6) — unless another overlay took its place.
+        queueMicrotask(() => { if (actionOverlayRef.current === undefined) cardRef.current?.focus({ preventScroll: true }); });
+    };
+    actionApi.current = !hasActions ? undefined : {
+        offer: (r, key) => {
+            const a = actionAt(r, key);
+            if (a === undefined) return undefined;
+            return offerOf(a.column, a.cell, canEdit && editingState.available ? wireContextFor(r) : undefined);
+        },
+        // Owned rows, a read-only sheet, a column that takes no edit, and a phone's frame show the state alone (T9, X4).
+        controls: (r, key) => actionWritable(r, key) && !phoneFrame,
+        // A phone's cell with nothing taken, its row free to act and offered a case now: `▶ Start` (SH7).
+        startable: (r, key) => {
+            if (!phoneFrame || !actionWritable(r, key) || !editingState.available) return false;
+            const a = actionAt(r, key);
+            if (a === undefined || a.cell?.type === "Action") return false;
+            return canTake(offerOf(a.column, a.cell, wireContextFor(r)));
+        },
+        held: (r, key) => (actionOverlay !== undefined && actionOverlay.r === r && actionOverlay.key === key ? actionOverlay.part : undefined),
+        dirty: (r, key) => {
+            const a = actionAt(r, key);
+            if (a === undefined) return false;
+            // Against what the record held where the drafts began; an entry no gesture touched is no draft.
+            const began = session.originals.get(a.lg !== undefined ? a.lg.row.id : a.it.row.id);
+            if (began === undefined) return false;
+            const wire = began.wire;
+            const was = a.lg !== undefined ? wire?.lines.find((line) => line.key === a.lg!.key)?.cells.get(key) : wire?.cells.get(key);
+            return !cellEqual(was ?? NULL_CELL, a.cell ?? NULL_CELL);
+        },
+        live: (r, key) => autoSave && (session.status === "applying" || session.status === "reconciling") && (actionApi.current?.dirty(r, key) ?? false),
+        next: (r, key, c, anchor) => {
+            // Over a range down the column, the case on every row of it (T8); else the ring moves to the cell first (P2–P4).
+            const rs = actionRows(r, key);
+            if (rs.length > 1) { if (!rangeOffer(rs, key).some((o) => o.name === c.name)) return; }
+            else ringOn(r, key);
+            focusOnPress();
+            if (c.kind === "button") takeAction(rs, key, c, null);
+            else if (c.kind === "form") openForm(r, key, c, anchor, "next", rs);
+            else setActionOverlay({ kind: "menu", r, rs, key, part: "next", anchor, cases: [c], head: words.m.actionMenuHead(actionHead(r, key)) });
+        },
+        more: (r, key, anchor) => {
+            const rs = actionRows(r, key);
+            if (rs.length === 1) ringOn(r, key);
+            focusOnPress();
+            const a = actionAt(r, key);
+            if (a === undefined) return;
+            const offer = offerOf(a.column, a.cell, wireContextFor(r));
+            if (!canTake(offer)) return;
+            const first = offer.offered[0];
+            const cases = rs.length > 1 ? rangeOffer(rs, key).filter((c) => c.name !== first?.name) : offer.offered.slice(1);
+            // Nothing more every row of a range is offered: no Menu, and the footer says why (T8; F12 of the hand retest).
+            if (cases.length === 0) {
+                if (rs.length > 1) dispatchStore({ t: "patch", patch: { msg: { id: "text", text: words.m.actionRangeNothing() } } });
+                return;
+            }
+            setActionOverlay({ kind: "menu", r, rs, key, part: "more", anchor, cases, head: words.m.actionMenuHead(actionHead(r, key)) });
+        },
+        preview: (r, key, c) => {
+            // The strip previews an action the pointer rests on, after a dwell, and lets it go a grace after it leaves (P8, N5).
+            if (previewTimer.current !== undefined) clearTimeout(previewTimer.current);
+            previewTimer.current = setTimeout(() => {
+                previewTimer.current = undefined;
+                setActionPreview(c === undefined ? undefined : { r, key, c });
+            }, PREVIEW_MS);
+        },
+        enter: (r, key) => {
+            // ⏎ on an action cell (K2): the offer's first case, its control the anchor — the cell where none is drawn.
+            const a = actionAt(r, key);
+            if (a === undefined) return;
+            const offer = offerOf(a.column, a.cell, canEdit && editingState.available ? wireContextFor(r) : undefined);
+            const first = offer.offered[0];
+            if (first === undefined || !canTake(offer)) return;
+            const c = columns.list.findIndex((col) => col.key === key);
+            const cellEl = document.getElementById(`${gridId}-${r}-${c}`);
+            const anchor = cellEl?.querySelector<HTMLElement>("[data-slot=actionNext]") ?? cellEl;
+            if (anchor === null || anchor === undefined) return;
+            actionApi.current?.next(r, key, first, anchor);
+        },
+        take: (r, key, c, value) => takeAction(actionRows(r, key), key, c, value),
+        consequence: (c, value) => (actionOverlay === undefined ? "" : consequenceAt(actionOverlay.r, actionOverlay.key, c, value)),
+        takeOn: takeAction,
+        consequenceAt,
+        initial: initialOf,
+        close: closeOverlay,
+        strip: () => {
+            // The strip over an action (R2, R3): the action the pointer rests on, else the ring's action cell.
+            if (ui.edit !== null || ui.sugg !== null) return undefined;
+            const preview = actionPreview;
+            if (preview !== undefined) {
+                const a = actionAt(preview.r, preview.key);
+                if (a === undefined) return undefined;
+                const { c } = preview;
+                const name = actionHead(preview.r, preview.key).name;
+                let text: string;
+                try {
+                    text = c.kind === "form" ? words.m.actionOpensForm()
+                        : c.kind === "button" ? words.m.actionSets({ facts: actionFacts(preview.r, preview.key, c, c.encode(null)).facts })
+                            : words.m.actionPickReason({ facts: [] });
+                } catch { text = ""; }
+                return { on: true, label: words.m.actionStripLabel({ verb: verbOf(c), name }), chips: [{ key: "v", label: text, on: false, flat: true, title: text }], meta: "", keys: "" };
+            }
+            const ringMeta = metaAt(ui.sel.r, ui.sel.c);
+            if (ui.selEnd !== null || ringMeta?.kind !== "action") return undefined;
+            const a = actionAt(ui.sel.r, ringMeta.key);
+            if (a === undefined) return undefined;
+            const offer = offerOf(a.column, a.cell, canEdit && editingState.available ? wireContextFor(ui.sel.r) : undefined);
+            const text = words.m.actionStripState({
+                state: offer.state?.state, summary: ruleText(a.it.row, a.column.summary) ?? "", offers: offer.offered.map(verbOf),
+                blocked: offer.blocked, incomplete: offer.incomplete, readOnly: !(actionApi.current?.controls(ui.sel.r, ringMeta.key) ?? false),
+            });
+            // ⏎ is offered only where it takes something (R3).
+            const takes = canTake(offer) && (actionApi.current?.controls(ui.sel.r, ringMeta.key) ?? false);
+            return { on: true, label: words.m.actionStripLabel({ verb: undefined, name: actionHead(ui.sel.r, ringMeta.key).name }), chips: [{ key: "v", label: text, on: false, flat: true, title: text }], meta: "", keys: takes ? words.m.actionStripKeys() : "" };
+        },
+    };
+    // The cells look again as what they read moves: the rows and their drafts, the overlay, the frame's width.
+    useLayoutEffect(() => {
+        if (hasActions) actionStore.bump();
+    }, [hasActions, actionStore, rows, draftVersion, actionOverlay, canEdit, editingState.available, framePx, session.status]);
+    // An overlay whose row went — a narrowing, a new revision — closes.
+    useEffect(() => {
+        if (actionOverlay !== undefined && actionApi.current?.offer(actionOverlay.r, actionOverlay.key) === undefined) setActionOverlay(undefined);
+    }, [actionOverlay, rows]);
+    const onActionTake = useCallback((c: ActionCase, value: unknown) => {
+        const at = actionOverlayRef.current;
+        if (at !== undefined) actionApi.current?.takeOn(at.rs, at.key, c, value);
+    }, []);
+    const actionOverlayRef = useRef(actionOverlay);
+    actionOverlayRef.current = actionOverlay;
+    const onActionForm = useCallback((c: ActionCase) => {
+        const at = actionOverlayRef.current;
+        if (at === undefined) return;
+        // A form run from the Menu opens in its place, hung from the control that opened the Menu (M8).
+        actionApiOpenForm.current(at.r, at.key, c, at.anchor, at.part, at.rs);
+    }, []);
+    const actionApiOpenForm = useRef(openForm);
+    actionApiOpenForm.current = openForm;
+    const onActionClose = useCallback(() => actionApi.current?.close(), []);
+    // A Menu item the pointer rests on is previewed as a control is (P9).
+    const onMenuPreview = useCallback((c: ActionCase | undefined) => {
+        const at = actionOverlayRef.current;
+        if (at !== undefined) actionApi.current?.preview(at.r, at.key, c);
+    }, []);
+    const actionConsequence = useCallback((c: ActionCase, value: unknown) => actionApi.current?.consequence(c, value) ?? "", []);
+    const actionOverlayNode = actionOverlay === undefined ? null
+        : actionOverlay.kind === "menu"
+            ? <ActionMenu state={actionOverlay} registers={registers} onTake={onActionTake} onForm={onActionForm} onClose={onActionClose} onPreview={onMenuPreview} />
+            : <ActionForm key={`${actionOverlay.r}:${actionOverlay.key}:${actionOverlay.case.name}`} state={actionOverlay} registers={registers}
+                consequence={actionConsequence} onTake={onActionTake} onClose={onActionClose} />;
+    const rowActions = hasActions ? actionHost : undefined;
+    // A phone's action bar (#1479; `Mobile Sheet Spec.md` SH9, R3): the ring's Action cell's actions in the docked strip's
+    // place, opened by a tap on that cell — never on a row's other cells — and ⌄ closed until the ring moves.
+    const ringColumn = columns.list[ui.sel.c];
+    const barClosed = barClosedAt !== undefined && barClosedAt.r === ui.sel.r && barClosedAt.c === ui.sel.c;
+    const barKey = phoneFrame && ui.selEnd === null && ringColumn?.kind === "action" && !barClosed ? ringColumn.key : undefined;
+    const barRow = barKey !== undefined ? actionAt(ui.sel.r, barKey) : undefined;
+    // The bar's head names the step's group too — `WO-1042 · step 20` — as nothing else on a phone's screen may (X5; F17 of the hand test).
+    const barHeadOf = (r: number, key: string) => {
+        const head = actionHead(r, key);
+        const lg = actionAt(r, key)?.lg;
+        return lg === undefined || head.name === undefined ? head : { ...head, name: `${lg.row.id} · ${head.name}` };
+    };
+    const barHead = barKey !== undefined && barRow !== undefined ? barHeadOf(ui.sel.r, barKey) : undefined;
+    // The inspector's action field (#1478): the same host and the same command as the grid's.
+    const panelApi = useMemo<ActionPanelApi>(() => ({
+        take: (r, key, c, value) => actionApi.current?.take(r, key, c, value) ?? false,
+        consequence: (r, key, c, value) => actionApi.current?.consequenceAt(r, key, c, value) ?? "",
+        initial: (r, key, c) => actionApi.current?.initial(r, key, c),
+    }), []);
+    const drawAction = useCallback((r: number, key: string): ReactNode => {
+        const it = rowAt(r);
+        const meta = allColumns.byKey.get(key);
+        const column = actionColumnOf(meta);
+        if (it === undefined || it.kind !== "real" || column === undefined) return null;
+        const summary = it.row.cells.get(column.summary);
+        return <ActionPanel host={actionHost} api={panelApi} r={r} columnKey={key} column={column} cell={it.row.cells.get(key)}
+            summary={summary?.type === "String" ? summary.value : ""} registers={registers} />;
+    }, [rowAt, allColumns, actionHost, panelApi, registers]);
+    const actionBar = barKey === undefined || barRow === undefined || barHead === undefined ? undefined
+        : <ActionBar key={barRow.lg !== undefined ? lineId(barRow.lg.row.id, barRow.lg.key) : barRow.it.row.id} host={actionHost} api={panelApi} r={ui.sel.r} columnKey={barKey}
+            name={barHead.name} title={barHead.title} registers={registers} writable={actionWritable(ui.sel.r, barKey)}
+            summary={ruleText(barRow.it.row, barRow.column.summary) ?? ""} onClose={() => setBarClosedAt({ r: ui.sel.r, c: ui.sel.c })} />;
+    // A phone's cell editor (`Mobile Sheet Spec.md` SH10, R9): the ring's cell of every other kind edits in the same
+    // bottom container — the inspector's form at touch size, its field alone, the frame's — opened by a press on the cell
+    // and ⌄ closed as the bar is. A column that takes no edit opens nothing (SH10.2); a sheet read only opens nothing.
+    const hostEditor = host.cellEditor;
+    // Its eyebrow names the row as the action bar's does — its action column's name and title — where it has one.
+    const rowActionName = (r: number): string | undefined => {
+        const key = allColumns.list.find((col) => col.kind === "action")?.key;
+        if (key === undefined || actionAt(r, key) === undefined) return undefined;
+        const head = actionHead(r, key);
+        const named = [head.name, head.title].filter((t): t is string => t !== undefined && t !== "");
+        return named.length === 0 ? undefined : named.join(" · ");
+    };
+    const ringMeta = metaAt(ui.sel.r, ui.sel.c);
+    const ringRow = rowAt(ui.sel.r);
+    const ringR = ui.sel.r;
+    const ringC = ui.sel.c;
+    const cellEditor = !phoneFrame || hostEditor === undefined || ui.selEnd !== null || barClosed || readOnly || ringMeta === undefined
+        || !ringMeta.editable || ringMeta.kind === "action" || ringMeta.kind === "stamped" || (ringRow?.kind !== "real" && ringRow?.kind !== "group") ? undefined
+        : hostEditor({ r: ringR, columnKey: ringMeta.key, band: ringRow.kind === "group", name: rowActionName(ringR), onClose: () => setBarClosedAt({ r: ringR, c: ringC }) });
     // What the runs of the optimiser left on each row (#1409, R25), by the row's id — a line's by its line id — while the
     // drafts hold it: each row is handed its own marks, held still until a run touches it again.
     const marks: ReadonlyMap<string, SheetRowMarks> | undefined = optimised?.rows;
@@ -3614,10 +4176,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 foldedGutter={folded}
                 inserts={foldedInserts}
                 marks={item.kind === "real" ? marks?.get(lg !== undefined ? lineId(lg.row.id, lg.key) : item.row.id) : undefined}
+                actions={rowActions}
             />
             </SheetRowBoundary>
         );
-    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows, marks]);
+    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows, marks, rowActions]);
 
     // ── The inspector's reads and gestures (#1188) ────────────────────────
     // Nothing here reads the source until the inspector pane asks for a
@@ -3712,7 +4275,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         }
         return { kind: "several", rs, r0: rect.r0, r1: rect.r1 };
     }, [selSel, selEnd, rowAt, placeAt]);
-    const inspectWrite = useCallback((writes: readonly SheetInspectWrite[]) => {
+    const inspectWrite = useCallback((writes: readonly SheetInspectWrite[], joins?: string) => {
         if (!canEdit || !editingState.available) return;
         gestureEvents.current = [];
         const cellWrites: CellWrite[] = [];
@@ -3755,7 +4318,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             });
         }
         if (cellWrites.length > 0) writeCells(cellWrites, "typed");
-        try { recordGesture(gestureEvents.current, undefined, "typed", draftEdits); }
+        try { recordGesture(gestureEvents.current, undefined, "typed", draftEdits, undefined, undefined, joins); }
         catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
         finally { gestureEvents.current = []; }
         // The copilot asks again for a row whose trigger column changed, as typing in it does.
@@ -3889,7 +4452,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const meta = columnAt(r, key);
         if (it === undefined || meta === undefined || (it.kind !== "real" && it.kind !== "group")) return null;
         const cell = it.row.cells.get(meta.key);
-        const member = meta.kind === "enum" && cell !== undefined && cell.type === "String" ? resolveRegisterMember(registers, meta.register, cell.value) : undefined;
+        const member = namesMember(meta) && cell !== undefined && cell.type === "String" ? resolveRegisterMember(registers, meta.register, cell.value) : undefined;
         return (
             <SheetCellContent styles={styles} meta={meta} cell={cell} rowBlank={false} unit={unitAt(r, key)} member={member} ghost={undefined}
                 link={meta.kind === "link" && it.kind === "real" ? linkCellCtx(it.row, meta) : undefined} />
@@ -3992,9 +4555,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         issues: issueList,
         kindOf,
         write: inspectWrite, editInSheet, remove: removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden,
-        columnAt, cellAt: inspectCellAt, unitAt, levelAt: inspectLevelAt, allowedAt, drawCell,
+        columnAt, cellAt: inspectCellAt, unitAt, levelAt: inspectLevelAt, allowedAt, drawCell, drawAction,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks the session's pending count.
-    }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, columnAt, inspectCellAt, unitAt, inspectLevelAt, allowedAt, drawCell, draftVersion]);
+    }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, columnAt, inspectCellAt, unitAt, inspectLevelAt, allowedAt, drawCell, drawAction, draftVersion]);
 
     // ── Drag and drop: the plans (#1187) ──────────────────────────────────
     // Every drop is planned (`drop.ts`) from the rows as they stand — the
@@ -4218,6 +4781,62 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const enterRef = useRef(enterCard);
     enterRef.current = enterCard;
     const enter = useCallback((library: string, key: string) => enterRef.current(library, key), []);
+    // A phone's Library (SH11): a tap on an author's card is its drop on the row it lands on — a group's card on the ring's
+    // band, or the band of the line the ring is on; a tap on a template its ⏎.
+    const cardRing = ui.sel.r;
+    const cardTargetR = (lands: "row" | "group"): number | undefined => {
+        const item = rowAt(cardRing);
+        if (lands === "row") return item?.kind === "real" ? cardRing : undefined;
+        if (item?.kind === "group") return cardRing;
+        return item?.kind === "real" && item.group !== undefined ? rowOf(item.group.row.id) : undefined;
+    };
+    const phoneLibrary: SheetPhoneLibrary = {
+        targetOf: (library) => {
+            const tab = dropHost?.tabs.get(library);
+            const r = tab === undefined ? cardRing : cardTargetR(tab.lands);
+            const item = r === undefined ? undefined : rowAt(r);
+            if (item === undefined || (item.kind !== "real" && item.kind !== "group")) return undefined;
+            if (item.kind === "group") {
+                const title = item.row.cells.get(TITLE_KEY);
+                return title?.type === "String" && title.value !== "" ? `${item.row.id} · ${title.value}` : item.row.id;
+            }
+            const lg = item.group;
+            return words.m.inspectorWhat({ what: lg !== undefined ? "line" : "row", number: String(lg !== undefined ? lg.number : item.position + 1), title: lg?.row.id, noun: noun.singular });
+        },
+        holds: (library, key) => {
+            const tab = dropHost?.tabs.get(library);
+            const card = tab?.cards.get(key);
+            const r = tab === undefined ? undefined : cardTargetR(tab.lands);
+            const item = r === undefined ? undefined : rowAt(r);
+            if (card === undefined || card.sets.size === 0 || item === undefined || (item.kind !== "real" && item.kind !== "group")) return false;
+            for (const [k, cell] of card.sets) if (!cellEqual(item.row.cells.get(k) ?? NULL_CELL, cell)) return false;
+            return true;
+        },
+        tap: (library, key) => {
+            const tab = dropHost?.tabs.get(library);
+            if (dropHost === undefined || tab === undefined) { enterCard(library, key); return; }
+            const source = cardSource(dropHost, library, key);
+            const r = cardTargetR(tab.lands);
+            const item = r === undefined ? undefined : rowAt(r);
+            const row = item === undefined ? undefined : dropRowOf(item);
+            if (source === undefined || row === undefined) return;
+            const plan = planBelow(source, row, dropCtx);
+            if (plan.kind !== "refused") {
+                runDrop(plan);
+                return;
+            }
+            const word = dropRefusal(plan, dropCtx, words, noun);
+            if (word !== undefined) dispatchStore({ t: "patch", patch: { msg: { id: "dropRefused", word } } });
+        },
+        goToColumn: useCallback((key: string) => {
+            const { list, slot, inView } = pagerRef.current;
+            const frame = viewportRef.current?.frame;
+            const at = list.findIndex((col) => stringEqual(col.key, key));
+            if (frame === undefined || at < 0 || slot <= 0) return;
+            const first = Math.round(frame.scrollLeft / slot);
+            pageWindow(frame, slot, Math.max(0, list.length - inView), at < first ? at : at >= first + inView ? at - inView + 1 : first);
+        }, []),
+    };
 
     // ── The app's optimiser's parts (#1409, #1418) ─────────────────────────
     // The eye before the history item, the banner, the footer line and the legend, over the run above; the request
@@ -4297,7 +4916,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 <SheetRetry styles={styles} onRetry={retrySource} />
             </Box>
         );
-        return { styles, root, toolbar, grid: null, footer, loading: loadingFacts, history, failure, inspect, enter, optimise };
+        return { styles, root, toolbar, grid: null, footer, loading: loadingFacts, history, failure, inspect, enter, optimise, phoneLibrary };
     }
 
     const stickyItem = stickyAt !== undefined ? body[stickyAt] : undefined;
@@ -4308,7 +4927,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         : undefined;
     const header = (
         <Box ref={headerRef} position="relative">
-            <SheetHeader styles={styles} columns={columns.list} gridTemplate={gridTemplate} picked={wr !== null} foldAll={foldAll} />
+            <SheetHeader styles={styles} columns={columns.list} gridTemplate={gridTemplate} picked={wr !== null} foldAll={foldAll} rowNumbers={rowNumbers}
+                selected={phoneFrame && ui.selEnd === null && (ringItem?.kind === "real" || ringItem?.kind === "group") ? ringCol : undefined} />
             {stickyItem !== undefined && stickyItem.kind === "group" && group !== undefined && stickyAt !== undefined && (
                 // The band of the group whose lines scroll under the header (G1) — laid over the rows, so the list never moves.
                 // A copy: the band itself is the grid's row (#860).
@@ -4400,6 +5020,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // insertion layer — the insertion strip, and the strip docked under them.
     const grid = (
         <>
+            {/* A phone's column pager over the grid (SH1): the window of columns beside any pinned one. */}
+            {phoneFrame && pagedColumns.length > phoneColumns && (
+                <SheetPager styles={styles} frame={viewport?.frame ?? null} columns={pagerColumns} slotPx={slotPx} inView={phoneColumns} rowNumbers={rowNumbers} onRowNumbers={setRowNumbers} />
+            )}
             <Box
                 ref={cardRef}
                 id={gridId}
@@ -4408,7 +5032,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 data-sheet-card
                 // Where the gutter ends — what the seam lines start from — whether it folded (#1215), and how wide its number column is.
                 data-gutter={folded ? "folded" : undefined}
-                style={{ "--sheet-gutter": `${gutterPx}px`, "--sheet-number": `${numberPx}px` } as CSSProperties}
+                // A phone's frame (`Mobile Sheet Spec.md`): its window of columns, any pinned column, its band across the view.
+                data-phone={phoneFrame ? "" : undefined}
+                data-pin={pinned ? "" : undefined}
+                data-row-numbers={rowNumbers ? "" : undefined}
+                style={{ "--sheet-gutter": `${gutterPx}px`, "--sheet-number": `${numberPx}px`, "--sheet-view": `${viewPx ?? 0}px`, "--sheet-pin": `${pinPx}px` } as CSSProperties}
                 role="grid"
                 // Rows that stand in — a narrowing's last, or those a key's far jump holds — are retained (#1398, CL8,
                 // CL10): readable and walked by the keys, the frame's main busy, and taking no edit, drag or drop.
@@ -4443,7 +5071,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     // Where the scroll rests, persisted and restored as an item (#857).
                     onAnchorChange={onAnchorChange}
                     restoreAnchor={restoreAnchor}
-                    rootCss={{ overflowX: "auto" }}
+                    // A phone's columns snap to the window's slots, past any pinned column (SH1.3).
+                    rootCss={phoneFrame ? (pinned ? PHONE_PINNED_ROOT_CSS : PHONE_ROOT_CSS) : WIDE_ROOT_CSS}
                 />
                 {seam !== undefined && seamsOn && (
                     <SheetInsertLayer ref={insertLayerRef} styles={styles} seam={seam} actions={insertActions(seam.r, seam.side)} onLeave={onSeamLeave} />
@@ -4461,10 +5090,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 below={canInsertRows && (group === undefined || loose || rows.length > 0) ? () => onInsert("row", wr?.r1 ?? ui.sel.r, "after") : undefined}
                 group={canInsertGroups ? () => onInsert("group", wr?.r1 ?? ui.sel.r, "after") : undefined}
                 noun={noun.singular} />}
-            <SheetStrip styles={styles} model={strip} onAction={onStripAction} />
+            {cellEditor ?? actionBar ?? <SheetStrip styles={styles} model={actionApi.current?.strip() ?? strip} onAction={onStripAction} />}
+            {actionOverlayNode}
         </>
     );
-    return { styles, root, toolbar, grid, footer, loading: loadingFacts, history, failure: undefined, inspect, enter, optimise };
+    return { styles, root, toolbar, grid, footer, loading: loadingFacts, history, failure: undefined, inspect, enter, optimise, phoneLibrary };
 }
 
 const SheetContext = createContext<SheetParts | undefined>(undefined);
@@ -4547,8 +5177,11 @@ export interface SheetInspect {
     issues: readonly EditIssue[];
     /** What an issue refuses its entry for: a field still missing, or one refused — an Apply's conflicts and refusals among them. */
     kindOf: (issue: EditIssue) => "incomplete" | "invalid";
-    /** Write rows: every cell, text and field as one transaction, the copilot asked again for a row whose trigger column changed. */
-    write: (writes: readonly SheetInspectWrite[]) => void;
+    /**
+     * Write rows: every cell, text and field as one transaction, the copilot asked again for a row whose trigger column
+     * changed. A write that `joins` the last one — given the same key — is one step of the history with it.
+     */
+    write: (writes: readonly SheetInspectWrite[], joins?: string) => void;
     /** Put the ring on a row's cell under a column the grid shows, and focus the grid; `false` when the grid does not show it. */
     editInSheet: (r: number, key: string) => boolean;
     /** Delete the rows (or lines) from `r0` to `r1`, as ⌫ on them does. */
@@ -4571,6 +5204,8 @@ export interface SheetInspect {
     allowedAt: (r: number, key: string) => ReadonlySet<string> | undefined;
     /** A cell drawn as the grid draws it — a link's halves and their chips. */
     drawCell: (r: number, key: string) => ReactNode;
+    /** An action field as Details draws it (#1478): its state, the cases its row is offered, and a choice's or a form's inline. */
+    drawAction: (r: number, key: string) => ReactNode;
     /** Go to an issue's cell — seeking its row on a paged sheet, and, where the rail's filters hide it, clearing them (the hidden pick). */
     goToIssue: (issue: EditIssue) => void;
     /** What an issue's line says of its row while the rail's filters hide it — which, once e3 has said — or `undefined` while they do not, or it is not yet known. */
@@ -4726,6 +5361,15 @@ export function useSheetOptimise(): SheetOptimiseParts {
  */
 export function useSheetDropEnter(): (library: string, key: string) => void {
     return useSheetParts().enter;
+}
+
+/**
+ * Reads what a phone's Library reads of the sheet, and the taps it makes (`Mobile Sheet Spec.md` SH11, R7).
+ *
+ * @returns What a card's tap acts on, whether a card is what it holds now, the tap, and the go to a column
+ */
+export function useSheetPhoneLibrary(): SheetPhoneLibrary {
+    return useSheetParts().phoneLibrary;
 }
 
 /**

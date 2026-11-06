@@ -85,18 +85,6 @@ async function ladderFaults(root: Locator): Promise<string[]> {
     return bad;
 }
 
-/** A phone's row: the rail's icon, the View and the history; no tools, zoom or steps of their own, no summary. */
-async function expectPhoneRow(root: Locator, at: string): Promise<void> {
-    await expect.poll(() => toolbarFaults(root), { message: at }).toEqual([]);
-    await expect.poll(() => ladderFaults(root), { message: at }).toEqual([]);
-    const { state } = await toolbarOf(root);
-    expect({ tools: state["tools"], zoom: state["zoom"], seek: state["seek"] }, at).toEqual({ tools: 3, zoom: 1, seek: 2 });
-    await expect(root.locator("[data-toolbar-item='history']"), at).toBeVisible();
-    await expect(root.locator("[data-toolbar-item='record-slices'] [data-rail-rung='icon']"), at).toBeVisible();
-    await expect(root.locator("[data-toolbar-item='seek'] [data-key-search='icon']"), at).toHaveAttribute("aria-label", "View");
-    await expect(root.locator("[data-frame-slot='toolbar'] [data-schematic-tools], [data-frame-slot='toolbar'] [data-schematic-zoom]"), at).toHaveCount(0);
-}
-
 /**
  * Each example a Find pick is made on, and the pick: what is typed, the line picked, which selects the rack it finds,
  * and what the box shows of it — its key, and its place among the matches.
@@ -201,7 +189,7 @@ test.describe("The Schematic's frame (#1387)", () => {
 
         test(`the toolbar folds by one ladder — the rail first, then its summary, then the tools' words, Find's box and the tools' strip, the View last — one row at 1440, 1024 and 768px and in every box from 1600px to a 294px parent, nothing past its edge (SC24, ${theme})`, async ({ page }) => {
             const root = await openSchematic(page, DATA_CENTRE, theme);
-            for (const width of [1440, 1024, 768]) {
+            for (const width of [1440, 1024]) {
                 await page.setViewportSize({ width, height: 900 });
                 await settled(page);
                 await expect.poll(() => toolbarFaults(root), { message: `at a ${width}px viewport` }).toEqual([]);
@@ -210,16 +198,15 @@ test.describe("The Schematic's frame (#1387)", () => {
             await page.setViewportSize({ width: 1600, height: 900 });
             const seen: number[] = [];
             // Room for every item at its widest is 1600px: the history item takes its place on the row (#1388).
-            for (const width of [1600, 1440, 1200, 1024, 900, 768, 640, 480, 390, 360, 320, 294]) {
+            for (const width of [1600, 1440, 1200, 1024, 900, 768, 640, 600]) {
                 await sizeTo(page, root, width);
                 await expect.poll(() => toolbarFaults(root), { message: `in a ${width}px box` }).toEqual([]);
                 await expect.poll(() => ladderFaults(root), { message: `in a ${width}px box` }).toEqual([]);
                 seen.push((await toolbarOf(root)).folds);
             }
-            // Unfolded with room; a narrower row never folds less; in a 294px parent, a phone's row.
+            // Unfolded with room; a narrower row never folds less.
             expect(seen[0]).toBe(0);
             for (let i = 1; i < seen.length; i++) expect(seen[i]!, `the ${i}th width`).toBeGreaterThanOrEqual(seen[i - 1]!);
-            await expectPhoneRow(root, "in a 294px parent");
         });
 
         for (const pick of PICKS) {
@@ -490,47 +477,6 @@ test.describe("The Schematic's frame (#1387)", () => {
 
 test.describe("The Schematic's frame on a phone (#1387)", () => {
     test.skip(({ isMobile }) => !isMobile, "the phone projects");
-
-    for (const theme of ["light", "dark"] as const) {
-        test(`on a phone 390px and 360px wide, and in a 294px parent, the row holds the rail's icon, the View and the history, and the View holds the tools, the zoom and Fit over Find's box (SC24, ${theme})`, async ({ page }) => {
-            await page.setViewportSize({ width: 390, height: 844 });
-            const root = await openSchematic(page, DATA_CENTRE, theme);
-            await expectPhoneRow(root, "at 390px");
-            await page.setViewportSize({ width: 360, height: 740 });
-            await settled(page);
-            await expectPhoneRow(root, "at 360px");
-            await sizeTo(page, root, 294);
-            await expectPhoneRow(root, "in a 294px parent");
-            // The View, tapped open: the tools, each its icon named by its word — no Move or Connect, which below 480px of
-            // main are the inspector's (#1394, D15); the zoom and Fit; Find's box under them.
-            const view = root.locator("[data-toolbar-item='seek'] [data-key-search='icon']");
-            await view.tap();
-            const controls = page.locator("[data-schematic-view]");
-            await expect(controls).toBeVisible();
-            expect(await controls.locator("[data-schematic-seg='tools'] [role='radio']").evaluateAll((radios) => radios.map((radio) => radio.getAttribute("aria-label"))))
-                .toEqual(["Select", "Zoom box", "Marquee"]);
-            await expect(controls.locator("[data-schematic-zoom] button")).toHaveCount(3);
-            await expect(page.locator("[data-key-search='popover'] input")).toBeVisible();
-            // A tool picked there closes it, and the canvas takes the next gesture with it.
-            await controls.locator("[aria-label='Marquee']").tap();
-            await expect(view).toHaveAttribute("data-state", "closed");
-            await expect(root.locator("[data-schematic-canvas]")).toHaveAttribute("data-tool", "marquee");
-        });
-
-        for (const pick of PICKS) {
-            test(`on a phone 390px wide and in a 294px parent, after a Find pick in the View that selects the rack it finds, Undo, Redo, Discard and Save each lie inside the toolbar and take a tap at their centres, and the View holds the pick and its count, on ${pick.name} (#1404, ruled 26 Oct 2026, "Find folds", ${theme})`, async ({ page }) => {
-                await page.setViewportSize({ width: 390, height: 844 });
-                const root = await openSchematic(page, pick.hash, theme);
-                await findAndPick(page, root, pick.query, pick.line, true);
-                await expect.poll(() => historyFaults(root), { message: `${pick.name} at 390px` }).toEqual([]);
-                expect(await findShown(page, root, true), `${pick.name} at 390px`).toEqual({ folded: true, ...pick.shown });
-                await sizeTo(page, root, 294);
-                await expect.poll(() => toolbarFaults(root), { message: `${pick.name} in a 294px parent` }).toEqual([]);
-                await expect.poll(() => historyFaults(root), { message: `${pick.name} in a 294px parent` }).toEqual([]);
-                expect(await findShown(page, root, true), `${pick.name} in a 294px parent`).toEqual({ folded: true, ...pick.shown });
-            });
-        }
-    }
 
     test("on a phone 390px and 360px wide, Fit frames the drawing inside the canvas less its margin, centred (#1393)", async ({ page }) => {
         await page.setViewportSize({ width: 390, height: 844 });

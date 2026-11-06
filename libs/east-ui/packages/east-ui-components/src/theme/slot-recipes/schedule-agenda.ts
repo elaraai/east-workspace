@@ -24,7 +24,7 @@ export const scheduleCard = {
     borderRadius: "sm", background: "bg.surface", display: "flex", flexDirection: "column", gap: "8px",
 } as const;
 /** A card's head: its title over its lines, 4px apart, one button that selects what the card is. */
-export const scheduleCardHead = { minWidth: 0, display: "flex", flexDirection: "column", gap: "4px", textAlign: "left" } as const;
+export const scheduleCardHead = { minWidth: 0, display: "flex", flexDirection: "column", gap: "4px", textAlign: "left", justifyContent: "center", "[data-phone] &": { _coarse: { minHeight: "44px" } } } as const;
 /** A card's title, the row's title, wrapping where it must. */
 export const scheduleCardTitle = { textStyle: "title.row", overflowWrap: "anywhere", minWidth: 0 } as const;
 /** A card's actions, 8px apart, wrapping onto a second row on a narrow card. */

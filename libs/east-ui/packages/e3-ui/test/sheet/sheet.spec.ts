@@ -210,6 +210,7 @@ describeEast("Sheet", (test) => {
     Assert.examples(test, {
         sheetBasic: ex.sheetBasic,
         sheetVariants: ex.sheetVariants,
+        sheetWording: ex.sheetWording,
         sheetStress: ex.sheetStress,
         sheetLibrary: ex.sheetLibrary,
         sheetWorkshop: ex.sheetWorkshop,

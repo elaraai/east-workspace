@@ -28,18 +28,25 @@
  * `button` recipe's. Every mark is Font Awesome's, never a text glyph (#1263):
  * a change's sign its plus, minus or plus-minus.
  *
+ * In a phone's frame (`Studio Mobile Spec.md` ST30–ST33) it takes the builder's
+ * place: a head with ← and the versions; Page · Changes, which Preview and
+ * Publish open; Mobile · Tablet · Desktop over the page, the page itself on
+ * Mobile and on the others the layout at that device's proportions, each tile by
+ * name, a name that would not fit whole left out; and the foot sticky under them.
+ *
  * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, Button as ChakraButton, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-    faChevronDown, faDesktop, faMinus, faMobileScreen, faPlus, faPlusMinus, faTabletScreenButton,
+    faArrowLeft, faChevronDown, faDesktop, faMinus, faMobileScreen, faPlus, faPlusMinus, faTabletScreenButton,
 } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf } from "@elaraai/east";
 import { StudioPublishPayloadType } from "@elaraai/e3-ui/internal";
 import { useFormatters } from "@elaraai/east-ui-components";
+import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 
 import { useStudioMessages } from "./messages.js";
 
@@ -75,6 +82,63 @@ export interface StudioPublishPreviewProps {
     value: StudioPublishValue;
     /** The page as it will publish. */
     page: ReactNode;
+    /** In a phone's frame: its open tab, its tiles for the wireframes, and its width. */
+    phone?: StudioPublishPhone | undefined;
+}
+
+/** What a phone's preview needs beyond the wide one's. */
+export interface StudioPublishPhone {
+    /** The open tab. */
+    readonly tab: "page" | "changes";
+    /** Opens a tab. */
+    readonly onTab: (tab: "page" | "changes") => void;
+    /** The page's tiles in order, each by name. */
+    readonly tiles: readonly { readonly key: string; readonly row: string; readonly name: string; readonly span: number }[];
+    /** The builder's width, px. */
+    readonly width: number;
+}
+
+/** The narrowest frame whose foot's buttons sit side by side (ST33). */
+const FOOT_SIDE_BY_SIDE_FROM = 372;
+
+/** The layout at a device's proportions, each tile by name (ST31): a name that would not fit whole is left out, its span kept. */
+function PhoneWire({ tiles, width }: { tiles: StudioPublishPhone["tiles"]; width: number }) {
+    const styles = useSlotStyles("studioPhone");
+    const words = useFormatters();
+    const ref = useRef<HTMLDivElement | null>(null);
+    const rows = useMemo(() => {
+        const out: { key: string; tiles: StudioPublishPhone["tiles"][number][] }[] = [];
+        for (const tile of tiles) {
+            const last = out[out.length - 1];
+            if (last?.key === tile.row) last.tiles.push(tile);
+            else out.push({ key: tile.row, tiles: [tile] });
+        }
+        return out;
+    }, [tiles]);
+    useLayoutEffect(() => {
+        for (const name of ref.current?.querySelectorAll<HTMLElement>("[data-wire-name]") ?? []) {
+            name.removeAttribute("data-unfit");
+            if (name.scrollWidth > name.clientWidth) name.setAttribute("data-unfit", "");
+        }
+    }, [rows, width]);
+    return (
+        <Box ref={ref} css={styles.wire} data-publish-wire="">
+            {rows.map((row) => {
+                const free = 12 - row.tiles.reduce((sum, t) => sum + t.span, 0);
+                return (
+                    <Box key={row.key} css={styles.wireRow}>
+                        {row.tiles.map((tile) => (
+                            <Box key={tile.key} css={styles.wireTile} style={{ gridColumn: `span ${tile.span}` }}>
+                                <Box as="span" css={styles.wireName} data-wire-name="">{tile.name}</Box>
+                                <Box as="span" css={styles.wireSpan}>{words.number(tile.span)}</Box>
+                            </Box>
+                        ))}
+                        {free > 0 && <Box css={styles.wireFree} style={{ gridColumn: `span ${free}` }} data-wire-free="" />}
+                    </Box>
+                );
+            })}
+        </Box>
+    );
 }
 
 /**
@@ -83,8 +147,11 @@ export interface StudioPublishPreviewProps {
  * @param props - What the preview shows and does, and the page as it will publish
  * @returns The publish preview
  */
-export const StudioPublishPreview = memo(function StudioPublishPreview({ value, page }: StudioPublishPreviewProps) {
+export const StudioPublishPreview = memo(function StudioPublishPreview({ value, page, phone }: StudioPublishPreviewProps) {
     const styles = useSlotRecipe({ key: "studioPublish" })() as Styles;
+    const ps = useSlotStyles("studioPhone");
+    // A phone's device: Mobile first, the phone's own (D3).
+    const [phoneDevice, setPhoneDevice] = useState<Device>("mobile");
     const m = useStudioMessages();
     const words = useFormatters();
     const [device, setDevice] = useState<Device>("desktop");
@@ -149,6 +216,96 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
             : m.changesSince({ n: count, count: words.number(count), version: liveVersion });
     const audience = value.audience.type === "some" ? value.audience.value : undefined;
     const rollout = value.rollout.type === "some" ? value.rollout.value : undefined;
+
+    if (phone !== undefined) {
+        const versions = standing === "template" ? `${value.title} · ${m.templateKind()}`
+            : standing === "current" ? `${value.title} · ${liveVersion} ${m.liveVersion()}`
+                : live === undefined ? `${value.title} · ${nextVersion}` : `${value.title} · ${liveVersion} → ${nextVersion}`;
+        const target = [standing === "template" ? undefined : env === undefined ? nextVersion : `${nextVersion} to ${env}`, audience, rollout].filter((part) => part !== undefined).join(" · ");
+        const facts = [
+            ...(env !== undefined ? [{ label: m.env(), text: env }] : []),
+            ...(audience !== undefined ? [{ label: m.audience(), text: audience }] : []),
+            ...(rollout !== undefined ? [{ label: m.rollout(), text: rollout }] : []),
+        ];
+        const pixels = DEVICES.find((d) => d.device === phoneDevice)!.width;
+        return (
+            <Box css={ps.preview} data-studio-publish="" data-publish-phone="">
+                <Box css={ps.previewHead}>
+                    <chakra.button type="button" css={ps.previewBack} aria-label={m.phoneBack()} disabled={exit === undefined} data-publish-exit=""
+                        onClick={() => { if (exit !== undefined) queueMicrotask(() => exit()); }}><FontAwesomeIcon icon={faArrowLeft} /></chakra.button>
+                    <Box as="span" css={ps.previewTitle}>{m.preview()}</Box>
+                    <Box as="span" css={ps.previewSub} data-publish-versions="">{versions}</Box>
+                </Box>
+                <Box css={ps.previewTabs} role="tablist">
+                    {(["page", "changes"] as const).map((tab) => (
+                        <chakra.button key={tab} type="button" role="tab" css={ps.previewTab} aria-selected={phone.tab === tab} data-publish-tab={tab} onClick={() => phone.onTab(tab)}>
+                            {tab === "page" ? m.phonePage() : `${m.phoneChanges()} ${words.number(count)}`}
+                        </chakra.button>
+                    ))}
+                </Box>
+                <Box css={ps.previewBody} data-tab={phone.tab}>
+                    {phone.tab === "page" ? (
+                        <>
+                            <Box css={ps.devices} role="group" aria-label={m.devices()} data-publish-devices="">
+                                {(["mobile", "tablet", "desktop"] as const).map((d) => (
+                                    <chakra.button key={d} type="button" css={ps.device} data-state={phoneDevice === d ? "on" : "off"} aria-pressed={phoneDevice === d} data-publish-device={d} onClick={() => setPhoneDevice(d)}>{m.device({ device: d })}</chakra.button>
+                                ))}
+                            </Box>
+                            <Box css={ps.pageHead}>
+                                <Box as="span" css={ps.pageEyebrow}>{value.project}</Box>
+                                <Box as="h2" css={ps.pageTitle}>{value.title}</Box>
+                            </Box>
+                            <Box css={ps.pageBody} data-publish-frame={phoneDevice}>
+                                {phoneDevice === "mobile" ? page : <>
+                                    <Box css={ps.wireCaption}>{m.phoneWireCaption({ device: m.device({ device: phoneDevice }), px: words.number(pixels) })}</Box>
+                                    <PhoneWire tiles={phone.tiles} width={phone.width} />
+                                </>}
+                            </Box>
+                        </>
+                    ) : (
+                        <>
+                            {standing !== "template" && <Box css={ps.changesHead} data-publish-count="">{listHead}</Box>}
+                            {standing !== "template" && count > 0 && (
+                                <Box as="ul" css={ps.changes} aria-label={listHead} data-publish-changes="">
+                                    {changes.map((row, i) => {
+                                        const kind = row.change.type;
+                                        return (
+                                            <Box as="li" key={`${row.change.value.cell}-${kind}-${i}`} css={ps.change} data-publish-change={kind}>
+                                                <Box as="span" css={ps.changeSign} aria-hidden><FontAwesomeIcon icon={kind === "added" ? faPlus : kind === "removed" ? faMinus : faPlusMinus} /></Box>
+                                                <Box css={ps.changeText}>
+                                                    <Box as="span" css={ps.changeLine}>{m.changeVerb({ change: kind })} <strong>{row.name}</strong></Box>
+                                                    <Box as="span" css={ps.changeDetail}>{row.change.value.detail}</Box>
+                                                </Box>
+                                            </Box>
+                                        );
+                                    })}
+                                </Box>
+                            )}
+                            <Box css={ps.facts} data-publish-facts="">
+                                {facts.map((fact) => (
+                                    <Box key={fact.label} css={ps.fact}>
+                                        <Box as="span" css={ps.factLabel}>{fact.label}</Box>
+                                        <Box as="span" css={ps.factValue}>{fact.text}</Box>
+                                    </Box>
+                                ))}
+                            </Box>
+                        </>
+                    )}
+                    {phase.kind === "refused" && <Box as="p" role="alert" css={ps.refusal} data-publish-refused="">{phase.reason}</Box>}
+                </Box>
+                <Box css={ps.foot} data-publish-foot="">
+                    {target !== "" && <Box css={ps.footLine} data-publish-target="">{target}</Box>}
+                    <Box css={ps.footButtons} data-stacked={phone.width < FOOT_SIDE_BY_SIDE_FROM ? "" : undefined}>
+                        <ChakraButton type="button" variant="outline" size="md" css={ps.footButton} data-publish-save=""
+                            disabled={!summary.unsaved || busy} loading={phase.kind === "applying" && !phase.publish} onClick={() => ask("save")}>{m.saveAsDraft()}</ChakraButton>
+                        <ChakraButton type="button" size="md" colorPalette="brand" css={ps.footButton} data-publish-publish=""
+                            disabled={standing !== "ready" || busy} loading={(phase.kind === "applying" && phase.publish) || phase.kind === "publishing"}
+                            onClick={() => { if (summary.unsaved) ask("publish"); else void publish(); }}>{m.publishTo({ version: standing === "template" ? undefined : nextVersion, env })}</ChakraButton>
+                    </Box>
+                </Box>
+            </Box>
+        );
+    }
 
     return (
         <Box css={styles.root} data-studio-publish="">

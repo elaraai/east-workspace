@@ -18,7 +18,7 @@
 
 import {
     East, FloatType, FunctionType, StringType, defaultValue, none, variant,
-    type EastType, type ExprType,
+    type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { scheduleNumberText } from "../schedule/words.js";
 import { rosterRest } from "./rules.js";
@@ -56,6 +56,7 @@ export function rosterPersonHours<R extends EastType>(row: R) {
  *
  * @typeParam R - The app's duty row type
  * @param row - The app's duty row type
+ * @param words - The fit's words the app gives (#1516): `notALead`, in place of `not a lead` and `Not a lead`
  * @returns An East function `(request, person) → Fit`: their verdict
  *
  * @remarks
@@ -72,7 +73,7 @@ export function rosterPersonHours<R extends EastType>(row: R) {
  * names their group and those hours (`Dispatch · 14 h spare`, `from Inbound ·
  * 2 h over contract`), and nothing warns.
  */
-export function rosterFit<R extends EastType>(row: R) {
+export function rosterFit<R extends EastType>(row: R, words?: { notALead?: SubtypeExprOrValue<StringType> }) {
     const Row = row as EastType;
     const restFn = rosterRest(Row);
     const hoursFn = rosterPersonHours(Row);
@@ -94,8 +95,9 @@ export function rosterFit<R extends EastType>(row: R) {
             leads: ($2) => {
                 const positions = $2.const(context.positions.filter((_$3, position) => East.equal(position.key, person.position)));
                 $2.if(positions.some((_$3, position) => position.lead).not(), ($3) => {
-                    const reason = $3.const(East.greater(positions.size(), 0n).ifElse(() => East.str`${positions.get(0n).label} · not a lead`, () => East.str`not a lead`));
-                    $3.return(variant("refused", { group: "Not a lead", reason, measure: variant("none", null) }));
+                    const word = $3.const(East.value(words?.notALead ?? "not a lead", StringType));
+                    const reason = $3.const(East.greater(positions.size(), 0n).ifElse(() => East.str`${positions.get(0n).label} · ${word}`, () => word));
+                    $3.return(variant("refused", { group: words?.notALead ?? "Not a lead", reason, measure: variant("none", null) }));
                 });
             },
             trainers: ($2) => {

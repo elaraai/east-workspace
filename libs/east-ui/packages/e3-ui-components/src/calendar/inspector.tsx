@@ -22,7 +22,7 @@ import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { EMPTY_SCHEDULE_DRAFTS, heldRowOf, type ScheduleHeldRows } from "../shared/schedule/editing.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { PagedChooser, pagedControl, useCalendarChooser } from "./chooser.js";
-import { EventActions, PlacementFields, type CalendarShownResources } from "./controls.js";
+import { EventActions, PlacementFields, useCalendarFieldWords, type CalendarShownResources } from "./controls.js";
 import { type CalendarCommands } from "./actions.js";
 import { useShownOverlaps, type VisibleDaysStore } from "./visible.js";
 import { eventKey, parseResourceKey, resourceChoices, resourceKey, type CalendarItem, type CalendarKind, type CalendarRange, type CalendarRef, type CalendarResource, type CalendarStyles, type CalendarValue } from "./model.js";
@@ -143,6 +143,7 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
     const drafted = commands?.editing.draftsOf(kind.key).has(item.key) === true;
     const baseline = commands?.editing.held(kind.key, item.key) ?? (drafted ? {} : row);
     const onField = useCallback((path: readonly string[], next: unknown) => commands?.field(item, path, next), [commands, item]);
+    const fieldWords = useCalendarFieldWords(value);
     // A reference field to the paged resource kind chooses by key, through the kind's own paged read (#1424).
     const chooser = useCalendarChooser();
     const fieldsReadOnly = commands === undefined || !commands.editing.available(kind.key);
@@ -164,21 +165,21 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
     const issues = (readiness !== undefined && readiness.type !== "ready" ? readiness.value : session?.issues ?? []).filter(issue => issue.entry === item.key);
     return <>
         <ScheduleInspectorHead styles={styles} kind={kind} title={item.title}
-            when={item.start.type === "some" ? `${format.weekdayDate(item.start.value)} · ${format.time(item.start.value)}–${item.end.type === "some" ? format.time(item.end.value) : ""}` : "Unscheduled"}
+            when={item.start.type === "some" ? `${format.weekdayDate(item.start.value)} · ${format.time(item.start.value)}–${item.end.type === "some" ? format.time(item.end.value) : ""}` : value.vocabulary.unscheduled}
             status={item.status.type === "some" ? item.status.value : undefined} pending={drafted ? commands?.editing.held(kind.key, item.key) === undefined ? "new" : "pending" : undefined} home />
         {peers.length > 0 && <Box css={styles.section} data-calendar-inspector-overlaps=""><Box css={styles.detail}>Overlaps {peers.length} event{peers.length === 1 ? "" : "s"}</Box>
             {peers.map(peer => <Button key={eventKey(peer)} size="xs" variant="ghost" onClick={() => select([{ kind: peer.kind, key: peer.key }])}>{peer.title}</Button>)}
         </Box>}
         {issues.length > 0 && <BannerView status="warning" title={item.title} description={issues.map(issue => `${issue.field.type === "some" ? `${issue.field.value}: ` : ""}${issue.message}`).join("; ")} />}
         <Box css={styles.fields}><Box css={styles.sectionHead}>Schedule</Box>
-        <FieldForm specs={roleSpecs} value={row} baseline={baseline} options={options} onChange={onField} readOnly={fieldsReadOnly} renderControl={chooser === undefined ? undefined : renderReference} />
+        <FieldForm specs={roleSpecs} words={fieldWords} value={row} baseline={baseline} options={options} onChange={onField} readOnly={fieldsReadOnly} renderControl={chooser === undefined ? undefined : renderReference} />
         {commands !== undefined && item.start.type === "some" && item.end.type === "some" && <PlacementFields source={{ kind, item }} value={value} shown={shown} readOnly={!commands.editing.available(kind.key)}
             placement={{ start: item.start.value, end: item.end.value, resource: item.resource }} onChange={at => setError(commands.place({ kind, item }, at))} />}
-        {commands === undefined && <Box css={styles.detail}>{item.start.type === "some" ? `${format.dateTime(item.start.value)} – ${item.end.type === "some" ? format.dateTime(item.end.value) : ""}` : "Unscheduled"}</Box>}
+        {commands === undefined && <Box css={styles.detail}>{item.start.type === "some" ? `${format.dateTime(item.start.value)} – ${item.end.type === "some" ? format.dateTime(item.end.value) : ""}` : value.vocabulary.unscheduled}</Box>}
         </Box>
         <Box css={styles.fields}><Box css={styles.sectionHead}>{kind.name} fields</Box>
         {own?.value !== undefined ? <EastChakraComponent value={own.value} storageKey={`${storageKey}.inspector.${kind.key}`} />
-            : <FieldForm specs={kind.fields.filter(field => !roleNames.includes(field.path[0]!))} value={row} baseline={baseline} options={options} onChange={onField} readOnly={fieldsReadOnly}
+            : <FieldForm specs={kind.fields.filter(field => !roleNames.includes(field.path[0]!))} words={fieldWords} value={row} baseline={baseline} options={options} onChange={onField} readOnly={fieldsReadOnly}
                 renderControl={chooser === undefined ? undefined : renderReference} />}
         </Box>
         {own?.error !== undefined && <Box role="alert" css={styles.error}>{own.error}</Box>}
@@ -220,10 +221,14 @@ function BulkFields({ events, value, shown, commands, onError }: { events: Inspe
     const readOnly = events.some(event => !commands.editing.available(event.kind.key));
     const chooser = useCalendarChooser();
     const paged = chooser !== undefined && resources.some(kind => kind.key === chooser.paged.kind) ? chooser : undefined;
+    // Its resource in the app's word for one (#1516), as a single event's placement says it.
+    const resourceWord = value.vocabulary.resources.one;
+    const specs = useMemo(() => BULK_SPECS.map(spec => (isBulkResource(spec) ? { ...spec, label: resourceWord } : spec)), [resourceWord]);
+    const fieldWords = useCalendarFieldWords(value);
     const renderControl = useCallback((spec: FieldSpecValue) => pagedControl(paged, spec, isBulkResource, undefined,
         key => { if (paged !== undefined) onError(commands.move(items, 0, some({ kind: paged.paged.kind, key }))); }, readOnly),
     [paged, commands, items, onError, readOnly]);
-    return <FieldForm specs={BULK_SPECS.filter(spec => spec.path[0] === "status" ? statuses.length > 0 : resources.length > 0)} value={form} options={options}
+    return <FieldForm specs={specs.filter(spec => spec.path[0] === "status" ? statuses.length > 0 : resources.length > 0)} value={form} options={options} words={fieldWords}
         renderControl={paged === undefined ? undefined : renderControl} readOnly={readOnly} onChange={(path, next) => {
             const picked = next as ValueTypeOf<OptionType<StringType>>;
             if (path[0] === "status" && picked.type === "some") onError(commands.status(items, picked.value));

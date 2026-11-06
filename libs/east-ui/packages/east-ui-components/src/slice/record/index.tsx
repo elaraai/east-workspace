@@ -4,7 +4,7 @@
  */
 
 /** Record narrowing controls on the existing Slice popover and toolbar ladder. */
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Box, Button, Skeleton, useSlotRecipe } from "@chakra-ui/react";
 import { faCalendar, faFilter, faMagnifyingGlass, faUsers } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix, IconProp } from "@fortawesome/fontawesome-svg-core";
@@ -12,7 +12,7 @@ import { DateTimeType, IntegerType, FloatType, lessFor, parseFor, printFor, none
 import { recordChoiceNeeds, recordChoiceWhere, type RecordSliceBindType, type RecordSliceFieldType, type RecordSliceChoiceType, type RecordSlicesBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { SliceSearchInput } from "../search/input.js";
-import { SliceChoiceGroup, SliceCountSummary, SliceFieldActions, SliceFieldChip } from "../choice.js";
+import { SliceChoiceGroup, SliceCountSummary, SliceFieldActions, SliceFieldChip, SliceFiltersViewContext } from "../choice.js";
 import { SliceRangeEditor, type SliceRangeKind } from "../range/editor.js";
 import { ResolutionSeg, type ResolutionTag } from "../range/index.js";
 import { useFormatters, type Formatters } from "../../format/index.js";
@@ -25,8 +25,9 @@ import { useSliceRailItems, type SliceRailDescriptor } from "../rail/toolbar.js"
 import { SUMMARY_RANK } from "../rail/ranks.js";
 import { useSliceReactivity, useSlicesReactivity } from "../use-slice-reactivity.js";
 import { useSliceDensity } from "../density.js";
+import { useSlotStyles } from "../../theme/slot-styles.js";
 import { PRESETS, presetAnchor, presetWindow } from "../range/presets.js";
-import { printRecordChoice, readRecordChoice, recordChoiceLabel, recordValueLabel } from "./value.js";
+import { printRecordChoice, readRecordChoice, recordChoiceLabel, recordChoiceSummary, recordValueLabel } from "./value.js";
 
 type Bind = ValueTypeOf<RecordSliceBindType>;
 type Product = ValueTypeOf<RecordSlicesBindType>;
@@ -111,11 +112,15 @@ type SourceCounts = { ok: true; count: option<bigint>; total: option<bigint>; na
  * @param nouns - The host's noun counting each source, by its name
  * @param except - Sources counted elsewhere — each in its heading in the rail's editor — and so not on this line
  */
-export function RecordSlicesSummary({ slices, nouns, except }: {
+export function RecordSlicesSummary({ slices, nouns, except, whole = false }: {
     slices: Product; nouns?: Readonly<Record<string, string>> | undefined; except?: readonly string[] | undefined;
+    /** While no narrowing hides rows of any source, the first source's whole count (`3 orders`): a phone's count line
+     *  (`Mobile Builder Frame Spec.md` FR2), which always says what the view holds. */
+    whole?: boolean | undefined;
 }) {
     const styles = useSlotRecipe({ key: "sliceEdit" })();
-    const { locale } = useFormatters();
+    const words = useFormatters();
+    const { locale } = words;
     // Where it is drawn: in the Filters editor its line wraps within the panel; in the toolbar it is one line, whole.
     const density = useSliceDensity();
     // The sources it counts, kept while the product and the sources skipped are the same: `except` is keyed by its names.
@@ -141,7 +146,17 @@ export function RecordSlicesSummary({ slices, nouns, except }: {
             }
         });
     }
-    if (named.length === 0) return null;
+    if (named.length === 0) {
+        const first = result.ok ? result.value[0] : undefined;
+        const part = parts[0];
+        if (!whole || part === undefined || first === undefined || !first.ok) return null;
+        const total = first.total.type === "some" ? first.total.value : undefined;
+        return <Box as="span" css={styles.choiceCounts} data-record-slices-summary="" data-density={density}>
+            <Box as="span" role="status" aria-busy={total === undefined}>
+                <span>{total === undefined ? "…" : words.number(total)}</span>{" "}<span>{recordSliceNoun(part, nouns, locale)}</span>
+            </Box>
+        </Box>;
+    }
     return <Box as="span" css={styles.choiceCounts} data-record-slices-summary="" data-density={density}>
         {named.map((shown, i) => <Fragment key={shown.part.source}>
             {i > 0 && <Box as="span" css={styles.choiceCountsGap} aria-hidden="true">·</Box>}
@@ -200,6 +215,8 @@ function proposalFor(slice: Bind, field: Field, choice: Choice, words: ReturnTyp
 
 function KnownValues({ slice, field, run }: { slice: Bind; field: Field; run: (action: () => unknown) => void }) {
     const words = useFormatters();
+    // In a phone's Filters view, its values are 44px rows (`Mobile Filters Spec.md` SL7).
+    const rows = useContext(SliceFiltersViewContext);
     const read = useCallback(() => slice.values(field.fieldId), [slice, field.fieldId]);
     const { result } = useTrackedEvaluation(read);
     if (!result.ok) return <RecordSliceFailure slice={slice} />;
@@ -215,7 +232,7 @@ function KnownValues({ slice, field, run }: { slice: Bind; field: Field; run: (a
             ...(!proposal.disabled ? { count: value.count.type === "some" ? value.count.value : null } : {}),
             ...(value.error.type === "some" && !proposal.disabled ? { error: `Could not count ${value.label}` } : {}),
             ...proposal };
-    })} onPick={value => run(() => slice.choose(field.fieldId, nextValues(value)))} onRetry={() => slice.retry()} />;
+    })} onPick={value => run(() => slice.choose(field.fieldId, nextValues(value)))} onRetry={() => slice.retry()} rows={rows} />;
 }
 
 function StringSearch({ slice, field, run }: { slice: Bind; field: Field; run: (action: () => unknown) => void }) {
@@ -363,6 +380,7 @@ function fieldDescriptor(slice: Bind, field: Field, kind: string, words: Formatt
     const search = field.kind === "string" && !hasStringHints(field) && slice.config.search.includes(field.fieldId);
     return { kind, label: field.label, icon: range ? faCalendar : search ? faMagnifyingGlass : faFilter,
         text: recordChoiceLabel(field, choice, words), active: choice !== undefined, rank: range ? 2 : search ? 1 : 3,
+        ...(choice === undefined ? {} : { choice: recordChoiceSummary(field, choice, words) }),
         ...(attributes === undefined ? {} : { attributes }) };
 }
 
@@ -414,12 +432,14 @@ export function useRecordSliceToolbarItems(slice: Bind | undefined, options: { p
             // The rail's own choices: each field it offers that holds one — never a field it leaves out, a window among them.
             version, activeCount: fields.filter(field => state.where.has(field.fieldId)).length, clear: () => { slice.clearAll(); },
             status: summary,
+            footStatus: summary,
             describe: (kind: string): SliceRailDescriptor => {
                 if (kind === "resolution") return { kind, label: "Resolution", icon: faCalendar, text: state.resolution.type === "some" ? `Resolution: ${state.resolution.value.type}` : "Auto", active: state.resolution.type === "some", rank: 2 };
                 const field = byKind.get(kind);
                 if (field === undefined) {
                     const selected = state.preset.type === "some" ? slice.config.presets.find(p => p.id === state.preset.value) : undefined;
-                    return { kind, label: "Presets", icon: faUsers, text: selected === undefined ? "Presets" : `Presets: ${selected.name}`, active: selected !== undefined, rank: 3 };
+                    return { kind, label: "Presets", icon: faUsers, text: selected === undefined ? "Presets" : `Presets: ${selected.name}`, active: selected !== undefined, rank: 3,
+                        ...(selected === undefined ? {} : { choice: selected.name }) };
                 }
                 return fieldDescriptor(slice, field, kind, words);
             },
@@ -440,9 +460,12 @@ export function useRecordSliceToolbarItems(slice: Bind | undefined, options: { p
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the slice's state is its version; the options are read by what they hold
     }, [slice, version, words, noun, affordancesAt, excludeAt, resolutionsAt]);
     const items = useSliceRailItems(made.model, made.clusters);
-    // The summary folds after every step of the rail, whose editor keeps it, and before the host's own items.
+    const phoneStyles = useSlotStyles("toolbarPhone");
+    // The summary folds after every step of the rail, whose editor keeps it, and before the host's own items; a phone's
+    // row draws it as its count line, after the views (`Mobile Builder Frame Spec.md` FR2).
     return useMemo(() => (made.summary === undefined ? items
-        : [...items, { key: "record-summary", side: "end" as const, rank: SUMMARY_RANK, forms: [made.summary, null] }]), [items, made.summary]);
+        : [...items, { key: "record-summary", side: "end" as const, rank: SUMMARY_RANK, forms: [made.summary, null],
+            phone: { form: <Box as="span" css={phoneStyles.count} data-toolbar-count="">{made.summary}</Box>, shrink: true } }]), [items, made.summary, phoneStyles]);
 }
 
 /** A preset over several records: selected when every part holds it; a pick is the product's own toggle. */
@@ -503,6 +526,7 @@ export function useRecordSlicesToolbarItems(slices: Product | undefined, options
         // heading counts on a line under the fields; on the toolbar, every source a narrowing hides rows of.
         const counted = slices !== undefined && affordances.includes("summary");
         const summary = counted ? <RecordSlicesSummary slices={slices} nouns={nouns} /> : undefined;
+        const phoneSummary = counted ? <RecordSlicesSummary slices={slices} nouns={nouns} whole /> : undefined;
         const status = counted ? <RecordSlicesSummary slices={slices} nouns={nouns} except={headed ? headings : []} /> : undefined;
         const model = slices === undefined ? undefined : {
             // The rail's own choices: each field it lists that holds one — never a source's window, which the host's
@@ -510,12 +534,14 @@ export function useRecordSlicesToolbarItems(slices: Product | undefined, options
             version, activeCount: entries.filter(entry => entry.part.slice.read().where.has(entry.field.fieldId)).length,
             clear: () => { slices.clearAll(); },
             status,
+            footStatus: phoneSummary,
             describe: (kind: string): SliceRailDescriptor => {
                 const entry = byKind.get(kind);
                 if (entry === undefined) {
                     const id = productPreset(slices);
                     const selected = id === undefined ? undefined : slices.presets.find(p => p.id === id);
                     return { kind, label: "Presets", icon: faUsers, text: selected === undefined ? "Presets" : `Presets: ${selected.name}`, active: selected !== undefined, rank: 3,
+                        ...(selected === undefined ? {} : { choice: selected.name }),
                         ...(headed ? { group: { key: "presets", label: "Presets" } } : {}) };
                 }
                 const field = fieldDescriptor(entry.part.slice, entry.field, kind, words,
@@ -534,11 +560,13 @@ export function useRecordSlicesToolbarItems(slices: Product | undefined, options
                 return entry === undefined ? <ProductPresets slices={slices} /> : <FieldChip slice={entry.part.slice} field={entry.field} source={entry.part.source} />;
             },
         };
-        return { model, clusters: [{ key: "record-slices", kinds }], summary };
+        return { model, clusters: [{ key: "record-slices", kinds }], summary, phoneSummary };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the sources' state is the version; the options are read by what they hold
     }, [slices, version, words, nounsAt, affordancesAt, excludeAt]);
     const items = useSliceRailItems(made.model, made.clusters);
-    // As one record's: after every step of the rail, before the host's own items.
+    const phoneStyles = useSlotStyles("toolbarPhone");
+    // As one record's: after every step of the rail, before the host's own items; a phone's row's count line.
     return useMemo(() => (made.summary === undefined ? items
-        : [...items, { key: "record-summary", side: "end" as const, rank: SUMMARY_RANK, forms: [made.summary, null] }]), [items, made.summary]);
+        : [...items, { key: "record-summary", side: "end" as const, rank: SUMMARY_RANK, forms: [made.summary, null],
+            phone: { form: <Box as="span" css={phoneStyles.count} data-toolbar-count="">{made.phoneSummary}</Box>, shrink: true } }]), [items, made.summary, made.phoneSummary, phoneStyles]);
 }

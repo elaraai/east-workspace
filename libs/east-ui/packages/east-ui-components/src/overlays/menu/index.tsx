@@ -4,13 +4,14 @@
  */
 
 import { memo, useMemo } from "react";
-import { Box as ChakraBox, Menu as ChakraMenu, Portal, useSlotRecipe } from "@chakra-ui/react";
+import { Box as ChakraBox, Menu as ChakraMenu, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { type IconName } from "@fortawesome/fontawesome-svg-core";
 import { equivalentFor, match, type ValueTypeOf } from "@elaraai/east";
 import { Menu } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { FrameMenuLayer } from "../../layout/builder-frame/frame-layer.js";
 
 // Pre-define equality function at module level
 const menuEqual = equivalentFor(Menu.Types.Menu);
@@ -44,9 +45,7 @@ export const EastChakraMenu = memo(function EastChakraMenu({ value, storageKey }
                     <EastChakraComponent value={value.trigger} storageKey={`${storageKey}.trigger`} />
                 </span>
             </ChakraMenu.Trigger>
-            <Portal>
-                <ChakraMenu.Positioner>
-                    <ChakraMenu.Content>
+            <FrameMenuLayer label={"Menu"}>
                         {value.items.map((item, index) =>
                             match(item, {
                                 Item: (v) => {
@@ -83,9 +82,7 @@ export const EastChakraMenu = memo(function EastChakraMenu({ value, storageKey }
                                 Separator: () => <ChakraMenu.Separator key={index} />,
                             })
                         )}
-                    </ChakraMenu.Content>
-                </ChakraMenu.Positioner>
-            </Portal>
+                    </FrameMenuLayer>
         </ChakraMenu.Root>
     );
 }, (prev, next) => menuEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

@@ -28,7 +28,7 @@ import * as ex from "./allocation.examples.js";
 
 describeEast("Allocation — inline bound examples", test => {
     Assert.examples(test, {
-        allocationMinimal: ex.allocationMinimal, allocationKilnYard: ex.allocationKilnYard, allocationTable: ex.allocationTable, allocationLabels: ex.allocationLabels,
+        allocationMinimal: ex.allocationMinimal, allocationViews: ex.allocationViews, allocationKilnYard: ex.allocationKilnYard, allocationTable: ex.allocationTable, allocationLabels: ex.allocationLabels, allocationWording: ex.allocationWording,
         allocationPublished: ex.allocationPublished, allocationNoPublish: ex.allocationNoPublish, allocationSplit: ex.allocationSplit,
         allocationWindowed: ex.allocationWindowed, allocationMobile: ex.allocationMobile, allocationCustomBin: ex.allocationCustomBin,
         allocationFitRule: ex.allocationFitRule, allocationConflicts: ex.allocationConflicts,
@@ -298,11 +298,22 @@ test("labels: the board's nouns, resolved — regular plurals and articles by de
     assert.deepEqual(allocationLabels(undefined), {
         lane: { one: "Lane", other: "Lanes", article: "a" }, arrival: { one: "Arrival", other: "Arrivals", article: "an" },
         resource: { one: "Resource", other: "Resources", article: "a" }, quantity: "QTY",
+        bin: { one: "Bin", other: "Bins", article: "a" }, reservation: { one: "Reservation", other: "Reservations", article: "a" }, reserved: "Reserved",
+        priorJob: "Prior job", nextJob: "Next job", hold: "Hold",
+        groups: { overdue: "Overdue", ready: "Ready around now", removed: "Removed from plan", allocated: "Allocated", free: "Free today", loading: "Loading today", busy: "Busy today" },
     });
     assert.deepEqual(allocationLabels({ lane: "Bay", arrival: "Order", resource: { one: "Bus", other: "Buses" }, quantity: "Volume" }), {
         lane: { one: "Bay", other: "Bays", article: "a" }, arrival: { one: "Order", other: "Orders", article: "an" },
         resource: { one: "Bus", other: "Buses", article: "a" }, quantity: "Volume",
+        bin: { one: "Bin", other: "Bins", article: "a" }, reservation: { one: "Reservation", other: "Reservations", article: "a" }, reserved: "Reserved",
+        priorJob: "Prior job", nextJob: "Next job", hold: "Hold",
+        groups: { overdue: "Overdue", ready: "Ready around now", removed: "Removed from plan", allocated: "Allocated", free: "Free today", loading: "Loading today", busy: "Busy today" },
     });
+    // The rest of what the board draws (#1516): each given word kept, each left out its default, a group's beside it.
+    const worded = allocationLabels({ bin: { one: "Charge", other: "Charges" }, reservation: "Hold", reserved: "Held", priorJob: "Before", nextJob: "After", hold: "Dwell", groups: { overdue: "Late", busy: "Occupied" } });
+    assert.deepEqual([worded.bin, worded.reservation, worded.reserved, worded.priorJob, worded.nextJob, worded.hold],
+        [{ one: "Charge", other: "Charges", article: "a" }, { one: "Hold", other: "Holds", article: "a" }, "Held", "Before", "After", "Dwell"]);
+    assert.deepEqual(worded.groups, { overdue: "Late", ready: "Ready around now", removed: "Removed from plan", allocated: "Allocated", free: "Free today", loading: "Loading today", busy: "Occupied" });
     assert.deepEqual(allocationLabels({ lane: { one: "Unit", article: "a" } }).lane, { one: "Unit", other: "Units", article: "a" });
     assert.deepEqual(allocationLabels({ arrival: { one: "Delivery", other: "Deliveries" } }).arrival, { one: "Delivery", other: "Deliveries", article: "a" });
     assert.throws(() => allocationLabels({ event: "Load" } as never), /`labels\.event` is gone/);

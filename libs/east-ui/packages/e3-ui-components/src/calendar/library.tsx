@@ -38,6 +38,7 @@ import { scheduleLibrary, scheduleLibraryCard } from "../shared/schedule/library
 import { dueGroupOf, durationMinutes } from "../shared/schedule/due.js";
 import type { FollowedSources } from "../shared/schedule/follow-sources.js";
 import { sourceTab, sourcesTab, type SourceShown, type SourceTab } from "../shared/schedule/source-tab.js";
+import { lowerWord } from "../shared/schedule/words.js";
 import { PlacementAction, type CalendarShownResources } from "./controls.js";
 import type { CalendarCommands, CalendarSource } from "./actions.js";
 import type { BacklogNarrowing } from "../shared/schedule/backlog.js";
@@ -72,7 +73,7 @@ export function templatesTab(value: CalendarValue, followed: FollowedSources, wo
     const entries = value.events.flatMap(kind => kind.templates.map((template): TemplateEntry => ({ id: eventKey({ kind: kind.key, key: template.key }), kind, template })));
     const sourceOf = (kind: CalendarKind): SourceShown | undefined => kind.templatesSource.type === "some" ? followed.get(kind.templatesSource.value)?.shown : undefined;
     const sources = [...new Set(value.events.flatMap(kind => { const shown = sourceOf(kind); return shown === undefined ? [] : [shown]; }))];
-    const tab = sourcesTab({ cards: entries, keyOf: entry => entry.template.key, sources, sourceOf: entry => sourceOf(entry.kind), noun: "templates", words });
+    const tab = sourcesTab({ cards: entries, keyOf: entry => entry.template.key, sources, sourceOf: entry => sourceOf(entry.kind), noun: lowerWord(value.vocabulary.templates), words });
     return { ...tab, shown: new Map(tab.cards.map(entry => [entry.id, { kind: entry.kind, template: entry.template }] as const)) };
 }
 
@@ -128,6 +129,8 @@ export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefi
     const format = useFormatters();
     const [chosen, setChosen] = useState<Record<string, string>>({});
     if (value.library.length === 0) return undefined;
+    const { vocabulary } = value;
+    const backlogWord = lowerWord(vocabulary.backlog);
     const draggable = commands !== undefined && !narrow && !locked;
     const baseCard = (id: string, label: string, meta: string, icon: string | undefined, group: string, placed: boolean): LibraryItemValue => scheduleLibraryCard({
         key: id, label, sublabel: some(meta), icon: icon === undefined ? none : some(icon), status: none, trailing: none,
@@ -140,13 +143,13 @@ export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefi
         const id = eventKey({ kind: item.kind, key: item.key });
         const resource = item.resource.type === "some" ? resourceLabel(item, rows) : undefined;
         const group = dueGroupOf(item.due.type === "some" ? item.due.value : undefined, now);
-        const groups = { thisWeek: "Due this week", nextWeek: "Due next week", later: "Later", none: "No date" };
+        const groups = { thisWeek: vocabulary.dueThisWeek, nextWeek: vocabulary.dueNextWeek, later: vocabulary.later, none: vocabulary.noDate };
         return baseCard(id, item.title, `${kind.name} · ${Number(item.minutes) / 60} h${resource === undefined ? "" : ` · ${resource}`}${item.due.type === "some" ? ` · due ${format.weekdayDate(item.due.value)}` : ""}`,
             kind.icon, groups[group], placed);
     };
     const tabs = value.library.map(tab => {
         const tabKey = tab.type === "tab" ? `tab:${tab.value.name}` : tab.type;
-        const label = tab.type === "tab" ? tab.value.name : tab.type === "templates" ? "Templates" : "Backlog";
+        const label = tab.type === "tab" ? tab.value.name : tab.type === "templates" ? vocabulary.templates : vocabulary.backlog;
         let source: CalendarSource | undefined;
         let facts: TabFacts;
         if (tab.type === "backlog" && backlogPages !== undefined) {
@@ -158,10 +161,10 @@ export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefi
             const count = backlogCount === undefined ? "…" : backlogCount.narrowing ? narrowedCount(format, backlogCount.shown, backlogCount.total, true) : backlogCount.shown;
             return { key: tabKey, label, count, shownCount: backlogCount?.shown, body: <Box css={styles.pane}>
                 <PagedLibrary source={backlogPages} id={calendarLibraryId(key, tabKey)} item={row => ({ ...backlogCard(row.item, eventKey(row.item) === chosen[tabKey]), filtered: row.context, draggable: draggable && !row.context })}
-                    onOpen={id => setChosen(was => ({ ...was, [tabKey]: id }))} empty={{ title: "No backlog events" }}
-                    noun={{ singular: "backlog event", plural: "backlog events" }}
+                    onOpen={id => setChosen(was => ({ ...was, [tabKey]: id }))} empty={{ title: `No ${backlogWord} events` }}
+                    noun={{ singular: `${backlogWord} event`, plural: `${backlogWord} events` }}
                     narrowing={narrowed.length === 0 || clear === undefined ? undefined
-                        : { empty: { title: "No backlog events match the filters", description: "Change or clear the filters to see more backlog events." }, onClear: clear }} />
+                        : { empty: { title: `No ${backlogWord} events match the filters`, description: `Change or clear the filters to see more ${backlogWord} events.` }, onClear: clear }} />
                 {commands !== undefined && source !== undefined && <Box css={styles.paneFoot}>
                     <PlacementAction label="Schedule" source={source} value={value} shown={shown} day={day} commands={commands} styles={styles} />
                 </Box>}
@@ -182,9 +185,9 @@ export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefi
             const held = backlog.filter(item => narrowing.some(({ kind }) => kind.key === item.kind)).length;
             // Until what the narrowing hides is counted its count's slot says "…", never a bare "Backlog" (CL13).
             facts = !backlogRead ? { cards, count: "…", empty: undefined, narrowing: undefined, pane: { "aria-busy": true }, pending: true }
-                : { cards, empty: { title: "No backlog events" }, pane: backlogRetained ? { "aria-busy": true, "aria-disabled": true } : {},
+                : { cards, empty: { title: `No ${backlogWord} events` }, pane: backlogRetained ? { "aria-busy": true, "aria-disabled": true } : {},
                     count: !narrows ? cards.length : hidden === undefined ? "…" : narrowedCount(format, cards.length, cards.length + hidden, true),
-                    narrowing: !narrows || clear === undefined ? undefined : { empty: { title: "No backlog events match the filters", description: "Change or clear the filters to see more backlog events." },
+                    narrowing: !narrows || clear === undefined ? undefined : { empty: { title: `No ${backlogWord} events match the filters`, description: `Change or clear the filters to see more ${backlogWord} events.` },
                         onClear: clear, emptied: held === 0 } };
         } else {
             const cards = tab.value.cards.map(card => ({ ...baseCard(card.key, card.label, card.meta.type === "some" ? card.meta.value : "",
@@ -196,7 +199,7 @@ export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefi
                 : sourceTab({ cards, keyOf: card => card.key, shown: followedSource.shown, noun, words: format });
         }
         const library = scheduleLibrary({ id: calendarLibraryId(key, tabKey), items: [...facts.cards], groupOptions: [{ key: "group", label: "Group" }],
-            noun: some({ singular: tab.type === "templates" ? "template" : "item", plural: tab.type === "templates" ? "templates" : "items" }),
+            noun: some({ singular: tab.type === "templates" ? lowerWord(vocabulary.template) : "item", plural: tab.type === "templates" ? lowerWord(vocabulary.templates) : "items" }),
             onCardClick: some((id: string) => { if (tab.type === "templates") onTemplate(id); else setChosen(was => ({ ...was, [tabKey]: id })); return null; }),
         });
         const author = tab.type === "tab" ? tab.value : undefined;

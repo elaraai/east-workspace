@@ -5,11 +5,12 @@
 /** Cold-load paint states and bounded work, independent of machine speed. */
 import { expect, test } from "playwright/test";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 type LoadSample = { width: number; agenda: boolean; grid: boolean; assignments: number; covered: boolean };
 type LoadProbe = { samples: LoadSample[]; active: boolean };
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`Roster cold load paints the layout for its actual main width (${theme}) @narrow`, async ({ page }, info) => {
         if (info.project.name === "desktop") await page.setViewportSize({ width: 1920, height: 1080 });
         await page.addInitScript(() => {

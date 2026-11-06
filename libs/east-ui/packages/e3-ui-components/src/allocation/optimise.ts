@@ -197,7 +197,7 @@ export function landAllocationOptimise(args: AllocationLanding): { counts: Optim
             if (was === undefined) continue;
             lanes.add(was.lane);
             if (was.arrival.type === "some") arrivalsChanged = true;
-            ghosts.push({ id, op: "del", run: runText, lane: was.lane, at: was.at, label: binCode(context, was), where: allocationPlaceWords(value, context, was),
+            ghosts.push({ id, op: "del", run: runText, lane: was.lane, at: was.at, label: binCode(context, was, value.labels), where: allocationPlaceWords(value, context, was),
                 title: optimiseMessages.ghostRemoved({ run: runText }) });
             continue;
         }
@@ -223,7 +223,7 @@ export function landAllocationOptimise(args: AllocationLanding): { counts: Optim
         if (was.arrival.type !== roles.arrival.type || (was.arrival.type === "some" && roles.arrival.type === "some" && was.arrival.value !== roles.arrival.value)) arrivalsChanged = true;
         // Moved to another lane slot: a ghost where it stood.
         if (was.lane !== roles.lane || compareDate(was.at, roles.at) !== 0) {
-            ghosts.push({ id, op: "from", run: runText, lane: was.lane, at: was.at, label: binCode(context, was), where: allocationPlaceWords(value, context, was),
+            ghosts.push({ id, op: "from", run: runText, lane: was.lane, at: was.at, label: binCode(context, was, value.labels), where: allocationPlaceWords(value, context, was),
                 title: optimiseMessages.ghostMoved({ run: runText }) });
         }
     }

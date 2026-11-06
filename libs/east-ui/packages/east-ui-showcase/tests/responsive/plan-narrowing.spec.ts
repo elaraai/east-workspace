@@ -35,6 +35,7 @@ import { PLAN_EVENT_EXAMPLES, openExample, rowSel, sizePlanFrame } from "./plan-
 import { expectSourceCounts } from "./record-counts";
 import { recordField } from "./record-slice";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /** The rail, in the toolbar's row. */
 const RAIL = '[data-frame-slot="toolbar"] [data-slice-rail="record-slices"]';
@@ -131,13 +132,13 @@ const editorCounts = (dialog: Locator) => dialog.evaluate((popover) => {
     return { heads, line };
 });
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`the Filters popover counts each source in its heading, on its line — the total, or N of M while narrowed — and a line under the fields names only what no heading counts and a narrowing hides rows of (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES, theme);
         const frame = frameOf(entry);
-        // A phone's frame: the rail folds into its one trigger, whose editor heads each source's fields.
-        await sizePlanFrame(page, entry, 390);
+        // Just past a phone's frame, whose view has a foot of its own: the rail folds into its one trigger, whose editor heads each source's fields.
+        await sizePlanFrame(page, entry, 570);
         await frame.locator(`${RAIL} button[aria-label^="Filters:"]`).first().click();
         const dialog = page.getByRole("dialog");
         await expect(dialog).toHaveCount(1);
@@ -212,10 +213,13 @@ for (const theme of ["light", "dark"] as const) {
         // The Customers tab open: the open tab stays on the row, however narrow the pane.
         await openTab(page, start, /^Customers/);
         // At every width the Customers tab says what it shows — or, the pane on its rail, its badge counts the backlog — the row whole.
-        for (const width of [1920, 1440, 1024, 768, 560, 390, 360]) {
+        for (const width of [1920, 1440, 1024, 768, 600, 390, 360]) {
             await sizePlanFrame(page, entry, width);
             const collapsed = await start.evaluate((el) => el.hasAttribute("data-collapsed"));
-            if (collapsed) {
+            // A phone's frame: the pane a view behind its tab, its tabs out of reach until it opens.
+            if (await start.getAttribute("data-frame-drawer") !== null) {
+                await expect(frame.locator("[data-pane-tab='start']"), `${width}px`).toBeVisible();
+            } else if (collapsed) {
                 await expect(start.locator("[data-dock-badge]"), `${width}px, collapsed`).toHaveText("1");
             } else {
                 expect((await tabs(page, start)).find((tab) => tab.startsWith("Customers")), `${width}px, open`).toBe("Customers 6 of 16");

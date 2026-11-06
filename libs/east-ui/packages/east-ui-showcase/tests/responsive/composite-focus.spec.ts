@@ -17,6 +17,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ChakraProvider, NumberInput, Combobox, TagsInput, createListCollection } from "@chakra-ui/react";
 import { system } from "@elaraai/east-ui-components/testing";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 async function openExample(page: Page, theme: string, hash: string): Promise<Locator> {
     await page.goto(`/?theme=${theme}#${hash}`);
@@ -67,7 +68,7 @@ async function expectOneRing(field: Locator, wrapper: Locator): Promise<void> {
     await expect(field).toHaveCSS("outline-style", "none");
 }
 
-for (const theme of ["light", "dark"]) {
+for (const theme of LAYOUT_THEMES) {
     for (const mode of ["mouse", "keyboard"] as const) {
         test.describe(`composite focus · ${theme} · ${mode} @desktop`, () => {
             test("direct Chakra consumers: inherited variants and editable tags keep one ring", async ({ page }) => {

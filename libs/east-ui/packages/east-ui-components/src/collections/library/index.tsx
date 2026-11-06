@@ -5,7 +5,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import {
-    Avatar as ChakraAvatar, Box, Button, chakra, Menu as ChakraMenu, Portal, Skeleton, useRecipe, useSlotRecipe, type SystemStyleObject,
+    Avatar as ChakraAvatar, Box, Button, chakra, Menu as ChakraMenu, Skeleton, useRecipe, useSlotRecipe, type SystemStyleObject,
 } from "@chakra-ui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -34,6 +34,7 @@ import { useFormatters } from "../../format/index.js";
 import { EastChakraComponent } from "../../component";
 import { EmptyStateView } from "../../feedback/empty-state/index.js";
 import { AvatarFallback } from "../../display/avatar/index.js";
+import { FrameMenuLayer } from "../../layout/builder-frame/frame-layer.js";
 
 const libraryEqual = equivalentFor(Library.Types.Library);
 
@@ -76,8 +77,12 @@ export interface EastChakraLibraryProps {
     facetFilter?: { values: Record<string, string[]>; onChange: (next: Record<string, string[]>) => void } | undefined;
     /** The search box's words, a host's (`Find an event or site`), in place of `Search 27 items…`; its accessible name too. */
     search?: string | undefined;
+    /** How many the search box's words count, where some of its items are not what it counts: the Roster's agency requests beside its people. Its items by default. */
+    searchCount?: number | undefined;
     /** What the Library says while a search or a filter hides every card, in a host's words (`No events match`), in place of `No matches`. */
     noMatch?: LibraryEmpty | undefined;
+    /** What it draws in place of those words, a host's own: a phone's checklist (`Query Builder Phone Spec.md` QP37), told the search and how to clear it. */
+    noMatchView?: ((query: string, clear: () => void) => ReactNode) | undefined;
     /** What a host draws on a compact card beside its shared face (#1330): its tooltip, a figure, a note line, a look and an ×. */
     extras?: ((item: LibraryItemValue) => LibraryCardExtras | undefined) | undefined;
     /** A group head's mark, by the group's label: a group that warns. */
@@ -642,9 +647,7 @@ function LibraryGroupMenu({ options, active, onPick, compact, styles }: {
                     {compact ? <FontAwesomeIcon icon={faLayerGroup} /> : words}
                 </chakra.button>
             </ChakraMenu.Trigger>
-            <Portal>
-                <ChakraMenu.Positioner>
-                    <ChakraMenu.Content>
+            <FrameMenuLayer label={"Group by"}>
                         {choices.map(o => (
                             <ChakraMenu.Item key={o.key} value={o.key} aria-checked={o.key === checked}>
                                 <Box as="span" css={styles.menuCheck}>
@@ -653,9 +656,7 @@ function LibraryGroupMenu({ options, active, onPick, compact, styles }: {
                                 {o.label}
                             </ChakraMenu.Item>
                         ))}
-                    </ChakraMenu.Content>
-                </ChakraMenu.Positioner>
-            </Portal>
+                    </FrameMenuLayer>
         </ChakraMenu.Root>
     );
 }
@@ -679,9 +680,7 @@ function LibraryDimMenu({ options, active, onToggle, compact, styles }: {
                     {!compact && "Secondary"}
                 </chakra.button>
             </ChakraMenu.Trigger>
-            <Portal>
-                <ChakraMenu.Positioner>
-                    <ChakraMenu.Content>
+            <FrameMenuLayer label={"Secondary"}>
                         {options.map(o => (
                             <ChakraMenu.Item key={o.key} value={o.key} aria-checked={active.includes(o.key)}>
                                 <Box as="span" css={styles.menuCheck}>
@@ -690,9 +689,7 @@ function LibraryDimMenu({ options, active, onToggle, compact, styles }: {
                                 {o.label}
                             </ChakraMenu.Item>
                         ))}
-                    </ChakraMenu.Content>
-                </ChakraMenu.Positioner>
-            </Portal>
+                    </FrameMenuLayer>
         </ChakraMenu.Root>
     );
 }
@@ -733,9 +730,7 @@ function LibraryFilterMenu({ options, values, active, onToggle, onClear, compact
                     {compact ? count : label}
                 </chakra.button>
             </ChakraMenu.Trigger>
-            <Portal>
-                <ChakraMenu.Positioner>
-                    <ChakraMenu.Content>
+            <FrameMenuLayer label={"Filter"}>
                         {options.map(o => (
                             <ChakraMenu.ItemGroup key={o.key}>
                                 <ChakraMenu.ItemGroupLabel>{o.label}</ChakraMenu.ItemGroupLabel>
@@ -758,9 +753,7 @@ function LibraryFilterMenu({ options, values, active, onToggle, onClear, compact
                                 Clear filters
                             </ChakraMenu.Item>
                         )}
-                    </ChakraMenu.Content>
-                </ChakraMenu.Positioner>
-            </Portal>
+                    </FrameMenuLayer>
         </ChakraMenu.Root>
     );
 }
@@ -927,7 +920,7 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
     rail?: { slice: SliceBindValue; kinds: readonly string[] } | undefined;
 }
 
-function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, noMatch, extras, groupMark, narrowing, pending = false }: LibraryCoreProps) {
+function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, searchCount, noMatch, noMatchView, extras, groupMark, narrowing, pending = false }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
     // Counts, in the app's locale (#850).
     const words = useFormatters();
@@ -1150,7 +1143,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
     const searchBox = (size: LibrarySearchSize) => (
         <LibrarySearchBox size={size} inputRef={searchRef} query={query} onQuery={setQuery}
             placeholder={search ?? (pending ? `Search ${noun?.plural ?? "items"}…`
-                : `Search ${words.number(value.items.length)} ${value.items.length === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`)}
+                : `Search ${words.number(searchCount ?? value.items.length)} ${(searchCount ?? value.items.length) === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`)}
             label={search ?? "Search library"} />
     );
     const checkedFilters = filterOptions.reduce((n, o) => n + (activeFilters[o.key]?.length ?? 0), 0);
@@ -1340,7 +1333,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
                 {...(virtualEnabled ? { "data-virtual": "" } : {})}
                 onScroll={handleScrollPersist}
             >
-                {nothing !== undefined && <LibraryEmptyState said={nothing} onClear={clearNarrowing} />}
+                {nothing !== undefined && (noMatchView !== undefined && narrowedOut === undefined && value.items.length > 0 ? noMatchView(query.trim(), showAll) : <LibraryEmptyState said={nothing} onClear={clearNarrowing} />)}
                 {bodyContent}
                 {pending && <LibraryPendingRows styles={styles} />}
             </Box>
@@ -1413,7 +1406,7 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
     );
 }, (prev, next) => libraryEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.renderMedia === next.renderMedia
     && prev.empty?.title === next.empty?.title && prev.empty?.description === next.empty?.description && prev.onCardEnter === next.onCardEnter && prev.facetFilter === next.facetFilter
-    && prev.search === next.search && prev.noMatch?.title === next.noMatch?.title && prev.noMatch?.description === next.noMatch?.description
+    && prev.search === next.search && prev.noMatchView === next.noMatchView && prev.noMatch?.title === next.noMatch?.title && prev.noMatch?.description === next.noMatch?.description
     && prev.extras === next.extras && prev.groupMark === next.groupMark
     && prev.narrowing?.empty.title === next.narrowing?.empty.title && prev.narrowing?.empty.description === next.narrowing?.empty.description
     && prev.narrowing?.onClear === next.narrowing?.onClear && prev.narrowing?.emptied === next.narrowing?.emptied

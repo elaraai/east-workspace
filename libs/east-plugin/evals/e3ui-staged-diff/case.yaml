@@ -1,4 +1,0 @@
-schema_version: "1.1"
-name: e3ui-staged-diff
-context:
-  scaffold_script: setup.sh

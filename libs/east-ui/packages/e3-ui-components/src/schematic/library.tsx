@@ -447,8 +447,9 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
 
 /**
  * The paged Backlog's count (#1393), read where it renders nothing and handed
- * to the frame only as it moves, as the Flows tab's count is: a tracked read
- * in the frame would draw the whole frame again at every settle.
+ * to the frame only as it moves, as the Calendar's window reader hands its
+ * read: a tracked read in the frame would draw the whole frame again at every
+ * settle.
  *
  * @param props - The paged Backlog, the sources of the kinds it reads, and where its count goes
  * @returns Nothing: the count is handed on

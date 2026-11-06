@@ -32,6 +32,13 @@
  * the canvas draws and the preview's state are the builder's own. The builder
  * fills its host and draws no border around itself.
  *
+ * In a phone's frame (`Studio Mobile Spec.md`) the canvas is its phone form, which
+ * the snap grid draws by itself; the builder gives it the page's head, Add a
+ * component and what a card or the inspector's Move starts placing. A tap on a
+ * card or a page closes the pane's view; opening a pane ends placing. Its first
+ * row is {@link StudioPhoneBar}. The preview's two tabs are what Preview and
+ * Publish open.
+ *
  * @packageDocumentation
  */
 
@@ -49,15 +56,18 @@ import {
     BannerView,
     ChipMenu,
     EmptyStateView,
+    NARROW_FRAME,
     SNAP_GRID_HOST_RANK,
     SnapGridEditor,
     implementUIComponent,
+    useContainerWidth,
     useFormatters,
     useTrackedEvaluation,
     type BuilderFrameDock,
     type SnapGridEditorCell,
     type SnapGridEditorEditing,
     type SnapGridEditorValue,
+    type SnapGridPlacing,
     type ToolbarItem,
 } from "@elaraai/east-ui-components";
 
@@ -66,6 +76,7 @@ import { useStudioMessages } from "./messages.js";
 import { useOpenPage, type StudioKey } from "./open-page.js";
 import { StudioLayout, StudioPlacement } from "./page.js";
 import { useStudioPalette } from "./palette.js";
+import { StudioPhoneBar } from "./phone.js";
 import { StudioPublishPreview } from "./publish.js";
 import { StudioSaveTemplate } from "./save-template.js";
 import { studioEast } from "./studio-east.js";
@@ -166,6 +177,13 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const [applying, setApplying] = useState<ApplyState>(variant("idle", null));
     const [drafted, setDrafted] = useState<{ page: string; cells: readonly Cell[] } | undefined>(undefined);
     const [previewing, setPreviewing] = useState(false);
+    // A phone's frame: the builder's own width, its open preview tab, what is being placed, and its panes' views.
+    const widthRef = useRef<HTMLDivElement | null>(null);
+    const width = useContainerWidth(widthRef);
+    const phone = width > 0 && width <= NARROW_FRAME;
+    const [previewTab, setPreviewTab] = useState<"page" | "changes">("page");
+    const [placing, setPlacing] = useState<SnapGridPlacing | undefined>(undefined);
+    const [collapsed, setCollapsed] = useState({ start: false, end: false });
     // Save as template's popover, opened from the ⋯ chip's menu (#1229).
     const [naming, setNaming] = useState(false);
     // A page opened from anywhere — the palette, the page library — opens with nothing selected.
@@ -340,7 +358,15 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             </ChipMenu>
         } />
     );
-    const toolbar = {
+    const toolbar = phone ? {
+        end: [{
+            key: "studio.phone", forms: [null], phone: {
+                grow: true,
+                form: <StudioPhoneBar status={status} saveTemplate={saveTemplate} project={open.project}
+                    onPreview={() => { setPreviewTab("page"); setPreviewing(true); }} onPublish={() => { setPreviewTab("changes"); setPreviewing(true); }} />,
+            },
+        } satisfies ToolbarItem],
+    } : {
         start: [status !== undefined && statusStyles !== undefined && {
             key: "status",
             side: "start",
@@ -374,7 +400,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
 
     // ── The palette, before the canvas ───────────────────────────────────
     const listed = useMemo(() => components.filter((c) => !c.deprecated), [components]);
-    const cards = useMemo(() => east.paletteCards(listed, [...cells], ui.selected), [east, listed, cells, ui.selected]);
+    const cards = useMemo(() => east.paletteCards(listed, [...cells], phone ? none : ui.selected), [east, listed, cells, ui.selected, phone]);
     const projectPages = useMemo(() => (pages === undefined ? [] : east.palettePages(pages, project)), [east, pages, project]);
     // A card's click selects its component's first placement on the page.
     const selectFirst = useCallback((component: string) => {
@@ -385,11 +411,23 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const openPage = useCallback((page: string) => {
         writeOpen({ project, page });
         setUi(NOTHING_SELECTED);
-    }, [writeOpen, project]);
+        setPlacing(undefined);
+        setCollapsed((was) => (phone ? { ...was, start: true } : was));
+    }, [writeOpen, project, phone]);
+    // A card's tap on a phone: the view closes and placing starts (ST22).
+    const onPage = useMemo(() => new Set(cells.map((c) => c.component)), [cells]);
+    const palettePhone = useMemo(() => (!phone ? undefined : {
+        onPage,
+        onPlace: (component: Component) => {
+            setUi(NOTHING_SELECTED);
+            setPlacing({ kind: "add", card: { library: keys.components, key: component.key }, label: component.name, span: Number(component.span) });
+            setCollapsed((was) => ({ ...was, start: true }));
+        },
+    }), [phone, onPage, keys.components]);
     const paletteIds = useMemo(() => ({ components: keys.components, pages: keys.pages }), [keys.components, keys.pages]);
     const palette = useStudioPalette({
         components: listed, cards, pages: projectPages, open: open.project === project ? open.page : "", ids: paletteIds,
-        onSelect: selectFirst, onOpen: openPage, storageKey,
+        onSelect: selectFirst, onOpen: openPage, storageKey, phone: palettePhone,
     });
 
     // ── The inspector, after it ──────────────────────────────────────────
@@ -402,16 +440,53 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     }, []);
     const inspector = useMemo(() => ({ selection, onRequest }), [selection, onRequest]);
     const selected = selection.type === "some" ? selection.value : undefined;
+    // Where the selected placement stands, for a phone's inspector (ST24).
+    const inspectorPhone = useMemo(() => {
+        if (!phone) return undefined;
+        const rowKeys = [...new Set(cells.map((c) => c.row))];
+        const key = selected?.key;
+        const cell = cells.find((c) => c.key === key);
+        let first = 1;
+        for (const c of cells) {
+            if (c.key === key) break;
+            if (c.row === cell?.row) first += Number(c.span);
+        }
+        const was = saved.find((c) => c.key === key);
+        return {
+            rows: rowKeys.length, first, dirty: was !== undefined && cell !== undefined && was.span !== cell.span,
+            onMove: (moved: string) => {
+                setPlacing({ kind: "move", key: moved });
+                setCollapsed((c) => ({ ...c, end: true }));
+            },
+        };
+    }, [phone, cells, saved, selected?.key]);
     // One body, 300px wide; its rail names the selected placement, in the brand while there is one.
-    const inspectorPane = useMemo((): BuilderFrameDock => ({
+    const inspectorBody = <StudioInspector value={inspector} phone={inspectorPhone} />;
+    const inspectorPane = useMemo((): BuilderFrameDock => (inspectorPhone !== undefined ? {
+        label: m.inspector(),
+        icon: "sliders",
+        // The strip's meta: its row, while something is selected (ST21).
+        ...(selected === undefined ? {} : { detail: m.phoneRowMeta({ row: words.number(Number(selected.layout.row)) }) }),
+        tabs: [{ key: "details", label: m.phoneDetails(), body: inspectorBody }],
+    } : {
         label: m.inspector(),
         icon: "sliders",
         badge: selected === undefined ? "" : m.spanBadge({ span: words.number(Number(selected.layout.span)) }),
         active: selected !== undefined,
         detail: selected === undefined ? m.nothingSelected() : selected.name,
         size: "300px",
-        body: <StudioInspector value={inspector} />,
-    }), [m, words, selected, inspector]);
+        body: inspectorBody,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the body is made again with what it reads.
+    }), [m, words, selected, inspector, inspectorPhone]);
+    // The panes' collapse is the builder's, so a card's tap can close its view; every width's goes through here.
+    const panePaletteCollapse = (next: boolean) => {
+        setCollapsed((was) => (was.start === next ? was : { ...was, start: next }));
+        if (!next && phone) setPlacing(undefined);
+    };
+    const paneInspectorCollapse = (next: boolean) => {
+        setCollapsed((was) => (was.end === next ? was : { ...was, end: next }));
+        if (!next && phone) setPlacing(undefined);
+    };
 
     // ── The publish preview, in the canvas's place ───────────────────────
     const summary = useMemo(() => (entry === undefined ? undefined
@@ -449,19 +524,33 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         );
     }
     return (
-        <Box css={styles.root} data-studio-builder="">
+        <Box ref={widthRef} css={styles.root} data-studio-builder="">
             <Box css={styles.canvas} hidden={previewing} data-studio-canvas="">
                 <SnapGridEditor
                     value={canvas}
                     storageKey={`${storageKey}.canvas`}
                     toolbar={toolbar}
                     renderContent={renderContent}
-                    panes={{ start: palette, end: inspectorPane }}
+                    panes={{
+                        start: { ...palette, collapsed: collapsed.start, onCollapsedChange: panePaletteCollapse },
+                        end: { ...inspectorPane, collapsed: collapsed.end, onCollapsedChange: paneInspectorCollapse },
+                    }}
+                    phone={{
+                        eyebrow: open.project, title, placing, onPlacing: setPlacing,
+                        onAdd: () => { setPlacing(undefined); setCollapsed((was) => ({ ...was, start: false })); },
+                    }}
                 />
             </Box>
             {previewing && preview !== undefined && (
                 <StudioPublishPreview value={preview}
-                    page={<StudioLayout cells={cells} components={components} storageKey={`${storageKey}.preview`} />} />
+                    page={<StudioLayout cells={cells} components={components} storageKey={`${storageKey}.preview`} />}
+                    phone={!phone ? undefined : {
+                        tab: previewTab, onTab: setPreviewTab, width,
+                        tiles: cells.map((cell) => ({
+                            key: cell.key, row: cell.row, span: Number(cell.span),
+                            name: cell.title.type === "some" ? cell.title.value : tiles.get(cell.component)?.name ?? cell.component,
+                        })),
+                    }} />
             )}
         </Box>
     );

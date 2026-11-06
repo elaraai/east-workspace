@@ -290,8 +290,8 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
     const parts = partsOf(bin);
     const current = parts[0]?.key;
     const at = resourcesAt(args, parts.map(p => p.key));
-    const status = binStatus(bin, committed, domain.sameBin, at.map(r => r.line));
-    const code = binCode(context, bin);
+    const status = binStatus(bin, committed, domain.sameBin, at.map(r => r.line), nouns);
+    const code = binCode(context, bin, nouns);
     const arrival = bin.arrival.type === "some" ? context.arrivals.get(bin.arrival.value) : undefined;
     const banners = bannersOf({ issues, bin: { id, code }, resources: at, day, words });
     // Its connector's question (A23, F1): asked as the bin was selected; its answer ranks the other gaps (A59).
@@ -301,7 +301,7 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
     // Find a fit (A74): a bin's action while its parts leave some of it unallocated. It edits nothing, so a day that takes no edit offers it too.
     const find = args.onFind !== undefined && compareFloat(remainderOf(bin), 0) > 0 ? args.onFind : undefined;
     return <>
-        <ScheduleInspectorHead styles={styles} kind={{ name: committed === undefined ? "New bin" : `Bin ${id}`, icon: "box" }} title={`${code} · ${words.quantity(bin.quantity)}`}
+        <ScheduleInspectorHead styles={styles} kind={{ name: committed === undefined ? `New ${one(nouns.bin)}` : `${nouns.bin.one} ${id}`, icon: "box" }} title={`${code} · ${words.quantity(bin.quantity)}`}
             when={arrival?.meta.type === "some" ? arrival.meta.value : undefined} status={statusOf(status)} pending={status.pending} home>
             {(editable || find !== undefined) && <Box css={styles.headActions} data-allocation-bin-actions="">
                 {editable && bin.parts.size > 0 && <Button size="xs" variant="outline" onClick={() => commands.unlink(id)}><FontAwesomeIcon icon={faLinkSlash} />Unlink</Button>}
@@ -373,9 +373,9 @@ function BinSection({ id, bin, committed, ...part }: Part & { id: string; bin: B
     const specs = useMemo(() => Fields.specs(BIN_FIELDS, {
         key: Fields.readonly({ label: keyLabel }),
         lane: Fields.reference({ label: nouns.lane.one, of: "lanes" }),
-        at: Fields.readonly({ label: "Bin time", ...(help === undefined ? {} : { help }) }),
+        at: Fields.readonly({ label: `${nouns.bin.one} time`, ...(help === undefined ? {} : { help }) }),
         quantity: Fields.number({ label: quantityLabel, min, step: 1, ...(context.unit === "" ? {} : { unit: context.unit }) }),
-    }, form !== undefined ? ["quantity"] : []), [keyLabel, nouns.lane.one, help, quantityLabel, min, context.unit, form]);
+    }, form !== undefined ? ["quantity"] : []), [keyLabel, nouns.lane.one, nouns.bin.one, help, quantityLabel, min, context.unit, form]);
     // Every lane by its name: what a lane the form prints says.
     const laneNames = useMemo(() => ({ lanes: value.lanes.map(l => ({ key: l.key, label: l.label })) }), [value.lanes]);
     const stepper = useSlotRecipe({ key: "stepper" })({ tone: "neutral", size: "md" }) as unknown as Styles;
@@ -406,7 +406,7 @@ function BinSection({ id, bin, committed, ...part }: Part & { id: string; bin: B
     // What the drafts began from: the bin as the day holds it, or nothing for a new one, every field of which is a draft.
     const baseline = useMemo(() => committed === undefined ? {} : { key: id, lane: committed.lane, at: committed.at, quantity: committed.quantity }, [committed, id]);
     return <Box css={styles.fields} data-allocation-bin-section="">
-        <Box css={styles.sectionHead}>Bin</Box>
+        <Box css={styles.sectionHead}>{nouns.bin.one}</Box>
         <FieldForm specs={specs} value={shownValue} baseline={baseline} options={laneNames} onChange={onChange} readOnly={!editable} renderControl={renderControl} />
         {form !== undefined ? <CustomBin {...part} id={id} bin={bin} form={form} /> : <>
             <RowFields {...part} id={id} bin={bin} committed={committed} />
@@ -444,7 +444,7 @@ function ValueRows({ args, styles, bin }: Part & { bin: Bin }) {
 }
 
 /** The bin kind's own form (`Schedule.events(record, { …, inspector })`): over the bin's row, its writer one command of the bins' session — a draft until Save, never a write of the record. */
-function CustomBin({ args, styles, id, bin, form }: Part & { id: string; bin: Bin; form: Extract<InspectorArgs["value"]["bin"]["kind"]["inspector"], { type: "some" }>["value"] }) {
+function CustomBin({ args, styles, id, bin, form, words }: Part & { id: string; bin: Bin; form: Extract<InspectorArgs["value"]["bin"]["kind"]["inspector"], { type: "some" }>["value"] }) {
     const { domain, commands, storageKey } = args;
     // The writer stays the same function while the bin does: the latest commands run it.
     const live = useRef(commands);
@@ -453,7 +453,7 @@ function CustomBin({ args, styles, id, bin, form }: Part & { id: string; bin: Bi
     const write = useCallback((edited: Uint8Array): null => { live.current.row(id, edited); return null; }, [id]);
     const read = useCallback(() => form(bytes, write), [form, bytes, write]);
     const { result } = useTrackedEvaluation(read);
-    if (!result.ok) return <Box role="alert" css={styles.error}>The bin form could not be rendered.</Box>;
+    if (!result.ok) return <Box role="alert" css={styles.error}>The {one(words.nouns.bin)} form could not be rendered.</Box>;
     return <chakra.fieldset css={styles.edits} disabled={!commands.canEdit()} data-allocation-bin-form="">
         <Box css={styles.custom}><EastChakraComponent value={result.value} storageKey={`${storageKey}.inspector.bin.${id}`} /></Box>
     </chakra.fieldset>;
@@ -470,20 +470,23 @@ function Meter({ styles, at, tone }: { styles: Styles; at: ResourceAt; tone: "br
     </Box>;
 }
 
-/** Before · Hold · Next fill (A58, A62). */
+/**
+ * The job before the day · Hold · the next job (A58, A62): each labelled in the app's words, as the Timeline's legend
+ * names them — `Prior job` · `Hold` · `Next job` unless the app's `labels` say otherwise (review of #1481, finding 7).
+ */
 function Facts({ styles, at, words, day, horizonEnd }: { styles: Styles; at: ResourceAt; words: InspectorWords; day: Date; horizonEnd: Date }) {
     const facts = factsOf(at, day, horizonEnd, words);
     return <Box as="dl" css={styles.rows} data-allocation-facts="">
-        <Box as="dt" css={styles.rowLabel}>Before</Box><Box as="dd" css={styles.rowValue}>{facts.before}</Box>
-        <Box as="dt" css={styles.rowLabel}>Hold</Box><Box as="dd" css={styles.rowValue} data-absent={facts.hold.absent ? "" : undefined}>{facts.hold.text}</Box>
-        <Box as="dt" css={styles.rowLabel}>Next fill</Box><Box as="dd" css={styles.rowValue} data-tone={facts.next.warn ? "warning" : undefined}>{facts.next.text}</Box>
+        <Box as="dt" css={styles.rowLabel}>{words.nouns.priorJob}</Box><Box as="dd" css={styles.rowValue}>{facts.before}</Box>
+        <Box as="dt" css={styles.rowLabel}>{words.nouns.hold}</Box><Box as="dd" css={styles.rowValue} data-absent={facts.hold.absent ? "" : undefined}>{facts.hold.text}</Box>
+        <Box as="dt" css={styles.rowLabel}>{words.nouns.nextJob}</Box><Box as="dd" css={styles.rowValue} data-tone={facts.next.warn ? "warning" : undefined}>{facts.next.text}</Box>
     </Box>;
 }
 
 /** A resource's bins today (A58, A62): a click selects one; the inspected one bold. */
 function Mates({ args, styles, words, resource, current }: Part & { resource: string; current: string | undefined }) {
     const mates = matesOf(args.plan, args.held, resource, args.context, words);
-    if (mates.length === 0) return <Box css={styles.absent}>no bins today</Box>;
+    if (mates.length === 0) return <Box css={styles.absent}>no {other(words.nouns.bin)} today</Box>;
     return <Box css={styles.mates} data-allocation-mates="">{mates.map(mate => <chakra.button key={mate.id} type="button" css={styles.mate} title={mate.tip}
         data-current={mate.id === current ? "" : undefined} data-allocation-mate={mate.id} onClick={() => args.inspect({ type: "bin", id: mate.id })}>
         <span data-mate="time">{mate.time}</span><span data-mate="lane">{mate.lane}</span><span data-mate="code">{mate.code}</span><span data-mate="quantity">{mate.quantity}</span>
@@ -494,7 +497,7 @@ function Mates({ args, styles, words, resource, current }: Part & { resource: st
  * Assigned to (A58): the resource field — its name, or `+ Choose a resource`
  * in warn — which opens the shared Chooser in the pane, every section of it
  * the fit's answer, as the Table's chevron does (A48); then the fill and its
- * meter, the group line, Before · Hold · Next fill, the resource's bins today
+ * meter, the group line, the jobs before and after the day and the hold between, the resource's bins today
  * and the batch line. Not linked: the field, and the layout's hint.
  */
 function AssignedTo({ id, bin, current, at, ...part }: Part & { id: string; bin: Bin; current: string | undefined; at: ResourceAt | undefined }) {
@@ -546,7 +549,7 @@ function AssignedTo({ id, bin, current, at, ...part }: Part & { id: string; bin:
             {head}
             <Box css={styles.sectionRow}>{field}</Box>
             {choices}
-            <Box css={styles.line}>{args.layout === "table" ? "Or use the chevron on its row in the table." : `Or drag the bin’s connector onto ${a(nouns.resource)} row.`}</Box>
+            <Box css={styles.line}>{args.layout === "table" ? "Or use the chevron on its row in the table." : `Or drag the ${one(nouns.bin)}’s connector onto ${a(nouns.resource)} row.`}</Box>
         </Box>;
     }
     const tone = at.line.over ? "danger" : at.line.under ? "warning" : undefined;
@@ -573,7 +576,7 @@ function AssignedTo({ id, bin, current, at, ...part }: Part & { id: string; bin:
 function Parts({ args, styles, words, id, bin, remainder }: Part & { id: string; bin: Bin; remainder: number }) {
     const { context, commands, held } = args;
     const editable = commands.canEdit();
-    const code = binCode(context, bin);
+    const code = binCode(context, bin, words.nouns);
     const keys = useMemo(() => [...bin.parts.keys()], [bin.parts]);
     // Each part's field: its resource's name, from none to what it holds and the remainder together.
     const specs = useMemo(() => Fields.specs(partsType(keys), Object.fromEntries(keys.map(key => [key,
@@ -663,7 +666,7 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
     const nouns = words.nouns;
     const editable = commands.canEdit();
     const committed = held?.bins.get(id);
-    const status = reservationStatus(bin, committed, domain.sameBin);
+    const status = reservationStatus(bin, committed, domain.sameBin, nouns);
     const resource = partsOf(bin)[0]?.key;
     const at = resource === undefined ? undefined : resourcesAt(args, [resource])[0];
     const name = resource === undefined ? undefined : context.resources.get(resource)?.label ?? resource;
@@ -695,18 +698,18 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
     const keyValue = useMemo(() => ({ key: id }), [id]);
     const keyBaseline = useMemo(() => committed === undefined ? {} : { key: id }, [committed, id]);
     return <>
-        <ScheduleInspectorHead styles={styles} kind={{ name: committed === undefined ? "New reservation" : "Reserved slot", icon: "bookmark" }}
-            title={`${words.lane(bin.lane)} · ${timeText(bin.at)}`} when={name === undefined ? `Reserved · no ${one(nouns.arrival)} yet` : `Reserved on ${name} · no ${one(nouns.arrival)} yet`}
+        <ScheduleInspectorHead styles={styles} kind={{ name: committed === undefined ? `New ${one(nouns.reservation)}` : `${nouns.reserved} slot`, icon: "bookmark" }}
+            title={`${words.lane(bin.lane)} · ${timeText(bin.at)}`} when={name === undefined ? `${nouns.reserved} · no ${one(nouns.arrival)} yet` : `${nouns.reserved} on ${name} · no ${one(nouns.arrival)} yet`}
             status={statusOf(status)} pending={status.pending} home />
         <Box css={styles.fields} data-allocation-reservation="">
-            <Box css={styles.sectionHead}>{args.m.reservation()}</Box>
+            <Box css={styles.sectionHead}>{nouns.reservation.one}</Box>
             <FieldForm specs={keySpecs} value={keyValue} baseline={keyBaseline} onChange={NO_EDIT} readOnly />
         </Box>
         <Box css={styles.section} data-allocation-assigned="">
             <Box css={styles.sectionRow}>
                 <Box css={styles.sectionHead}>Assigned to</Box>
                 <Box as="span" css={styles.sectionRow}>
-                    {editable && <Button size="xs" variant="outline" title="Remove the reservation · the slot becomes free" onClick={() => commands.remove(id)}><FontAwesomeIcon icon={faXmark} />Remove</Button>}
+                    {editable && <Button size="xs" variant="outline" title={`Remove the ${one(nouns.reservation)} · the slot becomes free`} onClick={() => commands.remove(id)}><FontAwesomeIcon icon={faXmark} />Remove</Button>}
                     {resource !== undefined && <chakra.button type="button" css={styles.link} onClick={() => args.inspect({ type: "resource", key: resource })}>Open {one(nouns.resource)}<FontAwesomeIcon icon={faArrowRight} /></chakra.button>}
                 </Box>
             </Box>
@@ -734,7 +737,7 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
     </>;
 }
 
-/** A resource (A62): its status, its group and range, its banners, today's fill and meter, Before · Hold · Next fill, its bins today and the hint. */
+/** A resource (A62): its status, its group and range, its banners, today's fill and meter, the jobs before and after the day and the hold, its bins today and the hint. */
 function ResourceDetails({ resource, ...part }: Part & { resource: string }) {
     const { args, styles, words, horizonEnd } = part;
     const nouns = words.nouns;
@@ -745,7 +748,7 @@ function ResourceDetails({ resource, ...part }: Part & { resource: string }) {
     const idle = Number(at.load.bins) === 0;
     const hint = at.load.state.type === "busy" && idle ? `Busy ${other(nouns.resource)} take no load until their current job is released.`
         : args.layout === "table" ? `Choose it with the ${one(nouns.resource)} chevron on a row, or drag it from the Library onto a row.`
-            : `Drag a bin’s connector or ${a(nouns.arrival)} onto this row to load it.`;
+            : `Drag ${a(nouns.bin)}’s connector or ${a(nouns.arrival)} onto this row to load it.`;
     return <>
         <ScheduleInspectorHead styles={styles} kind={{ name: nouns.resource.one, icon: "cube" }} title={at.row.label} when={groupLine(at.row, words)} status={statusOf(status)} home />
         <Banners styles={styles} banners={banners} />
@@ -758,7 +761,7 @@ function ResourceDetails({ resource, ...part }: Part & { resource: string }) {
             <Facts styles={styles} at={at} words={words} day={args.day} horizonEnd={horizonEnd} />
         </Box>
         <Box css={styles.section} data-allocation-bins="">
-            <Box css={styles.sectionHead}>Bins on it today</Box>
+            <Box css={styles.sectionHead}>{nouns.bin.other} on it today</Box>
             <Mates {...part} resource={resource} current={undefined} />
             <Box css={styles.line}>{hint}</Box>
         </Box>
@@ -779,7 +782,7 @@ function Summary({ args, styles, words }: Part) {
     return <>
         <ScheduleInspectorHead styles={styles} kind={{ name: `Plan · ${dayLong(args.day)}`, icon: "calendar-day" }} title={value.settings.title}
             when={summaryLine(value.lanes.length, value.resources.length, nouns)} home />
-        <Box css={styles.stats} data-allocation-stats="">{stats.map(stat => <Box key={stat.label} css={styles.stat} data-allocation-stat={stat.label}>
+        <Box css={styles.stats} data-allocation-stats="">{stats.map(stat => <Box key={stat.key} css={styles.stat} data-allocation-stat={stat.key === "bins" ? "Bins" : stat.label}>
             <Box css={styles.statLabel}>{stat.label}</Box>
             <Box css={styles.statValue} data-tone={stat.tone}>{stat.value}</Box>
             <Box css={styles.statSub}>{stat.sub}</Box>
@@ -816,7 +819,7 @@ function IssuesTab(part: Part) {
 /** One issue (A64): its title and `Show →`, which selects its bin or resource; its detail; its fix. */
 function IssueItem({ args, styles, words, issue }: Part & { issue: Issue }) {
     const { plan, held, context, commands } = args;
-    const codeOfBin = (bin: string) => { const b = plan.bins.get(bin) ?? held?.bins.get(bin); return b === undefined ? bin : binCode(context, b); };
+    const codeOfBin = (bin: string) => { const b = plan.bins.get(bin) ?? held?.bins.get(bin); return b === undefined ? bin : binCode(context, b, words.nouns); };
     const label = fixLabel(issue, codeOfBin, words.nouns);
     const show = issue.bin.type === "some" ? { type: "bin" as const, id: issue.bin.value }
         : issue.resource.type === "some" ? { type: "resource" as const, key: issue.resource.value } : undefined;

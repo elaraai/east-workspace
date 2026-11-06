@@ -15,8 +15,8 @@ import {
 } from "@elaraai/east-ui-components";
 import { initializeStore, resetKept } from "@elaraai/east-ui-components/internal";
 // Side-effect import: registers the `Data.bind`, `Data.bindPaged`,
-// `Func.bind` and `Record.bind` platform impls + the Diff / Ontology /
-// Experiment / decision / Studio / query renderers against the global
+// `Func.bind` and `Record.bind` platform impls + the Ontology / decision /
+// Studio / query and builder renderers against the global
 // registries EastFunction renders through, so the e3 Components section runs
 // live.
 import "@elaraai/e3-ui-components";

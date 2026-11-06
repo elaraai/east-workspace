@@ -107,10 +107,11 @@ for (const theme of ["light", "dark"] as const) {
         expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
     });
 
-    test(`folded on a phone, the rail's editor heads each source's field with its name, icon and count, then the presets; no line repeats a count (${theme}) @narrow`, async ({ page }) => {
-        await page.setViewportSize({ width: 390, height: 844 });
+    test(`folded in a frame just past a phone's, the rail's editor heads each source's field with its name, icon and count, then the presets; no line repeats a count (${theme}) @narrow`, async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 844 });
         const entry = await open(page, "allocationTable", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
+        await size(page, entry, 570);
         await frame.locator('[data-frame-slot="toolbar"] [data-slice-rail="record-slices"] button[aria-label^="Filters:"]').first().click();
         const editor = page.getByRole("dialog");
         await expect(editor.locator("[data-slice-section]")).toHaveCount(7);
@@ -146,7 +147,7 @@ for (const theme of ["light", "dark"] as const) {
         // The editor stays inside the phone's viewport.
         const box = (await editor.boundingBox())!;
         expect(box.x).toBeGreaterThanOrEqual(0);
-        expect(box.x + box.width).toBeLessThanOrEqual(390);
+        expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
         await page.keyboard.press("Escape");
     });
 

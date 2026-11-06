@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { ArrayType, BooleanType, DictType, East, Expr, IntegerType, none, OptionType, RecursiveType, SetType, some, StringType, StructType } from "../src/index.js";
+import { ArrayType, BooleanType, compareFor, DateTimeType, DictType, East, Expr, FloatType, IntegerType, none, NullType, OptionType, RecursiveType, SetType, some, SortedMap, StringType, StructType } from "../src/index.js";
 import type { option } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import * as ex from "./dict.examples.js";
@@ -73,6 +73,42 @@ await describe("Dict", (test) => {
         $(assert.throws(East.value("[1:\"a\",2:\"b\"]").parse(DictType(IntegerType, StringType)), /Failed to parse/))
         // $(expectError(Expr.from("{}").parse(DictType(IntegerType, StringType)))) // choosing to be permissive here
         $(assert.equal(East.value("{}").parse(DictType(IntegerType, StringType)), new Map<bigint, string>()))
+
+    });
+
+    test("Parsing printed keys", $ => {
+        // Each key is printed just before its ':', so the key ends at the ':' and reads back as itself:
+        // a null, a minus sign's number, a time of day, a case with no payload, one inside another
+
+        const NullKeyed = DictType(NullType, IntegerType);
+        const nulls = $.const(new SortedMap<null, bigint>([[null, 1n]], compareFor(NullType)), NullKeyed);
+        $(assert.equal(East.print(nulls), "{null:1}"))
+        $(assert.equal(East.print(nulls).parse(NullKeyed), nulls))
+
+        const IntegerKeyed = DictType(IntegerType, IntegerType);
+        const integers = $.const(new SortedMap<bigint, bigint>([[-5n, 1n], [5n, 2n]], compareFor(IntegerType)), IntegerKeyed);
+        $(assert.equal(East.print(integers), "{-5:1,5:2}"))
+        $(assert.equal(East.print(integers).parse(IntegerKeyed), integers))
+
+        const FloatKeyed = DictType(FloatType, IntegerType);
+        const floats = $.const(new SortedMap<number, bigint>([[-Infinity, 1n], [-1.5, 2n], [1.5, 3n], [NaN, 4n]], compareFor(FloatType)), FloatKeyed);
+        $(assert.equal(East.print(floats), "{-Infinity:1,-1.5:2,1.5:3,NaN:4}"))
+        $(assert.equal(East.print(floats).parse(FloatKeyed), floats))
+
+        const DateTimeKeyed = DictType(DateTimeType, IntegerType);
+        const times = $.const(new SortedMap<Date, bigint>([[new Date("1969-12-31T23:59:59.999Z"), 1n], [new Date("2024-01-01T00:00:00.000Z"), 2n]], compareFor(DateTimeType)), DateTimeKeyed);
+        $(assert.equal(East.print(times), "{1969-12-31T23:59:59.999:1,2024-01-01T00:00:00.000:2}"))
+        $(assert.equal(East.print(times).parse(DateTimeKeyed), times))
+
+        const OptionKeyed = DictType(OptionType(IntegerType), IntegerType);
+        const options = $.const(new SortedMap<option<bigint>, bigint>([[none, 1n], [some(-5n), 2n]], compareFor(OptionType(IntegerType))), OptionKeyed);
+        $(assert.equal(East.print(options), "{.none:1,.some -5:2}"))
+        $(assert.equal(East.print(options).parse(OptionKeyed), options))
+
+        const NestedKeyed = DictType(OptionType(OptionType(NullType)), IntegerType);
+        const nested = $.const(new SortedMap<option<option<null>>, bigint>([[none, 1n], [some(none), 2n], [some(some(null)), 3n]], compareFor(OptionType(OptionType(NullType)))), NestedKeyed);
+        $(assert.equal(East.print(nested), "{.none:1,.some .none:2,.some .some:3}"))
+        $(assert.equal(East.print(nested).parse(NestedKeyed), nested))
 
     });
 

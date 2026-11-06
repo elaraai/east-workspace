@@ -238,14 +238,14 @@ describe("the summary (A63) and Issues (A64)", () => {
             ["K-3", load("K-3", 0, 1n, at(18), "loading")], ["K-4", load("K-4", 0, 0n, undefined, "busy")]] as const, byString);
         const issues = [issue(variant("overlap", null), "warning"), issue(variant("over", null), "danger"), issue(variant("custom", "Spec mismatch"), "neutral")];
         expect(summaryStats({ plan, held, sameBin, loads, issues, words })).toEqual([
-            { label: "Bins", value: "1", sub: "21 m³ · 1 reserved", tone: undefined },
-            { label: "Loading", value: "2 of 4", sub: "1 free · 1 busy", tone: undefined },
-            { label: "Issues", value: "2", sub: "1 overlap · 1 over max", tone: "warning" },
+            { key: "bins", label: "Bins", value: "1", sub: "21 m³ · 1 reserved", tone: undefined },
+            { key: "loading", label: "Loading", value: "2 of 4", sub: "1 free · 1 busy", tone: undefined },
+            { key: "issues", label: "Issues", value: "2", sub: "1 overlap · 1 over max", tone: "warning" },
             // The moved bin, the new reservation, and the committed bin the drafts removed.
-            { label: "Changes", value: "3", sub: "unsaved · Save is in the toolbar", tone: "brand" },
+            { key: "changes", label: "Changes", value: "3", sub: "unsaved · Save is in the toolbar", tone: "brand" },
         ]);
         expect(summaryStats({ plan: held, held, sameBin, loads, issues: issues.slice(2), words }).slice(2)).toEqual([
-            { label: "Issues", value: "0", sub: "none", tone: undefined }, { label: "Changes", value: "0", sub: "all saved", tone: undefined },
+            { key: "issues", label: "Issues", value: "0", sub: "none", tone: undefined }, { key: "changes", label: "Changes", value: "0", sub: "all saved", tone: undefined },
         ]);
         expect(summaryLine(3, 33, DEFAULT_NOUNS)).toBe("3 lanes · 33 resources");
         expect(summaryLine(1, 1, DEFAULT_NOUNS)).toBe("1 lane · 1 resource");

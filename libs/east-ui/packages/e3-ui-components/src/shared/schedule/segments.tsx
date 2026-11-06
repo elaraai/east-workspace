@@ -5,10 +5,10 @@
 
 /** Accessible segment controls shared by Plan and Calendar toolbars. */
 import { useMemo, type KeyboardEvent } from "react";
-import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { Box, chakra, Menu as ChakraMenu, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
-import { coarseHitArea, radioGroupKey } from "@elaraai/east-ui-components/internal";
+import { coarseHitArea, FrameMenuLayer, radioGroupKey } from "@elaraai/east-ui-components/internal";
 type Styles = Record<string, Record<string, unknown>>;
 
 /** A segment strip's props — shared by the strip and its one-chip menu. */
@@ -91,15 +91,11 @@ export function SegMenu<K extends string>({ label, name, scope = "plan", items, 
                     <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />
                 </chakra.button>
             </ChakraMenu.Trigger>
-            <Portal>
-                <ChakraMenu.Positioner>
-                    <ChakraMenu.Content>
+            <FrameMenuLayer label={label}>
                         {items.map((it) => (
                             <ChakraMenu.Item key={it.key} value={it.key} disabled={it.disabled} title={it.hint}>{it.label}</ChakraMenu.Item>
                         ))}
-                    </ChakraMenu.Content>
-                </ChakraMenu.Positioner>
-            </Portal>
+                    </FrameMenuLayer>
         </ChakraMenu.Root>
     );
 }

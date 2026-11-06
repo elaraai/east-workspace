@@ -171,27 +171,23 @@ test.describe("the Plan builder's drag and drop (#1196)", () => {
 test.describe("the Plan builder's drag and drop on a phone (#1196)", () => {
     test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
 
-    test("planPrintWorks: the canvas is its narrow layout, where nothing drags; the panes open over it from their rails, and the library's cards drag nowhere", async ({ page }) => {
+    test("planPrintWorks: the canvas is its narrow layout, where nothing drags; the panes open over it from their tabs, and the library's cards drag nowhere", async ({ page }) => {
         const entry = await openExample(page, "planPrintWorks", EVENTS);
         const frame = entry.locator("[data-builder-frame]").first();
         await expect(entry.locator("[data-plan-body][data-plan-narrow]")).toHaveCount(1);
         await expect(frame.locator(":scope > [data-frame-slot='body'] > [data-frame-slot='main'] [data-draggable]")).toHaveCount(0);
-        await frame.getByRole("button", { name: "Expand Library" }).tap();
+        await frame.locator("[data-pane-tab='start']").tap();
         await settled(page);
-        const pane = frame.locator(":scope > [data-frame-slot='body'] > [data-frame-slot='start']");
-        await expect(pane).toHaveAttribute("data-pane-mode", "overlay");
+        const pane = frame.locator("[data-frame-drawer][data-frame-slot='start']");
         // The Events tab's templates: no row to drop them on.
         await expect(openCards(pane).first()).toBeVisible();
         await expect(pane.locator("[data-draggable]")).toHaveCount(0);
-        // The customers, folded into +n on a phone (#1210): no event on the canvas to set them on.
+        // The customers: no event on the canvas to set them on.
         await pane.locator("[data-dock-more]").tap();
         await page.getByRole("menuitem", { name: /^Customers/ }).tap();
-        // The menu closes over the pane's head: read once it has gone.
         await expect(page.locator('[role="menu"]')).toHaveCount(0);
         await settled(page);
         await expect(openCards(pane).first()).toHaveText(/Alder & Finch/);
         await expect(pane.locator("[data-draggable]")).toHaveCount(0);
-        // The inspector opens over it too, from its rail.
-        await expect(frame.locator(":scope > [data-frame-slot='body'] > [data-frame-slot='end']")).toHaveAttribute("data-pane-mode", "overlay");
     });
 });

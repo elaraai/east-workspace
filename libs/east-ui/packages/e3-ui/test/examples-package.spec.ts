@@ -10,17 +10,70 @@
  * — the modules under one directory — is packaged with what its examples bind
  * from another area and nothing else of it (#1397), an example binding what no
  * module declares refused, naming it.
+ *
+ * And what holds of every example module, in this one file because loading them
+ * all takes a process about a minute and a half:
+ *
+ * - The examples' records make no large state as their modules load: a page of
+ *   the showcase imports every example module, and a record whose state a
+ *   generator builds at import builds all of its rows there, on every page. A
+ *   record whose state is large declares its initial value as a function that
+ *   makes it, which e3 calls as the package is exported.
+ * - The examples' programs stay small. An example is a program a page builds,
+ *   compiles and runs, and a library that writes a function out again at each
+ *   use, rather than holding it once, grows every program using it: a Sheet's
+ *   bridge written into each of its rules made the workshop 73,000 IR nodes, a
+ *   Plan's editing session read a field at a time made the nested Plan 75,000,
+ *   and a Schedule kind's reads written into each of its parts made the print
+ *   works' Plan 37,700. The largest example is that Plan, now 26,000.
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { DictType, East, FloatType, IntegerType, StringType, example, variant } from "@elaraai/east";
+import { DictType, East, FloatType, IntegerType, StringType, encodeBeast2For, example, variant, walkIR } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { pathToString } from "@elaraai/e3-types";
 import { Data, Func } from "@elaraai/e3-ui";
 import {
     exampleArea, exampleModule, exampleModuleKeys, examplesAreaPackages, examplesPackage, examplesPackageZip, loadExampleModules,
 } from "./examples-package.js";
+
+/** The most a record's initial state may take as its module loads, in beast2 bytes. */
+const AT_IMPORT_BYTES = 256 * 1024;
+
+/** The most IR nodes an example's program may hold. */
+const MOST_NODES = 30_000;
+
+describe("the examples' records", () => {
+    test("make no state larger than 256 KiB as their modules load: a larger one is declared `initial: () => …`", async () => {
+        const made: string[] = [];
+        for (const module of await loadExampleModules()) {
+            for (const [name, definition] of module.definitions) {
+                if (definition.kind !== "dataset" || (definition as { recordKind?: string }).recordKind !== "record") continue;
+                // None, or made by its function as the package is exported: nothing made at import.
+                const initial = Object.getOwnPropertyDescriptor(definition, "default");
+                if (initial === undefined || initial.get !== undefined) continue;
+                const bytes = encodeBeast2For(definition.type)(initial.value as never).length;
+                if (bytes > AT_IMPORT_BYTES) made.push(`${module.pathKey} ${name}: ${bytes} bytes`);
+            }
+        }
+        assert.deepEqual(made, []);
+    });
+});
+
+describe("the examples' programs", () => {
+    test("hold under 30,000 IR nodes each: a library holds each function once, never writing it out again at each use", async () => {
+        const large: string[] = [];
+        for (const module of await loadExampleModules()) {
+            for (const [name, example] of module.examples) {
+                let nodes = 0;
+                walkIR(example.fn.toIR().ir, () => { nodes += 1; });
+                if (nodes >= MOST_NODES) large.push(`${module.pathKey} ${name}: ${nodes} IR nodes`);
+            }
+        }
+        assert.deepEqual(large, []);
+    });
+});
 
 describe("the examples' package step", () => {
     const count = (value: bigint) => e3.input("count", IntegerType, variant("value", value));

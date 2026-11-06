@@ -97,6 +97,12 @@ import {
     SheetDateLevelType,
     SheetOptionsRuleType,
     SheetNounType,
+    SheetActionCellType,
+    SheetActionTakeType,
+    SheetActionUpdatesType,
+    SheetActionGateType,
+    SheetActionCaseType,
+    SheetActionKindType,
     sheetContextType,
     sheetCheckContextType,
     type SheetPatchInput,
@@ -112,6 +118,7 @@ import { sheetTemplates } from "./templates.js";
 import { SheetField } from "./fields.js";
 import { SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor } from "./optimise.js";
 import { createSubRows, createSubRow } from "./sub-rows.js";
+import { action, actionForm, actionMenu, sheetActionContextType } from "./actions.js";
 import {
     createGroup,
     text as groupText,
@@ -143,6 +150,12 @@ export {
     type SheetDateLevelLiteral,
     SheetOptionsRuleType,
     SheetNounType,
+    SheetActionCellType,
+    SheetActionTakeType,
+    SheetActionUpdatesType,
+    SheetActionGateType,
+    SheetActionCaseType,
+    SheetActionKindType,
     SHEET_TITLE_CELL,
     sheetRuleCell,
     SheetGroupCellType,
@@ -297,6 +310,20 @@ export {
     type SheetFieldOf,
     createGroup,
 } from "./group.js";
+export {
+    type SheetActionConfig,
+    type SheetActionCase,
+    type SheetActionCaseOf,
+    type SheetActionTake,
+    type SheetActionMenu,
+    type SheetActionRegisterMenu,
+    type SheetActionForm,
+    type SheetActionContextOf,
+    type SheetUpdatesInput,
+    SheetActionContextTypeFor,
+    SheetGroupActionContextTypeFor,
+    sheetActionContextType,
+} from "./actions.js";
 export {
     type SheetArrayField,
     type SheetElementOf,
@@ -508,6 +535,15 @@ export interface SheetNamespace extends SheetTagType {
         stamped: typeof stamped;
         /** An author parse / print pair over the field's payload (§3.9). */
         custom: typeof custom;
+        /** A variant's state machine — each case a state and the action into it (#1474). */
+        action: typeof action;
+    };
+    /** How an action column's case is asked for, where its type alone does not say (#1474). */
+    action: {
+        /** A menu of a variant's `NullType` cases (`{ labels }`), or of a register's members (`{ of }`). */
+        menu: typeof actionMenu;
+        /** A form of the case's value, through `Sheet.field.*`, and what it opens with. */
+        form: typeof actionForm;
     };
     /** Registers — the grammar's vocabulary, projected from the host's rows (§3.3). */
     register: {
@@ -729,6 +765,20 @@ export interface SheetNamespace extends SheetTagType {
         Proposal: typeof SheetProposalTypeFor;
         /** `CheckContext(R)` — what an author's member check sees; `CheckContext(P, "lines")` on a grouped sheet ({@link SheetCheckContextTypeFor}, {@link SheetGroupCheckContextTypeFor}). */
         CheckContext: typeof sheetCheckContextType;
+        /** `ActionContext(R)` — what an action column's `blocked`, `initial` and `updates` see, the row complete; `ActionContext(P, "lines")` on a grouped sheet (#1474). */
+        ActionContext: typeof sheetActionContextType;
+        /** An action column's cell on the wire — its case and value ({@link SheetActionCellType}). */
+        ActionCell: typeof SheetActionCellType;
+        /** How an action column's case is asked for, on the wire ({@link SheetActionTakeType}). */
+        ActionTake: typeof SheetActionTakeType;
+        /** What an action wrote beside its field, as cells ({@link SheetActionUpdatesType}). */
+        ActionUpdates: typeof SheetActionUpdatesType;
+        /** Whether a row may act now ({@link SheetActionGateType}). */
+        ActionGate: typeof SheetActionGateType;
+        /** One case of an action column on the wire ({@link SheetActionCaseType}). */
+        ActionCase: typeof SheetActionCaseType;
+        /** An action column's kind on the wire ({@link SheetActionKindType}). */
+        ActionKind: typeof SheetActionKindType;
         /** `OptimiseRequest(R, K?)` — what the app's optimiser is asked (#1409): the run and the rows in view by key ({@link SheetOptimiseRequestTypeFor}). */
         OptimiseRequest: typeof SheetOptimiseRequestTypeFor;
         /** `OptimiseResult(R, K?)` — what it answers (#1409): the rows, complete ({@link SheetOptimiseResultTypeFor}). */
@@ -738,7 +788,8 @@ export interface SheetNamespace extends SheetTagType {
 
 /** The namespace's members — everything `Sheet` carries beside the tag itself. */
 const SHEET_MEMBERS = {
-    column: { text, date, quantity, integer, lookup, reference, enum: enumColumn, set, link, stamped, custom },
+    column: { text, date, quantity, integer, lookup, reference, enum: enumColumn, set, link, stamped, custom, action },
+    action: { menu: actionMenu, form: actionForm },
     register: { members: createMembers, concat: concatMembers },
     driver: createDriver,
     link: { arity: createArity, check, parse: parseLink, print: printLink },
@@ -825,6 +876,13 @@ const SHEET_MEMBERS = {
         Patch: SheetPatchTypeFor,
         Proposal: SheetProposalTypeFor,
         CheckContext: sheetCheckContextType,
+        ActionContext: sheetActionContextType,
+        ActionCell: SheetActionCellType,
+        ActionTake: SheetActionTakeType,
+        ActionUpdates: SheetActionUpdatesType,
+        ActionGate: SheetActionGateType,
+        ActionCase: SheetActionCaseType,
+        ActionKind: SheetActionKindType,
         OptimiseRequest: SheetOptimiseRequestTypeFor,
         OptimiseResult: SheetOptimiseResultTypeFor,
     },
@@ -876,6 +934,11 @@ const SHEET_MEMBERS = {
  * - **Views** (`views`) are a bind handle of `Array<Sheet.Types.RecordView>`,
  *   each every source's narrowing, by the source's name, and a grouped sheet's
  *   folds: `State.bind` keeps them per viewer, `Data.bind` shares them.
+ * - **Action columns** (`Sheet.column.action(R, V, { start, cases, blocked? })`,
+ *   #1474) put a variant's state machine on the sheet: each case a state and
+ *   the action into it, `next` its adjacency list, its value asked by a button,
+ *   a menu (`Sheet.action.menu`) or a form (`Sheet.action.form`, the
+ *   inspectors' `Sheet.field.*`), its `updates` patching the row and its group.
  * - **The namespace**: the columns (`Sheet.column.*`, row type first),
  *   registers (`Sheet.register.members` / `.concat`) and the driver
  *   (`Sheet.driver`), link rules (`Sheet.link.*`), proposed rows and new-row

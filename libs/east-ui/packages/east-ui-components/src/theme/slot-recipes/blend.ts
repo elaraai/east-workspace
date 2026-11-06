@@ -51,10 +51,14 @@ export const blendSlotRecipe = defineSlotRecipe({
              * collapsed rails leave. */
             "&[data-compact-active]": { flex: "1 1 auto", minWidth: 0 },
         },
+        /* The badge, the title and the cap on one line where they fit; a panel too narrow for them (a phone's) puts the
+           cap on a line of its own, at the end, rather than cut it at the panel's edge. */
         panelHead: {
             display: "flex",
+            flexWrap: "wrap",
             alignItems: "baseline",
-            gap: "{spacing.2}",
+            columnGap: "{spacing.2}",
+            rowGap: "{spacing.1}",
         },
         panelBadge: {
             fontFamily: "mono",
@@ -131,8 +135,11 @@ export const blendSlotRecipe = defineSlotRecipe({
             flexDirection: "column",
             gap: "{spacing.1}",
         },
+        /* One line where it fits; on a panel too narrow for the label beside its amount (a phone's) the share wraps
+           under, at the end, so the label stays whole — cut with an ellipsis only where it is wider than the row. */
         allocRow: {
             display: "flex",
+            flexWrap: "wrap",
             alignItems: "center",
             gap: "{spacing.2}",
             paddingX: "{spacing.2}",
@@ -160,7 +167,7 @@ export const blendSlotRecipe = defineSlotRecipe({
         },
         allocBody: {
             flex: "1",
-            minWidth: "0",
+            minWidth: "min(100%, max-content)",
             display: "flex",
             flexDirection: "column",
         },
@@ -210,6 +217,7 @@ export const blendSlotRecipe = defineSlotRecipe({
             fontVariantNumeric: "tabular-nums",
             whiteSpace: "nowrap",
             minWidth: "56px",
+            marginInlineStart: "auto",
             textAlign: "right",
         },
         pinBadge: {

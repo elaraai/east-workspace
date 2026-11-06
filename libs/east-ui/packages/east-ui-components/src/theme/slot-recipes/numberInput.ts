@@ -132,13 +132,16 @@ export const numberInputSlotRecipe = defineSlotRecipe({
             divideY: "0px",
             borderStartWidth: "1px",
             borderColor: "border.subtle",
+            /* In a phone's frame, under a finger: the two side by side, each a 44 square (hand test, 4 Nov 2026). */
+            "[data-phone] &": { _coarse: { flexDirection: "row-reverse", width: "88px" } },
         },
         incrementTrigger: {
             ...stepperTrigger,
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
+            "[data-phone] &": { _coarse: { width: "44px", borderBottomWidth: "0", borderStartWidth: "1px", borderColor: "border.subtle" } },
         },
-        decrementTrigger: { ...stepperTrigger },
+        decrementTrigger: { ...stepperTrigger, "[data-phone] &": { _coarse: { width: "44px" } } },
     },
     variants: {
         variant: {

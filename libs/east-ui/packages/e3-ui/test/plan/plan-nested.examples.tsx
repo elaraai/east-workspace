@@ -159,24 +159,24 @@ export const generateWorksAll = East.function([IntegerType, IntegerType], WorksB
 });
 
 /**
- * How many works the task generates: the two hundred the record starts with.
+ * How many works the task generates: the hundred the record starts with.
  * A page runs every task of its area as the area starts, so the showcase
  * generates no more than it shows; a stress run writes two thousand.
  */
-export const planWorksRows = e3.input("plan_works_rows", IntegerType, variant("value", 200n));
+export const planWorksRows = e3.input("plan_works_rows", IntegerType, variant("value", 100n));
 /** How many weeks of each works' collections the task generates: ten years'. */
 export const planWorksWeeks = e3.input("plan_works_weeks", IntegerType, variant("value", 522n));
 /** The task that generates the works from their sizes. */
 export const planWorksGenerated = e3.task("plan_works_generated", [planWorksRows, planWorksWeeks], generateWorksAll);
 
 /**
- * The works, two hundred of them over ten years, some 90,000 items: read lean
+ * The works, a hundred of them over ten years, some 45,000 items: read lean
  * a page at a time and their collections a cell at a time through their nested
  * series index, never whole. Made as the package is exported, never as a page
  * loads the example. A stress run writes two thousand through the patch door.
  */
 export const planWorks = e3.record("plan_works", WorksByKey, {
-    initial: () => East.compile(generateWorksAll, [])(200n, 522n),
+    initial: () => East.compile(generateWorksAll, [])(100n, 522n),
     indexes: (index) => ({
         // The works by name: the rail's default order.
         plan_works_by_name: index.on(["name"]),
@@ -223,7 +223,7 @@ export const planNestedAll = example({
         "library", "Plan.library.series", "Series tab", "Record.onApply", "keyed", "editing", "Save", "chart", "events", "marks",
         "cards", "chips", "buckets", "tiles", "#1438",
     ],
-    description: "Every series a Plan reads a cell at a time, over two hundred works and ten years: each works' jobs as runs and its alarms as decisions, its load as a heat strip, its crews' hours as a table whose works row draws their sums as e3 keeps them, and its parts as a tree whose folded parents draw their bands from the jobs e3 files under them; and, switched off to start, its load as a line, its alarms as marks and as tiles, and its jobs as chips — paged by rows and by time, each series switched on and off from the library's Series tab; a moved job drafts its works read whole and saves by key",
+    description: "Every series a Plan reads a cell at a time, over a hundred works and ten years: each works' jobs as runs and its alarms as decisions, its load as a heat strip, its crews' hours as a table whose works row draws their sums as e3 keeps them, and its parts as a tree whose folded parents draw their bands from the jobs e3 files under them; and, switched off to start, its load as a line, its alarms as marks and as tiles, and its jobs as chips — paged by rows and by time, each series switched on and off from the library's Series tab; a moved job drafts its works read whole and saves by key",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const works = $.let(Record.bind(planWorks, ["patch"]));

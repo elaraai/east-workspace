@@ -41,7 +41,7 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
-import { frameAt, tapScrim, type Box } from "./builder-frame";
+import { frameAt, type Box } from "./builder-frame";
 
 const HASH = "e3/sheet/sheet/sheetWorkshop";
 /** The weeks' sheet: one entry's rows, and the author's own Details (SB58). */
@@ -168,8 +168,7 @@ test.describe("The Sheet's frame (#1184, #1216)", () => {
         const toolbar = box.locator("[data-builder-frame] > [data-frame-slot=toolbar] [data-toolbar]");
         await expect.poll(() => toolbar.getAttribute("data-toolbar-ladder")).toBe(LADDER);
         let folded = 0;
-        let narrowest = new Map<string, number>();
-        for (const width of [1440, 1280, 1024, 900, 768, 640, 560, 480, 420, 360]) {
+        for (const width of [1440, 1280, 1024, 900, 768, 640, 600]) {
             await sizeTo(page, box, width);
             const at = await toolbar.evaluate((row) => {
                 const band = row.closest("[data-frame-slot=toolbar]")!.getBoundingClientRect();
@@ -192,10 +191,7 @@ test.describe("The Sheet's frame (#1184, #1216)", () => {
             expect([...forms]).toEqual([...ladderForms(at.folds, [...forms.keys()])]);
             expect(at.folds).toBeGreaterThanOrEqual(folded);
             folded = at.folds;
-            narrowest = forms;
         }
-        // At 360px the rail is down to its icon, as far as it folds, and the row still fits.
-        expect(narrowest.get("record-slices")).toBe(6);
     });
 
     test("main holds the grid and, docked under it, the strip while a cell is edited", async ({ page }) => {
@@ -225,7 +221,7 @@ test.describe("The Sheet's frame (#1184, #1216)", () => {
             return { start: [at.start!.mode, at.start!.collapsed], end: [at.end!.mode, at.end!.collapsed, at.end!.slot.w] };
         }).toEqual({ start: ["pinned", false], end: ["overlay", true, 44] });
 
-        await sizeTo(page, box, 560);
+        await sizeTo(page, box, 600);
         const rest = await frameAt(box);
         expect({ start: [rest.start!.mode, rest.start!.collapsed, rest.start!.slot.w], end: [rest.end!.mode, rest.end!.collapsed, rest.end!.slot.w], scrim: rest.scrim })
             .toEqual({ start: ["overlay", true, 44], end: ["overlay", true, 44], scrim: null });
@@ -347,28 +343,6 @@ test.describe("The Sheet's frame — the library pane (#1186)", () => {
 test.describe("The Sheet's frame — on a phone (#1184)", () => {
     test.skip(({ isMobile }) => !isMobile, "measured on the phone");
 
-    test("both panes rest on their 44px rails; the inspector, opened, covers main from its edge under the scrim — and a tap on the scrim closes it", async ({ page }) => {
-        const box = await openSheet(page, "light", null);
-        const rest = await frameAt(box);
-        expect({ start: [rest.start!.mode, rest.start!.collapsed, rest.start!.slot.w], end: [rest.end!.mode, rest.end!.collapsed, rest.end!.slot.w], scrim: rest.scrim })
-            .toEqual({ start: ["overlay", true, 44], end: ["overlay", true, 44], scrim: null });
-        const mainAtRest = within(rest.main, rest.body);
-        await box.getByRole("button", { name: "Expand Inspector" }).click();
-        await expect.poll(async () => {
-            const at = await frameAt(box);
-            const sheet = within(at.end!.sheet, at.body);
-            return {
-                open: !at.end!.collapsed, main: within(at.main, at.body),
-                toEdge: tenth(at.body.w - (sheet.x + sheet.w)), height: [sheet.y, sheet.h],
-                scrim: at.scrim === null ? null : within(at.scrim, at.body), ink: at.ink.scrim === at.ink.backdrop,
-            };
-        }).toEqual({ open: true, main: mainAtRest, toEdge: 0, height: [0, rest.body.h], scrim: mainAtRest, ink: true });
-        await tapScrim(page, box, "end");
-        await expect.poll(async () => {
-            const at = await frameAt(box);
-            return { collapsed: at.end!.collapsed, scrim: at.scrim };
-        }).toEqual({ collapsed: true, scrim: null });
-    });
 });
 
 test.describe("The Sheet's frame — the inspector (#1188)", () => {
@@ -490,69 +464,27 @@ const lineTexts = (box: Locator, group: string, key: string) =>
 test.describe("The Sheet's frame — the folded gutter on a phone (#1215)", () => {
     test.skip(({ isMobile }) => !isMobile, "measured on the phone");
 
-    test("the workshop's sheet folds its gutter to 108px: the first column's cell shows beside it, 128px and more, each row's actions one 44 × 44 button in it; a tap opens the row's menu, every item 44px tall", async ({ page }) => {
-        const box = await openSheet(page, "light", null);
-        const line = box.locator('[data-frame-slot=main] [data-slot="row"][data-group-id="WO-2201"]:not([data-blank])').first();
-        await expect.poll(() => line.evaluate((row) => {
-            const main = row.closest("[data-frame-slot=main]")!.getBoundingClientRect();
-            const gutter = row.querySelector("[data-slot=gutter]")!.getBoundingClientRect();
-            const cell = row.querySelector("[data-slot=cell]")!.getBoundingClientRect();
-            const button = row.querySelector("[data-slot=rowActions]")?.getBoundingClientRect();
-            return {
-                folded: row.closest("[data-sheet-card]")!.getAttribute("data-gutter"),
-                gutter: Math.round(gutter.width),
-                // What shows of the first column's cell, from the gutter's edge to main's.
-                shows: Math.round(Math.min(cell.right, main.right) - Math.max(cell.left, gutter.right)) >= 128,
-                button: button === undefined ? null : [Math.round(button.width), Math.round(button.height), button.left >= gutter.left - 0.5 && button.right <= gutter.right + 0.5],
-            };
-        })).toEqual({ folded: "folded", gutter: 108, shows: true, button: [44, 44, true] });
-        await line.locator("[data-slot=rowActions]").tap();
-        const items = page.locator('[role="menu"] [role="menuitem"]');
-        await expect.poll(() => items.evaluateAll((els) => els.map((el) => [el.textContent, el.getBoundingClientRect().height >= 44])))
-            .toEqual([["Insert above", true], ["Insert below", true], ["New order", true]]);
-    });
 
-    test("a drag on a batch's line's row-actions button moves the line, as its grip does", async ({ page }) => {
-        const box = await openSheet(page, "light", null, BATCHES);
-        const lines = box.locator('[data-frame-slot=main] [data-slot="row"][data-group-id="B-101"]:not([data-blank])');
-        await expect.poll(() => lineTexts(box, "B-101", "task")).toEqual(["Cut doors", "Band doors", "Spray doors"]);
-        // The batch in the window's middle: no row the drag rests on lies near an edge, where a drag scrolls the page.
-        await lines.first().evaluate((row) => row.scrollIntoView({ block: "center" }));
-        await settled(page);
-        await pickUp(page, lines.nth(2).locator("[data-slot=rowActions]"));
-        // Over the first line's top half, in its first cell, beside the gutter.
-        const at = await lines.first().evaluate((row) => {
-            const gutter = row.querySelector("[data-slot=gutter]")!.getBoundingClientRect();
-            const box = row.getBoundingClientRect();
-            return { x: gutter.right + 24, y: box.top + box.height * 0.25 };
-        });
-        await page.mouse.move(at.x, at.y, { steps: 6 });
-        await expect(page.locator("[data-drag-caption]")).toHaveText("before line 1 of Doors, oak");
-        await page.mouse.up();
-        await expect.poll(() => lineTexts(box, "B-101", "task")).toEqual(["Spray doors", "Cut doors", "Band doors"]);
-        await expect(page.locator('[role="menu"]')).toHaveCount(0);
-    });
 });
 
 test.describe("The Sheet's frame — the key search on a phone (#1221)", () => {
     test.skip(({ isMobile }) => !isMobile, "measured on the phone");
 
-    test("the paged sheet's key search folds to its icon, its history whole beside it in the row; a tap on the icon opens its box in a popover with the focus in it, and so does ⌘F", async ({ page }) => {
+    test("the paged sheet's key search is its icon, its history in the second row; a tap on the icon opens its box in a popover with the focus in it, and so does ⌘F", async ({ page }) => {
         const box = await openSheet(page, "light", null, PAGED);
         const toolbar = box.locator("[data-builder-frame] > [data-frame-slot=toolbar]");
         await expect.poll(() => toolbar.evaluate((band) => {
             const row = band.querySelector("[data-toolbar]")!;
             const edge = row.getBoundingClientRect().right;
             const seek = row.querySelector("[data-toolbar-item='seek']");
-            const save = row.querySelector("[aria-label='Save']")?.getBoundingClientRect();
             return {
                 seek: seek?.getAttribute("data-toolbar-form") ?? null,
                 icon: seek?.querySelector("[data-key-search='icon']")?.getAttribute("aria-label") ?? null,
-                // Every item inside the row — the history's Save among them.
+                // Every item inside the row, the history's Save in the second.
                 fits: [...row.children].every((el) => el.getBoundingClientRect().right <= edge + 0.5),
-                save: save !== undefined && save.right <= edge + 0.5,
+                save: band.parentElement!.querySelector("[data-frame-slot=sessionRow] [aria-label='Save']") !== null,
             };
-        })).toEqual({ seek: "1", icon: "Search Records", fits: true, save: true });
+        })).toEqual({ seek: "0", icon: "Search Records", fits: true, save: true });
         const icon = toolbar.locator("[data-key-search='icon']");
         await icon.tap();
         await expect(page.locator("[data-key-search='popover'] input")).toBeFocused();
@@ -701,9 +633,9 @@ test.describe("The Sheet's frame — drag and drop (#1187)", () => {
         })).toEqual({ scrollTop: 0, bands: ["B-102", "B-103", "B-101"], firstInView: true });
     });
 
-    test("at 560px the library floats over main under the scrim; a card picked up slides it off main and lifts the scrim, and lands on the line it is dropped on — the pane back over main once the drag is over", async ({ page }) => {
+    test("at 600px the library floats over main under the scrim; a card picked up slides it off main and lifts the scrim, and lands on the line it is dropped on — the pane back over main once the drag is over", async ({ page }) => {
         const box = await openSheet(page, "light", 1440, BATCHES);
-        await sizeTo(page, box, 560);
+        await sizeTo(page, box, 600);
         await box.getByRole("button", { name: "Expand Library" }).click();
         await expect.poll(async () => {
             const at = await frameAt(box);

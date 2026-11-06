@@ -15,7 +15,7 @@ import { CoverageView, ProposalCard, assignmentName, costed, dismissible, money,
 import type { RolesChange } from "./actions.js";
 import type { RosterFind } from "./fit.js";
 import {
-    DAY, costsOf, dayOfSlot, dayStart, groupSkills, requirementOf, sameSlot, viewTotals, weekNumber, type Assignment, type Issue, type Person, type PlacedDuties,
+    DAY, costsOf, dayOfSlot, dayStart, groupSkills, issueGoesTo, requirementOf, sameSlot, viewTotals, weekNumber, type Assignment, type Issue, type Person, type PlacedDuties,
     type PlacedTargets, type RosterStyles, type Slot,
 } from "./model.js";
 
@@ -46,17 +46,17 @@ function fixLabel(issue: Issue, props: Args) {
     }
 }
 export function RosterIssues({ props, issues }: { props: Args; issues: readonly Issue[] }) {
-    return <>{issues.map((issue, index) => <Box key={index} css={props.styles.issue} data-tone={issue.tone.type} data-roster-issue={issue.kind.type}>
-        <chakra.button type="button" css={props.styles.issueTitle} onClick={() => {
-            if (issue.slot.type === "some") props.setView({ ...props.view, date: props.start.getTime() + Number(issue.slot.value.day) * DAY });
-            if (issue.assignment.type === "some") props.select({ type: "assignment", key: issue.assignment.value });
-            else if (issue.fix.type === "some" && issue.fix.value.type === "accept") props.select({ type: "proposal", key: issue.fix.value.value });
-            else if (issue.slot.type === "some") props.select({ type: "slot", slot: issue.slot.value });
-        }}>{issue.title}</chakra.button><Box css={props.styles.issueDetail}>{issue.detail}</Box>
+    return <>{issues.map((issue, index) => { const goes = issueGoesTo(issue, props.view, props.start, props.week, props.opensWeek); return <Box key={index} css={props.styles.issue} data-tone={issue.tone.type} data-roster-issue={issue.kind.type}>
+        {/* A Month with no Week, and nothing of the issue's to select: its title alone, nothing to press. */}
+        {props.view.period === "month" && !props.opensWeek && goes.select === undefined ? <Box css={props.styles.issueTitle}>{issue.title}</Box>
+            : <chakra.button type="button" css={props.styles.issueTitle} onClick={() => {
+                if (goes.view !== undefined) props.setView(goes.view);
+                if (goes.select !== undefined) props.select(goes.select);
+            }}>{issue.title}</chakra.button>}<Box css={props.styles.issueDetail}>{issue.detail}</Box>
         {/* A find edits nothing, so it is offered on a week that can't be edited — but only with the app's fit, which decides who fits. */}
         {issue.fix.type === "some" && (issue.fix.value.type === "find" ? props.find.offered : props.commands.available || props.commands.locked !== undefined) && <Box css={props.styles.issueActions}>
             <Button size="xs" variant="outline" disabled={props.commands.locked !== undefined} title={props.commands.locked} onClick={() => props.onError(props.commands.fix(issue))}>{fixLabel(issue, props)}</Button></Box>}
-    </Box>)}</>;
+    </Box>; })}</>;
 }
 function PersonFacts({ props, person, slot }: { props: Args; person: Person; slot?: Slot }) {
     const group = props.value.groups.find(g => g.key === (slot?.group ?? person.group));
@@ -65,11 +65,12 @@ function PersonFacts({ props, person, slot }: { props: Args; person: Person; slo
     const theirs = [...props.week.assignments].filter(([, a]) => a.who.type === "person" && a.who.value === person.key);
     const cost = costed(props.value) ? costsOf(props.pay, theirs.map(([id]) => id)).total : undefined;
     return <><Box css={props.styles.section}><Box css={props.styles.sectionHead}>Skills · {group?.label}</Box><Box css={props.styles.detail}>{skills?.filter(skill => person.skills.has(skill.key)).length} / {skills?.length} held</Box>
-        {person.agency && person.skills.size === 0 && <Box css={props.styles.detail}>No skills recorded for agency staff.</Box>}
+        {person.agency && person.skills.size === 0 && <Box css={props.styles.detail}>No skills recorded for {props.value.vocabulary.agency.toLocaleLowerCase(props.format.locale)}.</Box>}
         {skills?.map(skill => <Box key={skill.key} css={props.styles.skillLine}><Box as="span" css={props.styles.flag} aria-label={person.skills.has(skill.key) ? "Skill held" : "Skill not held"}><FontAwesomeIcon icon={person.skills.has(skill.key) ? faCheck : faMinus} /></Box><span>{skill.label}</span><span /><span>{props.format.number(coverage?.lines.find(line => line.skill === skill.key)?.needed ?? 0)} h needed</span></Box>)}
     </Box><Box css={props.styles.section}><Box css={props.styles.sectionHead}>Week</Box><Box css={props.styles.detail}>{props.format.number(props.hours.get(person.key) ?? 0)} h / {props.format.number(person.contract)} h{cost !== undefined && ` · ${money(props.format, props.value, cost, false)}`}</Box>
-        {/* A day pressed opens that week — in Week, from Month (#1406, P24) — with the duty selected, or the person where the day is off. */}
-        {Array.from({ length: 7 }, (_, day) => { const rows = theirs.filter(([, a]) => a.slot.day === BigInt(day)); return <Button key={day} size="xs" variant={props.day === day ? "outline" : "ghost"} onClick={() => { props.setView({ ...props.view, period: props.view.period === "month" ? "week" : props.view.period, date: props.start.getTime() + day * DAY }); props.select(rows.length === 0 ? { type: "person", key: person.key } : { type: "assignment", key: rows[0]![0] }); }}>
+        {/* A day pressed opens that week — in Week, from Month (#1406, P24) — with the duty selected, or the person where the day is off.
+            With Week not offered the month stays: it selects alone, as a day of another month would move the month. */}
+        {Array.from({ length: 7 }, (_, day) => { const rows = theirs.filter(([, a]) => a.slot.day === BigInt(day)); return <Button key={day} size="xs" variant={props.day === day ? "outline" : "ghost"} onClick={() => { if (props.view.period !== "month" || props.opensWeek) props.setView({ ...props.view, period: props.view.period === "month" ? "week" : props.view.period, date: props.start.getTime() + day * DAY }); props.select(rows.length === 0 ? { type: "person", key: person.key } : { type: "assignment", key: rows[0]![0] }); }}>
             {props.format.weekday(new Date(props.start.getTime() + day * DAY))} · {rows.map(([, a]) => `${props.value.shifts.find(s => s.key === a.slot.shift)?.code} ${props.format.number(a.hours)} h`).join(" · ") || "Off"}
         </Button>; })}
     </Box></>;
@@ -159,7 +160,7 @@ function OneSlot({ props, slot }: { props: Args; slot: Slot }) {
         when={`${c.filled} / ${c.positions} positions · ${props.format.number(c.hours.rostered)} of ${props.format.number(c.hours.needed)} h`} status={{ label: c.hours.rostered < c.hours.needed ? `${props.format.number(c.hours.needed - c.hours.rostered)} h short` : "Covered", tone: { type: c.hours.rostered < c.hours.needed ? "warning" : "success" }, ring: false }} home />
         <RosterIssues props={props} issues={props.issues.filter(i => i.slot.type === "some" && sameSlot(i.slot.value, slot))} />
         <Box css={props.styles.section}><Box css={props.styles.sectionHead}>Coverage</Box><CoverageView coverage={c} value={props.value} styles={props.styles} format={props.format} />
-            <Box css={props.styles.detail}>Permanent · Agency staff · Requested · Open · Needed</Box></Box>
+            <Box css={props.styles.detail}>{props.value.vocabulary.permanent} · {props.value.vocabulary.agency} · Requested · Open · Needed</Box></Box>
         <Box css={props.styles.fields}><Box css={props.styles.sectionHead}>Targets</Box><Targets props={props} slot={slot} /></Box>
         <Box css={props.styles.section}><Box css={props.styles.sectionHead}>Roster</Box><Box css={props.styles.detail}>{String(c.filled)} filled · {String(c.open)} open · {c.lead ? "Lead assigned" : "No lead"} · {c.trainer ? "Trainer assigned" : "No trainer"}</Box>
             {costed(props.value) && <Box css={props.styles.detail}>{money(props.format, props.value, c.cost, false)}</Box>}<PlaceAction label="Assign person" slot={slot} value={props.value} start={props.start} commands={props.commands} styles={props.styles} /></Box>

@@ -24,9 +24,11 @@
  */
 
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
-import { editingMessages, type EditingMessages } from "@elaraai/east-ui-components";
+import type { ValueTypeOf } from "@elaraai/east";
+import type { PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { editingMessages, getSomeorUndefined, type EditingMessages } from "@elaraai/east-ui-components";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
-import { eventsNotCounted, joinedWords as joined, kindPlural as pluralName } from "../shared/schedule/words.js";
+import { eventsNotCounted, hiddenByText, joinedWords as joined, kindPlural as pluralName, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
 import { timeMessages, type TimeMessages } from "../shared/time/scale.js";
 
 /** A lifecycle state as the words name it — `EventStateType`, with the
@@ -105,7 +107,7 @@ export type PlanInspectorStat = "events" | "hours" | "hoursInView" | "backlog";
  * #1398: `lineLoading`, `lineFiltering`, `lineFailed`, `lineShort`), in what
  * the rail counts the rows in.
  */
-export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadingMessages {
+export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadingMessages, HiddenWords {
     // ── The frame ──────────────────────────────────────────────────────────
     /** The treegrid's accessible name. */
     gridLabel: () => string;
@@ -140,6 +142,12 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     /** The key search's icon — what a toolbar short of room folds its box
      *  to — and the head of the popover it opens the box in (#1193). */
     keySearch: () => string;
+    /** What the key search says where no record matches: it finds a record, and the rail narrows by its fields (#1513). */
+    keySearchNoMatches: () => string;
+    /** Why a pick could not go to its row, where the read threw no words of its own (#1513). */
+    keySearchUnplaced: () => string;
+    /** Why the choices hiding a row could not be cleared, where the clear threw no words of its own (#1513). */
+    keySearchUncleared: () => string;
     /** The overlaps chip (#1198, PB52) — `3 overlaps`: the pairs of events
      *  that overlap in the window. */
     overlaps: (p: { n: number; count: string }) => string;
@@ -279,6 +287,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     inspectorNotCounted: (p: { kinds: readonly string[]; hours: readonly string[] }) => string;
     /** A hint when nothing is selected — three of them. */
     inspectorHint: (p: { n: 1 | 2 | 3 }) => string;
+    /** The hint in a phone's pane, nothing selected (ruled 3 Nov 2026): its cards take a tap, and it has no Esc or modifier keys. */
+    inspectorHintTouch: () => string;
     /** One event's overlaps banner (#1198, PB53) — `Overlaps 2 events on Press B2`: `on` is its resource's name. */
     inspectorOverlaps: (p: { n: number; count: string; on: string }) => string;
     /** A row's overlaps banner (PB40) — `2 overlaps`: the pairs on the row's resource in the window. */
@@ -600,6 +610,11 @@ export const planMessages: PlanMessages = {
     resolutionLabel: () => "Resolution",
     resolutionName: ({ resolution }) => resolution.toUpperCase(),
     keySearch: () => "Search Records",
+    keySearchNoMatches: () => "No record matches. The filters narrow by a record's other fields.",
+    keySearchUnplaced: () => "The record could not be found among the rows",
+    keySearchUncleared: () => "The filters hiding the record could not be cleared",
+    hiddenByFilters: () => "hidden by the filters",
+    hiddenBy: ({ filters, also }) => hiddenByText(filters, also),
     overlaps: ({ n, count }) => `${count} ${plural(n, "overlap", "overlaps")}`,
     overlapsShort: ({ count }) => count,
     overlapsLabel: ({ n, count }) => `${count} ${plural(n, "overlap", "overlaps")} — select the first pair`,
@@ -682,6 +697,7 @@ export const planMessages: PlanMessages = {
     inspectorHint: ({ n }) => (n === 1 ? "Click an event to see it here — Shift, ⌘ or Ctrl adds another."
         : n === 2 ? "Click a row's plot to see the row and its measures at that bucket."
             : "Esc clears what is selected."),
+    inspectorHintTouch: () => "Tap a card to see its row and its measures here.",
     inspectorOverlaps: ({ n, count, on }) => `Overlaps ${count} ${plural(n, "event", "events")} on ${on}`,
     inspectorRowOverlaps: ({ n, count }) => `${count} ${plural(n, "overlap", "overlaps")}`,
     inspectorOverlapPair: ({ first, second }) => `${first} · ${second}`,
@@ -805,6 +821,83 @@ export const planMessages: PlanMessages = {
     announceResolution: ({ resolution }) => `Resolution: ${resolution}`,
 };
 
+/** The app's words for what the Plan draws of its own, as the payload carries them (#1516). */
+export type PlanVocabulary = ValueTypeOf<typeof PlanPayloadType>["vocabulary"];
+
+/**
+ * A table in the app's own words (#1516): each word the app gave over the table above it, wherever the table says it, and
+ * the rest as they stood, so a host's translation stands where the app gave none.
+ *
+ * @param parent - The table above
+ * @param v - The app's words
+ * @returns The table
+ */
+export function planMessagesIn(parent: PlanMessages, v: PlanVocabulary): PlanMessages {
+    const unassigned = getSomeorUndefined(v.unassigned);
+    const events = getSomeorUndefined(v.events);
+    const backlog = getSomeorUndefined(v.backlog);
+    const series = getSomeorUndefined(v.series);
+    const groups = getSomeorUndefined(v.groups);
+    const rows = getSomeorUndefined(v.rows);
+    const measures = getSomeorUndefined(v.measures);
+    const inText = backlog === undefined ? undefined : lowerWord(backlog);
+    const seriesText = series === undefined ? undefined : lowerWord(series);
+    const rowsText = rows === undefined ? undefined : lowerWord(rows.other);
+    const due: Readonly<Record<PlanDueWord, string | undefined>> = {
+        thisWeek: getSomeorUndefined(v.dueThisWeek), nextWeek: getSomeorUndefined(v.dueNextWeek), later: getSomeorUndefined(v.later), none: getSomeorUndefined(v.noDate),
+    };
+    const states: Readonly<Record<PlanStateWord, string | undefined>> = {
+        estimated: getSomeorUndefined(v.estimated), added: getSomeorUndefined(v.proposed), recommended: getSomeorUndefined(v.recommended),
+        removed: getSomeorUndefined(v.removal), confirmed: getSomeorUndefined(v.confirmed), "in-progress": getSomeorUndefined(v.inProgress),
+        actual: getSomeorUndefined(v.actual), rejected: getSomeorUndefined(v.rejected),
+    };
+    /** What a narrowed tab says lists, in the app's word, the table's own sentence around it. */
+    const narrowedName = (tab: PlanLibraryTabWord, name: string): { tab: PlanLibraryTabWord; name: string } =>
+        (tab === "backlog" && inText !== undefined ? { tab: "tab", name: `${inText} events` } : tab === "series" && seriesText !== undefined ? { tab: "tab", name: seriesText } : { tab, name });
+    return {
+        ...parent,
+        inspectorUnassigned: () => unassigned ?? parent.inspectorUnassigned(),
+        backlogLine: (p) => parent.backlogLine({ ...p, resource: p.resource ?? unassigned }),
+        libraryTab: ({ tab }) => ({ events, backlog, series })[tab] ?? parent.libraryTab({ tab }),
+        libraryEmpty: (p) => (p.tab === "backlog" && backlog !== undefined ? `${backlog} clear` : p.tab === "series" && seriesText !== undefined ? `No ${seriesText}` : parent.libraryEmpty(p)),
+        libraryNoun: (p) => (p.tab === "series" && seriesText !== undefined ? seriesText : parent.libraryNoun(p)),
+        libraryNarrowed: ({ tab, name }) => parent.libraryNarrowed(narrowedName(tab, name)),
+        libraryNarrowedHint: ({ tab, name }) => parent.libraryNarrowedHint(narrowedName(tab, name)),
+        inspectorUnscheduled: () => (inText === undefined ? parent.inspectorUnscheduled() : `Not scheduled — in the ${inText}`),
+        footerBacklog: (p) => (inText === undefined ? parent.footerBacklog(p) : `${p.count} in ${inText}`),
+        inspectorStat: (p) => (p.stat === "backlog" && inText !== undefined ? `In ${inText}` : parent.inspectorStat(p)),
+        dropUnschedule: (p) => (backlog === undefined ? parent.dropUnschedule(p) : `${p.what} → ${backlog}`),
+        dropNoBacklog: (p) => (inText === undefined ? parent.dropNoBacklog(p) : `${pluralName(p.kind)} have no ${inText}`),
+        dueGroup: ({ due: at }) => due[at] ?? parent.dueGroup({ due: at }),
+        state: ({ state }) => states[state] ?? parent.state({ state }),
+        tabGroups: () => groups?.other ?? parent.tabGroups(),
+        backToGroups: () => (groups === undefined ? parent.backToGroups() : `← ${groups.other}`),
+        moreGroups: (p) => (groups === undefined ? parent.moreGroups(p)
+            : `${p.count} more ${lowerWord(plural(p.n, groups.one, groups.other))}${p.members !== undefined ? ` · ${p.members}` : ""}`),
+        // An event's resource is one of the rows: `Press`, as a group is a `Hall` (review of #1481, finding 5).
+        inspectorFact: ({ fact }) => (fact === "group" && groups !== undefined ? groups.one
+            : fact === "resource" && rows !== undefined ? rows.one : parent.inspectorFact({ fact })),
+        hiddenRows: (p) => {
+            const noun = p.what === "group" ? groups : rows;
+            return noun === undefined ? parent.hiddenRows(p) : `${p.count} hidden ${lowerWord(plural(p.n, noun.one, noun.other))}`;
+        },
+        tabRows: () => rows?.other ?? parent.tabRows(),
+        allRows: () => (rowsText === undefined ? parent.allRows() : `← All ${rowsText}`),
+        backToAllRows: () => (rowsText === undefined ? parent.backToAllRows() : `← All ${rowsText}`),
+        noRows: () => (rowsText === undefined ? parent.noRows() : `No ${rowsText}`),
+        otherRows: () => (rowsText === undefined ? parent.otherRows() : `Other ${rowsText}`),
+        moreRows: (p) => (rows === undefined ? parent.moreRows(p) : `${p.count} more ${lowerWord(plural(p.n, rows.one, rows.other))}`),
+        groupMeta: (p) => (rows === undefined ? parent.groupMeta(p) : `${p.count} ${lowerWord(plural(p.n, rows.one, rows.other))}`),
+        inspectorRow: () => rows?.one ?? parent.inspectorRow(),
+        saveNoticeNoun: (p) => (p.kind === undefined && rows !== undefined ? lowerWord(plural(p.n, rows.one, rows.other)) : parent.saveNoticeNoun(p)),
+        eventsFailedNoun: (p) => (p.kinds.length === 0 && rowsText !== undefined ? rowsText : parent.eventsFailedNoun(p)),
+        announceAllRows: () => (rowsText === undefined ? parent.announceAllRows() : `Showing all ${rowsText}`),
+        tabMeasures: () => measures?.other ?? parent.tabMeasures(),
+        moreMeasures: (p) => (measures === undefined ? parent.moreMeasures(p) : `${p.count} more ${lowerWord(plural(p.n, measures.one, measures.other))}`),
+        inspectorSection: ({ section }) => (section === "measures" && measures !== undefined ? measures.other : parent.inspectorSection({ section })),
+    };
+}
+
 const PlanMessagesContext = createContext<PlanMessages>(planMessages);
 
 /**
@@ -815,6 +908,26 @@ const PlanMessagesContext = createContext<PlanMessages>(planMessages);
  */
 export function usePlanMessages(): PlanMessages {
     return useContext(PlanMessagesContext);
+}
+
+/** Props of {@link PlanVocabularyProvider}. */
+export interface PlanVocabularyProviderProps {
+    /** The app's words, the same object while they hold. */
+    vocabulary: PlanVocabulary;
+    /** The subtree they apply to. */
+    children?: ReactNode;
+}
+
+/**
+ * The app's own words for a Plan (#1516), over whatever table a host gives it.
+ *
+ * @param props - The words and the subtree
+ * @returns The provider
+ */
+export function PlanVocabularyProvider({ vocabulary, children }: PlanVocabularyProviderProps) {
+    const parent = usePlanMessages();
+    const value = useMemo(() => planMessagesIn(parent, vocabulary), [parent, vocabulary]);
+    return createElement(PlanMessagesContext.Provider, { value }, children);
 }
 
 /** Props of {@link PlanMessagesProvider}. */

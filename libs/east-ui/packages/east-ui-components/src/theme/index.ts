@@ -111,6 +111,8 @@ import { collapsibleSlotRecipe } from "./slot-recipes/collapsible.js";
 import { expandableSlotRecipe } from "./slot-recipes/expandable.js";
 import { dockSlotRecipe } from "./slot-recipes/dock.js";
 import { snapGridSlotRecipe } from "./slot-recipes/snapGrid.js";
+import { snapGridPhoneSlotRecipe } from "./slot-recipes/snapGridPhone.js";
+import { studioPhoneSlotRecipe } from "./slot-recipes/studioPhone.js";
 import { drawerStackRailSlotRecipe } from "./slot-recipes/drawerStack.js";
 import { optionListSlotRecipe } from "./slot-recipes/optionList.js";
 import { codeBlockSlotRecipe } from "./slot-recipes/codeBlock.js";
@@ -148,6 +150,7 @@ import { decisionQueueSlotRecipe } from "./slot-recipes/decisionQueue.js";
 import { studioBuilderSlotRecipe } from "./slot-recipes/studioBuilder.js";
 import { studioInspectorSlotRecipe } from "./slot-recipes/studioInspector.js";
 import { sheetInspectorSlotRecipe } from "./slot-recipes/sheetInspector.js";
+import { sheetActionSlotRecipe } from "./slot-recipes/sheetAction.js";
 import { planInspectorSlotRecipe } from "./slot-recipes/planInspector.js";
 import { flowchartInspectorSlotRecipe } from "./slot-recipes/flowchartInspector.js";
 import { schematicInspectorSlotRecipe } from "./slot-recipes/schematicInspector.js";
@@ -155,11 +158,16 @@ import { studioLibrarySlotRecipe } from "./slot-recipes/studioLibrary.js";
 import { studioPublishSlotRecipe } from "./slot-recipes/studioPublish.js";
 import { queryBuilderSlotRecipe } from "./slot-recipes/queryBuilder.js";
 import { queryResultsSlotRecipe } from "./slot-recipes/queryResults.js";
+import { queryPhoneSlotRecipe } from "./slot-recipes/queryPhone.js";
 import { queryLibrarySlotRecipe } from "./slot-recipes/queryLibrary.js";
 import { jqEditorSlotRecipe } from "./slot-recipes/jqEditor.js";
 import { stepperSlotRecipe } from "./slot-recipes/stepper.js";
 import { fieldFormSlotRecipe } from "./slot-recipes/fieldForm.js";
 import { toolbarSlotRecipe } from "./slot-recipes/toolbar.js";
+import { toolbarPhoneSlotRecipe } from "./slot-recipes/toolbarPhone.js";
+import { sliceFiltersViewSlotRecipe } from "./slot-recipes/sliceFiltersView.js";
+import { keySearchPhoneSlotRecipe } from "./slot-recipes/keySearchPhone.js";
+import { frameViewSlotRecipe } from "./slot-recipes/frameView.js";
 import { builderFrameSlotRecipe } from "./slot-recipes/builderFrame.js";
 import { builderFooterLineSlotRecipe } from "./slot-recipes/builder-footer.js";
 import { loadingSlotRecipe } from "./slot-recipes/loading.js";
@@ -260,6 +268,8 @@ const config = defineConfig({
             expandable:      expandableSlotRecipe,
             dock:            dockSlotRecipe,
             snapGrid:        snapGridSlotRecipe,
+            snapGridPhone:   snapGridPhoneSlotRecipe,
+            studioPhone:     studioPhoneSlotRecipe,
             drawerStackRail: drawerStackRailSlotRecipe,
             optionList:      optionListSlotRecipe,
             codeBlock:       codeBlockSlotRecipe,
@@ -297,6 +307,7 @@ const config = defineConfig({
             studioBuilder:   studioBuilderSlotRecipe,
             studioInspector: studioInspectorSlotRecipe,
             sheetInspector:  sheetInspectorSlotRecipe,
+            sheetAction:     sheetActionSlotRecipe,
             planInspector:   planInspectorSlotRecipe,
             flowchartInspector: flowchartInspectorSlotRecipe,
             schematicInspector: schematicInspectorSlotRecipe,
@@ -304,11 +315,16 @@ const config = defineConfig({
             studioPublish:   studioPublishSlotRecipe,
             queryBuilder:    queryBuilderSlotRecipe,
             queryResults:    queryResultsSlotRecipe,
+            queryPhone:      queryPhoneSlotRecipe,
             queryLibrary:    queryLibrarySlotRecipe,
             jqEditor:        jqEditorSlotRecipe,
             stepper:         stepperSlotRecipe,
             fieldForm:       fieldFormSlotRecipe,
             toolbar:         toolbarSlotRecipe,
+            toolbarPhone:    toolbarPhoneSlotRecipe,
+            sliceFiltersView: sliceFiltersViewSlotRecipe,
+            keySearchPhone: keySearchPhoneSlotRecipe,
+            frameView: frameViewSlotRecipe,
             builderFrame:    builderFrameSlotRecipe,
             builderFooterLine: builderFooterLineSlotRecipe,
             loading:         loadingSlotRecipe,

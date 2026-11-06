@@ -7,13 +7,14 @@
  * bin the rail's narrowing hides says which choice hides it, as the rail words
  * it, and a pick of it clears just that choice and goes to the bin — every
  * lane's rows drawn again, the bin's row at its time, selected and brought
- * into the Table's view below its sticky head — in both themes.
+ * into the Table's view below its sticky head —.
  */
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { open } from "./allocation-page";
 import { recordField } from "./record-slice";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /** Search Records' input: the box in the row, or — folded to its icon — the one its popover opens. */
 async function searchInput(page: Page, frame: Locator): Promise<Locator> {
@@ -32,7 +33,7 @@ const lines = (input: Locator) => input.evaluate((el) => {
     return list === null ? [] : [...list.querySelectorAll('[role="option"]')].map((option) => option.textContent);
 });
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`a bin the narrowing hides says which choice hides it; a pick clears just that choice and brings its row into view, selected (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1440, height: 900 });
         const entry = await open(page, "allocationTable", theme);

@@ -27,7 +27,7 @@ import * as ex from "./roster.examples.js";
 describeEast("Roster — inline bound examples", test => {
     Assert.examples(test, { rosterWarehouse: ex.rosterWarehouse, rosterMobile: ex.rosterMobile, rosterPeople: ex.rosterPeople,
         rosterPeopleMonth: ex.rosterPeopleMonth,
-        rosterWeek: ex.rosterWeek, rosterWindowed: ex.rosterWindowed, rosterMinimal: ex.rosterMinimal, rosterPublished: ex.rosterPublished,
+        rosterWeek: ex.rosterWeek, rosterWindowed: ex.rosterWindowed, rosterMinimal: ex.rosterMinimal, rosterViews: ex.rosterViews, rosterVocabulary: ex.rosterVocabulary, rosterPublished: ex.rosterPublished,
         rosterCustomInspector: ex.rosterCustomInspector, rosterConflicts: ex.rosterConflicts });
 }, { platformFns: TestImpl });
 
@@ -233,6 +233,14 @@ describe("the People layout's periods, its patterns and its display props (#1406
         assert.throws(() => payload(() => ({ view: { layout: "shifts", period: "month" } })),
             /Roster: `view\.period` "month" is not a period of the Shifts layout — Shifts takes "day" or "week", People takes "week" or "month"/);
         assert.throws(() => payload(() => ({ view: { period: "month" } })), /Roster: `view\.period` "month" is not a period of the Shifts layout/);
+    });
+
+    test("`viewPeriods` in the code: a layout offered is left a period, and `view.period` is one it lists; People alone opens on what it lists", () => {
+        assert.doesNotThrow(() => payload(() => ({ viewPeriods: ["week"] })));
+        assert.doesNotThrow(() => payload(() => ({ views: ["people"], viewPeriods: ["month"] })));
+        assert.throws(() => payload(() => ({ viewPeriods: ["month"] })), /Roster: `viewPeriods` leaves the Shifts layout no period — it takes "day" or "week"/);
+        assert.throws(() => payload(() => ({ views: ["people"], viewPeriods: ["day"] })), /Roster: `viewPeriods` leaves the People layout no period — it takes "week" or "month"/);
+        assert.throws(() => payload(() => ({ viewPeriods: ["week"], view: { period: "day" } })), /Roster: it opens on "day", and `viewPeriods` leaves it out/);
     });
 
     test("Roster.library.patterns() lists the app's patterns: refused without `patterns`, naming it; with them, a tab under their name; listed twice, refused", () => {

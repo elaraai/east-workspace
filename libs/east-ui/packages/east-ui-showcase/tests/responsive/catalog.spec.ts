@@ -28,7 +28,8 @@ test("catalog manifest is non-trivial", () => {
 
 // Related read-only routes share one browser and e3 startup. Each route still
 // gets the full containment/error contract and its own named trace step.
-const batches = Array.from({ length: Math.ceil(keys.length / 4) }, (_, i) => keys.slice(i * 4, i * 4 + 4));
+const BATCH = 6;
+const batches = Array.from({ length: Math.ceil(keys.length / BATCH) }, (_, i) => keys.slice(i * BATCH, i * BATCH + BATCH));
 for (const batch of batches) {
     test(`catalog ${batch.join(", ")}`, async ({ page }) => {
         const pageErrors: string[] = [];

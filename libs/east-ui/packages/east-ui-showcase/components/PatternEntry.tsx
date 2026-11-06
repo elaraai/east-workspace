@@ -175,7 +175,8 @@ function LiveBody({ entry }: { entry: LiveEntry }) {
                 ref={frame}
                 layerStyle="frame"
                 bg="bg.surface"
-                p="5"
+                px="5"
+                py={{ base: "2", md: "5" }}
                 mt="16px"
                 minH="96px"
                 // #356: wide examples (Table/Gantt/Planner) pan inside their

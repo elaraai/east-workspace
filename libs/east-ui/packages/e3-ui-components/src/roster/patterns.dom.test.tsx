@@ -171,6 +171,18 @@ describe("a pattern on a person's week (#1406, D4, P17–P19, P21, P11)", () => 
 });
 
 describe("the People month (#1406, D2, D10, P12–P16, P2)", () => {
+    test("an issue pressed in Month opens its week in Week, with what it names selected: never a month its date is not in", async () => {
+        const { container: c } = await h.mount(ex.rosterPeopleMonth);
+        await press(monthCell(c, firstPerson(c), START));
+        await press(within(slot(c, "end")).getByRole("tab", { name: /^Issues/ }));
+        const issue = slot(c, "end").querySelector<HTMLElement>("[data-roster-issue] button")!;
+        expect(issue).not.toBeNull();
+        await press(issue);
+        expect(slot(c, "main").querySelector('[data-roster-grid="people"]')).not.toBeNull();
+        expect(toolbar(c).getByRole("radio", { name: "Week" }).getAttribute("aria-checked")).toBe("true");
+        expect(slot(c, "main").querySelector("[data-roster-column-header]")!.textContent).toMatch(/^Sun\s*5$/);
+    });
+
     test("a column per week touching the month, four to six, headed by its number; a cell seven marks lettered by the shift, no hours in the name cell; a column's header opens its week in Week, the period kept per layout; `]` steps a month", async () => {
         const { container: c } = await h.mount(ex.rosterPeopleMonth);
         expect(slot(c, "main").querySelector('[data-roster-grid="people-month"]')).not.toBeNull();

@@ -5,7 +5,7 @@
 
 /**
  * What a period builder keeps while a narrowing is read (#1398, CL5), on the
- * real in-page e3, in both themes: the Roster, the Calendar and the
+ * real in-page e3: the Roster, the Calendar and the
  * Allocation each keep the period they show while a rail choice's read is
  * held through the showcase's e3 fault hook (`e3-faults.ts`). Main is marked
  * retained (CL8) — `aria-disabled`, never inert, its items readable and
@@ -25,6 +25,7 @@ import { RECORD_READS, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { recordField } from "./record-slice";
 import { settled } from "./settle";
 import { token } from "./tokens";
+import { LAYOUT_THEMES } from "./themes";
 
 /** A builder's narrowing, and what of its main it keeps while the narrowing is read. */
 interface Retaining {
@@ -133,7 +134,7 @@ async function narrow(page: Page, frame: Locator, builder: Retaining): Promise<n
     return held;
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     for (const builder of BUILDERS) {
         test(`${builder.name}: while a narrowing is read the period stands in, retained — its rules dashed in the strong rule, its items' words in the third ink, main aria-disabled and never inert, its items focusable${builder.gestures === undefined ? "" : " and showing no gesture's cursor"}, the toolbar live — then drawn as before (#1398, CL5, CL8) (${theme}) @desktop`, async ({ page }) => {
             test.setTimeout(240_000);

@@ -127,7 +127,7 @@ describe("a reservation (A61)", () => {
 });
 
 describe("a resource (A62)", () => {
-    test("A62 — `Resource`, Check, `K-207`, `Hall B · min 20 m³ · max 40 m³`; its banner; today's fill and meter; Before · Hold · Next fill; its bins today; the hint", async () => {
+    test("A62 — `Resource`, Check, `K-207`, `Hall B · min 20 m³ · max 40 m³`; its banner; today's fill and meter; Prior job · Hold · Next job, in the app's words; its bins today; the hint", async () => {
         const c = await open();
         await press(await reveal(c, "K-207"));
         expect(headOf(c)).toEqual({ kind: "Resource", title: "K-207", when: "Hall B · min 20 m³ · max 40 m³", status: "Check", tone: "warning", chip: null });
@@ -135,7 +135,7 @@ describe("a resource (A62)", () => {
         const fill = details(c).querySelector<HTMLElement>("[data-allocation-fill-section]")!;
         expect([text(fill.querySelector("[data-allocation-fill]")), fill.querySelector("[data-allocation-fill]")!.getAttribute("data-tone")]).toEqual(["44 m³ · max 40 · 4 over", "danger"]);
         expect(rowsOf(fill.querySelector("[data-allocation-facts]"))).toEqual([
-            ["Before", "job C-3148 · released Fri 7", null], ["Hold", "Tue 11 to Wed 19 · 9 d", null], ["Next fill", "Thu 20 · 0 d spare", null],
+            ["Prior job", "job C-3148 · released Fri 7", null], ["Hold", "Tue 11 to Wed 19 · 9 d", null], ["Next job", "Thu 20 · 0 d spare", null],
         ]);
         expect(mates(c)).toEqual([["06:36", "B-2", "LD-2207", "44 m³"]]);
         expect(details(c).querySelector("[data-allocation-bins]")!.textContent).toContain("Drag a bin’s connector or an arrival onto this row to load it.");
@@ -151,7 +151,7 @@ describe("a resource (A62)", () => {
         expect([headOf(c).status, ...rowsOf(facts).map(r => r[1])]).toEqual(["Free", "empty in the plan", "not started", "none planned to Thu 20"]);
         expect(facts.children[3]!.hasAttribute("data-absent")).toBe(true);
         await press(await reveal(c, "K-105"));
-        expect(rowsOf(details(c).querySelector("[data-allocation-facts]"))[2]).toEqual(["Next fill", "Mon 17 · hold overlaps it by 2 d", "warning"]);
+        expect(rowsOf(details(c).querySelector("[data-allocation-facts]"))[2]).toEqual(["Next job", "Mon 17 · hold overlaps it by 2 d", "warning"]);
     });
 
     test("A62 — the Table's hint", async () => {

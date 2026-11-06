@@ -148,6 +148,7 @@ export const allocationNextJob = East.function([AllocationResourceType, DateTime
  * @param resource - The resource
  * @param load - Its load
  * @param unit - The quantity's unit
+ * @param reserved - The board's word for what a slot held with nothing booked in it is (`reserved`)
  * @returns Its line, its tone, whether it is over its maximum, under its minimum, or held into its next job, and that job
  *
  * @remarks
@@ -156,7 +157,7 @@ export const allocationNextJob = East.function([AllocationResourceType, DateTime
  * into the job; busy, `busy until Fri 14`; free, its meta (or its group) and
  * what it takes (`Hall B · 40 m³ · takes 20–40 m³`).
  */
-export const allocationResourceLine = East.function([DateTimeType, AllocationResourceType, AllocationLoadType, StringType], AllocationResourceLineType, ($, day, resource, load, unit) => {
+export const allocationResourceLine = East.function([DateTimeType, AllocationResourceType, AllocationLoadType, StringType, StringType], AllocationResourceLineType, ($, day, resource, load, unit, reserved) => {
     const busyOf = $.const(allocationBusyJob);
     const nextOf = $.const(allocationNextJob);
     const dayText = $.const(allocationDayText);
@@ -185,7 +186,7 @@ export const allocationResourceLine = East.function([DateTimeType, AllocationRes
         loading: ($2) => {
             const held = $2.const(East.greater(load.fill, 0.0).ifElse(
                 () => loadText(load.fill, resource, unit),
-                () => East.str`reserved · takes ${num(resource.min)}–${num(resource.max)}`));
+                () => East.str`${reserved} · takes ${num(resource.min)}–${num(resource.max)}`));
             $2.assign(text, overlap.ifElse(() => East.str`${held} · ${num(into)} d into next job`, () => held));
         },
         busy: ($2) => {

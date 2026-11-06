@@ -42,7 +42,7 @@
 import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-    faArrowPointer, faChevronLeft, faChevronRight, faExpand, faLink, faMagnifyingGlassPlus, faMinus, faObjectGroup, faPlus, faUpDownLeftRight,
+    faArrowPointer, faChevronLeft, faChevronRight, faLink, faMagnifyingGlassPlus, faObjectGroup, faUpDownLeftRight,
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
 import type { ValueTypeOf } from "@elaraai/east";
@@ -50,7 +50,7 @@ import type { RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import { HOST_RANK, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { useKeySearchToolbarItem, type KeySearchSource, type ToolbarItem } from "@elaraai/east-ui-components";
 import { Seg, SegMenu } from "../shared/schedule/segments.js";
-import type { SchematicZoomRange } from "./canvas/view.js";
+import { ZoomStrip, type ZoomRange } from "../shared/schedule/zoom.js";
 import type { SchematicWords } from "./messages.js";
 import type { SchematicTool, SchematicToolsState } from "./tools.js";
 
@@ -108,7 +108,7 @@ export interface SchematicToolbarProps {
     /** Zooms about the canvas's middle by a factor. */
     readonly onZoom: (factor: number) => void;
     /** Where the zoom stands: at Fit Zoom out takes no press, and at the zoom's limit Zoom in takes none (#1393). */
-    readonly zoom: SchematicZoomRange;
+    readonly zoom: ZoomRange;
     /** Fits the drawing in view. */
     readonly onFit: () => void;
     /** Whether something is selected: the steps show. */
@@ -118,9 +118,6 @@ export interface SchematicToolbarProps {
     /** The history item, where the Schematic edits (#1388); `undefined` where it does not. */
     readonly history?: ToolbarItem | undefined;
 }
-
-/** How far a Zoom button zooms. */
-const ZOOM_STEP = 1.5;
 
 /** The tools' strip: each tool, its icon and its name — or its icon alone, named by its name. */
 function ToolStrip({ props, iconsOnly, fullWidth, onPicked }: {
@@ -174,25 +171,9 @@ function ToolChip({ props }: { props: SchematicToolbarProps }) {
     );
 }
 
-/** Zoom − / + and Fit: icon buttons, one strip — Zoom out taking no press at Fit, Zoom in none at the zoom's limit (#1393). */
+/** Zoom − / + and Fit: the shared strip (`shared/schedule/zoom.tsx`) — Zoom out off at Fit, Zoom in off at the zoom's limit (#1393). */
 function ZoomGroup({ props, fullWidth = false }: { props: SchematicToolbarProps; fullWidth?: boolean }) {
-    const seg = useSlotRecipe({ key: "seg" })({ fullWidth }) as Styles;
-    const { words, onZoom, onFit, zoom } = props;
-    return (
-        <Box css={seg.root} role="group" aria-label={words.m.zoomLabel()} data-schematic-zoom="">
-            <chakra.button type="button" css={seg.item} aria-label={words.m.zoomOut()} title={words.m.zoomOut()} disabled={zoom.atFit}
-                onClick={() => onZoom(1 / ZOOM_STEP)}>
-                <FontAwesomeIcon icon={faMinus} aria-hidden="true" />
-            </chakra.button>
-            <chakra.button type="button" css={seg.item} aria-label={words.m.zoomIn()} title={words.m.zoomIn()} disabled={zoom.atLimit}
-                onClick={() => onZoom(ZOOM_STEP)}>
-                <FontAwesomeIcon icon={faPlus} aria-hidden="true" />
-            </chakra.button>
-            <chakra.button type="button" css={seg.item} aria-label={words.m.fit()} title={words.m.fit()} onClick={onFit}>
-                <FontAwesomeIcon icon={faExpand} aria-hidden="true" />
-            </chakra.button>
-        </Box>
-    );
+    return <ZoomStrip scope="schematic" words={props.words.m} range={props.zoom} onZoom={props.onZoom} onFit={props.onFit} fullWidth={fullWidth} />;
 }
 
 /** The steps to the previous and the next item: icon buttons, one strip. */
@@ -249,7 +230,7 @@ export function useSchematicToolbarItems(props: SchematicToolbarProps): Readonly
     // Find: its box, its icon, then the View popover holding the tools, the zoom, Fit and the steps over its box.
     const seek = useKeySearchToolbarItem(find, {
         rank: SCHEMATIC_RANK.seek, label: words.m.findLabel(),
-        compact: { label: words.m.viewLabel(), controls: (close) => <ViewControls props={props} close={close} /> },
+        compact: { label: words.m.viewLabel(), controls: (close) => <ViewControls props={props} close={close} />, phoneView: true },
     });
     // What the tools' forms show moves with the tool held and what is offered: their widths are measured again.
     const toolsVersion = `${held.tool}|${held.link ?? ""}|${tools.join(",")}|${links.map((link) => link.key).join(",")}`;

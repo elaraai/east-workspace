@@ -38,6 +38,7 @@ export const sheetInspectorSlotRecipe = defineSlotRecipe({
         "link", "linkCell", "subRows", "subRow", "subRowCode", "subRowName", "subRowFacts",
         "commit",
         "issueList", "issueItem", "issueWhere", "issueMessage", "issueHidden",
+        "phoneHead", "phoneEyebrow", "phoneName", "phoneChip", "phoneField", "phoneFieldHead", "phoneLabel", "phoneKey", "phoneActions", "phoneButton",
     ],
     base: {
         ...inspectorBase,
@@ -99,5 +100,43 @@ export const sheetInspectorSlotRecipe = defineSlotRecipe({
         },
         /* An issue whose row the rail's filters hide: which, and that a click clears them. */
         issueHidden: { textStyle: "body.sm", color: "fg.muted", overflowWrap: "anywhere" },
+        /* A phone's Details (`Mobile Sheet Spec.md` SH12, the designer's `WorkOrdersPhone`): its head padded 16 20 — the
+         * eyebrow mono 10/600 in `--ink-4`, the name DM Sans 16/700, a draft's chip 20 tall on the brand's tint. */
+        phoneHead: {
+            display: "grid", gap: "4px", paddingY: "16px", paddingX: "20px",
+            borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
+            _focusVisible: { outline: "none", boxShadow: "{shadows.focusInset}" },
+        },
+        phoneEyebrow: {
+            fontFamily: "mono", fontSize: "label.sm", fontWeight: 600, lineHeight: "1.4", letterSpacing: "0.14em",
+            textTransform: "uppercase", color: "fg.subtle", overflowWrap: "anywhere",
+        },
+        phoneName: { fontFamily: "heading", fontSize: "title.md", fontWeight: 700, letterSpacing: "-0.01em", lineHeight: "1.25", color: "fg", overflowWrap: "anywhere" },
+        phoneChip: {
+            justifySelf: "start", marginTop: "4px", height: "20px", display: "inline-flex", alignItems: "center", paddingX: "8px",
+            boxSizing: "border-box", borderRadius: "sm", fontFamily: "mono", fontSize: "label.sm", fontWeight: 500,
+            "&[data-state=pending]": { background: "brandTint", color: "brandPressed" },
+            "&[data-state=new]": { background: "bg.subtle", color: "fg.strong" },
+        },
+        /* Each field a section of its own, padded 16 20 between rules, its parts 8 apart. */
+        phoneField: {
+            position: "relative",
+            display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "8px", minWidth: 0, paddingY: "16px", paddingX: "20px",
+            borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
+            /* The field's own form at touch size, its label the section's. */
+            "& [data-field-form], & [data-field], & [data-field-line]": { minWidth: 0, maxWidth: "100%" },
+            "& [data-field] label": { display: "none" },
+            "& [data-field-line] input, & [data-field-line] button, & [data-field-line] [data-part=trigger]": { minHeight: "44px" },
+        },
+        /* Its label 13/500 in ink over its name, mono 11 in `--ink-4`. */
+        phoneFieldHead: { display: "flex", alignItems: "center", gap: "8px", minWidth: 0 },
+        phoneLabel: { display: "grid", gap: "2px", flex: 1, minWidth: 0, fontSize: "body", fontWeight: 500, lineHeight: "1.4", color: "fg" },
+        phoneKey: { fontFamily: "mono", fontSize: "label.lg", fontWeight: 400, lineHeight: "1.4", color: "fg.subtle" },
+        /* Its gestures: Default 44 buttons, two to a line. */
+        phoneActions: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "8px", paddingY: "16px", paddingX: "20px" },
+        phoneButton: {
+            minHeight: "44px", height: "44px", width: "100%", justifyContent: "center", paddingX: "8px",
+            borderColor: "border.strong", borderRadius: "md", background: "bg.surface", fontSize: "body.sm", fontWeight: 500, color: "fg",
+        },
     },
 });

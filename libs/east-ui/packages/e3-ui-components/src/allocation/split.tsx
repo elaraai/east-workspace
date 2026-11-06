@@ -80,7 +80,7 @@ export function SplitPopover({ id, bin, from, context, plan, commands, fit, word
     const shownValue = useMemo(() => ({ quantity: placed }), [placed]);
     const onChange = useCallback((path: readonly string[], next: unknown) => { if (path[0] === "quantity") setQuantity(next as number); }, []);
     if (take === undefined) return null;
-    const code = binCode(context, bin);
+    const code = binCode(context, bin, nouns);
     const label = take.from === undefined ? `Split ${code} · ${words.quantity(take.held)} unallocated`
         : `Split ${code} · ${words.quantity(take.held)} on ${context.resources.get(take.from)?.label ?? take.from}`;
     // It opens on the Chooser's search: the default is what a split most often takes.

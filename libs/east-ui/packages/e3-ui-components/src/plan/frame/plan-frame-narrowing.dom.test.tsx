@@ -167,8 +167,13 @@ async function offered(field: HTMLElement) {
     await press(trigger);
     return choices;
 }
-/** Picks a form's select option by its words. */
+/** Picks a form's choice by its words: a radio of a radio group (up to four cases, #1473), else its select's option. */
 async function choose(field: HTMLElement, label: string) {
+    const item = [...field.querySelectorAll<HTMLElement>("[data-field-choice=radio] [data-scope=radio-group][data-part=item]")].find((i) => i.textContent === label);
+    if (item !== undefined) {
+        await press(item.querySelector("input"));
+        return;
+    }
     await press(field.querySelector<HTMLElement>("[data-scope=select][data-part=trigger]"));
     await press(within(screen.getByRole("listbox")).getAllByRole("option").find((option) => option.textContent === label));
 }

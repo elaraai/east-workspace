@@ -98,6 +98,8 @@ export const inspectorBase = {
         flexWrap: "wrap",
         gap: "{spacing.2}",
         padding: "{spacing.4}",
+        /* In a card of the phone's Roster, which pads its own: on the line of the card's words. */
+        "[data-roster-proposal] > &": { padding: "0" },
     },
     /* Several selected: how many, and an edit across them. */
     bulk: { ...INSPECTOR_SECTION, gap: "{spacing.3}" },
@@ -118,7 +120,6 @@ export const inspectorBase = {
         gap: "{spacing.2}",
         margin: "0",
         padding: "{spacing.4}",
-        paddingLeft: "calc({spacing.4} + 14px)",
     },
     hint: { textStyle: "body.sm", color: "fg.muted", textWrap: "pretty" },
     /* An empty state — the view's home where it has no head (the Calendar's Nothing selected, #1398), focused by script and

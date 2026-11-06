@@ -36,6 +36,7 @@ const WRITES: Record<string, string[]> = {
     sheetLibrary: ["sheet_jobs"],
     sheetWorkshop: ["sheet_workshop_orders", "sheet_workshop_machines"],
     sheetWeeks: ["sheet_week_plans"],
+    sheetWording: ["sheet_week_plans"],
     sheetBatches: ["sheet_batch_days"],
     sheetLoose: ["sheet_loose_work"],
     sheetPaged: ["sheet_jobs"],

@@ -18,6 +18,7 @@
 
 import { StringType, equalFor } from "@elaraai/east";
 import type { KeyVisibilityWords } from "../shared/schedule/visibility.js";
+import { lowerWord } from "../shared/schedule/words.js";
 import type { CalendarValue } from "./model.js";
 
 const stringEqual = equalFor(StringType);
@@ -58,7 +59,7 @@ export function calendarNouns(value: CalendarValue, locale: string): Record<stri
     const lower = (text: string) => text.toLocaleLowerCase(locale);
     const nouns: Record<string, string> = {};
     for (const kind of value.events) nouns[kind.key] ??= `${lower(kind.name)} events`;
-    for (const kind of value.events) if (kind.templatesSource.type === "some") nouns[kind.templatesSource.value] ??= `${lower(kind.name)} templates`;
+    for (const kind of value.events) if (kind.templatesSource.type === "some") nouns[kind.templatesSource.value] ??= `${lower(kind.name)} ${lowerWord(value.vocabulary.templates)}`;
     for (const kind of value.resources) nouns[kind.key] ??= lower(kind.name);
     for (const tab of value.library) if (tab.type === "tab" && tab.value.source.type === "some") nouns[tab.value.source.value] ??= lower(tab.value.name);
     return nouns;

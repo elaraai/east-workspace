@@ -1,153 +1,73 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ *
+ * @vitest-environment jsdom
+ *
+ * The Flowchart over the app's records, mounted (#1245, #1251; `Flowchart
+ * Records Spec.md` R1–R3, R5, R13), on e3 itself, over the depot's records
+ * (`flowchart.test-utils.tsx`): every payload field decodes, and the flowchart
+ * is laid out in its frame — its toolbar's items, the canvas in main, the
+ * footer's counts and the records' last save, the panes only when given, LR ·
+ * TD and find state, each pick revealing its state; the minimap, shown from
+ * 25 states unless the payload says; a kind bound to be edited taking the
+ * canvas's gestures, and one read only — `readOnly`, or read whole — taking
+ * none; and what the kinds read: a kind read whole is read once, another
+ * session's commit drawn in place, and states committed into an empty record
+ * drawn. jsdom has no layout: the canvas's box measures 0×0 as it mounts, so
+ * the canvas lays out at that size, and the toolbar folds nothing.
  */
 
-/** @vitest-environment jsdom */
-
-/**
- * Flowchart renderer mount tests — prove the hook graph (declaration order /
- * TDZ), that every payload field decodes, that the flowchart is laid out in
- * its frame (#1245): its toolbar's items, the canvas in main, the footer's
- * counts — the flow's own transitions, the open flow's name, the last save
- * — the panes only when given, LR · TD and find state, each pick revealing
- * its state; and that the
- * canvas draws the flow its source holds (#1244): the host's one flow, the
- * host's flows by name, a record of flows read where the flowchart renders —
- * a lone flow its one entry — over many flows the one `open` names, else the
- * first by name; and the minimap, shown from 25 states unless the payload
- * says (#1251). jsdom has no layout: the body measures 0×0 once as it mounts
- * and the ResizeObserver stub reports nothing after, so the canvas lays out
- * at that size, and the toolbar folds nothing.
- */
-
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, test, vi } from "vitest";
+import { fireEvent, screen, waitFor, within, type RenderResult } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ChakraProvider } from "@chakra-ui/react";
-import { SortedMap, StringType, compareFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
-import { UIStore, formatters, system } from "@elaraai/east-ui-components";
-import { initializeStore, keptName } from "@elaraai/east-ui-components/internal";
-import { flowchartKeys, type FlowchartLibraryTabType } from "@elaraai/e3-ui/internal";
-import { RecordCommitInfoType } from "@elaraai/e3-types";
-import { EastChakraFlowchart, type FlowchartCanvasValue, type FlowchartFlowValue, type FlowchartValue } from "./index.js";
-import { flowchartMessages } from "./messages.js";
-import { openFlowName } from "./open-flow.js";
+import { StringType, compareFor, encodeBeast2For, none, some, variant, type BlockBuilder, type ValueTypeOf } from "@elaraai/east";
+import { State, type UIComponentType } from "@elaraai/east-ui/internal";
+import { formatters } from "@elaraai/east-ui-components";
+import { getStore, keptName } from "@elaraai/east-ui-components/internal";
+import { Data, Flowchart, Record, flowchartKeys } from "@elaraai/e3-ui/internal";
+import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
+import { act, flowchartHarness, settle, type FlowchartTestProps } from "./flowchart.test-utils.js";
 
-beforeAll(() => {
-    class RO {
-        observe(): void { /* noop */ }
-        unobserve(): void { /* noop */ }
-        disconnect(): void { /* noop */ }
-    }
-    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = RO;
+const h = flowchartHarness();
+
+const compareString = compareFor(StringType);
+
+/** A flowchart's props, made in the Reactive root's body where it binds the records. */
+type Props = ($: BlockBuilder<UIComponentType>) => FlowchartTestProps;
+
+/** The depot's states, transitions and lanes, each read whole — read only — and whatever else a test gives. */
+const readWhole = (more: Partial<FlowchartTestProps> = {}): Props => ($) => ({
+    states: Flowchart.states($.let(Data.bind(ex.depotStates)), { label: "name", lane: "phase", order: "seq", members: (s) => s.slots }),
+    transitions: Flowchart.transitions($.let(Data.bind(ex.depotTransitions)), { from: "src", to: "dst", kind: (t) => t.kind }),
+    lanes: Flowchart.lanes($.let(Data.bind(ex.depotLanes)), { label: "label", order: "seq" }),
+    ...more,
 });
 
-// Each test its own UI store: the flow a test opens, and its sessions, stay its own.
-beforeEach(() => {
-    initializeStore(new UIStore());
+/** The depot's four records, each bound to be edited through its patch door, and whatever else a test gives. */
+const bound = (more: Partial<FlowchartTestProps> = {}): Props => ($) => ({
+    states: Flowchart.states($.let(Record.bind(ex.depotStates)), { label: "name", lane: "phase", order: "seq", members: (s) => s.slots }),
+    transitions: Flowchart.transitions($.let(Record.bind(ex.depotTransitions)), { from: "src", to: "dst", decision: "trigger", kind: (t) => t.kind }),
+    lanes: Flowchart.lanes($.let(Record.bind(ex.depotLanes)), { label: "label", order: "seq" }),
+    decisions: Flowchart.decisions($.let(Record.bind(ex.depotDecisions)), { label: (d) => d.name, owner: (d) => some(d.owner) }),
+    ...more,
 });
 
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
-});
+/** The depot's freshness chip. */
+const FRESHNESS = { label: "evidence-2026.06", date: new Date("2026-06-30T00:00:00Z") };
 
-const state = (key: string, lane: string, members: bigint | null = null): FlowchartFlowValue["states"][number] => ({
-    key,
-    label: some(`${key} label`),
-    lane,
-    members: members !== null ? some(members) : none,
-    notes: none,
-});
+/** Every state card drawn, by its key, in East's order of keys. */
+const stateKeys = (container: HTMLElement): string[] =>
+    [...container.querySelectorAll("[data-flowchart-node]")].map((el) => el.getAttribute("data-flowchart-node")!).sort(compareString);
 
-const link = (from: string, to: string, kind: "planned" | "observed" = "planned"): FlowchartFlowValue["links"][number] => ({
-    key: some(`${from}→${to}`),
-    from,
-    to,
-    kind: some(variant(kind, null)),
-    trigger: from === "IND" ? some("route") : none,
-    evidence: some({ volume: some(17350.0), count: some(386n), measuredAt: some(new Date("2026-06-30T00:00:00Z")), unit: some("parcels") }),
-});
+/** A state's card. */
+const node = (container: HTMLElement, key: string): HTMLElement | null => container.querySelector<HTMLElement>(`[data-flowchart-node="${key}"]`);
 
-const LINKS: FlowchartFlowValue["links"] = [link("IND", "CH*"), link("CH*", "SRD", "observed"), link("IND", "IND"), link("SRD", "GONE")];
-
-/** The sort flow: three states over two lanes, a decision, an in-place loop and an unresolved end. */
-function sortFlow(links: FlowchartFlowValue["links"] = LINKS): FlowchartFlowValue {
-    return {
-        description: none,
-        lanes: [{ key: "induct", label: some("Induct") }, { key: "sort", label: none }],
-        states: [state("IND", "induct"), state("CH*", "sort", 14n), state("SRD", "sort")],
-        links,
-        triggers: [{ key: "route", label: "route", letter: none, owner: some("sort-planner"), queue: some(["IND"]), outcomes: none }],
-    };
+/** Waits until the reader has handed the frame what it read — a state drawn — in a task of its own, and settles. */
+async function drawn(container: HTMLElement, key = "ARV"): Promise<void> {
+    await waitFor(() => expect(node(container, key)).not.toBeNull());
+    await settle();
 }
-
-/** The returns flow: two states, one transition. */
-const RETURNS: FlowchartFlowValue = {
-    description: some("From the counter back to the sender"),
-    lanes: [{ key: "counter", label: none }],
-    states: [state("RCV", "counter"), state("INS", "counter")],
-    links: [link("RCV", "INS")],
-    triggers: [],
-};
-
-const CANVAS: FlowchartCanvasValue = {
-    orientation: some(variant("LR", null)),
-    freshness: some({ label: "evidence-2026.06", date: some(new Date("2026-06-30T00:00:00Z")) }),
-    minimap: none,
-    legend: some(true),
-    onSelectState: none,
-    onSelectLink: none,
-    onSelectTrigger: none,
-    onTracePath: none,
-    canConnect: none,
-};
-
-/** A payload over `source`, its canvas the one above, no slice narrowing it, its inspector taken away (`inspector={false}`). */
-function payload(source: FlowchartValue["source"], open: FlowchartValue["open"] = none): FlowchartValue {
-    return { canvas: CANVAS, source, open, library: [], slice: none, narrowed: new SortedMap([], compareFor(StringType)), inspector: none, readOnly: false, name: none };
-}
-
-/** The host's one flow. */
-const hostFlow = (flow: FlowchartFlowValue): FlowchartValue["source"] => variant("data", variant("flow", { value: flow, apply: none }));
-
-/** The depot's flows by name. */
-const FLOWS = new SortedMap<string, FlowchartFlowValue>([["Sort", sortFlow()], ["Returns", RETURNS]], compareFor(StringType));
-
-/** A record's history and patch write, as the record runtime decodes them — unused until the flowchart commits (#1247). */
-const HISTORY = () => none;
-const PATCH = async () => variant("committed", { commitHash: "c", stateHash: "s" });
-/** The editing session's Apply through the record — unused here: these flowcharts make no draft. */
-const APPLY = async () => variant("applied", { revision: none });
-
-/** A record of the depot's flows, its history the commits given. */
-function record(history: () => ReturnType<typeof HISTORY> | ReturnType<typeof committed> = HISTORY): FlowchartValue["source"] {
-    return variant("record", { read: () => FLOWS, history, commit: { patch: PATCH }, apply: APPLY });
-}
-
-/** A history, newest first, whose newest commit was made `at` and the one before it long before. */
-function committed(at: Date) {
-    const newest: ValueTypeOf<typeof RecordCommitInfoType> = {
-        hash: "c2", parent: some("c1"), state: "s2", mutation: "patch", actor: "planner", at, delta: none,
-    };
-    const first: ValueTypeOf<typeof RecordCommitInfoType> = {
-        hash: "c1", parent: none, state: "s1", mutation: "patch", actor: "planner", at: new Date("2026-01-05T09:00:00Z"), delta: none,
-    };
-    return some([newest, first]);
-}
-
-function mount(value: FlowchartValue) {
-    return render(
-        <ChakraProvider value={system}>
-            <EastChakraFlowchart value={value} storageKey="test.flowchart" />
-        </ChakraProvider>,
-    );
-}
-
-/** Every state card drawn, by its key. */
-const stateKeys = (container: HTMLElement): (string | null)[] =>
-    [...container.querySelectorAll("[data-flowchart-node]")].map((el) => el.getAttribute("data-flowchart-node"));
 
 /** The toolbar's items, in the row's order, as the toolbar says it laid them out. */
 const toolbarItems = (container: HTMLElement): string[] =>
@@ -156,60 +76,114 @@ const toolbarItems = (container: HTMLElement): string[] =>
 /** The footer's words. */
 const footerText = (container: HTMLElement): string => container.querySelector("[data-frame-slot='footer'] [data-flowchart-footer]")?.textContent ?? "";
 
-describe("EastChakraFlowchart", () => {
-    it("mounts, decodes every payload field, and lays the flowchart out in its frame: the toolbar's items, the canvas in main, the footer's counts", () => {
-        const { container } = mount(payload(hostFlow(sortFlow())));
+/** The inspector's open tab's panel. */
+const details = (container: HTMLElement): HTMLElement => container.querySelector<HTMLElement>("[data-frame-slot='end'] [role='tabpanel']:not([hidden])")!;
+
+/** Every state the depot's record holds, and the ghost of DLV, which `l10` names and no row is keyed by. */
+const DEPOT_KEYS = ["ARV", "CH*", "CLR", "DLV", "DSP", "HLD", "IND", "INS", "LBL", "LDD", "RCV", "RSD", "SCN", "SRD"];
+
+describe("EastChakraFlowchart over the app's records", () => {
+    test("it mounts, decodes every payload field, and lays the flowchart out in its frame: the toolbar's items, the canvas in main, the footer's counts", async () => {
+        const { container } = await h.mountFlowchart(readWhole({ freshness: FRESHNESS, inspector: false }));
+        await drawn(container);
         const frame = container.querySelector("[data-flowchart-root] > [data-builder-frame]");
         expect(frame).not.toBeNull();
-        // One toolbar, the frame's: find state, LR · TD, the freshness chip — no eyebrow of the canvas's own.
-        expect(toolbarItems(container)).toEqual(["seek", "orientation", "freshness"]);
+        // One toolbar, the frame's: find state, LR · TD, the zoom's strip (R42), the freshness chip — no eyebrow of the canvas's own.
+        expect(toolbarItems(container)).toEqual(["seek", "orientation", "zoom", "freshness"]);
         expect(container.querySelectorAll("[data-toolbar]")).toHaveLength(1);
         expect(frame!.querySelector("[data-frame-slot='toolbar'] [data-toolbar-item='seek'] input")).not.toBeNull();
         const segments = [...container.querySelectorAll("[data-flowchart-seg='orientation'] [role='radio']")];
         expect(segments.map((s) => [s.textContent, s.getAttribute("aria-checked")])).toEqual([["LR", "true"], ["TD", "false"]]);
         const chip = container.querySelector("[data-toolbar-item='freshness'] [data-flowchart-freshness]")!;
-        expect(chip.textContent).toBe(`evidence-2026.06${formatters("en-US").monthDay(new Date("2026-06-30T00:00:00Z"))}`);
+        expect(chip.textContent).toBe(`evidence-2026.06${formatters("en-US").monthDay(FRESHNESS.date)}`);
         // The canvas fills main.
         expect(frame!.querySelector("[data-frame-slot='main'] > [data-flowchart-body]")).not.toBeNull();
-        expect(stateKeys(container)).toEqual(["IND", "CH*", "SRD", "GONE"]);
-        // The footer counts the flow's ROWS (4, the ↻-folded in-place loop
-        // among them); the ghost's transition counts as unresolved. One flow: no name.
-        expect(footerText(container).replace(/\s+/g, "")).toMatch(/^4links/);
-        expect(footerText(container)).toContain("1 planned · 1 observed · 1 unresolved");
-        expect(container.querySelector("[data-flowchart-flow]")).toBeNull();
+        expect(stateKeys(container)).toEqual(DEPOT_KEYS);
+        // The footer counts the transitions' rows (15, the ↻-folded in-place loop among them); the ghost's counts as unresolved.
+        expect(footerText(container).replace(/\s+/g, "")).toMatch(/^15transitions/);
+        expect(footerText(container)).toContain("11 planned · 2 observed · 1 unresolved");
         // No pane: no library listed, the inspector taken away.
         expect(frame!.querySelector("[data-frame-slot='start'], [data-frame-slot='end']")).toBeNull();
     });
 
-    it("re-renders in place on value replace with the same storageKey", () => {
-        const { container, rerender } = mount(payload(hostFlow(sortFlow())));
-        rerender(
-            <ChakraProvider value={system}>
-                <EastChakraFlowchart value={payload(hostFlow(sortFlow(LINKS.slice(0, 2))))} storageKey="test.flowchart" />
-            </ChakraProvider>,
-        );
-        expect(footerText(container).replace(/\s+/g, "")).toMatch(/^2links/);
+    test("another session's commit is drawn in place: the same frame, its footer counting the transitions the record holds now", async () => {
+        const { container } = await h.mountFlowchart(readWhole());
+        await drawn(container);
+        const frame = container.querySelector("[data-builder-frame]");
+        const transitions = await h.read(ex.depotTransitions);
+        await h.patch(ex.depotTransitions, new Map([["l1", transitions.get("l1")!], ["l2", transitions.get("l2")!]]));
+        await waitFor(() => expect(footerText(container).replace(/\s+/g, "")).toMatch(/^2transitions/));
+        expect(footerText(container)).toContain("2 planned · 0 observed");
+        expect(container.querySelector("[data-builder-frame]")).toBe(frame);
     });
 
-    it("the payload's readOnly takes the canvas's edit affordances away, as the host's data without onApply does (#1247)", () => {
-        const { container } = mount(payload(record(), some("Sort")));
-        expect(container.querySelector("[data-flowchart-addlane]")).not.toBeNull();
-        expect(container.querySelectorAll("[data-flowchart-lane-delete]")).toHaveLength(2);
-        cleanup();
-        const { container: shut } = mount({ ...payload(record(), some("Sort")), readOnly: true });
-        expect(shut.querySelector("[data-flowchart-addlane], [data-flowchart-lane-delete]")).toBeNull();
-        expect(stateKeys(shut)).toContain("CH*");
-        cleanup();
-        const { container: hosts } = mount(payload(hostFlow(sortFlow())));
-        expect(hosts.querySelector("[data-flowchart-addlane], [data-flowchart-lane-delete]")).toBeNull();
+    test("a kind bound to be edited takes the canvas's gestures; `readOnly`, or a kind read whole, takes none, and its row's form is printed (#1247, R13)", async () => {
+        /**
+         * What the canvas and Details offer over a state: + LANE, a lane's ×, the state's handles, its rename, and
+         * Details' buttons and fields — the form's fields that take typing, and the values it prints, each in its
+         * field's box read only, as the shared form prints a value.
+         */
+        async function offered(ui: RenderResult) {
+            const { container } = ui;
+            await drawn(container);
+            await act(async () => { fireEvent.click(node(container, "ARV")!); });
+            await settle();
+            const panel = details(container);
+            const fields = [...panel.querySelectorAll<HTMLInputElement>("[data-inspector-form='roles'] input")];
+            const said = {
+                addLane: container.querySelector("[data-flowchart-addlane]") !== null,
+                laneDeletes: container.querySelectorAll("[data-flowchart-lane-delete]").length,
+                handles: container.querySelectorAll("[data-flowchart-ports='ARV'] [data-flowchart-handle]").length,
+                actions: [...panel.querySelectorAll("[data-inspector-action]")].map((button) => button.getAttribute("data-inspector-action")),
+                typed: fields.some((field) => !field.readOnly),
+                printed: fields.filter((field) => field.readOnly).map((field) => field.value),
+            };
+            await act(async () => { fireEvent.doubleClick(node(container, "ARV")!); });
+            await settle();
+            const renamed = container.querySelector("[data-flowchart-stateeditor]") !== null;
+            ui.unmount();
+            return { ...said, renamed };
+        }
+        // Read only, the state's label is printed among its fields, and no field takes typing.
+        const none = { addLane: false, laneDeletes: 0, handles: 0, actions: [], typed: false, printed: expect.arrayContaining(["Arrived"]), renamed: false };
+        expect(await offered(await h.mountFlowchart(bound())))
+            .toEqual({ addLane: true, laneDeletes: 5, handles: 4, actions: ["duplicate", "delete"], typed: true, printed: expect.not.arrayContaining(["Arrived"]), renamed: true });
+        expect(await offered(await h.mountFlowchart(bound({ readOnly: true })))).toEqual(none);
+        expect(await offered(await h.mountFlowchart(readWhole()))).toEqual(none);
     });
 
-    it("a flowchart without a freshness chip has none on its toolbar, and one over an empty flow has no find state", () => {
-        const { container } = mount({ ...payload(hostFlow({ ...sortFlow(), states: [], links: [] })), canvas: { ...CANVAS, freshness: none } });
-        expect(toolbarItems(container)).toEqual(["orientation"]);
+    test("a flowchart without a freshness chip has none on its toolbar, and one over empty records has no find state; the canvas's box stays", async () => {
+        await h.patch(ex.depotStates, new Map());
+        await h.patch(ex.depotTransitions, new Map());
+        const { container } = await h.mountFlowchart(readWhole());
+        await waitFor(() => expect(container.querySelectorAll("[data-flowchart-lane]")).toHaveLength(5));
+        await settle();
+        // LR · TD and the zoom's strip, which with nothing to find stays in the row.
+        expect(toolbarItems(container)).toEqual(["orientation", "zoom"]);
         expect(stateKeys(container)).toEqual([]);
-        // The canvas's box stays in main, measured, for the flow that comes.
+        // The canvas's box stays in main, measured, for the states that come.
         expect(container.querySelector("[data-frame-slot='main'] > [data-flowchart-body]")).not.toBeNull();
+    });
+
+    test("states committed into a record that was empty are drawn: the canvas's box was measured while it was empty", async () => {
+        const states = await h.read(ex.depotStates);
+        await h.patch(ex.depotStates, new Map());
+        await h.patch(ex.depotTransitions, new Map());
+        const { container } = await h.mountFlowchart(readWhole());
+        await waitFor(() => expect(container.querySelectorAll("[data-flowchart-lane]")).toHaveLength(5));
+        expect(stateKeys(container)).toEqual([]);
+        await h.patch(ex.depotStates, states);
+        await waitFor(() => expect(stateKeys(container)).toEqual(DEPOT_KEYS.filter((key) => key !== "DLV")));
+    });
+
+    test("a kind read whole is read once, whole, where the flowchart renders: one read of each record, and no page of it (R5)", async () => {
+        const { container } = await h.mountFlowchart(readWhole());
+        await drawn(container);
+        const reads = [ex.depotStates, ex.depotTransitions, ex.depotLanes].map((record) => {
+            const of = `records.${record.name}`;
+            return [record.name, h.requests("read", of).length, h.requests("page", of).length];
+        });
+        expect(reads).toEqual([[ex.depotStates.name, 1, 0], [ex.depotTransitions.name, 1, 0], [ex.depotLanes.name, 1, 0]]);
     });
 });
 
@@ -217,205 +191,180 @@ describe("LR · TD and find state (#1245)", () => {
     /** Each lane header's anchor: middle across the top in LR, start down the side in TD. */
     const anchors = (container: HTMLElement) => [...container.querySelectorAll("[data-flowchart-lane]")].map((el) => el.getAttribute("text-anchor"));
 
-    it("LR · TD turns the canvas: a pick checks its segment and lays the lanes out down the side", () => {
-        const { container } = mount(payload(hostFlow(sortFlow())));
-        expect(anchors(container)).toEqual(["middle", "middle"]);
-        fireEvent.click(screen.getByRole("radio", { name: "TD" }));
+    test("LR · TD turns the canvas: a pick checks its segment and lays the lanes out down the side", async () => {
+        const { container } = await h.mountFlowchart(readWhole());
+        await drawn(container);
+        expect(anchors(container)).toEqual(Array(5).fill("middle"));
+        await act(async () => { fireEvent.click(screen.getByRole("radio", { name: "TD" })); });
         expect(screen.getByRole("radio", { name: "TD" }).getAttribute("aria-checked")).toBe("true");
-        expect(anchors(container)).toEqual(["start", "start"]);
+        expect(anchors(container)).toEqual(Array(5).fill("start"));
     });
 
-    it("the host's orientation seeds LR · TD, and a new one from the host turns the canvas again", () => {
-        const td: FlowchartCanvasValue = { ...CANVAS, orientation: some(variant("TD", null)) };
-        const { container, rerender } = mount({ ...payload(hostFlow(sortFlow())), canvas: td });
+    test("the host's orientation seeds LR · TD, and a new one from the host turns the canvas again", async () => {
+        const KEY = "flowchart.dom.orientation";
+        const { container } = await h.mountFlowchart(($) => {
+            const orientation = $.let(State.bind([Flowchart.Types.Orientation], KEY, variant("TD", null)));
+            return { ...readWhole()($), orientation: orientation.read() };
+        });
+        await drawn(container);
         expect(screen.getByRole("radio", { name: "TD" }).getAttribute("aria-checked")).toBe("true");
-        rerender(
-            <ChakraProvider value={system}>
-                <EastChakraFlowchart value={payload(hostFlow(sortFlow()))} storageKey="test.flowchart" />
-            </ChakraProvider>,
-        );
-        expect(anchors(container)).toEqual(["middle", "middle"]);
+        expect(anchors(container)).toEqual(Array(5).fill("start"));
+        const encode = encodeBeast2For(Flowchart.Types.Orientation);
+        await act(async () => { getStore().write(KEY, encode(variant("LR", null))); });
+        await settle();
+        await waitFor(() => expect(anchors(container)).toEqual(Array(5).fill("middle")));
+        expect(screen.getByRole("radio", { name: "LR" }).getAttribute("aria-checked")).toBe("true");
     });
 
-    it("find state finds the open flow's states by key and by label, and a pick selects the state and shows its key in the box", async () => {
-        const { container } = mount(payload(hostFlow(sortFlow())));
+    test("find state finds the drawn states by key and by label, and a pick selects the state and shows its key in the box", async () => {
+        const { container } = await h.mountFlowchart(readWhole());
+        await drawn(container);
         const box = within(container).getByPlaceholderText<HTMLInputElement>("Find state");
         await userEvent.click(box);
-        await waitFor(() => expect(screen.getAllByRole("option").map(o => o.textContent)).toEqual(["CH* · CH* label", "IND · IND label", "SRD · SRD label"]));
-        fireEvent.click(screen.getByRole("option", { name: "CH* · CH* label" }));
-        await waitFor(() => expect(container.querySelector('[data-flowchart-node="CH*"]')!.hasAttribute("data-selected")).toBe(true));
+        // Opened, it lists every state drawn, in their keys' order — the ghost is no state to find.
+        await waitFor(() => expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+            "ARV · Arrived", "CH* · Sort chutes (class)", "CLR · Cleared", "DSP · Dispatched", "HLD · Held", "IND · Inducted", "INS · Inspected",
+            "LBL · Relabelled", "LDD · Loaded", "RCV · Received", "RSD · Resent", "SCN · Scanned", "SRD · Sorted",
+        ]));
+        // Each query is entered as one change. Zag takes a keystroke a microtask after its event, and a script's next
+        // keystroke comes as soon as that event is over: React renders the first later, and its write of the box's text
+        // can land after the next keystroke, which a script then types onto the text before it ("sor" read "sr").
+        fireEvent.change(box, { target: { value: "sor" } });
+        // Two labels hold the text, in their keys' order.
+        await waitFor(() => expect(within(container).getByText("2 matches")).toBeTruthy());
+        expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["CH* · Sort chutes (class)", "SRD · Sorted"]);
+        fireEvent.click(screen.getByRole("option", { name: "CH* · Sort chutes (class)" }));
+        await waitFor(() => expect(node(container, "CH*")!.hasAttribute("data-selected")).toBe(true));
         // The box shows what the pick found: its state's key, never its line.
         await waitFor(() => expect(box.value).toBe("CH*"));
-        // Each query is entered as one change. Zag takes a keystroke a microtask after its event, which a script's
-        // keystroke runs once its event is over: React renders it later, and its write of the box's text can land
-        // after the next keystroke, which a script then types onto the text before it ("lab" read "lb").
-        fireEvent.change(box, { target: { value: "lab" } });
-        // Every label holds the text: three states, in their keys' order.
-        await waitFor(() => expect(within(container).getByText("3 matches")).toBeTruthy());
-        expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["CH* · CH* label", "IND · IND label", "SRD · SRD label"]);
-        // Each query's own count says its answer landed: the list before it may hold the same line.
-        fireEvent.change(box, { target: { value: "sr" } });
+        // A key's start: one state. Each query's own count says its answer landed: the list before it may hold the same line.
+        fireEvent.change(box, { target: { value: "SR" } });
         await waitFor(() => expect(within(container).getByText("1 match")).toBeTruthy());
-        expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["SRD · SRD label"]);
-        fireEvent.click(screen.getByRole("option", { name: "SRD · SRD label" }));
-        await waitFor(() => expect(container.querySelector('[data-flowchart-node="SRD"]')!.hasAttribute("data-selected")).toBe(true));
+        expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["SRD · Sorted"]);
+        fireEvent.click(screen.getByRole("option", { name: "SRD · Sorted" }));
+        await waitFor(() => expect(node(container, "SRD")!.hasAttribute("data-selected")).toBe(true));
         await waitFor(() => expect(box.value).toBe("SRD"));
         // Each pick reveals its state: a second selects the state it lands on.
-        fireEvent.change(box, { target: { value: "in" } });
+        fireEvent.change(box, { target: { value: "indu" } });
         await waitFor(() => expect(within(container).getByText("1 match")).toBeTruthy());
-        expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["IND · IND label"]);
-        fireEvent.click(screen.getByRole("option", { name: "IND · IND label" }));
-        await waitFor(() => expect(container.querySelector('[data-flowchart-node="IND"]')!.hasAttribute("data-selected")).toBe(true));
-        expect(container.querySelector('[data-flowchart-node="SRD"]')!.hasAttribute("data-selected")).toBe(false);
+        expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["IND · Inducted"]);
+        fireEvent.click(screen.getByRole("option", { name: "IND · Inducted" }));
+        await waitFor(() => expect(node(container, "IND")!.hasAttribute("data-selected")).toBe(true));
+        expect(node(container, "SRD")!.hasAttribute("data-selected")).toBe(false);
+        // Nothing found: the Flowchart's words, never the key search's hint that keys are case-sensitive.
         fireEvent.change(box, { target: { value: "zzzz" } });
-        await waitFor(() => expect(screen.getByText("No matching states. Search by state key or label.")).toBeTruthy());
+        await waitFor(() => expect(within(container).getAllByText("No matches").length).toBeGreaterThan(0));
         expect(screen.queryByText(/Keys are case-sensitive/)).toBeNull();
     });
 });
 
 describe("the minimap (#1251)", () => {
-    /** A flow of `n` states over two lanes, and no transition. */
-    const crowded = (n: number): FlowchartFlowValue => ({
-        description: none,
-        lanes: [{ key: "sort", label: some("Sort") }, { key: "load", label: some("Load") }],
-        states: Array.from({ length: n }, (_x, i) => state(`CH${i + 1}`, i % 2 === 0 ? "sort" : "load")),
-        links: [],
-        triggers: [],
+    /** `n` states over two lanes, in a flow of their own. */
+    const crowded = (n: number): Map<string, ValueTypeOf<typeof ex.DepotState>> => new Map(Array.from({ length: n }, (_x, i) => [
+        `CH${i + 1}`, { name: `Chute ${i + 1}`, phase: i % 2 === 0 ? "sort" : "dispatch", seq: i + 1, slots: none, flow: "Parcels" },
+    ] as const));
+    /** The states and the lanes, read whole: no transition, so no ghost. */
+    const statesAndLanes = (more: Partial<FlowchartTestProps> = {}): Props => ($) => ({
+        states: Flowchart.states($.let(Data.bind(ex.depotStates)), { label: "name", lane: "phase", order: "seq" }),
+        lanes: Flowchart.lanes($.let(Data.bind(ex.depotLanes)), { label: "label", order: "seq" }),
+        ...more,
     });
     /** The minimap, over the canvas in main. */
     const minimap = (container: HTMLElement): Element | null => container.querySelector("[data-frame-slot='main'] [data-flowchart-body] [data-flowchart-minimap]");
 
-    it("left out, it shows once a flow has 25 states: 24 draw none, and 25 draw it", () => {
-        expect(minimap(mount(payload(hostFlow(crowded(24)))).container)).toBeNull();
-        cleanup();
-        expect(minimap(mount(payload(hostFlow(crowded(25)))).container)).not.toBeNull();
+    test("left out, it shows once the flowchart draws 25 states: 24 draw none, and the 25th another session commits draws it", async () => {
+        await h.patch(ex.depotStates, crowded(24));
+        const { container } = await h.mountFlowchart(statesAndLanes());
+        await drawn(container, "CH24");
+        expect(minimap(container)).toBeNull();
+        await h.patch(ex.depotStates, crowded(25));
+        await waitFor(() => expect(node(container, "CH25")).not.toBeNull());
+        expect(minimap(container)).not.toBeNull();
     });
 
-    it("given, it holds whatever the count: `false` draws none at 25 states, and `true` draws it over a flow of three", () => {
-        expect(minimap(mount({ ...payload(hostFlow(crowded(25))), canvas: { ...CANVAS, minimap: some(false) } }).container)).toBeNull();
-        cleanup();
-        expect(minimap(mount({ ...payload(hostFlow(sortFlow())), canvas: { ...CANVAS, minimap: some(true) } }).container)).not.toBeNull();
+    test("given, it holds whatever the count: `false` draws none at 25 states, and `true` draws it over the depot's", async () => {
+        const depot = await h.read(ex.depotStates);
+        await h.patch(ex.depotStates, crowded(25));
+        const shut = await h.mountFlowchart(statesAndLanes({ minimap: false }));
+        await drawn(shut.container, "CH25");
+        expect(minimap(shut.container)).toBeNull();
+        shut.unmount();
+        await h.patch(ex.depotStates, depot);
+        const { container } = await h.mountFlowchart(readWhole({ minimap: true }));
+        await drawn(container);
+        expect(minimap(container)).not.toBeNull();
     });
 });
 
 describe("the frame's panes and footer (#1245)", () => {
-    const LIBRARY: ValueTypeOf<FlowchartLibraryTabType>[] = [
-        variant("flows", null),
-        variant("states", { name: some("Steps"), icon: some("box"), cards: [], source: "steps" }),
-    ];
+    /** The depot's records read whole, the library one author's tab — the decisions' owners — and the flowchart's name. */
+    const owned = (name: string): Props => ($) => {
+        const owners = $.let(Data.bind(ex.decisionOwners));
+        return {
+            states: Flowchart.states($.let(Data.bind(ex.depotStates)), { label: "name", lane: "phase", order: "seq" }),
+            transitions: Flowchart.transitions($.let(Data.bind(ex.depotTransitions)), { from: "src", to: "dst", decision: "trigger", kind: (t) => t.kind }),
+            lanes: Flowchart.lanes($.let(Data.bind(ex.depotLanes)), { label: "label", order: "seq" }),
+            decisions: Flowchart.decisions($.let(Data.bind(ex.depotDecisions)), { label: (d) => d.name, owner: (d) => some(d.owner) }),
+            library: [Flowchart.library.tab(owners.read(), {
+                name: "Owners", icon: "user-tie", label: (o) => o.name, meta: (o) => some(o.desk),
+                drop: (o) => Flowchart.patch(ex.DepotDecision, { owner: o.name }),
+            })],
+            name,
+        };
+    };
 
-    it("a library that lists tabs is the start pane, its tabs in order; the inspector is the end pane", () => {
-        const { container } = mount({ ...payload(record()), library: LIBRARY, inspector: some({ state: none, transition: none }) });
+    test("a library that lists tabs is the start pane, its tabs in order, each counting its cards; the inspector is the end pane", async () => {
+        const { container } = await h.mountExample(ex.flowchartDepot);
+        await drawn(container);
         const start = container.querySelector("[data-frame-slot='start']")!;
-        // The Flows tab counts the record's flows (#1246), the templates' tab its cards (#1248).
-        expect([...start.querySelectorAll("[role='tab']")].map((t) => t.textContent)).toEqual(["Flows 2", "Steps 0"]);
-        // The inspector's tabs (#1250): Details, and Issues with its count.
-        expect([...container.querySelectorAll("[data-frame-slot='end'] [role='tab']")].map((t) => t.textContent)).toEqual(["Details", "Issues 0"]);
+        // Each kind's tab counts its cards (R14); the author's tab its rows.
+        await waitFor(() => expect([...start.querySelectorAll("[role='tab']")].map((t) => t.textContent)).toEqual(["Steps 3", "Transitions 3", "Lanes 2", "Owners 3"]));
+        // The inspector's tabs (#1250): Details, and Issues with its count — DLV, the end no state is keyed by.
+        expect([...container.querySelectorAll("[data-frame-slot='end'] [role='tab']")].map((t) => t.textContent)).toEqual(["Details", "Issues 1"]);
     });
 
-    it("the panes' collapsed state is kept under the flowchart's name", async () => {
+    test("the panes' collapsed state is kept under the flowchart's name", async () => {
         const collapsed = (container: HTMLElement) => container.querySelector("[data-frame-slot='start'] [data-collapsed]") !== null;
-        const depot: FlowchartValue = { ...payload(record()), library: LIBRARY, name: some("depot") };
-        const { container } = mount(depot);
-        expect(collapsed(container)).toBe(false);
-        await act(async () => { fireEvent.click(within(container).getByRole("button", { name: "Collapse Library" })); });
-        expect(collapsed(container)).toBe(true);
+        const first = await h.mountFlowchart(owned("depot"));
+        await drawn(first.container);
+        expect(collapsed(first.container)).toBe(false);
+        await act(async () => { fireEvent.click(within(first.container).getByRole("button", { name: "Collapse Library" })); });
+        expect(collapsed(first.container)).toBe(true);
         expect(Object.keys(localStorage).some((key) => key.startsWith(keptName(`${flowchartKeys("depot").frame}.start`)))).toBe(true);
-        cleanup();
+        first.unmount();
         // Mounted again under its name, it opens as the viewer left it; another flowchart keeps its own.
-        expect(collapsed(mount(depot).container)).toBe(true);
-        cleanup();
-        expect(collapsed(mount({ ...depot, name: some("returns") }).container)).toBe(false);
+        const again = await h.mountFlowchart(owned("depot"));
+        await drawn(again.container);
+        expect(collapsed(again.container)).toBe(true);
+        again.unmount();
+        const other = await h.mountFlowchart(owned("returns"));
+        await drawn(other.container);
+        expect(collapsed(other.container)).toBe(false);
     });
 
-    it("over many flows the footer leads with the open flow's name; over a record it says when the record was last saved", () => {
-        const today = new Date();
-        const { container } = mount(payload(record(() => committed(today)), some("Returns")));
-        expect(container.querySelector("[data-flowchart-flow]")!.textContent).toBe("Returns");
-        expect(container.querySelector("[data-flowchart-saved]")!.textContent).toBe(` · saved ${formatters("en-US").time(today)}`);
-        cleanup();
-        // Saved another day: its date and its time.
-        const before = new Date("2026-06-30T14:02:00Z");
-        const { container: older } = mount(payload(record(() => committed(before))));
-        expect(older.querySelector("[data-flowchart-flow]")!.textContent).toBe("Returns");
-        expect(older.querySelector("[data-flowchart-saved]")!.textContent).toBe(` · saved ${formatters("en-US").dateTime(before)}`);
-        cleanup();
-        // Over the host's flows, no save to say.
-        const { container: hosts } = mount(payload(variant("data", variant("flows", { value: FLOWS, apply: none })), some("Sort")));
-        expect(hosts.querySelector("[data-flowchart-flow]")!.textContent).toBe("Sort");
-        expect(hosts.querySelector("[data-flowchart-saved]")).toBeNull();
-    });
-});
-
-describe("the flow the source holds (#1244)", () => {
-    it("over the host's flows, the canvas shows the flow `open` names", () => {
-        const { container } = mount(payload(variant("data", variant("flows", { value: FLOWS, apply: none })), some("Sort")));
-        expect(stateKeys(container)).toContain("CH*");
-        expect(stateKeys(container)).not.toContain("RCV");
-    });
-
-    it("over many flows, with none named — or one the flows do not hold — the canvas shows the first by name", () => {
-        for (const open of [none, some("Gone")]) {
-            const { container } = mount(payload(variant("data", variant("flows", { value: FLOWS, apply: none })), open));
-            expect(stateKeys(container)).toEqual(["RCV", "INS"]);
-            cleanup();
+    test("over records bound to be edited, the footer says when they were last saved — today its time, another day its date and its time; over records read whole, nothing (R15)", async () => {
+        const states = await h.read(ex.depotStates);
+        await h.patch(ex.depotStates, new Map([...states, ["SCN", { ...states.get("SCN")!, name: "Scanned twice" }]]));
+        const [newest] = (await h.history(ex.depotStates)).commits;
+        const saved = (container: HTMLElement) => container.querySelector("[data-flowchart-saved]")?.textContent ?? null;
+        const today = await h.mountFlowchart(bound());
+        await drawn(today.container);
+        await waitFor(() => expect(saved(today.container)).toBe(` · Saved ${formatters("en-US").time(newest!.at)}`));
+        today.unmount();
+        // Two days on, the same save: its date and its time.
+        vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+        try {
+            vi.setSystemTime(new Date(newest!.at.getTime() + 2 * 24 * 60 * 60 * 1000));
+            const later = await h.mountFlowchart(bound());
+            await drawn(later.container);
+            await waitFor(() => expect(saved(later.container)).toBe(` · Saved ${formatters("en-US").dateTime(newest!.at)}`));
+            later.unmount();
+        } finally {
+            vi.useRealTimers();
         }
-    });
-
-    it("over a record of flows, the canvas reads the record where it renders", () => {
-        let reads = 0;
-        const read = (): typeof FLOWS => { reads++; return FLOWS; };
-        const { container } = mount(payload(variant("record", { read, history: HISTORY, commit: { patch: PATCH }, apply: APPLY }), some("Sort")));
-        expect(reads).toBeGreaterThan(0);
-        expect(stateKeys(container)).toContain("SRD");
-    });
-
-    it("a lone flow is a record of flows with one entry, and the canvas shows it", () => {
-        const one = new SortedMap<string, FlowchartFlowValue>([["Returns", RETURNS]], compareFor(StringType));
-        const { container } = mount(payload(variant("record", { read: () => one, history: HISTORY, commit: { patch: PATCH }, apply: APPLY })));
-        expect(stateKeys(container)).toEqual(["RCV", "INS"]);
-    });
-
-    it("an empty record of flows shows, in its frame's main, the shared empty state — and \"+ New flow\" in it (#1246)", () => {
-        const empty = new SortedMap<string, FlowchartFlowValue>([], compareFor(StringType));
-        const { container } = mount(payload(variant("record", { read: () => empty, history: HISTORY, commit: { patch: PATCH }, apply: APPLY })));
-        expect(container.querySelector("[data-flowchart-root] > [data-builder-frame]")).not.toBeNull();
-        expect(stateKeys(container)).toEqual([]);
-        const main = container.querySelector("[data-frame-slot='main']")!;
-        expect(main.querySelector("[data-flowchart-no-flows]")!.textContent).toContain(flowchartMessages.flowsEmpty());
-        expect(main.querySelector("[data-flowchart-new-flow]")!.textContent).toBe(flowchartMessages.newFlow());
-        expect(main.querySelector("[data-flowchart-body]")).toBeNull();
-    });
-
-    it("a flow that comes after an empty one is drawn: the canvas's box was measured while it was empty", () => {
-        const { container, rerender } = mount(payload(hostFlow({ ...sortFlow(), lanes: [], states: [], links: [] })));
-        expect(stateKeys(container)).toEqual([]);
-        rerender(
-            <ChakraProvider value={system}>
-                <EastChakraFlowchart value={payload(hostFlow(sortFlow()))} storageKey="test.flowchart" />
-            </ChakraProvider>,
-        );
-        expect(stateKeys(container)).toEqual(["IND", "CH*", "SRD", "GONE"]);
-    });
-
-    it("a record that cannot be read says why, in its frame's main, in place of the canvas", () => {
-        const read = (): typeof FLOWS => { throw new Error("the record is not loaded"); };
-        const { container } = mount(payload(variant("record", { read, history: HISTORY, commit: { patch: PATCH }, apply: APPLY })));
-        const main = container.querySelector("[data-flowchart-root] [data-frame-slot='main']")!;
-        expect(main.textContent).toContain("The flows could not be read: the record is not loaded");
-        expect(container.querySelector("[data-flowchart-body]")).toBeNull();
-    });
-
-    it("the open flow is the one the viewer opened, while it is held; else `flow`; else the first by East's order of names; else none (FB12)", () => {
-        const byName = new SortedMap<string, FlowchartFlowValue>([["b", sortFlow()], ["a", sortFlow()], ["C", RETURNS]], compareFor(StringType));
-        const holds = (name: string) => byName.has(name);
-        const names = [...byName.keys()];
-        expect(openFlowName(names, holds, undefined, undefined)).toBe("C");
-        expect(openFlowName(names, holds, undefined, "a")).toBe("a");
-        expect(openFlowName(names, holds, "b", "a")).toBe("b");
-        // Opened, or named first, but not held: the next rule's.
-        expect(openFlowName(names, holds, "Gone", "a")).toBe("a");
-        expect(openFlowName(names, holds, "Gone", "Lost")).toBe("C");
-        expect(openFlowName([], () => false, "a", "a")).toBeUndefined();
+        // Read whole, a kind has no history: no save to say.
+        const { container } = await h.mountFlowchart(readWhole());
+        await drawn(container);
+        expect(saved(container)).toBeNull();
     });
 });

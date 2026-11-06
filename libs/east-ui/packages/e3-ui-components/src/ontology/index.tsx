@@ -6,8 +6,8 @@
 /**
  * `EastChakraOntology` — Chakra v3 + ReactFlow renderer for the `Ontology`
  * extension component declared in `@elaraai/e3-ui`. Mounts the graph
- * editor over a bound `OntologyType` dataset, with the same staged-buffer
- * + commit machinery `EastChakraDiff` uses.
+ * editor over a bound `OntologyType` dataset, writing every edit through
+ * the binding.
  *
  * Phase 2 wires the read side end-to-end (binding → decode → render);
  * `onMutate` is wired but the canvas mutation paths (add / delete /
@@ -33,7 +33,7 @@ import { Global } from '@emotion/react';
 // same self-contained model as east-ui-components.
 // @ts-expect-error — `?inline` returns the stylesheet as a string at build time.
 import xyflowCss from '@xyflow/react/dist/style.css?inline';
-import { Box, HStack, Input, Menu, Portal, SegmentGroup, Text } from '@chakra-ui/react';
+import { Box, Button, HStack, Input, Menu, Portal, SegmentGroup, Text } from '@chakra-ui/react';
 import { faList, faMagnifyingGlass, faShareNodes, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { none, some, variant, type ValueTypeOf } from '@elaraai/east';
 import { Ontology } from '@elaraai/e3-ui/internal';
@@ -57,6 +57,7 @@ import { OntologyMark } from './mark.js';
 import { useFlowState } from './flow-state.js';
 import { useBindingOntology } from './bind-runtime.js';
 import { useIsDarkMode } from './use-color-mode.js';
+import { shownView, shownViews } from '../shared/views.js';
 
 // Monotonic counter for new node ids — synchronous so a pane "add node" can
 // seed the node's position before the binding refetch rebuilds the graph.
@@ -65,6 +66,11 @@ function freshNodeId(): string {
     nodeIdSeq += 1;
     return `node-${Date.now()}-${nodeIdSeq}`;
 }
+
+/** The display modes, in the switch's order. */
+const VIEWS = ['graph', 'table'] as const;
+/** Every mode: no `views` given. */
+const NO_VIEWS: readonly { readonly type: string }[] = [];
 
 const NODE_TYPES: NodeTypes = { ontology: OntologyNode };
 const EDGE_TYPES: EdgeTypes = { ontology: OntologyEdge };
@@ -441,16 +447,34 @@ function OntologyEditorBody({
 
 const EastChakraOntology = memo(function EastChakraOntology({ value }: EastChakraOntologyProps) {
     const binding = value.binding as ValueTypeOf<typeof Ontology.Component.schema>['binding'];
-    // The editor mutates the binding directly (direct mode writes through;
-    // staged mode buffers for a paired Diff to review/commit). It has no
-    // commit affordance of its own, so `commit`/`discard` aren't consumed
-    // here — `pending` is surfaced as a header hint only.
-    const { ontology, pending, mutate } = useBindingOntology(binding);
+    // The editor mutates the binding directly: direct mode writes through;
+    // staged mode buffers until Apply commits it or Discard drops it — the
+    // header's, or the page's own through the handle's commit and discard.
+    const { ontology, pending, mutate, commit, discard } = useBindingOntology(binding);
     const readonly = getOpt(value.readonly) ?? false;
+    const onCommittedFn = useMemo(() => getOpt(value.onCommitted), [value.onCommitted]);
+    const onDiscardedFn = useMemo(() => getOpt(value.onDiscarded), [value.onDiscarded]);
+    // While an Apply is on its way: both buttons off, so it is sent once.
+    const [applying, setApplying] = useState(false);
+    const apply = useCallback(() => {
+        setApplying(true);
+        void commit().then(
+            () => { setApplying(false); if (onCommittedFn) queueMicrotask(() => onCommittedFn()); },
+            // A refused commit keeps the change pending, the header still saying so.
+            () => { setApplying(false); },
+        );
+    }, [commit, onCommittedFn]);
+    const drop = useCallback(() => {
+        discard();
+        if (onDiscardedFn) queueMicrotask(() => onDiscardedFn());
+    }, [discard, onDiscardedFn]);
     const hideMiniMap = getOpt(value.hideMiniMap) ?? false;
     const hideSearch = getOpt(value.hideSearch) ?? false;
     const defaultView = getOpt(value.defaultView)?.type ?? 'graph';
-    const [view, setView] = useState<'graph' | 'table'>(defaultView);
+    const [picked, setView] = useState<'graph' | 'table'>(defaultView);
+    // The modes this instance offers (`views`): what is picked stands, so a mode comes back should it be offered again.
+    const views = shownViews(VIEWS, getOpt(value.views) ?? NO_VIEWS);
+    const view = shownView(picked, views);
     // Node selected from the table view — opens the shared properties drawer.
     const [tableSelectedId, setTableSelectedId] = useState<string | null>(null);
 
@@ -579,10 +603,17 @@ const EastChakraOntology = memo(function EastChakraOntology({ value }: EastChakr
                             Unsaved changes
                         </Text>
                     )}
+                    {/* A staged change's Discard and Apply; a direct binding is never pending. */}
+                    {pending && !readonly && (
+                        <HStack gap="1.5">
+                            <Button size="xs" variant="ghost" disabled={applying} onClick={drop}>Discard</Button>
+                            <Button size="xs" variant="solid" disabled={applying} onClick={apply}>Apply</Button>
+                        </HStack>
+                    )}
                     {/* Graph | Table — both are projections of the same bound
                         value; the staged buffer and commit machinery are
-                        view-agnostic. */}
-                    <SegmentGroup.Root
+                        view-agnostic. One offered, no switch. */}
+                    {views.length > 1 && <SegmentGroup.Root
                         size="xs"
                         value={view}
                         onValueChange={(e: { value: string | null }) => {
@@ -602,7 +633,7 @@ const EastChakraOntology = memo(function EastChakraOntology({ value }: EastChakr
                             </SegmentGroup.ItemText>
                             <SegmentGroup.ItemHiddenInput />
                         </SegmentGroup.Item>
-                    </SegmentGroup.Root>
+                    </SegmentGroup.Root>}
                 </HStack>
             </HStack>
 

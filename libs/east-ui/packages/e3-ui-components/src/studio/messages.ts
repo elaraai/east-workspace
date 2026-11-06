@@ -230,6 +230,36 @@ export interface StudioMessages {
     saveAsDraft: () => string;
     /** The footer's publish — `Publish v4 to Staging`; with no environment, `Publish v4`; for a template, `Publish`. */
     publishTo: (p: { version?: string | undefined; env?: string | undefined }) => string;
+    /** A phone's Components tab: what to do. */
+    phoneComponentsIntro: () => string;
+    /** A phone's Pages tab: what to do. */
+    phonePagesIntro: () => string;
+    /** A card's line once its component is on the page. */
+    phoneOnPage: () => string;
+    /** A phone's inspector's one tab. */
+    phoneDetails: () => string;
+    /** The strip's Inspector meta — `row 2`. */
+    phoneRowMeta: (p: { row: string }) => string;
+    /** The inspector's meta line — `row 2 · columns 1–8`. */
+    phoneWhere: (p: { row: string; first: string; last: string }) => string;
+    /** The inspector's Row readout — `2 of 3`. */
+    phoneRowOf: (p: { row: string; rows: string }) => string;
+    /** The inspector's Move. */
+    phoneMove: () => string;
+    /** Nothing selected on a phone: first. */
+    phoneNothingFirst: () => string;
+    /** Then. */
+    phoneNothingThen: () => string;
+    /** Save as template's help line on a phone. */
+    phoneTemplateHelp: (p: { project: string; page: string }) => string;
+    /** Back to the builder, from a phone's preview. */
+    phoneBack: () => string;
+    /** A phone's preview's Page tab. */
+    phonePage: () => string;
+    /** A phone's preview's Changes tab. */
+    phoneChanges: () => string;
+    /** Under Tablet or Desktop — `Desktop · 1,440 px · the layout, each tile by name`. */
+    phoneWireCaption: (p: { device: string; px: string }) => string;
 }
 
 /** The Studio's English messages — the default table. */
@@ -344,6 +374,21 @@ export const studioMessages: StudioMessages = {
     rollout: () => "Rollout",
     saveAsDraft: () => "Save as draft",
     publishTo: ({ version, env }) => (version === undefined ? "Publish" : env === undefined ? `Publish ${version}` : `Publish ${version} to ${env}`),
+    phoneComponentsIntro: () => "Tap a component, then tap where it goes on the page. On desktop you drag it onto the grid.",
+    phonePagesIntro: () => "Tap a page to open it in the builder.",
+    phoneOnPage: () => "on page",
+    phoneDetails: () => "Details",
+    phoneRowMeta: ({ row }) => `row ${row}`,
+    phoneWhere: ({ row, first, last }) => `row ${row} · columns ${first}–${last}`,
+    phoneRowOf: ({ row, rows }) => `${row} of ${rows}`,
+    phoneMove: () => "Move",
+    phoneNothingFirst: () => "Tap a tile on the page to see what it reads and its layout.",
+    phoneNothingThen: () => "Open Components to add one.",
+    phoneTemplateHelp: ({ project, page }) => `Joins ${project}'s templates. ${page} stays as it is.`,
+    phoneBack: () => "Back to the builder",
+    phonePage: () => "Page",
+    phoneChanges: () => "Changes",
+    phoneWireCaption: ({ device, px }) => `${device} · ${px} px · the layout, each tile by name`,
 };
 
 const StudioMessagesContext = createContext<StudioMessages>(studioMessages);

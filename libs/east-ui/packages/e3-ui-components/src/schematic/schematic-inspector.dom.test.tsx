@@ -190,7 +190,7 @@ test("given `inspector`, the end pane holds Details and Issues; nothing selected
     const counts = () => [...panel(container).querySelectorAll("[data-inspector-counts] [data-count]")]
         .map((el) => [el.getAttribute("data-count"), el.children[0]?.textContent, el.children[1]?.textContent]);
     expect(counts()).toEqual([
-        ["racks", "5", "Rack"], ["network", "3", "Network frame"], ["cooling", "3", "Cooling unit"], ["pdus", "2", "Power distribution unit"],
+        ["racks", "5", "Racks"], ["network", "3", "Network frames"], ["cooling", "3", "Cooling units"], ["pdus", "2", "Power distribution units"],
         ["zones", "5", "Zones"], ["links", "6", "Links"], ["nets", "2", "Nets"],
     ]);
     // A rack's owner changed and saved: the drawing says when its record was saved — and by no one, where no one signed

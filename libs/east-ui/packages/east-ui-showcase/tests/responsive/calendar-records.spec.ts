@@ -6,9 +6,10 @@
 import { expect, test, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
 import { containedRecordEditor, recordField } from "./record-slice";
+import { LAYOUT_THEMES } from "./themes";
 
-for (const theme of ["light", "dark"] as const) {
-    test(`Calendar indexed overlaps and shared filters (${theme}) @narrow`, async ({ page }, info) => {
+for (const theme of LAYOUT_THEMES) {
+    test(`Calendar indexed overlaps and shared filters (${theme})`, async ({ page }, info) => {
         const mobile = info.project.name !== "desktop";
         const name = mobile ? "calendarRecordIndexesMobile" : "calendarRecordIndexes";
         const route = `e3/calendar/calendar-records/${name}`;
@@ -27,20 +28,20 @@ for (const theme of ["light", "dark"] as const) {
 
         const editor = await recordField(page, frame, "status");
         // Multi-value chips count and query disjoint runs, preserving overlaps.
-        await editor.getByRole("button", { name: /^Done/ }).click();
+        await editor.getByRole(mobile ? "checkbox" : "button", { name: /^Done/ }).click();
         await settled(page);
         await expect(events).toHaveCount(4);
-        await editor.getByRole("button", { name: /^Ready/ }).click();
+        await editor.getByRole(mobile ? "checkbox" : "button", { name: /^Ready/ }).click();
         await settled(page);
         await expect(events).toHaveCount(1);
         await expect(events).toContainText("Completed proof");
         await expect(page.getByRole("dialog")).toHaveCount(1);
         expect(await page.getByRole("dialog").evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
-        const font = await editor.getByRole("button", { name: /^Ready/ }).evaluate(el => getComputedStyle(el).fontFamily);
+        const font = await editor.getByRole(mobile ? "checkbox" : "button", { name: /^Ready/ }).evaluate(el => getComputedStyle(el).fontFamily);
         expect(font).toContain("Inter Tight");
         // Return to Ready and close the one editor using the keyboard.
-        await editor.getByRole("button", { name: /^Ready/ }).click();
-        await editor.getByRole("button", { name: /^Done/ }).click();
+        await editor.getByRole(mobile ? "checkbox" : "button", { name: /^Ready/ }).click();
+        await editor.getByRole(mobile ? "checkbox" : "button", { name: /^Done/ }).click();
         await page.keyboard.press("Escape");
         await expect(page.getByRole("dialog")).toHaveCount(0);
         await settled(page);
@@ -64,7 +65,7 @@ for (const theme of ["light", "dark"] as const) {
     });
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`a String field the rail searches stands in its editor at its box's height — no empty block under it — and its values are listed under the box (${theme}) @desktop`, async ({ page }) => {
         const route = "e3/calendar/calendar-records/calendarRecordIndexes";
         await page.goto(`/?theme=${theme}#${route}`);
@@ -99,7 +100,7 @@ async function viewChoice(page: Page, frame: Locator, name: string) {
     await settled(page);
 }
 
-test(`a reload keeps the period the viewer left: Month shows its month and the month's events, not the day the slice's initial window holds @narrow`, async ({ page }, info) => {
+test(`a reload keeps the period the viewer left: Month shows its month and the month's events, not the day the slice's initial window holds`, async ({ page }, info) => {
     const mobile = info.project.name !== "desktop";
     const name = mobile ? "calendarRecordIndexesMobile" : "calendarRecordIndexes";
     const route = `e3/calendar/calendar-records/${name}`;

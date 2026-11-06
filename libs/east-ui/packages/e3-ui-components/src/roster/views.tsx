@@ -25,11 +25,11 @@
  * @packageDocumentation
  */
 import { Fragment, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { Box, Button, Menu as ChakraMenu, Portal, chakra } from "@chakra-ui/react";
+import { Box, Button, Menu as ChakraMenu, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faGripVertical, faRotateLeft, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none, variant } from "@elaraai/east";
-import { LoadingFailedLine, PlaceholderShape, VirtualRows, devicePixels, useRevealed, useRowsTop, keptRead } from "@elaraai/east-ui-components/internal";
+import { FrameMenuLayer, LoadingFailedLine, PlaceholderShape, VirtualRows, devicePixels, useRevealed, useRowsTop, keptRead } from "@elaraai/east-ui-components/internal";
 import { takeKey, tickFormatOf, useDragEventChip, useDropCell, type CellCoord, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import type { PeriodRead } from "../shared/loading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
@@ -55,6 +55,8 @@ export interface RosterViewsProps {
     span: RosterSpan; weeks: readonly WeekState[];
     /** Opens a week in the Week period (P12, P24). */
     openWeek: (week: Date) => void;
+    /** Whether the layout in view offers Day, and Week (`viewPeriods`): without it, a heading that would open it is a heading alone. */
+    opensDay: boolean; opensWeek: boolean;
     styles: RosterStyles; format: Formatters; narrow: boolean; coverage: ReadonlyMap<Slot, Coverage>; hours: ReadonlyMap<string, number>;
     /** Each duty's cost by the app's codes: none without `pay`. */
     pay: Pay;
@@ -137,7 +139,7 @@ interface ViewContext {
     readonly domain: RosterDomain; readonly issues: readonly Issue[]; readonly commands: RosterCommands; readonly drag: RosterDrag;
     readonly select: (next: Selection | undefined) => void; readonly onError: (error: string | undefined) => void; readonly read: PeriodRead;
     /** The month's weeks (#1406), and what opens one of them in Week. */
-    readonly weeks: readonly WeekState[]; readonly openWeek: (week: Date) => void;
+    readonly weeks: readonly WeekState[]; readonly openWeek: (week: Date) => void; readonly opensWeek: boolean;
     /** The People layout's display settings (D7): whether a tile shows the shift's hours always, and whether a month's marks carry letters. */
     readonly tileTimes: "always" | "different"; readonly letters: boolean;
     /** Whether a duty holds a conflict not yet chosen. */
@@ -165,11 +167,11 @@ const NO_CONFLICT = (): boolean => false;
 
 /** The views' props a chip and a People row read, the same object while each of them holds. */
 function useViewContext(props: RosterViewsProps): ViewContext {
-    const { value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, optimised } = props;
+    const { value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, opensWeek, optimised } = props;
     const tileTimes = value.settings.tileTimes.type, letters = value.settings.letters, lit = props.lit === true;
     const conflicted = props.conflicted ?? NO_CONFLICT;
-    return useMemo(() => ({ value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, tileTimes, letters, optimised, lit, conflicted }),
-        [value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, tileTimes, letters, optimised, lit, conflicted]);
+    return useMemo(() => ({ value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, opensWeek, tileTimes, letters, optimised, lit, conflicted }),
+        [value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, opensWeek, tileTimes, letters, optimised, lit, conflicted]);
 }
 
 /**
@@ -346,10 +348,11 @@ export function CoverageView({ coverage: c, value, styles, format, compact = fal
             {parts.filter(p => p.width > 0).map(part => <Box key={part.kind} css={styles.coverageSegment} data-kind={part.kind} style={{ left: `${part.left / max * 100}%`, width: `${part.width / max * 100}%` }} />)}
             <Box css={styles.coverageTick} style={{ left: `${c.hours.needed / max * 100}%` }} />
         </Box>
-        <Box css={styles.detail}>{parts.filter(p => p.kind !== "open" && p.width > 0).map(p => `${format.number(p.width)} ${p.kind === "permanent" ? "perm" : p.kind}`).join(" · ") || "Nothing rostered"} h{costed(value) && ` · ${money(format, value, c.cost)}`}</Box>
-        {!compact && c.lines.map(line => { const activity = activityOf(value, line.skill); return <Box key={line.skill} css={styles.skillLine} data-tone={line.gap > 0 ? "warning" : line.assigned >= line.needed ? "success" : undefined}
+        <Box css={styles.detail}>{parts.filter(p => p.kind !== "open" && p.width > 0).map(p => `${format.number(p.width)} ${p.kind === "permanent" ? value.vocabulary.permanentShort : p.kind === "agency" ? value.vocabulary.agencyShort : p.kind}`).join(" · ") || "Nothing rostered"} h{costed(value) && ` · ${money(format, value, c.cost)}`}</Box>
+        {!compact && c.lines.map(line => { const activity = activityOf(value, line.skill); return <Box key={line.skill} css={styles.coverageLine} data-roster-coverage-line="" data-tone={line.gap > 0 ? "warning" : line.assigned >= line.needed ? "success" : undefined}
             title={`${activity?.label ?? line.skill} · ${format.number(line.assigned)} h assigned of ${format.number(line.needed)} h needed${line.capacity.type === "some" ? ` · ${format.number(line.capacity.value)} h capacity` : ""}`}>
-            <Box as="span" css={styles.skillCode}>{activity?.code}</Box><span>{activity?.label ?? line.skill}</span><Box as="span" css={styles.skillCode}>{line.holders.type === "some" ? `${line.holders.value}/${c.people}` : "—"}</Box><span>{format.number(line.assigned)} / {format.number(line.needed)}</span>
+            <Box as="span" css={styles.coverageName} data-roster-coverage-name="">{activity?.code && <Box as="span" css={styles.skillCode}>{activity.code}</Box>}{activity?.label ?? line.skill}</Box>
+            <Box as="span" css={styles.coverageFigures} data-roster-coverage-figures=""><Box as="span" css={styles.skillCode}>{line.holders.type === "some" ? `${line.holders.value}/${c.people}` : "—"}</Box><span>{format.number(line.assigned)} / {format.number(line.needed)}</span></Box>
         </Box>; })}
     </>;
 }
@@ -497,8 +500,12 @@ function Shifts({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
     const failure = props.read.state === "failed" ? props.read : undefined;
     return <Box css={props.styles.scroll} data-roster-grid="shifts"><Box css={props.styles.grid} data-period={props.view.period} style={style}>
         <Box css={props.styles.head}>
-            {props.view.period === "week" && <Box css={props.styles.row}><Box css={props.styles.gutter} />{days.map(day => <chakra.button type="button" key={day} css={props.styles.shiftHead} data-roster-column-header="" style={{ gridColumn: `span ${props.value.shifts.length}` }} data-week="" data-selected={props.day === day ? "" : undefined}
-                onClick={() => props.setView({ ...props.view, period: "day", date: props.start.getTime() + day * DAY })}><Box css={props.styles.shiftLabel}>{props.format.weekday(new Date(props.start.getTime() + day * DAY))} {new Date(props.start.getTime() + day * DAY).getUTCDate()}</Box></chakra.button>)}</Box>}
+            {props.view.period === "week" && <Box css={props.styles.row}><Box css={props.styles.gutter} />{days.map(day => {
+                const heading = { css: props.styles.shiftHead, "data-roster-column-header": "", style: { gridColumn: `span ${props.value.shifts.length}` }, "data-week": "", "data-selected": props.day === day ? "" : undefined };
+                const label = <Box css={props.styles.shiftLabel}>{props.format.weekday(new Date(props.start.getTime() + day * DAY))} {new Date(props.start.getTime() + day * DAY).getUTCDate()}</Box>;
+                // A press opens the day; with Day not offered it is a heading alone.
+                return props.opensDay ? <chakra.button type="button" key={day} {...heading} onClick={() => props.setView({ ...props.view, period: "day", date: props.start.getTime() + day * DAY })}>{label}</chakra.button> : <Box key={day} {...heading}>{label}</Box>;
+            })}</Box>}
             <Box css={props.styles.row}><Box css={[props.styles.gutter, props.styles.headerGutter]} data-week={days.length > 1 ? "" : undefined}><Box css={props.styles.shiftLabel}>Groups</Box><Box css={props.styles.detail}>{props.value.shifts.length} shifts</Box></Box>
                 {columns.map(({ day, shift }) => { const at = props.start.getTime() + day * DAY + (Number(shift.start.hour) * 60 + Number(shift.start.minute)) * 60_000; const rows = [...props.coverage].filter(([slot]) => Number(slot.day) === day && slot.shift === shift.key).map(([, c]) => c); return <chakra.button type="button" key={`${day}.${shift.key}`} css={props.styles.shiftHead} data-roster-column-header="" data-week={days.length > 1 ? "" : undefined} onClick={() => props.select({ type: "shift", key: shift.key })}>
                     <Box css={props.styles.shiftHeading}><Box css={props.styles.shiftLabel}>{days.length > 1 ? shift.code : shift.label}</Box>{days.length === 1 && <Box css={props.styles.time}>{props.format.time(new Date(at))}–{props.format.time(new Date(at + shift.hours * 3_600_000))}</Box>}</Box>{days.length === 1 && <Box css={props.styles.shiftMeta}>{unread ? <Unread read={props.read} kind="aggregate" index={0} /> : <>{props.format.number(rows.reduce((n, c) => n + c.filled, 0n))} / {props.format.number(rows.reduce((n, c) => n + c.positions, 0n))} positions · {props.format.number(rows.reduce((n, c) => n + c.hours.needed, 0))} h needed{costed(props.value) && ` · ${money(props.format, props.value, rows.reduce((n, c) => n + c.cost, 0))}`}</>}</Box>}
@@ -726,18 +733,14 @@ function AssignMenu({ ctx, person, group, day }: { ctx: ViewContext; person: Per
         <ChakraMenu.Trigger asChild>
             {trigger}
         </ChakraMenu.Trigger>
-        <Portal>
-            <ChakraMenu.Positioner>
-                <ChakraMenu.Content data-roster-assign-menu="">
+        <FrameMenuLayer label={`Assign · ${format.weekday(date)} ${format.number(date.getUTCDate())}`} data-roster-assign-menu="">
                     <Box css={styles.assignMenuHead}>Assign · {format.weekday(date)} {format.number(date.getUTCDate())}</Box>
                     {value.shifts.map(shift => <ChakraMenu.Item key={shift.key} value={shift.key} css={styles.assignItem} data-roster-assign-shift={shift.key}>
                         <Box as="span" css={styles.swatch} style={fillOf(shift)} aria-hidden="true" /><span>{shift.label}</span><Box as="span" data-roster-shift-times="">{shiftHoursText(shift)}</Box>
                     </ChakraMenu.Item>)}
                     <ChakraMenu.Separator />
                     <ChakraMenu.Item value="elsewhere">Elsewhere…</ChakraMenu.Item>
-                </ChakraMenu.Content>
-            </ChakraMenu.Positioner>
-        </Portal>
+                </FrameMenuLayer>
     </ChakraMenu.Root>;
 }
 /**
@@ -973,7 +976,8 @@ function People({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
 // ── The month (#1406, §8, P12–P16) ─────────────────────────────────────────────────────────────────────────────────
 
 /**
- * A week column's header: `W10` and its dates over its seven days' ticks; a press opens the week in Week (P12). Its
+ * A week column's header: `W10` and its dates over its seven days' ticks; a press opens the week in Week (P12), and with
+ * Week not offered it is a heading alone: nothing to press, no tab stop and nothing said of opening. Its
  * label holds both forms of its dates — as the shared range prints them, `Mar 5 – 11, 2028`, and their days alone, the
  * month name dropped, `5 – 11` — the one the header's fit chose in its place and the other laid out unseen beside it,
  * so the fit measures each whole ({@link useMonthHeadFit}).
@@ -983,13 +987,14 @@ function WeekColumnHead({ ctx, week, current }: { ctx: ViewContext; week: Date; 
     const last = new Date(week.getTime() + 6 * DAY);
     const number = weekNumber(week), range = format.range(week, last);
     const days = `${format.number(week.getUTCDate())} – ${format.number(last.getUTCDate())}`;
-    return <chakra.button type="button" css={styles.weekHead} data-roster-week-column={weekKey(week)} data-roster-column-header="" data-selected={current ? "" : undefined}
-        aria-label={`Open W${format.number(number)} · ${range}`} onClick={() => ctx.openWeek(week)}>
+    const heading = { css: styles.weekHead, "data-roster-week-column": weekKey(week), "data-roster-column-header": "", "data-selected": current ? "" : undefined };
+    const body = <>
         <Box css={styles.weekNumber} data-roster-week-label=""><span data-roster-week-number="">W{format.number(number)}</span>
             <Box as="span" css={styles.weekRange} data-roster-week-dates="full">{range}</Box><Box as="span" css={styles.weekRange} data-roster-week-dates="days">{days}</Box></Box>
         <Box css={styles.dayTicks}>{SEVEN_DAYS.map(day => { const date = new Date(week.getTime() + day * DAY); return <Box key={day} css={styles.dayTick} data-roster-day-tick="">
             <span data-roster-day-letter="">{format.weekday(date).slice(0, 1).toLocaleUpperCase(format.locale)}</span><span data-roster-day-number="">{format.number(date.getUTCDate())}</span></Box>; })}</Box>
-    </chakra.button>;
+    </>;
+    return ctx.opensWeek ? <chakra.button type="button" {...heading} aria-label={`Open W${format.number(number)} · ${range}`} onClick={() => ctx.openWeek(week)}>{body}</chakra.button> : <Box {...heading}>{body}</Box>;
 }
 /**
  * How the month's header fits its columns (the hand retest, R3, ruled 27 Oct 2026: "Fit rule now"): each week's label

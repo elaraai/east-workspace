@@ -4,31 +4,30 @@
  */
 
 /**
- * What the flowchart has selected (#1250, `Flowchart Builder Spec.md` §5.3,
- * FB17, FB34, FB36, FB37) — pure and React-free: a state, a transition, a
- * decision or a lane, by its key — a lane by a click on its header, as the
- * user ruled on 2026-10-08 — or several states, shift-, ⌘- or Ctrl-clicked
- * into one selection. The frame holds it, per open flow: the canvas marks it
- * and Del deletes it, the inspector shows its Details, a card's ⏎ drops on it
- * (FB34), and a click on an issue selects what the issue names (FB37).
+ * What the Flowchart has selected (#1503, `Flowchart Records Spec.md` R6, R8)
+ * — pure and React-free: a state, a transition, a decision or a lane, by its
+ * key — a lane by a click on its header — or several states, shift-, ⌘- or
+ * Ctrl-clicked into one selection. The frame holds it: the canvas marks it and
+ * Del deletes it, the inspector shows its Details, a card's ⏎ drops on it, and
+ * a click on an issue selects what the issue names.
  *
  * - {@link toggleState} puts a state into the selection, or takes it out;
- * - {@link selectionHeld} is the selection as the open flow holds it now: an
- *   Undo, or a gesture that takes away what it names, leaves nothing of it.
+ * - {@link selectionHeld} is the selection as the canvas draws the records
+ *   now: an Undo, a gesture that takes away what it names, or a narrowing
+ *   that leaves it out — drawing it as context, or not at all — leaves
+ *   nothing of it.
  *
  * @packageDocumentation
  */
 
 import { StringType, equalFor } from "@elaraai/east";
-import { linkKeyOf } from "./edits.js";
-import type { FlowchartFlowValue } from "./model.js";
+import type { FlowchartModel } from "./model.js";
 
 const keyEqual = equalFor(StringType);
 
 /**
- * What is selected: one state, transition, decision or lane, by its key — a
- * transition's the key it goes by — or several states, in the order they were
- * selected.
+ * What is selected: one state, transition, decision or lane, by its key, or
+ * several states, in the order they were selected.
  */
 export type FlowchartSelection =
     | { readonly kind: "state" | "link" | "trigger" | "lane"; readonly key: string }
@@ -81,36 +80,52 @@ export function toggleState(selection: FlowchartSelection | null, key: string): 
 }
 
 /**
- * Whether the flow holds a state of a key — a row of its own, or the ghost a
- * transition naming it draws (an unresolved transition's end).
+ * Whether the canvas draws a state of a key as itself — its card, or the
+ * ghost a transition naming it draws — never as context.
  *
- * @param flow - The open flow
+ * @param model - What the canvas draws
  * @param key - The state's key
- * @returns Whether the canvas draws a state of that key
+ * @returns Whether a path selects it
  */
-function drawsState(flow: FlowchartFlowValue, key: string): boolean {
-    return flow.states.some((s) => keyEqual(s.key, key)) || flow.links.some((l) => keyEqual(l.from, key) || keyEqual(l.to, key));
+export function drawsState(model: FlowchartModel, key: string): boolean {
+    const node = model.nodesByKey.get(key);
+    return node !== undefined && !node.dimmed;
 }
 
 /**
- * The selection as the open flow holds it now: what it names that the flow
- * no longer has goes — a state, a transition, a decision or a lane an Undo or
- * a gesture took away — several states keep those the flow still draws, and
- * one left is that state alone.
+ * Whether the canvas draws a transition as itself — its line, or its state's
+ * `↻ n` badge — never as context.
+ *
+ * @param model - What the canvas draws
+ * @param key - The transition's key
+ * @returns Whether a path selects it
+ */
+export function drawsTransition(model: FlowchartModel, key: string): boolean {
+    return model.links.some((link) => keyEqual(link.key, key) && !link.dimmed)
+        || model.nodes.some((node) => !node.dimmed && node.inPlaceKeys.some((k) => keyEqual(k, key)));
+}
+
+/**
+ * The selection as the canvas draws the records now: what it names that the
+ * canvas no longer draws as itself goes — a state, a transition, a decision
+ * or a lane an Undo, a gesture or the narrowing took away — several states
+ * keep those still drawn, and one left is that state alone. Only a lane of
+ * the app's is selected: never *No lane*, nor the one band of a Flowchart
+ * given no lanes.
  *
  * @param selection - What is selected
- * @param flow - The open flow, as its drafts stand
- * @returns The selection itself while the flow holds all it names — the same object — else what is left of it, or `null`
+ * @param model - What the canvas draws, the drafts in place
+ * @returns The selection itself while the canvas draws all it names — the same object — else what is left of it, or `null`
  */
-export function selectionHeld(selection: FlowchartSelection | null, flow: FlowchartFlowValue): FlowchartSelection | null {
+export function selectionHeld(selection: FlowchartSelection | null, model: FlowchartModel): FlowchartSelection | null {
     if (selection === null) return null;
     switch (selection.kind) {
-        case "state": return drawsState(flow, selection.key) ? selection : null;
-        case "link": return flow.links.some((l, i) => keyEqual(linkKeyOf(l, i), selection.key)) ? selection : null;
-        case "trigger": return flow.triggers.some((t) => keyEqual(t.key, selection.key)) ? selection : null;
-        case "lane": return flow.lanes.some((l) => keyEqual(l.key, selection.key)) ? selection : null;
+        case "state": return drawsState(model, selection.key) ? selection : null;
+        case "link": return drawsTransition(model, selection.key) ? selection : null;
+        case "trigger": return model.triggers.has(selection.key) ? selection : null;
+        case "lane": return model.lanes.some((lane) => lane.band === "lane" && keyEqual(lane.key, selection.key)) ? selection : null;
         case "states": {
-            const kept = selection.keys.filter((key) => drawsState(flow, key));
+            const kept = selection.keys.filter((key) => drawsState(model, key));
             if (kept.length === selection.keys.length) return selection;
             if (kept.length === 0) return null;
             return kept.length === 1 ? { kind: "state", key: kept[0]! } : { kind: "states", keys: kept };

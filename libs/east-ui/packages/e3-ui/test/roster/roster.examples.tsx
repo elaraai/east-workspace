@@ -8,7 +8,7 @@ import {
     example, none, some, variant,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
-import { Box, Button, Field, HStack, Reactive, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Func, Record, Roster, Schedule } from "@elaraai/e3-ui";
 import {
     WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,
@@ -194,9 +194,9 @@ export const rosterWarehouse = example({
             // The week's duties: the Roster's navigation writes the range; no chip picks the week.
             duty: { source: byTime, range: "start" },
             people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
-                fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
+                fields: { team: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }] }, position: { label: "Position", hints: [{ value: "lead", label: "Lead" }, { value: "deputy", label: "Deputy" }, { value: "acting", label: "Acting" }, { value: "crew", label: "Crew" }] },
                     trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
-            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
+            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }, null] } } },
         }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
         const firms = $.let(Data.bind(rosterAgencies));
         const times = $.let(Data.bind(rosterShiftTimes));
@@ -307,9 +307,9 @@ export const rosterMobile = example({
         const slice = $.let(Slice.bindRecords("ex.rosterMobile", {
             duty: { source: byTime, range: "start" },
             people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
-                fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
+                fields: { team: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }] }, position: { label: "Position", hints: [{ value: "lead", label: "Lead" }, { value: "deputy", label: "Deputy" }, { value: "acting", label: "Acting" }, { value: "crew", label: "Crew" }] },
                     trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
-            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
+            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }, null] } } },
         }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
         const firms = $.let(Data.bind(rosterAgencies));
         const times = $.let(Data.bind(rosterShiftTimes));
@@ -346,6 +346,55 @@ export const rosterMobile = example({
     }}</Reactive>),
 });
 
+export const rosterVocabulary = example({
+    inputs: [], description: "The app's own words for who is on the Roster (#1516): `vocabulary` replaces Permanent, Agency staff, Leads, Associates, Trainers and Off Mon · available wherever the Roster draws them, its coverage detail's short forms too, and the People tab keeps its groups' order whatever they are called.",
+    keywords: ["Roster", "vocabulary", "words", "rename", "Employees", "Contractors", "labels", "Slice", "Slice.bindRecords", "Data.bindPaged"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const rota = $.let(Record.bind(rosterDuties));
+        const entries = $.let(Data.bindPaged(rosterDuties));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        const weeks = $.let(Record.bind(rosterWeeks));
+        const cover = $.let(Record.bind(rosterCover));
+        const people = $.let(Data.bind(rosterStaff));
+        const acts = $.let(Data.bind(rosterActivities));
+        const slice = $.let(Slice.bindRecords("ex.rosterVocabulary", { duty: { source: byTime, range: "start" } }));
+        const firms = $.let(Data.bind(rosterAgencies));
+        const times = $.let(Data.bind(rosterShiftTimes));
+        const teams = $.let(Data.bind(rosterTeams));
+        const roles = $.let(Data.bind(rosterPositions));
+        const ideas = $.let(Data.bind(rosterSuggestions));
+        const fit = $.let(Func.bind(rosterStaffFit));
+        return <Box width="100%" height="760px"><Roster id="rosterVocabulary" week={{ start: "sunday" }} slice={{ slice }} inspector fit={fit}
+            vocabulary={{
+                permanent: "Employees", permanentShort: "empl", agency: "Contractors", agencyShort: "contr", leads: "Supervisors", others: "Colleagues", trainers: "Mentors",
+                available: East.function([StringType], StringType, (_$2, weekday) => East.str`Not rostered ${weekday}`),
+            }}
+            view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
+            events={{ duty: Schedule.events(rota, {
+                name: "Duty", icon: "user-clock", entries,
+                start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+                shift: "shift", group: "team", position: "role", activity: "task",
+                hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
+            }) }}
+            resources={{
+                people: Schedule.resources(people.read(), { name: "People", icon: "user", label: p => p.name, group: p => p.team,
+                    position: p => p.position, skills: p => p.skills, contract: p => p.contract, agency: p => p.agency,
+                    trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual }),
+                agencies: Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name }),
+            }}
+            periods={Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed" })}
+            targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" })}
+            shifts={Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order })}
+            groups={Roster.groups(teams.read(), { label: t => t.label, order: t => t.order })}
+            positions={Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order })}
+            activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })}
+            proposals={Roster.proposals(ideas.read(), { person: s => s.person, day: s => s.day, group: s => s.team, shift: s => s.shift, reason: s => s.why })}
+            rules={{ rest: 10.0 }}
+            library={[Roster.library.people(), Roster.library.activities()]} />
+        </Box>;
+    }}</Reactive>),
+});
+
 export const rosterPeople = example({
     inputs: [], description: "The People layout by week over the same records (#1406): a row per person under their group's band, a tile per duty in each day cell in the shift's colour token — its hours only where a duty's own times differ (tileTimes=\"different\") — the week's hours and a meter in the name cell, `+ Assign` on an off day opening a menu of the home group's shifts, and the warehouse's week patterns in a Patterns tab, each dropped on a person's week as one undo step; the agency's requests their own row.",
     keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Roster.shifts", "color", "ColorToken", "Roster.patterns", "Roster.library.patterns", "tileTimes", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "people", "week", "Save", "Publish", "FieldForm"],
@@ -363,9 +412,9 @@ export const rosterPeople = example({
         const slice = $.let(Slice.bindRecords("ex.rosterPeople", {
             duty: { source: byTime, range: "start" },
             people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
-                fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
+                fields: { team: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }] }, position: { label: "Position", hints: [{ value: "lead", label: "Lead" }, { value: "deputy", label: "Deputy" }, { value: "acting", label: "Acting" }, { value: "crew", label: "Crew" }] },
                     trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
-            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
+            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }, null] } } },
         }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
         const firms = $.let(Data.bind(rosterAgencies));
         const times = $.let(Data.bind(rosterShiftTimes));
@@ -423,9 +472,9 @@ export const rosterPeopleMonth = example({
         const slice = $.let(Slice.bindRecords("ex.rosterPeopleMonth", {
             duty: { source: byTime, range: "start" },
             people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
-                fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
+                fields: { team: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }] }, position: { label: "Position", hints: [{ value: "lead", label: "Lead" }, { value: "deputy", label: "Deputy" }, { value: "acting", label: "Acting" }, { value: "crew", label: "Crew" }] },
                     trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
-            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
+            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }, null] } } },
         }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
         const firms = $.let(Data.bind(rosterAgencies));
         const times = $.let(Data.bind(rosterShiftTimes));
@@ -479,9 +528,9 @@ export const rosterWeek = example({
         const slice = $.let(Slice.bindRecords("ex.rosterWeek", {
             duty: { source: byTime, range: "start" },
             people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
-                fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
+                fields: { team: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }] }, position: { label: "Position", hints: [{ value: "lead", label: "Lead" }, { value: "deputy", label: "Deputy" }, { value: "acting", label: "Acting" }, { value: "crew", label: "Crew" }] },
                     trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
-            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
+            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }, null] } } },
         }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
         const firms = $.let(Data.bind(rosterAgencies));
         const times = $.let(Data.bind(rosterShiftTimes));
@@ -627,6 +676,45 @@ export const rosterMinimal = example({
     }}</Reactive>),
 });
 
+export const rosterViews = example({
+    inputs: [], description: "Which layouts an instance offers, chosen as the page runs: a multi-select wired into `views`, an expression of an array of Roster.Types.Layout. Choose People alone and Shifts is gone, its button and all; with one layout left no switch shows, and with none chosen, both. `views={[\"people\"]}` writes the same choice in the code. A second multi-select does the same for the periods through `viewPeriods`, each layout keeping its own where the list leaves it none.",
+    keywords: ["Roster", "views", "viewPeriods", "Roster.Types.Period", "Day", "Week", "Month", "Roster.Types.Layout", "layout", "hide a view", "Shifts", "People", "Select", "multiple", "onChangeMultiple", "State", "Reactive"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const rota = $.let(Record.bind(minimalDuties));
+        const staff = $.let(Data.bind(minimalWorkers));
+        const times = $.let(Data.bind(minimalShiftTimes));
+        const groups = $.let(Data.bind(minimalTeams));
+        // The tags the multi-select holds, and the layouts they name.
+        const chosen = $.let(State.bind([ArrayType(StringType)], "ex.rosterViews.views", []));
+        const tags = $.let(chosen.read());
+        const onViews = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(chosen.write(next)); }));
+        const every = $.const([variant("shifts", null), variant("people", null)], ArrayType(Roster.Types.Layout));
+        const views = $.let(every.filter(($, view) => tags.toSet().has(view.getTag())));
+        // And the periods.
+        const chosenPeriods = $.let(State.bind([ArrayType(StringType)], "ex.rosterViews.periods", []));
+        const periodTags = $.let(chosenPeriods.read());
+        const onPeriods = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(chosenPeriods.write(next)); }));
+        const everyPeriod = $.const([variant("day", null), variant("week", null), variant("month", null)], ArrayType(Roster.Types.Period));
+        const viewPeriods = $.let(everyPeriod.filter(($, period) => periodTags.toSet().has(period.getTag())));
+        return <VStack gap="3" align="stretch" width="100%">
+            <HStack gap="2" align="center"><Text>Views</Text><Select value="" placeholder="Every view" multiple={true} onChangeMultiple={onViews}
+                items={[Select.Item("shifts", "Shifts"), Select.Item("people", "People")]} /></HStack>
+            <HStack gap="2" align="center"><Text>Periods</Text><Select value="" placeholder="Every period" multiple={true} onChangeMultiple={onPeriods}
+                items={[Select.Item("day", "Day"), Select.Item("week", "Week"), Select.Item("month", "Month")]} /></HStack>
+            <Box width="100%" height="700px"><Roster id="rosterViews" inspector views={views} viewPeriods={viewPeriods} view={{ date: new Date("2028-03-06T00:00:00Z") }}
+                events={{ duty: Schedule.events(rota, {
+                    name: "Duty", icon: "user-clock",
+                    start: "start", end: "end", resource: { field: "person", of: "people" },
+                    shift: "shift", group: "team",
+                }) }}
+                resources={{ people: Schedule.resources(staff.read(), { name: "People", icon: "user", label: w => w.name, group: w => w.team }) }}
+                shifts={Roster.shifts(times.read(), { label: s => s.name, code: s => s.code, start: s => s.starts, hours: s => s.hours, order: s => s.order })}
+                groups={Roster.groups(groups.read(), { label: t => t.name })} />
+            </Box>
+        </VStack>;
+    }}</Reactive>),
+});
+
 export const rosterPublished = example({
     inputs: [], description: "The week before, published, is read-only: navigation, staff filtering, coverage and inspection remain available.",
     keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "published", "read-only", "Publish"],
@@ -644,9 +732,9 @@ export const rosterPublished = example({
         const slice = $.let(Slice.bindRecords("ex.rosterPublished", {
             duty: { source: byTime, range: "start" },
             people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
-                fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
+                fields: { team: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }] }, position: { label: "Position", hints: [{ value: "lead", label: "Lead" }, { value: "deputy", label: "Deputy" }, { value: "acting", label: "Acting" }, { value: "crew", label: "Crew" }] },
                     trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
-            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
+            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }, null] } } },
         }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
         const firms = $.let(Data.bind(rosterAgencies));
         const times = $.let(Data.bind(rosterShiftTimes));
@@ -700,9 +788,9 @@ export const rosterCustomInspector = example({
         const slice = $.let(Slice.bindRecords("ex.rosterCustomInspector", {
             duty: { source: byTime, range: "start" },
             people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
-                fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
+                fields: { team: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }] }, position: { label: "Position", hints: [{ value: "lead", label: "Lead" }, { value: "deputy", label: "Deputy" }, { value: "acting", label: "Acting" }, { value: "crew", label: "Crew" }] },
                     trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
-            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
+            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }, null] } } },
         }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
         const firms = $.let(Data.bind(rosterAgencies));
         const times = $.let(Data.bind(rosterShiftTimes));

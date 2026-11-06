@@ -31,7 +31,7 @@ import { moveGhostSlots, moveGhostBase } from "./time/move-ghost.js";
 export const rosterBuilderSlotRecipe = defineSlotRecipe({
     className: "east-roster-builder",
     slots: [...moveGhostSlots, "root", "main", "scroll", "grid", "row", "gutter", "headerGutter", "head", "shiftHead", "shiftHeading", "shiftLabel", "shiftMeta", "time", ...scheduleGroupSlots,
-        "rowHead", "eyebrow", "title", "detail", "requirement", "coverageHead", "metric", "coverageBar", "coverageSegment", "coverageTick", "skillLine", "skillCode",
+        "rowHead", "eyebrow", "title", "detail", "requirement", "coverageHead", "metric", "coverageBar", "coverageSegment", "coverageTick", "coverageLine", "coverageName", "coverageFigures", "skillLine", "skillCode",
         "cell", "cellHead", "chips", "assignment", "assignmentName", "badge", "flag", "activity", "fit", "grip", "chipAction", "dropStrip", "landing", "openPosition", "proposal", "proposalMark", "proposalName", "proposalReason", "proposalAction",
         "weekCell", "weekValue", "weekFill", "weekFillValue", "issueDot", "delta", "peopleHead", "peopleCell", "agenda", "agendaGroup", "card", "cardHead", "cardTitle", "actions", ...schedulePaneSlots, "section", "status",
         "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", "pickerDot", "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions",
@@ -71,6 +71,11 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         coverageSegment: { position: "absolute", top: 0, bottom: 0, background: "brand.solid", "&[data-kind=agency]": { background: "teal.500" }, "&[data-kind=overtime]": { background: "purple.500" },
             "&[data-kind=requested]": { background: "transparent", border: "1px dashed", borderColor: "teal.500" }, "&[data-kind=open]": { background: "transparent", border: "1px dashed", borderColor: "fg.warning" } },
         coverageTick: { position: "absolute", top: "-2px", bottom: "-2px", borderLeft: "1px solid", borderColor: "fg", pointerEvents: "none" },
+        // A skill's line in a coverage: its name and its figures on one line where they fit. Where they do not, the name takes
+        // the cell's whole width, breaking at its spaces, and its figures keep together on the line under it, at its end.
+        coverageLine: { display: "flex", flexWrap: "wrap", alignItems: "baseline", justifyContent: "space-between", columnGap: "8px", minWidth: 0, textStyle: "body.sm", "&[data-tone=warning]": { color: "fg.warning" }, "&[data-tone=success]": { color: "fg.success" } },
+        coverageName: { minWidth: 0, overflowWrap: "break-word", "& > :first-of-type": { marginRight: "6px" } },
+        coverageFigures: { display: "inline-flex", alignItems: "baseline", gap: "6px", marginLeft: "auto", flexShrink: 0, whiteSpace: "nowrap" },
         skillLine: { display: "grid", gridTemplateColumns: "22px minmax(0, 1fr) auto auto", alignItems: "baseline", gap: "6px", textStyle: "body.sm", "&[data-tone=warning]": { color: "fg.warning" }, "&[data-tone=success]": { color: "fg.success" } },
         skillCode: { textStyle: "mono.xs", color: "fg.subtle" },
         cell: { position: "relative", minWidth: 0, padding: "8px 8px 10px", borderLeftWidth: "1px", borderColor: "border.subtle", display: "flex", flexDirection: "column", gap: "4px", "& [data-roster-landing]": { display: "none" }, "&[data-drop-active]": { background: "brand.subtle", "& [data-roster-landing]": { display: "flex" } }, "&[data-drop-active][data-roster-landing-tone=warning]": { background: "bg.warning.subtle", outlineColor: "fg.warning" }, "&[data-drop-invalid] [data-roster-landing]": { display: "flex" },
@@ -99,7 +104,9 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         openPosition: { textStyle: "mono.xs", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px", border: "1px dashed", borderColor: "fg.warning", padding: "4px 6px", borderRadius: "3px", color: "fg.warning" },
         proposal: { borderStyle: "dashed", borderColor: "border.emphasized", background: "transparent", padding: "0 3px 0 6px", _hover: { borderColor: "fg.subtle" } },
         proposalMark: { color: "brand.fg", fontWeight: "semibold", letterSpacing: "0.1em", textTransform: "uppercase" },
-        proposalName: { fontStyle: "italic", color: "fg.muted", textAlign: "left", ...planRowFocus },
+        proposalName: { fontStyle: "italic", color: "fg.muted", textAlign: "left", ...planRowFocus,
+            // A phone's card (its proposal has no density: the desktop's chip does): the name selects it, a finger's height.
+            "[data-roster-proposal]:not([data-density]) &": { _coarse: { minHeight: "44px" } } },
         proposalReason: { whiteSpace: "nowrap", flexShrink: 0, fontSize: "label.xs" },
         proposalAction: { opacity: 1, width: "18px", height: "18px", borderRadius: "3px", "&[data-accept]": { border: "1px solid", borderColor: "border.emphasized", background: "bg.surface", color: "fg.success", _hover: { borderColor: "fg.success" } }, _hover: { background: "bg.panel" } },
         weekCell: { padding: "5px 2px", textAlign: "center", borderLeftWidth: "1px", borderColor: "border.subtle", minWidth: 0, ...planRowFocus, "&[data-drop-active]": { background: "brand.subtle" },

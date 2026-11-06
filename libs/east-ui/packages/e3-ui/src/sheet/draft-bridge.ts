@@ -5,7 +5,7 @@
 
 /** Typed draft decoding without domain defaults. @packageDocumentation */
 import { ArrayType, East, FunctionType, OptionType, StringType, StructType, none, some, variant, type BlockBuilder, type EastType, type ExprType, type SubtypeExprOrValue, type VariantType } from "@elaraai/east";
-import { SheetCellType, SheetRowType } from "./types.js";
+import { SheetActionCellType, SheetCellType, SheetRowType } from "./types.js";
 import { SheetCellsType, type SheetColumnMeta } from "./bridge.js";
 import { SheetDraftFieldType, SheetDraftTypeFor } from "./transactions.js";
 import { SheetDraftEntryTypeFor, SheetDraftGroupTypeFor } from "./drafts.js";
@@ -15,19 +15,24 @@ import type { SheetRegisterValue } from "./registers.js";
 type DraftRecord = StructType;
 type DecodeRow = ExprType<FunctionType<[StringType, typeof SheetCellsType, OptionType<DraftRecord>], DraftRecord>>;
 
-/** Compile a row's cells into field drafts, preserving every undeclared field. */
+/**
+ * Compile a row's cells into field drafts, preserving every undeclared field.
+ * A read-only column's cell is read back too where `written`: on a sheet with
+ * an action column, whose `updates` write any field (#1477).
+ */
 export function buildDraftRowDecoder(
     rowType: StructType,
     metas: readonly SheetColumnMeta[],
     registers: Record<string, SheetRegisterValue>,
     idField?: string,
+    written = false,
 ): DecodeRow {
     const draftType = SheetDraftTypeFor(rowType) as StructType;
     const fields = Object.entries(rowType.fields as Record<string, EastType>);
     const decoders = new Map<string, ExprType<FunctionType>>();
     for (const [field, fieldType] of fields) {
         const meta = metas.find(m => m.field === field || m.otherField === field);
-        if (!meta || !meta.editable || meta.derived !== undefined) continue;
+        if (!meta || (!meta.editable && !written) || meta.derived !== undefined) continue;
         const draftField = SheetDraftFieldType(fieldType);
         const own = meta.field === field;
         const decoder = East.function([SheetCellType, draftField], draftField, ($, cell, base) => {
@@ -48,6 +53,16 @@ export function buildDraftRowDecoder(
             return cell.match({
                 Invalid: ($: BlockBuilder<typeof draftField>, text: ExprType<StringType>) => $.const(variant("invalid", text), draftField),
                 [meta.cellTag]: ($: BlockBuilder<typeof draftField>, payload: ExprType<EastType>) => {
+                    // An action column's case (#1474): its value decoded at the case's type, or unread.
+                    if (meta.action !== undefined) {
+                        const decode = $.const(meta.action.decode);
+                        const cell = payload as unknown as ExprType<typeof SheetActionCellType>;
+                        const decoded = $.const(decode(cell));
+                        return decoded.match({
+                            none: () => East.value(variant("invalid", cell.case), draftField),
+                            some: (_$2, v) => East.value(variant("value", meta.optional ? some(v) : v), draftField),
+                        }) as ExprType<typeof draftField>;
+                    }
                     let value = payload;
                     if (meta.form === "array") {
                         const link = payload as unknown as ExprType<import("./types.js").SheetLinkType>;
@@ -88,7 +103,8 @@ export function buildDraftRowDecoder(
 /**
  * Decode a group against its previous draft and wire row. Child lookup uses
  * the previous wire keys to find draft array positions; keys never become
- * fields or identifiers in the author's child schema.
+ * fields or identifiers in the author's child schema. Its band's read-only
+ * cells are read back too where `written` (an action's group patch, #1477).
  */
 export function buildDraftGroupDecoder(
     groupType: StructType,
@@ -97,6 +113,7 @@ export function buildDraftGroupDecoder(
     rowDecoder: DecodeRow,
     registers: Record<string, SheetRegisterValue>,
     idField?: string,
+    written = false,
 ): ExprType<FunctionType<[SheetRowType, OptionType<StructType>, OptionType<SheetRowType>], StructType>> {
     const childType = groupType.fields[field];
     if (childType?.type !== "Array" || childType.value.type !== "Struct") throw new Error("Sheet groups require Array child rows");
@@ -104,7 +121,7 @@ export function buildDraftGroupDecoder(
     const draftType = SheetDraftGroupTypeFor(groupType, field) as StructType;
     const ownType = StructType(Object.fromEntries(Object.entries(groupType.fields).filter(([key]) => key !== field)));
     const ownDraft = SheetDraftTypeFor(ownType) as StructType;
-    const ownDecoder = buildDraftRowDecoder(ownType, metas, registers, idField);
+    const ownDecoder = buildDraftRowDecoder(ownType, metas, registers, idField, written);
     return East.function([SheetRowType, OptionType(draftType), OptionType(SheetRowType)], draftType, ($, row, base, previous) => {
         const decodeOwn = $.const(ownDecoder);
         const decodeRow = $.const(rowDecoder);

@@ -23,7 +23,8 @@
  */
 
 import { memo, useCallback, useMemo, useState } from "react";
-import { Box } from "@chakra-ui/react";
+import { Box, chakra } from "@chakra-ui/react";
+import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { StringType, equalFor, none, some, variant } from "@elaraai/east";
 import { SavedQueryType } from "@elaraai/e3-ui/internal";
 import { BannerView, EastChakraLibrary, type LibraryItemValue, type LibraryValue } from "@elaraai/east-ui-components";
@@ -37,6 +38,55 @@ const nameEqual = equalFor(StringType);
 const runEqual = equalFor(SavedQueryType);
 
 /** Props of {@link LibraryTab}. */
+/** What a card takes of a phone's width beside its description: the list's 16 each side, the card's 12 each side and its rule, the tile and its gap, the trailing glyph and its gap. */
+const PHONE_CARD_INSET = 32 + 24 + 2 + 36 + 12 + 24;
+
+let measuring: CanvasRenderingContext2D | null | undefined;
+
+/**
+ * A description as two lines at most, ending on a whole word and `…` (QP36): what
+ * a line clamp cannot do, which cuts where the room ends.
+ *
+ * @param text - The description
+ * @param width - The room each line has, px
+ * @returns The text to show
+ */
+function twoLines(text: string, width: number): string {
+    if (measuring === undefined) measuring = document.createElement("canvas").getContext("2d");
+    if (measuring === null) return text;
+    const probe = document.createElement("span");
+    probe.style.fontFamily = "var(--chakra-fonts-body)";
+    document.body.appendChild(probe);
+    measuring.font = `400 12.5px ${getComputedStyle(probe).fontFamily}`;
+    probe.remove();
+    const context = measuring;
+    const fits = (line: string) => context.measureText(line).width <= width;
+    const words = text.split(" ");
+    let line = "";
+    let lines = 1;
+    for (let i = 0; i < words.length; i++) {
+        const next = line === "" ? words[i]! : `${line} ${words[i]!}`;
+        if (fits(next)) { line = next; continue; }
+        if (lines === 2) {
+            // The room for the ellipsis, in whole words.
+            let last = i;
+            while (last > 0 && !fits(`${words.slice(last - countOnLine(words, last, line), last).join(" ")}…`)) last -= 1;
+            return `${words.slice(0, last).join(" ")}…`;
+        }
+        lines = 2;
+        line = words[i]!;
+    }
+    return text;
+}
+
+/** How many of the words before an index stand on the line. */
+function countOnLine(words: readonly string[], end: number, line: string): number {
+    let count = 0;
+    let at = line.length;
+    for (let i = end - 1; i >= 0 && at > 0; i--) { at -= words[i]!.length + 1; count += 1; }
+    return count;
+}
+
 export interface LibraryTabProps {
     /** The saved queries. */
     readonly record: SavedQueries;
@@ -56,6 +106,8 @@ export interface LibraryTabProps {
     readonly ps: PartStyles;
     /** Where the library keeps its state. */
     readonly storageKey: string;
+    /** A phone's builder's width: each description two lines at most, ending on a whole word (QP36). */
+    readonly phoneWidth?: number | undefined;
 }
 
 /**
@@ -64,9 +116,10 @@ export interface LibraryTabProps {
  * @param props - The saved queries, the recent runs, the root, the open query and what a click does ({@link LibraryTabProps})
  * @returns The tab's notice, and its library
  */
-export const LibraryTab = memo(function LibraryTab({ record, recent, root, open, onOpenSaved, onOpenRun, id, ps, storageKey }: LibraryTabProps) {
+export const LibraryTab = memo(function LibraryTab({ record, recent, root, open, onOpenSaved, onOpenRun, id, ps, storageKey, phoneWidth }: LibraryTabProps) {
     const { styles, words } = ps;
     const m = words.messages;
+    const phone = useSlotStyles("queryPhone");
     const [notice, setNotice] = useState<string | undefined>(undefined);
 
     // What each query is — the data source it starts from, its description, why it can't open here — once per record, run list and root.
@@ -103,7 +156,7 @@ export const LibraryTab = memo(function LibraryTab({ record, recent, root, open,
         const item = (key: string, name: string, about: QueryAbout, group: string, icon: string, placed: boolean): LibraryItemValue => ({
             key,
             label: name,
-            sublabel: about.description === undefined ? none : some(about.description),
+            sublabel: about.description === undefined ? none : some(phoneWidth === undefined ? about.description : twoLines(about.description, phoneWidth - PHONE_CARD_INSET)),
             icon: some(icon),
             status: none,
             trailing: about.refusal === undefined ? none : some({ icon: "triangle-exclamation", label: about.refusal, tone: some(variant("warning", null)) }),
@@ -147,8 +200,17 @@ export const LibraryTab = memo(function LibraryTab({ record, recent, root, open,
             layout: none,
             toolbar: true,
         };
-    }, [runList, savedList, isOpenRun, isOpenSaved, onCardClick, id, m]);
+    }, [runList, savedList, isOpenRun, isOpenSaved, onCardClick, id, m, phoneWidth]);
 
+    // A search that hides every query, on a phone (QP37): the × glyph, what it looked for, a checklist and the way back.
+    const noMatchView = useCallback((query: string, clear: () => void) => (
+        <Box css={phone.noMatch} data-library-empty="" data-query-no-match="">
+            <Box as="span" css={phone.emptyGlyph} aria-hidden>×</Box>
+            <Box css={phone.emptyTitle}>{m.noMatch({ text: query })}</Box>
+            <Box as="ul" css={phone.emptyList}><li>{m.checkSpelling()}.</li><li>{m.clearSearchEvery()}</li></Box>
+            <chakra.button type="button" css={phone.emptyLink} onClick={clear}>{m.clearTheSearch()} →</chakra.button>
+        </Box>
+    ), [m, phone]);
     return (
         <>
             {notice !== undefined && (
@@ -156,7 +218,7 @@ export const LibraryTab = memo(function LibraryTab({ record, recent, root, open,
                     <BannerView status="warning" title={notice} dismissible onDismiss={() => setNotice(undefined)} />
                 </Box>
             )}
-            <EastChakraLibrary value={value} storageKey={storageKey} />
+            <EastChakraLibrary value={value} storageKey={storageKey} noMatchView={phoneWidth === undefined ? undefined : noMatchView} />
         </>
     );
 });

@@ -248,7 +248,7 @@ describe("the narrow layout (#880)", () => {
     }
 
     for (const arm of ["inline", "paged"] as const) {
-        test(`${arm}: drafts made on the canvas wear their marks on their cards once it narrows — the history item riding the frame's toolbar`, async () => {
+        test(`${arm}: drafts made on the canvas wear their marks on their cards once it narrows — the history riding the toolbar's second row`, async () => {
             const canvas = await mountCanvas({ arm, ready: true });
             const c = canvas.container;
             expect(c.querySelector("[data-plan-narrow]")).toBeNull();
@@ -259,7 +259,8 @@ describe("the narrow layout (#880)", () => {
             await narrowTo(360);
             expect(c.querySelector("[data-plan-narrow]")).toBeTruthy();
             expect(c.querySelector("[data-plan-row]")).toBeNull();
-            expect(c.querySelector("[data-frame-slot='toolbar'] [data-slot='history']")).toBeTruthy();
+            // A phone's frame: the history is the toolbar's second row (Mobile Builder Frame Spec.md FR6).
+            expect(c.querySelector("[data-frame-slot='sessionRow'] [data-slot='history'][data-history-form='phone']")).toBeTruthy();
             // Each card wears its press's draft mark, its own refusal among them, as its row did.
             expect(marks(c)).toEqual({ p1: "pending", p2: "incomplete" });
             await history(canvas, "Undo");

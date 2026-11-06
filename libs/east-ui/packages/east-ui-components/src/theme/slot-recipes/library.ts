@@ -78,6 +78,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             flexDirection: "column",
             gap: "18px",
             padding: "14px",
+            "[data-library-phone] &": { paddingX: "16px", paddingTop: "16px" },
             "[data-hosted] > &": { padding: "0" },
             "&[data-scrollable]": {
                 overflowY: "auto",
@@ -135,6 +136,12 @@ export const librarySlotRecipe = defineSlotRecipe({
             borderBottomColor: "border.subtle",
             overflow: "clip",
             flexShrink: "0",
+            /* A query builder's phone tabs (QP35): a 56 band, its search 44. */
+            "[data-library-phone] &": { height: "56px", paddingX: "16px", "& input": { height: "42px" } },
+            /* Any Library in a phone's view, under a finger: the same band, its search and its menus touch-sized (hand test, 4 Nov 2026). */
+            "[data-frame-drawer] &": { _coarse: { height: "56px" } },
+            /* Studio's fill the row, Group and Filter at its end (ST22). */
+            "[data-library-phone=studio] &": { "& [data-toolbar-item]:has(input)": { flex: "1 0 auto" } },
         },
         /* Its width is the form the toolbar folds it to: wide, then mid,
          * then narrow, without the key cap. */
@@ -155,6 +162,13 @@ export const librarySlotRecipe = defineSlotRecipe({
             _focusWithin: { borderColor: "brand.solid", boxShadow: "focus" },
             "&[data-size=mid]": { width: "220px" },
             "&[data-size=narrow]": { width: "160px" },
+            /* In a phone's pane with no toolbar to fold it, as the Schematic's Index: the row's width. */
+            "[data-frame-drawer] :not([data-toolbar-item]) > &": { width: "100%" },
+            "[data-frame-drawer] &": { _coarse: { height: "44px", boxSizing: "border-box" } },
+            /* A query builder's phone tabs (QP35): a 44 search. */
+            "[data-library-phone] &": { height: "44px", paddingLeft: "12px", boxSizing: "border-box" },
+            /* Across the row, each form still its width at least: what folds Group and Filter to their 44 icons. */
+            "[data-library-phone=studio] &": { width: "100%", "&[data-size=wide]": { minWidth: "300px" }, "&[data-size=mid]": { minWidth: "220px" }, "&[data-size=narrow]": { minWidth: "160px" } },
         },
         searchIcon: {
             flexShrink: "0",
@@ -201,6 +215,8 @@ export const librarySlotRecipe = defineSlotRecipe({
             ...CAPS,
             display: "inline-flex",
             alignItems: "center",
+            "[data-library-phone] &": { minWidth: "44px", height: "44px", justifyContent: "center" },
+            "[data-frame-drawer] &": { _coarse: { minWidth: "44px", height: "44px", justifyContent: "center" } },
             gap: "6px",
             padding: "0",
             background: "transparent",
@@ -222,6 +238,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             color: "brand.solid",
             cursor: "pointer",
             whiteSpace: "nowrap",
+            "[data-frame-drawer] &": { _coarse: { minWidth: "44px", height: "44px", justifyContent: "center" } },
             "& svg": { fontSize: "9px" },
             _hover: { color: "brand.fg" },
         },
@@ -290,6 +307,8 @@ export const librarySlotRecipe = defineSlotRecipe({
             transitionDuration: "fast",
             transitionTimingFunction: "out",
             _hover: { borderColor: "fg.muted" },
+            /* A phone's library tabs (QP36, ST22): at least 56, padded 8 12, 12 apart. */
+            "[data-library-phone] &": { minHeight: "56px", gap: "12px", paddingY: "8px", paddingX: "12px", boxSizing: "border-box" },
             "&[data-clickable]": { cursor: "pointer" },
             "&[data-draggable]": { cursor: "grab" },
             "&[data-filtered]": { opacity: "0.45" },
@@ -330,6 +349,9 @@ export const librarySlotRecipe = defineSlotRecipe({
             flexShrink: "0",
             width: "30px",
             height: "30px",
+            "[data-library-phone] &": { width: "36px", height: "36px", borderRadius: "md" },
+            /* Studio's cards' (ST22). */
+            "[data-library-phone=studio] &": { width: "32px", height: "32px" },
             borderRadius: "{radii.sm}",
             background: "bg.subtle",
             color: "fg.muted",
@@ -359,6 +381,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
+            "[data-library-phone] &": { whiteSpace: "normal", lineHeight: "18px", overflowWrap: "anywhere" },
             "[data-placed] &": { color: "brand.fg" },
         },
         /* A host's figure at the end of the name's line: a quantity, a range, in tabular figures. */
@@ -382,6 +405,12 @@ export const librarySlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
+            /* Datasets' meta wraps at its joins; Library's description is prose, two lines at most (QP36). */
+            "[data-library-phone] &": { whiteSpace: "normal", fontSize: "label.md", lineHeight: "14px" },
+            "[data-query-tab=library][data-library-phone] &": {
+                fontFamily: "body", fontSize: "body.sm", lineHeight: "18px", color: "fg.muted",
+                whiteSpace: "normal",
+            },
             "[data-placed] &": { color: "brand.solid" },
         },
         /* A host's line under the meta, in the meta's voice; a warning's or
@@ -516,6 +545,8 @@ export const librarySlotRecipe = defineSlotRecipe({
             borderTopColor: "border.subtle",
         },
         hiddenNote: {
+            /* A query builder's phone tabs say so in their checklist. */
+            "[data-library-phone] &": { display: "none" },
             fontFamily: "mono",
             fontSize: "10px",
             color: "fg.subtle",

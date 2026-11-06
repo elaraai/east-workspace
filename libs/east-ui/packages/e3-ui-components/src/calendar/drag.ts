@@ -10,6 +10,7 @@ import { dropEvent, useDragTarget, useFormatters, type CellCoord, type DragEvent
 import { initialPlacement, type CalendarCommands, type CalendarPlacement, type CalendarSource } from "./actions.js";
 import { moveSpan, resizeSpan } from "../shared/time/drag.js";
 import { timeScale } from "../shared/time/scale.js";
+import { lowerWord } from "../shared/schedule/words.js";
 import { calendarLibraryId } from "./library.js";
 import { DAY, QUARTER, dayStart, eventKey, parseEventKey, parseResourceKey, parseTimeKey, resourceKey, timeKey, type CalendarItem, type CalendarValue } from "./model.js";
 
@@ -90,13 +91,13 @@ function calendarDrag({ value, key, commands, items, backlog, served, selection,
             const drop = event.value; const target = at(drop.into);
             if (target === undefined) return "Choose a time";
             if (drop.from.library === calendarLibraryId(key, "templates")) {
-                const source = sources.get(drop.from.key); if (source === undefined) return "This template is no longer available";
+                const source = sources.get(drop.from.key); if (source === undefined) return `This ${lowerWord(value.vocabulary.template)} is no longer available`;
                 const initial = initialPlacement(source, target.start);
                 return commands.place(source, { ...target, end: new Date(target.start.getTime() + initial.end.getTime() - initial.start.getTime()) }, "drop", checkOnly);
             }
             if (drop.from.library === calendarLibraryId(key, "backlog")) {
                 const item = sourceItem(drop.from.key); const kind = value.events.find(kind => kind.key === item?.kind);
-                if (item === undefined || kind === undefined) return "This backlog event is no longer available";
+                if (item === undefined || kind === undefined) return `This ${lowerWord(value.vocabulary.backlog)} event is no longer available`;
                 return commands.place({ kind, item }, { ...target, end: new Date(target.start.getTime() + Number(item.minutes) * 60_000) }, "drop", checkOnly);
             }
             const tab = value.library.find(tab => tab.type === "tab" && calendarLibraryId(key, `tab:${tab.value.name}`) === drop.from.library);

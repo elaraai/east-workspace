@@ -12,7 +12,7 @@
 
 import { DataSourceType } from "../bind/sources.js";
 import { nameWriteRefusal } from "../studio/library.js";
-import { QueryBuilder, QueryBuilderComponent, QueryBuilderPayloadType } from "./builder.js";
+import { QueryBuilder, QueryBuilderComponent, QueryBuilderPayloadType, QueryResultViewType, QueryViewType } from "./builder.js";
 import { QueryLibrary, QueryLibraryComponent, QueryLibraryPayloadType } from "./library.js";
 import { QueriesHandleType, QueryRootBoundType, rootBound, saveQuery } from "./queries.js";
 import { savedQueriesValue } from "./saved.js";
@@ -103,6 +103,10 @@ export interface QueryTypes {
     StepValue: typeof QueryStepValueType;
     /** A count or a bound a step takes ({@link QueryStepInputType}). */
     StepInput: typeof QueryStepInputType;
+    /** A view of the open query, as `views` lists it ({@link QueryViewType}). */
+    View: typeof QueryViewType;
+    /** A view of the result, as `resultViews` lists it ({@link QueryResultViewType}). */
+    ResultView: typeof QueryResultViewType;
 }
 
 /** The type of the {@link Query} namespace — what a solution mounts and declares. */
@@ -132,6 +136,8 @@ const types: QueryTypes = {
     Aggregate: QueryAggregateType,
     StepValue: QueryStepValueType,
     StepInput: QueryStepInputType,
+    View: QueryViewType,
+    ResultView: QueryResultViewType,
 };
 
 /**

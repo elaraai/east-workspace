@@ -18,13 +18,13 @@ import { one, useNouns, type Nouns } from "./nouns.js";
  */
 export const legends = (nouns: Nouns) => ({
     timeline: [
-        { kind: "bin", label: "Bin" }, { kind: "draft", label: "Unsaved" }, { kind: "load", label: "Today's load" },
-        { kind: "prior", label: "Prior job" }, { kind: "next", label: "Next job" }, { kind: "overlap", label: "Overlap" },
+        { kind: "bin", label: nouns.bin.one }, { kind: "draft", label: "Unsaved" }, { kind: "load", label: "Today's load" },
+        { kind: "prior", label: nouns.priorJob }, { kind: "next", label: nouns.nextJob }, { kind: "overlap", label: "Overlap" },
         { kind: "link", label: "Link" }, { kind: "draftLink", label: "Unsaved link" },
     ],
     table: [
         { kind: "bin", label: `${nouns.arrival.one} or ${one(nouns.resource)}` }, { kind: "draft", label: "Unsaved" }, { kind: "empty", label: "Empty · drop here" },
-        { kind: "reserved", label: "Reserved" }, { kind: "free", label: "Free" },
+        { kind: "reserved", label: nouns.reserved }, { kind: "free", label: "Free" },
     ],
 });
 

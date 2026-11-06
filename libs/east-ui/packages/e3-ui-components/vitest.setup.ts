@@ -43,6 +43,11 @@ const samples: readonly (readonly [name: string, sample: object])[] = [
 // global names: the copy's constructor is Node's.
 for (const [name, sample] of samples) globals[name] = (structuredClone(sample) as object).constructor;
 
+// A test holds what an East function does, never where it was written (`libs/east/src/location.spec.ts` holds that): no
+// expression reads a stack as it is built, which a stack through Vitest's source maps makes the dearest part of a build.
+const { setLocationCapture } = await import("@elaraai/east");
+setLocationCapture(false);
+
 /** Each request that reached the global fetch in the test running now. */
 let escaped: string[] = [];
 

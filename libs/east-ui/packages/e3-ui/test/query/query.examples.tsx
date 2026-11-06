@@ -17,7 +17,7 @@ import {
     ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType,
     StructType, VariantType, compareFor, example, none, some, variant,
 } from "@elaraai/east";
-import { Box, Button, HStack, Reactive, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Button, HStack, Reactive, Select, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Query, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -402,6 +402,66 @@ export const queryBuilder = example({
             return (
                 <Box height="760px">
                     <Query.Builder queries={saved} query="Top shipped orders, 2026" id="top"
+                        datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const queryBuilderViews = example({
+    keywords: ["Query", "Query.Builder", "views", "resultViews", "Query.Types.View", "Query.Types.ResultView", "Visual", "jq", "Table", "Tree", "hide a view", "Select", "multiple", "onChangeMultiple", "State", "Reactive"],
+    description: "Which views an instance offers, chosen as the page runs: a multi-select wired into `views` (Visual · jq) and one into `resultViews` (Table · Tree), each an expression of an array of its variant. With one left its switch does not show, and with none chosen, both. `views={[\"visual\"]}` and `resultViews={[\"table\"]}` write the same choices in the code.",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const saved = $.let(Record.bind(queries));
+            const orderRows = $.let(Data.bind(orders));
+            const customerRows = $.let(Data.bind(customers));
+            // The tags each multi-select holds, and the views they name.
+            const queryChosen = $.let(State.bind([ArrayType(StringType)], "ex.queryBuilderViews.views", []));
+            const resultChosen = $.let(State.bind([ArrayType(StringType)], "ex.queryBuilderViews.resultViews", []));
+            const queryTags = $.let(queryChosen.read());
+            const resultTags = $.let(resultChosen.read());
+            const onViews = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(queryChosen.write(next)); }));
+            const onResultViews = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => { $(resultChosen.write(next)); }));
+            const everyView = $.const([variant("visual", null), variant("jq", null)], ArrayType(Query.Types.View));
+            const everyResult = $.const([variant("table", null), variant("tree", null)], ArrayType(Query.Types.ResultView));
+            const views = $.let(everyView.filter(($, view) => queryTags.toSet().has(view.getTag())));
+            const resultViews = $.let(everyResult.filter(($, view) => resultTags.toSet().has(view.getTag())));
+            return (
+                <VStack gap="3" align="stretch" width="100%">
+                    <HStack gap="3" align="flex-start">
+                        <HStack gap="2" align="center"><Text>Query</Text><Select value="" placeholder="Every view" multiple={true} onChangeMultiple={onViews}
+                            items={[Select.Item("visual", "Visual"), Select.Item("jq", "jq")]} /></HStack>
+                        <HStack gap="2" align="center"><Text>Results</Text><Select value="" placeholder="Every view" multiple={true} onChangeMultiple={onResultViews}
+                            items={[Select.Item("table", "Table"), Select.Item("tree", "Tree")]} /></HStack>
+                    </HStack>
+                    <Box height="680px">
+                        <Query.Builder queries={saved} query="Top shipped orders, 2026" id="views" views={views} resultViews={resultViews}
+                            datasets={{ orders: orderRows, customers: customerRows }} />
+                    </Box>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const queryBuilderMobile = example({
+    keywords: ["Query", "Query.Builder", "query builder", "mobile", "phone", "pane strip", "drawer", "second row", "history", "Run"],
+    description: "The same builder open on Top shipped orders, 2026 in a phone's 390-wide frame: the toolbar over its second row — the history at 44px — the results the frame's whole width, and the Query tab a drawer up from the strip on the bottom edge",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const saved = $.let(Record.bind(queries));
+            const orderRows = $.let(Data.bind(orders));
+            const customerRows = $.let(Data.bind(customers));
+            const weekly = $.let(Data.bind(forecast));
+            const demand = $.let(Data.bind(model));
+            const parts = $.let(Data.bind(bom));
+            return (
+                <Box width="390px" maxWidth="100%" height="760px">
+                    <Query.Builder queries={saved} query="Top shipped orders, 2026" id="topMobile"
                         datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />
                 </Box>
             );

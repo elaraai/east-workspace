@@ -24,6 +24,7 @@ import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 import { SnapGridEditor } from "./editor.js";
+import { useTileGrows } from "./tile-grows.js";
 
 const snapGridEqual = equivalentFor(SnapGrid.Types.Root);
 const compareSpan = compareFor(IntegerType);
@@ -128,6 +129,37 @@ function SnapGridView({ value, storageKey }: EastChakraSnapGridProps) {
     );
 }
 
+/** Whether a page's cell stands on the stacked grid: its row's width under the recipe's first breakpoint. */
+const STACKED_BELOW = 480;
+const isStacked = (el: HTMLElement) => (el.parentElement?.clientWidth ?? Infinity) < STACKED_BELOW;
+
+/** One cell of the grid: its spans and its height, a stacked one's giving way to what it holds. */
+function SnapGridCellBox<C extends SnapGridLayoutCell>({ cell, styles, wireframe, children }: { cell: C; styles: Record<string, SystemStyleObject>; wireframe: boolean; children: ReactNode }) {
+    const spans = snapGridSpans(cell.span);
+    const declared = getSomeorUndefined(cell.height);
+    const { ref, height } = useTileGrows<HTMLDivElement>(wireframe || declared === undefined ? undefined : Number(declared), isStacked);
+    const shown = wireframe ? declared : height;
+    const style = {
+        "--snap-grid-span": String(spans.span),
+        "--snap-grid-span-medium": String(spans.medium),
+        height: shown === undefined ? undefined : `${shown}px`,
+    } as CSSProperties;
+    return (
+        <Box
+            ref={ref}
+            css={styles.cell}
+            style={style}
+            data-snap-grid-cell={cell.key}
+            data-snap-grid-span={spans.span}
+            data-align={cell.align.type}
+            data-auto-height={declared === undefined ? "" : undefined}
+            data-frame={!wireframe && cell.frame ? "" : undefined}
+        >
+            {children}
+        </Box>
+    );
+}
+
 /** Props of {@link SnapGridTiles}. */
 export interface SnapGridTilesProps<C extends SnapGridLayoutCell> {
     /** The cells, in order — rows in the order their keys first appear. */
@@ -177,29 +209,11 @@ export function SnapGridTiles<C extends SnapGridLayoutCell>({ cells, content, wi
                 )}
                 {rows.map(row => (
                     <Box key={row.key} css={styles.row} data-snap-grid-row={row.key}>
-                        {row.cells.map(cell => {
-                            const spans = snapGridSpans(cell.span);
-                            const cellHeight = getSomeorUndefined(cell.height);
-                            const style = {
-                                "--snap-grid-span": String(spans.span),
-                                "--snap-grid-span-medium": String(spans.medium),
-                                height: cellHeight === undefined ? undefined : `${cellHeight}px`,
-                            } as CSSProperties;
-                            return (
-                                <Box
-                                    key={cell.key}
-                                    css={styles.cell}
-                                    style={style}
-                                    data-snap-grid-cell={cell.key}
-                                    data-snap-grid-span={spans.span}
-                                    data-align={cell.align.type}
-                                    data-auto-height={cellHeight === undefined ? "" : undefined}
-                                    data-frame={!wireframe && cell.frame ? "" : undefined}
-                                >
-                                    {wireframe ? null : content(cell)}
-                                </Box>
-                            );
-                        })}
+                        {row.cells.map(cell => (
+                            <SnapGridCellBox key={cell.key} cell={cell} styles={styles} wireframe={wireframe}>
+                                {wireframe ? null : content(cell)}
+                            </SnapGridCellBox>
+                        ))}
                     </Box>
                 ))}
             </Box>

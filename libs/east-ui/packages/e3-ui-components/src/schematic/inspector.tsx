@@ -1021,7 +1021,7 @@ function DrawingView({ styles, words, counts, records }: ViewProps) {
     // Each count, its label and its name as running text writes it: a number, a placeholder while it is read, or — no
     // read can say it — a line naming it and why (#1393).
     const sorts = [
-        ...counts.kinds.map((kind) => ({ key: kind.slot, count: kind.drawn, label: () => kind.name, noun: kindPlural(kind.name.toLocaleLowerCase(words.locale)) })),
+        ...counts.kinds.map((kind) => ({ key: kind.slot, count: kind.drawn, label: (n: number) => (n === 1 ? kind.name : kindPlural(kind.name)), noun: kindPlural(kind.name.toLocaleLowerCase(words.locale)) })),
         ...(["zones", "links", "nets"] as const).flatMap((what) => {
             const count = counts[what];
             return count === undefined ? [] : [{

@@ -45,7 +45,7 @@ import { dropTarget, gripCoord, laneCoord, resourceCellCoord, type AllocationDra
 import type { AllocationFit } from "./fit.js";
 import { bandLine, narrowBands, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
 import { NarrowedEmpty } from "./narrowed.js";
-import { a, one, useNouns } from "./nouns.js";
+import { a, lower, one, useNouns } from "./nouns.js";
 import type { AllocationBinOp, AllocationOptimised } from "./optimise.js";
 import type { TimelineFollow } from "./timeline.js";
 import {
@@ -221,7 +221,7 @@ export function AllocationTable(props: TableProps) {
     }, [plan, domain, shown]);
     const columns = useTrackedEvaluation(readColumns);
     const cells = columns.result.ok ? columns.result.value : undefined;
-    const resourceLines = useMemo(() => new Map(value.resources.map(r => [r.key, words.line(day, r, props.loads.get(r.key)!, unit)] as const)), [value.resources, props.loads, day, unit, words]);
+    const resourceLines = useMemo(() => new Map(value.resources.map(r => [r.key, words.line(day, r, props.loads.get(r.key)!, unit, lower(nouns.reserved))] as const)), [value.resources, props.loads, day, unit, words, nouns.reserved]);
     const [open, setOpen] = useState<Open>();
     // Another day, or the drafts' row gone: its Chooser closes.
     useEffect(() => { if (open !== undefined && !rows.some(r => r.key === open.row)) setOpen(undefined); }, [rows, open]);
@@ -254,8 +254,8 @@ export function AllocationTable(props: TableProps) {
     }, [pickKey, rows]);
 
     const choiceWords: ChoiceWords = useMemo(() => ({
-        quantity: v => words.quantity(v, unit), number: v => words.quantity(v, ""), lane: key => value.lanes.find(l => l.key === key)?.label ?? key,
-    }), [words, unit, value.lanes]);
+        quantity: v => words.quantity(v, unit), number: v => words.quantity(v, ""), lane: key => value.lanes.find(l => l.key === key)?.label ?? key, nouns,
+    }), [words, unit, value.lanes, nouns]);
     const head = <Box css={styles.tableHead} data-columns={shown.length === 0 ? "none" : undefined} data-allocation-table-head="">
         <span>Time</span><span title={nouns.lane.one}>{nouns.lane.one}</span><span title={nouns.arrival.one}>{nouns.arrival.one}</span>
         <Box as="span" data-align="end" title={nouns.quantity}>{nouns.quantity}</Box>
@@ -277,7 +277,7 @@ export function AllocationTable(props: TableProps) {
                         {unread ? pending && <PlaceholderShape kind="count" index={index} /> : <>
                             <Box as="span" css={styles.bandCount} data-allocation-band-count=""
                                 data-opn={props.lit === true && line.band.rows.some(r => r.bin !== undefined && props.optimised?.ops.has(r.bin) === true) ? "" : undefined}>{line.band.rows.length}</Box>
-                            <Box as="span" css={styles.groupMeta}>{bandLine(line.band, words.quantity(Math.round(line.band.quantity), unit), folded)}</Box>
+                            <Box as="span" css={styles.groupMeta}>{bandLine(line.band, words.quantity(Math.round(line.band.quantity), unit), folded, nouns)}</Box>
                         </>}
                     </GroupHeading>;
                 }
@@ -502,8 +502,8 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
                     <Box as="span" css={styles.tableChipCode}>{resource.label}</Box>
                     {chooser("resource", chevron(resourceLabel))}
                     {editable && <chakra.button type="button" css={styles.tableChipButton} data-allocation-chip-remove=""
-                        aria-label={row.kind === "reserved" ? "Remove the reservation" : `Unlink ${code} from ${resource.label}`}
-                        title={row.kind === "reserved" ? "Remove the reservation" : `Unlink ${code} from ${resource.label}`}
+                        aria-label={row.kind === "reserved" ? `Remove the ${one(nouns.reservation)}` : `Unlink ${code} from ${resource.label}`}
+                        title={row.kind === "reserved" ? `Remove the ${one(nouns.reservation)}` : `Unlink ${code} from ${resource.label}`}
                         onPointerDown={event => event.stopPropagation()}
                         onClick={event => { event.stopPropagation(); if (row.kind === "reserved") commands.remove(row.bin!); else commands.unlink(row.bin!, resource.key); }}>
                         <FontAwesomeIcon icon={faXmark} />
@@ -518,7 +518,7 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
         </> : <Box ref={resourceDrop} css={[styles.tableCell, styles.tableResourceSpan]} data-allocation-cell-side="resource">
             {chooser("resource", placeholder("resource")) ?? <Placeholder props={props} side="resource" reserved={false} open={false} button={false} say={resourceSay} />}
         </Box>}
-        <Box as="span" css={styles.tableStatus} data-status={status}><Box as="span" css={styles.tableStatusDot} />{status}</Box>
+        <Box as="span" css={styles.tableStatus} data-status={status}><Box as="span" css={styles.tableStatusDot} />{status === "Reserved" ? nouns.reserved : status}</Box>
     </Box>;
 });
 
@@ -536,7 +536,7 @@ function Placeholder({ props, side, reserved, open, button, say, onBook, ...trig
 }) {
     const { styles } = props;
     const nouns = useNouns();
-    const idle = side === "arrival" ? `no ${one(nouns.arrival)}${reserved ? " · reserved" : ""}` : `no ${one(nouns.resource)}`;
+    const idle = side === "arrival" ? `no ${one(nouns.arrival)}${reserved ? ` · ${lower(nouns.reserved)}` : ""}` : `no ${one(nouns.resource)}`;
     const choose = side === "arrival" ? `Choose ${a(nouns.arrival)}, or drag one here from ${nouns.arrival.other}` : `Choose ${a(nouns.resource)}, or drag one here from ${nouns.resource.other}`;
     // Refused, its reason is its tooltip (A45).
     const title = say?.state === "refused" && say.reason !== undefined ? say.reason : say?.state === "pick" && say.pick !== undefined ? say.pick : choose;

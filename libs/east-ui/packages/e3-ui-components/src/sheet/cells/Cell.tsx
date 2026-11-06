@@ -7,7 +7,9 @@
  * One read-only cell by kind (B§11): text · mono (date, stamped) · num + unit
  * (quantity, integer) · enum dot + word · the split link cell (`LinkCell`)
  * · a custom kind's `print`. A date read at a level (#844) prints `dd/mm/yy`
- * (and its time at the time level) with the resolution as a tag; once its
+ * (and its time at the time level) with the resolution as a tag — unless its
+ * column declares a `format`, which it prints alone, as the author's pattern
+ * says its precision (`HH:mm` is `11:55`); once its
  * actual is known it prints when the work happened instead, the tag saying
  * how that stands against the wanted date. A ghost (a pending fill, P4) draws in
  * `fg.subtle` over the brand hatch; the next Tab target carries the dotted
@@ -45,7 +47,7 @@ export interface SheetCellContentProps {
     rowBlank: boolean;
     /** The unit for a quantity cell (from the driver). */
     unit: string | undefined;
-    /** The enum member the cell names, for its tone. */
+    /** The register member the cell names (an enum's, a reference's, a lookup's): its label is what the cell shows, an enum's tone its dot. */
     member: SheetRegisterMemberValue | undefined;
     /** A pending fill — drawn as a ghost when the cell is blank (P4). */
     ghost: SheetCellValue | undefined;
@@ -65,6 +67,8 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
     const blank = cellIsBlank(cell);
     const shown = blank && ghost !== undefined ? ghost : cell;
     const isGhost = blank && ghost !== undefined;
+    // A cell naming a register member shows the member's label; its key is what it holds, copies and pastes.
+    const named = !isGhost && member !== undefined && member.label !== "" && shown?.type === "String" && member.key === shown.value ? member.label : undefined;
     if (shown?.type === "Invalid") return <Box as="span" css={styles.cellText} data-op-value={mark} data-slot="cellText">{shown.value}</Box>;
     switch (meta.kind) {
         case "date":
@@ -85,7 +89,7 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
                 return meta.kind === "stamped" && !rowBlank ? <Box as="span" css={styles.cellGhost} data-op-value={mark}>—</Box> : null;
             }
             // At a level the date prints `dd/mm/yy` (its time at the time level) and the resolution as a tag at the cell's right edge.
-            if (meta.kind === "date" && when !== undefined && shown?.type === "DateTime") {
+            if (meta.kind === "date" && when !== undefined && shown?.type === "DateTime" && meta.dateFormat === undefined) {
                 const w = formatWhen(shown.value, when.level, words);
                 return (
                     <>
@@ -113,7 +117,7 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
             return (
                 <>
                     <Box as="span" css={styles.cellDot} data-op-value={mark} data-tone={tone} />
-                    <Box as="span" css={styles.cellWord} data-op-value={mark}>{cellText(shown, meta, words)}</Box>
+                    <Box as="span" css={styles.cellWord} data-op-value={mark}>{named ?? cellText(shown, meta, words)}</Box>
                 </>
             );
         }
@@ -153,7 +157,7 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
         }
         default: {
             if (cellIsBlank(shown)) return null;
-            return <Box as="span" css={isGhost ? styles.cellGhost : styles.cellText} data-op-value={mark}>{cellText(shown, meta, words)}</Box>;
+            return <Box as="span" css={isGhost ? styles.cellGhost : styles.cellText} data-op-value={mark}>{named ?? cellText(shown, meta, words)}</Box>;
         }
     }
 });

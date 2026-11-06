@@ -69,9 +69,11 @@ pans and strip drags.
 | `make east-ui-examples-html-all` | Snapshots every east-ui example to standalone HTML. |
 | `make east-ui-examples-html-<key>` | Snapshots a single example (e.g. `east-ui-examples-html-disclosure/tabs`). |
 
-Visual verification measures computed styles in the responsive suite: a
-visual change lands with a visual invariant in
-`../east-ui-showcase/tests/responsive/`. Never read a screenshot.
+Visual verification measures and looks: a visual change lands with a visual
+invariant in `../east-ui-showcase/tests/responsive/`, computed styles measured
+in the page, and before it is called finished it is screenshotted and the
+screenshots read (see [`../../CLAUDE.md`](../../CLAUDE.md) › Canonical design
+source).
 
 **Palette (#1091).** Brand is the default `colorPalette`.
 `theme/global-css.ts` sets it on `html`, where Chakra sets its own `gray`.
@@ -383,6 +385,36 @@ component, nothing in east-ui.
   `overlay` on a wider frame floats over a live main. While a drag is under
   way an open overlay pane slides off main and its scrim lifts, so it never
   hides a drop target.
+- **A phone's frame** (560px or narrower, `data-phone`; `Mobile Builder
+  Frame Spec.md` in `libs/east-ui/docs/proposals`, ruled 3 Nov 2026) stacks
+  its regions and gives main the frame's whole width. The items that draw a
+  `secondRow` (`ToolbarItem.secondRow`: the history's phone form,
+  `HistoryBar`'s `phone` — the drafts' count, Issues off at none, the four
+  buttons at 44px, Discard asking first in a band under the row
+  (`FrameSessionBand`), its conflicts in the bottom panel — and the
+  Elara eye before it) leave the first row for the toolbar's second row,
+  44px, always shown. The footer's `LoadingLine` draws itself at that row's
+  start in its short form (`SessionRowSlot`), the count stepping aside while
+  it shows, and a footer whose line it so takes is not shown, mounted still;
+  a footer with no loading line (the query builder's status line) stays, and
+  under the cold-load cover the line stays in the live footer. A described
+  pane that collapses is a tab of the pane strip on the bottom edge — icon,
+  label, detail or badge — and opens as the Filters view does (ruled 3 Nov
+  2026): a view over the whole frame, edge to edge, sliding in from the
+  right, its `DockPane` a vertical tray: one at a time, Esc and its collapse close it, the
+  focus moves in and back to its tab, its open tab and bodies kept across the
+  width. What the drawer holds hears `FrameDrawer` (`./internal`), so a pane
+  draws its phone form there — the Sheet's inspector its head and each field a
+  section of its own at touch size (`Mobile Sheet Spec.md` SH12). A pane that never collapses and
+  an `{ element }` pane stay pinned. A frame given `phonePanel` (the Calendar,
+  the Roster, the Allocation: FR9) hears what main and an open pane open
+  through `FrameBottomPanel`: `SliceEditPopover` draws in a slot in the flow
+  over the strip, as the Sheet's action bar stands, what is above giving way,
+  rather than in a popover; the toolbar's stay views. `phoneViews` opens them
+  as views instead, over the whole builder (the query builder, `Query Builder
+  Phone Spec.md`), and a dock's `phoneTabs` gives the strip a tab for each of a
+  single pane's own tabs. Every builder has a phone-sized example
+  (a 390px box) that the showcase's `builder-frame-phone.spec.ts` measures.
 - **Styles.** The `builderFrame` slot recipe owns every style the frame has.
   The frame sets data attributes (`data-builder-frame`, `data-frame-slot`,
   `data-pane-mode`, `data-collapsed`, `data-scrim`) and geometry only, and a
@@ -422,7 +454,7 @@ component, nothing in east-ui.
   a segment strip, a stepper, a tab strip, the key search's box and every
   button (`size="sm"`), the history's and the date navigator's among them. The
   showcase's `toolbar-row-heights.spec.ts` holds every builder to it, unfolded
-  and folded, in both themes.
+  and folded.
 - **The row's floor** (hand retest, 27 Oct 2026). Below the toolbar's ladder
   lies its floor: a fold step ranked at `FLOOR_RANK` (`toolbar/fold.ts`) or
   past it is one of its rungs, taken only once every step of the ladder — the
@@ -553,7 +585,8 @@ A builder's inspector shows the selection as a typed form: east-ui's
 `FieldForm` (`src/forms/field-form/`, #1147) draws each one as the shared
 `Field` around the shared input its East type takes (`isTypeEqual`) —
 `StringInput`, `IntegerInput` / `FloatInput`, `Checkbox`, `DateTimeInput`,
-`Select`, `TagsInput` — each mounted with a payload built from East's
+`Select`, `TagsInput` — a variant of up to four `NullType` cases a
+`RadioGroup` instead of a `Select`, in every form (#1473) — each mounted with a payload built from East's
 `defaultValue` of its type, never a control of its own. What is typed is one
 edit when the focus leaves the field or on Enter, and Esc puts it back; a
 choice is an edit at once. A field that differs from `baseline` is tinted
@@ -862,6 +895,10 @@ When adding persistence to Chakra components that support both
     : { defaultValue: getSomeorUndefined(value.defaultValue) }
 )}
 ```
+
+### A Table's and a Value tree's phone form
+
+At 560 px of its own width or narrower each draws its phone form by itself, no flag (FR10, ruled 4 Nov 2026): the Table pins one column and pages the rest (`collections/table/phone-fit.ts`, pure), no sideways scroll, every word whole; the tree's rows are measured, a branch 44, a field at least 36. The showcase's `visual-invariants.spec.ts` holds both.
 
 ### Virtualization (Table, and the Plan and the Sheet in e3-ui-components)
 

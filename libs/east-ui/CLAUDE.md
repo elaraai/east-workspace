@@ -33,7 +33,7 @@ design / snapshot workflow:
 | `make design` | Serves the design system's download (`app_design_system/`, read-only) on :5174. |
 | `make east-ui-examples-html-all` | Snapshots every east-ui example to standalone HTML. |
 | `make east-ui-examples-html-<key>` | Snapshots a single example (e.g. `east-ui-examples-html-disclosure/tabs`). |
-| `make build-js` | The JavaScript the tests run, and no more: east-ui and e3-ui compiled by tsc, the renderers bundled with no type-check and no declarations. CI's test jobs run on it. |
+| `make build-js` | The JavaScript the tests run, and no more: east-ui and e3-ui compiled by tsc (`build-js-ir`), and side by side the renderers bundled with no type-check and no declarations (`build-js-renderers`). CI's test jobs run on it, each half restored from a cache keyed by its sources where they stand. |
 | `make build-checked` | Every package a test or lint reads, as `make build` builds it, type-checked and its declarations written: all but the showcase. CI runs it beside the tests. |
 | `make check-apps` | Over what `build-checked` built: the showcase type-checked. With `build-js` and `build-checked` it checks what `make build` does. |
 | `make build-showcase-js` | The showcase's bundle alone, over what `build-js` built: what CI's browser jobs serve. |
@@ -66,10 +66,27 @@ raw value. The token guard
 token, when a theme value drifts from the design system's in either colour
 mode — so after a re-download it names exactly what the theme must follow.
 
-Visual verification measures computed styles in the showcase's responsive
-suite (`make test-responsive`, `packages/east-ui-showcase/tests/responsive/`):
-a visual change lands with a visual invariant there. Never read a
-screenshot.
+Visual verification has two halves, and neither stands in for the other.
+
+- **Measure it.** A visual change lands with a visual invariant in the
+  showcase's responsive suite (`make test-responsive`,
+  `packages/east-ui-showcase/tests/responsive/`), measuring computed styles:
+  that is what holds it in CI.
+- **Look at it.** Before a visual change is called finished, screenshot it and
+  read the screenshots: each state it touches, at each width it has, a phone's
+  included. A spec holds only what someone thought to measure: tap targets and
+  geometry all pass over a label cut to `No`. What a look finds becomes an
+  invariant.
+
+Dark mode is for colour checks. A test of layout, geometry or behaviour runs
+in the light theme (`tests/responsive/themes.ts`' `LAYOUT_THEMES`); a test
+holding a colour of its own — one that is not a theme token, or that a theme
+token's own value decides — runs in both. Measuring against a token, or that
+something is not transparent, is no dark-only risk: the token guard above holds
+the tokens, and lint refuses a raw colour in a recipe. A sweep that sizes a
+builder's frame itself runs under one project (`@desktop`), unless it needs a
+touch pointer or a phone's viewport. Phone widths are `builder-frame-phone` and
+`toolbar-fit`'s.
 
 A spec there imports `test` from `./kept-page` (#1466): the tests of a spec
 file share one page, which the showcase resets between them as a fresh load

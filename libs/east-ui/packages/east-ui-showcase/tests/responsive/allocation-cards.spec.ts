@@ -6,15 +6,17 @@
  * The Allocation's narrow layout (#1333, `Allocation Spec.md` §9.12, A78) on
  * the real in-page e3: below 480px of main the Timeline is a card per
  * resource and the Table a card per row, each card the shared agenda part's
- * (the Roster's and the Calendar's) inside main, its actions whole and their
- * popovers inside the window, nothing to drag; resizing across 480px keeps
+ * (the Roster's and the Calendar's) inside main, its actions whole and what they
+ * open in the phone's bottom panel, nothing to drag; resizing across 480px keeps
  * the layout, the selection and the drafts — measured at 390 and 360 and in a
- * 294px parent inside a wide window, in both themes, with no page overflow.
+ * 294px parent inside a wide window, with no page overflow.
  */
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
+import { bottomPanelFaults } from "./builder-frame";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /** What nothing on a narrow board may carry: a drag source, a drop target, a grip or a connector. */
 const DRAG = "[data-draggable], [data-drag-cell], [data-allocation-grip], [data-allocation-connector]";
@@ -52,8 +54,8 @@ const cardLook = (card: Locator) => card.evaluate(el => {
 /** Main's width, in px. */
 const mainWidth = (frame: Locator) => frame.locator("[data-allocation-main]").evaluate(el => el.getBoundingClientRect().width);
 
-for (const theme of ["light", "dark"] as const) {
-    test(`A78 — the Timeline's cards at 390/360 and in a 294px parent: each inside main and its parts inside it, the shared agenda's look, their actions whole, Book an arrival…'s popover inside the window, nothing to drag (${theme}) @narrow`, async ({ page }) => {
+for (const theme of LAYOUT_THEMES) {
+    test(`A78 — the Timeline's cards at 390/360 and in a 294px parent: each inside main and its parts inside it, the shared agenda's look, their actions whole, Book an arrival… in the phone's bottom panel, a popover past it, nothing to drag (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationKilnYard", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
@@ -74,17 +76,25 @@ for (const theme of ["light", "dark"] as const) {
                 .toEqual({ padding: "12px", border: `1px solid ${subtle}`, radius: "4px", background: surface, title: ["15px", "600"] });
             // The cards 8px apart, as the shared agenda's cards in a group are.
             expect(await cards.locator("[data-allocation-resource-card]").evaluateAll(els => Math.round(els[1]!.getBoundingClientRect().top - els[0]!.getBoundingClientRect().bottom)), `${width}px gap`).toBe(8);
-            // A card's actions are reachable: Book an arrival…'s Chooser opens inside the window, over the page.
+            // A card's actions are reachable: Book an arrival…'s Chooser opens in the bottom panel.
             await frame.locator('[data-allocation-resource-card="K-101"]').getByRole("button", { name: "Book an arrival…" }).click(); await settled(page);
             const popover = page.locator('[data-allocation-choices="resource:K-101|book"]');
             await expect(popover.getByRole("option").first(), `${width}px`).toBeVisible();
-            expect(await popover.evaluate(el => { const c = el.closest("[role=dialog]")!.getBoundingClientRect(); return c.left >= -0.5 && c.right <= window.innerWidth + 0.5; }), `${width}px popover`).toBe(true);
+            expect(await bottomPanelFaults(frame), `${width}px panel`).toEqual([]);
             await page.keyboard.press("Escape"); await settled(page);
+            await expect(frame.locator("[data-frame-panel]")).toHaveCount(0);
             expect(await pageOverflow(page), `${width}px page`).toBeLessThanOrEqual(0);
         }
+        // Past a phone's frame the same action is the popover it always was, though main's cards still show.
+        await size(page, entry, 565);
+        await expect(frame.locator('[data-allocation-cards="timeline"]')).toBeVisible();
+        await frame.locator('[data-allocation-resource-card="K-101"]').getByRole("button", { name: "Book an arrival…" }).click(); await settled(page);
+        await expect(page.locator('[data-scope="popover"][data-part="content"]').filter({ has: page.locator('[data-allocation-choices="resource:K-101|book"]') })).toBeVisible();
+        await expect(frame.locator("[data-frame-panel]")).toHaveCount(0);
+        await page.keyboard.press("Escape"); await settled(page);
     });
 
-    test(`A78 — the Table's cards at 390/360 and in a 294px parent: each inside main, its band the shared group band, its status the Status cell's word, a free row's Book… inside the window, nothing to drag (${theme}) @narrow`, async ({ page }) => {
+    test(`A78 — the Table's cards at 390/360 and in a 294px parent: each inside main, its band the shared group band, its status the Status cell's word, a free row's Book… in the bottom panel, nothing to drag (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationTable", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
@@ -104,7 +114,7 @@ for (const theme of ["light", "dark"] as const) {
             await free.getByRole("button", { name: "Book…" }).click(); await settled(page);
             const popover = page.locator(`[data-allocation-choices="${await free.getAttribute("data-allocation-row-card")}|arrival"]`);
             await expect(popover.getByRole("option").first(), `${width}px`).toBeVisible();
-            expect(await popover.evaluate(el => { const c = el.closest("[role=dialog]")!.getBoundingClientRect(); return c.left >= -0.5 && c.right <= window.innerWidth + 0.5; }), `${width}px popover`).toBe(true);
+            expect(await bottomPanelFaults(frame), `${width}px panel`).toEqual([]);
             await page.keyboard.press("Escape"); await settled(page);
             expect(await pageOverflow(page), `${width}px page`).toBeLessThanOrEqual(0);
         }
@@ -128,8 +138,7 @@ for (const theme of ["light", "dark"] as const) {
         await expect(frame.locator("[data-allocation-main]")).toHaveAttribute("data-allocation-layout", "timeline");
     });
 
-    test(`A78 — the phone example in its 390px container: the kilns' cards, every action reachable, nothing to drag (${theme}) @narrow`, async ({ page }) => {
-        await page.setViewportSize({ width: 1920, height: 1080 });
+    test(`A78 — the phone example in its 390px container: the kilns' cards, every action reachable, nothing to drag (${theme}) @mobile`, async ({ page }) => {
         const entry = await open(page, "allocationMobile", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
         await expect(frame.locator('[data-allocation-cards="timeline"]')).toBeVisible();
@@ -140,5 +149,23 @@ for (const theme of ["light", "dark"] as const) {
         await expect(k101.locator('[data-allocation-card-bin="3125"]').getByRole("button")).toHaveText(["22:35 · B-2LD-222031 m³", "Unlink", "Move", "Split…", "Back to Arrivals"]);
         await expect(k101.getByRole("button", { name: "Book an arrival…" })).toBeVisible();
         expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+        // Its actions open the bottom panel over the pane strip: ⌄ closes it, a press elsewhere does too, and tapping the trigger again.
+        const book = k101.getByRole("button", { name: "Book an arrival…" });
+        await book.click(); await settled(page);
+        expect(await bottomPanelFaults(frame)).toEqual([]);
+        await frame.locator("[data-frame-panel-close]").click(); await settled(page);
+        await expect(frame.locator("[data-frame-panel]")).toHaveCount(0);
+        await expect(book).toBeFocused();
+        await book.click(); await settled(page);
+        await book.click(); await settled(page);
+        await expect(frame.locator("[data-frame-panel]")).toHaveCount(0);
+        await book.click(); await settled(page);
+        await frame.locator('[data-frame-slot="main"]').click({ position: { x: 2, y: 2 } }); await settled(page);
+        await expect(frame.locator("[data-frame-panel]")).toHaveCount(0);
+        // One at a time: Split… on bin 3125 closes what Book an arrival… opened.
+        await book.click(); await settled(page);
+        await k101.locator('[data-allocation-card-bin="3125"]').getByRole("button", { name: "Split…" }).click(); await settled(page);
+        expect(await bottomPanelFaults(frame)).toEqual([]);
+        await page.keyboard.press("Escape"); await settled(page);
     });
 }

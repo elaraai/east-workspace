@@ -105,9 +105,12 @@ modules import resolves to its package's source.
 Visual verification is the responsive suite (`tests/responsive/`): after
 an east-ui example or component change, rebuild and run it, and land a
 visual change with a visual invariant there — computed styles measured in
-the page, in both themes. Never read a screenshot. The design system it
-measures against is the read-only download in `../../app_design_system/`
-(see [`../../CLAUDE.md`](../../CLAUDE.md) › Canonical design source).
+the page, in the light theme, and in dark too where the check holds a colour
+(`tests/responsive/themes.ts`) — and before it is called finished, screenshot
+it and read the screenshots: a spec holds only what someone thought to measure.
+The design system it measures against is the read-only download in
+`../../app_design_system/` (see [`../../CLAUDE.md`](../../CLAUDE.md) › Canonical
+design source).
 
 ## Keep responsive checks economical
 
@@ -137,7 +140,7 @@ its portable routes. New dependencies must broaden this mapping first.
 The build records the selected tests and reason in its job summary and build
 artifact. `make select-responsive BASE=<ref> OUTPUT_DIR=<dir>` reproduces the
 selection locally. `make test-responsive TEST_LIST=<dir>/responsive-tests.txt`
-runs it. The job count follows the selection's recorded time, ten minutes a
+runs it. The job count follows the selection's recorded time, five minutes a
 job (at most 24); a documentation-only
 change starts no browser runners. Package checks still run. Workflow dispatch
 is the explicit full-suite escape hatch.
@@ -181,7 +184,9 @@ steps. A sweep that explicitly sets its viewport and checks both 390px and
 360px runs once per pointer mode; do not tag it for a third identical sweep.
 Keep explicit remount tests where remount is the behavior under test. Tag desktop-only and mobile-only groups so
 project selection excludes them before sharding. Do not trade coverage for
-speed with retries, longer timeouts or fewer supported widths/themes.
+speed with retries or longer timeouts. A test of layout or behaviour runs in
+the light theme (`LAYOUT_THEMES`); a sweep that sizes its frame itself runs
+under `@desktop`, unless it needs a touch pointer or a phone's viewport.
 
 A stable row layout does not mean a rotating caret has finished: await its
 actual animations before comparing bounding boxes. Before a drag driven by

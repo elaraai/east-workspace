@@ -53,6 +53,32 @@ test("an entry version carries the collection's own projection through a gesture
     expect(session.originals.get("a")!.wire).toEqual({ key: "a", caption: "1–3" });
 });
 
+test("gestures that join the last under one key are one step: one Undo takes them all back, a step joined back to where it began goes, and another key — or a step undone — starts a step of its own (SH10.1)", () => {
+    const session = create();
+    const resize = (from: bigint, to: bigint, joins?: string) =>
+        session.record([{ id: "a", before: version({ ...a, end: from }), after: version({ ...a, end: to }) }], "typed", `Set end ${to}`, joins);
+    // A phone's cell editor: three edits of one cell while it stays open.
+    expect([resize(3n, 4n, "edit:1"), resize(4n, 5n, "edit:1"), resize(5n, 6n, "edit:1")]).toEqual([true, true, true]);
+    expect(session.depth).toEqual({ undo: 1, redo: 0 });
+    session.undo();
+    expect(session.entries.get("a")!.wire).toEqual({ key: "a", caption: "1–3" });
+    session.redo();
+    expect(session.entries.get("a")!.wire).toEqual({ key: "a", caption: "1–6" });
+    // Another editor opened: a step of its own; one joined back to where it began goes.
+    resize(6n, 7n, "edit:2");
+    resize(7n, 6n, "edit:2");
+    expect(session.depth).toEqual({ undo: 1, redo: 0 });
+    // A step undone is joined by nothing: what follows it is a step of its own.
+    resize(6n, 8n, "edit:3");
+    session.undo();
+    resize(6n, 9n, "edit:3");
+    expect(session.depth).toEqual({ undo: 2, redo: 0 });
+    // No key: every gesture its own step.
+    resize(9n, 10n);
+    resize(10n, 11n);
+    expect(session.depth).toEqual({ undo: 4, redo: 0 });
+});
+
 test("the collections' own gestures — a resize, a drop, a verdict — are reported as the gesture that made them", async () => {
     const events: ValueTypeOf<typeof Event>[] = [];
     const session = create({ patch: (bytes) => events.push(decodeBeast2For(Event)(bytes)) });

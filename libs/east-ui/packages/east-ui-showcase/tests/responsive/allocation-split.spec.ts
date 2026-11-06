@@ -9,14 +9,16 @@
  * Assigned to, the shared form's fields, and `Split…`'s anchored popover
  * (A71); the Table's part chips and `+ resource` inside their cell at the
  * Table's least width (A71); and Find a fit's chip and found cards in the
- * Library's Resources tab (A74) — measured in the page in both themes, from
- * 1440px to a 294px parent, nothing leaving the frame. And a bin wholly on one
+ * Library's Resources tab (A74) — measured in the page, from
+ * 1440px to a 600px frame, nothing leaving the frame (a phone's frame is
+ * `builder-frame-phone.spec.ts`'s). And a bin wholly on one
  * kiln split onto a second (#1362), saved to e3 and read back.
  */
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { FILE, open, size, token } from "./allocation-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 const endPane = (frame: Locator) => frame.locator('[data-frame-slot="end"]');
 const startPane = (frame: Locator) => frame.locator('[data-frame-slot="start"]');
@@ -43,10 +45,20 @@ const leaves = (sheet: Element) => {
     }
     return out;
 };
+/** Opens the Inspector where it is closed: a phone's from its tab, else from its rail. */
+async function openInspector(page: Page, frame: Locator): Promise<void> {
+    const tab = frame.locator("[data-pane-tab='end']");
+    if (await tab.count() > 0) {
+        // One view at a time, over the tabs: the Library's, a Find a fit opened, closed first.
+        if (await frame.locator("[data-pane-tab='start']").getAttribute("aria-selected") === "true") { await page.keyboard.press("Escape"); await settled(page); }
+        if (await tab.getAttribute("aria-selected") !== "true") await tab.click();
+    } else if (await endPane(frame).getAttribute("data-collapsed") !== null) await endPane(frame).getByRole("button", { name: "Expand Inspector" }).click();
+    await settled(page);
+}
 /** The page scrolls sideways by this much: nothing may. */
 const pageOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`A70, A71 — a split bin: its card's line cut where the card cuts it, the remainder in warn-text and whole in its tooltip; its parts in Assigned to, the shared form's 32px lines, the remainder in warn-text; Split…'s popover, its quantity over the Chooser laid in it (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1200 });
         const entry = await open(page, "allocationSplit", theme);
@@ -138,18 +150,18 @@ for (const theme of ["light", "dark"] as const) {
         expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
     });
 
-    test(`A74 — Find a fit at 1440/1024/768/390/360 and a 294px parent: its chip and each found card's reason inside the Library's pane, the reason in the card note's voice and whole in the card's title (${theme}) @narrow`, async ({ page }) => {
+    test(`A74 — Find a fit at 1440/768/600 and in a phone's frames of 390 and 294: its chip and each found card's reason inside the Library's pane, the reason in the card note's voice and whole in the card's title (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationSplit", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
         const resources = frame.locator('[data-allocation-library="resources"]');
         // A found card's line is the fit's reason in the note's voice: ink-4, or warn-text when the fit warns (`under min`).
         const voices = [await token(page, "fg-subtle"), await token(page, "fg-warning")];
-        for (const width of [1440, 1024, 768, 390, 360, 294]) {
+        for (const width of [1440, 768, 600, 390, 294]) {
             await size(page, entry, width);
             // The fix, pressed under its issue in the Inspector — opened over main where it overlays it.
             const end = endPane(frame);
-            if (await end.getAttribute("data-collapsed") !== null) { await end.getByRole("button", { name: "Expand Inspector" }).click(); await settled(page); }
+            await openInspector(page, frame);
             await end.getByRole("tab", { name: /^Issues/ }).click(); await settled(page);
             await end.locator('[data-allocation-issue-group="unallocated"]').getByRole("button", { name: "Find a fit", exact: true }).click(); await settled(page);
             await expect(resources.locator("[data-allocation-find] button"), `${width}px`).toHaveText("Find · LD-2232 · 4 m³");
@@ -191,7 +203,7 @@ for (const theme of ["light", "dark"] as const) {
         }
     });
 
-    test(`the split bin at 1440/1024/768/390/360 and a 294px parent: its parts and Split… inside the Inspector, beside main or over it; Split…'s popover inside the window; nothing leaves the frame (${theme}) @narrow`, async ({ page }) => {
+    test(`the split bin at 1440/768/600 and in a phone's frames of 390 and 294: its parts and Split… inside the Inspector, beside main or over it; Split…'s popover inside the window; nothing leaves the frame (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationSplit", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
@@ -200,9 +212,9 @@ for (const theme of ["light", "dark"] as const) {
         const card = frame.locator('[data-allocation-timeline] [data-allocation-card="3201"]');
         await card.scrollIntoViewIfNeeded();
         await card.click(); await settled(page);
-        for (const width of [1440, 1024, 768, 390, 360, 294]) {
+        for (const width of [1440, 768, 600, 390, 294]) {
             await size(page, entry, width);
-            if (await end.getAttribute("data-collapsed") !== null) { await end.getByRole("button", { name: "Expand Inspector" }).click(); await settled(page); }
+            await openInspector(page, frame);
             await expect(details(frame).locator("[data-allocation-parts] [data-field]"), `${width}px`).toHaveCount(2);
             expect(await end.locator(":scope > *").first().evaluate(leaves), `${width}px`).toEqual([]);
             expect(await frame.evaluate(root => root.scrollWidth - root.clientWidth), `${width}px frame`).toBeLessThanOrEqual(1);

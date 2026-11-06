@@ -10,7 +10,8 @@ import {
 } from "@elaraai/east";
 import { recordSliceFieldSchema, recordSliceFieldTypes, type RecordSliceFieldSchema } from "../platform/slice/record.js";
 import {
-    MAX_RECORD_SLICE_RUNS, planRecordSlice, recordChoiceWhere, recordIndexFields, recordIndexGenerated, recordPlanIndex, type RecordSlicePlan,
+    MAX_RECORD_SLICE_RUNS, planRecordSlice, recordChoiceWhere, recordEntriesFields, recordIndexFields, recordIndexGenerated, recordPlanIndex,
+    type RecordSlicePlan,
 } from "../platform/slice/record-plan.js";
 import { recordOnPrinters, recordOnTypeOf, type RecordOnPrinters } from "../platform/slice/record-on.js";
 import type {
@@ -77,6 +78,8 @@ export class RecordSliceController {
     private readonly pageEntries = new WeakMap<readonly RecordSliceEntry[], Map<string, RowEntries>>();
     /** Each generated index's `on` printer, by its name, from the binding's index key types (#1432): what a reader's planners name its leading values with. */
     readonly printOn: RecordOnPrinters;
+    /** The entries fields (#1522): each a Dict field whose picked keys weigh a reader's rows and narrow none. */
+    private readonly weighing: ReadonlySet<string>;
 
     /**
      * @param source - Bound indexed reads.
@@ -92,6 +95,7 @@ export class RecordSliceController {
         readonly readState: () => State, private readonly writeState: (state: State) => void, private readonly primaryKey: EastType = StringType, indexes?: StructType,
         private readonly indexKeys: Readonly<Record<string, EastType>> = {}) {
         this.printOn = recordOnPrinters(indexKeys);
+        this.weighing = recordEntriesFields(config.indexes);
         this.encodeRow = encodeBeast2For(row);
         this.decodeRow = decodeBeast2For(row);
         this.printKey = printFor(primaryKey);
@@ -125,7 +129,9 @@ export class RecordSliceController {
         const print = this.print.get(field)!;
         if (choice.type === "values") {
             const values = [...new Set(choice.value.map(text => print(this.readValue(field, text))))];
-            if (values.length === 0 || (schema.set && values.length !== 1)) throw new Error(schema.set ? "Choose one value" : "Choose at least one value");
+            // An entries field takes several keys, which weigh the rows (#1522); a Set field one, which narrows them.
+            const one = schema.set && !this.weighing.has(field);
+            if (values.length === 0 || (one && values.length !== 1)) throw new Error(one ? "Choose one value" : "Choose at least one value");
             return variant("values", values);
         }
         if (choice.type === "prefix") {
@@ -423,6 +429,50 @@ export class RecordSliceController {
     }
 
     /**
+     * Where a row stands among a narrowing's rows, in their order (#1513): its
+     * maintained keys sought in the narrowing, the first that holds it; where
+     * several rows share that key — every row of a status, under a status's
+     * narrowing — the run's rows, which an index keeps in their primary keys'
+     * order, read a row at a time by halves. What a reader that pages the
+     * narrowing's rows goes to a row by, where a row's place in the record says
+     * nothing of its place there.
+     *
+     * @param where - The narrowing
+     * @param key - The row's primary key, an East value of the record's key type
+     * @param row - The row, as the record holds it at its current revision
+     * @returns Its place, `null` where the narrowing does not hold it; none while a read is pending
+     * @throws {Error} When the rows read run out inside the run: the record changed between the reads
+     */
+    position(where: Where, key: unknown, row: unknown): option<bigint | null> {
+        const plan = this.plan(where);
+        const keys = plan.index === "primary" ? [this.printKey(key)] : this.source.entryKeys(plan.index, key, row);
+        let run: { row: bigint; count: bigint } | undefined;
+        let pending = false;
+        for (const ik of keys) {
+            const found = this.windows.seek(plan, variant("key", ik));
+            if (found.type === "none") pending = true;
+            else if (found.value.found && (run === undefined || found.value.row < run.row)) run = found.value;
+        }
+        if (pending) return none;
+        if (run === undefined) return some(null);
+        const compare = compareFor(this.primaryKey);
+        let low = run.row;
+        let high = run.row + run.count - 1n;
+        while (low < high) {
+            const middle = (low + high) / 2n;
+            const page = this.windows.page(plan, middle, 1n);
+            if (page.type === "none") return none;
+            const entry = page.value[0];
+            if (entry === undefined) throw new Error("The results changed while finding the row; retry");
+            const order = compare(entry.key, key);
+            if (order === 0) return some(middle);
+            if (order < 0) low = middle + 1n;
+            else high = middle;
+        }
+        return some(low);
+    }
+
+    /**
      * Some rows' maintained entries of an index, each beside the row it is one of: each row's keys, as the binding
      * maintains them — an East function of the row, evaluated row by row.
      */
@@ -496,16 +546,35 @@ export class RecordSliceController {
      * A value's own count under the other fields' choices — the rows the
      * narrowing holds with that value alone chosen for its field, as a faceted
      * search counts (#1393, ruled 23 Oct 2026) — and whether it is chosen; or
-     * why the narrowing cannot take it.
+     * why the narrowing cannot take it. A key of an entries field counts the
+     * rows holding it, whatever else is chosen ({@link holding}).
      */
     private counted(field: string, value: string, label: string): Count {
         const selected = this.readState().where.get(field);
         const base = { value, label, selected: selected?.type === "values" && selected.value.includes(value) };
         try {
-            return { ...base, count: this.count(this.proposed(field, variant("values", [value]))), error: none };
+            const count = this.weighing.has(field) ? this.holding(field, value) : this.count(this.proposed(field, variant("values", [value])));
+            return { ...base, count, error: none };
         } catch (error) {
             return { ...base, count: none, error: some(error instanceof Error ? error.message : "Could not load the count") };
         }
+    }
+
+    /**
+     * How many rows hold one key of an entries field (#1522): the key's range
+     * of the entries index, which files each row's entry under it once, read
+     * from the index alone. Its picks weigh the rows and narrow none, so the
+     * count is the record's, whatever else is chosen.
+     *
+     * @param field - The entries field
+     * @param value - The key, as a `.east` literal of the Dict's key type
+     * @returns The count; none while its search is pending
+     */
+    private holding(field: string, value: string): option<bigint> {
+        const index = this.config.indexes.find(candidate => candidate.entries && candidate.fields[0] === field);
+        if (index === undefined) throw new Error(`No entries index files '${field}'`);
+        const result = this.windows.resolve({ index: index.name, queries: [variant("key", value)] });
+        return result.type === "some" ? some(result.value.total) : none;
     }
 
     /**
@@ -526,7 +595,7 @@ export class RecordSliceController {
      */
     suggest(field: string, text: string): option<Count[]> {
         const schema = this.schema(field);
-        if (schema.kind !== "string") throw new Error("This field does not support text search");
+        if (schema.kind !== "string" || this.weighing.has(field)) throw new Error("This field does not support text search");
         const exact = this.print.get(field)!(schema.optional ? some(text) : text);
         const proposal = this.proposed(field, variant("values", [exact]));
         // A prefix searches a plain index's key, where one takes the field; else a generated one's, whose leading

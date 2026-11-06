@@ -139,6 +139,7 @@
     "example": "node --enable-source-maps dist/examples/example.js",
     "test": "npm run build && npm run lint && npm run test:built",
     "test:built": "node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
+    "test:ci": "node --import ../../scripts/no-source-locations.mjs --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
     "test:coverage": "npm run build && npm run lint && node --enable-source-maps --test-reporter=spec --test --experimental-test-coverage 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
     "test:export": "npm run build && npm run lint && rm -rf \"${EAST_UI_TEST_IR:?is unset: run make -C libs/east-ui test-export}\" && EXPORT_TEST_IR=\"$EAST_UI_TEST_IR\" npm test 2>&1 | grep 'Exported test IR'",
     "lint": "eslint .",

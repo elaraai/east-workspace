@@ -30,7 +30,7 @@ import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { linkedQuantity, type AllocationCommands } from "./actions.js";
 import type { AllocationFit } from "./fit.js";
 import { compareDate, compareFloat, dayKey, parseDay, partsOf, type Context, type Day, type Fit, type FitAsk, type FitResult, type Slot } from "./model.js";
-import { a, one, type Nouns } from "./nouns.js";
+import { a, lower, one, type Nouns } from "./nouns.js";
 import { rowOfKey } from "./table-rows.js";
 
 /** What a drag of something on the board carries: a bin's body (A24), its connector, or one of its links. */
@@ -299,13 +299,13 @@ function arrivalLabel(scene: Pick<DropScene, "context">, arrival: string): strin
 }
 
 /** A bin's arrival's code: the drafts', or the record's for a bin the drafts removed. */
-function codeOfBin(scene: Pick<DropScene, "context" | "plan" | "held">, bin: string): string {
+function codeOfBin(scene: Pick<DropScene, "context" | "plan" | "held" | "nouns">, bin: string): string {
     const arrival = (scene.plan.bins.get(bin) ?? scene.held?.bins.get(bin))?.arrival;
-    return arrival?.type === "some" ? arrivalLabel(scene, arrival.value) : "The reservation";
+    return arrival?.type === "some" ? arrivalLabel(scene, arrival.value) : `The ${one(scene.nouns.reservation)}`;
 }
 
 /** What a grip's caption and refusal call what it carries. */
-function codeOf(scene: Pick<DropScene, "context" | "plan" | "held">, grip: Grip): string {
+function codeOf(scene: Pick<DropScene, "context" | "plan" | "held" | "nouns">, grip: Grip): string {
     switch (grip.kind) {
         case "arrival": return arrivalLabel(scene, grip.arrival);
         case "resource": return nameOf(scene, grip.resource);
@@ -339,7 +339,7 @@ const nowhere: Verdict = { allowed: false, caption: "", warn: false, refusal: un
  * none (F3, F4), waiting while it is on its way — asked, when `asking`.
  */
 function answered(scene: DropScene, asked: Asked | undefined, word: string, asking: boolean, verdict: (answer: FitResult) => Verdict): Verdict {
-    if (asked === undefined) return refused("not on the board", { word, text: "The bin is no longer on the board." });
+    if (asked === undefined) return refused("not on the board", { word, text: `The ${one(scene.nouns.bin)} is no longer on the board.` });
     if (scene.fit.error !== undefined) return refused("fits unavailable", { word, text: `Fits couldn't be checked: ${scene.fit.error}.` });
     const answer = scene.fit.answer(asked.ask, asked.of);
     // Unanswered, it is asked: the fill's question is the reservation's own (A23).
@@ -381,7 +381,7 @@ function bookVerdict(scene: DropScene, grip: Extract<LibraryGrip, { kind: "arriv
             if (resource === undefined) return taken(`to ${slotText(scene, card.lane, card.at)}`, into);
             const of = grip.kind === "arrival" ? scene.without(reservation) : scene.restoring(grip.bin, reservation);
             // The Table names the reserved row's slot, as its row reads (A33).
-            const verb = target.table === true ? `to ${slotText(scene, card.lane, card.at)} on ` : "into the reservation on ";
+            const verb = target.table === true ? `to ${slotText(scene, card.lane, card.at)} on ` : `into the ${one(scene.nouns.reservation)} on `;
             return onResource(scene, askOf(scene, grip, of), code, resource, "Not booked", verb, into, [], "", asking);
         }
         const at = landing(scene.slots, scene.plan, target.lane, target.at, undefined);
@@ -404,13 +404,13 @@ function bookVerdict(scene: DropScene, grip: Extract<LibraryGrip, { kind: "arriv
  * @param resource - The resource
  * @returns Whether it was booked
  */
-export function bookOnto(scene: Pick<DropScene, "context" | "plan" | "held" | "day" | "commands" | "firstFree" | "notice">,
+export function bookOnto(scene: Pick<DropScene, "context" | "plan" | "held" | "day" | "commands" | "firstFree" | "notice" | "nouns">,
     grip: Extract<LibraryGrip, { kind: "arrival" | "removed" }>, resource: string): boolean {
     const land = scene.firstFree();
     if (land !== undefined) {
         return grip.kind === "arrival" ? scene.commands.book(grip.arrival, land.lane, land.at, resource) : scene.commands.restore(grip.bin, land.lane, land.at, resource);
     }
-    scene.notice({ word: "Not booked", text: `No free bin is left on ${formatDatePattern("ddd D", scene.day)} for ${codeOf(scene, grip)}.` });
+    scene.notice({ word: "Not booked", text: `No free ${one(scene.nouns.bin)} is left on ${formatDatePattern("ddd D", scene.day)} for ${codeOf(scene, grip)}.` });
     return false;
 }
 
@@ -431,14 +431,14 @@ function resourceVerdict(scene: DropScene, resource: string, target: Target, ask
         });
     const onBin = (id: string): Verdict => {
         const bin = scene.plan.bins.get(id);
-        if (bin === undefined) return refused("not on the board", { word: "Not allocated", text: "The bin is no longer on the board." });
+        if (bin === undefined) return refused("not on the board", { word: "Not allocated", text: `The ${one(scene.nouns.bin)} is no longer on the board.` });
         if (bin.parts.has(resource)) return taken("already on it", () => false);
         const reserved = bin.arrival.type === "none";
         const code = codeOfBin(scene, id);
-        return judged(answer => answer.bins.get(id), "Not allocated", reason => `${reserved ? "The reservation" : code} can’t go onto ${name}: ${reason}.`,
-            reserved ? "move the reservation here" : `link ${code}`, () => scene.commands.link(id, resource, undefined));
+        return judged(answer => answer.bins.get(id), "Not allocated", reason => `${reserved ? `The ${one(scene.nouns.reservation)}` : code} can’t go onto ${name}: ${reason}.`,
+            reserved ? `move the ${one(scene.nouns.reservation)} here` : `link ${code}`, () => scene.commands.link(id, resource, undefined));
     };
-    const onSlot = (lane: string, at: Date): Verdict => judged(answer => answer.reserve.type === "some" ? answer.reserve.value : undefined, "Not reserved",
+    const onSlot = (lane: string, at: Date): Verdict => judged(answer => answer.reserve.type === "some" ? answer.reserve.value : undefined, `Not ${lower(scene.nouns.reserved)}`,
         reason => `${name} can’t take ${slotText(scene, lane, at)}: ${reason}.`, `reserve ${slotText(scene, lane, at)}`, () => scene.commands.reserve(lane, at, resource));
     if (target.kind === "resource") return nowhere;
     if (target.kind === "cell") {
@@ -481,7 +481,7 @@ export function verdictOf(scene: DropScene, grip: Grip, target: Target, ranks: r
             const reservation = target.card!;
             if (resource === undefined) return taken(`to ${slotText(scene, card.lane, card.at)}`, () => scene.commands.fill(grip.bin, reservation));
             // The Table names the reserved row's slot, as its row reads (A33).
-            const verb = target.table === true ? `to ${slotText(scene, card.lane, card.at)} on ` : "into the reservation on ";
+            const verb = target.table === true ? `to ${slotText(scene, card.lane, card.at)} on ` : `into the ${one(scene.nouns.reservation)} on `;
             const of = scene.without(reservation);
             return onResource(scene, askOf(scene, grip, of), code, resource, "Not moved", verb, () => scene.commands.fill(grip.bin, reservation), [], "", asking);
         }

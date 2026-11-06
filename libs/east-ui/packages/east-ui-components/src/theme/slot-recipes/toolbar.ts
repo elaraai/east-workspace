@@ -14,7 +14,15 @@
  *     so a control's focus ring and its tap halo still show.
  *   - Item: its own width (`flex: none`), whatever form it is in; the first
  *     item of the end cluster takes the row's slack before it.
- *   - Gap: `md` 10px (the Plan's band), `lg` 12px.
+ *   - Item: one that grows (`data-toolbar-grow`) takes the row's slack, and
+ *     may shrink to nothing — a phone's view tabs, which scroll inside it.
+ *   - Item: one that gives way (`data-toolbar-shrink`, a phone's count line)
+ *     does so before one that grows does, and what follows it stands at the
+ *     row's end. Weighed (`data-toolbar-weighing`), its content lies on one
+ *     line, so the toolbar counts it whole.
+ *   - Gap: `md` 10px (the Plan's band), `lg` 12px, `none` with no padding
+ *     either — a phone's row, whose items carry their own (`Mobile Builder
+ *     Frame Spec.md` FR2).
  *
  * @packageDocumentation
  */
@@ -43,12 +51,19 @@ export const toolbarSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             flex: "none",
             "&[data-toolbar-end]": { marginInlineStart: "auto" },
+            "&[data-toolbar-grow]": { flex: "1 1 auto", minWidth: "0", alignSelf: "stretch" },
+            /* Gives way before anything else does, the row's slack past it: what follows stands at the row's end. */
+            "&[data-toolbar-shrink]": { flex: "0 1000 auto", minWidth: "0", overflow: "hidden" },
+            "&[data-toolbar-shrink] + [data-toolbar-item]": { marginInlineStart: "auto" },
+            /* Weighed whole: its content on one line, however much of it the row has let show (`weigh`). */
+            "&[data-toolbar-weighing] > *": { width: "max-content", flexWrap: "nowrap" },
         },
     },
     variants: {
         gap: {
             md: { root: { gap: "10px" } },
             lg: { root: { gap: "{spacing.3}" } },
+            none: { root: { gap: "0", paddingInline: "0", alignSelf: "stretch" } },
         },
     },
     defaultVariants: { gap: "lg" },

@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "Builds interactive decision surfaces as e3 UI tasks (ui()) authored in east-ui JSX and bound to workspace data: Data.bind and Data.bindPaged for datasets, Record.bind for records and their mutations, Func.bind for e3.function calls, staged edits reviewed with the Diff tag. Provides the planning builders Plan, Sheet, Calendar, Roster, Allocation, Flowchart and Schematic, plus Ontology, Experiment, the Decide loop (Decision.bind, DecisionQueue, DecisionJournal), the Studio page builder, saved jq queries (Query.Builder), and rendering deployed surfaces in a React app (E3Provider). Use when a UI reads or writes e3 workspace data or runs as an e3 task; components with no e3 data are east-ui's."
+description: "Builds interactive decision surfaces as e3 UI tasks (ui()) authored in east-ui JSX and bound to workspace data: Data.bind and Data.bindPaged for datasets, Record.bind for records and their mutations, Func.bind for e3.function calls, staged edits applied or discarded together. Provides the planning builders Plan, Sheet, Calendar, Roster, Allocation, Flowchart and Schematic, plus Ontology, the Decide loop (Decision.bind, DecisionQueue, DecisionJournal), the Studio page builder, saved jq queries (Query.Builder), and rendering deployed surfaces in a React app (E3Provider). Use when a UI reads or writes e3 workspace data or runs as an e3 task; components with no e3 data are east-ui's."
 ---
 
 # e3-ui — e3 + UI bridge
@@ -8,13 +8,12 @@ description: "Builds interactive decision surfaces as e3 UI tasks (ui()) authore
 `@elaraai/e3-ui` connects **east-ui** JSX tags to **e3** workspaces. A decision
 surface is an e3 **UI task** whose reads and writes of workspace data are
 recorded in a manifest derived from its IR, so the engine knows what the UI
-depends on and re-renders it when that data changes. With staged writes,
-`<Diff>` review and commit / discard, a view is where a user commits a decision
-with its evidence.
+depends on and re-renders it when that data changes. With staged writes and
+commit / discard, a view is where a user commits a decision with its evidence.
 
 Everything comes from one import, `@elaraai/e3-ui`: the `ui()` task factory, the
 bindings (`Data`, `Record`, `Func`, `Decision`, `Slice.bindRecords`), the e3
-tags (`<Diff>`, `<Ontology>`, `<Experiment>`, `<Plan>`, `<Sheet>`, `<Calendar>`,
+tags (`<Ontology>`, `<Plan>`, `<Sheet>`, `<Calendar>`,
 `<Roster>`, `<Allocation>`, `<Flowchart>`, `<Schematic>`, `<DecisionQueue>`,
 `<DecisionJournal>`) and the `Studio` and `Query` components. Base tags
 (`<VStack>`, `<Text>`, `<Stat>`, …) come from `@elaraai/east-ui`.
@@ -93,8 +92,8 @@ Task → What do you need?
     │   ├─ Write a value           → .write(v)
     │   ├─ Write + kick dataflow   → .writeAndStart(v)
     │   ├─ Current status (variant) → .status()  (e.g. .status().hasTag('stale'))
-    │   ├─ The binding handle       → .binding   (pass to <Diff bindings={[…]} />)
-    │   └─ Staged mode             → { mode: 'staged' } + .commit() / .discard()
+    │   ├─ The binding handle       → .binding   (its source and patch paths, and its mode)
+    │   └─ Staged mode             → { mode: 'staged' } + .commit() / .discard(), .pending() while a change waits
     │
     ├─ Read a collection too large to hold whole — Data.bindPaged(dataset, options?)
     │   ├─ One window              → .page(offset, limit)  (none = in flight; some([]) = exhausted; a failure throws)
@@ -121,11 +120,8 @@ Task → What do you need?
     │   ├─ Spinner boolean          → .pending()
     │   └─ Stop waiting             → .cancel() (client-side; server still finishes)
     │
-    ├─ Review pending (staged) changes
-    │   └─ <Diff bindings={[a.binding, b.binding, …]} />
-    │
     ├─ Edit a graph / ontology dataset
-    │   └─ <Ontology binding={view.binding} />   (OntologyType: NodeType / LinkType)
+    │   └─ <Ontology value={view} />   (OntologyType: NodeType / LinkType)
     │
     ├─ Offer components for operators to arrange on pages (Studio)
     │   ├─ Declare one — self-contained, like a ui() body   → Studio.component(key, meta, fn)
@@ -158,6 +154,7 @@ Task → What do you need?
     │   ├─ …on paged resources: read a cell at a time         → the kind's source lists index.series + index.summary beside its interval index
     │   ├─ A link between two runs, or two events             → Plan.link({ from: Plan.ref(…), fromRun, … }) / Plan.link({ from: Plan.eventRef(kind, key), … })
     │   ├─ Its library pane: templates, backlog, series, cards → library={[Plan.library.events(), Plan.library.backlog(), Plan.library.series(), Plan.library.tab(rows, {…})]}
+    │   ├─ The app's own words for what it draws              → vocabulary={{ unassigned, backlog, rows, dueThisWeek, confirmed, … }}
     │   ├─ Its inspector pane: what is selected               → inspector (+ an event kind's own: Schedule.events(record, { inspector }))
     │   ├─ Drags of templates, backlog cards and events       → built in with resources + events (+ library); canDrop={fn(Schedule.Types.Candidate) => Option<String>}
     │   ├─ The app's optimiser over the window and the backlog → optimise={Func.bind(e3.function)} from Plan.Types.OptimiseRequest({ job: Job }, { presses: Press }) to Plan.Types.OptimiseResult({ job: Job })
@@ -172,30 +169,38 @@ Task → What do you need?
     │   ├─ The host's rows                                    → <Sheet data={…} id="id" columns={{…}} />
     │   ├─ Narrow its rows and templates — one rail           → slice={{ slice: Slice.bindRecords(key, { rows, rowTemplates, … }) }} (Sheet.templates(rows, { …, source }))
     │   ├─ Its panes, each optional                           → library={[Sheet.library.rows(), Sheet.library.columns(), Sheet.library.tab(…)]} · inspector (+ fields)
+    │   ├─ The app's own words for what it draws              → vocabulary={{ members, unassigned, source, destination, wanted, actual }}
     │   ├─ Its columns, registers and the driver              → Sheet.column.* / Sheet.register.* / Sheet.driver
     │   ├─ Groups, loose rows between them, read-only sub rows → Sheet.group / Sheet.Types.Entry / Sheet.subRows
     │   ├─ Data too large to hold whole                       → data={paged}, a Data.bindPaged handle
     │   ├─ The app's optimiser over the rows in view          → optimise={Func.bind(e3.function)} from Sheet.Types.OptimiseRequest(R) to Sheet.Types.OptimiseResult(R)
+    │   ├─ On a phone: a column pinned, how many in view      → narrow={{ pin?: "<column>", columns?: 1 | 2 | 3 }} (none pinned, 2 in view by default)
     │   └─ Drafts checked as they are made, one checked Save  → onUpdate | onApply, ready, newRow
     │
     ├─ Schedule bound records on a calendar — the Calendar
     │   ├─ Event records, with their backlog                  → <Calendar events={{ job: Calendar.events(Record.bind(jobs), { name, icon, title, start, end, resource: { field, of }, entries, backlog }) }} />
     │   ├─ Resources and templates, read whole                → resources={{ machines: Calendar.resources(Data.bind(r).read(), {…}) }} · Calendar.templates(rows, {…})
+    │   ├─ The app's own words for what it draws              → vocabulary={{ backlog, templates, template, dueThisWeek, dueNextWeek, later, noDate, unscheduled, unassigned, resources }}
     │   ├─ Narrow it — one rail, one date window              → slice={{ slice: Slice.bindRecords(key, { job: { source, range: "start" }, machines?, jobTemplates? }) }}
     │   └─ The app's optimiser                                → optimise={Func.bind(e3.function)}
     │
-    ├─ Draw a state-transition or process flow — the Flowchart
-    │   ├─ An e3 record of flows by name                      → <Flowchart record={…} flow="…" /> (record = Record.bind(r), r of Flowchart.Types.Flows)
-    │   ├─ The record's value, written as literals            → Flowchart.values({ [name]: { lanes, states, links, triggers? } }) (a lone flow: one entry)
-    │   ├─ One flow of the host's, an input's value           → <Flowchart data={Data.bind(input)} /> (the input's value Flowchart.value({ … }))
-    │   ├─ One flow from the app's own tables                 → <Flowchart data={Flowchart.over(states, { state, links, link, lanes, triggers?, trigger? })} />
-    │   ├─ Decision triggers and evidence on the transitions  → a flow's triggers, a link's trigger / evidence
-    │   ├─ Selection and ⌥-click path tracing                 → onSelect*, onTracePath
-    │   ├─ Its inspector                                      → on by default (inspector={false} takes it away); a state's or a transition's own Details → inspector={{ state, transition }}
-    │   ├─ The flows listed by name, one opened, new started  → library={[Flowchart.library.flows()]}
-    │   ├─ State and transition templates, the author's cards → library={[…, Flowchart.library.states(templates.read(), {…, source }), Flowchart.library.transitions(…), Flowchart.library.tab(rows, {…})]}
-    │   ├─ Narrow its flows, templates and tabs — one rail    → slice={{ slice: Slice.bindRecords(key, { flows?, steps?, … }) }}
-    │   └─ Edit a flow: lanes, states, transitions, one Save  → record={…}, or data={…} + onApply (canConnect vetoes a pair)
+    ├─ Draw a state-transition flow over the app's records — the Flowchart
+    │   ├─ A kind per record: its states, transitions, lanes, decisions → <Flowchart states={Flowchart.states(record, { label, lane, order, members? })} transitions={Flowchart.transitions(record, { from, to, decision?, kind?, evidence? })} lanes={Flowchart.lanes(record, { label, order })} decisions={Flowchart.decisions(record, { label, owner? })} />
+    │   ├─ Editable, or read only                              → Record.bind(record) · Data.bind(record) (lanes and decisions: small records, read whole)
+    │   ├─ Narrow its states, transitions and cards — one rail → slice={{ slice: Slice.bindRecords(key, { states: { source: Data.bindPaged(record, { indexes }) }, transitions: { … }, <a cards list's source>? }, { presets? }) }} (+ the kind's entries: Data.bindPaged(record))
+    │   ├─ What a narrowing leaves out: gone, or faded         → narrowed="hide" (the default) · narrowed="dim"
+    │   ├─ What its cards and labels draw from the app's rows  → details: Flowchart.details(rows, { details: [Flowchart.figure(f), .tags(f), .histogram(f, { unit }), .list(f)] }) on Flowchart.states / .transitions — rows keyed as the kind's, bound as it is read (Data.bind, or Data.bindPaged beside a kind read through its source)
+    │   ├─ …where each read shows, tags in the app's colours   → show: "all" (default) | "canvas" | "inspector" · Flowchart.tags(f, { colors: { Tag: { colorPalette, variant? } } or rows.read() of Flowchart.Types.TagColor, legend: true })
+    │   ├─ …a histogram over the app's own bins and axis       → Flowchart.histogram(f, { unit, bins?: [edges…] (left out: every row's edges merged), scale?: "band" | "linear", ticks?: [n, { at, label }] })
+    │   ├─ …weighed by what the rail picks of a Dict field     → Flowchart.details(evidence, { source: "evidence", details: [ … ] }) — evidence = Data.bindPaged(record, { indexes: [its index.entries("byService")] }), also the rail's source: Slice.bindRecords(key, { …, evidence: { source: evidence, fields: { byService: { label, hints } }, initial? } }) — a figure adds, a histogram adds bin by bin, a list adds by name, tags join; weigh: false keeps a share's own, and a field the entries lack draws the row's
+    │   ├─ Each kind's cards, and the Steps, Transitions and Lanes tabs → Flowchart.templates(rows, { name, group?, values, source? }) on the kind · library={[Flowchart.library.states(), .transitions(), .lanes()]}
+    │   ├─ The app's own words for what it draws              → each kind's own name: Flowchart.states(record, { …, name: "Stop" }) — its tabs, canvas, inspector, footer and Find say it · vocabulary={{ planned, observed }}, a transition's kinds
+    │   ├─ An author's card dropped onto any kind's row        → Flowchart.library.tab(rows, { …, drop: (r) => Flowchart.patch(R, { … }) })
+    │   ├─ The inspector, a kind's form and the app's check    → on by default (inspector={false} takes it away) · Flowchart.states(record, { …, fields?, ready? })
+    │   ├─ What the host hears, and the connect veto           → onSelectState · onSelectLink · onSelectTrigger · onTracePath (⌥-click) · canConnect={fn → Option<String>}
+    │   ├─ Top down, a minimap, no legend, read only           → orientation="TD" · minimap · legend={false} · readOnly
+    │   ├─ On a phone: how many lanes in view, ‹ › through them → narrow={{ lanes?: 1 | 2 | 3 }} (2 by default; one where the details draw on the cards)
+    │   └─ Edit it: lanes, states, transitions, one Save       → each kind Record.bind(record) over a record declaring mutation.patch(); Save writes each through its patch door
     │
     ├─ Draw the app's records at world coordinates — a floor, a site — the Schematic
     │   ├─ A kind per record, under its slot                   → <Schematic extent={{ width, height }} items={{ racks: Schematic.items(record, { name, icon, x, y, label, … }) }} zones={{ … }} links={{ … }} nets={{ … }} />
@@ -206,6 +211,7 @@ Task → What do you need?
     │   ├─ What a card draws from another record               → Schematic.items(…, { details: Schematic.details(record, { status, meter, metric, sublabel }) })
     │   ├─ The layers, from the app's record                   → layers={Schematic.layers(systems.read(), { label, order?, tone?, color?, visible?, locked?, opacity? })}
     │   ├─ Templates, the backlog, the index, the layers       → Schematic.templates(rows, { …, source }) · library={[Schematic.library.templates(), .backlog(), .index(), .layers()]}
+    │   ├─ The app's own words for what it draws               → vocabulary={{ templates, backlog, index, layer, zone, net, link, source, destination }}
     │   ├─ An author's card dropped onto an entity             → Schematic.library.tab(rows, { …, drop: (r) => Schematic.patch(R, { … }) })
     │   ├─ The inspector, a kind's form and its own Details    → inspector · Schematic.items(record, { …, fields?, ready?, inspector? })
     │   └─ What the host hears, and the connect veto           → onSelect={fn(Array<Schematic.Types.Ref>)} · canConnect={fn(Schematic.Types.Candidate) → Option<String>}
@@ -220,6 +226,8 @@ Task → What do you need?
     │   ├─ The app's optimiser over the week                          → optimise={Func.bind(e3.function)} from Roster.Types.OptimiseRequest(R) to Roster.Types.OptimiseResult(R)
     │   ├─ Narrow its duties, targets, people, activities, patterns   → slice={{ slice: Slice.bindRecords(key, { duty: { source, range: "start" }, targets?, people?, activities?, patterns? }) }}
     │   ├─ People by week or by month                                 → view={{ layout: "people", period: "week" | "month", date }}
+    │   ├─ Offer only some layouts, no switch with one left           → views={["people"]} or views={expr of Array<Roster.Types.Layout>}
+    │   ├─ The app's own words for who is on it                       → vocabulary={{ permanent: "Employees", agency: "Contractors", others: "Colleagues" }}; a fit's reason: Roster.fit(R, { notALead })
     │   ├─ The shifts' colours, and the app's week patterns           → Roster.shifts(rows, { …, color }) · patterns={Roster.patterns(rows, {…})} · library={[…, Roster.library.patterns()]}
     │   └─ The week's figures in a task                               → Roster.coverage / check / weekHours / rest (R)
     │
@@ -232,6 +240,7 @@ Task → What do you need?
     │   ├─ The app's optimiser over the day                           → optimise={Func.bind(e3.function)} from Allocation.Types.OptimiseRequest(R) to Allocation.Types.OptimiseResult(R)
     │   ├─ Narrow its bins, lanes, resources and arrivals — one rail  → slice={{ slice: Slice.bindRecords(key, { bin: { source, range: "at" }, <lanes>?, <resources>?, arrivals? }) }}
     │   ├─ Its panes                                                  → library={[Allocation.library.arrivals(), Allocation.library.resources()]} · inspector
+    │   ├─ The app's own words for what it holds                      → labels={{ lane, arrival, resource, quantity, bin, reservation, reserved, priorJob, nextJob, hold, groups: { overdue, ready, removed, allocated, free, loading, busy } }}
     │   ├─ The app's bin fields on the board, and its own issues      → columns={[{ key, label, text }]} · check={fn(CheckContext(R)) → Array<Issue>}
     │   └─ The board's figures in a task                              → Allocation.loads / candidates / check / slots (R)
     │
@@ -240,9 +249,6 @@ Task → What do you need?
     │   ├─ The bindings' adapters              → <ReactiveDatasetProvider> inside it
     │   ├─ A deployed ui() task, by name       → <UITaskPreview task="…" />
     │   └─ e3 running in the page, no server   → apiUrl and fetch from e3-web's createWebE3
-    │
-    └─ Let a user ask "did X change Y?" against a dataset and trust the answer
-        └─ <Experiment data configs experiment? design? journal? columns subject />  (generic over the row; runs e3.functions)
 ```
 
 ## Bindings
@@ -264,7 +270,7 @@ A reactive binding to an `e3.input` or a task's output. `read()` tracks the
 dependency, so `<Reactive>` re-renders when it changes. Modes:
 - `'direct'` (default): each `write()` mutates the dataset.
 - `'staged'`: `write()` accumulates a patch; `commit()` applies it, `discard()`
-  drops it, and `<Diff bindings={[b.binding]} />` reviews it.
+  drops it, and `pending()` says whether a change waits.
 
 A record a builder reads whole beside its pages (a templates list, the
 resources a check reads) binds with `Data.bind`, which the manifest preloads.
@@ -358,6 +364,18 @@ and `<Schematic>` share one contract:
 - **The app's optimiser**: `optimise={Func.bind(fn)}`, an `e3.function` from
   the builder's `Types.OptimiseRequest` to its `Types.OptimiseResult`; its
   answer lands as one undoable step.
+- **Which views an instance offers**: a component that switches between views
+  takes `views` — the Roster's, Calendar's and Allocation's layouts, the
+  Ontology's display modes and `<Query.Builder>`'s
+  Visual · jq (and `resultViews`, Table · Tree). Literal tags (`views={["people"]}`),
+  variants of its `Types`, or an expression of an array of them, so a page's state
+  can choose them as it runs. Left out, or empty as the page runs, every view; one
+  left, no switch shows in any form of the toolbar; the component's own order
+  stands. `e3-ui:roster.examples.tsx:rosterViews` wires a multi-select into it.
+  `<DecisionQueue>`'s `facets` is the same.
+- **Which periods an instance offers**: `viewPeriods` on `<Roster>` and
+  `<Calendar>` does the same for Day · Week · Month. (A Plan's are its axis's
+  `resolutions`.)
 - **Misuse is refused at build**, naming the change — forms from earlier
   releases included — so read the error rather than guessing.
 
@@ -368,7 +386,7 @@ and `<Schematic>` share one contract:
 | `<Calendar>` | Calendar, Resources and Timeline layouts over event records with a backlog | `e3-ui:calendar.examples.tsx:calendarMinimal` (smallest), `e3-ui:calendar.examples.tsx:calendarOperations`, `e3-ui:calendar-records.examples.tsx:calendarRecordIndexes` |
 | `<Roster>` | Weekly staffing: duties over people by shift, cover targets, pay, fit, publish | `e3-ui:roster.examples.tsx:rosterMinimal` (smallest), `e3-ui:roster.examples.tsx:rosterWarehouse`, `e3-ui:roster.examples.tsx:rosterPeople` |
 | `<Allocation>` | A day's arrivals booked into lane slots, each bin on resources | `e3-ui:allocation.examples.tsx:allocationMinimal` (smallest), `e3-ui:allocation.examples.tsx:allocationKilnYard`, `e3-ui:allocation.examples.tsx:allocationFitRule` |
-| `<Flowchart>` | States in ordered phase lanes, transitions, decision triggers | `e3-ui:flowchart.examples.tsx:flowchartFlows` (smallest), `e3-ui:flowchart.examples.tsx:flowchartDepot`, `e3-ui:flowchart.examples.tsx:flowchartDetail` |
+| `<Flowchart>` | States in ordered lanes, transitions and decisions, a record of the app's each, the app's details drawn on the cards and labels | `e3-ui:flowchart.examples.tsx:flowchartDwell` (smallest), `e3-ui:flowchart.examples.tsx:flowchartDepot`, `e3-ui:flowchart.examples.tsx:flowchartDepotEditing`, `e3-ui:flowchart.examples.tsx:flowchartTicketMinutes`, `e3-ui:flowchart.examples.tsx:flowchartDepotTopDown` |
 | `<Schematic>` | Items, zones, links and nets at world coordinates | `e3-ui:schematic.examples.tsx:schematicFloor` (smallest), `e3-ui:schematic.examples.tsx:schematicDataCentre`, `e3-ui:schematic-records.examples.tsx:schematicRecordIndexes` |
 
 Field types matter: a `Sheet.column.quantity` sits on a `Float` field, a
@@ -377,16 +395,9 @@ start and end are `Option<DateTime>` when it can wait in the backlog.
 
 ## Other surfaces
 
-- **`<Diff bindings={[…]} />`** reviews pending changes of any staged bindings.
-- **`<Ontology binding={view.binding} />`** edits a typed node / link graph
-  (`OntologyType`); stack a `<Diff>` beside it. The **east-ontology** skill
+- **`<Ontology value={view} />`** edits a typed node / link graph
+  (`OntologyType`), committing through the binding. The **east-ontology** skill
   builds the graph.
-- **`<Experiment>`** answers "did X change Y?" over a bound dataset: `data` and
-  `configs` (the questions, `Experiment.Types.Configuration`) via `Data.bind`,
-  `experiment` (an estimator `(rows, config) → result`) and `design` via
-  `Func.bind`, a `journal` that Commit appends to, and `columns` / `subject`
-  whose labels every sentence speaks. The words are derived from the numbers;
-  nothing is authored.
 - **The Decide loop.** Reasoning tasks emit `Array<Decision.Types.Decision>`
   (`Decision.make` / `option` / `reference` / `judgement`).
   `Decision.bind([Contract]?, { decisions: [views…], judgements })` unions them
@@ -442,10 +453,9 @@ in; dates print in UTC.
         <VStack gap="3">
             <Slider value={value} min={0} max={100} onChange={t.write} />
             <HStack gap="2">
-                <Button variant="outline" onClick={discard}>Discard</Button>
-                <Button variant="solid" onClick={commit}>Apply</Button>
+                <Button variant="outline" onClick={discard} disabled={t.pending().not()}>Discard</Button>
+                <Button variant="solid" onClick={commit} disabled={t.pending().not()}>Apply</Button>
             </HStack>
-            <Diff bindings={[t.binding]} />
         </VStack>
     );
 }}</Reactive>

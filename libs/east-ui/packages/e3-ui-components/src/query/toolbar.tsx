@@ -80,7 +80,7 @@ export interface QueryToolbarOptions {
 }
 
 /** Copying the program: it goes to the clipboard, and `copied` holds for a moment after. */
-function useCopy(copyText: () => string): { copied: boolean; copy: () => void } {
+export function useCopy(copyText: () => string): { copied: boolean; copy: () => void } {
     const [copied, setCopied] = useState(false);
     const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     useEffect(() => () => clearTimeout(timer.current), []);

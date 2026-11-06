@@ -44,4 +44,6 @@ export const calendarMessages: CalendarMessages = {
 export interface CalendarWords extends Formatters {
     /** The message table in effect. */
     m: CalendarMessages;
+    /** What the Calendar calls its backlog in running text (#1516): `backlog` unless the app says otherwise. */
+    backlog?: string | undefined;
 }

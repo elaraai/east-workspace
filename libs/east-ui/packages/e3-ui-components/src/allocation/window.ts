@@ -6,6 +6,7 @@
 import { useMemo } from "react";
 import { AllocationLayoutType } from "@elaraai/e3-ui/internal";
 import { usePageView } from "../shared/schedule/page-view.js";
+import { shownView, shownViews } from "../shared/views.js";
 import { DAY, dayStart, type AllocationValue, type AllocationView } from "./model.js";
 
 /**
@@ -15,12 +16,17 @@ import { DAY, dayStart, type AllocationValue, type AllocationView } from "./mode
  */
 export interface AllocationWindow {
     view: AllocationView;
+    /** The layouts this board offers, in the switch's order: the `views` prop's. */
+    layouts: readonly AllocationView["layout"][];
     setView: (next: AllocationView) => void;
     /** The plan day: the view's UTC midnight. */
     day: Date;
     /** Steps the day by whole days. */
     step: (days: number) => void;
 }
+
+/** The layouts, in the switch's order. */
+const LAYOUTS = Object.keys(AllocationLayoutType.cases) as readonly AllocationView["layout"][];
 
 /**
  * The view storage keeps, read defensively — storage outlives versions, and anything may write it: an object whose
@@ -50,5 +56,10 @@ export function useAllocationWindow(value: AllocationValue, key: string): Alloca
         date: dayStart(value.settings.date.type === "some" ? value.settings.date.value : new Date()).getTime(),
     }, allocationViewOf);
     const day = useMemo(() => dayStart(state.date), [state.date]);
-    return { view: state, setView: setState, day, step: days => setState({ ...state, date: day.getTime() + days * DAY }) };
+    const views = value.settings.views;
+    const layouts = useMemo(() => shownViews(LAYOUTS, views), [views]);
+    // A layout this board offers: what is kept stands, so the layout comes back should the board offer it again.
+    const layout = shownView(state.layout, layouts);
+    const view = useMemo(() => layout === state.layout ? state : { ...state, layout }, [state, layout]);
+    return { view, layouts, setView: setState, day, step: days => setState({ ...view, date: day.getTime() + days * DAY }) };
 }

@@ -175,6 +175,8 @@ export const chooserSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             // Its words end in an ellipsis where a narrow pane cuts them, never mid-letter at the edge.
             "& > span": { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
+            // A phone's bottom panel has no keys to tell of.
+            "[data-frame-panel] &": { display: "none" },
         },
     },
     variants: {

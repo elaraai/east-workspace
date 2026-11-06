@@ -55,15 +55,55 @@
  * toolbar, the panes, the selection and Save stay live — and main, the region
  * being read, is `aria-busy` (CL12).
  *
+ * **A phone's frame** — 560px wide or narrower (`Mobile Builder Frame Spec.md`,
+ * ruled 3 Nov 2026) — stacks its regions and gives main the frame's whole
+ * width:
+ *
+ * - the toolbar's second row, always shown, 56px over its 44px buttons: the
+ *   items that draw one (`ToolbarItem.secondRow` — the history, and the Elara
+ *   eye before it, from a frame of `secondRowFrom` up) leave the first row for
+ *   it, and the footer's loading line takes its start while
+ *   it shows, in the place the history counts its drafts otherwise
+ *   ({@link SessionRowSlot}); a footer whose line it so takes is not shown,
+ *   mounted still (FR1, FR6, R5) — one with no loading line, the query
+ *   builder's status line, stays, and under the cold-load cover the line
+ *   stays in its live footer;
+ * - no pane at either side: a described pane that collapses is a tab of the pane strip on the
+ *   frame's bottom edge — its icon, its label, and its detail or its badge —
+ *   and opens as a view over the whole builder, edge to edge, sliding in from
+ *   the right as the Filters view does (ruled 3 Nov 2026, in place of FR5's
+ *   drawer up from the strip), its tabs at its head and its collapse there
+ *   (FR4), which closes it, as Esc does. One is open at a time, and the focus moves into it as it opens
+ *   and back to its tab as it closes. Each keeps its open tab and its bodies
+ *   mounted across the width, as the pane does; what it holds is told it is
+ *   in a phone's drawer ({@link FrameDrawer}), for its phone form;
+ * - in a frame given `phonePanel`, what main's popovers and an open pane's open
+ *   draws in the bottom panel, in the flow above the strip, as the Sheet's
+ *   action bar stands ({@link FrameBottomPanel}, FR9): main, or the pane, gives
+ *   way to it. The toolbar's stay views. The second row's own conflicts open
+ *   in main's panel whichever frame it is, and Discard asks in a band under the
+ *   row ({@link FrameSessionBand}, FR8): a phone has no anchored popovers;
+ * - a menu or a Select's list anywhere in it opens as a view over the builder
+ *   ({@link FramePhoneLayer}), through the shared layers its hosts draw them with.
+ *
  * @packageDocumentation
  */
 
 import {
-    useCallback, useLayoutEffect, useMemo, useRef, useState,
+    Fragment, useCallback, useLayoutEffect, useMemo, useRef, useState,
     type CSSProperties, type KeyboardEvent, type MutableRefObject, type ReactNode, type Ref,
 } from "react";
 import { flushSync } from "react-dom";
-import { Box, Skeleton, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, chakra, Skeleton, type SystemStyleObject } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import type { IconName } from "@fortawesome/fontawesome-svg-core";
+import { useFormatters } from "../../format/index.js";
+import { FrameSessionBand, SessionRowSlot } from "./session-row.js";
+import { useViewEscape } from "./view-escape.js";
+import { FrameOverlaySlot } from "./overlay-slot.js";
+import { FrameDrawer } from "./drawer-context.js";
+import { FrameBottomPanel } from "./bottom-panel.js";
+import { FramePhoneLayer } from "./frame-layer.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
 import { kept, keptFlag } from "../../platform/kept.js";
 import { DockPane, type DockRailMark } from "../dock/index.js";
@@ -72,6 +112,14 @@ import { useDragLayerOptional } from "../../dnd/drag-layer";
 import {
     MIN_MAIN, NARROW_FRAME, paneWidths, placePanes, type PaneMode, type PanePlacement, type PanePlacements, type PaneWeight, type PaneWidths,
 } from "./place.js";
+
+export { FrameSessionBand, SessionRowSlot } from "./session-row.js";
+
+/** A phone form's `version`: back on a wider row, what the toolbar measured of it says nothing of the item's own forms. */
+const PHONE_FORM = "phone";
+export { FrameOverlaySlot } from "./overlay-slot.js";
+export { FrameDrawer } from "./drawer-context.js";
+export { FrameBottomPanel } from "./bottom-panel.js";
 
 export {
     MIN_MAIN, MIN_SCRIM, NARROW_FRAME, paneWidths, placePanes,
@@ -141,6 +189,18 @@ export interface BuilderFrameProps {
      * covered with the rest. `false` unless given.
      */
     liveFooter?: boolean | undefined;
+    /**
+     * Whether, in a phone's frame, what main and an open pane open draws in the
+     * bottom panel over the pane strip, rather than in a popover (FR9): a builder
+     * whose phone form is cards of actions. Wider frames are as they are.
+     * `false` unless given.
+     */
+    phonePanel?: boolean | undefined;
+    /**
+     * Whether, in a phone's frame, what main and an open pane open draws as a view over the whole builder, as the
+     * toolbar's does: a builder whose choices want the height (`Query Builder Phone Spec.md` QP33). `false` unless given.
+     */
+    phoneViews?: boolean | undefined;
     /** Where each pane keeps its open tab, and its collapsed state when it persists. */
     storageKey: string;
     /** The narrowest main may get beside pinned panes before an `auto` pane overlays it: 480 (px) by default. */
@@ -178,6 +238,11 @@ export interface BuilderFrameDock {
     tab?: string | undefined;
     /** Told each time a tab is opened from the pane, with its key. */
     onTabChange?: ((key: string) => void) | undefined;
+    /**
+     * In a phone's frame, one tab of the strip for each of the pane's own tabs, in place of the one for the pane: a tap
+     * opens the pane at that tab (`Query Builder Phone Spec.md` QP17, the builder with a single pane).
+     */
+    phoneTabs?: ReadonlyArray<{ key: string; label: string; icon?: string | undefined; detail?: string | undefined }> | undefined;
     /** The rail's icon: a Font Awesome solid name. */
     icon?: string | undefined;
     /** A badge on the rail. Numeric counts use the shared compact formatter; their exact value remains accessible. */
@@ -336,7 +401,8 @@ function unmeasured(start: BuilderFramePane | undefined, end: BuilderFramePane |
  * @returns The frame
  */
 export function BuilderFrame(props: BuilderFrameProps) {
-    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, rootCss, rootProps, toolbarRef, onKeyDown, loading, busy, liveFooter } = props;
+    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, rootCss, rootProps, toolbarRef, onKeyDown, loading, busy, liveFooter, phonePanel, phoneViews } = props;
+    const formatters = useFormatters();
     const minMain = props.minMain ?? MIN_MAIN;
     const loadingPitch = props.loadingPitch ?? DEFAULT_LOADING_PITCH;
     const styles = useSlotStyles("builderFrame") as Styles;
@@ -455,6 +521,47 @@ export function BuilderFrame(props: BuilderFrameProps) {
         observed.current = now;
     });
 
+    // ── A phone's frame: the second row, the strip and the drawers ──────
+    const phone = measured !== undefined && measured.width <= NARROW_FRAME;
+    /** Whether an item is the second row's: on a phone, an item that draws one, from the narrowest frame it takes it at. */
+    const inSecondRow = (it: ToolbarItem | false | null | undefined): it is ToolbarItem =>
+        phone && !!it && it.secondRow !== undefined && (measured?.width ?? 0) >= (it.secondRowFrom ?? 0);
+    // Which items the second row takes, by key: what the first row's items are made again by, never the width itself.
+    const secondKeys = toolbar === undefined ? "" : toolbar.filter(inSecondRow).map((it) => it.key).join("\u0000");
+    // The first row's items: on a phone, without those the second row draws, and each with a phone form drawing that
+    // alone, in its order (FR2). The same array while neither moves, so the toolbar draws again only as its items do.
+    const firstRow = useMemo(() => {
+        if (toolbar === undefined || !phone) return toolbar;
+        const moved = new Set(secondKeys === "" ? [] : secondKeys.split("\u0000"));
+        const items = toolbar.filter((it): it is ToolbarItem => !!it && !moved.has(it.key));
+        const phoned = items.map((it): ToolbarItem => it.phone === undefined ? it
+            // In the phone forms' order: the views, the count, the rail's button, Search Records.
+            : { key: it.key, forms: [it.phone.form], keep: it.keep, held: it.held, version: PHONE_FORM, grow: it.phone.grow, shrink: it.phone.shrink });
+        const order = (it: ToolbarItem) => it.phone?.order ?? 0;
+        const row = phoned.map((it, i) => ({ it, at: order(items[i]!), i })).sort((a, b) => a.at - b.at || a.i - b.i);
+        // The controls placed by their order, the rail's button and Search Records, stand at the row's end with the
+        // slack before them, as they do after the count line: where no view tabs take the slack and none of the
+        // builder's own items ends the row, the first of them that does not give way leads the row's end cluster, and
+        // those after it follow.
+        const lead = row.some(({ it }) => it.grow === true || it.side === "end") ? -1 : row.findIndex(({ it, at }) => at > 0 && it.shrink !== true);
+        return row.map(({ it }, k) => (lead >= 0 && k >= lead ? { ...it, side: "end" as const } : it));
+    }, [toolbar, secondKeys, phone]);
+    const secondRow = toolbar === undefined ? [] : toolbar.filter(inSecondRow).map((it) => ({ key: it.key, node: it.secondRow }));
+    // The row's status slot: where a phone's footer's loading line draws itself.
+    const [statusSlot, setStatusSlot] = useState<HTMLElement | null>(null);
+    // The slot a toolbar item's full-height view draws itself in, over every region: the rail's Filters view (FR7).
+    const [overlaySlot, setOverlaySlot] = useState<HTMLElement | null>(null);
+    // The bottom panel's slots, where main's popovers and an open pane's draw (FR9): main's, and each pane's own.
+    const [mainPanel, setMainPanel] = useState<HTMLElement | null>(null);
+    const [startPanel, setStartPanel] = useState<HTMLElement | null>(null);
+    const [endPanel, setEndPanel] = useState<HTMLElement | null>(null);
+    // The band under the second row, where its items ask something (FR8).
+    const [sessionBand, setSessionBand] = useState<HTMLElement | null>(null);
+    const panelOf = (slot: HTMLElement | null) => (phone && phonePanel === true && !covered ? slot : null);
+    const sessionRow = phone && (secondRow.length > 0 || given(footer));
+    /** Whether a side's pane is a drawer: a described pane that collapses, on a phone — one that never does stays pinned. */
+    const drawn = (side: Side) => phone && dockOf(side) !== undefined && dockOf(side)?.collapsible !== false;
+
     // ── Where each pane sits, and how wide it is open ───────────────────
     const startWeight = measured === undefined ? undefined : weightOf(start, measured.start, startCollapse.collapsed);
     const endWeight = measured === undefined ? undefined : weightOf(end, measured.end, endCollapse.collapsed);
@@ -496,8 +603,10 @@ export function BuilderFrame(props: BuilderFrameProps) {
     /** The overlay pane that is open, if one is. */
     const openOverlay = SIDES.find((side) => placement[side] === "overlay" && dockOf(side) !== undefined && !collapseOf(side).collapsed);
     const openDock = openOverlay === undefined ? undefined : dockOf(openOverlay);
+    // A phone's open pane, a view over the whole builder: it needs no scrim.
+    const phoneDrawer = openOverlay !== undefined && drawn(openOverlay) ? openOverlay : undefined;
     // The scrim: while an overlay pane is open for lack of room — an `auto` pane overlaying, or any at 560px and narrower.
-    const scrim = openDock !== undefined && !dragging
+    const scrim = openDock !== undefined && !dragging && phoneDrawer === undefined
         && (modeOf(openDock) === "auto" || (measured !== undefined && measured.width <= NARROW_FRAME));
 
     // ── The focus, back on a closed pane's rail ─────────────────────────
@@ -508,8 +617,32 @@ export function BuilderFrame(props: BuilderFrameProps) {
         const side = railFocus.current;
         if (side === undefined) return;
         railFocus.current = undefined;
-        slotRefs[side].current?.querySelector<HTMLElement>(":scope > * > [data-collapsed] > :first-child > button")?.focus();
+        if (drawn(side)) {
+            const dock = dockOf(side);
+            const key = dock?.phoneTabs === undefined ? side : `${side}:${dock.tab ?? dock.phoneTabs[0]?.key}`;
+            rootRef.current?.querySelector<HTMLElement>(`[data-pane-tab="${key}"]`)?.focus({ preventScroll: true });
+        }
+        else slotRefs[side].current?.querySelector<HTMLElement>(":scope > * > [data-collapsed] > :first-child > button")?.focus();
     });
+    // A drawer opened from its tab takes the focus: its open tab, or its first control.
+    const drawerFocus = useRef<Side | undefined>(undefined);
+    useLayoutEffect(() => {
+        const side = drawerFocus.current;
+        if (side === undefined) return;
+        drawerFocus.current = undefined;
+        const drawer = slotRefs[side].current;
+        (drawer?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? drawer?.querySelector<HTMLElement>("button, [href], input, [tabindex]"))?.focus({ preventScroll: true });
+    });
+    /** A strip tab: its drawer opens, or, open, closes; one of the pane's own tabs opens it there. */
+    const onPaneTab = (side: Side, tab?: string) => {
+        const open = !collapseOf(side).collapsed;
+        const dock = dockOf(side);
+        if (tab !== undefined && open && dock?.tab !== tab) { dock?.onTabChange?.(tab); return; }
+        if (tab !== undefined && !open) dock?.onTabChange?.(tab);
+        if (open) railFocus.current = side;
+        else drawerFocus.current = side;
+        toggled(side, open);
+    };
 
     // Esc closes the open overlay pane before anything else in the frame hears it. A drag's
     // Esc is the drag's, and a layer portaled out of the frame's regions — a popover, a menu —
@@ -526,6 +659,12 @@ export function BuilderFrame(props: BuilderFrameProps) {
         railFocus.current = openOverlay;
         toggled(openOverlay, true);
     };
+    // A phone's pane is a view over the builder: Esc closes it wherever the focus is, as the Filters view's does.
+    useViewEscape(phone && openOverlay !== undefined && !dragging, () => {
+        if (openOverlay === undefined) return;
+        railFocus.current = openOverlay;
+        toggled(openOverlay, true);
+    });
     // A tap on the scrim closes the pane; the focus, if it was in the pane, goes back to its rail.
     const onScrim = () => {
         if (openOverlay === undefined) return;
@@ -587,32 +726,135 @@ export function BuilderFrame(props: BuilderFrameProps) {
         );
     };
 
+    /** A described pane on a phone: a drawer up from the strip, mounted closed so its tab and bodies keep. */
+    const drawer = (side: Side, dock: BuilderFrameDock) => {
+        const open = !collapseOf(side).collapsed;
+        return (
+            <Box key={side} ref={slotRefs[side]} css={styles.drawer} id={`${storageKey}.${side}.drawer`} data-frame-slot={side} data-frame-drawer=""
+                data-open={open ? "" : undefined} data-aside={open && dragging ? "" : undefined} role="region" aria-label={dock.label}
+                inert={!open} aria-hidden={open ? undefined : true}>
+                {/* A tray whose collapse points down, toward the strip; it is drawn collapsed only while the drawer is closed.
+                    What it holds is told it is in a phone's drawer: a pane's phone form (SH12). */}
+                <FrameDrawer.Provider value={true}>
+                <FrameOverlaySlot.Provider value={phoneViews === true && !covered ? overlaySlot : null}>
+                <FrameBottomPanel.Provider value={panelOf(side === "start" ? startPanel : endPanel)}>
+                <DockPane
+                    storageKey={`${storageKey}.${side}`}
+                    orientation="vertical"
+                    side="end"
+                    surface="shell"
+                    expandedSize="100%"
+                    railSize="100%"
+                    label={dock.label}
+                    icon={dock.icon}
+                    tabs={dock.tabs}
+                    body={dock.body}
+                    tab={dock.tab}
+                    onTabChange={dock.onTabChange}
+                    collapsed={!open}
+                    onCollapsedChange={(next) => { if (next) { railFocus.current = side; toggled(side, true); } }}
+                />
+                </FrameBottomPanel.Provider>
+                </FrameOverlaySlot.Provider>
+                </FrameDrawer.Provider>
+                {phonePanel === true && <Box ref={side === "start" ? setStartPanel : setEndPanel} css={styles.bottomPanel} data-frame-slot="bottomPanel" />}
+            </Box>
+        );
+    };
+    const paneTab = (side: Side, dock: BuilderFrameDock) => {
+        const open = !collapseOf(side).collapsed;
+        const meta = dock.detail ?? (dock.badge === undefined || dock.badge === "" ? undefined
+            : typeof dock.badge === "number" ? formatters.compact(dock.badge) : dock.badge);
+        return (
+            <chakra.button key={side} type="button" role="tab" css={styles.paneTab} data-pane-tab={side} aria-selected={open}
+                aria-controls={`${storageKey}.${side}.drawer`} data-active={dock.active === true ? "" : undefined} onClick={() => onPaneTab(side)}>
+                {dock.icon !== undefined && <Box as="span" css={styles.paneTabIcon}><FontAwesomeIcon icon={dock.icon as IconName} /></Box>}
+                <Box as="span" css={styles.paneTabLabel}>{dock.label}</Box>
+                {meta !== undefined && <>{" "}<Box as="span" css={styles.paneTabMeta}>{meta}</Box></>}
+                {dock.mark !== undefined && <Box as="span" css={styles.paneTabMark} role="img" aria-label={dock.mark.label} data-tone={dock.mark.tone}>
+                    <FontAwesomeIcon icon={dock.mark.icon as IconName} />
+                </Box>}
+            </chakra.button>
+        );
+    };
+    /** One of a pane's own tabs on the strip (`BuilderFrameDock.phoneTabs`). */
+    const ownTab = (side: Side, dock: BuilderFrameDock, tab: NonNullable<BuilderFrameDock["phoneTabs"]>[number]) => {
+        const selected = !collapseOf(side).collapsed && dock.tab === tab.key;
+        return (
+            <chakra.button key={`${side}:${tab.key}`} type="button" role="tab" css={styles.paneTab} data-pane-tab={`${side}:${tab.key}`} aria-selected={selected}
+                aria-controls={`${storageKey}.${side}.drawer`} onClick={() => onPaneTab(side, tab.key)}>
+                {tab.icon !== undefined && <Box as="span" css={styles.paneTabIcon}><FontAwesomeIcon icon={tab.icon as IconName} /></Box>}
+                <Box as="span" css={styles.paneTabLabel}>{tab.label}</Box>
+                {tab.detail !== undefined && <>{" "}<Box as="span" css={styles.paneTabMeta}>{tab.detail}</Box></>}
+            </chakra.button>
+        );
+    };
+    const strip = SIDES.flatMap((side) => {
+        const dock = dockOf(side);
+        if (dock === undefined || !drawn(side)) return [];
+        return dock.phoneTabs === undefined ? [paneTab(side, dock)] : dock.phoneTabs.map((tab) => ownTab(side, dock, tab));
+    });
+
     return (
         <Box ref={setRoot} css={rootCss === undefined ? styles.root : [styles.root, rootCss]} {...rootProps}
-            data-builder-frame="" data-loading={covered ? "" : undefined} aria-busy={loading === undefined ? undefined : covered}
+            data-builder-frame="" data-phone={phone ? "" : undefined} data-loading={covered ? "" : undefined} aria-busy={loading === undefined ? undefined : covered}
             {...(label !== undefined ? { role: "group", "aria-label": label } : {})}
             onKeyDownCapture={onKeyDownCapture} onKeyDown={onKeyDown}>
+            <FramePhoneLayer.Provider value={phone && !covered ? overlaySlot : null}>
             {toolbar !== undefined && (
                 <Box ref={toolbarRef} css={styles.toolbar} data-frame-slot="toolbar" inert={covered} aria-hidden={covered ? true : undefined}>
-                    <Toolbar items={toolbar} />
+                    <FrameOverlaySlot.Provider value={phone && !covered ? overlaySlot : null}>
+                        <Toolbar items={firstRow ?? toolbar} gap={phone ? "none" : undefined} />
+                    </FrameOverlaySlot.Provider>
                 </Box>
             )}
+            {/* A phone's second row: the frame's status, then each item's own, in item order (FR6). */}
+            {sessionRow && (
+                <Box css={styles.sessionRow} data-frame-slot="sessionRow" inert={covered} aria-hidden={covered ? true : undefined}>
+                    <Box ref={setStatusSlot} css={styles.sessionStatus} data-session-status="" />
+                    <FrameSessionBand.Provider value={!covered ? sessionBand : null}>
+                        <FrameBottomPanel.Provider value={!covered ? mainPanel : null}>
+                            {secondRow.map(({ key, node }) => <Fragment key={key}>{node}</Fragment>)}
+                        </FrameBottomPanel.Provider>
+                    </FrameSessionBand.Provider>
+                </Box>
+            )}
+            {sessionRow && <Box ref={setSessionBand} css={styles.sessionBand} data-frame-slot="sessionBand" inert={covered} aria-hidden={covered ? true : undefined} />}
             {given(banners) && <Box css={styles.banners} data-frame-slot="banners" inert={covered} aria-hidden={covered ? true : undefined}>{banners}</Box>}
             <Box css={styles.body} data-frame-slot="body" inert={covered} aria-hidden={covered ? true : undefined}>
-                {start !== undefined && pane("start", start)}
+                {start !== undefined && !drawn("start") && pane("start", start)}
                 {/* The region a read after cold load is in flight for (#1398, CL12): nothing covered, main busy. */}
                 <Box css={styles.main} data-frame-slot="main" aria-busy={busy === undefined ? undefined : busy && !covered}>
-                    {children}
+                    <FrameOverlaySlot.Provider value={phoneViews === true && !covered ? overlaySlot : null}>
+                        <FrameBottomPanel.Provider value={panelOf(mainPanel)}>{children}</FrameBottomPanel.Provider>
+                    </FrameOverlaySlot.Provider>
                     {scrim && <Box css={styles.scrim} data-scrim="" aria-hidden onClick={onScrim} />}
                 </Box>
-                {end !== undefined && pane("end", end)}
+                {end !== undefined && !drawn("end") && pane("end", end)}
             </Box>
+            {phone && <Box ref={setMainPanel} css={styles.bottomPanel} data-frame-slot="bottomPanel" inert={covered} aria-hidden={covered ? true : undefined} />}
+            {strip.length > 0 && (
+                <Box css={styles.paneStrip} data-frame-slot="paneStrip" role="tablist" aria-label={label === undefined ? "Panes" : `${label} panes`}
+                    inert={covered} aria-hidden={covered ? true : undefined}>
+                    {strip}
+                </Box>
+            )}
             {given(footer) && (
                 <Box ref={footerRef} css={styles.footer} data-frame-slot="footer" data-frame-live={footerLive ? "" : undefined}
                     inert={covered && !footerLive} aria-hidden={covered && !footerLive ? true : undefined}>
-                    {footer}
+                    {/* Under the cold-load cover the line stays in the live footer, the row covered with the rest. */}
+                    <SessionRowSlot.Provider value={sessionRow && !covered ? statusSlot : null}>{footer}</SessionRowSlot.Provider>
                 </Box>
             )}
+            {/* A phone's panes: each a view over the whole builder, edge to edge, as the Filters view is (ruled 3 Nov 2026,
+                in place of FR5's drawer). */}
+            {SIDES.map((side) => {
+                const dock = dockOf(side);
+                return dock !== undefined && drawn(side) ? drawer(side, dock) : null;
+            })}
+            {/* A phone's view over the whole builder, a toolbar item's (FR7): empty, it takes no pointer. */}
+            </FramePhoneLayer.Provider>
+            {phone && <Box ref={setOverlaySlot} css={styles.overlay} data-frame-slot="overlay" inert={covered} aria-hidden={covered ? true : undefined} />}
             {covered && <Box css={styles.loading} data-builder-loading="" role="status" aria-label={label === undefined ? "Loading builder" : `Loading ${label}`}
                 style={{ "--builder-loading-pitch": `${loadingPitch}px`, ...(footerLive ? { bottom: `${footerHeight ?? 0}px` } : {}) } as CSSProperties}>
                 {toolbar !== undefined && <Box css={[styles.toolbar, styles.loadingBar]} aria-hidden>

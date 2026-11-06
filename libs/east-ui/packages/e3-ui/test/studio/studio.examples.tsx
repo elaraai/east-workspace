@@ -18,7 +18,7 @@ import {
     example, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import {
-    BarStrip, Box, Button, Chart, Format, HStack, MetricChip, Reactive, Table, Sparkline, Stat, Text, UIComponentType, VStack,
+    BarStrip, Box, Button, Chart, Format, Grid, HStack, MetricChip, Reactive, Table, Sparkline, Stat, Text, UIComponentType, VStack,
 } from "@elaraai/east-ui";
 import { Data, Record, Studio } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -121,10 +121,8 @@ const kpiRailUi = East.function([], UIComponentType, (_$) => (
     <Reactive>{$ => {
         const kpis = $.let(Data.bind(studioKpis).read());
         return (
-            <HStack gap="0" align="stretch">
-                {kpis.map(($2, k, i) => (
-                    <Box flex="1" borderColor="border.subtle"
-                        borderWidth={i.equal(kpis.size().subtract(1n)).ifElse(_$3 => "0", _$3 => "0 1px 0 0")}
+            <Box background="border.subtle"><Grid gap="1px" templateColumns="repeat(auto-fit, minmax(min(calc(50% - 1px), 170px), 1fr))" items={kpis.map(($2, k) => Grid.Item(
+                    <Box background="bg.surface"
                         padding={{ top: some("3"), right: some("4"), bottom: some("3"), left: some("4") }}>
                         <Stat label={k.label} value={k.value}
                             format={k.unit.match({
@@ -147,9 +145,8 @@ const kpiRailUi = East.function([], UIComponentType, (_$) => (
                                     )}</Text>
                                 </MetricChip>
                             } />
-                    </Box>
-                ))}
-            </HStack>
+                    </Box>,
+            ))} /></Box>
         );
     }}</Reactive>
 ));
@@ -291,7 +288,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
             draft: {
                 title: "Account detail",
                 cells: [
-                    { key: "a-kpi", row: "r1", span: 12n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
+                    { key: "a-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
                     { key: "a-orders", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, component: "orders_by_week" },
                     { key: "a-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, component: "breakdown_bars" },
                     { key: "a-trend", row: "r3", span: 12n, height: some(200n), align: variant("top", null), title: none, component: "revenue_trend" },
@@ -427,6 +424,24 @@ export const studioBuilder = example({
             return (
                 <Box height="760px">
                     <Studio.Builder pages={pages} components={components} project="Ops console" id="studio"
+                        env="Staging" audience="Field ops · 24 users" rollout="Immediate" />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const studioBuilderMobile = example({
+    keywords: ["Studio", "Studio.Builder", "builder", "mobile", "phone", "pane strip", "drawer", "palette", "inspector", "second row", "history"],
+    description: "The same builder over the pages record in a phone's 390-wide frame: the toolbar over its second row — the history at 44px — the canvas the frame's whole width, and the palette and the inspector a strip of drawers along the bottom edge",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
+            const pages = $.let(Record.bind(studioPages));
+            return (
+                <Box width="390px" maxWidth="100%" height="760px">
+                    <Studio.Builder pages={pages} components={components} project="Ops console" id="studioMobile"
                         env="Staging" audience="Field ops · 24 users" rollout="Immediate" />
                 </Box>
             );

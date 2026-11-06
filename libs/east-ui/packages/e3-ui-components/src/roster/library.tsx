@@ -92,6 +92,8 @@ function libraryCard(key: string, label: string, meta: string, group: string, ic
         status: none, trailing: none, draggable, filtered: false, placed: false, search: some(`${label} ${meta} ${group}`),
     });
 }
+/** The People tab's groups, in their order, by the kind each is. */
+const GROUP_RANK = { available: 0, leads: 1, others: 2, agency: 3 } as const;
 /** What the People tab says while a Find finds no one; its chip clears it. */
 const NO_ONE_FOUND = { title: "No one found", description: "Clear the find to see the people the rail shows." };
 const byScore = compareFor(FloatType);
@@ -134,6 +136,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
         return { strip: <PatternStrip value={value} pattern={entry.pattern} styles={styles} />, title: entry.problem ?? `${entry.pattern.label} · drag onto a person's week`,
             note: entry.problem === undefined ? undefined : { text: entry.problem, tone: "warning" } };
     }, [patternEntries, value, styles]);
+    const words = value.vocabulary;
     // Each person's duties on the day, the week's duties read once (#1398, CL9).
     const today = useMemo(() => {
         const by = new Map<string, Assignment[]>();
@@ -152,15 +155,17 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
         const group = value.groups.find(g => g.key === person.group);
         const position = value.positions.find(p => p.key === (assigned[0]?.position ?? person.position));
         const skills = value.activities.filter(a => a.group.type === "some" && person.skills.has(a.key));
-        const place = assigned.length === 0 ? `Off ${format.weekday(new Date(start.getTime() + day * DAY))} · available` : position?.lead ? "Leads" : person.agency ? "Agency staff" : "Associates";
+        // The person's group that day: its words the app's, its place in the tab its kind's, whatever those words.
+        const kind: keyof typeof GROUP_RANK = assigned.length === 0 ? "available" : position?.lead ? "leads" : person.agency ? "agency" : "others";
+        const place = kind === "available" ? words.available(format.weekday(new Date(start.getTime() + day * DAY))) : words[kind];
         const shift = assigned.map(a => value.shifts.find(s => s.key === a.slot.shift)?.label ?? a.slot.shift).join(", ");
         const card = libraryCard(rosterSourceKey("person", person.key), person.name, `${group?.label ?? person.group} · ${shift || "Off today"}${position?.code ? ` · ${position.code}` : ""}${person.trainer ? " · trainer" : ""}${person.trainee ? " · trainee" : ""}`, place, undefined, draggable);
-        return { person, card: { ...card, avatar: some(person.name), placed: chosenPerson === rosterSourceKey("person", person.key),
+        return { person, kind, card: { ...card, avatar: some(person.name), placed: chosenPerson === rosterSourceKey("person", person.key),
             status: some({ label: assigned.length === 0 ? "OFF" : assigned.map(a => value.shifts.find(s => s.key === a.slot.shift)?.code ?? a.slot.shift).join(" · "), tone: variant(assigned.length === 0 ? "info" : "neutral", null), ring: false }),
-            search: some(`${person.name} ${group?.label} ${position?.label} ${person.agency ? "agency" : ""} ${person.trainer ? "trainer" : ""} ${skills.map(s => s.label).join(" ")}`),
+            search: some(`${person.name} ${group?.label} ${position?.label} ${person.agency ? words.agency : ""} ${person.trainer ? "trainer" : ""} ${skills.map(s => s.label).join(" ")}`),
             dims: new Map([["hours", variant("meter", { value: hours.get(person.key) ?? 0, max: person.contract, text: some(`${format.number(hours.get(person.key) ?? 0)} / ${format.number(person.contract)} h`) })]]),
         } };
-    }); }, [value.people, value.groups, value.positions, value.activities, value.shifts, today, format, start, day, draggable, chosenPerson, hours]);
+    }); }, [value.people, value.groups, value.positions, value.activities, value.shifts, words, today, format, start, day, draggable, chosenPerson, hours]);
     if (value.library.length === 0) return undefined;
     const slot = selection?.type === "slot" || selection?.type === "requirement" ? selection.slot
         : selection?.type === "assignment" ? week.assignments.get(selection.key)?.slot : undefined;
@@ -169,7 +174,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
     // What a Find fix looks for: a skill's holders, leads, or trainers.
     const need = find?.need;
     const findWhat = need === undefined ? undefined : need.type === "skill" ? activityOf(value, need.value)?.label ?? need.value
-        : need.type === "leads" ? "Leads" : "Trainers";
+        : need.type === "leads" ? words.leads : words.trainers;
     // The people the rail shows, off that day: the collapsed rail's badge.
     const shownPeople = shown.people.keys;
     const off = value.people.filter(p => (shownPeople.type === "none" || shownPeople.value.has(p.key)) && !today.has(p.key)).length;
@@ -193,14 +198,15 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
             narrowing = answer === undefined || follows.narrowing?.emptied === true ? follows.narrowing : { empty: NO_ONE_FOUND, emptied: found.length === 0 };
             pane = find?.busy === true ? { ...follows.pane, "aria-busy": true } : follows.pane;
             // Agency requests are actions, not staff: every one shows, whatever the rail narrows.
-            const requests = value.agencies.map(agency => ({ ...make(rosterSourceKey("agency", agency.key), agency.name, `Request · ${format.number(value.shifts.find(s => s.key === defaultSlot.shift)?.hours ?? 0)} h`, "Agency staff", "building"),
+            const requests = value.agencies.map(agency => ({ ...make(rosterSourceKey("agency", agency.key), agency.name, `Request · ${format.number(value.shifts.find(s => s.key === defaultSlot.shift)?.hours ?? 0)} h`, words.agency, "building"),
                 status: some({ label: "REQ", tone: variant("neutral", null), ring: false }) }));
             if (answer !== undefined) {
                 // Best first, in the fit's order: each group heads where its best card stands, and the requests come last.
                 cards = [...found.map(entry => entry.card), ...requests];
             } else {
-                const groupRank = (card: LibraryItemValue) => { const group = card.groups.get("group"); return group?.startsWith("Off ") ? 0 : group === "Leads" ? 1 : group === "Associates" ? 2 : 3; };
-                cards = [...requests, ...found.map(entry => entry.card)].sort((a, b) => groupRank(a) - groupRank(b));
+                // The groups by their kind, never their words: those not rostered, leads, others, then agency and its requests.
+                const ranked = [...requests.map(card => ({ card, rank: GROUP_RANK.agency })), ...found.map(entry => ({ card: entry.card, rank: GROUP_RANK[entry.kind] }))];
+                cards = ranked.sort((a, b) => a.rank - b.rank).map(entry => entry.card);
             }
         } else if (tab.type === "activities") {
             // Each group's skills in the groups' order, then the duties, each in the record's order.
@@ -276,6 +282,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
                 <SliceFieldChip label={`Find · ${findWhat}`} aria-label={`Clear find · ${findWhat}`} active removeLabel="Clear find" onRemove={args.onClearFind} onClick={args.onClearFind} />
             </Box>}
             <EastChakraLibrary value={library} storageKey={rosterLibraryId(storageKey, name)} empty={follows.empty} narrowing={narrowing}
+                searchCount={tab.type === "people" ? cards.length - value.agencies.length : undefined}
                 extras={tab.type === "people" ? reasons : tab.type === "patterns" ? patternExtras : undefined} />
             <Box css={[styles.paneFoot, styles.paneHint]}>{hint}</Box>
             {/* The foot's actions stay in place, inert, while a run of the optimiser holds the week (#1409, R2). */}

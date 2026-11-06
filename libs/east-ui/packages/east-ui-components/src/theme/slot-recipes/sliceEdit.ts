@@ -74,6 +74,8 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         fieldActions: { marginTop: { base: "{spacing.2}", _coarse: "{spacing.5}" } },
         fieldLabel: { textStyle: "caption.eyebrow", color: "fg.subtle" },
         content: {
+            /* A popover that appears at once, with no fade or scale (`SliceEditPopover`'s `still`: a Sheet action's form, N3). */
+            "&[data-still]": { animation: "none" },
             padding: "0", minWidth: "0", maxWidth: "calc(100vw - {spacing.6})",
             background: "bg.surface",
             borderWidth: "1px",
@@ -209,6 +211,8 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         // (`data-generated`) rather than the author's own.
         textArea: {
             resize: "none",
+            /* A phone's view: its three lines (QP34). */
+            "[data-frame-view] &": { height: "auto", minHeight: "84px", lineHeight: "20px", paddingY: "8px" },
             "&[data-generated]": { color: "fg.muted" },
         },
         // A hint with an action at its end — a description's count, and

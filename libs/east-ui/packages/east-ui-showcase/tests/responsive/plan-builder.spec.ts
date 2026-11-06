@@ -132,13 +132,13 @@ function opened(at: FrameAt, side: "start" | "end") {
 test.describe("the print works' panes (#1200, PB57)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "the frame sized at the desktop project; the phone's own panes are plan-frame's and plan-builder-dnd's");
 
-    test(`planPrintWorks at ${WIDTHS.join(", ")}px: each pane pinned beside main or on its rail as the frame's room says, main between them; each on its rail, opened, over main from its own edge — main where it was, under the scrim, never so wide that less than 48px of the scrim shows — and closed again`, async ({ page }) => {
+    test(`planPrintWorks at 1440, 1024 and 768px: each pane pinned beside main or on its rail as the frame's room says, main between them; each on its rail, opened, over main from its own edge — main where it was, under the scrim, never so wide that less than 48px of the scrim shows — and closed again`, async ({ page }) => {
         test.setTimeout(120_000);
         // A window wide enough for a 1440px box left of the page's own "On this page" column.
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES);
         const frame = entry.locator("[data-builder-frame]").first();
-        for (const place of PLACES) {
+        for (const place of PLACES.filter((p) => p.width > 560)) {
             await sizeBox(page, planBox(entry), place.width);
             const flow = { start: place.start === "pinned" ? OPEN.start : RAIL, end: place.end === "pinned" ? OPEN.end : RAIL };
             // An `auto` pane that starts to overlay closes; a pinned one is open.

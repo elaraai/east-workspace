@@ -524,7 +524,8 @@ test.describe("Visual invariants — the Table", () => {
                         }
                     });
                 }
-                if (seen === 0) out.push("no header carries a pin or sort control");
+                // A table held to 560px or narrower draws its phone form, which has no such controls.
+                if (seen === 0 && root.querySelector("[data-table-phone]") === null) out.push("no header carries a pin or sort control");
                 return out;
             });
             expect(bad).toEqual([]);
@@ -719,12 +720,112 @@ test.describe("Visual invariants — the Matrix", () => {
 test.describe("Visual invariants — the Table, on touch", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) >= 1000, "read on the touch viewport");
 
-    test("tableBasic: where nothing hovers, a header's controls rest at reduced emphasis", async ({ page }) => {
+    // A Table's phone form, automatic at 560px of its own width (ruled 4 Nov 2026): no sideways scroll, no pin or resize,
+    // every word whole, a pager over columns off-screen, and whatever it holds still working.
+    for (const name of ["tableBasic", "tableRichColumns", "tableTree", "tablePaginated", "tableExpandable", "tableGroupedColumns", "tableReview"]) {
+        test(`${name}: at a phone's width the columns page rather than scroll, each word whole, a header's tap sorting`, async ({ page }) => {
+            const entry = await openTable(page, name);
+            const table = entry.locator("[data-table-phone]");
+            await expect(table).toHaveCount(1);
+            await expect(entry.locator("[data-slot='columnControls'], [data-slot='columnResizer']")).toHaveCount(0);
+            const faults = () => table.evaluate((root) => {
+                const out: string[] = [];
+                const box = root.getBoundingClientRect();
+                const scroller = root.parentElement!;
+                if (scroller.scrollWidth - scroller.clientWidth > 1) out.push(`scrolls sideways by ${scroller.scrollWidth - scroller.clientWidth}`);
+                // The column heads' row, 32 tall, each head its label's sort button centred in it; a group row's heads
+                // one line over them, edge to edge across the table (review of #1481, finding 12: the recipe's, not inline).
+                for (const head of root.querySelectorAll<HTMLElement>("thead tr:not([data-table-phone-groups]) th")) {
+                    const h = head.getBoundingClientRect();
+                    if (Math.abs(h.height - 32) > 0.5) out.push(`"${head.textContent}" head ${h.height}px tall`);
+                    const sort = head.querySelector("button");
+                    if (sort !== null && Math.abs(sort.getBoundingClientRect().top + sort.getBoundingClientRect().height / 2 - (h.top + h.height / 2)) > 0.5) out.push(`"${head.textContent}" sort off its head's centre`);
+                }
+                const groups = root.querySelector<HTMLElement>("[data-table-phone-groups]");
+                if (groups !== null) {
+                    const g = groups.getBoundingClientRect();
+                    const cells = [...groups.children].map((c) => c.getBoundingClientRect());
+                    if (cells.some((c) => Math.abs(c.top - g.top) > 0.5)) out.push("a group head off the group row's line");
+                    const heads = [...root.querySelectorAll("thead tr:not([data-table-phone-groups]) th")].map((th) => th.getBoundingClientRect());
+                    if (Math.abs(cells[0]!.left - heads[0]!.left) > 0.5 || Math.abs(cells.at(-1)!.right - heads.at(-1)!.right) > 0.5) out.push(`group heads ${cells[0]!.left}–${cells.at(-1)!.right} over column heads ${heads[0]!.left}–${heads.at(-1)!.right}`);
+                }
+                for (const cell of root.querySelectorAll("th, td")) {
+                    const b = cell.getBoundingClientRect();
+                    if (b.left < box.left - 0.5 || b.right > box.right + 0.5) out.push(`"${cell.textContent}" leaves the table`);
+                    const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+                    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+                        for (const word of (node.textContent ?? "").matchAll(/[^\s-]+/g)) {
+                            const range = document.createRange();
+                            range.setStart(node, word.index);
+                            range.setEnd(node, word.index + word[0].length);
+                            if (range.getClientRects().length > 1) out.push(`"${word[0]}" is split`);
+                            if (range.getBoundingClientRect().right > b.right + 0.5) out.push(`"${word[0]}" is cut`);
+                        }
+                    }
+                }
+                return out;
+            });
+            expect(await faults()).toEqual([]);
+            const pager = entry.locator("[data-table-pager]");
+            if (await pager.count() > 0) {
+                const heads = () => table.locator("th").allTextContents();
+                const before = await heads();
+                const previous = pager.getByRole("button", { name: "Previous column" }), next = pager.getByRole("button", { name: "Next column" });
+                await expect(previous).toHaveAttribute("aria-disabled", "true");
+                await next.click(); await settled(page);
+                expect(await heads()).not.toEqual(before);
+                expect((await heads())[0], "the pinned column stays").toBe(before[0]);
+                expect(await faults()).toEqual([]);
+                await previous.click(); await settled(page);
+                expect(await heads()).toEqual(before);
+                // The columns listed in place: no floating menu, each 44 tall.
+                await pager.locator("[data-table-pager-range]").click();
+                const listed = pager.locator("[data-table-pager-columns] button");
+                expect((await listed.first().boundingBox())!.height).toBeGreaterThanOrEqual(44);
+                await expect(page.locator('[data-scope="menu"][data-part="content"][data-state="open"]')).toHaveCount(0);
+                await pager.locator("[data-table-pager-range]").click();
+            }
+        });
+    }
+
+    test("tableBasic: at a phone's width a header's tap sorts, and says so", async ({ page }) => {
         const entry = await openTable(page, "tableBasic");
-        expect(await page.evaluate(() => matchMedia("(hover: none)").matches), "the viewport cannot hover").toBe(true);
-        const controls = entry.locator("[data-slot='columnControls']:not([data-active])").first();
-        await expect(controls).toHaveCount(1);
-        await expect(controls).toHaveCSS("opacity", "0.6");
+        const head = entry.locator("th").first();
+        await head.locator("button").click(); await settled(page);
+        const first = await head.getAttribute("aria-sort");
+        expect(["ascending", "descending"]).toContain(first);
+        await head.locator("button").click(); await settled(page);
+        await expect(head).toHaveAttribute("aria-sort", first === "ascending" ? "descending" : "ascending");
+    });
+
+    test("valueTreeInspect: at a phone's width a branch's row is 44 and the whole of it toggles, a field's at least 36 with its key in a 96 column, no value cut", async ({ page }) => {
+        await page.goto("/#collections/value-tree/valueTreeInspect");
+        const entry = page.locator("[data-index]", { has: page.locator('a[href="#collections/value-tree/valueTreeInspect"]') });
+        await entry.scrollIntoViewIfNeeded();
+        const tree = entry.locator("[data-tree-phone]");
+        await expect(tree).toHaveCount(1, { timeout: 20_000 });
+        await settled(page);
+        expect(await tree.evaluate((root) => {
+            const out: string[] = [];
+            const rows = [...root.querySelectorAll<HTMLElement>("[data-part=row]")];
+            if (rows.length === 0) out.push("no rows");
+            let prev: DOMRect | undefined;
+            for (const row of rows) {
+                const r = row.getBoundingClientRect();
+                const branch = row.hasAttribute("data-branch");
+                if (branch && r.height < 43.5) out.push(`branch ${row.textContent} ${r.height} tall`);
+                if (!branch && r.height < 35.5) out.push(`field ${row.textContent} ${r.height} tall`);
+                if (prev !== undefined && r.top < prev.bottom - 0.5) out.push(`${row.textContent} over the row above`);
+                prev = r;
+                const value = row.querySelector<HTMLElement>("[data-leaf]");
+                if (value !== null && value.scrollWidth - value.clientWidth > 1) out.push(`${row.textContent}: its value is cut`);
+            }
+            return out;
+        })).toEqual([]);
+        const branch = tree.locator("[data-part=row][data-branch]").first();
+        const expanded = await branch.getAttribute("aria-expanded");
+        await branch.locator("span").first().click(); await settled(page);
+        await expect(tree.locator("[data-part=row][data-branch]").first()).not.toHaveAttribute("aria-expanded", expanded!);
     });
 });
 
@@ -743,10 +844,11 @@ test.describe("Visual invariants — the Table, on touch", () => {
  * builder fold their zoom into the View chip as their widths hide, and Studio
  * its Save as template, Preview and Publish into the ⋯ chip, each one move
  * (#1229). The Flowchart's frame (#1245) lets its freshness chip go, LR · TD
- * fold into its chip and find state into its icon — over the host's tables,
- * which no rail narrows (#1346), with nothing before them. A builder over one
+ * fold into its chip and find state into its icon, then into its View with
+ * the zoom's strip (#1519) — over its records bound editable as well, which no
+ * rail narrows (#1346, #1503), with nothing before them. A builder over one
  * `Slice.bindRecords` rail — the Calendar's (#1343), the Sheet's (#1345), the
- * Flowchart's over a record of flows (#1346), the Schematic's (#1387) — folds
+ * Flowchart's over its records (#1346, #1502), the Schematic's (#1387) — folds
  * every step of the rail first, then the rail's summary, then its own steps
  * (ruled 18 Oct, #1340).
  */
@@ -762,8 +864,8 @@ const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readon
     { name: "Deck", route: "collections/deck/deckSlice", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "Library", route: "collections/library/libraryLarge", widths: [1600, 1200, 900, 700, 600], nudge: [900], rail: ["rail"], ladder: () => LIBRARY_LADDER },
     { name: "Library (gallery)", route: "collections/library/libraryGalleryReports", widths: [1600, 1200, 900, 700, 600], nudge: [900], ladder: () => LIBRARY_LADDER },
-    { name: "Flowchart", route: "e3/flowchart/flowchart/flowchartDepot", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: () => FLOWCHART_LADDER },
-    { name: "Flowchart (records)", route: "e3/flowchart/flowchart/flowchartRecordIndexes", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["record-slices"], ladder: () => FLOWCHART_LADDER },
+    { name: "Flowchart", route: "e3/flowchart/flowchart/flowchartDepot", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["record-slices"], ladder: flowchartLadder },
+    { name: "Flowchart (editing)", route: "e3/flowchart/flowchart/flowchartDepotEditing", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: flowchartLadder },
     { name: "Schematic", route: "e3/schematic/schematic/schematicDataCentre", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["record-slices"], ladder: () => SCHEMATIC_LADDER },
     { name: "SnapGrid editor", route: "layout/snap-grid/snapGridEditor", widths: [1600, 1200, 1000, 900, 800, 700, 600], nudge: [1000, 800], ladder: () => SNAP_GRID_LADDER },
     { name: "Studio builder", route: "e3/studio/studio/studioBuilder", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: () => STUDIO_LADDER },
@@ -815,14 +917,22 @@ const STUDIO_LADDER: ReadonlyArray<readonly [string, number]> = [
     ["save-template", 1], ["preview", 1], ["publish", 1], ["more", 1], ["status", 1], ["history", 1],
 ];
 
-/** The Flowchart's own order (#1245, FB9): over a record its `flows` source
- *  narrows (#1346), the rail's summary first, after every step of the rail
- *  and before the Flowchart's own (ruled 18 Oct, #1340); then the freshness
- *  chip goes, LR · TD folds into its chip, find state into its icon, and the
- *  history item folds last, to its buttons, where the flowchart edits through
- *  its session — over a record of flows (#1246; `flowchart-flows.spec.ts`
- *  sweeps that row). */
-const FLOWCHART_LADDER: ReadonlyArray<readonly [string, number]> = [["record-summary", 1], ["freshness", 1], ["orientation", 1], ["seek", 1], ["history", 1]];
+/** The Flowchart's own order (#1245, FB9): over its records, which the rail's
+ *  sources narrow (#1346, #1502), the rail's summary first, after every step
+ *  of the rail and before the Flowchart's own (ruled 18 Oct, #1340); then the
+ *  freshness chip goes, LR · TD folds into its chip, find state into its
+ *  icon; then find state's View takes the zoom's strip (#1519, R42) — and LR ·
+ *  TD, where a rail folds it there — one move; and the history item folds
+ *  last, to its buttons, where the flowchart edits through its session
+ *  (#1503). */
+function flowchartLadder(state: ToolbarState): ReadonlyArray<readonly [string, number]> {
+    const rail = state.has("record-slices");
+    return [
+        ["record-summary", 1], ["freshness", 1], ["orientation", 1], ["seek", 1],
+        ["seek", 2], ...(rail ? [["orientation", 2] as const] : []), ["zoom", 1],
+        ["history", 1],
+    ];
+}
 
 /** The Schematic's own order (#1387, §6.1, SC24), after its rail: the rail's
  *  summary first, after every step of the rail (ruled 18 Oct, #1340); then the
@@ -1076,12 +1186,15 @@ test.describe("Visual invariants — toolbars", () => {
                 const read = await entry.evaluate((root) => {
                     const bar = root.querySelector("[data-toolbar]");
                     if (bar === null) return undefined;
+                    // A phone's frame has one form an item, so nothing of a ladder to hold it to (`toolbar-fit` holds its row).
+                    const phone = bar.closest("[data-phone]") !== null;
                     const box = bar.getBoundingClientRect();
                     const clipped = [...bar.querySelectorAll("[data-toolbar-item] *")].filter((el) => {
                         const r = el.getBoundingClientRect();
                         return r.width > 0 && (r.right > box.right + 0.5 || r.left < box.left - 0.5);
                     }).map((el) => (el.textContent ?? "").trim().slice(0, 20));
                     return {
+                        phone,
                         row: box.width,
                         folds: Number(bar.getAttribute("data-toolbar-folds")),
                         state: bar.getAttribute("data-toolbar-state") ?? "",
@@ -1090,6 +1203,7 @@ test.describe("Visual invariants — toolbars", () => {
                     };
                 });
                 if (read === undefined) { bad.add(`at ${width}px: no shared toolbar`); continue; }
+                if (read.phone) continue;
                 // Every frame painted at this width — the first one too — shows what it rests on.
                 const wrong = [...new Set(painted.filter((p) => Math.abs(p.row - read.row) <= 0.5 && p.sig !== sig).map((p) => p.sig))];
                 if (wrong.length > 0) bad.add(`at ${width}px: painted ${wrong.map((s) => `"${s.slice(0, 60)}"`).join(", ")} before resting on "${sig.slice(0, 60)}"`);
@@ -1408,6 +1522,46 @@ test.describe("Visual invariants — the Pagination", () => {
             await holdIn(page, entry, { width: "", display: "", justifyContent: "" });
             const back = await readPager(entry);
             expect({ room: back.room, form: back.form }).toEqual({ room: rest.room, form: "readout" });
+        });
+    }
+});
+
+test.describe("Visual invariants — the Blend, on a phone", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) >= 1000, "read on the touch viewport");
+
+    // A panel's head, its allocations and its foot at a phone's width: every word inside its panel, each whole — the
+    // cap on a line of its own rather than cut at the panel's edge, an allocation's label beside its amount rather than
+    // cut to its first letter, and the foot's buttons on the foot's line.
+    for (const name of ["blendCompare", "blendLibraryDnd"]) {
+        test(`${name}: at a phone's width every word stays inside its panel, whole`, async ({ page }) => {
+            const hash = `collections/blend/${name}`;
+            await page.goto(`/#${hash}`);
+            await page.waitForSelector("header", { timeout: 20_000 });
+            const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${hash}"]`) });
+            await entry.scrollIntoViewIfNeeded();
+            await expect(entry.locator("[data-slot='panelFoot']").first()).toBeVisible({ timeout: 20_000 });
+            await settled(page);
+            const faults = await entry.locator("[data-slot='panelFoot']").evaluateAll((feet) => feet.flatMap((foot) => {
+                // The panel: the foot's grandparent (the panel's foot slot, then the panel).
+                const panel = foot.parentElement!.parentElement!;
+                const p = panel.getBoundingClientRect();
+                const out: string[] = [];
+                const walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT);
+                for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+                    const words = (node.textContent ?? "").trim();
+                    if (words === "") continue;
+                    const range = document.createRange();
+                    range.selectNodeContents(node);
+                    const r = range.getBoundingClientRect();
+                    if (r.width > 0 && (r.left < p.left - 0.5 || r.right > p.right + 0.5)) out.push(`"${words}" past its panel`);
+                    const host = node.parentElement!;
+                    if (host.scrollWidth > host.clientWidth + 0.5 && getComputedStyle(host).textOverflow === "ellipsis" && host.scrollWidth <= p.width) {
+                        out.push(`"${words}" cut though its panel holds it`);
+                    }
+                }
+                return out;
+            }));
+            expect(faults).toEqual([]);
         });
     }
 });

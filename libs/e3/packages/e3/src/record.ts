@@ -94,7 +94,9 @@ export const recordsTree: DataTreeDef = {
  *   `indexes`, `mutations` and `migrations` — an initial value passed in its
  *   place is refused, naming `{ initial: value }` — and naming the record and
  *   the part: a part's name that is not an identifier, or `primary` for an
- *   index; a second nested series index; a part not made by its builder; two
+ *   index; a second nested series index; an entries index beside a nested
+ *   series index, or two over one field; an index named as the span or the
+ *   lean rows another keeps beside it; a part not made by its builder; two
  *   migrations of one name, or a migration that does not take the record as the
  *   step before it leaves it, or a last step that leaves it as other than its
  *   type; or anything a part's builder refuses
@@ -156,15 +158,16 @@ export function record(name: string, type: EastType, declared?: unknown): Record
   for (const [key, draft] of partsOf(where, 'indexes', config?.indexes?.(INDEX_BUILDER as unknown as IndexBuilder<EastType>))) {
     rec.indexes[key] = builderOf(where, 'index', key, draft).build(rec, key);
   }
-  // A nested series index's span is built beside it, under a name of its own (#1438).
+  checkEntries(where, Object.values(rec.indexes));
+  // A nested series index's span, and an entries index's lean rows, are built beside it, each under a name of its own (#1438, #1521).
   for (const index of Object.values(rec.indexes)) {
-    const span = index.nested?.span;
-    if (span === undefined) continue;
-    if (rec.indexes[span.name] !== undefined) {
-      throw new Error(`${where}: an index named '${span.name}' — the name is the span the nested series index '${index.name}' keeps beside it; ` +
-        'name the index otherwise');
+    const companion = index.nested?.span ?? index.entries?.rows;
+    if (companion === undefined) continue;
+    if (rec.indexes[companion.name] !== undefined) {
+      const kept = index.nested !== undefined ? `the span the nested series index '${index.name}'` : `the lean rows the entries index '${index.name}'`;
+      throw new Error(`${where}: an index named '${companion.name}' — the name is ${kept} keeps beside it; name the index otherwise`);
     }
-    rec.indexes[span.name] = span;
+    rec.indexes[companion.name] = companion;
   }
   for (const [key, draft] of partsOf(where, 'mutations', config?.mutations?.(MUTATION_BUILDER as unknown as MutationBuilder<EastType>))) {
     rec.mutations[key] = builderOf(where, 'mutation', key, draft).build(rec, key);
@@ -190,6 +193,31 @@ export function record(name: string, type: EastType, declared?: unknown): Record
   Object.freeze(rec.mutations);
   Object.freeze(rec.migrations);
   return rec;
+}
+
+/**
+ * Refuses a record's entries indexes where they do not fit together (#1521),
+ * whatever order they are declared in: one beside a nested series index — one
+ * kind of index files a record's nested fields — or two over one field.
+ *
+ * @param where - The record, as a refusal names it
+ * @param indexes - Its indexes, as built
+ * @throws {Error} Naming the indexes
+ */
+function checkEntries(where: string, indexes: readonly RecordIndexDef[]): void {
+  const entries = indexes.filter((index) => index.entries !== undefined);
+  const nested = indexes.find((index) => index.nested !== undefined);
+  if (nested !== undefined && entries.length > 0) {
+    throw new Error(`${where}: the entries index '${entries[0]!.name}' beside the nested series index '${nested.name}' — ` +
+      'one kind of index files a record\'s nested fields: declare the one or the other');
+  }
+  for (const [at, index] of entries.entries()) {
+    const field = index.entries!.field;
+    const twin = entries.slice(0, at).find((other) => other.entries!.field === field);
+    if (twin !== undefined) {
+      throw new Error(`${where}: the entries indexes '${twin.name}' and '${index.name}' both file '${field}' — one entries index files a field`);
+    }
+  }
 }
 
 /** What `e3.record` takes beside its name and type: its initial value, and its parts through its builders. */

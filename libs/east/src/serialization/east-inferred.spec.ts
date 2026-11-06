@@ -6,6 +6,9 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import { parseInferred } from './east.js';
+import { compareFor, equalFor } from '../comparison.js';
+import { SortedMap } from '../containers/sortedmap.js';
+import { variant } from '../containers/variant.js';
 import {
   NullType,
   BooleanType,
@@ -21,6 +24,7 @@ import {
   VariantType,
   NeverType,
   isTypeEqual,
+  type ValueTypeOf,
 } from '../types.js';
 
 describe('parseInferred', () => {
@@ -221,6 +225,33 @@ describe('parseInferred', () => {
       assert.throws(
         () => parseInferred('{"a":1,"b":"hello"}'),
         /incompatible dict types/
+      );
+    });
+
+    test('should read a key that ends in a word up to its colon', () => {
+      const NullKeyed = DictType(NullType, IntegerType);
+      const [nullsType, nulls] = parseInferred('{null:1}');
+      assert.ok(isTypeEqual(nullsType, NullKeyed));
+      assert.ok(equalFor(NullKeyed)(nulls, new SortedMap([[null, 1n]], compareFor(NullType))));
+
+      const BooleanKeyed = DictType(BooleanType, IntegerType);
+      const [booleansType, booleans] = parseInferred('{false:1,true:2}');
+      assert.ok(isTypeEqual(booleansType, BooleanKeyed));
+      assert.ok(equalFor(BooleanKeyed)(booleans, new SortedMap([[false, 1n], [true, 2n]], compareFor(BooleanType))));
+    });
+
+    test('should read a key whose case has no payload up to its colon', () => {
+      const CaseKey = VariantType({ none: NullType, some: IntegerType });
+      const CaseKeyed = DictType(CaseKey, IntegerType);
+      const [type, value] = parseInferred('{.none:1,.some 2:3}');
+      assert.ok(isTypeEqual(type, CaseKeyed));
+      assert.ok(equalFor(CaseKeyed)(value, new SortedMap<ValueTypeOf<typeof CaseKey>, bigint>([[variant('none', null), 1n], [variant('some', 2n), 3n]], compareFor(CaseKey))));
+    });
+
+    test('should refuse a colon outside a dict', () => {
+      assert.throws(
+        () => parseInferred('.none:1'),
+        /Unexpected input after parsed value/
       );
     });
   });

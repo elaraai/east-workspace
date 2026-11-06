@@ -35,18 +35,19 @@ import type {
 import type { SheetWords } from "./words.js";
 import { blankRowId } from "./sheet-types.js";
 import { DATE_DISPLAY_PATTERN, isWhenLevel, type WhenLevel } from "./parse/date.js";
+import { actionColumnOf } from "./actions/model.js";
 
 // ── Columns ───────────────────────────────────────────────────────────────
 
 /** The column kinds (the arms of `SheetColumnKindType`). */
 export type SheetKind =
     | "text" | "date" | "quantity" | "integer" | "lookup" | "reference" | "enum"
-    | "set" | "link" | "stamped" | "custom";
+    | "set" | "link" | "stamped" | "custom" | "action";
 
 /** Default column widths per kind (px) when the author declares none. */
 const DEFAULT_WIDTH: Record<SheetKind, number> = {
     text: 200, date: 96, quantity: 112, integer: 72, lookup: 200, reference: 120, enum: 124,
-    set: 240, link: 352, stamped: 104, custom: 140,
+    set: 240, link: 352, stamped: 104, custom: 140, action: 304,
 };
 
 /** The copilot latency class of a kind (B§3): deterministic kinds are instant. */
@@ -500,6 +501,9 @@ export function cellText(cell: SheetCellValue | undefined, meta: SheetColumnMeta
         case "integer":
             return cell.type === "Integer" ? formatQuantity(Number(cell.value), undefined, words)
                 : cell.type === "Float" ? formatQuantity(cell.value, undefined, words) : rawCellText(cell);
+        case "action":
+            // An action cell reads as its state's word (S4); its summary is a rule cell of its own.
+            return cell.type === "Action" ? actionColumnOf(meta)?.cases.get(cell.value.case)?.state ?? cell.value.case : rawCellText(cell);
         default:
             return rawCellText(cell);
     }
@@ -516,6 +520,7 @@ export function rawCellText(cell: SheetCellValue): string {
         case "String": return cell.value;
         case "DateTime": return formatDatePattern(DATE_DISPLAY_PATTERN, cell.value);
         case "Link": return printLinkText(cell.value);
+        case "Action": return cell.value.case;
     }
     return "";
 }

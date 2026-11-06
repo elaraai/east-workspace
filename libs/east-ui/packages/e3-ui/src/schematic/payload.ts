@@ -41,11 +41,12 @@
 
 import {
     ArrayType, BooleanType, DictType, East, Expr, FloatType, FunctionType, NullType, OptionType, StringType, StructType, none, some, variant,
-    type ExprType, type SubtypeExprOrValue,
+    type ExprType, type SubtypeExprOrValue, type ValueTypeOf,
 } from "@elaraai/east";
 import { EastUI, RowSourceType } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, isRecordSlices, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
+import { VocabularyNounType, vocabularyNoun, vocabularyWord, type VocabularyNoun } from "../utils/vocabulary.js";
 import { isSchematicKind, type SchematicItems, type SchematicLinks, type SchematicNets, type SchematicZones } from "./kinds.js";
 import { SchematicLibraryTabType, buildSchematicLibrary, schematicTabSources, type SchematicLibraryKind, type SchematicLibraryTab } from "./library.js";
 import { isSchematicLayers, type SchematicLayers } from "./layers.js";
@@ -62,6 +63,24 @@ import {
 const ShownType = DictType(StringType, RowSourceType(ArrayType(StringType)));
 
 /**
+ * The app's own words for what the Schematic draws of its own (#1516), every one resolved.
+ *
+ * @property templates - The library's tab of templates, and one of them (`Template`, `Templates`)
+ * @property backlog - Its tab of items with no place (`Backlog`)
+ * @property index - Its tab of zones (`Index`)
+ * @property layer - Its tab of layers, and one of them (`Layer`, `Layers`)
+ * @property zone - A zone (`Zone`, `Zones`)
+ * @property net - A net (`Net`, `Nets`)
+ * @property link - A link (`Link`, `Links`)
+ * @property source - A net's source (`Source`, `Sources`)
+ * @property destination - A net's destination (`Destination`, `Destinations`)
+ */
+export const SchematicVocabularyType = StructType({
+    templates: VocabularyNounType, backlog: StringType, index: StringType, layer: VocabularyNounType, zone: VocabularyNounType,
+    net: VocabularyNounType, link: VocabularyNounType, source: VocabularyNounType, destination: VocabularyNounType,
+});
+
+/**
  * The `Schematic` renderer's payload: the Schematic's interface (§5).
  *
  * @property extent - The drawing's world bounds; the canvas fits them
@@ -76,6 +95,7 @@ const ShownType = DictType(StringType, RowSourceType(ArrayType(StringType)));
  * @property narrowed - How a narrowed-out row draws (§10.3)
  * @property library - The library pane's tabs, in the order `library` lists them; none, no library pane
  * @property inspector - Whether the inspector pane shows (§9): off unless `inspector` is given
+ * @property vocabulary - The app's words for what the Schematic draws of its own (#1516)
  * @property readOnly - No gesture, drop or inspector edit; selection stays
  * @property id - Keeps the Schematic's state apart, when a surface holds two
  * @property grid - The metric grid; on by default
@@ -96,6 +116,7 @@ export const SchematicPayloadType = StructType({
     narrowed: SchematicNarrowedType,
     library: ArrayType(SchematicLibraryTabType),
     inspector: BooleanType,
+    vocabulary: SchematicVocabularyType,
     readOnly: BooleanType,
     id: OptionType(StringType),
     grid: OptionType(BooleanType),
@@ -186,6 +207,28 @@ export interface SchematicNarrowedOptions {
     fit?: boolean;
 }
 
+/** The app's words for what the Schematic draws of its own: any left out keeps its default. */
+export interface SchematicVocabularyProp {
+    templates?: VocabularyNoun; backlog?: string; index?: string; layer?: VocabularyNoun; zone?: VocabularyNoun;
+    net?: VocabularyNoun; link?: VocabularyNoun; source?: VocabularyNoun; destination?: VocabularyNoun;
+}
+
+/**
+ * The Schematic's words, resolved.
+ *
+ * @param given - The prop
+ * @returns Every word
+ * @throws {Error} Naming an entry given empty
+ * @internal
+ */
+export function schematicVocabulary(given: SchematicVocabularyProp | undefined): ValueTypeOf<typeof SchematicVocabularyType> {
+    const noun = (name: keyof SchematicVocabularyProp, one: string) => vocabularyNoun("Schematic", name, given?.[name], one);
+    return {
+        templates: noun("templates", "Template"), backlog: vocabularyWord("Schematic", "backlog", given?.backlog, "Backlog"), index: vocabularyWord("Schematic", "index", given?.index, "Index"),
+        layer: noun("layer", "Layer"), zone: noun("zone", "Zone"), net: noun("net", "Net"), link: noun("link", "Link"), source: noun("source", "Source"), destination: noun("destination", "Destination"),
+    };
+}
+
 /** `<Schematic>`'s props (§5). */
 export interface SchematicProps {
     /** The drawing's world bounds; the canvas fits them. */
@@ -220,6 +263,11 @@ export interface SchematicProps {
      * kind's `inspector`.
      */
     inspector?: boolean;
+    /**
+     * The app's own words for what the Schematic draws of its own, each keeping its default where left out: the library's
+     * `templates`, `backlog`, `index` and `layer`, and `zone`, `net`, `link`, a net's `source` and `destination`.
+     */
+    vocabulary?: SchematicVocabularyProp;
     /** No gesture, drop or inspector edit; selection stays. */
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Keeps this Schematic's panes, layers and tools apart when one surface holds two (`schematicKeys(id)`, D31). */
@@ -313,7 +361,7 @@ const REMOVED: Readonly<Record<string, string>> = {
 
 /** Every prop `<Schematic>` takes. */
 const PROPS: ReadonlySet<string> = new Set([
-    "extent", "scaleUnit", "items", "zones", "links", "nets", "layers", "slice", "narrowed", "library", "inspector", "readOnly", "id",
+    "extent", "scaleUnit", "items", "zones", "links", "nets", "layers", "slice", "narrowed", "library", "inspector", "vocabulary", "readOnly", "id",
     "grid", "minimap", "canConnect", "onSelect",
 ]);
 
@@ -542,6 +590,7 @@ export function createSchematicPayload(props: object): ExprType<SchematicPayload
         sources: sources.names,
     });
     const inspector = inspectorOf(given.inspector);
+    const vocabulary = schematicVocabulary(given.vocabulary as SchematicVocabularyProp | undefined);
     const narrowed = narrowedOf(given.narrowed);
     const layers = layersOf(given.layers);
     const id = given.id;
@@ -568,6 +617,7 @@ export function createSchematicPayload(props: object): ExprType<SchematicPayload
             narrowed: narrowed.wire,
             library,
             inspector,
+            vocabulary,
             readOnly: given.readOnly ?? false,
             id: id === undefined ? none : some(id),
             grid: optional(given.grid),

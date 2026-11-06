@@ -111,6 +111,7 @@ import type { NetLeg, SchematicEdit } from "../edits.js";
 import type { SchematicWords } from "../messages.js";
 import type { SchematicNarrowedLook } from "../narrowing.js";
 import type { SchematicTool } from "../tools.js";
+import type { ZoomRange } from "../../shared/schedule/zoom.js";
 
 const stringEqual = equalFor(StringType);
 
@@ -285,7 +286,7 @@ export interface SchematicCanvasProps {
      */
     readonly retained?: boolean | undefined;
     /** Told whether the zoom stands at Fit and at its limit, as either changes (#1393): the toolbar's Zoom out and Zoom in take no press there. */
-    readonly onZoomRange?: ((range: SchematicZoomRange) => void) | undefined;
+    readonly onZoomRange?: ((range: ZoomRange) => void) | undefined;
     /**
      * Whether main is below 480px (#1394, D15): the canvas pans, pinches and selects, and a selected link draws no handle
      * and takes no re-target's drag — the inspector's ends re-target it. The frame offers no Move or Connect there, and
@@ -327,14 +328,6 @@ export interface SchematicCanvasFit {
 
 /** No fit. */
 const NO_FIT: SchematicCanvasFit = { key: undefined, reading: false, box: undefined };
-
-/** Where the zoom stands (#1393): at Fit, where Zoom out does nothing, and at its limit, where Zoom in does nothing. */
-export interface SchematicZoomRange {
-    /** Whether it stands at Fit. */
-    readonly atFit: boolean;
-    /** Whether it stands at its limit. */
-    readonly atLimit: boolean;
-}
 
 /**
  * The Schematic's canvas (see the module docs): map-grade navigation — wheel

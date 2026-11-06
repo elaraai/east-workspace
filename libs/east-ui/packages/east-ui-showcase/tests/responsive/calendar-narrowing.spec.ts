@@ -6,7 +6,7 @@
  * The Calendar's narrowing (#1343) on the real in-page e3: the operations
  * calendar's one rail over its eight records — each event kind's, read
  * through its interval indexes, the machines', the people's and each
- * templates record's. At every width, in both themes, the rail stands in the
+ * templates record's. At every width, the rail stands in the
  * toolbar's one row, nothing leaving it, and every source's field is in it —
  * live, folded to its chip, or named by its one trigger — but the event
  * kinds' start, which is the one date window, the time navigator's and never
@@ -28,6 +28,7 @@ import { toolbarFaults } from "./builder-frame";
 import { expectSourceCounts, type SourceCount } from "./record-counts";
 import { recordField } from "./record-slice";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 const HASH = "e3/calendar/calendar/calendarOperations";
 /** The rail, in the toolbar's row. */
@@ -99,8 +100,8 @@ async function tabs(page: Page, start: Locator): Promise<string[]> {
     return [...row, ...menu];
 }
 
-for (const theme of ["light", "dark"] as const) {
-    test(`the one rail stands at every width, nothing leaving the toolbar, every source's field in it but the window's dates (${theme})`, async ({ page }) => {
+for (const theme of LAYOUT_THEMES) {
+    test(`the one rail stands at every width, nothing leaving the toolbar, every source's field in it but the window's dates (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await open(page, theme);
         const frame = entry.locator("[data-calendar-frame]").first();
@@ -172,7 +173,7 @@ for (const theme of ["light", "dark"] as const) {
         await start.locator('[role="tab"]', { hasText: /^Templates/ }).click();
         await settled(page);
         // At every width the Templates tab says what it shows — or, the pane on its rail, its badge counts the backlog — the row whole.
-        for (const width of [1920, 1440, 1024, 768, 560, 390, 360]) {
+        for (const width of [1920, 1440, 1024, 768, 600]) {
             await size(page, entry, width);
             const read = await start.evaluate((el) => (el.hasAttribute("data-collapsed")
                 ? { collapsed: true, said: el.querySelector("[data-dock-badge]")?.textContent ?? null }

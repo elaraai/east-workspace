@@ -30,7 +30,8 @@
  * rail fits it (`useFooterFit`). The live notices are one item of the rail,
  * which takes what the line leaves (`data-footer-slack`) and wraps within
  * itself item by item where it is narrow (`useRailWrap`), an item wider than
- * it wrapping its own words.
+ * it wrapping its own words. Each notice is `data-footer-live`, which a phone's
+ * frame keeps: there the rail shows only while one stands, above the pane tabs.
  *
  * @packageDocumentation
  */
@@ -114,12 +115,12 @@ export function SchematicFooter({ styles, words, density, names, viewport, exten
         <Box ref={rail} css={styles.footer} data-schematic-footer="">
             <Box ref={live} css={styles.footerNotices} data-schematic-notices="" data-footer-slack="" data-builder-narrow={wrap ? "" : undefined}>
                 {dense.map((notice) => (
-                    <Box as="span" key={notice.slot} css={styles.footerItem} data-schematic-density={notice.slot} data-density-cell={notice.side}>{notice.text}</Box>
+                    <Box as="span" key={notice.slot} css={styles.footerItem} data-schematic-density={notice.slot} data-density-cell={notice.side} data-footer-live="" data-footer-ambient="">{notice.text}</Box>
                 ))}
-                {refusal !== undefined && <Box as="span" css={styles.footerItem} data-schematic-refused="" role="alert">{refusal}</Box>}
+                {refusal !== undefined && <Box as="span" css={styles.footerItem} data-schematic-refused="" data-footer-live="" role="alert">{refusal}</Box>}
                 {notices.map((notice) => <RecordSliceSaveNotice key={notice.slot} slice={notice.slice} singular={notice.singular} plural={notice.plural} />)}
                 {/* Where Find's last pick landed, the canvas not showing it as itself: why. */}
-                {found !== undefined && <Box as="span" css={styles.footerItem} data-schematic-found="" role="status">{found}</Box>}
+                {found !== undefined && <Box as="span" css={styles.footerItem} data-schematic-found="" data-footer-live="" role="status">{found}</Box>}
             </Box>
             <LoadingLine value={line} shown={shown} form={fit.form} />
         </Box>

@@ -9,7 +9,7 @@
  * Plan as they scroll, the Calendar, the Roster and the Allocation as they
  * step, the Schematic as the rail narrows its racks — on the real in-page e3, its
  * reads held and failed through the showcase's e3 fault hook (`e3-faults.ts`),
- * with the frame 1440, 768, 390 and 360px wide, in both themes, as
+ * with the frame 1440, 768 and 600px wide (a phone's has no footer, its line in the second row), as
  * `builder-footer-line.spec.ts` measures the rail at rest:
  *
  * - While a read is held, the line says what is read, one line in its own slot
@@ -43,6 +43,7 @@ import { sizeBuilder, visitBuilder } from "./builder-page";
 import { RECORD_READS, failE3, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { recordField } from "./record-slice";
 import { token } from "./tokens";
+import { LAYOUT_THEMES } from "./themes";
 
 /** How a builder is made to ask for what it has not read yet: its `n`-th new read. */
 type Read = (page: Page, entry: Locator, n: number) => Promise<void>;
@@ -106,13 +107,13 @@ const READERS: readonly Reader[] = [
 ];
 
 /** The frame's widths, widest first. */
-const WIDTHS = [1440, 768, 390, 360] as const;
+const WIDTHS = [1440, 768, 600] as const;
 
 /** The page: wide enough that a 1440px frame keeps clear of the doc column's "On this page" beside it. */
 const PAGE = { width: 2560, height: 1200 } as const;
 
 /** The widths a touch screen's preview box holds whole: its box clips a frame wider than it, so 1440 is the desktop's alone. */
-const TOUCH_WIDTHS = [768, 390, 360] as const;
+const TOUCH_WIDTHS = [768, 600] as const;
 
 /** A form's fullness: never fuller at a narrower frame. */
 const FULLNESS: Record<string, number> = { full: 2, short: 1, dot: 0 };
@@ -270,7 +271,7 @@ function missedTaps(retry: Locator): Promise<string[]> {
 
 // A test a builder: each is an area of its own, whose workspace the page makes from its bundle the first time it shows (#1397). The page
 // is wide enough that a 1440px frame keeps clear of its "On this page" column.
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     for (const reader of READERS) {
         test(`the ${reader.builder}'s loading line, held in flight and then failed, says what it reads in one line that fits whole at every width — full, short or the dot alone — then "Couldn't read · Retry", Retry asking again (#1398, CL3, CL11) (${theme}) @desktop`, async ({ page }) => {
             await installE3Faults(page);
@@ -337,3 +338,28 @@ for (const theme of ["light", "dark"] as const) {
         });
     }
 }
+
+test("in a phone's frame a failed read's Retry stands in the toolbar's second row, a 44px tap target by its halo, and a tap on it reads again @mobile", async ({ page }) => {
+    await installE3Faults(page);
+    await page.setViewportSize(PAGE);
+    const reader = READERS[0]!;
+    const entry = await visitBuilder(page, reader.route, reader.root, "light");
+    await sizeBuilder(page, entry, reader.root, 390);
+    const fault = await failE3(page, { kinds: [...RECORD_READS] }, FAILURE);
+    await reader.read(page, entry, 1);
+    const retry = entry.locator("[data-builder-frame] [data-frame-slot='sessionRow'] [data-line-retry]:visible").first();
+    await expect(retry).toBeVisible();
+    await retry.scrollIntoViewIfNeeded();
+    const missed = await retry.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        return [[x, y - 20], [x, y + 20], [x - 21, y], [x + 21, y]].flatMap(([px, py]) => {
+            const hit = document.elementFromPoint(px!, py!);
+            return hit !== null && el.contains(hit) ? [] : [`a tap at ${Math.round(px! - x)},${Math.round(py! - y)} lands on ${hit?.tagName ?? "nothing"}`];
+        });
+    });
+    expect(missed).toEqual([]);
+    await releaseE3(page, fault);
+    await retry.tap();
+    await expect(retry).toBeHidden({ timeout: 30_000 });
+});

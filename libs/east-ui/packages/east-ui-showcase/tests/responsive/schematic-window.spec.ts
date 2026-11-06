@@ -48,7 +48,7 @@ import { expect, type Locator } from "playwright/test";
 import { test } from "./kept-page";
 import { e3Requests, heldE3, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { recordField } from "./record-slice";
-import { RECORD_INDEXES, cardOverlaps, cardsIn, openSchematic, screenPoint, sizeTo, viewOf, zoomInto, type WorldBox } from "./schematic-page";
+import { RECORD_INDEXES, cardOverlaps, cardsIn, openSchematic, screenPoint, viewOf, zoomInto, type WorldBox } from "./schematic-page";
 import { settled } from "./settle";
 
 /** The racks' loads, as the page's reads name them. */
@@ -216,7 +216,7 @@ function overflow(root: Locator): Promise<string[]> {
     });
 }
 
-test("fitted, the floor's density: the footer says how many racks it shades and that zooming in draws them, its one live notice, nothing past the rail's edge; the minimap draws the floor's density, on a phone in its corner (#1393)", async ({ page, isMobile }) => {
+test("fitted, the floor's density: the footer says how many racks it shades and that zooming in draws them, its one live notice, nothing past the rail's edge; the minimap draws the floor's density (#1393)", async ({ page, isMobile }) => {
     const root = await openSchematic(page, RECORD_INDEXES);
     await expect(notice(root)).toHaveText("Density: 20,000 racks — zoom in to draw them");
     await expect(root.locator("[data-schematic-notices] > *")).toHaveCount(1);
@@ -226,16 +226,15 @@ test("fitted, the floor's density: the footer says how many racks it shades and 
     await expect(minimap(root)).toHaveAttribute("data-minimap-items", "0");
     expect(await minimapShare(root)).toBeLessThanOrEqual(0.25);
     if (!isMobile) return;
-    // On a phone, narrower still: the words wrap inside the rail, and the minimap keeps to a quarter of the canvas's width.
-    await page.setViewportSize({ width: 360, height: 740 });
-    await settled(page);
+    // On a phone the footer is this band alone, over the pane tabs, the notice whole in it: no legend, no loading line.
+    const band = await root.locator("[data-builder-frame]").first().evaluate((frame) => {
+        const foot = frame.querySelector(":scope > [data-frame-slot='footer']")!.getBoundingClientRect();
+        const strip = frame.querySelector(":scope > [data-frame-slot='paneStrip']")?.getBoundingClientRect();
+        const main = frame.querySelector("[data-frame-slot='main']")!.getBoundingClientRect();
+        return { shows: foot.height >= 28, underMain: Math.abs(foot.top - main.bottom) <= 0.5, overTabs: strip === undefined || Math.abs(foot.bottom - strip.top) <= 0.5 };
+    });
+    expect(band).toEqual({ shows: true, underMain: true, overTabs: true });
     await expect(notice(root)).toBeVisible();
-    expect(await overflow(root), "at 360px").toEqual([]);
-    expect(await minimapShare(root), "the minimap at 360px").toBeLessThanOrEqual(0.25);
-    await sizeTo(page, root, 294);
-    await expect(notice(root)).toBeVisible();
-    expect(await overflow(root), "in a 294px parent").toEqual([]);
-    expect(await minimapShare(root), "the minimap in a 294px parent").toBeLessThanOrEqual(0.25);
 });
 
 test.describe("A tap on the density (#1393)", () => {

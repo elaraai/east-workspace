@@ -39,6 +39,11 @@
  *
  * The items are a part of their own (SB4): `useSheetToolbarItemsFor` builds
  * them, and the Sheet's frame places them in its one toolbar (#1216).
+ *
+ * In a phone's frame (`Mobile Builder Frame Spec.md` FR2) the row is the
+ * views, every tab inline and scrolling sideways, then the rail's summary as
+ * the count line, the Filters button and Search Records — each item's phone
+ * form; the history and the eye are the toolbar's second row.
  */
 
 import { type ReactNode } from "react";
@@ -154,6 +159,8 @@ export function useSheetToolbarItemsFor({ styles, chrome, nouns, count, partial,
         bundle: combine ? [...Array.from({ length: tabs.maxFold + 4 }, () => undefined), SEARCH_VIEWS] : undefined,
         version: tabs.version,
         held: tabs.held,
+        // A phone's (FR2): every tab inline, scrolling sideways in the row's slack.
+        phone: { form: tabs.render({ folded: 0, strip: "phone" }), grow: true },
     };
 
     return [
@@ -162,6 +169,8 @@ export function useSheetToolbarItemsFor({ styles, chrome, nouns, count, partial,
             key: "count",
             forms: [<Box as="span" css={styles.toolbarCount} data-slot="toolbarCount" data-opn={flash === true ? "" : undefined}>{count}</Box>, null],
             rank: SHEET_RANK.count,
+            // A phone's row has one count line, the rail's summary (`2 of 7 lines`): the lens's gives way to it.
+            phone: { form: null },
         },
         seek,
         ...rail,

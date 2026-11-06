@@ -34,7 +34,7 @@ import {
     dayStart, inWindow, navigate, type CalendarItem, type CalendarRange, type CalendarRef, type CalendarStyles, type CalendarUncounted, type CalendarView,
 } from "./model.js";
 
-const LAYOUTS = [{ key: "calendar", label: "Calendar" }, { key: "resources", label: "Resources" }, { key: "timeline", label: "Timeline" }] as const;
+const LAYOUTS: readonly { readonly key: CalendarView["layout"]; readonly label: string }[] = [{ key: "calendar", label: "Calendar" }, { key: "resources", label: "Resources" }, { key: "timeline", label: "Timeline" }];
 const PERIODS = [{ key: "day", label: "Day" }, { key: "week", label: "Week" }, { key: "month", label: "Month" }] as const;
 /** The kind of an issue's event: the kind whose session the history holds the issue in. */
 function kindOfIssue(commands: CalendarCommands, issue: EditIssue): string | undefined {
@@ -53,6 +53,12 @@ function startOfIssue(commands: CalendarCommands, kind: string, entry: string): 
 
 interface ToolbarArgs {
     view: CalendarView; setView: (view: CalendarView) => void; range: CalendarRange; now: Date;
+    /** What this Calendar calls its Resources layout (#1516). */
+    resourcesWord: string;
+    /** The layouts this Calendar offers, in the switch's order: the `views` prop's. */
+    layouts: readonly CalendarView["layout"][];
+    /** The periods this Calendar offers, in the switch's order: the `viewPeriods` prop's. */
+    periods: readonly CalendarView["period"][];
     /** The window's events; `undefined` while its period is read: "…", never a count of another period's (#1398, CL13). */
     count: number | undefined;
     /** The kinds past the cap (#1424): the count counts none of their events, and says so. */
@@ -160,6 +166,12 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
     // the View, beside the date and the view controls.
     const seek = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK, label: words.m.keySearch() });
     const period = view.layout === "resources" ? "day" : view.period;
+    // The layouts this Calendar offers: its switch, in every form, only where there is a choice to make.
+    const layouts = LAYOUTS.filter(layout => args.layouts.includes(layout.key)).map(layout => layout.key === "resources" ? { ...layout, label: args.resourcesWord } : layout);
+    const switches = layouts.length > 1;
+    // And the periods it offers, Resources being always a day.
+    const periods = PERIODS.filter(item => args.periods.includes(item.key));
+    const picksPeriod = view.layout !== "resources" && periods.length > 1;
     // A step from where the view is: the timeline's, the day under its centre as it is when the step is asked.
     const move = (step: number) => args.onNavigate(navigate({ ...view, date: args.visible?.get()?.center ?? args.navigationDate }, step).date);
     // The overlaps shown: on the timeline, those in the days it shows (#1398), read by what counts them.
@@ -169,13 +181,14 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         const firstPair = (shownDays === undefined ? overlaps : scheduleOverlapsIn(overlaps, shownDays.from, shownDays.to)).pairs[0];
         if (firstPair === undefined) return;
         select([firstPair.first, firstPair.second].map(item => ({ kind: item.kind, key: item.key })));
-        if (firstPair.first.start.type === "some") setView({ ...view, layout: "resources", date: dayStart(firstPair.first.start.value).getTime() });
+        if (firstPair.first.start.type === "some") setView({ ...view, layout: args.layouts.includes("resources") ? "resources" : view.layout, date: dayStart(firstPair.first.start.value).getTime() });
     };
+    const overlapNoun = (n: number) => n === 1 ? "overlap" : "overlaps";
     const warning = (short: boolean) => <OverlapsCount overlaps={overlaps} visible={visible}>{n =>
         <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]}
-            aria-label={`${n} overlaps`} data-calendar-overlaps="" onClick={showOverlaps}><span data-chip-icon=""><FontAwesomeIcon icon={faTriangleExclamation} /></span><span data-chip-label="">{n}{!short && " overlaps"}</span></chakra.button>}
+            aria-label={`${n} ${overlapNoun(n)}`} data-calendar-overlaps="" onClick={showOverlaps}><span data-chip-icon=""><FontAwesomeIcon icon={faTriangleExclamation} /></span><span data-chip-label="">{n}{!short && ` ${overlapNoun(n)}`}</span></chakra.button>}
     </OverlapsCount>;
-    const overlapsWords = <OverlapsCount overlaps={overlaps} visible={visible}>{n => `${n} overlaps`}</OverlapsCount>;
+    const overlapsWords = <OverlapsCount overlaps={overlaps} visible={visible}>{n => `${n} ${overlapNoun(n)}`}</OverlapsCount>;
     const viewMenu = <ChipMenu label="View" icon={faCalendarWeek} data="data-calendar-view-menu" onSelect={key => {
         const layout = LAYOUTS.find(layout => layout.key === key); const picked = PERIODS.find(period => period.key === key);
         if (layout !== undefined) setView({ ...view, layout: layout.key });
@@ -183,16 +196,15 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         else if (key === "overlaps") showOverlaps();
         else if (key === "previous" || key === "next") move(key === "previous" ? -1 : 1);
     }}>
-        {LAYOUTS.map(layout => <ChakraMenu.Item value={layout.key} key={layout.key}>{layout.label}</ChakraMenu.Item>)}
-        {view.layout !== "resources" && <><ChakraMenu.Separator />{PERIODS.map(p => <ChakraMenu.Item value={p.key} key={p.key}>{p.label}</ChakraMenu.Item>)}</>}
-        <ChakraMenu.Separator />
+        {switches && <>{layouts.map(layout => <ChakraMenu.Item value={layout.key} key={layout.key}>{layout.label}</ChakraMenu.Item>)}<ChakraMenu.Separator /></>}
+        {picksPeriod && <>{periods.map(p => <ChakraMenu.Item value={p.key} key={p.key}>{p.label}</ChakraMenu.Item>)}<ChakraMenu.Separator /></>}
         <ChakraMenu.Item value="previous">Previous {period}</ChakraMenu.Item><ChakraMenu.Item value="next">Next {period}</ChakraMenu.Item>
         {overlapsShown && <ChakraMenu.Item value="overlaps">{overlapsWords}</ChakraMenu.Item>}
     </ChipMenu>;
     const controls = <>
         {seek?.forms[0]}
-        <Seg label="Layout" scope="calendar" name="compact-layout" items={LAYOUTS} active={view.layout} onPick={layout => setView({ ...view, layout })} />
-        {view.layout !== "resources" && <Seg label="Period" scope="calendar" name="compact-period" items={PERIODS} active={period} onPick={period => setView({ ...view, period })} />}
+        {switches && <Seg label="Layout" scope="calendar" name="compact-layout" items={layouts} active={view.layout} onPick={layout => setView({ ...view, layout })} />}
+        {picksPeriod && <Seg label="Period" scope="calendar" name="compact-period" items={periods} active={period} onPick={period => setView({ ...view, period })} />}
         {overlapsShown && <Button size="xs" variant="ghost" onClick={showOverlaps}>{overlapsWords}</Button>}
     </>;
     const navigator = (compact: boolean, combined: boolean) => (date: number, label: string | undefined) => <TimeNavigator scope="calendar" date={date} period={period}
@@ -202,9 +214,10 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         : <VisibleNavigator visible={visible} words={words} fallback={{ date: args.navigationDate, label: args.rangeLabel }} navigator={navigator(compact, combined)} />;
     return [
         ...rail,
-        { key: "calendar.layout", side: "start", rank: HOST_RANK + 1, bundle: "calendar.view", forms: [<Seg label="Layout" scope="calendar" name="layout" items={LAYOUTS} active={view.layout} onPick={layout => setView({ ...view, layout })} />, null] },
-        view.layout !== "resources" && { key: "calendar.period", side: "start", rank: HOST_RANK + 1, bundle: "calendar.view", forms: [<Seg label="Period" scope="calendar" name="period" items={PERIODS} active={period} onPick={period => setView({ ...view, period })} />, null] },
-        { key: "calendar.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["calendar.view", "calendar.controls"], forms: [null, viewMenu, null] },
+        switches && { key: "calendar.layout", side: "start", rank: HOST_RANK + 1, bundle: "calendar.view", forms: [<Seg label="Layout" scope="calendar" name="layout" items={layouts} active={view.layout} onPick={layout => setView({ ...view, layout })} />, null] },
+        picksPeriod && { key: "calendar.period", side: "start", rank: HOST_RANK + 1, bundle: "calendar.view", forms: [<Seg label="Period" scope="calendar" name="period" items={periods} active={period} onPick={period => setView({ ...view, period })} />, null] },
+        // What the row folds into the View: with neither the switch nor the periods, nothing, so no View to fold to.
+        (switches || picksPeriod) && { key: "calendar.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["calendar.view", "calendar.controls"], forms: [null, viewMenu, null] },
         { key: "calendar.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "calendar.controls"], forms: [navigation(), navigation(true), navigation(true, true)] },
         // With no slice, the window's own count; a slice's summary counts each source instead.
         chrome === undefined && { key: "calendar.count", side: "start", rank: HOST_RANK, forms: [visible !== undefined && args.events !== undefined

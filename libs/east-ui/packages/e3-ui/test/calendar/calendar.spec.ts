@@ -13,7 +13,7 @@ import { CalendarPayloadType, Record, createCalendarPayload } from "@elaraai/e3-
 import * as ex from "./calendar.examples.js";
 
 describeEast("Calendar — bound examples", test => {
-    Assert.examples(test, { calendarMinimal: ex.calendarMinimal, calendarOperations: ex.calendarOperations,
+    Assert.examples(test, { calendarMinimal: ex.calendarMinimal, calendarViews: ex.calendarViews, calendarOperations: ex.calendarOperations, calendarWording: ex.calendarWording,
         calendarMobile: ex.calendarMobile, calendarReadOnly: ex.calendarReadOnly, calendarWindowed: ex.calendarWindowed, calendarQuickstart: ex.calendarQuickstart, calendarCustomInspector: ex.calendarCustomInspector,
         calendarConflicts: ex.calendarConflicts });
 }, { platformFns: TestImpl });

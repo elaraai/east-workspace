@@ -21,8 +21,9 @@ describeEast('Ontology', (test) => {
     Assert.examples(test, {
         supplyChainOntology:     ex.supplyChainOntology,
         compactDensityOntology:  ex.compactDensityOntology,
-        ontologyWithDiff:        ex.ontologyWithDiff,
         ontologyTableCycleView:  ex.ontologyTableCycleView,
+        ontologyViews:           ex.ontologyViews,
+        ontologyStaged:          ex.ontologyStaged,
     });
 
     test('Ontology.Component is declared as an optional EastUI component', $ => {

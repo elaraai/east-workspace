@@ -5,7 +5,7 @@
 
 /**
  * The Allocation's day reads on the real in-page e3 (#1398), held and failed
- * through the showcase's e3 fault hook (`e3-faults.ts`), in both themes:
+ * through the showcase's e3 fault hook (`e3-faults.ts`):
  *
  * - A step to a day not read yet covers nothing (CL5). The toolbar's status,
  *   issues and Publish hold their slots (CL1): each stands where it stood
@@ -31,6 +31,7 @@ import { test } from "./kept-page";
 import { open, size, token } from "./allocation-page";
 import { RECORD_READS, failE3, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /** A read the fault hook fails: as e3 answers one it cannot serve. */
 const FAILURE = { status: 500, type: "internal", message: "the store is down" } as const;
@@ -135,7 +136,7 @@ function lineIn(line: Locator, slot: string) {
     }, slot);
 }
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of LAYOUT_THEMES) {
     test(`a day not read yet draws at once with its placeholders, the toolbar's slots held; a day whose read failed says so once, in the first row in view; a started day with no bins says so once its read lands (#1398, CL1, CL2, CL5, CL11, CL13) (${theme}) @desktop`, async ({ page }) => {
         await installE3Faults(page);
         await page.setViewportSize({ width: 2160, height: 1200 });

@@ -21,7 +21,8 @@ import { LiveSourceType, SeekQueryType, SeekRangeType } from "../../contracts/so
  * narrowing is a Dict of choices, whose values beast2 reads at exactly their
  * written type, so one an earlier release wrote does not decode under this type
  * (docs/conventions/WIRE_MIGRATION.md).
- * @property values - Exact alternatives on a leading field (one on a Set field).
+ * @property values - Exact alternatives on a leading field (one on a Set field; any number on an entries index's
+ *   field, whose picks weigh a reader's rows, #1522).
  * @property range - Half-open range on the next field.
  * @property prefix - String prefix on the next field.
  */
@@ -145,6 +146,11 @@ export type RecordSliceTilingType = typeof RecordSliceTilingType;
  * @property summary - A summary index (#1039): under each key and tile, `{ on, key, tile }`, how many rows touch
  *   the tile and the milliseconds of it they cover. Its entries name no row, so it never serves the rail's
  *   narrowing either; a reader reads its cells (`summaryCellQueries`).
+ * @property entries - An entries index (#1522): its one field a Dict field of the rows, which e3 files entry by entry,
+ *   each under its own key, so a key's entries across the record are one range. The rail lists the Dict's keys as the
+ *   field's values, each counted by its range alone, and takes several. Its picks weigh a reader's rows — the picked
+ *   entries are what a reader draws of each row, added up — and never narrow them: it answers no narrowing, and its
+ *   picks stand beside every other field's choices.
  */
 export const RecordSliceIndexType = StructType({
     name: StringType, fields: ArrayType(StringType), sets: SetType(StringType), structured: BooleanType,
@@ -155,6 +161,7 @@ export const RecordSliceIndexType = StructType({
     })),
     series: OptionType(RecordSliceTilingType),
     summary: OptionType(RecordSliceTilingType),
+    entries: BooleanType,
 });
 export type RecordSliceIndexType = typeof RecordSliceIndexType;
 

@@ -10,12 +10,12 @@
  * menu, the open tab always on the row — on each builder the showcase holds:
  * Studio's, the query builder's, the Sheet's frame (#1216), the Plan's
  * library (#1195) and inspector (#1197), and the Flowchart's library — its
- * Flows tab alone (#1246), and beside its templates and the author's owners
- * (#1248) — and its inspector, on by default (#1250). At the desktop width
+ * Steps, Transitions and Lanes tabs beside the author's owners (#1248, #1501)
+ * — and its inspector, on by default (#1250). At the desktop width
  * the panes are measured open, as they rest; on a phone each is opened from
- * its rail and measured over main, and where its row folds, a tap on its
+ * its tab and measured over the frame, and where its row folds, a tap on its
  * `+n` opens the menu, which stays open, and a tab picked from it opens on
- * the row (#1235). In both themes; every measurement is polled until it
+ * the row (#1235). Every measurement is polled until it
  * holds, on a page at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
@@ -25,6 +25,7 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
 /**
  * A builder the showcase holds: its example, what shows once it is at rest,
@@ -43,13 +44,12 @@ interface BuilderPage {
 
 const BUILDERS: readonly BuilderPage[] = [
     { name: "Studio's builder", hash: "e3/studio/studio/studioBuilder", ready: "[data-snap-grid-tile]", box: "[data-studio-builder]", width: 1440, panes: ["Components", "Inspector"], folds: [] },
-    { name: "the query builder", hash: "e3/query/query/queryBuilder", ready: "[data-query-results-view]", box: "[data-query-builder]", width: 1240, panes: ["Query"], folds: ["Query"] },
-    { name: "the Sheet", hash: "e3/sheet/sheet/sheetWorkshop", ready: "[data-sheet-card]", box: null, width: 1440, panes: ["Library", "Inspector"], folds: ["Library"] },
+    { name: "the query builder", hash: "e3/query/query/queryBuilder", ready: "[data-query-results-view]", box: "[data-query-builder]", width: 1240, panes: ["Query"], folds: [] },
+    { name: "the Sheet", hash: "e3/sheet/sheet/sheetWorkshop", ready: "[data-sheet-card]", box: null, width: 1440, panes: ["Library", "Inspector"], folds: [] },
     // The Plan's frame fills its wrapper, which its host bounds: the host is the box sized.
     { name: "the Plan", hash: "e3/plan/plan-events/planPrintWorks", ready: "[data-plan-body]", box: ":has(> [data-plan-frame])", width: 1440, panes: ["Library", "Inspector"], folds: ["Library"] },
-    { name: "the Flowchart", hash: "e3/flowchart/flowchart/flowchartFlows", ready: "[data-flowchart-node]", box: null, width: 1440, panes: ["Library", "Inspector"], folds: [] },
-    // Four tabs — the Flows tab, the step and transition templates, the author's owners — fold on the phone (#1248).
-    { name: "the Flowchart's library", hash: "e3/flowchart/flowchart/flowchartLibrary", ready: "[data-flowchart-node]", box: null, width: 1440, panes: ["Library", "Inspector"], folds: ["Library"] },
+    // Four tabs — the Steps, Transitions and Lanes tabs and the author's owners — fold on the phone (#1248, #1501).
+    { name: "the Flowchart", hash: "e3/flowchart/flowchart/flowchartDepot", ready: "[data-flowchart-node]", box: null, width: 1440, panes: ["Library", "Inspector"], folds: ["Library"] },
 ];
 
 /**
@@ -104,7 +104,7 @@ function tabRowsOf(frame: Locator) {
 
 test.describe("every builder pane's tab row fits its pane (#1210)", { tag: "@desktop" }, () => {
     const batches = [BUILDERS.slice(0, 3), BUILDERS.slice(3)];
-    for (const theme of ["light", "dark"] as const) {
+    for (const theme of LAYOUT_THEMES) {
         for (const batch of batches) {
             test(`${batch.map(builder => builder.name).join(", ")}: tabs stay clear of collapse controls (${theme})`, async ({ page }) => {
                 for (const builder of batch) await test.step(builder.name, async () => {
@@ -120,10 +120,10 @@ test.describe("every builder pane's tab row fits its pane (#1210)", { tag: "@des
 test.describe("every builder pane's tab row fits its pane, on a phone (#1210)", { tag: "@mobile" }, () => {
 
     for (const builder of BUILDERS) {
-        test(`${builder.name}: each pane, opened from its rail, its tabs inside its tab row, clear of the collapse control; a folded tab opens from the +n menu`, async ({ page }) => {
+        test(`${builder.name}: each pane, opened from its tab, its tabs inside its tab row, clear of the collapse control; a folded tab opens from the +n menu`, async ({ page }) => {
             const frame = await openFrame(page, builder, "light", false);
             for (const name of builder.panes) {
-                await frame.getByRole("button", { name: `Expand ${name}` }).click();
+                await frame.locator("[data-pane-tab]", { hasText: name }).click();
                 await settled(page);
                 const rows = async () => (await tabRowsOf(frame)).map(({ pane, past }) => ({ pane, past }));
                 await expect.poll(rows).toEqual([{ pane: `Collapse ${name}`, past: [] }]);

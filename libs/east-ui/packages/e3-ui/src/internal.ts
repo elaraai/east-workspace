@@ -4,10 +4,10 @@
  */
 
 /**
- * Internal exports — the `Plan` / `Sheet` / `Flowchart` / `Schematic` / `Diff` /
+ * Internal exports — the `Plan` / `Sheet` / `Flowchart` / `Schematic` /
  * `Ontology` **factories** (`Plan.Payload(…)`, `Sheet.Payload(…)`,
- * `Flowchart.Payload(…)`, `Schematic.Payload(…)`, `Diff.Root(…)`,
- * `Diff.Component`) plus `Data`, the manifest type and derivation, and types.
+ * `Flowchart.Payload(…)`, `Schematic.Payload(…)`, `Ontology.Root(…)`,
+ * `Ontology.Component`) plus `Data`, the manifest type and derivation, and types.
  *
  * @remarks
  * The public `@elaraai/e3-ui` entry exports JSX **tags** (and `ui()`, which
@@ -436,94 +436,107 @@ export { SheetFieldType, SheetFormType, SheetFormsType, buildForms } from './she
 export {
     SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor, sheetOptimiseBinding, type SheetOptimiseRequestType, type SheetOptimiseResultType,
 } from './sheet/optimise.js';
-// The Flowchart (#1243–#1250): `<Flowchart>` with its namespace, the payload
-// the renderer takes through the `Flowchart` carrier — its canvas, its source
-// of flows with the editing session's Save over a record or the host's flows,
-// a record's flows paged through its slice's `flows` source (#1346), its
-// library's wire, each data tab's cards read from its own rows and following
-// the source it names, its rail and each source's narrowed keys, and its
-// inspector's, each kind's own Details — its shared keys, its library's tabs,
-// and the types a flowchart is written with. `Flowchart` here is the internal
-// namespace — the public one, `Flowchart.Payload`, `Flowchart.Component` and
-// the payload's types.
+// The Flowchart (#1498): `<Flowchart>` with its namespace, the payload the
+// renderer takes through the `Flowchart` carrier — its kinds over the app's
+// records, each closed behind East functions over bytes, its library's tabs,
+// its rail and each source's shown keys — its shared keys, and the types a
+// Flowchart is written with. `Flowchart` here is the internal namespace — the
+// public one, `Flowchart.Payload`, `Flowchart.Component` and the payload's
+// types.
 export {
     FlowchartInternal as Flowchart,
     FlowchartTag,
     FlowchartComponent,
     FlowchartPayloadType,
     FlowchartCanvasType,
-    FlowchartSourceType,
-    FlowchartDataType,
-    FlowchartFlowsHandleType,
-    FlowchartSessionApplyType,
-    FlowchartInspectorType,
-    type FlowchartInspectorOptions,
-    type FlowchartRowInspector,
+    FlowchartKindTabWireType,
+    FlowchartLibraryCardType,
     FlowchartLibraryFactories,
-    buildFlowchartLibrary,
-    libraryFlows,
-    libraryStates,
-    libraryTransitions,
-    libraryTab,
-    type FlowchartLibrary,
-    type FlowchartLibraryTab,
-    type FlowchartOneFlowLibraryTab,
-    type FlowchartLibraryRows,
-    type FlowchartTemplateRows,
-    type FlowchartFlowsTab,
-    type FlowchartStatesTab,
-    type FlowchartTransitionsTab,
-    type FlowchartAuthorTab,
-    type FlowchartCardAccessors,
-    type FlowchartStatesConfig,
-    type FlowchartTransitionsConfig,
-    type FlowchartTabConfig,
-    FlowchartFlowsApplyType,
-    FlowchartFlowApplyType,
-    FlowchartHistoryType,
     FlowchartLibraryTabType,
-    FlowchartLandsType,
-    FlowchartCardType,
-    FlowchartStateCardType,
-    FlowchartTransitionCardType,
-    FlowchartLaneCardType,
-    FlowchartDecisionCardType,
-    FlowchartPatchTypeFor,
+    FLOWCHART_DEF,
+    FLOWCHART_DETAILS,
+    FLOWCHART_TEMPLATES,
+    FlowchartDetailsBrand,
+    FlowchartReadBrand,
     buildCanvas,
+    buildFlowchartLibrary,
+    checkedFlowchartTemplates,
     createFlowchartPayload,
+    flowchartDecisions,
+    flowchartDetails,
+    flowchartFigure,
+    flowchartHistogram,
     flowchartKeys,
-    flowchartOver,
-    flowchartPatch,
-    flowchartValue,
-    flowchartValues,
+    flowchartLanes,
+    flowchartList,
+    flowchartStates,
+    flowchartTabSources,
+    flowchartTags,
+    flowchartTemplates,
+    flowchartTransitions,
+    isFlowchartDetails,
+    isFlowchartKind,
+    isFlowchartTemplates,
+    libraryLanes,
+    libraryStates,
+    libraryTab,
+    libraryTransitions,
     type FlowchartTagType,
     type FlowchartNamespace,
     type FlowchartInternalNamespace,
     type FlowchartTypes,
-    type FlowchartCommon,
-    type FlowchartRecordHandle,
-    type FlowchartBindHandle,
+    type FlowchartProps,
     type FlowchartCanvasOptions,
     type FlowchartFreshnessInput,
     type FlowchartOrientationLiteral,
-    type RowElement,
-    type FlowchartTables,
-    type FlowchartStateFields,
-    type FlowchartLinkFields,
-    type FlowchartLaneFields,
-    type FlowchartTriggerFields,
-    type FlowchartEvidenceFields,
-    type FlowchartLaneLiteral,
-    type FlowchartFlowInput,
-    type FlowchartLaneInput,
-    type FlowchartStateInput,
-    type FlowchartLinkInput,
-    type FlowchartEvidenceInput,
-    type FlowchartTriggerInput,
-    type FlowchartLinkKindLiteral,
-    type FlowchartRowType,
-    type FlowchartPatchOf,
-    type FlowchartPatchInput,
+    type FlowchartBinding,
+    type FlowchartWholeBinding,
+    type FlowchartTextField,
+    type FlowchartKeyField,
+    type FlowchartKeysField,
+    type FlowchartOrderField,
+    type FlowchartValuesOf,
+    type FlowchartKindDeclaration,
+    type FlowchartKindSort,
+    type FlowchartStates,
+    type FlowchartStatesSpec,
+    type FlowchartTransitions,
+    type FlowchartTransitionsSpec,
+    type FlowchartLanes,
+    type FlowchartLanesSpec,
+    type FlowchartDecisions,
+    type FlowchartDecisionsSpec,
+    type FlowchartTemplates,
+    type FlowchartTemplatesSpec,
+    type FlowchartDetails,
+    type FlowchartDetailsSpec,
+    type FlowchartTransitionDetailsSpec,
+    type FlowchartDetailsBinding,
+    type FlowchartRead,
+    type FlowchartReadKind,
+    type FlowchartShow,
+    type FlowchartLabelDraws,
+    type FlowchartLegendOnCanvas,
+    type FlowchartFigureField,
+    type FlowchartHistogramField,
+    type FlowchartListField,
+    type FlowchartTagsField,
+    type FlowchartListItem,
+    type FlowchartHistogramOptions,
+    type FlowchartDurationUnit,
+    type FlowchartBarScale,
+    type FlowchartTick,
+    type FlowchartTagColor,
+    type FlowchartAuthorTab,
+    type FlowchartCardKind,
+    type FlowchartKindTab,
+    type FlowchartKindTabOptions,
+    type FlowchartLibrary,
+    type FlowchartLibraryContext,
+    type FlowchartLibraryKind,
+    type FlowchartLibraryRows,
+    type FlowchartLibraryTab,
+    type FlowchartTabConfig,
 } from './flowchart/index.js';
 export * from './flowchart/types.js';
 // The Schematic (#1381): `<Schematic>` with its namespace, the payload the
@@ -562,11 +575,9 @@ export {
     schematicLinks,
     schematicNets,
     schematicRaster,
-    schematicSourceRows,
     schematicTabSources,
     schematicTemplates,
     schematicUnplacedPlan,
-    schematicWholeRows,
     schematicWindowPlan,
     schematicZones,
     type SchematicAreaIndexes,
@@ -666,13 +677,6 @@ export {
     type ScheduleOptimiseRecordsOf, type ScheduleOptimiseRecordsType, type ScheduleOptimiseRequestType, type ScheduleOptimiseResultType, type ScheduleOptimiseRows,
 } from './schedule/optimise.js';
 export {
-    Diff,
-    DiffComponent,
-    DiffPayloadType,
-    DiffStyleType,
-    type DiffOptions,
-} from './diff/index.js';
-export {
     Ontology,
     OntologyComponent,
     OntologyPayloadType,
@@ -688,9 +692,6 @@ export {
     OntologyViewType,
     type OntologyViewLiteral,
 } from './ontology/index.js';
-// Experiment factory + component carrier for renderers/tests. The value types
-// ride on `Experiment.Types`, so they are not re-exported individually here.
-export { Experiment, ExperimentComponent } from './experiment/index.js';
 export { Decision } from './decision/index.js';
 export {
     DecisionType,

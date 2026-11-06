@@ -16,19 +16,26 @@ stay in east-ui-components' theme. The Flowchart's renderer
 (`src/flowchart/`, #1243) registers against its `Flowchart` extension the
 same way, renders in its `BuilderFrame` too (#1245) — its canvas
 (`canvas.tsx`), its toolbar's items (`toolbar.tsx`), its footer
-(`footer.tsx`) and find state (`find.ts`) laid out by `index.tsx`, and over
-flows by name (#1246) its Flows tab (`flows.tsx`), the open flow, kept in
-the UI store (`open-flow.ts`), as LR · TD is (`orientation.ts`), each flow's
-editing session (`session.ts`) — every canvas gesture one transaction of it,
-each gesture's flow `edits.ts`'s (#1247) — its library pane (`library.tsx`,
-#1248: the tabs `library` lists, each data tab a `Library` of its own rows'
-cards), its drops (#1249: `drop.ts` plans what a card does where it lands,
-pure; `use-drop.ts` is the drop target, each drop and each card's ⏎ one
-transaction), its inspector (#1250: `inspector.tsx`, the end pane on by
-default — Details through `FieldForm`, or a state's or a transition's own,
-and Issues; what is selected, per open flow, `selection.ts`; the open flow's
-issues, `issues.ts`, pure) and its words (`messages.ts`) — builds on the same
-parts, and
+(`footer.tsx`) and find state (`find.ts`) laid out by `index.tsx` — over the
+app's records (#1500–#1505): each kind's rows read in a component of their
+own (`read.ts`), whole or complete through its source of the rail; the
+sources it follows (`sources.ts`); the model made from the four records' rows
+with the drafts in place (`drafted.ts`, `model.ts`); LR · TD, kept in the UI
+store (`orientation.ts`); one history over a session a record (`editing.ts`),
+what each gesture writes `edits.ts`'s, its roles' fields alone; its library
+pane (`library.tsx`: the Steps, Transitions and Lanes tabs, each kind's
+cards, and the author's tabs), its drops (`drop.ts` plans what a card does
+where it lands, pure; `use-drop.ts` is the drop target, each drop and each
+card's ⏎ one step of the history), its inspector (`inspector.tsx`, the end
+pane on by default — Details through `FieldForm` by its kind's form over the
+fields no role writes, or a kind's own, and Issues; what is selected,
+`selection.ts`; the issues, `issues.ts`, pure), its details (#1507–#1510:
+the model, read as its kind is and counted into the flowchart's bins, each
+card's size, `details.ts`; a card's reads, a tag and the probe that measures
+them, `details-card.tsx`; a tag's look and the legend, `details-draw.ts`; the
+inspector's reads, `details-pane.tsx`; their words and axes,
+`details-words.ts`), a phone's lane pager (`lane-pager.tsx`) and its words
+(`messages.ts`) — builds on the same parts, and
 keeps its slot recipes there too, the canvas's and the inspector's. Its
 canvas hears its Esc from inside its frame as the key leaves the frame (the
 canvas's handle) and from the page itself, nothing focused, only while the
@@ -65,8 +72,10 @@ following their records' sources, and the item kinds' backlog (`backlog.ts`)
 as Libraries — beside a kind read by area one paged list (`backlog-pages.ts`,
 D51), each such kind's rows paged through its area index's unplaced clause, a
 row its page read the original a drop rewrites; the zones' Index (`index-tab.tsx` over `index-tree.ts`), one
-focusable tree around the shared virtual rows, marking the zone the viewport
-is in — a kind read by area's items read by the tab itself (`index-area.ts`,
+focusable tree around the shared virtual rows, one zone open at a time with
+the zones it is in, following the zone the viewport is in — opened, marked and
+scrolled to as the canvas pans and zooms, a zone the viewer closed there staying
+closed until the view moves on — a kind read by area's items read by the tab itself (`index-area.ts`,
 D52), an open zone's by its box and the search's through the kind's source; the Layers (`layers-tab.tsx`), the viewer's choices an East value in
 the UI store under the `id` (`layers-view.ts`), which the canvas obeys — a
 locked layer's entities select by no path; and an author's tabs, each
@@ -425,8 +434,8 @@ event kind through its own (#1344), the Sheet draws its `rows` source's
 narrowing over the record's rows as the lens (#1349: e3 places the narrowing's
 rows from the index, `recordSlicePlace`, and the lens reads the segments that
 hold them near the view, a page and one `recordSliceWithinAt` each, never a
-segment with no match) and the Flowchart pages
-its `flows` source (#1346), Calendar event kinds read its interval queries, the
+segment with no match) and the Flowchart reads its states and
+transitions complete through their sources (#1502), Calendar event kinds read its interval queries, the
 Roster and the Allocation read their period's events through their kind's
 source, the period their navigation writes into it
 (`shared/schedule/source-window.ts`), and the Roster reads the selected staff
@@ -502,6 +511,15 @@ builder supplies only its own:
   lines are listed again as the layout comes to lay resources out or leaves
   off, and a pick steps to the event's period and selects it. The time grids,
   the month and the agenda narrow no event by its resource, and name none.
+- **The Plan**: the source of the rows it pages, its `rows` source or a paged
+  resource kind's (`plan/find.ts`, #1513): the box seeks and
+  lists the whole record as the binding reads it with no narrowing — by key
+  where it joins its rows, a lean binding by its default index — a line naming
+  what hides a row; a
+  pick asks e3 where the row stands among the narrowing's rows, from the row's
+  index keys and, among rows sharing one, by halves (`recordSlicePosition`), and
+  clears what hides it first where the narrowing holds none of it. The canvas
+  opens that window once the source reads the narrowing the pick left.
 - **The Schematic**: each kind's source of the rail, every kind's pick read by
   the frame — Find's items, and an unsaved change waiting in its session that
   Issues names; a pick flies to where the row stands and selects it through
@@ -666,52 +684,103 @@ preparation sends no mutation and preserves drafts; a failed feedback read offer
 a read retry, never another Save. An indexed source's `recordId` names the primary
 record across all index lists and must back the shared editing identity.
 
-### Flowchart records and indexed Flows lists
+### Flowchart records, sources, details and the narrow layout
 
-One flow is one complete record entry. Bind the mutation door with
-`Record.bind`, and narrow the flows through the `flows` source of the one
-`Slice.bindRecords`: `Data.bindPaged(record, { indexes })` over the same record,
-passed as `slice={{ slice }}` (#1346). The Flows tab pages that source through
-shared `PagedLibrary`/`VirtualRows` and counts what it shows (`Flows 683 of
-2,048`), the count read in a component of its own (`FlowsCountReader`); never
-fetch every flow to render or search its cards. Record Slice owns indexed field
-choices, prefix search and counts; the Flows tab's own search (`PagedLibrary`'s
-`search`) pages the narrowing and the search's prefix through the source's
-`pageWhere`, never writing the rail (#1340, ruling 11). Each templates list and
-each tab that names a source follows it through `FollowSources`, as `sourceTab`
-draws it. `Find state` searches the complete open graph by state key and label;
-it does not search all flow records. Keep those purposes clear in labels and
-examples.
+Each kind is one of the app's records (#1500) — the states', the transitions',
+the lanes' and the decisions' — read in a component of its own (`read.ts`),
+as the Schematic's are: its record read whole, or a state or a transition
+kind's narrowing read complete through its source of the rail, page by page
+until done (#1502, the shared `PagedScan`), so the canvas draws the whole
+flowchart the rail chooses, never a window of it, and the frame hears what was
+read only as that moves. Lanes and decisions are read whole. Hidden — the
+default — a row the narrowing leaves out is never read, and a transition whose
+end it hides leaves the canvas; an end no drawn state stands for is read by
+key, which tells a hidden end from one e3 holds no state of — an issue, drawn
+as its ghost card (`issues.ts`). Under `narrowed="dim"` every row is read, and
+the states' and the transitions' own sources say by their shown keys which
+rows draw as context (`sources.ts`), faded and selected by no path. Each
+kind's cards, and each author's tab that names a source, follow it through
+`FollowSources`, as `sourceTab` draws them. Find state seeks the states read
+through their source in their record, through e3 (`find.ts`), and a pick of
+one the rail hides is the frame's hidden pick (`HideSources`).
 
-Computed filters use the index's own key type, including values derived from
-nested graph data. Scalar keys use the index name; Struct keys expose their
-named components. Never require a second field-type declaration or evaluate
-index functions over every record in the browser. Keep one-field fan-out
-filters to exact single-value membership so a flow with repeated nested values
-appears and counts once. Composite single-key indexes support combined choices;
-unsupported combinations must be explained by shared Slice, never approximated
-with loaded-page filtering. The example must cover a computed key changing on
-Save through real e3, in addition to primary-key draft retention.
+Every gesture is one step of one history over a session a record
+(`editing.ts`, #1503, over `shared/schedule/editing.ts`' `useScheduleEditing`,
+as the Schematic's is): what each gesture writes is pure in `edits.ts` — its
+roles' fields alone, through each kind's own `write` and `create` — and
+`drafted.ts` lays the drafts over the stored rows by each row's original key,
+whatever the narrowing or a remount. A draft the narrowing hides waits in its
+session — Issues lists it, naming the choices that hide it — and Save writes it
+with the rest, each record's changes through its patch door as a request of its
+own; a refusal keeps that record's drafts and leaves the others' commits
+standing.
 
-The open graph is read separately by its original primary key. Filtering the
-list must not close it, split its states across pages, or discard its drafts.
-Opening a flow covers nothing (#1398, CL5): the frame's cold-load cover is its
-first read's alone, and a flow opened after it is read with the toolbar, the
-panes and Save live, main busy and the footer naming it, drawn once it lands.
-Sessions use the primary record identity and original flow name, independent
-of the browse query. A save that moves the flow outside the narrowing still
-confirms through primary reads and reports the shared Save notice. Keep a
-pending session's confirmation subscribed when the user opens another flow.
-New-flow, rename and duplicate checks must look up the destination primary key,
-including names outside every loaded page and active filter.
+A kind's details (#1507–#1510) are read as the kind is (`details.ts`): whole
+beside a kind read whole, or by the drawn rows' keys, every key in one
+request, beside one read through its source. A row is matched to the kind's by
+its key — a key with no row draws *no data*, a row keyed as no row drawn
+draws nothing — and the last settled read stands while a newer one is in
+flight. A histogram's bins are shared by every card that draws it — the
+app's, checked as they land, or every drawn row's edges merged — and a count
+no bin holds lists its row in Issues. Each card is measured before the layout
+places it, its tags' widths by the probe after each render and once the fonts
+land (`details-card.tsx`): 272 wide where a read draws on the canvas, as tall
+as its reads. The layout (`layout.ts`, #1509) takes each card's height and
+each label's size — a row as tall as its tallest card; cards side by side
+keeping the widest label's width and 24 between them; each link's sides
+chosen over a box of the card's width and today's 40, so no link's sides
+change — and places each label off the cards, a decision's diamond keeping
+the middle. A transition's figures and lists draw as lines under its label's
+evidence. The legend adds a row for each figure, histogram and list the cards
+and labels draw, and a group for each tag list given `legend`, its label from
+the start and its defined tags as the cards show them (`details-draw.ts`,
+ruled 4 Nov 2026). A tag draws in its definition's palette and variant through
+the design system's Tag, which draws in the palette it is given, solid and
+outline included (ruled 4 Nov 2026); subtle in a palette is the recipe's
+wash. On a linear axis a bar too thin for the 2px between bars draws flush
+with its neighbours, a pixel at least (ruled 4 Nov 2026). The inspector's reads
+(`details-pane.tsx`) follow its head in the details' order and in full:
+figures in the stats grid, each with its unit (ruled 4 Nov 2026); every tag;
+the histogram on the app's axis, its caption or the bin under the pointer or
+focus; and a list's first 8, then Show n more. Every look is the visual
+spec's, in the `flowchart` and `flowchartInspector` recipes, the renderer
+setting data attributes and geometry alone; the showcase's
+`flowchart-details.spec.ts` measures every read inside its card, no tag cut,
+the bars in their band, the ticks and the labels clear, in both themes at
+desktop and phone widths.
 
-Use shared cards and card-sized recipe skeletons for pending rows. Do not wrap
-loaded cards in a text-line Skeleton: its fixed height breaks virtualization
-and makes cards overlap. Assert adjacent card bounds and bounded mounted counts.
-At phone widths, bundle orientation and Find state into the shared search
-popover's final View form before history folds; Filters and Save must remain
-inside the toolbar and clickable. Exercise indexed search, far scrolling,
-Save leaving a filter and draft retention in one real e3 workflow per device.
+Below 480px of main nothing drags (#1505): no draggable card and no drop
+cell. Details carries the gestures — a state's lane, a transition's ends —
+through the same edits, and a phone's lane pager (`lane-pager.tsx`) steps the
+canvas's sideways scroll a lane at a time: two lanes in view by default
+(`narrow.lanes`), each a whole lane, a Find's pick opening on whole lanes; and
+where the details draw on the cards one lane, at least the window wide, its
+card brought to the middle of what the window shows, its scrollbar left out —
+as the window opens and resizes, at each step, as a swipe settles and at a
+Find's pick (R40, D24; `builder-frame-phone.spec.ts`, and
+`flowchart-lane-window.spec.ts` with the scrollbar taking width). On a phone, orientation and Find
+state bundle into the shared search popover's final View form before history
+folds; the rail's chip and Save stay inside the toolbar and clickable. Test the
+narrow flow in a real browser at 390 and 360px and in a 294px parent — Find
+state, a state's form, its lane chosen, Save reached with the state selected
+and a remount reading it back (`flowchart-records.spec.ts`).
+
+### The Sheet in a phone's frame
+
+In a frame 560px wide or narrower the Sheet's columns are a window the pager
+pages (`sheet/Pager.tsx`, `Mobile Sheet Spec.md`): the jump menu's `Row number`,
+off by default, adds the Row column — the gutter's cell as a slot of the window,
+its number alone (`data-row-numbers`), first among what the readout counts —
+and puts the window back at its start; the selected cell's column has its head
+tinted (`data-col-selected`); ← and → page the window while the grid has the
+focus, the ring where it is, never moving it between cells (R4). Its Library
+in the frame's view lists rows at touch size, no drag there
+(`sheet/frame/phone-library.tsx`): a tap on an author's card sets it on the
+selected row or band — a card that lands on a band, on the band of the line the
+ring is on — through the drop's own plan, its row marked `current` while the
+target holds it; a tap on a template is its ⏎; a tap on a column closes the view
+and pages to it, its eye still hiding it (R7). The showcase's
+`sheet-pager.spec.ts` holds them.
 
 ### Schematic windows, drafts and the narrow layout
 
@@ -798,9 +867,10 @@ to it, and the eye's entry to a run and its Stop).
 A row with nothing left to fold bundles host controls into the shared key
 search's compact popover, one move, as the Flowchart's orientation and the
 Sheet's views do (#1345); a control there that moves the focus away closes it.
-The Plan, which has no key search over a rail, bundles its fold toggle, its
+The Plan bundles its fold toggle, its
 resolution and its overlaps chip into the date navigator's View, one move
-(#1344): a phone's row holds the rail's icon, the View and the history item.
+(#1344): a phone's row holds the rail's icon, the search's where it pages a
+source of the rail, the View and the history item.
 Use the established 44px row and coarse-pointer targets. Range/date and count
 readouts share one baseline; do not introduce a stacked two-line toolbar label.
 
@@ -909,7 +979,7 @@ part beside it, so the time grid's today dot sits wholly inside its day column
 (ruled 20 Oct). A part raised above the board's other layers (a selected
 Allocation card over the links) stays under the sticky heads' z. The
 Allocation's resource rows and lane pane, and the Calendar's day columns,
-month and timeline rows, are held to it in both themes by paint-order checks
+month and timeline rows, are held to it by paint-order checks
 (`elementFromPoint`, the probed layer taking the pointer) in the responsive
 suite.
 
@@ -965,11 +1035,11 @@ that refuses, goes into the e3-ui example module it belongs to.
   Confirm that a paged example does not read the complete event record.
 - Test meaningful editing paths, failed/refused writes, unknown outcomes,
   read-only behavior and Save/remount persistence through the existing harnesses.
-- Use responsive browser checks at 1440/1024/768/390/360, light/dark themes,
+- Use responsive browser checks at 1440/1024/768/390/360, the light theme (dark too where a check holds a colour),
   narrow parent containers and state-preserving resize. Exercise explicit
   narrow actions, folded toolbar access and real drag previews. Verify computed
-  CSS, element geometry, overflow and accessibility; follow the library's
-  DOM-based verification guidance rather than screenshot inspection.
+  CSS, element geometry, overflow and accessibility, and screenshot each state
+  and width and read the screenshots: a spec holds only what someone measured.
 - Run affected shared-component regressions when extracting or changing shared
   behavior. Keep all component definitions inline in their examples as required
   by the [authoring guide](../e3-ui/CLAUDE.md#examples-show-the-complete-component-definition-inline).
@@ -1040,7 +1110,7 @@ Pass it through BuilderFrame's footer region with `liveFooter`, so the line
 and its Retry stay live under the cold-load cover; keep the footer visually
 distinct from the body. Plan, Sheet, Roster, Calendar, Allocation and the
 Schematic all consume this part. Browser tests must compare the actual rail and item styles
-in both themes and check that the rail stays one line at narrow widths, no
+and check that the rail stays one line at narrow widths, no
 word cut.
 
 Use the shared move-preview component and `time/move-ghost.ts` recipe for event
@@ -1245,13 +1315,13 @@ Mobile day strips use the shared `Seg` component's `fullWidth` recipe
 variant: all seven buttons fill the available content width equally, with no
 unused tail or horizontal overflow. Picker rows have a neutral hover state,
 a distinct selected state and the shared keyboard focus ring, all in slot
-recipes. Verify their actual computed styles and geometry in both themes,
+recipes. Verify their actual computed styles and geometry,
 including a narrow container inside a wide viewport.
 
 Group bands fill the complete scrolling grid width in both layouts. Make text
 alignment explicit in slot recipes: Day shift details align left; compact Week
 and People day labels center over their cells. Test band geometry at wide and
-horizontally scrolled widths in both themes.
+horizontally scrolled widths.
 
 Date column captions use `timeHeaderText` from the shared `time/axis.ts`
 recipe part, also used by Plan's band captions. Roster's Day shift labels,
@@ -1260,7 +1330,7 @@ header button and inherit body typography. Calendar's weekday and date number
 use the same header part, with no title-sized numeral or independent font
 size. Keep the complete label on one line. Compare computed family, size,
 weight, line height, tracking, case and numeral settings across every view,
-including all seven week dates and selected/current dates, in both themes.
+including all seven week dates and selected/current dates.
 
 Header geometry is a separate requirement from typography. Roster's one-line
 Week date/shift cells are 28px tall (plus the row rule); the People week's
@@ -1305,7 +1375,7 @@ Inspector shift controls use shared `Seg fullWidth`: equal buttons fill the
 strip, including its trailing edge. Schedule inspector marks sit beneath the
 subtitle in the title's text column. Status badges reuse the shared draft-chip
 geometry and type so paired badges align and wrap with a real gap. Verify both
-marks together and the segment widths in both themes at desktop and phone widths.
+marks together and the segment widths at desktop and phone widths.
 
 Sharing the drag engine does not by itself make dragging responsive. Profile a
 realistic populated week. Keep shared drag handles/targets, but isolate sensor
@@ -1465,7 +1535,7 @@ a job dragged and saved, a quarter's pan, a zoom to the year and a pan three
 years back. e3-web holds the record in the test's process, so its sizes are
 what the test's heap holds.
 In a browser, the showcase's `plan-nested.spec.ts` holds `planNestedAll` to
-#1438's list at 1440 and 390, in both themes: the area's start within the
+#1438's list at 1440 and 390: the area's start within the
 start budget, the time it took printed; a scroll, a pan and a zoom moving
 nothing as their cells land, the rows waiting washed meanwhile; the rows
 shading past the cap at the height of those they stand in for; a folded
@@ -1573,7 +1643,7 @@ timeline labels the visible range and steps from its visible center; Today
 recenters even if the persisted date was already today. Do not duplicate the
 current date as detached toolbar text. Counts remain a separate folding item.
 
-Test all three consumers at 1440/1024/768/390/360 and a 294px parent, in both themes:
+Test all three consumers at 1440/1024/768/390/360 and a 294px parent:
 popup Today, all valid units, keyboard selection/cancel, hover versus selected
 styles, bounded reads, Slice writes, month/year boundaries and timeline
 recentring. Rebuild and check the actual HTTPS showcase before reporting that
@@ -1794,7 +1864,7 @@ data. Do not hide a missing read behind targets-only content or a zero-event
 count. Test deliberately delayed
 pages and fonts, retained canvas identity, equal loading/loaded frame dimensions,
 no accessible controls under the skeleton, and the first visible layout at
-both desktop and phone widths in both themes.
+both desktop and phone widths.
 
 Calendar tracks page arrivals in its window reader, a component of its own
 outside the frame (`CalendarDataReader`, #1343). Keep the displayed window

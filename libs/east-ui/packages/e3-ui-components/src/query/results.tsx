@@ -192,6 +192,10 @@ export interface QueryResultsProps {
     readonly storageKey: string;
     /** The result's controls, for the band ({@link resultToolbarItems}). */
     readonly controls: readonly ToolbarItem[];
+    /** A phone's: no band and no footer, whose parts have moved to the first row and *This result* (QP3, QP4). */
+    readonly phone?: boolean | undefined;
+    /** A phone's strips, under the pager (QP14; the builder's banners hold them elsewhere). */
+    readonly strips?: ReactNode;
 }
 
 /**
@@ -200,7 +204,7 @@ export interface QueryResultsProps {
  * @param props - The run, whether it is stale, the view, the words and the result's controls ({@link QueryResultsProps})
  * @returns The results
  */
-export const QueryResults = memo(function QueryResults({ state, stale, view, words, storageKey, controls }: QueryResultsProps) {
+export const QueryResults = memo(function QueryResults({ state, stale, view, words, storageKey, controls, phone = false, strips }: QueryResultsProps) {
     const m = words.messages;
     const styles = useSlotRecipe({ key: "queryResults" })() as Styles;
     // The band a Library draws over its cards: as tall as the pane's tab row, which it lines up with.
@@ -219,7 +223,12 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, wor
         return () => observer.disconnect();
     }, []);
 
-    const output = state.status === "done" ? state.output : undefined;
+    const fresh = state.status === "done" ? state.output : undefined;
+    // A phone keeps the last result under a run that gave none, and under one that goes (QP14), dashed.
+    const lastRef = useRef<RunOutput | undefined>(undefined);
+    if (fresh !== undefined) lastRef.current = fresh;
+    if (state.status === "idle") lastRef.current = undefined;
+    const output = phone ? fresh ?? lastRef.current : fresh;
     const footer = resultFooter(state, words);
     const n = state.status === "idle" ? 0 : state.n;
     const table = useMemo(() => (output === undefined || view !== "table" ? undefined : resultTable({ type: output.type, value: output.value }, words)), [output, view, words]);
@@ -230,7 +239,19 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, wor
     }), [output, view]);
 
     let body: ReactNode;
-    if (state.status === "idle") {
+    if (phone && state.status === "idle") {
+        body = (
+            <Box css={styles.phoneIdle} data-query-results-idle="">
+                <Box as="span" css={styles.phoneIdleGlyph} aria-hidden />
+                <Box css={styles.phoneIdleTitle}>{m.idleTitle()}</Box>
+                <Box as="ul" css={styles.phoneIdleList}><li>{m.idleChecks()}</li><li>{m.idleRunPhone()}</li></Box>
+            </Box>
+        );
+    } else if (phone && state.status === "running" && table !== undefined) {
+        // The headers drawn and bars laid out as the final table, under the band naming what it reads (QP14).
+        body = <EastChakraTable key={n} value={table} storageKey={`${storageKey}.result.table`} phoneReading
+            phoneBand={<Box css={styles.phoneReading} data-query-results-running=""><Box as="span" css={live.indicator} aria-hidden /><span>{m.reading({ sources: m.list({ items: state.reads }) })}</span></Box>} />;
+    } else if (state.status === "idle") {
         body = (
             <Box css={styles.idle} data-query-results-idle="">
                 <EmptyStateView icon={IDLE_ICON} title={m.idleTitle()} description={
@@ -261,19 +282,22 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, wor
             </Box>
         );
     } else if (table !== undefined) {
-        body = <EastChakraTable key={n} value={table} storageKey={`${storageKey}.result.table`} />;
+        body = <EastChakraTable key={n} value={table} storageKey={`${storageKey}.result.table`} phoneBand={strips} />;
     } else if (tree !== undefined) {
         // One storage key per builder, so runs never pile keys up: the tree keeps its expansion across runs, as a dataset's does.
-        body = <EastChakraValueTree key={n} value={tree} storageKey={`${storageKey}.result.tree`} />;
+        body = <>{phone && strips}<EastChakraValueTree key={n} value={tree} storageKey={`${storageKey}.result.tree`} phoneFirstOnly /></>;
     }
 
     return (
         <Box ref={rootRef} css={styles.root} data-query-results="" data-query-results-view={output === undefined ? undefined : view} data-width={width}>
-            <Box css={band.toolbar} role="toolbar" aria-label={m.resultControls()} data-slot="toolbar" data-query-results-bar="">
+            {!phone && <Box css={band.toolbar} role="toolbar" aria-label={m.resultControls()} data-slot="toolbar" data-query-results-bar="">
                 <Toolbar items={controls} />
+            </Box>}
+            <Box css={styles.body} data-phone={phone ? "" : undefined} data-stale={(stale || (phone && fresh === undefined)) && output !== undefined ? "" : undefined}>
+                {phone && output === undefined && state.status !== "idle" && strips}
+                {body}
             </Box>
-            <Box css={styles.body} data-stale={stale && output !== undefined ? "" : undefined}>{body}</Box>
-            <Box css={styles.footer} data-query-results-footer="">
+            {!phone && <Box css={styles.footer} data-query-results-footer="">
                 <Box as="span" css={styles.footerCount} data-query-result-count="">{footer.count}</Box>
                 {footer.fields !== "" && <Box as="span" css={styles.footerFields} data-query-result-fields="">{footer.fields}</Box>}
                 <Box css={styles.footerSpacer} />
@@ -288,7 +312,7 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, wor
                     </Tip>
                 )}
                 {footer.reads !== "" && <Box as="span" css={styles.footerReads} data-query-result-reads="">{footer.reads}</Box>}
-            </Box>
+            </Box>}
         </Box>
     );
 });
@@ -307,6 +331,15 @@ export interface ResultStripsProps {
     readonly onRunAgain: () => void;
     /** The words. */
     readonly words: QueryWords;
+    /** A phone's: its note in the band over the strip instead (QP16). */
+    readonly phone?: boolean | undefined;
+    /** A phone's link to what stopped a run (QP14). */
+    readonly onShowProblem?: (() => void) | undefined;
+    /** A phone's: the run the rows below are from, and when. */
+    readonly shownRun?: number | undefined;
+    readonly shownAt?: Date | undefined;
+    /** A phone's: the first problem in the steps' plain words, for a run the checker refused (5d). */
+    readonly problem?: { readonly n: number; readonly text: string } | undefined;
 }
 
 /**
@@ -319,7 +352,7 @@ export interface ResultStripsProps {
  * @param props - The run, whether it is stale, the note and the words ({@link ResultStripsProps})
  * @returns The strips
  */
-export const ResultStrips = memo(function ResultStrips({ state, stale, note, onDismissNote, onRunAgain, words }: ResultStripsProps) {
+export const ResultStrips = memo(function ResultStrips({ state, stale, note, onDismissNote, onRunAgain, words, phone = false, onShowProblem, shownRun, shownAt, problem }: ResultStripsProps) {
     const m = words.messages;
     const styles = useSlotRecipe({ key: "queryResults" })() as Styles;
     // The note's close draws its xmark at the size Chakra's icon took in a 2xs button.
@@ -333,11 +366,20 @@ export const ResultStrips = memo(function ResultStrips({ state, stale, note, onD
                     <Box as="span" css={styles.stripTag}>{m.staleTag()}</Box>
                     <Box as="span" css={styles.stripText}>{m.staleResult()}</Box>
                     <Button size="xs" variant="ghost" colorPalette="brand" css={styles.stripAction} data-query-run-again="" onClick={onRunAgain}>
-                        {m.runAgain()}<Box as="span" css={styles.stripKeys}>{m.runKeys()}</Box>
+                        {m.runAgain()}{!phone && <Box as="span" css={styles.stripKeys}>{m.runKeys()}</Box>}
                     </Button>
                 </Box>
             )}
-            {failure !== undefined && (
+            {failure !== undefined && phone && (
+                <Box css={styles.phoneNotRun} data-tone="error" role="alert" data-query-not-run="">
+                    <Box css={styles.phoneNotRunHead}><FontAwesomeIcon icon={faCircleExclamation} aria-hidden /><span>{m.notRun()}</span></Box>
+                    <Box css={styles.phoneNotRunText}>{failure.title === m.notRunProblems() && problem !== undefined ? m.checkerFound({ n: problem.n, count: words.formatters.number(problem.n), text: problem.text }) : state.status === "failed" && state.reason === "unreachable" ? `${failure.title}.` : failure.message === "" ? failure.title : /[.!?]$/.test(failure.message) ? failure.message : `${failure.message}.`}{shownRun !== undefined && shownAt !== undefined && ` ${m.rowsFromRun({ n: words.formatters.bare(shownRun), time: words.formatters.time(shownAt) })}`}</Box>
+                    {failure.title === m.notRunProblems() && onShowProblem !== undefined
+                        ? <chakra.button type="button" css={styles.phoneNotRunLink} onClick={onShowProblem}>{m.showProblem()} →</chakra.button>
+                        : <chakra.button type="button" css={styles.phoneNotRunLink} onClick={onRunAgain}>{m.runAgain()} →</chakra.button>}
+                </Box>
+            )}
+            {failure !== undefined && !phone && (
                 <Box css={styles.strip} data-tone="error" role="alert">
                     <Box as="span" css={styles.stripIcon} aria-hidden><FontAwesomeIcon icon={faCircleExclamation} /></Box>
                     <Box css={styles.stripBody}>
@@ -346,7 +388,7 @@ export const ResultStrips = memo(function ResultStrips({ state, stale, note, onD
                     </Box>
                 </Box>
             )}
-            {note !== undefined && (
+            {note !== undefined && !phone && (
                 <Box css={styles.strip} data-tone="note" role="status">
                     <Box as="span" css={styles.stripIcon} aria-hidden><FontAwesomeIcon icon={faCircleInfo} /></Box>
                     <Box as="span" css={styles.stripText}>{note}</Box>
@@ -365,6 +407,8 @@ export interface ResultToolbarOptions {
     readonly picked: ResultView | undefined;
     /** Shows a view. */
     readonly onView: (view: ResultView) => void;
+    /** The result's views this builder offers, in the switch's order: Table · Tree shows only where there are two. */
+    readonly views: readonly ResultView[];
     /** Downloads the result. */
     readonly onDownload: (format: DownloadFormat) => void;
     /** The words. */
@@ -385,12 +429,12 @@ export interface ResultToolbarOptions {
  * @returns The items, in their order along the row
  */
 export function resultToolbarItems(options: ResultToolbarOptions): ToolbarItem[] {
-    const { view, picked, onView, onDownload, words, styles, seg } = options;
+    const { view, picked, onView, views: offered, onDownload, words, styles, seg } = options;
     const m = words.messages;
     const off = view === undefined;
     const views = (iconsOnly: boolean) => (
         <Box css={seg.root} role="group" aria-label={m.resultViewLabel()} data-query-result-view={view}>
-            {(["table", "tree"] as const).map((v) => {
+            {offered.map((v) => {
                 const pressed = v === view;
                 const label = m.resultView({ view: v });
                 const hover = v === picked ? m.resultViewPicked({ view: v }) : label;
@@ -428,7 +472,7 @@ export function resultToolbarItems(options: ResultToolbarOptions): ToolbarItem[]
         </ChakraMenu.Root>
     );
     return [
-        { key: "result-view", side: "end", forms: [views(false), views(true)], rank: RANK_VIEW, version: `${view ?? ""}|${picked ?? ""}` },
+        ...(offered.length > 1 ? [{ key: "result-view", side: "end" as const, forms: [views(false), views(true)], rank: RANK_VIEW, version: `${view ?? ""}|${picked ?? ""}` }] : []),
         { key: "download", side: "end", forms: [download(false), download(true)], rank: RANK_DOWNLOAD, version: off ? "off" : "on" },
     ];
 }

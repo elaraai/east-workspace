@@ -89,7 +89,7 @@ import {
     type EditHistory, type EditHistoryJoined, type EditIssue, type DragEventValue, type DragMeta, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import {
-    parseCssSize, DensityProvider, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, getStore, recordSliceNoun, usePickHandOff,
+    parseCssSize, DensityProvider, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, getStore, recordSliceNoun,
 } from "@elaraai/east-ui-components/internal";
 import {
     PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, PlanGeometryContext,
@@ -153,6 +153,9 @@ import {
 import { PlanAnnouncer } from "./root/announce.js";
 import { PlanWordsContext, useResolvedPlanWords } from "./words.js";
 import type { PlanSearch } from "./use-seek.js";
+import { usePlanRowsFind } from "./find.js";
+import { useSourceHidden } from "../shared/schedule/hidden.js";
+import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { DROPPABLE_KINDS } from "./rows/BodyRow.js";
 import { PlanEditContext, PlanEditStore, type PlanEditContextValue } from "./edit/store.js";
 import { PlanTypingStore, planZooms, type PlanTyping } from "./edit/typing.js";
@@ -227,6 +230,12 @@ const GUTTER_W = 168;
 function drawsItem(body: HTMLElement | null, key: string): boolean {
     return body !== null && Array.from(body.querySelectorAll("[data-plan-item]")).some((el) => el.getAttribute("data-plan-item") === key);
 }
+
+/** The key search's box, in the row or in its popover, and the icon it folds to: where a pick leaves the focus. */
+const KEY_SEARCH_BOX = '[data-part="dataset-key-search"], [data-key-search="icon"]';
+
+/** How many frames a pick's row is waited for before the hand-off gives up on it: about a second. */
+const LAND_FRAMES = 60;
 
 /** The canvas-wide keys (§11) — esc runs the one-rung ladder, `n` / `[` / `]`
  *  move the window, `g` cycles the grain. They work from anywhere in the
@@ -763,16 +772,28 @@ export function usePlanCanvas({
     // snapshot of the source's data, whose rows the matches it holds no longer
     // index (#821, #1199). New rows over the same data — a pan reading the
     // event kinds' rows again, a draft — move neither, so the search stands.
-    // The `rows` source's own Search Records stays primary-key navigation: the rail narrows, never the key search.
+    // The source of the rows the canvas pages — its `rows` source, or a paged resource kind's — keeps its own Search
+    // Records, navigation over its whole record (#1513, `find.ts`): the rail narrows, never the key search, and a pick
+    // clears what hides its row.
     const seekable = rowsPart === undefined && data.rows.type !== "inline" && data.rows.value.seek.type === "some";
     const sourceId = data.rows.type !== "inline" ? data.rows.value.id : "";
     // A pick in it hands the keyboard to the canvas (#1398): the row it brings in takes the focus — the grid's one stop,
     // its ring — once the box has let the keyboard go (below); a step leaves it in the box.
-    const handOff = usePickHandOff();
+    const [findError, setFindError] = useState<string | undefined>(undefined);
+    const hiddenPick = useHiddenPick({ onError: setFindError, uncleared: words.m.keySearchUncleared() });
+    const handOff = hiddenPick.handOff;
     const picking = useMemo(() => handOff.search(controller.search), [handOff, controller]);
-    const search = useMemo<PlanSearch | undefined>(
+    const seekSearch = useMemo<PlanSearch | undefined>(
         () => (seekable ? { ...picking, resetKey: sourceId, requery: seek.again } : undefined),
         [seekable, picking, sourceId, seek.again]);
+    const findsRows = useMemo(
+        () => (data.rows.type !== "inline" ? planPart(slices, pagedSlot ?? ROWS_SOURCE) : undefined),
+        [data.rows.type, slices, pagedSlot]);
+    const rowsHiding = useSourceHidden("Plan", findsRows);
+    const rowsFind = usePlanRowsFind({ part: findsRows, pick: rowsHiding, clear: hiddenPick.clear, controller, words, onError: setFindError });
+    const search = useMemo(
+        () => (rowsFind !== undefined ? hiddenPick.search(rowsFind) : seekSearch),
+        [rowsFind, hiddenPick, seekSearch]);
 
     // ── Row focus and the visible rows ────────────────────────────────────
     const { linkFamily, focusVisibleKeys, focusCtx } = usePlanFocus(view.focus, data.links);
@@ -851,7 +872,22 @@ export function usePlanCanvas({
             return;
         }
         const key = rowItemKey(searchTarget);
-        handOff.land(() => { if (drawsItem(focusBodyRef.current, key)) controller.focusItem(key); });
+        const served = searchSeq;
+        handOff.land(() => {
+            // The row the search was served on may draw a frame or two after: the view scrolls to it, and the virtual rows
+            // mount it as they follow — a pick whose clear leaves another narrowing standing lands so (review of #1481,
+            // finding 3). It takes the keyboard once drawn, while no later search has been served and the focus is still
+            // the box's or nowhere; a row never drawn in that time takes nothing.
+            let frames = 0;
+            const take = (): void => {
+                if (servedSearch.current !== served) return;
+                const at = document.activeElement;
+                if (at !== null && at !== document.body && at.closest(KEY_SEARCH_BOX) === null) return;
+                if (drawsItem(focusBodyRef.current, key)) { controller.focusItem(key); return; }
+                if (++frames < LAND_FRAMES) requestAnimationFrame(take);
+            };
+            take();
+        });
     }, [searchSeq, searchTarget, narrow, handOff, controller]);
     // The hover cursor: direct DOM writes, zero renders (#609).
     const cursorChipRef = useRef<HTMLDivElement | null>(null);
@@ -1133,9 +1169,9 @@ export function usePlanCanvas({
         skipped: derived.diagnostics.size,
         onSeekSkipped: target.firstSkipped !== undefined && !narrow ? controller.seekSkipped : undefined,
         sourceError,
-        searchError: seek.searchError,
+        searchError: seek.searchError ?? findError,
         truncatedAt: scale?.truncated?.shown,
-    }), [derived.diagnostics, target.firstSkipped, narrow, controller, sourceError, seek.searchError, scale]);
+    }), [derived.diagnostics, target.firstSkipped, narrow, controller, sourceError, seek.searchError, findError, scale]);
 
     // The element-click funnel, when the root declares `onElementClick` (#824)
     // — the controller reports a click to the LATEST root's.

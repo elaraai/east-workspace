@@ -11,10 +11,17 @@
  * be chosen, the conflicts button leads its buttons, and Apply waits for it
  * (`conflicts.tsx`).
  *
+ * In a phone's frame it is the toolbar's second row (`phone`, `Mobile Builder
+ * Frame Spec.md` FR6, FR8): the drafts' count at its start, then the issues —
+ * there whatever their number, off at none — and the four buttons at touch
+ * size, Save filled while it would save; Discard asks first, in the band
+ * under the row (ruled 4 Nov 2026: no anchored popover on a phone), never a dialog.
+ *
  * @packageDocumentation
  */
-import { useMemo, useState } from "react";
-import { Box, chakra, Portal, Text, Tooltip, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { createPortal } from "react-dom";
+import { Box, chakra, Portal, Text, Tooltip, useRecipe, useSlotRecipe, VisuallyHidden, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRotateLeft, faArrowRotateRight, faCheck, faRotate, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
@@ -24,6 +31,8 @@ import type { EditIssue, EditSession } from "./session.js";
 import { ConflictsControl } from "./conflicts.js";
 import { useDraftsKeeping } from "./keep.js";
 import { sessionErrorText, type EditingWords } from "./messages.js";
+import { FrameSessionBand } from "../layout/builder-frame/session-row.js";
+import { layerOpen } from "../layout/builder-frame/view-escape.js";
 
 /** A history bar action. */
 export type HistoryAction = "undo" | "redo" | "discard" | "apply" | "refresh";
@@ -103,12 +112,27 @@ export interface HistoryBarProps<W> {
      * focus; the conflicts popover opens, its choices off. `false` by default.
      */
     locked?: boolean | undefined;
+    /** The phone's form, the toolbar's second row in a frame of 560 px or less (see the module docs). `false` by default. */
+    phone?: boolean | undefined;
+    /**
+     * On a phone, what the Issues button opens where a host lists them, conflicts too: a tab of its inspector
+     * (`Studio Mobile Spec.md` ST7). The button then counts the conflicts, and there is no conflicts button.
+     */
+    onOpenIssues?: (() => void) | undefined;
 }
 
 /** Keep an accessible name and a hover/focus tooltip when the control has no text. */
-function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onClick }: {
+function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onClick, ready, content, expanded, buttonRef }: {
     label: string; tip?: string | undefined; icon: IconDefinition; disabled: boolean; locked: boolean;
     styles: Styles; onClick: () => void;
+    /** Save while it would save: filled, on a phone. */
+    ready?: boolean | undefined;
+    /** What it shows in place of its icon: the live dot while a Save is out, on a phone. */
+    content?: ReactNode;
+    /** Whether what it opens shows: Discard's question, on a phone. */
+    expanded?: boolean | undefined;
+    /** The button: where the focus goes back to as what it opened closes. */
+    buttonRef?: Ref<HTMLButtonElement> | undefined;
 }) {
     const iconRecipe = useRecipe({ key: "iconButton" });
     const iconStyles = iconRecipe({ size: "sm", variant: "outline" });
@@ -119,16 +143,58 @@ function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onC
     return <Tooltip.Root openDelay={250}>
         <Tooltip.Trigger asChild>
             <span>
-                <chakra.button type="button" css={[iconStyles, styles.button]} aria-label={label}
-                    disabled={disabled && !focused} aria-disabled={locked || held ? true : undefined}
+                <chakra.button ref={buttonRef} type="button" css={[iconStyles, styles.button]} aria-label={label} aria-expanded={expanded}
+                    disabled={disabled && !focused} aria-disabled={locked || held ? true : undefined} data-ready={ready === true ? "" : undefined}
                     onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
                     onMouseDown={event => event.preventDefault()} onClick={locked || disabled ? undefined : onClick}>
-                    <FontAwesomeIcon icon={icon} />
+                    {content ?? <FontAwesomeIcon icon={icon} />}
                 </chakra.button>
             </span>
         </Tooltip.Trigger>
         <Portal><Tooltip.Positioner><Tooltip.Content>{tip}</Tooltip.Content></Tooltip.Positioner></Portal>
     </Tooltip.Root>;
+}
+
+/** The drafts' count in words, its number holding the row while its noun goes where the row leaves it no room: `1 change`, then `1`. */
+function CountWords({ text }: { text: string }) {
+    const at = text.indexOf(" ");
+    return at < 0 ? <span>{text}</span> : <><span>{text.slice(0, at)}</span>{" "}<span data-changes-noun="">{text.slice(at + 1)}</span></>;
+}
+
+/**
+ * A phone's Discard asking first (FR8): the design's words and its two buttons,
+ * the focus on Cancel as it opens; Esc is Cancel, wherever the focus is.
+ */
+function DiscardAsk({ head, title, body, cancel, confirm, styles, confirmCss, cancelCss, onCancel, onConfirm }: {
+    head: string; title: string; body: string; cancel: string; confirm: string; styles: Styles;
+    confirmCss: SystemStyleObject; cancelCss: SystemStyleObject; onCancel: () => void; onConfirm: () => void;
+}) {
+    const cancelRef = useRef<HTMLButtonElement | null>(null);
+    const onEscape = useRef(onCancel);
+    onEscape.current = onCancel;
+    useEffect(() => {
+        const frame = requestAnimationFrame(() => cancelRef.current?.focus({ preventScroll: true }));
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== "Escape" || layerOpen()) return;
+            event.preventDefault();
+            event.stopPropagation();
+            onEscape.current();
+        };
+        document.addEventListener("keydown", onKeyDown, true);
+        return () => {
+            cancelAnimationFrame(frame);
+            document.removeEventListener("keydown", onKeyDown, true);
+        };
+    }, []);
+    return <Box css={styles.ask} role="group" aria-label={head} data-history-discard-ask="">
+        <Box css={styles.askHead}>{head}</Box>
+        <Box css={styles.askTitle}>{title}</Box>
+        <Box css={styles.askBody}>{body}</Box>
+        <Box css={styles.askActions}>
+            <chakra.button ref={cancelRef} type="button" css={[cancelCss, styles.askButton]} onClick={onCancel}>{cancel}</chakra.button>
+            <chakra.button type="button" css={[confirmCss, styles.askButton]} data-history-discard-confirm="" onClick={onConfirm}>{confirm}</chakra.button>
+        </Box>
+    </Box>;
 }
 
 /**
@@ -139,7 +205,12 @@ function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onC
  * @param props - The session, the collection's words, and its callbacks
  * @returns The bar
  */
-export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onConflict, conflictItem, conflictValue, where, issueText, buttonsOnly = false, showError = true, locked = false }: HistoryBarProps<W>) {
+export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onConflict, conflictItem, conflictValue, where, issueText, buttonsOnly = false, showError = true, locked = false, phone = false, onOpenIssues }: HistoryBarProps<W>) {
+    const buttonRecipe = useRecipe({ key: "button" });
+    // A phone's Discard asks first (FR8), in the band under the row.
+    const [asking, setAsking] = useState(false);
+    const band = useContext(FrameSessionBand);
+    const discardRef = useRef<HTMLButtonElement | null>(null);
     const recipe = useSlotRecipe({ key: "editHistory" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
     const { m } = words;
@@ -160,6 +231,47 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onCo
     const keeping = useDraftsKeeping(session);
     const keepingText = keeping.state === "unkept" ? m.bannerUnkept({ reason: keeping.reason })
         : keeping.state === "lost" ? m.bannerLost({ reason: keeping.reason }) : undefined;
+    const discardOff = !session.canDiscard || (pending === 0 && !commitEditor);
+    const saveOff = !waiting && status !== "unknown" && !session.canApply && !commitEditor;
+    if (phone) {
+        const askingNow = asking && !discardOff;
+        // The focus back on Discard before what holds it goes.
+        const stopAsking = () => { discardRef.current?.focus({ preventScroll: true }); setAsking(false); };
+        const ask = askingNow && <DiscardAsk head={m.discardAskHead()} title={m.discardAskTitle({ n: pending, count: words.number(pending) })} body={m.discardAskBody()}
+            cancel={m.discardAskCancel()} confirm={m.discardAskConfirm()} styles={styles}
+            cancelCss={buttonRecipe({ variant: "outline", size: "md" })} confirmCss={buttonRecipe({ variant: "solid", size: "md" })}
+            onCancel={stopAsking} onConfirm={() => { stopAsking(); onAction("discard"); }} />;
+        return <Box data-slot="history" data-history-form="phone" data-history-locked={locked ? "" : undefined} css={styles.root}>
+            <Box css={styles.actions}>
+                {/* The row's start: what a Save is doing, else the drafts' count — a chip while there are any. */}
+                <Box css={styles.summary} role="status" aria-live="polite" data-history-summary={message !== undefined ? "message" : "count"}>
+                    {message !== undefined ? <Text as="span" css={styles.status}>{message}</Text>
+                        : <Box as="span" css={styles.changes} data-changes={pending > 0 ? "" : undefined}>{pending > 0 ? <CountWords text={m.historyChanges({ n: pending, count: words.number(pending) })} /> : m.historyChanges({ n: pending, count: words.number(pending) })}</Box>}
+                </Box>
+                {onOpenIssues === undefined
+                    ? <ConflictsControl session={session} words={words} onIssue={onConflict ?? onIssue} where={where} item={conflictItem} value={conflictValue} issueText={issueText} locked={locked} />
+                    : <VisuallyHidden aria-live="polite" data-conflicts-said="">{unsettled > 0 ? m.conflictsAppeared({ n: unsettled, count: words.number(unsettled) }) : ""}</VisuallyHidden>}
+                {/* The issues there whatever their number, off at none (FR6.3). */}
+                {(() => {
+                    const shown = onOpenIssues === undefined ? n : n + unsettled;
+                    return <HistoryButton styles={styles} label={m.issues({ n: shown, count: words.number(shown) })} tip={m.issuesTip({ n: shown, count: words.number(shown) })} locked={false}
+                        icon={faTriangleExclamation} disabled={shown === 0} onClick={() => { if (onOpenIssues !== undefined) onOpenIssues(); else if (issues[0]) onIssue(issues[0]); }}
+                        content={shown === 0 ? undefined : <Box as="span" css={styles.issuesCount} data-history-issues=""><FontAwesomeIcon icon={faTriangleExclamation} /><span>{words.number(shown)}</span></Box>} />;
+                })()}
+                <HistoryButton styles={styles} label={m.undo()} tip={m.undoTip()} icon={faArrowRotateLeft} disabled={!session.canUndo && !commitEditor} locked={locked} onClick={() => onAction("undo")} />
+                <HistoryButton styles={styles} label={m.redo()} tip={m.redoTip()} icon={faArrowRotateRight} disabled={!session.canRedo} locked={locked} onClick={() => onAction("redo")} />
+                <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={discardOff} locked={locked} expanded={askingNow} buttonRef={discardRef}
+                    onClick={() => setAsking(!asking)} />
+                {status === "reconciling" ? <HistoryButton styles={styles} label={m.retryRefresh()} icon={faRotate} disabled={false} locked={locked} onClick={() => onAction("refresh")} />
+                    : <HistoryButton styles={styles} label={status === "unknown" ? m.retryRequest() : m.apply()}
+                        tip={waiting ? m.applySettleFirst({ n: unsettled, count: words.number(unsettled) }) : undefined}
+                        icon={status === "unknown" ? faRotate : faCheck} disabled={saveOff} ready={!saveOff && !waiting && status === "idle"}
+                        content={status === "applying" ? <Box as="span" css={styles.live} aria-hidden /> : undefined}
+                        locked={locked || waiting} onClick={() => onAction("apply")} />}
+            </Box>
+            {ask !== false && (band !== null ? createPortal(ask, band) : ask)}
+        </Box>;
+    }
     return <Box data-slot="history" data-history-form={buttonsOnly ? "buttons" : "full"} data-history-locked={locked ? "" : undefined} css={styles.root}>
         <Box css={styles.actions}>
             {!buttonsOnly && message !== undefined && <Text role="status" aria-live="polite" css={styles.status}>{message}</Text>}
@@ -172,11 +284,11 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onCo
             </Box>}
             <HistoryButton styles={styles} label={m.undo()} tip={m.undoTip()} icon={faArrowRotateLeft} disabled={!session.canUndo && !commitEditor} locked={locked} onClick={() => onAction("undo")} />
             <HistoryButton styles={styles} label={m.redo()} tip={m.redoTip()} icon={faArrowRotateRight} disabled={!session.canRedo} locked={locked} onClick={() => onAction("redo")} />
-            <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={!session.canDiscard || (pending === 0 && !commitEditor)} locked={locked} onClick={() => onAction("discard")} />
+            <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={discardOff} locked={locked} onClick={() => onAction("discard")} />
             {status === "reconciling" ? <HistoryButton styles={styles} label={m.retryRefresh()} icon={faRotate} disabled={false} locked={locked} onClick={() => onAction("refresh")} />
                 : <HistoryButton styles={styles} label={status === "unknown" ? m.retryRequest() : m.apply()}
                     tip={waiting ? m.applySettleFirst({ n: unsettled, count: words.number(unsettled) }) : undefined}
-                    icon={status === "unknown" ? faRotate : faCheck} disabled={!waiting && status !== "unknown" && !session.canApply && !commitEditor}
+                    icon={status === "unknown" ? faRotate : faCheck} disabled={saveOff}
                     locked={locked || waiting} onClick={() => onAction("apply")} />}
         </Box>
         {showError && session.error !== undefined && <Text css={styles.error} role="alert">{sessionErrorText(session.error, words)}</Text>}

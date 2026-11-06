@@ -71,6 +71,10 @@ export type QuerySavePopoverProps = SliceEditPopoverAnchor & {
     generated: string;
     /** Saves the query under the name, with the description — `none` for the generated sentence — and resolves to what refused the save, or `undefined` once it is saved. */
     onSave: (name: string, description: option<string>) => Promise<string | undefined>;
+    /** A phone's view (QP34): its fields labelled, its head the drafts' count, its Save the Primary. */
+    phone?: boolean | undefined;
+    /** How many drafts the session holds. */
+    pending?: number | undefined;
 };
 
 /**
@@ -80,7 +84,7 @@ export type QuerySavePopoverProps = SliceEditPopoverAnchor & {
  * @returns The trigger or the anchor, and the popover while open
  */
 export const QuerySavePopover = memo(function QuerySavePopover(props: QuerySavePopoverProps) {
-    const { open, onOpenChange, name, taken, description, generated, onSave } = props;
+    const { open, onOpenChange, name, taken, description, generated, onSave, phone = false, pending = 0 } = props;
     const hangs: SliceEditPopoverAnchor = props.trigger !== undefined ? { trigger: props.trigger } : { anchor: props.anchor };
     const edit = useSlotRecipe({ key: "sliceEdit" })() as Styles;
     const input = useRecipe({ key: "input" })({}) as SystemStyleObject;
@@ -127,7 +131,12 @@ export const QuerySavePopover = memo(function QuerySavePopover(props: QuerySaveP
             {...hangs}
             open={open}
             onOpenChange={onOpenChange}
-            label={<>{m.saveQuery()} · <Box as="span" css={edit.clauseField}>{name}</Box></>}
+            label={phone
+                ? <>{m.saveQuery()}{pending > 0 && <> <Box as="span" css={edit.hint}>{m.changesCount({ n: pending, count: f.number(pending) })}</Box></>}</>
+                : <>{m.saveQuery()} · <Box as="span" css={edit.clauseField}>{name}</Box></>}
+            nameLabel={phone ? m.nameLabel() : undefined}
+            nameHelp={phone ? m.nameHelp() : undefined}
+            primary={phone}
             placeholder={m.queryName()}
             initial={name}
             taken={taken}
@@ -138,6 +147,7 @@ export const QuerySavePopover = memo(function QuerySavePopover(props: QuerySaveP
             onConfirm={save}
         >
             <Box css={edit.field} data-query-description="">
+                {phone && <chakra.label css={edit.viewFieldLabel}>{m.descriptionLabel()}</chakra.label>}
                 <chakra.textarea css={[input, edit.textArea]} rows={3} maxLength={DESCRIPTION_MAX} value={text}
                     placeholder={m.descriptionPlaceholder()} aria-label={m.descriptionPlaceholder()} aria-describedby={`${id}-hint`}
                     data-generated={edited ? undefined : ""} onChange={onDescription} onKeyDown={onDescriptionKey} />
@@ -154,4 +164,4 @@ export const QuerySavePopover = memo(function QuerySavePopover(props: QuerySaveP
     prev.open === next.open && prev.name === next.name && prev.generated === next.generated
     && descriptionEquivalent(prev.description, next.description)
     && Object.is(prev.taken, next.taken) && Object.is(prev.trigger, next.trigger) && Object.is(prev.anchor, next.anchor)
-    && Object.is(prev.onOpenChange, next.onOpenChange) && Object.is(prev.onSave, next.onSave));
+    && Object.is(prev.onOpenChange, next.onOpenChange) && Object.is(prev.onSave, next.onSave) && prev.phone === next.phone && prev.pending === next.pending);

@@ -16,6 +16,7 @@ describeEast("DecisionQueue", (test) => {
         decisionQueueSizing: ex.decisionQueueSizing,
         decisionQueueSlice: ex.decisionQueueSlice,
         decisionQueueGrouped: ex.decisionQueueGrouped,
+        decisionQueueOneFacet: ex.decisionQueueOneFacet,
     });
 
     // Panels — every merged example stays mounted as a captioned row (#464).

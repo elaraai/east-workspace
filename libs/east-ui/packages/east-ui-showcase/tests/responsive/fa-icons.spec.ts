@@ -196,17 +196,21 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 0.34;
 
 test.describe("a converted icon takes the room its glyph took (#1263)", () => {
     test("a chip's caret — a segment's menu, the View chip, the key search — is 8px tall and 5px wide, its own width", async ({ page, isMobile }) => {
-        test.skip(!isMobile, "the chips a caret marks are a folded toolbar's, on a phone");
-        for (const hash of ["e3/plan/plan/planTargetState", "layout/snap-grid/snapGridEditor", "e3/sheet/sheet/sheetPaged"]) {
+        test.skip(!isMobile, "the chips a caret marks are a folded toolbar's, on a touch screen");
+        // A frame past a phone's, a touch screen's, whose row is short of room: the Plan's resolution and Studio's View.
+        await page.setViewportSize({ width: 640, height: 900 });
+        let seen = 0;
+        for (const hash of ["e3/plan/plan/planTargetState", "e3/studio/studio/studioBuilder"]) {
             const row = page.locator(await openExample(page, hash, "light"));
             const carets = row.locator("svg[data-chip-caret]");
-            await expect(carets.first(), `no caret drawn on ${hash}`).toBeVisible();
+            seen += await carets.count();
             const drawn = await carets.evaluateAll(nodes => nodes.map(svg => {
                 const box = svg.getBoundingClientRect();
                 return { h: box.height, w: box.width, fa: getComputedStyle(svg).getPropertyValue("--fa-width").trim() };
             }));
             expect(drawn.filter(c => !(near(c.h, 8) && near(c.w, 5) && c.fa === "auto")), `a caret on ${hash} not 8 × 5`).toEqual([]);
         }
+        expect(seen, "a caret drawn on one of them").toBeGreaterThan(0);
     });
 
     test("a clause chip's remove is as wide as the × it replaced, at 0.8em, its own width", async ({ page, isMobile }) => {

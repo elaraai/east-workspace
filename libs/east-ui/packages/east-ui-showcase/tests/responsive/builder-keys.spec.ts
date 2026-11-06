@@ -266,17 +266,18 @@ test.describe("a key a builder acts on goes no further than the builder (#1398)"
 
     test("the Flowchart's keys: its canvas's Escape and Del, its history's undo and a state's editor's Enter and Escape — and an Escape typed elsewhere on the page never acting on it @desktop", async ({ page }) => {
         await page.setViewportSize({ width: 1440, height: 900 });
-        const route = "e3/flowchart/flowchart/flowchartDetail";
+        // The depot's four records bound editable and read whole.
+        const route = "e3/flowchart/flowchart/flowchartDepotEditing";
         const entry = await visitBuilder(page, route, "[data-flowchart-root] [data-flowchart-node]", "light");
         const root = entry.locator("[data-flowchart-root]").first();
         const canvas = root.locator("[data-flowchart-scroll]");
         const state = (key: string) => root.locator(`[data-flowchart-node="${key}"]`);
         const folded = await sidebar(page);
         // A state selected by a click: Escape in the canvas lets it go.
-        await state("CLD").click();
-        await expect(state("CLD")).toHaveAttribute("data-selected", "true");
+        await state("CLR").click();
+        await expect(state("CLR")).toHaveAttribute("data-selected", "true");
         await pressedOn(page, canvas, ["Escape"]);
-        await expect(state("CLD")).not.toHaveAttribute("data-selected", "true");
+        await expect(state("CLR")).not.toHaveAttribute("data-selected", "true");
         // Del deletes the selected state; the history's undo, from anywhere in the frame, puts it back — its Control the
         // only key the page hears.
         await state("RCV").click();
@@ -291,7 +292,7 @@ test.describe("a key a builder acts on goes no further than the builder (#1398)"
         // closes the editor it is pressed in, going no further.
         const editor = root.locator("[data-flowchart-stateeditor]");
         for (const key of ["Escape", "Enter"]) {
-            await state("BKD").dblclick();
+            await state("HLD").dblclick();
             await editor.locator("input").first().focus();
             await listen(page);
             await page.keyboard.press(key);
@@ -300,16 +301,16 @@ test.describe("a key a builder acts on goes no further than the builder (#1398)"
         }
         await settled(page);
         // An Escape typed elsewhere on the page — on the example's own link, outside the frame — leaves the selection be.
-        await state("CLD").click();
-        await expect(state("CLD")).toHaveAttribute("data-selected", "true");
+        await state("CLR").click();
+        await expect(state("CLR")).toHaveAttribute("data-selected", "true");
         await entry.locator(`a[href="#${route}"]`).first().focus();
         await page.keyboard.press("Escape");
-        await expect(state("CLD")).toHaveAttribute("data-selected", "true");
+        await expect(state("CLR")).toHaveAttribute("data-selected", "true");
         // One from the page itself, nothing focused, is the canvas's while the pointer is over it.
         await canvas.hover();
         await page.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); });
         await page.keyboard.press("Escape");
-        await expect(state("CLD")).not.toHaveAttribute("data-selected", "true");
+        await expect(state("CLR")).not.toHaveAttribute("data-selected", "true");
         expect(await sidebar(page)).toBe(folded);
         await goesOn(page, canvas);
     });

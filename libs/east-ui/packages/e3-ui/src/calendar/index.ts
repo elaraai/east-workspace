@@ -10,8 +10,10 @@ import {
 import { EastUI, type UIElement } from "@elaraai/east-ui";
 import { RecordSliceConfigType, RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
 import { FuncBindingType } from "../bind/func.js";
+import { VocabularyNounType, vocabularyNoun, type VocabularyNoun } from "../utils/vocabulary.js";
 import type { OptimiseHandle } from "../utils/optimise.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
+import { firstView, literalViews, viewsProp, type ViewsProp } from "../utils/views.js";
 import { Schedule, scheduleCheck, scheduleTitled, type ScheduleNamespace } from "../schedule/index.js";
 import { checkSchedulePagedEventKinds, checkSchedulePagedKinds, checkedScheduleTilings } from "../schedule/cell-checks.js";
 import { ScheduleOptimiseRequestTypeFor, ScheduleOptimiseResultTypeFor, scheduleOptimiseBinding } from "../schedule/optimise.js";
@@ -25,6 +27,10 @@ export { CalendarPagedType, createCalendarPaged } from "./paged.js";
 
 /** Calendar's layout: a time grid, resource columns or a horizontal timeline. */
 export const CalendarLayoutType = VariantType({ calendar: NullType, resources: NullType, timeline: NullType });
+/** The layouts, in the switch's order. */
+const CALENDAR_LAYOUTS = ["calendar", "resources", "timeline"] as const;
+/** The periods, in the switch's order. */
+const CALENDAR_PERIODS = ["day", "week", "month"] as const;
 /** The stretch shown: a day, week or month. */
 export const CalendarPeriodType = VariantType({ day: NullType, week: NullType, month: NullType });
 /** A viewer's layout, period and reference date. */
@@ -33,12 +39,56 @@ export const CalendarViewType = StructType({ layout: CalendarLayoutType, period:
 export const CalendarLibraryTabType = VariantType({ templates: NullType, backlog: NullType, tab: ScheduleAuthorTabType });
 /** Initial view and working-time settings; every instant is shown in UTC. */
 export const CalendarSettingsType = StructType({
-    layout: CalendarLayoutType, period: CalendarPeriodType, date: OptionType(DateTimeType),
+    layout: CalendarLayoutType, views: ArrayType(CalendarLayoutType), period: CalendarPeriodType, viewPeriods: ArrayType(CalendarPeriodType), date: OptionType(DateTimeType),
     hours: StructType({ from: IntegerType, to: IntegerType }),
     weekStart: VariantType({ monday: NullType, sunday: NullType }), weekends: BooleanType,
     density: VariantType({ compact: NullType, comfortable: NullType, spacious: NullType }),
     now: OptionType(DateTimeType), readOnly: BooleanType,
 });
+/**
+ * The app's own words for what the Calendar draws of its own (#1516), every one resolved.
+ *
+ * @property backlog - The tab of events waiting for a time, and what running text calls it (`Backlog`)
+ * @property templates - The tab of templates (`Templates`)
+ * @property template - One of them (`Template`)
+ * @property dueThisWeek - The Backlog's group due this week (`Due this week`)
+ * @property dueNextWeek - Its group due next week (`Due next week`)
+ * @property later - Its group due after that (`Later`)
+ * @property noDate - Its group with no due date (`No date`)
+ * @property unscheduled - An event with no time, as the inspector says it (`Unscheduled`)
+ * @property unassigned - The row and the choice of no resource (`Unassigned`)
+ * @property resources - A resource, and its plural: what the inspector labels an event's resource with (`Resource`), and the
+ *   layout of resources, the timeline's heading over their names and a group's count of them (`Resources`)
+ */
+export const CalendarVocabularyType = StructType({
+    backlog: StringType, templates: StringType, template: StringType, dueThisWeek: StringType, dueNextWeek: StringType, later: StringType, noDate: StringType,
+    unscheduled: StringType, unassigned: StringType, resources: VocabularyNounType,
+});
+/** The words the Calendar draws with none given, but its resources, a noun. */
+const CALENDAR_WORDS = {
+    backlog: "Backlog", templates: "Templates", template: "Template", dueThisWeek: "Due this week", dueNextWeek: "Due next week", later: "Later", noDate: "No date",
+    unscheduled: "Unscheduled", unassigned: "Unassigned",
+};
+/**
+ * The app's words for what the Calendar draws: any left out keeps its default. `resources` is a noun — its singular
+ * (`"Station"`, its plural that and `s`), or both (`{ one: "Press", other: "Presses" }`).
+ */
+export type CalendarVocabulary = Partial<typeof CALENDAR_WORDS> & { resources?: VocabularyNoun };
+
+/**
+ * The Calendar's words, resolved.
+ *
+ * @param given - The prop
+ * @returns Every word, and its resources' noun
+ * @throws {Error} Naming an entry given empty
+ * @internal
+ */
+export function calendarVocabulary(given: CalendarVocabulary | undefined): typeof CALENDAR_WORDS & { resources: { one: string; other: string } } {
+    const { resources, ...words } = given ?? {};
+    for (const [name, word] of Object.entries(words)) if (word.trim() === "") throw new Error(`Calendar: \`vocabulary.${name}\` must not be empty — leave it out to keep "${CALENDAR_WORDS[name as keyof typeof CALENDAR_WORDS]}"`);
+    return { ...CALENDAR_WORDS, ...words, resources: vocabularyNoun("Calendar", "resources", resources, "Resource") };
+}
+
 /**
  * Calendar's closed interface to its React renderer. The frame is a renderer detail.
  * @property resources - The resource kinds, their rows resolved — none for a kind paged a window at a time, whose resources come through `paged`
@@ -47,12 +97,13 @@ export const CalendarSettingsType = StructType({
  * @property narrowed - Each source's narrowed keys, paged through its own data, by the source's name — a resource
  *   kind's read whole narrow its columns, rows and Choosers, a templates list's and a tab's their cards; an event kind
  *   reads its own narrowing through its part, and a paged resource kind its windows
+ * @property vocabulary - The app's words for what the Calendar draws of its own (#1516)
  * @property optimise - The app's optimiser, by its `e3.function`'s name (#1409): what the Elara eye calls over the window in
  *   view, its result one edit of the session; `none`, no eye
  */
 export const CalendarPayloadType = StructType({
     events: ArrayType(ScheduleKindType), resources: ArrayType(ScheduleResourcesType), paged: OptionType(CalendarPagedType), settings: CalendarSettingsType,
-    library: ArrayType(CalendarLibraryTabType), inspector: BooleanType, slice: OptionType(RecordSlicesChromeType),
+    library: ArrayType(CalendarLibraryTabType), inspector: BooleanType, vocabulary: CalendarVocabularyType, slice: OptionType(RecordSlicesChromeType),
     narrowed: DictType(StringType, RowSourceType(ArrayType(StringType))),
     canDrop: OptionType(FunctionType([ScheduleCandidateType], OptionType(StringType))),
     optimise: OptionType(FuncBindingType),
@@ -106,10 +157,29 @@ export interface CalendarProps {
     library?: readonly CalendarLibraryTab[];
     /** Shows the inspector pane. */
     inspector?: boolean;
+    /**
+     * The app's own words for what the Calendar draws of its own, each keeping its default where left out: the `backlog`, `templates`
+     * and `template`, the Backlog's groups (`dueThisWeek`, `dueNextWeek`, `later`, `noDate`), `unscheduled`, `unassigned` and
+     * `resources`, a noun — its singular, or `{ one, other }`. A renamed group keeps its order and its look.
+     */
+    vocabulary?: CalendarVocabulary;
     /** Disables every edit, write and drag while retaining navigation and selection. */
     readOnly?: SubtypeExprOrValue<BooleanType>;
     /** Initial layout, period and date. Viewer changes persist under id. */
     view?: { layout?: "calendar" | "resources" | "timeline"; period?: "day" | "week" | "month"; date?: SubtypeExprOrValue<DateTimeType> };
+    /**
+     * The layouts this instance offers: literal tags (`["calendar", "timeline"]`), `Calendar.Types.Layout` values, or an expression
+     * of an array of them, which a page's state can choose as it runs. Omitted, or empty as the page runs, all three. One left, no
+     * switch shows, in any form of the toolbar; a layout left out is never drawn, so a viewer's kept view of it opens on the first
+     * offered, and the overlaps chip stays on the layout in view rather than opening Resources.
+     */
+    views?: ViewsProp<typeof CalendarLayoutType, "calendar" | "resources" | "timeline">;
+    /**
+     * The periods this instance offers: literal tags (`["week", "month"]`), `Calendar.Types.Period` values, or an expression of an
+     * array of them, which a page's state can choose as it runs. Omitted, or empty as the page runs, all three. One left, no Period
+     * switch shows. Resources is always a day, whatever this says.
+     */
+    viewPeriods?: ViewsProp<typeof CalendarPeriodType, "day" | "week" | "month">;
     /** Working hours, shaded outside this interval; defaults to 06–22 UTC. */
     hours?: { from: bigint; to: bigint };
     /** Initial week start and visibility of weekends. */
@@ -145,7 +215,7 @@ export interface CalendarProps {
  *   day, `slice` is not `Slice.bindRecords` or names a source no kind, templates list or tab names, a templates list is
  *   written in the code or names no source of the slice (templates are records, #1340), or a tab names a source the
  *   slice lacks, or `optimise` is not `Func.bind` of a function from `OptimiseRequest(E, S)` to `OptimiseResult(E)` over
- *   the kinds' rows (#1409); more than one resource kind is paged, or an event kind is placed on the paged kind and on
+ *   the kinds' rows (#1409); a `views` or a `viewPeriods` that lists nothing, names none of its own, or leaves out what `view` opens on; more than one resource kind is paged, or an event kind is placed on the paged kind and on
  *   another, or with no source of the slice — its record read whole, or the days in view read through its day index —
  *   each naming the series and summary indexes to declare over the kind's own fields (#1424). The series and summary
  *   indexes an event kind's source lists are refused in the same words as the Calendar is evaluated, the source's
@@ -165,6 +235,9 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
     scheduleTitled(props.events, "Calendar");
     if (Object.keys(props.events).length === 0) throw new Error("Calendar: declare at least one event kind");
     const hours = props.hours ?? { from: 6n, to: 22n };
+    const views = viewsProp("Calendar", CalendarLayoutType, props.views, props.view?.layout);
+    const viewPeriods = viewsProp("Calendar", CalendarPeriodType, props.viewPeriods, props.view?.period, "viewPeriods");
+    const listedPeriods = literalViews(props.viewPeriods);
     if (hours.from < 0n || hours.to > 24n || hours.from >= hours.to) throw new Error("Calendar: hours must satisfy 0 <= from < to <= 24");
     const events = Object.entries(props.events);
     // The app's optimiser (#1409), held to the kinds' rows by slot.
@@ -210,13 +283,14 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
             resources: resourceKinds.map(([slot, kind]) => kind.build(slot)),
             paged: paged === undefined ? East.value(none, OptionType(CalendarPagedType)) : East.value(some(paged), OptionType(CalendarPagedType)),
             settings: {
-                layout: variant(props.view?.layout ?? "calendar", null), period: variant(props.view?.period ?? "week", null),
+                layout: variant(props.view?.layout ?? firstView(CALENDAR_LAYOUTS, props.views), null), views: views as never, viewPeriods: viewPeriods as never,
+                period: variant(props.view?.period ?? (listedPeriods === undefined || listedPeriods.includes("week") ? "week" : firstView(CALENDAR_PERIODS, listedPeriods)), null),
                 date: props.view?.date === undefined ? none : some(props.view.date), hours,
                 weekStart: variant(props.week?.start ?? "monday", null), weekends: props.week?.weekends ?? true,
                 density: variant(props.density ?? "comfortable", null), now: props.now === undefined ? none : some(props.now),
                 readOnly: props.readOnly ?? false,
             },
-            library, inspector: props.inspector ?? false,
+            library, inspector: props.inspector ?? false, vocabulary: calendarVocabulary(props.vocabulary),
             slice: narrowing.chrome,
             narrowed: new Map(narrowing.names.map(source => [source, bound.keys[source] as never])),
             canDrop: props.canDrop === undefined ? none : some(props.canDrop),

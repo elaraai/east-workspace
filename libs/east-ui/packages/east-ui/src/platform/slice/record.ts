@@ -11,7 +11,7 @@ import {
 } from "@elaraai/east";
 import { IndexedEntryType, IndexedSourceType, type IndexedSource } from "../../contracts/indexed-source.js";
 import { toValueFormat, type SliceFieldFormat } from "./index.js";
-import { planRecordSlice, recordIndexFields } from "./record-plan.js";
+import { planRecordSlice, recordEntriesFields, recordIndexFields } from "./record-plan.js";
 import { readAreaMarker } from "./record-area.js";
 import { readIntervalMarker } from "./record-interval.js";
 import { readTileMarker, tilingOf } from "./record-series.js";
@@ -57,19 +57,29 @@ export type RecordSliceValue<T extends EastType> = Key<T> extends VariantType<in
 type RangeField<R extends StructType, M extends StructType> = {
     [F in Field<M>]: FieldType<R, M, F> extends SetType ? never : Scalar<FieldType<R, M, F>>["type"] extends "DateTime" | "Integer" | "Float" ? F : never;
 }[Field<M>];
+/** The fields an entries index offers (#1522): each a Dict field of the rows, its keys picked as a Set's elements are, and never
+ *  searched. An index whose kind is any kind names none. */
+type EntriesField<M extends StructType> = {
+    [I in keyof M["fields"]]: M["fields"][I] extends StructType<{ fields: StructType<infer F>; kind: VariantType<infer K> }>
+        ? string extends keyof K ? never : "entries" extends keyof K ? keyof F : never
+        : never;
+}[keyof M["fields"]];
 type SearchField<R extends StructType, M extends StructType> = {
-    [F in Field<M>]: Scalar<FieldType<R, M, F>> extends StringType ? F : never;
-}[Field<M>];
+    [F in Exclude<Field<M>, EntriesField<M>>]: Scalar<FieldType<R, M, F>> extends StringType ? F : never;
+}[Exclude<Field<M>, EntriesField<M>>];
 type Choice<T extends EastType> = readonly RecordSliceValue<T>[] | (T extends SetType ? never
     : Scalar<T>["type"] extends "DateTime" | "Integer" | "Float" ? { from: Exclude<RecordSliceValue<T>, null>; to: Exclude<RecordSliceValue<T>, null> }
         : Scalar<T> extends StringType ? { prefix: string } : never);
 /** Typed per-field narrowing; clauses must be answerable by one declared index. */
 export type RecordSliceWhere<R extends StructType, M extends StructType> = { [F in Field<M>]?: Choice<FieldType<R, M, F>> };
 
+/** A value a field offers: the value alone, shown as it is, or with the words the rail shows it by. */
+export type RecordSliceHint<V> = V | { readonly value: V; readonly label: string };
+
 /** Options inferred from the record's row and its binding's declared indexes. */
 export interface RecordSliceOptions<R extends StructType, M extends StructType> {
-    /** Offered fields; omitted means all indexed fields. */
-    fields?: { [F in Field<M>]?: { label?: string; format?: SliceFieldFormat; hints?: readonly RecordSliceValue<FieldType<R, M, F>>[] } };
+    /** Offered fields; omitted means all indexed fields. A hint is a value, or a value and the words the rail shows it by (`{ value: "in_progress", label: "In progress" }`). */
+    fields?: { [F in Field<M>]?: { label?: string; format?: SliceFieldFormat; hints?: readonly RecordSliceHint<RecordSliceValue<FieldType<R, M, F>>>[] } };
     /** Ranged field shared by the range control and a Plan's window. */
     range?: RangeField<R, M>;
     /** Prefix-search fields; omitted means all offered String fields. A String field with no hints is refused unless it is one of them: it would offer nothing to choose. */
@@ -124,7 +134,9 @@ export function recordSliceFieldSchema(type: EastType, name: string): RecordSlic
 /**
  * Resolve indexed controls' types without reading records. Empty collection
  * markers carry computed types through serialization; row fields keep their
- * existing metadata. Reusing a field name with a different type is refused.
+ * existing metadata. Reusing a field name with a different type is refused,
+ * save an entries index's Dict field of the rows (#1522): a Set marker of the
+ * Dict's key type carries it, and it is picked as a Set's elements are.
  * @param row - Stored row schema.
  * @param metadata - Ordered index metadata, when computed fields are offered.
  * @returns Stored and computed field types.
@@ -136,9 +148,16 @@ export function recordSliceFieldTypes(row: StructType, metadata?: StructType): R
         // Each index's metadata is `{ fields, kind }` (#1432): its row fields carry the markers.
         const led = index.type === "Struct" ? (index.fields as Record<string, EastType>).fields : undefined;
         if (led?.type !== "Struct") continue;
+        const kind = index.type === "Struct" ? (index.fields as Record<string, EastType>).kind : undefined;
+        const entries = kind?.type === "Variant" && Object.hasOwn(kind.cases, "entries");
         for (const [name, marker] of Object.entries(led.fields as Record<string, EastType>)) {
             if (marker.type !== "Array" && marker.type !== "Set") continue;
             const type = marker.type === "Array" ? marker.value : marker;
+            const held = row.fields[name];
+            if (entries && marker.type === "Set" && held?.type === "Dict" && fields[name] === held && isTypeEqual(held.key, marker.key)) {
+                fields[name] = type;
+                continue;
+            }
             if (fields[name] !== undefined && !isTypeEqual(fields[name]!, type)) {
                 throw new Error(`Slice.bindRecord: indexed field '${name}' has inconsistent types; give a distinct computed value its own field name`);
             }
@@ -177,6 +196,13 @@ function literal(schema: RecordSliceFieldSchema, input: unknown): string {
  * A series or a summary index (`index.series`, `index.summary`) offers no
  * field at all: it is listed for a reader of its cells (#1039), and its
  * metadata says how it files the record's events.
+ *
+ * An entries index (`index.entries`, #1522) offers its Dict field: the rail
+ * lists the Dict's keys as the field's values, from its hints, each counted by
+ * the rows holding it, and takes several of them. Its picks weigh what a
+ * reader draws of each row — a Flowchart's details adding up the picked
+ * entries — and narrow none of the rows, so they stand beside every other
+ * field's choices.
  *
  * @param key - Stable UI state key.
  * @param source - A field-index binding, such as Data.bindPaged(record, { indexes }).
@@ -228,8 +254,17 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
         let area: Index["area"] = none;
         let series: Index["series"] = none;
         let summary: Index["summary"] = none;
+        let entries = false;
         if (kind === "plain") {
             if (fields.length === 0) throw new Error(`Slice.bindRecord: '${name}' has no fields`);
+        } else if (kind === "entries") {
+            // One Dict field of the rows, filed entry by entry (#1522): the rail's field, its keys the values.
+            const held = fields.length === 1 ? rowType.fields[fields[0]!] : undefined;
+            if (held?.type !== "Dict") {
+                throw new Error(`Slice.bindRecord: '${name}' is an entries index, which files one Dict field of the rows, and its metadata names ` +
+                    `${fields.length === 1 ? `'${fields[0]}', which is not one` : `${fields.length} fields`}; bind it with Data.bindPaged(record, { indexes })`);
+            }
+            entries = true;
         } else if (kind === "series" || kind === "summary") {
             const tiling = readTileMarker(names);
             if (tiling === undefined || tiling.summary !== (kind === "summary") || [tiling.key, tiling.from, tiling.to].some(field => rowType.fields[field] === undefined)) {
@@ -252,9 +287,11 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
             throw new Error(`Slice.bindRecord: '${name}' is of a kind no record Slice reads, '${kind}'`);
         }
         const structured = entry.fields.ik.cases[name]?.type === "Struct";
-        return { name, fields, sets: new Set(fields.filter(field => fieldTypes[field]?.type === "Set")),
-            structured, interval, area, series, summary };
+        // An entries index fans out over its Dict's keys, and narrows nothing: no path reads its field.
+        return { name, fields, sets: new Set(entries ? [] : fields.filter(field => fieldTypes[field]?.type === "Set")),
+            structured, interval, area, series, summary, entries };
     });
+    const weighing = recordEntriesFields(indexes);
     // A series or a summary index offers nothing: a reader reads its cells. An interval's start is a range the rail reads.
     const indexedFields = new Set(indexes.flatMap(index => tilingOf(index) !== undefined ? [] : recordIndexFields(index)));
     const printOn = recordOnPrinters(entry.fields.ik.cases as Record<string, EastType>);
@@ -269,11 +306,18 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
         const config = options.fields?.[field as Field<M>];
         const known = config?.hints ?? (schema.kind === "boolean" ? [true, false]
             : schema.inner.type === "Variant" ? Object.keys(schema.inner.cases) : []);
-        const values = [...known].map(value => ({ value: literal(schema, value), label: value === null ? "Unset" : schema.kind === "boolean" ? (value ? "Yes" : "No")
-            : schema.kind === "enum" ? label(value as string) : isValueOf(value, StringType) ? value as string : printFor(schema.inner)(value) }));
+        const values = [...known].map((hint: unknown) => {
+            // An authored `{ value, label }`: never an East value, which a field's scalar kinds are none of.
+            const labelled = hint !== null && typeof hint === "object" && "label" in hint && "value" in hint ? hint as { value: unknown; label: string } : undefined;
+            const value = labelled === undefined ? hint : labelled.value;
+            return { value: literal(schema, value), label: labelled?.label ?? (value === null ? "Unset" : schema.kind === "boolean" ? (value ? "Yes" : "No")
+                : schema.kind === "enum" ? label(value as string) : isValueOf(value, StringType) ? value as string : printFor(schema.inner)(value)) };
+        });
         if (schema.optional && !values.some(value => value.value === printFor(schema.key)(none))) values.unshift({ value: printFor(schema.key)(none), label: "Unset" });
+        // An entries field takes several keys, each weighing the rows by its entries (#1522).
+        const weighs = weighing.has(field);
         return { fieldId: field, label: config?.label ?? label(field), kind: schema.kind, optional: schema.optional,
-            multiple: !schema.set, set: schema.set, values, format: config?.format === undefined ? none : some(toValueFormat(config.format)) };
+            multiple: !schema.set || weighs, set: schema.set && !weighs, values, format: config?.format === undefined ? none : some(toValueFormat(config.format)) };
     });
     const getField = (field: string) => {
         const schema = schemas.get(field);
@@ -285,7 +329,8 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
         for (const [field, choice] of Object.entries(input)) {
             const schema = getField(field);
             if (Array.isArray(choice)) {
-                if (choice.length === 0 || (schema.set && choice.length !== 1)) throw new Error(`Slice.bindRecord: '${field}' needs ${schema.set ? "exactly one value" : "at least one value"}`);
+                const one = schema.set && !weighing.has(field);
+                if (choice.length === 0 || (one && choice.length !== 1)) throw new Error(`Slice.bindRecord: '${field}' needs ${one ? "exactly one value" : "at least one value"}`);
                 where.set(field, variant("values", [...new Set(choice.map(value => literal(schema, value)))]));
             } else if (choice !== null && typeof choice === "object" && "prefix" in choice) {
                 if (schema.kind !== "string" || schema.set || !isValueOf(choice.prefix, StringType)) throw new Error(`Slice.bindRecord: '${field}' cannot use a prefix; choose an exact value`);
@@ -306,10 +351,21 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
         const schema = getField(range);
         if (schema.set || !["datetime", "integer", "float"].includes(schema.kind)) throw new Error(`Slice.bindRecord: range '${range}' must be DateTime, Integer or Float`);
     }
-    const search = options.search === undefined ? fields.filter(field => field.kind === "string").map(field => field.fieldId) : typeof options.search === "string" ? [options.search] : [...options.search];
-    for (const field of search) if (getField(field).kind !== "string") throw new Error(`Slice.bindRecord: search '${field}' must be String`);
+    const search = options.search === undefined ? fields.filter(field => field.kind === "string" && !weighing.has(field.fieldId)).map(field => field.fieldId)
+        : typeof options.search === "string" ? [options.search] : [...options.search];
+    for (const field of search) {
+        if (weighing.has(field)) throw new Error(`Slice.bindRecord: '${field}' is a Dict field the rail lists by its hints, and is not searched — leave it out of search`);
+        if (getField(field).kind !== "string") throw new Error(`Slice.bindRecord: search '${field}' must be String`);
+    }
+    // An entries field offers its keys from its hints alone (#1522): with none it offers nothing to choose.
+    for (const field of fields) {
+        if (weighing.has(field.fieldId) && field.values.length === 0) {
+            throw new Error(`Slice.bindRecord: '${field.label}' offers nothing to choose — give it hints, the keys of '${field.fieldId}' it lists`);
+        }
+    }
     // A String field's editor offers its hints and, when searched, what a search finds: with neither it offers nothing to choose.
     for (const field of fields) {
+        if (weighing.has(field.fieldId)) continue;
         if (field.kind === "string" && (options.fields?.[field.fieldId as Field<M>]?.hints?.length ?? 0) === 0 && !search.includes(field.fieldId)) {
             throw new Error(`Slice.bindRecord: '${field.label}' offers nothing to choose — give it hints, or list '${field.fieldId}' in search`);
         }

@@ -201,6 +201,8 @@ function currentBase(): string | undefined {
  * Node, none in the browser).
  */
 export function setLocationBasePath(base: string | undefined): void {
+  // The frames parsed so far name their paths against the base they were parsed under.
+  parsedFrames.clear();
   if (base === undefined) {
     explicitBaseSet = false;
     explicitBase = undefined;
@@ -229,6 +231,35 @@ export function normalizeFramePath(raw: string): string {
   }
 }
 
+/** The most frame lines {@link parsedFrames} holds before it starts again: more than a large program's call sites. */
+const MAX_PARSED_FRAMES = 65_536;
+
+/**
+ * Each stack line parsed so far: its location, or `null` for a line that names
+ * none of the author's code. A build walks the same call sites over and over,
+ * and parsing their text — its patterns, its URL, its frame filter — is nearly
+ * half of a build's time, so each is parsed once. The locations are shared, so
+ * nothing may write to one.
+ */
+const parsedFrames = new Map<string, Location | null>();
+
+/**
+ * One line of a stack as the author's location.
+ *
+ * @param line - The line
+ * @returns Its location; `null` for a line that names none of the author's code
+ */
+function parseFrame(line: string): Location | null {
+  // Take the path before :line:col (allows spaces and a Windows drive colon).
+  const match = line.match(/\((.+):(\d+):(\d+)\)\s*$/) ?? line.match(/\bat\s+(.+):(\d+):(\d+)\s*$/);
+  if (!match) return null;
+  const [, filename, lineNum, column] = match;
+  // `shouldIncludeFrame` runs on the raw path so its node_modules/internal
+  // filters see absolute paths; the stored path is normalized.
+  if (!filename || !shouldIncludeFrame(filename)) return null;
+  return { filename: normalizeFramePath(filename), line: BigInt(lineNum!), column: BigInt(column!) };
+}
+
 /**
  * Parse a stack string into the author's source locations, innermost first.
  *
@@ -247,16 +278,13 @@ export function locationsFromStack(stack: string | undefined): Location[] {
   const frames: Location[] = [];
 
   for (const line of lines) {
-    // Take the path before :line:col (allows spaces and a Windows drive colon).
-    const match = line.match(/\((.+):(\d+):(\d+)\)\s*$/) ?? line.match(/\bat\s+(.+):(\d+):(\d+)\s*$/);
-    if (match) {
-      const [, filename, lineNum, column] = match;
-      // `shouldIncludeFrame` runs on the raw path so its node_modules/internal
-      // filters see absolute paths; the stored path is normalized.
-      if (filename && filename !== '' && shouldIncludeFrame(filename)) {
-        frames.push({ filename: normalizeFramePath(filename), line: BigInt(lineNum!), column: BigInt(column!) });
-      }
+    let frame = parsedFrames.get(line);
+    if (frame === undefined) {
+      frame = parseFrame(line);
+      if (parsedFrames.size >= MAX_PARSED_FRAMES) parsedFrames.clear();
+      parsedFrames.set(line, frame);
     }
+    if (frame !== null) frames.push(frame);
   }
 
   return frames;

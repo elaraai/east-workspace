@@ -5,9 +5,10 @@
 import { expect } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
-for (const theme of ["light", "dark"] as const) {
-    test(`Roster inspector aligns draft marks and fills shift segments (${theme}) @narrow`, async ({ page }) => {
+for (const theme of LAYOUT_THEMES) {
+    test(`Roster inspector aligns draft marks and fills shift segments (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const route = "e3/roster/roster/rosterWarehouse";
         await page.goto(`/?theme=${theme}#${route}`);

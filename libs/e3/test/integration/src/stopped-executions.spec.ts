@@ -253,18 +253,21 @@ describe('stopped executions', () => {
 
     // Every running piece's record names its runner; the task's own names e3.
     const taskHash = await workspaceGetTaskHash(storage, repo, 'ws', 'held');
-    // The pieces running now, each time it is asked: a first piece that ran
-    // through beside them is no longer among them.
+    // The pieces running now, each time it is asked, once a first piece that runs
+    // through has finished: beside the others, it would make up their number
+    // while one of them has yet to start, and finish before the kill.
     let units = new Map<string, { inputsHash: string; executionId: string; pid: number }>();
+    const through = running > 1 ? 1 : 0;
     await waitFor(async () => {
       const now = new Map<string, { inputsHash: string; executionId: string; pid: number }>();
-      for (const { inputsHash, status } of await storage.refs.executionListLatest(repo, taskHash)) {
+      const records = await storage.refs.executionListLatest(repo, taskHash);
+      for (const { inputsHash, status } of records) {
         if (status.type === 'running' && Number(status.value.pid) !== run.pid) {
           now.set(inputsHash, { inputsHash, executionId: status.value.executionId, pid: Number(status.value.pid) });
         }
       }
       units = now;
-      return units.size === running;
+      return units.size === running && records.filter(({ status }) => status.type === 'success').length === through;
     }, 30_000);
     await waitFor(() => readdirSync(scratch).filter((name) => name.startsWith('e3-exec-')).length === running, 30_000);
     const leftBehind = readdirSync(scratch).filter((name) => name.startsWith('e3-exec-'));

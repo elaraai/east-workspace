@@ -86,9 +86,12 @@ export const jqEditorSlotRecipe = defineSlotRecipe({
             width: "max-content",
             minWidth: "100%",
             minHeight: "100%",
+            /* A phone's: the view's width, nothing scrolling sideways (QP31). */
+            "[data-jq-phone] &": { width: "100%" },
         },
         gutter: {
             minWidth: "44px",
+            "[data-jq-phone] &": { minWidth: "36px", background: "bg.canvas" },
             paddingBlock: "{spacing.3}",
             background: "bg.panel",
             borderInlineEndWidth: "1px",
@@ -122,6 +125,8 @@ export const jqEditorSlotRecipe = defineSlotRecipe({
         code: {
             position: "relative",
             minWidth: "0",
+            /* A phone's: its measure, fifty characters out of sight, scrolls nothing. */
+            "[data-jq-phone] &": { overflow: "hidden" },
         },
         /* The highlighting: behind the text field, never pointed at. */
         highlight: {
@@ -134,6 +139,7 @@ export const jqEditorSlotRecipe = defineSlotRecipe({
         codeLine: {
             height: LINE,
             whiteSpace: "pre",
+            "[data-jq-phone] &": { height: "auto", minHeight: LINE, whiteSpace: "pre-wrap", overflowWrap: "anywhere" },
         },
         token: {
             "&[data-kind=keyword]": { color: "brand.fg", fontWeight: "semibold" },
@@ -173,6 +179,7 @@ export const jqEditorSlotRecipe = defineSlotRecipe({
             resize: "none",
             overflow: "hidden",
             overflowWrap: "normal",
+            "[data-jq-phone] &": { whiteSpace: "pre-wrap", overflowWrap: "anywhere" },
             background: "transparent",
             color: "transparent",
             WebkitTextFillColor: "transparent",
@@ -196,6 +203,12 @@ export const jqEditorSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             padding: "0",
             overflow: "hidden",
+            /* A phone's dock between the code and the foot (QP32): three 44 rows, then the active one's doc. */
+            "[data-jq-phone] &": {
+                position: "static", flex: "none", width: "100%", minWidth: "100%", maxWidth: "100%", alignSelf: "stretch", border: "none", borderRadius: "0", boxShadow: "none",
+                borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
+                "& [role=listbox]": { maxHeight: "132px", padding: "0" }, "& [role=option]": { minHeight: "44px" }, "& kbd": { display: "none" },
+            },
         },
         /* The completions scroll, the active one kept in view. */
         completionList: {
@@ -328,6 +341,8 @@ export const jqEditorSlotRecipe = defineSlotRecipe({
             display: "flex",
             alignItems: "baseline",
             gap: "{spacing.2}",
+            /* A phone's: its position, then its code (QP32). */
+            "[data-jq-phone] &": { flexDirection: "row-reverse", justifyContent: "flex-end" },
         },
         problemCode: {
             fontFamily: "mono",
@@ -352,6 +367,8 @@ export const jqEditorSlotRecipe = defineSlotRecipe({
             fontSize: "xs",
             color: INK_2,
             textWrap: "pretty",
+            /* A phone's: 13 in ink (QP32). */
+            "[data-jq-phone] &": { fontFamily: "body", fontSize: "body", color: "fg", lineHeight: "20px" },
         },
         problemFixes: {
             display: "flex",

@@ -29,6 +29,8 @@ const DAY = 86_400_000;
 
 type Period = "day" | "week" | "month";
 const LABELS: Record<Period, string> = { day: "Day", week: "Week", month: "Month" };
+/** The presses of Next that re-centre the timeline's window twice — half a window is 7, 28 and 77 days — or, at Day, past its one re-centre. */
+const PRESSES: Record<Period, number> = { day: 12, week: 8, month: 6 };
 
 /** Records every scroll a Calendar timeline in the page is told to make, as it is written. Call before the page loads. */
 async function recordScrolls(page: Page): Promise<void> {
@@ -99,12 +101,12 @@ async function twoTabs(page: Page, period: Period) {
     return { first, second, other, toolbar };
 }
 
-/** Presses Next twelve times in the first tab, each a period on, and holds both tabs to it after each. */
-async function twelveSteps(page: Page, period: Period) {
+/** Presses Next in the first tab, each a period on, past a re-centre of its window ({@link PRESSES}), and holds both tabs to it after each. */
+async function stepOn(page: Page, period: Period) {
     const { first, second, other, toolbar } = await twoTabs(page, period);
     const theirs = await shown(second);
     let at = await shown(first);
-    for (let press = 1; press <= 12; press++) {
+    for (let press = 1; press <= PRESSES[period]; press++) {
         await toolbar.getByRole("button", { name: `Next ${period}`, exact: true }).click();
         await settled(page);
         await settled(other);
@@ -127,7 +129,7 @@ async function twelveSteps(page: Page, period: Period) {
 test.describe("the Calendar's timeline steps, open in two tabs (#1398) @desktop", () => {
     test("Week: each press of Next a week on, its date kept inside its window, never sent to the window's start; another tab's kept view moves nothing until a reload opens on it", async ({ page }) => {
         test.setTimeout(240_000);
-        const { first, other, at } = await twelveSteps(page, "week");
+        const { first, other, at } = await stepOn(page, "week");
         // The other tab keeps a view three weeks on, as the browser's storage editor would: the first tab hears it, and moves nothing.
         await forgetScrolls(page);
         const edited = { ...at.kept!, date: at.anchor + 21 * DAY };
@@ -147,11 +149,11 @@ test.describe("the Calendar's timeline steps, open in two tabs (#1398) @desktop"
 
     test("Day: each press of Next a day on, its date kept inside its window, never sent to the window's start, the other tab where it was", async ({ page }) => {
         test.setTimeout(240_000);
-        await twelveSteps(page, "day");
+        await stepOn(page, "day");
     });
 
     test("Month: each press of Next a month on, its date kept inside its window, never sent to the window's start, the other tab where it was", async ({ page }) => {
         test.setTimeout(240_000);
-        await twelveSteps(page, "month");
+        await stepOn(page, "month");
     });
 });

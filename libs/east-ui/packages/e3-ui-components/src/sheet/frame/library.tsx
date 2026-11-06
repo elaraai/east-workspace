@@ -36,7 +36,8 @@
  * an author's tab's from `…:tab:<its name>` ({@link templatesLibrary},
  * {@link tabLibrary}) — the libraries the sheet takes drops from (#1187). A
  * draggable card's ⏎ is the sheet's: the card, dropped below the ring's row
- * (SB45).
+ * (SB45). In a phone's view, where nothing drags, each tab is its rows at
+ * touch size, a tap in place of the gesture (`phone-library.tsx`, SH11).
  *
  * @packageDocumentation
  */
@@ -51,6 +52,7 @@ import {
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { sourceTab, sourcesTab, type SourceShown, type SourceTab } from "../../shared/schedule/source-tab.js";
 import { useSheetDropEnter } from "../index.js";
+import { PhoneCards, PhoneColumns, type PhoneColumn } from "./phone-library.js";
 import type { SheetLibraryTabWord } from "../messages.js";
 import { TITLE_KEY, cellIsBlank, cellText, indexColumns, indexGroup, type SheetColumnIndex, type SheetColumnMeta } from "../model.js";
 import type { SheetCellValue } from "../values.js";
@@ -322,6 +324,13 @@ export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words, fo
         layout: none,
         toolbar: true,
     }), [keys.library, columns, hidden, shown, onColumn, m, noun]);
+    // The same columns as a phone's view lists them (SH11, R7).
+    const narrow = getSomeorUndefined(sheet.narrow);
+    const pin = narrow === undefined ? undefined : getSomeorUndefined(narrow.pin);
+    const phoneColumns = useMemo(() => columns.list.map((col): PhoneColumn => {
+        const off = hidden.has(col.key);
+        return { key: col.key, header: col.header, kind: m.columnKind({ kind: col.kind }), hidden: off, eye: m.columnEye({ hidden: off, last: !off && shown <= 1 }), last: !off && shown <= 1 };
+    }), [columns, hidden, shown, m]);
 
     // ── An author's tabs: their cards, a click selecting one (SB60) ─────
     // The card each tab's click selected, by the tab's key.
@@ -393,12 +402,16 @@ export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words, fo
                 // Its sources' cards, counted, and while one narrows what it says when that leaves it none (#1345).
                 return { key: "rows", label: m.libraryTab({ tab: "rows" }), count: rowsFollow.count,
                     body: <Box css={styles.pane} data-sheet-library="rows" {...rowsFollow.pane}>
-                        <EastChakraLibrary value={rows} storageKey={`${keys.library}.rows`} empty={rowsFollow.empty} narrowing={rowsFollow.narrowing} onCardEnter={onEnter} />
+                        <PhoneCards library={templatesLibrary(keys)} verb="add" items={rows.items}>
+                            <EastChakraLibrary value={rows} storageKey={`${keys.library}.rows`} empty={rowsFollow.empty} narrowing={rowsFollow.narrowing} onCardEnter={onEnter} />
+                        </PhoneCards>
                     </Box> };
             }
             if (tab.type === "columns") {
                 return { key: "columns", label: m.libraryTab({ tab: "columns" }), count: columnCards.items.length,
-                    body: <EastChakraLibrary value={columnCards} storageKey={`${keys.library}.columns`} empty={empty("columns", "")} /> };
+                    body: <PhoneColumns columns={phoneColumns} pin={pin} onToggle={onColumn}>
+                        <EastChakraLibrary value={columnCards} storageKey={`${keys.library}.columns`} empty={empty("columns", "")} />
+                    </PhoneColumns> };
             }
             const tabKey = authorTabKey(tab.value);
             const library = authorLibraries.get(tabKey)!;
@@ -407,8 +420,15 @@ export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words, fo
             const onEnter = tab.value.drop.type === "some" ? (key: string) => enter(tabLibrary(keys, tab.value), key) : undefined;
             return { key: tabKey, label: tab.value.name, count: follows.count,
                 body: <Box css={styles.pane} data-sheet-library={tabKey} {...follows.pane}>
-                    <EastChakraLibrary value={library} storageKey={`${keys.library}.${tabKey}`} empty={follows.empty === undefined ? undefined : empty("tab", tab.value.name)}
-                        narrowing={follows.narrowing} onCardEnter={onEnter} />
+                    {tab.value.drop.type === "some" ? (
+                        <PhoneCards library={tabLibrary(keys, tab.value)} verb="set" items={library.items}>
+                            <EastChakraLibrary value={library} storageKey={`${keys.library}.${tabKey}`} empty={follows.empty === undefined ? undefined : empty("tab", tab.value.name)}
+                                narrowing={follows.narrowing} onCardEnter={onEnter} />
+                        </PhoneCards>
+                    ) : (
+                        <EastChakraLibrary value={library} storageKey={`${keys.library}.${tabKey}`} empty={follows.empty === undefined ? undefined : empty("tab", tab.value.name)}
+                            narrowing={follows.narrowing} onCardEnter={onEnter} />
+                    )}
                 </Box> };
         });
         // Collapsed, the rail counts the templates the rail shows — or, with no Rows tab, the first tab's cards.
@@ -421,5 +441,5 @@ export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words, fo
             persist: "local",
             tabs,
         };
-    }, [value.library, m, rows, rowsFollow, columnCards, authorLibraries, authorFollows, keys, empty, enter, styles.pane]);
+    }, [value.library, m, rows, rowsFollow, columnCards, phoneColumns, pin, onColumn, authorLibraries, authorFollows, keys, empty, enter, styles.pane]);
 }

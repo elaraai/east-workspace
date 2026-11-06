@@ -1,6 +1,6 @@
 # Record indexes
 
-Secondary, interval and area, series and summary, and nested series indexes: what each files, how it is read, and what it costs. Part of the `e3` skill.
+Secondary, interval and area, series and summary, nested series, and entries indexes: what each files, how it is read, and what it costs. Part of the `e3` skill.
 
 ## Contents
 
@@ -8,6 +8,7 @@ Secondary, interval and area, series and summary, and nested series indexes: wha
 - Interval and area indexes — `index.interval`, `index.area`
 - Series and summary indexes — `index.series`, `index.summary`
 - Nested series indexes — `index.nested`
+- Entries indexes — `index.entries(field)`
 
 ## Secondary indexes — `index.on([...fields])`, `index.key(fn)`, `index.keys(fn)`
 
@@ -324,3 +325,52 @@ the summary tiles they touch and the subtotals of the tiles they touch at each
 level. A replace on the way, which a recursive type's patch always is, and an
 inserted or deleted row are compared whole. Both ways give the same delta, and a maintained
 index is the one `e3 reindex` rebuilds, byte for byte.
+
+## Entries indexes — `index.entries(field)`
+
+What a reader needs when a record's rows each hold a Dict of categories — a
+station's figures by service — and it reads a few categories at a time. An
+entries index files one Dict field of the rows entry by entry, each under its
+own key and then the row's, carrying that key's value, so a key's entries
+across the whole record are one contiguous range: a reader reads the keys it
+picks as a range each, in one request, and reads no other key's entries and no
+segment of the record's own. Each row stays one row, its categories nested in
+it.
+
+```typescript
+// StationsType: Dict<String, { site: String, parcels: Integer, byService: Dict<String, { parcels: Integer, waiting: Integer }> }>
+const stations = e3.record('stations', StationsType, {
+  initial: new Map(),
+  indexes: (index) => ({
+    stations_by_service: index.entries('byService'),  // { ik: the service, k: the station } → that service's figures there
+    stations_by_site: index.on(['site']),             // pages each station without its services
+  }),
+});
+```
+
+| | |
+|---|---|
+| **What it files** | `{ ik, k } → value`: once for each key the row's field holds, that key and the row's, carrying the key's value. A row whose field is empty files nothing. The field's key may be any type a Dict is keyed by — a String, a Struct, an Option — and its value any type |
+| **Its definition** | keyed by the field's key and valued by its value (`stations.indexes.stations_by_service.keyType`, `.valueType`), its field as written beside them (`.entries.field`), as an `on` index carries its fields: what a binding reads (see **e3-ui**) |
+| **Reading** | a search of the index by a key, as East prints it — `{ key: '"Priority"' }` — finds the key's range: several keys are several searches in one `datasetFindKeys` request, then one `datasetGetRuns` read of the entries they select |
+| **Several** | one entries index a Dict field: a record may declare one for each |
+| **Refused, in words** | a field the rows lack, or one that is not a Dict, naming the fields that fit — TypeScript refuses both where they are written; a `value`, since each entry carries its own; a second entries index over a field; and one beside a nested series index: one kind of index files a record's nested fields |
+
+**The lean rows.** Beside an entries index e3 keeps the record's rows by key,
+each with the field emptied — the row's own type, as a nested series index's
+lean rows are — in an index of the record's named `<index>_rows` (e3-types'
+`entriesRowsName`), built with it and never declared, as a nested series
+index's span is: a reader of the entries reads each row there without the
+entries it reads apart. Each entries index's lean rows empty its own field
+alone. The record's other indexes that carry nothing or the row carry it with
+every field an entries index files emptied, so a page through them reads no
+entry; an index with a `value` of its own carries its own, and the record's own
+rows stay whole. An index the record declares under the lean rows' name is
+refused.
+
+**Writes.** A write changes the entries whose key or value it changed — a
+row's entries before and after compared key by key: one gone a delete, one come
+an insert, one whose value changed an update by the value's patch — and the
+lean rows where it changed the row's other fields. After a patch, an edit or a
+reduce alike, a maintained entries index, its lean rows and the indexes beside
+them are what `e3 reindex` rebuilds, byte for byte.

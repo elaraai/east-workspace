@@ -120,7 +120,8 @@ export function useRulerFit<I>(trackRef: RefObject<HTMLElement | null>, scale: R
                 centre: (r.left + r.right) / 2, start: columns[i]!.left, end: columns[i]!.right,
                 width: Math.max(0, r.width - pad), anchor: startsPeriod(scale, b), prefer: b.index === prefer,
             };
-        }), ends, RULER_GAP));
+        // Two labels' papers apart too: the later's would cover the end of the words before it.
+        }), ends, Math.max(RULER_GAP, pad)));
     }, [measuring, signature, scale, prefer, trackRef, enabled]);
     // While it measures, every label draws whole: never painted, as the measure lands first.
     return enabled && !measuring && fit !== undefined && fit.shown.length === scale.buckets.length ? fit : undefined;

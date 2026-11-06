@@ -24,7 +24,7 @@
  *
  * @packageDocumentation
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, equalFor, isVariant, none, some, variant } from "@elaraai/east";
 import { RosterComponent, RosterContextType } from "@elaraai/e3-ui/internal";
@@ -39,6 +39,7 @@ import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../sh
 import { useSourceHidden } from "../shared/schedule/hidden.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { useGroupCollapse } from "../shared/schedule/group-heading.js";
+import { openFramePane } from "../shared/schedule/open-pane.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
 import { publishChange, rosterCommands } from "./actions.js";
@@ -96,6 +97,8 @@ interface FrameProps {
     setDisplay: (next: { density: "compact" | "comfortable"; chipSkills: boolean; requirements: boolean }) => void;
     /** Why the week's window could not be written to the duties' source. */
     rangeError: string | undefined;
+    /** Told whether main is narrower than a phone: the window, which the frame's reads follow, holds People to a week there (P31). */
+    onNarrow: (narrow: boolean) => void;
     editing: RosterEditing | undefined;
 }
 
@@ -164,6 +167,8 @@ function RosterFrame(props: FrameProps) {
     const [error, setError] = useState<string>();
     const root = useRef<HTMLDivElement>(null), main = useRef<HTMLDivElement>(null);
     const narrow = useContainerBelow(main, NARROW_WIDTH);
+    const { onNarrow } = props;
+    useLayoutEffect(() => { onNarrow(narrow); }, [narrow, onNarrow]);
     const revealPane = (label: string) => root.current?.querySelector<HTMLButtonElement>(`button[aria-label="Expand ${label}"]`)?.click();
     // The week a selection was made in (#1406, P12, P24): a span that still holds it — Week opened from the month's
     // cell, column or Details — keeps the selection; another clears it, as another week does.
@@ -210,7 +215,7 @@ function RosterFrame(props: FrameProps) {
     const fit = useRosterFit(value, start, week, context, coverage, find);
     const { error: fitError, retry: retryFit, pending: finding } = fit;
     const findFix = useCallback((next: RosterFind) => {
-        setFind(next); setLibraryTab("people"); revealPane("Library");
+        setFind(next); setLibraryTab("people"); openFramePane(root.current, "Library", "start");
         // Pressed again after the fit failed, a find is asked again.
         if (fitError !== undefined) retryFit();
     }, [fitError, retryFit]);
@@ -318,7 +323,7 @@ function RosterFrame(props: FrameProps) {
     const conflicted = useCallback((id: string) => schedule?.conflicted(dutyKind, id) === true,
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
         [schedule, scheduleVersion, dutyKind]);
-    const viewProps = { value, week, held, start, day: window.day, view: window.view, setView: window.setView, span, weeks: weekStates, openWeek: window.openWeek,
+    const viewProps = { value, week, held, start, day: window.day, view: window.view, setView: window.setView, span, weeks: weekStates, openWeek: window.openWeek, opensDay: window.opensDay, opensWeek: window.opensWeek,
         styles, format, narrow, coverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read, optimised, lit: landing.lit,
         conflicted };
     // Search Records (#1398): a person found by their key is selected — in the People layout their row brought into view
@@ -345,12 +350,15 @@ function RosterFrame(props: FrameProps) {
         find: find === undefined ? undefined : { need: find.need, shown: fit.shown, busy: finding }, onClearFind: () => setFind(undefined), shown: props.shown });
     const inspector = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab, find: { offered: fit.offered, finding: isFinding },
         duties: draftedDuties, heldDuties: storedDuties, targets });
-    const onIssues = () => { setTab("issues"); revealPane("Inspector"); };
+    const onIssues = () => { setTab("issues"); openFramePane(root.current, "Inspector", "end"); };
     const history = editing?.history;
     const { acted } = optimiseParts;
+    // The history's acts: a field typed into lets go first, committing what it holds — the history's buttons take no
+    // focus from it. Anything else keeps the focus, the board or a duty on it, so the next key — a Redo after an Undo —
+    // reaches the frame too, never the page.
     const onAction = useCallback((action: HistoryAction) => {
         if (locked) return;
-        const active = document.activeElement; if (active instanceof HTMLElement) active.blur();
+        const active = document.activeElement; if (active instanceof HTMLElement && typedInto(active)) active.blur();
         // A run's highlight ends with Undo, Apply and Discard; a Redo of its step replays its landing (R9, R16).
         acted(action, history?.redoOrigin);
         history?.act(action);
@@ -449,7 +457,7 @@ function RosterFrame(props: FrameProps) {
     return <Box ref={root} css={[styles.root, landingStyles.main]} data-roster-frame="" data-roster-readonly={readOnly ? "" : undefined} {...landing.attributes}>
         <RosterDataReader value={source} span={span} pickerDates={pickerDates} holds={holds} onData={setData} />
         <LoadingReveal waiting={line?.kind === "loading"}>
-        <BuilderFrame storageKey={`${key}.frame`} label="Roster" loading={cold} loadingPitch={loadingPitch} busy={busy} liveFooter start={library} end={inspector} toolbar={toolbar} onKeyDown={event => {
+        <BuilderFrame storageKey={`${key}.frame`} label="Roster" loading={cold} loadingPitch={loadingPitch} busy={busy} liveFooter phonePanel start={library} end={inspector} toolbar={toolbar} onKeyDown={event => {
             // Each key the frame acts on goes no further than the Roster (#1398); Esc with nothing to let go of goes on.
             if (event.defaultPrevented || typedInto(event.target)) return;
             const action = historyShortcut(event);
@@ -482,7 +490,7 @@ function RosterFrame(props: FrameProps) {
             {props.rangeError !== undefined && <BannerView status="error" title="Week unavailable" description={props.rangeError} />}
             {/* A gesture's error; a read's is said once, in the grid and on the footer's line (#1398, CL11). */}
             {error !== undefined && <Box css={styles.error} role="alert">{error}</Box>}
-        </>} footer={<RosterFooter styles={styles} duties={dutyPart} noun={{ singular: `${dutyName} event`, plural: `${dutyName} events` }} line={line}
+        </>} footer={<RosterFooter styles={styles} vocabulary={value.vocabulary} duties={dutyPart} noun={{ singular: `${dutyName} event`, plural: `${dutyName} events` }} line={line}
             optimise={{ line: optimiseParts.line, legend: optimiseParts.legend }} />}>
             {/* A failed week's main is not retained: its Retry is in it. The board is the keyboard's surface and its anchor,
                 never a tab stop, as the Calendar's is: a click on a part of it that holds nothing focusable puts the keyboard
@@ -511,13 +519,14 @@ function RosterRoot({ value: source, storageKey }: EastChakraRosterProps) {
     const activitiesShown = useSourceShown(activities, rosterPart(source, "activities"));
     const patternsShown = useSourceShown(patterns, rosterPart(source, "patterns"));
     const shown = useMemo(() => ({ people: peopleShown, activities: activitiesShown, patterns: patternsShown }), [peopleShown, activitiesShown, patternsShown]);
-    const window = useRosterWindow(value, key);
+    const [narrow, setNarrow] = useState(false);
+    const window = useRosterWindow(value, key, narrow);
     // The duties' source of the slice holds the span's window — its weeks and the twelve hours either side their duties may start from
     // their shifts' — which the Roster's own navigation writes (D9), so the rail's count and a Save's notice read the window it reads.
     const span = spanWindow(window.span);
     const rangeError = useSourceWindow(source.slice.type === "some" ? source.slice.value : undefined, source.duty.kind.key, span.from, span.to,
         "The week could not be applied");
-    const frame = { source, value, storageKey: key, window, visibility, activities, patterns, shown, display, setDisplay, rangeError };
+    const frame = { source, value, storageKey: key, window, visibility, activities, patterns, shown, display, setDisplay, rangeError, onNarrow: setNarrow };
     return source.settings.readOnly ? <RosterFrame {...frame} editing={undefined} /> : <EditableRoster {...frame} />;
 }
 /** The e3 renderer owns the frame; callers author only the Roster tag and bound data. */

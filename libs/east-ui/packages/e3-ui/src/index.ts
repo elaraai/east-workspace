@@ -15,13 +15,16 @@
  * - `<Sheet>` — the planning spreadsheet, rendered in its frame with its
  *   panes as optional props, and its authoring vocabulary on `Sheet`
  *   (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.Types`).
- * - `<Flowchart>` — the state-transition flowchart: states in ordered phase
- *   lanes, H/V-routed transitions, decision triggers and evidence, over a
- *   record of flows or the host's flow, rendered in its frame — its library
- *   pane an optional prop, its inspector on by default — with the values,
- *   patches, library tabs and types it is written with on `Flowchart`
- *   (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
- *   `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`).
+ * - `<Flowchart>` — the state-transition flowchart over the app's records:
+ *   its states in ordered lanes, the transitions between them and the
+ *   decisions that govern them, each record's fields mapped to its roles,
+ *   rendered in its frame — its library pane an optional prop, its inspector
+ *   on by default — with its kinds, cards, patches, library tabs and types on
+ *   `Flowchart` (`Flowchart.states`, `Flowchart.transitions`,
+ *   `Flowchart.lanes`, `Flowchart.decisions`, `Flowchart.templates`,
+ *   `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`), and the
+ *   details a state or a transition takes (`Flowchart.details` and its reads,
+ *   `Flowchart.figure`, `.histogram`, `.list` and `.tags`).
  * - `<Schematic>` — the 2D world-coordinate drawing of the app's own records:
  *   items, zones, links and nets, each record's fields mapped to its roles,
  *   with its kinds, details, templates, layers, library tabs, pattern and
@@ -31,7 +34,6 @@
  * - `Schedule` — the event and resource kinds the Calendar and Plan's builder
  *   share (`Schedule.events`, `Schedule.resources`), and what a builder
  *   publishes (`Schedule.periods`).
- * - `<Diff>` — review pending changes for any combination of bindings.
  * - `<Ontology>` — graph editor over an `OntologyType`-bound dataset.
  * - `Data.bind` — workspace-scoped reactive dataset binding.
  * - `Func.bind` — workspace-scoped named-function (RPC) call binding.
@@ -39,11 +41,11 @@
  *
  * east-ui tags (`<VStack>`, `<Text>`, …) are imported from `@elaraai/east-ui`
  * — this package does not re-export them. The underlying factories
- * (`Diff.Root(…)`) live under `@elaraai/e3-ui/internal` for renderers and tests.
+ * (`Ontology.Root(…)`) live under `@elaraai/e3-ui/internal` for renderers and tests.
  *
  * @remarks
  * `ui()` pulls in `@elaraai/e3` (Node-only). Browser bundles that only need
- * `Data` / `<Diff>` / `<Ontology>` / types should import from
+ * `Data` / `<Ontology>` / types should import from
  * `@elaraai/e3-ui/internal`, which is e3-free.
  *
  * @packageDocumentation
@@ -169,26 +171,31 @@ export {
     type SheetLibraryTab, type SheetLibraryTabConfig, type SheetOptimiseRequestType, type SheetOptimiseResultType,
 } from './sheet/index.js';
 
-// The Flowchart (#1243–#1250): the state-transition flowchart a solution
-// mounts, `<Flowchart>` — states in ordered phase lanes, H/V-routed
-// transitions, decision triggers and evidence-weighted strokes, over a record
-// of flows or the host's flow, in its frame, its library pane an optional
-// prop and its inspector on by default, every gesture a transaction of its
-// editing session, narrowed through one `Slice.bindRecords` (#1346) — the
-// values, patches, library tabs and East types it is written with
-// (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
-// `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`), and its props.
+// The Flowchart (#1498): the state-transition flowchart a solution mounts,
+// `<Flowchart>` — one flowchart over the app's own records, its states in
+// ordered lanes, the transitions between them and the decisions that govern
+// them, each kind's fields mapped to its roles, in its frame, its library
+// pane an optional prop and its inspector on by default, every gesture a
+// transaction of its editing session, narrowed through one
+// `Slice.bindRecords` — its kinds, cards, patches, library tabs and East
+// types (`Flowchart.states`, `Flowchart.transitions`, `Flowchart.lanes`,
+// `Flowchart.decisions`, `Flowchart.templates`, `Flowchart.patch`,
+// `Flowchart.library`, `Flowchart.Types`), its details and their reads
+// (`Flowchart.details`, `Flowchart.figure`, `Flowchart.histogram`,
+// `Flowchart.list`, `Flowchart.tags`), and its props.
 export {
-    Flowchart, type FlowchartNamespace, type FlowchartTypes, type FlowchartCommon, type FlowchartRecordHandle, type FlowchartBindHandle,
-    type FlowchartInspectorOptions, type FlowchartRowInspector,
-    type FlowchartLibrary, type FlowchartLibraryTab, type FlowchartOneFlowLibraryTab, type FlowchartLibraryRows, type FlowchartTemplateRows,
-    type FlowchartFlowsTab, type FlowchartStatesTab, type FlowchartTransitionsTab, type FlowchartAuthorTab,
-    type FlowchartCardAccessors, type FlowchartStatesConfig, type FlowchartTransitionsConfig, type FlowchartTabConfig,
+    Flowchart, type FlowchartNamespace, type FlowchartTypes, type FlowchartProps,
+    type FlowchartStatesSpec, type FlowchartTransitionsSpec, type FlowchartLanesSpec, type FlowchartDecisionsSpec,
+    type FlowchartStates, type FlowchartTransitions, type FlowchartLanes, type FlowchartDecisions, type FlowchartBinding, type FlowchartWholeBinding,
+    type FlowchartTextField, type FlowchartKeyField, type FlowchartKeysField, type FlowchartOrderField, type FlowchartValuesOf,
+    type FlowchartTemplates, type FlowchartTemplatesSpec,
+    type FlowchartDetails, type FlowchartDetailsSpec, type FlowchartTransitionDetailsSpec, type FlowchartDetailsBinding,
+    type FlowchartRead, type FlowchartReadKind, type FlowchartShow, type FlowchartLabelDraws, type FlowchartLegendOnCanvas,
+    type FlowchartFigureField, type FlowchartHistogramField, type FlowchartListField, type FlowchartTagsField, type FlowchartListItem,
+    type FlowchartHistogramOptions, type FlowchartDurationUnit, type FlowchartBarScale, type FlowchartTick, type FlowchartTagColor,
+    type FlowchartLibrary, type FlowchartLibraryTab, type FlowchartKindTab, type FlowchartKindTabOptions, type FlowchartAuthorTab,
+    type FlowchartLibraryRows, type FlowchartTabConfig,
     type FlowchartCanvasOptions, type FlowchartFreshnessInput, type FlowchartOrientationLiteral,
-    type FlowchartTables, type FlowchartStateFields, type FlowchartLinkFields, type FlowchartLaneFields,
-    type FlowchartTriggerFields, type FlowchartEvidenceFields, type FlowchartLaneLiteral, type FlowchartFlowInput, type FlowchartLaneInput,
-    type FlowchartStateInput, type FlowchartLinkInput, type FlowchartEvidenceInput, type FlowchartTriggerInput, type FlowchartLinkKindLiteral,
-    type FlowchartRowType, type FlowchartPatchOf, type FlowchartPatchInput,
 } from './flowchart/index.js';
 
 // The Schematic (#1381): the 2D world-coordinate drawing a solution mounts,
@@ -229,14 +236,6 @@ export {
 // The handle a Calendar's, a Plan's or a Sheet's `optimise` takes (#1409): any `Func.bind` handle, checked at build.
 export { type OptimiseHandle } from './utils/optimise.js';
 
-// e3 `<Diff>` tag + its types
-export { Diff } from './runtime/diff.js';
-export {
-    DiffPayloadType,
-    DiffStyleType,
-    type DiffOptions,
-} from './diff/index.js';
-
 // e3 `<Ontology>` tag + its types
 export { Ontology } from './runtime/ontology.js';
 export {
@@ -253,18 +252,6 @@ export {
     OntologyViewType,
     type OntologyViewLiteral,
 } from './ontology/index.js';
-
-// e3 `<Experiment>` tag + its payload/options. The render-contract value types
-// (Config / Result / DoseResponse / Journal …) are intentionally NOT public
-// named exports — reach them via `Experiment.Types.Config`, `.Result`, … (like
-// `Table.Types.*`), since users only touch them to type the bound `experiment`
-// function / seed result datasets.
-export { Experiment } from './runtime/experiment.js';
-export {
-    ExperimentPayloadType,
-    type ExperimentOptions,
-    type ExperimentTabLiteral,
-} from './experiment/index.js';
 
 // Decision platform types + factory
 export { Decision } from './decision/index.js';

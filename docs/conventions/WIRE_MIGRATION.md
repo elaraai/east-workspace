@@ -612,3 +612,42 @@ Each wire changed under this rule, with the kind it is.
   segment manifest writes its collection's type renamed canonically, so
   neither changes, and no repository upgrade step ships with it. A reader
   takes an id as the bytes give it, so IR an earlier SDK wrote still reads.
+- **e3-ui's `Flowchart` draws one flowchart over the app's records (#1498,
+  #1500)** — package-borne. The `Flowchart` extension's payload is not one
+  flow of a record of flows or the host's: it trades `source` and `open` for a
+  kind over the app's record for each of its states and transitions and,
+  beside them, its lanes and its decisions (`FlowchartStateKindType`,
+  `FlowchartTransitionKindType`, `FlowchartLaneKindType`,
+  `FlowchartDecisionKindType`), each closed over beast2 bytes as the
+  Schematic's kinds are, so the payload is one type whatever the app's rows
+  hold. Each source's keys move from `narrowed` to `shown`, and `narrowed`
+  says how a row the narrowing leaves out draws, `hide` or `dim`. Its
+  `inspector` is a Boolean, a kind's own Details being its kind's
+  `inspector`. The library's tabs on the wire (`FlowchartLibraryTabType`) lose
+  `flows` and gain `lanes`; a kind's tab holds its `name` and `icon` alone
+  (`FlowchartKindTabWireType`), its cards being on its kind, and an app's tab
+  is Schedule's (`ScheduleAuthorTabType`). `Flowchart.Types.Flows`, `Flow`,
+  `State`, `Link`, `Lane` and `Trigger` are removed. A UI value encoded under
+  either type does not decode under the other: packages are re-exported, and
+  the dataflow computes each UI task's output again under the new type. A UI
+  task's output is not stored state, so no repository upgrade step ships with
+  it. An application's record of flows (`Flowchart.Types.Flows`) holds a type
+  that is removed; moving its flows into records of its own — its states, its
+  transitions, its lanes and its decisions, each keyed by String, each row its
+  own type — is those records' own migration, as with any record whose type an
+  application changes.
+- **e3-ui's `Flowchart`'s states and transitions gain their details (#1498,
+  #1507)** — package-borne. The `Flowchart` extension's payload's state and
+  transition kinds (`FlowchartStateKindType`, `FlowchartTransitionKindType`)
+  each gain a last field, `details`, an Option of `FlowchartDetailsType`: the
+  reads the app gives the kind — `Flowchart.figure`, `.histogram`, `.list` and
+  `.tags`, each described once with where it shows — and its rows' values,
+  read as the kind is, whole or by key, closed behind one function over a
+  row's bytes (`FlowchartDetailRowType`), so the payload stays one type
+  whatever the app's rows hold. `Flowchart.Types.TagColor` is new: a tag's
+  palette and variant, for an app that keeps its tags' looks as data. A UI
+  value encoded under either type does not decode under the other: packages
+  are re-exported, and the dataflow computes each UI task's output again under
+  the new type. A UI task's output is not stored state, and the details are
+  the app's own records, read only, so no repository upgrade step ships with
+  it.

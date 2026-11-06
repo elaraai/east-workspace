@@ -18,7 +18,7 @@
 
 import { expect, type Locator, type Page } from "playwright/test";
 import { editingMessages } from "@elaraai/east-ui-components/testing";
-import { settled } from "./settle";
+import { escapeLayer, settled } from "./settle";
 
 /** A point on the screen, in client px. */
 export interface Point {
@@ -347,7 +347,7 @@ export function captionOf(page: Page): Promise<{ text: string; refused: boolean 
  * @returns The button
  */
 export function discard(root: Locator): Locator {
-    return root.locator("[data-frame-slot='toolbar']").getByRole("button", { name: editingMessages.discard(), exact: true });
+    return root.locator("[data-frame-slot='toolbar'], [data-frame-slot='sessionRow']").getByRole("button", { name: editingMessages.discard(), exact: true });
 }
 
 /**
@@ -357,7 +357,7 @@ export function discard(root: Locator): Locator {
  * @returns The button
  */
 export function save(root: Locator): Locator {
-    return root.locator("[data-frame-slot='toolbar']").getByRole("button", { name: editingMessages.apply(), exact: true });
+    return root.locator("[data-frame-slot='toolbar'], [data-frame-slot='sessionRow']").getByRole("button", { name: editingMessages.apply(), exact: true });
 }
 
 /**
@@ -444,7 +444,7 @@ export async function findShown(page: Page, root: Locator, touch = false): Promi
     const box = page.locator("[data-key-search='popover'] [data-part='dataset-key-search']");
     await expect(box.locator("input")).toBeVisible();
     const shown = await read(box);
-    await page.keyboard.press("Escape");
+    await escapeLayer(page);
     await expect(icon).toHaveAttribute("data-state", "closed");
     return { folded: true, ...shown };
 }

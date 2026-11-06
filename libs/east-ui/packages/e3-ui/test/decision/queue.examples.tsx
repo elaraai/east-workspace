@@ -459,6 +459,22 @@ export const decisionQueueSlice = example({
 //    collapsed hosting the bulk Accept all.
 // ============================================================================
 
+export const decisionQueueOneFacet = example({
+    keywords: ['DecisionQueue', 'facets', 'one facet', 'no tabs', 'hide a view', 'views'],
+    description: "One facet left: `facets={[\"evidence\"]}` opens each row on its evidence with no facet tabs at all, as every component with views draws no switch with one left.",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+            const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
+            const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+            const urgent = $.let(decisions.read().firstMap(($, d) =>
+                d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
+            return <DecisionQueue handle={handle} heading="Decisions waiting" defaultExpanded={urgent} facets={["evidence"]} />;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
 export const decisionQueueGrouped = example({
     keywords: ['DecisionQueue', 'Decide', 'grouping', 'groupBy', 'groups', 'collapsible', 'urgency', 'kind', 'custom', 'accessor', 'Accept all'],
     description: 'Grouped queue — Group-by Urgency (default) / Kind / a custom Value-band accessor; collapsible sections with Collapse-all, the Routine section collapsed with its bulk Accept all',

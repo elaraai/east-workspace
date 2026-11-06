@@ -5,7 +5,7 @@
 
 import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { Box as ChakraBox, chakra, Menu as ChakraMenu, Portal, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
+import { Box as ChakraBox, chakra, Menu as ChakraMenu, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
 import { fas, faAnglesLeft, faAnglesRight, faAnglesUp, faAnglesDown, faChevronDown } from "@fortawesome/free-solid-svg-icons";
@@ -17,6 +17,7 @@ import { usePersistedState } from "../../hooks/usePersistedState";
 import { kept, keptFlag, keptRead } from "../../platform/kept.js";
 import { fitTabs, type TabRowMeasure } from "./fold.js";
 import { useFormatters } from "../../format/index.js";
+import { FrameMenuLayer } from "../builder-frame/frame-layer.js";
 
 /** The open tab, as storage keeps it. */
 const readDockTab = keptRead.record<{ key: string | undefined }>({ key: keptRead.optional(keptRead.string) });
@@ -476,9 +477,7 @@ export function DockPane(props: DockPaneProps) {
                                         <FontAwesomeIcon icon={faChevronDown} />
                                     </chakra.button>
                                 </ChakraMenu.Trigger>
-                                <Portal>
-                                    <ChakraMenu.Positioner>
-                                        <ChakraMenu.Content>
+                                <FrameMenuLayer label={label ?? "More tabs"}>
                                             {inMenu.map(tab => (
                                                 <ChakraMenu.Item key={tab.key} value={tab.key}>
                                                     {tab.label}
@@ -486,9 +485,7 @@ export function DockPane(props: DockPaneProps) {
                                                     {tab.count !== undefined && <>{" "}<ChakraBox as="span" css={menuStyles.itemCommand}>{countText(tab.count)}</ChakraBox></>}
                                                 </ChakraMenu.Item>
                                             ))}
-                                        </ChakraMenu.Content>
-                                    </ChakraMenu.Positioner>
-                                </Portal>
+                                        </FrameMenuLayer>
                             </ChakraMenu.Root>
                         )}
                     </ChakraBox>
