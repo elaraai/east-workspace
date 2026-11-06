@@ -10,6 +10,7 @@ import {
 import { EastUI, type UIElement } from "@elaraai/east-ui";
 import { RecordSliceConfigType, RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
 import { FuncBindingType } from "../bind/func.js";
+import { VocabularyNounType, vocabularyNoun, type VocabularyNoun } from "../utils/vocabulary.js";
 import type { OptimiseHandle } from "../utils/optimise.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { firstView, literalViews, viewsProp, type ViewsProp } from "../utils/views.js";
@@ -56,31 +57,36 @@ export const CalendarSettingsType = StructType({
  * @property noDate - Its group with no due date (`No date`)
  * @property unscheduled - An event with no time, as the inspector says it (`Unscheduled`)
  * @property unassigned - The row and the choice of no resource (`Unassigned`)
- * @property resources - The layout of resources, and what the timeline heads its names with (`Resources`)
+ * @property resources - A resource, and its plural: what the inspector labels an event's resource with (`Resource`), and the
+ *   layout of resources, the timeline's heading over their names and a group's count of them (`Resources`)
  */
 export const CalendarVocabularyType = StructType({
     backlog: StringType, templates: StringType, template: StringType, dueThisWeek: StringType, dueNextWeek: StringType, later: StringType, noDate: StringType,
-    unscheduled: StringType, unassigned: StringType, resources: StringType,
+    unscheduled: StringType, unassigned: StringType, resources: VocabularyNounType,
 });
-/** The words the Calendar draws with none given. */
+/** The words the Calendar draws with none given, but its resources, a noun. */
 const CALENDAR_WORDS = {
     backlog: "Backlog", templates: "Templates", template: "Template", dueThisWeek: "Due this week", dueNextWeek: "Due next week", later: "Later", noDate: "No date",
-    unscheduled: "Unscheduled", unassigned: "Unassigned", resources: "Resources",
+    unscheduled: "Unscheduled", unassigned: "Unassigned",
 };
-/** The app's words for what the Calendar draws: any left out keeps its default. */
-export type CalendarVocabulary = Partial<typeof CALENDAR_WORDS>;
+/**
+ * The app's words for what the Calendar draws: any left out keeps its default. `resources` is a noun — its singular
+ * (`"Station"`, its plural that and `s`), or both (`{ one: "Press", other: "Presses" }`).
+ */
+export type CalendarVocabulary = Partial<typeof CALENDAR_WORDS> & { resources?: VocabularyNoun };
 
 /**
  * The Calendar's words, resolved.
  *
  * @param given - The prop
- * @returns Every word
+ * @returns Every word, and its resources' noun
  * @throws {Error} Naming an entry given empty
  * @internal
  */
-export function calendarVocabulary(given: CalendarVocabulary | undefined): typeof CALENDAR_WORDS {
-    for (const [name, word] of Object.entries(given ?? {})) if (word.trim() === "") throw new Error(`Calendar: \`vocabulary.${name}\` must not be empty — leave it out to keep "${CALENDAR_WORDS[name as keyof typeof CALENDAR_WORDS]}"`);
-    return { ...CALENDAR_WORDS, ...given };
+export function calendarVocabulary(given: CalendarVocabulary | undefined): typeof CALENDAR_WORDS & { resources: { one: string; other: string } } {
+    const { resources, ...words } = given ?? {};
+    for (const [name, word] of Object.entries(words)) if (word.trim() === "") throw new Error(`Calendar: \`vocabulary.${name}\` must not be empty — leave it out to keep "${CALENDAR_WORDS[name as keyof typeof CALENDAR_WORDS]}"`);
+    return { ...CALENDAR_WORDS, ...words, resources: vocabularyNoun("Calendar", "resources", resources, "Resource") };
 }
 
 /**
@@ -154,7 +160,7 @@ export interface CalendarProps {
     /**
      * The app's own words for what the Calendar draws of its own, each keeping its default where left out: the `backlog`, `templates`
      * and `template`, the Backlog's groups (`dueThisWeek`, `dueNextWeek`, `later`, `noDate`), `unscheduled`, `unassigned` and
-     * `resources`. A renamed group keeps its order and its look.
+     * `resources`, a noun — its singular, or `{ one, other }`. A renamed group keeps its order and its look.
      */
     vocabulary?: CalendarVocabulary;
     /** Disables every edit, write and drag while retaining navigation and selection. */

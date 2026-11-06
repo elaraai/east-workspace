@@ -8,7 +8,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Box, Button } from "@chakra-ui/react";
 import { DateTimeType, OptionType, StringType, StructType, none, some, type ValueTypeOf } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui";
-import { FieldForm, SliceEditPopover } from "@elaraai/east-ui-components";
+import { FieldForm, SliceEditPopover, fieldFormMessages, useFormatters, type FieldFormWords } from "@elaraai/east-ui-components";
 import { initialPlacement, type CalendarCommands, type CalendarPlacement, type CalendarSource } from "./actions.js";
 import { lowerWord } from "../shared/schedule/words.js";
 import { pagedControl, useCalendarChooser } from "./chooser.js";
@@ -29,6 +29,18 @@ function placementOf(form: PlacementForm): CalendarPlacement | undefined {
     const parsed = parseResourceKey(form.resource.value);
     return parsed.success ? { ...form, resource: some(parsed.value) } : undefined;
 }
+/**
+ * The words a Calendar's forms say in the app's own (#1516): a reference field's choice of none in its word for no
+ * resource — `Nobody` where the app says so — as its rows and its Choosers say it.
+ *
+ * @param value - The Calendar
+ * @returns The forms' words
+ */
+export function useCalendarFieldWords(value: CalendarValue): FieldFormWords {
+    const format = useFormatters();
+    const unassigned = value.vocabulary.unassigned;
+    return useMemo(() => ({ ...format, m: { ...fieldFormMessages, unassigned: () => unassigned } }), [format, unassigned]);
+}
 /** Whether a placement form's field is its resource. */
 const isResource = (spec: FieldSpecValue) => spec.path[0] === "resource";
 
@@ -42,6 +54,10 @@ export function PlacementFields({ source, value, shown, placement, onChange, rea
 }) {
     const form = formOf(placement);
     const own = placement.resource;
+    // Its resource in the app's word for one (#1516; review of #1481, finding 5): `Station`, as the layout calls them `Stations`.
+    const resourceWord = value.vocabulary.resources.one;
+    const specs = useMemo(() => SPECS.map(spec => (isResource(spec) ? { ...spec, label: resourceWord } : spec)), [resourceWord]);
+    const words = useCalendarFieldWords(value);
     const options = useMemo(() => ({ resources: resourceChoices(value.resources, shown, own.type === "some" ? [own.value] : [])
         .filter(kind => source.kind.takes.includes(kind.key)).flatMap(kind => kind.rows.map(row => ({ key: resourceKey({ kind: kind.key, key: row.key }), label: `${row.label} · ${kind.name}` }))) }),
     [value.resources, shown, own, source.kind.takes]);
@@ -52,7 +68,7 @@ export function PlacementFields({ source, value, shown, placement, onChange, rea
     const renderControl = useCallback((spec: FieldSpecValue) => pagedControl(paged, spec, isResource, chosen, key => {
         if (paged !== undefined) onChange({ start: placement.start, end: placement.end, resource: some({ kind: paged.paged.kind, key }) });
     }, readOnly), [paged, chosen, onChange, placement.start, placement.end, readOnly]);
-    return <FieldForm specs={SPECS} readOnly={readOnly} value={form} options={options} renderControl={paged === undefined ? undefined : renderControl} onChange={(path, next) => {
+    return <FieldForm specs={specs} words={words} readOnly={readOnly} value={form} options={options} renderControl={paged === undefined ? undefined : renderControl} onChange={(path, next) => {
         let changed = { ...form, [path[0]!]: next };
         if (path[0] === "start" && next instanceof Date) changed = { ...changed, end: new Date(next.getTime() + form.end.getTime() - form.start.getTime()) };
         if (path[0] === "end" && next instanceof Date && next <= changed.start) changed = { ...changed, end: new Date(next.getTime() + 86_400_000) };

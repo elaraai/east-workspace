@@ -1686,7 +1686,7 @@ function Timeline(props: CalendarViewsProps) {
     const renderRow = useCallback((i: number) => {
         const line = lines[i]!;
         if (line.kind === "group") return <GroupHeading scope="calendar" group={{ key: line.group, label: line.group || value.vocabulary.unassigned }} styles={styles} collapsed={collapsed.includes(line.group)} toggle={toggle} measure={measureBand}>
-            <Box as="span" css={styles.groupMeta}>{format.number(line.count)} {lowerWord(value.vocabulary.resources)}</Box>
+            <Box as="span" css={styles.groupMeta}>{format.number(line.count)} {lowerWord(line.count === 1 ? value.vocabulary.resources.one : value.vocabulary.resources.other)}</Box>
         </GroupHeading>;
         if (line.kind === "run") {
             const failed = line.failed ? failedRange(line.from) : undefined;
@@ -1786,7 +1786,7 @@ function Timeline(props: CalendarViewsProps) {
     const words = useMemo(() => timeWords(format.locale), [format.locale]);
     const ticks = useMemo(() => timeScale({ window: { min: range.from, max: range.to }, resolution: view.period === "day" ? "hour" : "day", words })!, [range.from, range.to, view.period, words]);
     const units = useMemo(() => timeRulerUnits(ticks, words, view.period === "day" ? "day" : view.period === "week" ? "week" : "month")!, [ticks, words, view.period]);
-    const header = <Box css={styles.head} data-calendar-header="" data-timeline=""><Box css={styles.headerCaption} data-calendar-header-caption="">{value.vocabulary.resources}</Box><Box css={styles.ruler}>
+    const header = <Box css={styles.head} data-calendar-header="" data-timeline=""><Box css={styles.headerCaption} data-calendar-header-caption="">{value.vocabulary.resources.other}</Box><Box css={styles.ruler}>
         <TimeRulerRow scale={units} styles={styles} band="units" owner="calendar" sticky={viewStart} />
         <TimeRulerRow scale={ticks} styles={styles} band="ticks" owner="calendar" sticky={viewStart} />
     </Box></Box>;

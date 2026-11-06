@@ -14,7 +14,7 @@ import { act, calendarHarness, settle, slot } from "./harness.test-utils.js";
 const h = calendarHarness();
 async function press(node: Element | null | undefined) { expect(node).toBeTruthy(); await act(async () => { fireEvent.click(node!); }); await settle(); }
 /** The default words `vocabulary` replaces, none of which may show once the app gives its own. */
-const DEFAULTS = /\b[Bb]acklog\b|\b[Tt]emplates?\b|Due this week|Due next week|\bLater\b|No date|Unscheduled|Unassigned|\b[Rr]esources\b/u;
+const DEFAULTS = /\b[Bb]acklog\b|\b[Tt]emplates?\b|Due this week|Due next week|\bLater\b|No date|Unscheduled|Unassigned|\b[Rr]esources?\b/u;
 /** The default words in all the Calendar says of its own: its text, its tooltips and what it tells a screen reader. */
 function found(root: HTMLElement): string[] {
     const named = [...root.querySelectorAll("[title], [aria-label]")].flatMap(el => [el.getAttribute("title") ?? "", el.getAttribute("aria-label") ?? ""]);
@@ -45,5 +45,16 @@ describe("a Calendar's words", () => {
         await waitFor(() => expect(c.querySelector('[data-calendar-time-grid] [data-resources]')).toBeTruthy());
         expect(c.textContent).toContain("Nobody");
         expect(found(c)).toEqual([]);
+    });
+    test("a selected event's placement names its resource in the app's word for one (review of #1481, finding 5)", async () => {
+        const { container: c } = await h.mount(ex.calendarWording);
+        await press(c.querySelector("[data-calendar-event]"));
+        const field = await waitFor(() => {
+            const at = slot(c, "end").querySelector<HTMLElement>('[data-calendar-inspector] [data-field="resource"]');
+            expect(at).not.toBeNull();
+            return at!;
+        });
+        expect(field.querySelector("label")?.textContent).toContain("Station");
+        expect(found(slot(c, "end"))).toEqual([]);
     });
 });

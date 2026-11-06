@@ -228,7 +228,7 @@ export const calendarOperations = example({
 });
 export const calendarWording = example({
     inputs: [],
-    description: "The operations calendar in its own words (#1516): `vocabulary` names the backlog, the templates, the backlog's groups, an event with no time, no resource and the resources, each kept in its place and its look whatever it is called.",
+    description: "The operations calendar in its own words (#1516): `vocabulary` names the backlog, the templates, the backlog's groups, an event with no time, no resource and a resource — `Station`, its plural `Stations` — each kept in its place and its look whatever it is called.",
     keywords: ["Calendar", "vocabulary", "backlog", "templates", "unassigned", "unscheduled", "resources", "Record.bind", "Slice.bindRecords"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         // What the Calendar reads whole binds with Data.bind, which keeps it loaded beside its pages; the event records
@@ -259,7 +259,7 @@ export const calendarWording = example({
                 fields: { group: { label: "Shift recipe", hints: ["Day", "Late"] } } },
         }));
         return <Box height="760px"><Calendar id="wording" inspector vocabulary={{ backlog: "Unplanned", templates: "Recipes", template: "Recipe", dueThisWeek: "This week", dueNextWeek: "Next week",
-            later: "Afterwards", noDate: "Undated", unscheduled: "Not planned", unassigned: "Nobody", resources: "Stations" }} view={{ date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
+            later: "Afterwards", noDate: "Undated", unscheduled: "Not planned", unassigned: "Nobody", resources: "Station" }} view={{ date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
             slice={{ slice }}
             resources={{
                 machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name, meta: row => some(row.area) }),
