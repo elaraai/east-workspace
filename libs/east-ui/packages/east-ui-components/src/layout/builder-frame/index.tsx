@@ -563,14 +563,19 @@ export function BuilderFrame(props: BuilderFrameProps) {
     const sessionRow = phone && secondRow.length > 0;
     // How far up main's foot a phone's footer laid over it reaches (`--builder-foot-inset`), for what main draws at its
     // foot — a Schematic's scale and minimap — to stand clear of it. Its band is measured whether it speaks or not, so
-    // what stands clear of it stays put as a read or a notice comes and goes; a footer in the flow takes its own room.
-    const [footInset, setFootInset] = useState(0);
+    // what stands clear of it stays put as a read or a notice comes and goes; a footer in the flow takes its own room. A
+    // frame whose footer does not hang sets nothing: a wider frame's commits are its host's alone.
+    const [footBand, setFootBand] = useState(0);
     const footHangs = phone && given(footer);
+    const footInset = footHangs ? footBand : 0;
     useLayoutEffect(() => {
         const el = footerRef.current;
-        if (!footHangs || el === null) { setFootInset(0); return undefined; }
-        const read = () => setFootInset(el.getBoundingClientRect().height > MOVED_PX ? 0
-            : [...el.children].reduce((band, child) => band + (child as HTMLElement).offsetHeight, 0));
+        if (!footHangs || el === null) return undefined;
+        const read = () => {
+            const band = el.getBoundingClientRect().height > MOVED_PX ? 0
+                : [...el.children].reduce((sum, child) => sum + (child as HTMLElement).offsetHeight, 0);
+            setFootBand((was) => (Math.abs(was - band) > MOVED_PX ? band : was));
+        };
         if (typeof ResizeObserver === "undefined" || typeof MutationObserver === "undefined") { read(); return undefined; }
         const ro = new ResizeObserver(read);
         // What the footer holds comes and goes with its host's state: each part of it watched as it does.
