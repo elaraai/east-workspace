@@ -16,7 +16,8 @@
  * drawing has them; Retarget writes the end it moves,
  * though a tap on that end selects the item there, Extend adds a destination,
  * Del on a leg removes its rack and on a net deletes it (SC10); Del on racks deletes them with every run and feed leg
- * naming one (SC5, D7); Save sends each record's changes as its own request,
+ * naming one (SC5, D7), and the history's keys leave the focus where it stands, so a Redo key after an Undo reaches
+ * the history too; Save sends each record's changes as its own request,
  * one refused keeping its drafts while the others commit (SC6); a drawing
  * bound read only takes no gesture (SC14); and a draft the rail narrows out
  * stays in its session and saves, showing again where its draft has it when
@@ -488,6 +489,25 @@ test("Del on a rack deletes it with every run and feed leg naming it, one step U
     expect((await h.read(ex.schematicRacks)).has("A01")).toBe(false);
     expect((await h.read(ex.schematicFibre)).has("u1")).toBe(false);
     expect((await h.read(ex.schematicFeeds)).get("feed-a")!.racks).toEqual(["A02", "A03"]);
+});
+
+test("an Undo or a Redo leaves the focus where it stands, so the next key reaches the history too: a rack's Del, then ⌘Z, ⇧⌘Z, Ctrl+Z and Ctrl+Y, each pressed where the focus is", async () => {
+    const { container } = await open(ex.schematicDataCentre);
+    const canvas = canvasOf(container);
+    await tap(canvas, CAM, 2.4, 2.9);
+    // A press on the canvas focuses it, as a browser's does.
+    await act(async () => { canvas.focus(); });
+    await del();
+    expect([card(container, "racks", "A01"), document.activeElement]).toEqual([null, canvas]);
+    const presses: [string, { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean }, boolean][] = [
+        ["z", { metaKey: true }, true], ["Z", { metaKey: true, shiftKey: true }, false], ["z", { ctrlKey: true }, true], ["y", { ctrlKey: true }, false],
+    ];
+    for (const [k, held, drawn] of presses) {
+        // A key goes where the focus is, as a keyboard's does: to the page itself once nothing holds it.
+        await act(async () => { fireEvent.keyDown(document.activeElement ?? document.body, { key: k, ...held }); });
+        await settle();
+        expect([card(container, "racks", "A01") !== null, document.activeElement === canvas], `${k} ${JSON.stringify(held)}`).toEqual([drawn, true]);
+    }
 });
 
 /** The floor's racks beside fibre runs whose patch door refuses every change, with the inspector: what a Save over both is answered. */

@@ -462,9 +462,12 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const onIssues = () => { setInspectorTab({ tab: "issues" }); openFramePane(root.current, "Inspector", "end"); };
     const history = editing?.history;
     const { acted } = optimiseParts;
+    // The history's acts: a field typed into lets go first, committing what it holds — the history's buttons take no
+    // focus from it. Anything else keeps the focus, the board or a bin on it, so the next key — a Redo after an Undo —
+    // reaches the frame too, never the page.
     const onAction = useCallback((action: HistoryAction) => {
         if (locked) return;
-        const active = document.activeElement; if (active instanceof HTMLElement) active.blur();
+        const active = document.activeElement; if (active instanceof HTMLElement && typedInto(active)) active.blur();
         // A run's highlight ends with Undo, Apply and Discard; a Redo of its step replays its landing (R9, R16).
         acted(action, history?.redoOrigin);
         history?.act(action);

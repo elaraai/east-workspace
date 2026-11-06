@@ -563,8 +563,11 @@ function CalendarFrame(props: HostProps) {
         backlogFlash: optimised?.backlogChanged === true && landing.lit, locked });
     const end = useCalendarInspector({ value, refs, range, commands: gestures, styles, storageKey, overlaps, visible: timeline ? visibleDays : undefined, select, selection, shown });
     const { acted } = parts;
+    // The history's acts: a field typed into lets go first, committing what it holds — the history's buttons take no
+    // focus from it. Anything else keeps the focus, the board or an event on it, so the next key — a Redo after an
+    // Undo — reaches the frame too, never the page.
     const onAction = useCallback((action: Parameters<ScheduleEditing["history"]["act"]>[0]) => {
-        const active = document.activeElement; if (active instanceof HTMLElement) active.blur();
+        const active = document.activeElement; if (active instanceof HTMLElement && typedInto(active)) active.blur();
         // A run's highlight ends with Undo, Apply and Discard; a Redo of its step replays its landing (R9, R16).
         acted(action, editing?.history.redoOrigin);
         editing?.history.act(action);

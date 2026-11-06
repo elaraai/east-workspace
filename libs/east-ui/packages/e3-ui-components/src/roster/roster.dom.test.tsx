@@ -143,6 +143,24 @@ describe("the board takes the keyboard (as the Calendar's does, retest C4)", () 
         await act(async () => { fireEvent.keyDown(document.activeElement!, { key: "z", ctrlKey: true }); }); await settle();
         expect(proposal()).not.toBeNull();
     });
+    test("an Undo or a Redo leaves the keyboard where it stands, so the next key reaches the history too: a proposal's Delete, then Ctrl+Z, Ctrl+Shift+Z, ⌘Z and Ctrl+Y, each pressed where the focus is", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        const proposal = () => slot(container, "main").querySelector('[data-roster-proposal="s317"]');
+        const name = () => within(slot(container, "main")).getByRole("button", { name: "N. Ochre" });
+        await press(name());
+        await act(async () => { name().focus(); });
+        await act(async () => { fireEvent.keyDown(name(), { key: "Delete" }); }); await settle();
+        const board = slot(container, "main").querySelector("[data-roster-main]");
+        expect([proposal(), document.activeElement]).toEqual([null, board]);
+        const presses: [string, { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean }, boolean][] = [
+            ["z", { ctrlKey: true }, true], ["Z", { ctrlKey: true, shiftKey: true }, false], ["z", { metaKey: true }, true], ["y", { ctrlKey: true }, false],
+        ];
+        for (const [key, held, proposed] of presses) {
+            // A key goes where the focus is, as a keyboard's does: to the page itself once nothing holds it.
+            await act(async () => { fireEvent.keyDown(document.activeElement ?? document.body, { key, ...held }); }); await settle();
+            expect([proposal() !== null, document.activeElement === board], `${key} ${JSON.stringify(held)}`).toEqual([proposed, true]);
+        }
+    });
     test("Delete on a saved duty the keyboard is on leaves its tombstone, and the keyboard on it", async () => {
         const { container } = await h.mount(ex.rosterWarehouse);
         await press(assignment(container, "s37"));
