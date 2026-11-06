@@ -10,9 +10,9 @@
  * last 20, under a column-group row and a header row that stick together.
  *
  *   - Toolbar: the title, mono 10/600 at 0.14em in ink, and the count after
- *     it on `bg.subtle`; the status line, mono 11 in `fg.muted`, right-aligned
- *     and one line; Add and Delete, the outline buttons, Delete off in
- *     `fg.faint` until rows are ticked.
+ *     it on `bg.subtle`, inset on a phone's row as its pager is; the status
+ *     line, mono 11 in `fg.muted`, right-aligned and one line; Add and Delete,
+ *     the outline buttons, Delete off in `fg.faint` until rows are ticked.
  *   - Header: the group row 24 tall, each group's label mono 9.5/600 at 0.14em
  *     over a `border.strong` rule inset 6 at each end; the header row as tall
  *     as a row, its labels mono 10/600 at 0.1em, one line.
@@ -128,8 +128,8 @@ export const recordSlotRecipe = defineSlotRecipe({
         /* The grid's own room: the Sheet's card scrolls its rows in it. */
         grid: { display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: "0", minWidth: "0" },
 
-        /* The toolbar's lead: the title, then the count. */
-        title: { flex: "none", display: "flex", alignItems: "center", gap: "8px" },
+        /* The toolbar's lead: the title, then the count — on a phone's row, which pads none of its items, inset as the pager is. */
+        title: { flex: "none", display: "flex", alignItems: "center", gap: "8px", "[data-builder-frame][data-phone] &": { paddingInlineStart: "16px" } },
         titleText: {
             fontFamily: "mono", fontSize: "label.sm", fontWeight: 600, letterSpacing: "label", textTransform: "uppercase",
             color: "fg", whiteSpace: "nowrap",
