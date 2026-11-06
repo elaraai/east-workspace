@@ -309,7 +309,7 @@ In the Lead column:
 
 ## 3. Worked examples
 
-Each example is complete: the record, its binding, the Record. All five go into `test/record/record.examples.tsx`, wired into its spec per EXAMPLES_AUTHORING, and onto a Record page of the showcase. Examples 2 and 3 are the designer's 1a and 1b.
+Each example is complete: the record, its binding, the Record. All six go into `test/record/record.examples.tsx`, wired into its spec per EXAMPLES_AUTHORING, and onto a Record page of the showcase. Examples 2 and 3 are the designer's 1a and 1b, and Example 6 is its looks and densities.
 
 ### Example 1 — the least: a title, a toggle and a cycle
 
@@ -641,6 +641,113 @@ A badge is stamped, so no person can give a new operator one, and the build woul
 
 Example 2 with `readOnly` draws the same cells with no hover, the default cursor, no select column and no Add or Delete. The rail still narrows and counts, and the inspector shows every field read only. The example is `recordSkillsReadOnly`: Example 2's body with `readOnly` and no `onApply`.
 
+### Example 6 — the looks
+
+A cell of every kind only a Record draws, each cycle and toggle in both looks side by side, under a density control. It is the page the responsive suite steps through the three densities in both themes (§9).
+
+```tsx
+/** @jsxImportSource @elaraai/east-ui */
+import { ArrayType, BooleanType, DictType, East, NullType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
+import { Box, Configurator, Reactive, SegmentGroup, State, StatusValueType, Style, Text, UIComponentType } from "@elaraai/east-ui";
+import { Record } from "@elaraai/e3-ui";
+import e3 from "@elaraai/e3";
+
+export const Rota = StructType({
+    name: StringType, supervisor: OptionType(StringType), inducted: BooleanType,
+    nights: BooleanType, weekends: BooleanType, forklift: StringType, scanner: StringType, days: StringType, evenings: StringType,
+    updated: OptionType(Record.Types.Change),
+});
+export const recordRota = e3.record("record_rota", DictType(StringType, Rota), {
+    initial: new Map([
+        ["R-01", { name: "A. Morgan", supervisor: some("S. Park"), inducted: true, nights: false, weekends: true, forklift: "2", scanner: "1",
+            days: "prefer", evenings: "can", updated: some({ at: new Date("2026-09-18T09:12:00Z"), by: "M. Hale", verb: "confirmed" }) }],
+        ["R-02", { name: "B. Ellis", supervisor: none, inducted: false, nights: true, weekends: false, forklift: "0", scanner: "2",
+            days: "can", evenings: "cannot", updated: none }],
+        ["R-03", { name: "C. Patel", supervisor: some("J. Ortiz"), inducted: true, nights: true, weekends: true, forklift: "1", scanner: "0",
+            days: "cannot", evenings: "prefer", updated: some({ at: new Date("2026-05-13T09:41:00Z"), by: "S. Park", verb: "changed" }) }],
+    ]),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+const looks = East.function([], UIComponentType, (_$) => (
+    <Reactive>{$ => {
+        const rota = $.let(Record.bind(recordRota));
+        // The density control: each segment a density, and the Record takes the one chosen.
+        const densities = $.const([variant("comfortable", null), variant("compact", null), variant("condensed", null)], ArrayType(Style.Types.Density));
+        const densityBind = $.let(State.bind([StringType], "record_looks_density", "comfortable"));
+        const densityKey = $.let(densityBind.read());
+        const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
+        const density = $.let(densities.filter((_$, d) => d.getTag().equal(densityKey)).get(0n));
+        const LevelType = StructType({ key: StringType, name: StringType });
+        const levels = $.let([
+            { key: "0", name: "Not trained" },
+            { key: "1", name: "Supervised" },
+            { key: "2", name: "Competent" },
+        ], ArrayType(LevelType));
+        const ChoiceType = StructType({ key: StringType, label: StringType, name: StringType, tone: StatusValueType });
+        const choices = $.let([
+            { key: "can",    label: "can",    name: "Can work",   tone: variant("neutral", null) },
+            { key: "prefer", label: "prefer", name: "Prefers",    tone: variant("success", null) },
+            { key: "cannot", label: "can't",  name: "Can't work", tone: variant("danger", null) },
+        ], ArrayType(ChoiceType));
+        const supervisors = $.let(["S. Park", "M. Hale", "J. Ortiz"], ArrayType(StringType));
+        return (
+            <Configurator
+                controls={[
+                    Configurator.Control("Density", densityKey,
+                        <SegmentGroup value={densityKey} onChange={onDensity} size="sm"
+                            items={densities.map((_$, d) => SegmentGroup.Item(d.getTag(), <Text>{d.getTag().upperCase()}</Text>))} />),
+                ]}
+                preview={
+                    <Box height="360px" width="100%">
+                        <Record
+                            record={rota}
+                            title="Rota"
+                            noun={{ singular: "person", plural: "people" }}
+                            density={density}
+                            registers={{
+                                levels:      Record.register.members(levels, { kind: "level", key: l => l.key, label: l => l.key, meta: l => some(l.name) }),
+                                choices:     Record.register.members(choices, { kind: "choice", key: c => c.key, label: c => c.label, meta: c => some(c.name), tone: c => some(c.tone) }),
+                                supervisors: Record.register.members(supervisors, { kind: "person", key: p => p, label: p => p }),
+                            }}
+                            columns={{
+                                name:       Record.column.title(Rota, { header: "Name", width: "176px", avatar: true }),
+                                supervisor: Record.column.person(Rota, "supervisors", { header: "Supervisor", width: "152px" }),
+                                inducted:   Record.column.boolean(Rota, { header: "Inducted", width: "80px" }),
+                                nights:     Record.column.toggle(Rota, { header: "Nights", width: "80px", on: "yes", off: "no" }),
+                                weekends:   Record.column.toggle(Rota, { header: "Weekends", width: "88px", on: "yes", off: "no", look: "mark" }),
+                                forklift:   Record.column.cycle(Rota, "levels", { header: "Forklift", width: "72px", scale: true }),
+                                scanner:    Record.column.cycle(Rota, "levels", { header: "Scanner", width: "72px", scale: true, look: "mark" }),
+                                days:       Record.column.cycle(Rota, "choices", { header: "Days", width: "80px" }),
+                                evenings:   Record.column.cycle(Rota, "choices", { header: "Evenings", width: "112px", look: "mark" }),
+                                days_since: Record.column.age(Rota, { header: "Days since", width: "136px", since: r => r.updated, stale: 90n, absent: "not confirmed" }),
+                                updated:    Record.column.audit(Rota, { header: "Last updated", width: "232px", mode: "blame" }),
+                            }}
+                            columnGroups={[
+                                { label: "Shifts", columnKeys: ["nights", "weekends"] },
+                                { label: "Skills", columnKeys: ["forklift", "scanner"] },
+                                { label: "Preferences", columnKeys: ["days", "evenings"] },
+                            ]}
+                            name="looks"
+                        />
+                    </Box>
+                }
+            />
+        );
+    }}</Reactive>
+));
+```
+
+Each group sets a chip beside its mark:
+
+| Group | Chip | Mark |
+|---|---|---|
+| Shifts | Nights: `yes` at `--heat-4`, `no` empty (C5) | Weekends: one pip, filled for yes (C6) |
+| Skills | Forklift: `0`, `1` and `2` up the heat ramp | Scanner: two pips, filled up to the level |
+| Preferences | Days: `prefer` in the success wash, `can` neutral, `can't` in the danger wash | Evenings: the tone's dot, then the label in its text step |
+
+B. Ellis's Supervisor is the dashed ring and `Unassigned`, and their Days since and Last updated read `not confirmed` and `—`. Compact and condensed set each chip 15 tall and each avatar 20 (C1, C4).
+
 ## 4. Anatomy and behaviour
 
 Values are East tokens and sizes are px at 1×. Each requirement has an id for tests and visual invariants. The renderer realises each value through the theme's recipes (tokens only, CLAUDE.md); a value here names what the recipe must equal, never an inline style.
@@ -862,7 +969,7 @@ Each as **mock** · **proposed** · **consequence**.
 8. **A quantity's unit.** *Mock:* `38.5 hrs`, "the unit from the driver row". *Proposed:* a Record has no driver; the shared quantity config gains a constant `unit`.
 9. **The toolbar's title and status line.** Neither is a Sheet toolbar item today. *Proposed:* both are new items of the Record's toolbar, folding on the shared ladder (the status line first, then the title's count).
 10. **Digits.** *Mock:* the script maps digits to states. *Proposed:* a member's label or alias, the register grammar's own (K4). *Consequence:* Example 3 gives its members the aliases `1`, `2` and `3`.
-11. **A phone.** The page draws no phone. *Proposed:* the BuilderFrame's phone frame, with the grid paging its columns as the Sheet's `narrow` does, the title column pinned.
+11. **A phone.** The page draws no phone. *Proposed (ruled):* the BuilderFrame's phone frame, with the grid paging its columns as the Sheet's `narrow` does: the title column pinned, and the Sheet's pager's ‹ › stepping through the rest. The select column is dropped, as the Sheet drops its gutter on a phone. *Consequence:* on a phone a row is picked by its title and deleted from the inspector (IN7).
 12. **Sources.** *Mock:* a static list. *Proposed:* a Record reads an e3 record (`record`, `window`, or the rail's `rows` source); a read-only Record needs no patch mutation.
 13. **A new record's key.** *Mock:* a new person is `NEW-n` while it is a draft, and Apply keys it `P-0607`. *Proposed:* the key is `newKey`'s, given at Add; without it, a UUID (decision 9). *Consequence:* a draft carries its key from Add; the inspector's head still marks it `NEW`.
 14. **Row bands.** *Mock:* 1a and 1b band their rows by role, each band folding. *Proposed (ruled):* no group rows; the rail filters by role (§2.5, decision 4). *Consequence:* every role shows in its column, and a viewer narrows to one through the rail's Role filter.
@@ -875,10 +982,11 @@ One epic, one branch (off #1481's, PR against `main`), one PR. The sub-issues:
 2. **The shared kinds** (e3-ui `sheet/`). `SheetColumnKindType` gains `title`, `person`, `boolean`, `toggle`, `cycle`, `age` and `audit`, and `quantity` gains `unit`. Builders, `describeColumn`, the projection and rule cells, `elapsed`, `Record.Types.Change`, and the Sheet's refusal (§7, decision 3). Each in its spec and its examples.
 3. **`<Record>` authoring** (e3-ui `record/`). The tag merged into the `Record` namespace (`bind`, `onApply`, `column`, `register`, `field`, `patch`, `Types`), the payload and carrier, the props' checks (§2.6), the `columns` mapped type (§2.4) and column groups. Examples 1–5 in `test/record/record.examples.tsx` wired into their spec, the e3-ui SKILL's Record section and the plugin index.
 4. **The grid** (e3-ui-components `record/`). FR1, GR, HD, SL, EM and ST over the Sheet's grid through its host (§7, decision 8), P and K.
-5. **The cells.** C1–C11, the age cell's clock (§2.3), the chips' and marks' recipes.
-6. **The toolbar and footer.** The title, the status line, Add and Delete (AD1–AD7), the history bar with Issues, FT1–FT2.
-7. **The inspector.** IN1–IN9 over the Sheet's inspector, FieldForm's one-line layout (east-ui-components) and sections by column group.
-8. **#1527, with the Record among its builders** (§7, decision 7). Its sub-issues #1525 (the refusals listed and reachable) and #1526 (a new row's own fields from the app) each name the Record. For the Record that means AD3, IN3 and IN9 over the app's `ready`, and Add and Duplicate over `newRow`. It also covers a new entry's key from the Sheet's `newKey`, in place of its `newRowId`, and the build's refusal of a required field no one can set, for rows, lines and groups, with the runtime check beside it in the shared creation path (§2.7, decisions 9 and 10).
-9. **The showcase and the visual contract.** A Record page with Examples 1–5, and the responsive suite's invariants for GR, HD, SL, ST, C, FT and IN, measured in the page in both themes and at the three densities. Each example is verified on e3-web through Apply and a remount.
+5. **The cells.** C1–C11, the age cell's clock (§2.3), the chips' and marks' recipes, and Example 6 (the looks) with its spec.
+6. **The phone** (§8, item 11). The BuilderFrame's phone frame: the title column pinned, the Sheet's pager over the rest, no select column.
+7. **The toolbar and footer.** The title, the status line, Add and Delete (AD1–AD7), the history bar with Issues, FT1–FT2.
+8. **The inspector.** IN1–IN9 over the Sheet's inspector, FieldForm's one-line layout (east-ui-components) and sections by column group.
+9. **#1527, with the Record among its builders** (§7, decision 7). Its sub-issues #1525 (the refusals listed and reachable) and #1526 (a new row's own fields from the app) each name the Record. For the Record that means AD3, IN3 and IN9 over the app's `ready`, and Add and Duplicate over `newRow`. It also covers a new entry's key from the Sheet's `newKey`, in place of its `newRowId`, and the build's refusal of a required field no one can set, for rows, lines and groups, with the runtime check beside it in the shared creation path (§2.7, decisions 9 and 10).
+10. **The showcase and the visual contract.** A Record page with Examples 1–6, and the responsive suite's invariants for GR, HD, SL, ST, C, FT and IN, measured in the page in both themes and at the three densities. Each example is verified on e3-web through Apply and a remount.
 
 **Verification:** `make build`, `make test` and `make lint` across e3-ui, e3-ui-components and east-ui-components; the examples' specs; the renderer's DOM tests (pointer, keyboard, drafts, Add, Delete, Issues, Apply, undo); the responsive suite in both themes; the plugin index regenerated.

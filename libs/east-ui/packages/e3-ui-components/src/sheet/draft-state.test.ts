@@ -11,7 +11,7 @@
 import { expect, test, vi } from "vitest";
 import { ArrayType, IntegerType, StringType, StructType, none, some, variant } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
-import { discardDraft, draftPresentation } from "./draft-state.js";
+import { discardDraft, draftChanges, draftPresentation } from "./draft-state.js";
 import { liftDraft } from "./draft-values.js";
 import { SheetTransactions, type EntryVersion, type SheetTransactionBinding } from "./transactions.js";
 
@@ -106,6 +106,21 @@ test("with loose rows between the groups (#846) a child's draft and its discard 
     expect(shown.issues.get("qty")).toBe("A value is required");
     expect(discardDraft(session, EntryDraft, "rows", "l")).toBe(true);
     expect(session.entries.get("l")?.draft).toBeUndefined();
+});
+
+test("a draft's changes count the fields it changes against the draft its entry began from, a field set back to what it held none", () => {
+    const changes = draftChanges(Draft);
+    const began = liftDraft(Draft, row("a"));
+    expect(changes(began, liftDraft(Draft, row("a")))).toBe(0);
+    expect(changes(began, liftDraft(Draft, row("a", 2n)))).toBe(1);
+    expect(changes(began, liftDraft(Draft, { id: "a", qty: 2n, hidden: "moved" }))).toBe(2);
+    // A field cleared is a change, as a value is.
+    expect(changes(began, { id: variant("value", "a"), qty: variant("missing", null), hidden: variant("value", "hidden a") })).toBe(1);
+    // With loose rows between the groups (#846) an entry's draft is a variant, which changes as a whole.
+    const EntryDraft = Sheet.Types.DraftEntry(Sheet.Types.Entry(StructType({ id: StringType, rows: ArrayType(Row) }), "rows"));
+    const loose = (qty: bigint) => liftDraft(EntryDraft, variant("row", row("l", qty)));
+    expect(draftChanges(EntryDraft)(loose(1n), loose(1n))).toBe(0);
+    expect(draftChanges(EntryDraft)(loose(1n), loose(3n))).toBe(1);
 });
 
 test("another Sheet's unresolved request disables draft discard", () => {

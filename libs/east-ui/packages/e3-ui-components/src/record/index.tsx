@@ -26,9 +26,10 @@
  *
  * Its rows are 36, 32 or 28 tall, the rule included — the Record's own
  * density, else the one it is placed in, else comfortable — at the theme's
- * `sizes.row` tokens, and its header row the same. ⌘Z undoes and ⇧⌘Z redoes
- * from anywhere in the frame, as the Sheet's do. It fills its parent and draws
- * no border.
+ * `sizes.row` tokens, and its header row the same. Its ages count to one
+ * clock, the browser's, read again each minute (`clock.tsx`). ⌘Z undoes and
+ * ⇧⌘Z redoes from anywhere in the frame, as the Sheet's do. It fills its
+ * parent and draws no border.
  *
  * @packageDocumentation
  */
@@ -49,6 +50,7 @@ import { useSheetInspector } from "../sheet/frame/inspector.js";
 import { issueText, useSheetWords } from "../sheet/words.js";
 import { openFramePane } from "../shared/schedule/open-pane.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
+import { RecordClock } from "./clock.js";
 import { RecordEmpty, RecordGridProvider, RecordHeader, RecordRow, type RecordGrid } from "./grid.js";
 import { createRecordTicks } from "./ticks.js";
 
@@ -124,11 +126,13 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const grid = useMemo((): RecordGrid => ({ styles, ticks, groups: value.columnGroups, lead: !readOnly, nouns }), [styles, ticks, value.columnGroups, readOnly, nouns]);
     const onTab = useCallback((tab: string) => setPane({ tab }), [setPane]);
     return (
-        <RecordGridProvider value={grid}>
-            <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>
-                <RecordFrame value={value} keys={keys} styles={styles} frameRef={frameRef} tab={pane.tab} onTab={onTab} />
-            </SheetProvider>
-        </RecordGridProvider>
+        <RecordClock>
+            <RecordGridProvider value={grid}>
+                <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>
+                    <RecordFrame value={value} keys={keys} styles={styles} frameRef={frameRef} tab={pane.tab} onTab={onTab} />
+                </SheetProvider>
+            </RecordGridProvider>
+        </RecordClock>
     );
 }, (prev, next) => payloadEquivalent(prev.value, next.value) && prev.storageKey === next.storageKey);
 

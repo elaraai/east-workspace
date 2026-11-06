@@ -8,11 +8,12 @@
  * rows and the header in the Table's anatomy (GR1, HD1–HD3), the select
  * column (SL1), the empty state (EM1), the states (ST4–ST9), the pointer
  * (P1–P6) and the keys (K1–K6) — the Sheet's grid drawing the Record's rows,
- * header and select column through its host (decision 8), over the Record's
- * examples deployed to e3 itself, each test a workspace of its own.
+ * header and select column through its host (decision 8) — and its cells
+ * (#1532, C1–C11), over the Record's examples deployed to e3 itself, each
+ * test a workspace of its own.
  */
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { ArrayType, East, StringType, StructType, equalFor, printFor, some } from "@elaraai/east";
 import { Reactive, RecordSlicesChromeType, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
@@ -38,6 +39,8 @@ const grid = (container: HTMLElement) => container.querySelector<HTMLElement>('[
 const active = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-record] [data-active]");
 /** The editor open in a cell, if one is. */
 const editor = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-record] [data-slot="editor"]');
+/** A part of a cell: its chip, its pips, its avatar. */
+const part = (cell: HTMLElement, name: string) => cell.querySelector<HTMLElement>(`[data-slot="${name}"]`);
 /** The inspector pane. */
 const pane = (container: HTMLElement) => slot(container, "end")!;
 /** The row Details shows, by its key. */
@@ -339,6 +342,153 @@ describe("the keys", () => {
         await settle();
         expect(editor(container)).toBeNull();
         expect(notes().textContent).toBe("Rotates monthly");
+    });
+});
+
+describe("the cells", () => {
+    test("a title is its name, its initials before it with avatar, its key on hover; a person their initials and label, or the dashed ring and the words for no one; a boolean its box; the Sheet's kinds the Sheet's (C1, C2, C3, C10, C11)", async () => {
+        const { container } = await h.mount(ex.recordEveryKind, { storageKey: "record-cells-people" });
+        const name = cellAt(container, 0, "name");
+        expect(part(name, "avatar")!.textContent).toBe("AM");
+        expect(part(name, "avatar")!.getAttribute("aria-hidden")).toBe("true");
+        expect(part(name, "titleCell")!.textContent).toBe("A. Morgan");
+        expect(name.getAttribute("title")).toBe("A. Morgan · P-0401");
+        expect(part(cellAt(container, 1, "name"), "avatar")!.textContent).toBe("BE");
+        const supervisor = cellAt(container, 0, "supervisor");
+        expect(part(supervisor, "avatar")!.textContent).toBe("SP");
+        expect(part(supervisor, "personLabel")!.textContent).toBe("S. Park");
+        expect(supervisor.getAttribute("title")).toBe("S. Park");
+        // No one: the dashed ring, which says so, and the words beside it.
+        const nobody = cellAt(container, 1, "supervisor");
+        expect(part(nobody, "avatar")).toBeNull();
+        expect(within(nobody).getByRole("img", { name: "Unassigned" })).toBe(part(nobody, "nobody"));
+        expect(part(nobody, "personLabel")!.textContent).toBe("Unassigned");
+        expect(within(cellAt(container, 0, "inducted")).getByRole("checkbox", { name: "Inducted" }).getAttribute("aria-checked")).toBe("true");
+        expect(within(cellAt(container, 1, "inducted")).getByRole("checkbox", { name: "Inducted" }).getAttribute("aria-checked")).toBe("false");
+        // No moment and no change: the age's own words, whole on hover, and the audit's dash.
+        expect(part(cellAt(container, 1, "days_since"), "absent")!.textContent).toBe("not confirmed");
+        expect(cellAt(container, 1, "days_since").getAttribute("title")).toBe("not confirmed");
+        expect(part(cellAt(container, 1, "updated"), "absent")!.textContent).toBe("—");
+        // A Sheet kind is the Sheet's: a quantity, its constant unit after its value.
+        expect(cellAt(container, 0, "hours").textContent).toBe("38.5hrs");
+        expect(cellAt(container, 0, "notes").textContent).toBe("Prefers day shifts through March");
+    });
+
+    test("a scale's chips step up the heat ramp from an empty first, a toggle's on at its top, each column's chips its widest label wide; the hover names the state, and what the record holds while a draft changed it (C4, C5)", async () => {
+        const { container } = await h.mount(ex.recordBasic, { storageKey: "record-cells-chips" });
+        const chip = (r: number, k: string) => part(cellAt(container, r, k), "chip")!;
+        const looks = (k: string) => rows(container).map((_row, r) => [chip(r, k).textContent, chip(r, k).getAttribute("data-look")]);
+        expect(looks("forklift")).toEqual([["2", "heat-4"], ["0", "none"], ["1", "heat-2"]]);
+        expect(looks("inducted")).toEqual([["yes", "heat-4"], ["no", "none"], ["yes", "heat-4"]]);
+        expect(chip(0, "forklift").style.getPropertyValue("--record-chip-ch")).toBe("1");
+        expect(chip(1, "inducted").style.getPropertyValue("--record-chip-ch")).toBe("3");
+        // A level's hover is its name.
+        expect(cellAt(container, 0, "forklift").getAttribute("title")).toBe("Forklift · Competent");
+        await press(cellAt(container, 0, "forklift"));
+        expect(looks("forklift")[0]).toEqual(["0", "none"]);
+        expect(cellAt(container, 0, "forklift").getAttribute("title")).toBe("Forklift · Not trained · was 2");
+        await press(cellAt(container, 1, "inducted"));
+        expect(looks("inducted")[1]).toEqual(["yes", "heat-4"]);
+        expect(cellAt(container, 1, "inducted").getAttribute("title")).toBe("Inducted · yes · was no");
+    });
+
+    test("a cycle over toned members is a chip in its tone's wash, a neutral member's none, its hover the member's name (C5)", async () => {
+        const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-cells-valence" });
+        const chip = (r: number, k: string) => part(cellAt(container, r, k), "chip")!;
+        expect([chip(0, "days"), chip(0, "afternoon"), chip(1, "nights")].map((c) => [c.textContent, c.getAttribute("data-look")]))
+            .toEqual([["prefer", "success"], ["can", "none"], ["can't", "danger"]]);
+        expect(chip(0, "days").style.getPropertyValue("--record-chip-ch")).toBe("6");
+        expect(cellAt(container, 1, "nights").getAttribute("title")).toBe("Nights · Can't work");
+    });
+
+    test("the mark look beside the chip: a scale's pips filled up to its member, a toggle's one pip, a valence's dot and word; the density control steps the rows (C6, GR1)", async () => {
+        const { container } = await h.mount(ex.recordLooks, { storageKey: "record-cells-looks" });
+        const pips = (r: number, k: string) => [...cellAt(container, r, k).querySelectorAll('[data-slot="pip"]')].map((pip) => pip.hasAttribute("data-on"));
+        const chips = (k: string) => rows(container).map((_row, r) => part(cellAt(container, r, k), "chip")!.getAttribute("data-look"));
+        // Scanner holds 1, 2 and 0: a pip for each level after the first.
+        expect(rows(container).map((_row, r) => pips(r, "scanner"))).toEqual([[true, false], [true, true], [false, false]]);
+        expect(within(cellAt(container, 0, "scanner")).getByRole("img").getAttribute("aria-label")).toBe("1");
+        expect(chips("forklift")).toEqual(["heat-4", "none", "heat-2"]);
+        // Weekends holds yes, no and yes: one pip, filled for yes.
+        expect(rows(container).map((_row, r) => pips(r, "weekends"))).toEqual([[true], [false], [true]]);
+        expect(within(cellAt(container, 1, "weekends")).getByRole("img").getAttribute("aria-label")).toBe("no");
+        expect(chips("nights")).toEqual(["none", "heat-4", "heat-4"]);
+        // Evenings: the member's tone in its dot, then its label.
+        const marks = rows(container).map((_row, r) => part(cellAt(container, r, "evenings"), "mark")!);
+        expect(marks.map((mark) => [mark.getAttribute("data-tone"), part(mark, "markWord")!.textContent]))
+            .toEqual([["neutral", "can"], ["danger", "can't"], ["success", "prefer"]]);
+        expect(chips("days")).toEqual(["success", "none", "danger"]);
+        expect(cellAt(container, 2, "evenings").getAttribute("title")).toBe("Evenings · Prefers");
+        // The density control: condensed rows, and the header row with them.
+        expect(rows(container)[0]!.style.height).toBe("36px");
+        await press(within(container).getByRole("radio", { name: "CONDENSED" }));
+        await waitFor(() => expect(rows(container)[0]!.style.height).toBe("28px"));
+        expect(container.querySelector<HTMLElement>('[data-record] [data-slot="headerRow"]')!.style.height).toBe("28px");
+    });
+
+    test("an age counts whole days to the Record's clock, warning from its threshold, and moves as the clock crosses a day (C7)", async () => {
+        // A minute before A. Morgan's last change is ninety days old: the clock's next read falls on the turn.
+        vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+        vi.setSystemTime(new Date("2027-01-19T10:14:00Z"));
+        try {
+            const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-cells-age" });
+            const age = (r: number) => cellAt(container, r, "days_since");
+            expect(part(age(0), "age")!.textContent).toBe("89");
+            expect(part(age(0), "age")!.hasAttribute("data-stale")).toBe(false);
+            expect(part(age(0), "staleDot")).toBeNull();
+            expect(age(0).getAttribute("title")).toBe("89 days");
+            // D. Novak's, from May: long past the threshold.
+            expect(part(age(2), "age")!.textContent).toBe("251");
+            expect(part(age(2), "age")!.hasAttribute("data-stale")).toBe(true);
+            expect(within(age(2)).getByRole("img", { name: "Stale" })).toBe(part(age(2), "staleDot"));
+            expect(age(2).getAttribute("title")).toBe("Stale · 251 days · threshold 90");
+            // The minute turns, and nothing else changes: ninety days, and stale.
+            await act(async () => { vi.advanceTimersByTime(60_000); });
+            await settle();
+            expect(part(age(0), "age")!.textContent).toBe("90");
+            expect(part(age(0), "age")!.hasAttribute("data-stale")).toBe(true);
+            expect(within(age(0)).getByRole("img", { name: "Stale" })).toBe(part(age(0), "staleDot"));
+            expect(age(0).getAttribute("title")).toBe("Stale · 90 days · threshold 90");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    test("an audit is its date, in blame mode its verb and who, the whole change on hover; while the row's drafts change its fields it reads Pending and counts them, a field set back counting none (C8, C9)", async () => {
+        const { container } = await h.mount(ex.recordEveryKind, { storageKey: "record-cells-audit" });
+        const audit = () => cellAt(container, 0, "updated");
+        expect(part(audit(), "auditDate")!.textContent).toBe("2026-09-18");
+        expect(part(audit(), "auditMeta")!.textContent).toBe("confirmed · M. Hale");
+        expect(audit().getAttribute("title")).toBe("2026-09-18 09:12 · confirmed · M. Hale");
+        await press(cellAt(container, 0, "night"));
+        expect(part(audit(), "auditDate")).toBeNull();
+        expect(part(audit(), "pending")!.textContent).toBe("Pending");
+        expect(part(audit(), "pendingMeta")!.textContent).toBe("1 change");
+        expect(audit().getAttribute("title")).toBe("1 pending");
+        await press(cellAt(container, 0, "inducted"));
+        expect(part(audit(), "pendingMeta")!.textContent).toBe("2 changes");
+        // Each set back to what the record holds: the change as it was.
+        await press(cellAt(container, 0, "inducted"));
+        await press(cellAt(container, 0, "night"));
+        expect(part(audit(), "pending")).toBeNull();
+        expect(part(audit(), "auditDate")!.textContent).toBe("2026-09-18");
+    });
+
+    test("in date mode an audit is its date alone, and pending its count alone; a new row has no age and no audit until the record holds it (C8, C9, AD2)", async () => {
+        const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-cells-audit-date" });
+        const audit = () => cellAt(container, 0, "updated");
+        expect(part(audit(), "auditDate")!.textContent).toBe("2026-10-21");
+        expect(part(audit(), "auditMeta")).toBeNull();
+        expect(audit().getAttribute("title")).toBe("2026-10-21 10:15 · changed · K. Lund");
+        await press(cellAt(container, 0, "days"));
+        expect(part(audit(), "pendingMeta")!.textContent).toBe("1");
+        expect(audit().getAttribute("title")).toBe("1 pending");
+        await key(container, "Insert", { altKey: true });
+        await waitFor(() => expect(rows(container)).toHaveLength(4));
+        const added = rows(container).find((row) => row.querySelector("[data-required]") !== null)!;
+        expect(added.querySelector('[data-key="days_since"] [data-slot="absent"]')!.textContent).toBe("not confirmed");
+        expect(added.querySelector('[data-key="updated"] [data-slot="absent"]')!.textContent).toBe("—");
+        expect(added.querySelector('[data-slot="pending"]')).toBeNull();
     });
 });
 

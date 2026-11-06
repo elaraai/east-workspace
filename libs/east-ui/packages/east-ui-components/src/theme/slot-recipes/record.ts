@@ -214,9 +214,10 @@ export const recordSlotRecipe = defineSlotRecipe({
             "&[data-nobody]": { color: "fg.subtle" },
         },
         text: { flex: "1", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body", color: "fg" },
-        /* A cycle's or a toggle's chip: one width per column, so the states line up. */
+        /* A cycle's or a toggle's chip: one width per column — its widest label, in characters, with its padding and edge, and no
+           narrower than a digit's chip — so the states line up. */
         chip: {
-            height: "22px", minWidth: "var(--record-chip, 0px)", boxSizing: "border-box", paddingInline: "6px", display: "inline-flex",
+            height: "22px", minWidth: "max(28px, calc(var(--record-chip-ch, 0) * 1ch + 14px))", boxSizing: "border-box", paddingInline: "6px", display: "inline-flex",
             alignItems: "center", justifyContent: "center", lineHeight: "1", borderWidth: "1px", borderStyle: "solid", borderRadius: "sm",
             fontFamily: "mono", fontFeatureSettings: '"tnum" 1', fontSize: "label.md", fontWeight: 600, whiteSpace: "nowrap",
             transitionProperty: "background-color, color", ...SETTLE,
@@ -245,7 +246,8 @@ export const recordSlotRecipe = defineSlotRecipe({
             "&[data-stale]": { color: "fg.warning" },
         },
         staleDot: { width: "8px", height: "8px", flex: "none", marginInlineEnd: "8px", borderRadius: "full", background: "status.warn" },
-        absent: { textStyle: "absent", fontSize: "body", whiteSpace: "nowrap" },
+        /* An absent value, one line: in a narrow column its words end in an ellipsis, never cut off at the start of an age's end-aligned cell. */
+        absent: { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", textStyle: "absent", fontSize: "body", whiteSpace: "nowrap" },
         auditDate: {
             flex: "none", marginInlineEnd: "8px", fontFamily: "mono", fontFeatureSettings: '"tnum" 1', fontSize: "body", fontWeight: 500,
             color: "fg", whiteSpace: "nowrap",
@@ -294,8 +296,9 @@ export const recordSlotRecipe = defineSlotRecipe({
         footerSpacer: { flex: "1", minWidth: "0" },
         legend: { flex: "none", display: "flex", alignItems: "center", gap: "16px" },
         legendItem: { display: "inline-flex", alignItems: "center", gap: "8px", whiteSpace: "nowrap" },
+        /* A legend chip: as wide as a cell's chip is, at its own face. */
         legendChip: {
-            height: "15px", minWidth: "var(--record-chip, 0px)", boxSizing: "border-box", paddingInline: "4px", display: "inline-flex",
+            height: "15px", minWidth: "max(20px, calc(var(--record-chip-ch, 0) * 1ch + 10px))", boxSizing: "border-box", paddingInline: "4px", display: "inline-flex",
             alignItems: "center", justifyContent: "center", lineHeight: "1", borderWidth: "1px", borderStyle: "solid", borderRadius: "sm",
             fontFamily: "mono", fontSize: "label.xs", fontWeight: 600,
             ...LOOKS,
