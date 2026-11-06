@@ -5,7 +5,7 @@
 
 /**
  * Record slot recipe — the e3-ui table for a system of records (`Record -
- * DX Proposal.md` §4), in the Table's anatomy: the design system's Row card,
+ * DX Proposal.md`), in the Table's anatomy: the design system's Row card,
  * its rows 36, 32 or 28 tall and their cells padded 0 12, the first and the
  * last 20, under a column-group row and a header row that stick together.
  *
@@ -100,7 +100,8 @@ export const recordSlotRecipe = defineSlotRecipe({
         "root", "grid",
         "title", "titleText", "titleCount", "status", "actions", "action",
         "head", "groupRow", "groupSeg", "groupLabel", "groupRule", "headerRow", "headerCell", "headerLabel",
-        "row", "cell", "tick", "titleCell", "avatar", "nobody", "personLabel", "text",
+        "row", "cell", "tick", "run", "runRow", "runGutter", "runCell", "runActionCell",
+        "titleCell", "avatar", "nobody", "personLabel", "text",
         "chip", "pips", "pip", "mark", "markDot", "markWord", "box",
         "age", "staleDot", "absent", "auditDate", "auditMeta", "pending", "pendingDot", "pendingMeta",
         "empty", "emptyMark", "emptyTitle", "emptyClear", "emptyBox", "emptyLink",
@@ -152,7 +153,8 @@ export const recordSlotRecipe = defineSlotRecipe({
         headerCell: {
             minWidth: "0", display: "flex", alignItems: "center", justifyContent: "flex-start", color: "fg.subtle", cursor: "default",
             ...CELL_PAD,
-            "&[data-tick]": { cursor: "pointer", paddingInlineEnd: "12px" },
+            /* The select column's box stays at the left as the columns scroll sideways under it. */
+            "&[data-tick]": { cursor: "pointer", paddingInlineEnd: "12px", position: "sticky", left: "0", zIndex: "1", background: "bg.surface" },
         },
         headerLabel: {
             minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "mono", fontSize: "label.sm",
@@ -172,8 +174,9 @@ export const recordSlotRecipe = defineSlotRecipe({
             position: "relative", minWidth: "0", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "flex-start",
             userSelect: "none", cursor: "default", outline: "none", transitionProperty: "background-color", ...SETTLE,
             ...CELL_PAD,
-            /* The select column's cell: the whole cell ticks, and takes no hover of its own. */
-            "&[data-pick]": { cursor: "pointer" },
+            /* The select column's cell: the whole cell ticks, takes no hover of its own, and stays at the left on the row's paper as the
+               columns scroll sideways — above the cells' content and a ring scrolled under it (z 4), as the Sheet's gutter is. */
+            "&[data-pick]": { cursor: "pointer", position: "sticky", left: "0", zIndex: "5", background: "inherit", _hover: { background: "inherit" } },
             "&[data-steps]": { cursor: "pointer", _hover: { background: "bg.subtle" } },
             "&[data-dirty]": { background: "brandTint", _hover: { background: "brandTint" } },
             "&[data-active]": { background: "bg.subtle", boxShadow: "{shadows.focusInset}", _hover: { background: "bg.subtle" } },
@@ -186,6 +189,12 @@ export const recordSlotRecipe = defineSlotRecipe({
         },
         /* The select column's box, 20 in; in the header, a pixel above the labels' line. */
         tick: { ...BOX, cursor: "pointer", "&[data-mixed]": { color: "fg.subtle" }, "[data-tick] > &": { marginBottom: "1px" } },
+        /* A run of rows not read yet: the shared run's rows at the row's paper and rule, the select column's box in its place, each cell padded as a cell is. */
+        run: { position: "relative" },
+        runRow: { background: "bg.surface", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle" },
+        runGutter: { paddingInlineStart: "20px", paddingInlineEnd: "12px", position: "sticky", left: "0", zIndex: "5", background: "bg.surface" },
+        runCell: { paddingInline: "12px", "&:first-child": { paddingInlineStart: "20px" }, "&:last-child": { paddingInlineEnd: "20px" } },
+        runActionCell: { paddingInline: "12px", "&:last-child": { paddingInlineEnd: "20px" } },
         titleCell: {
             flex: "1", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body", fontWeight: 500, color: "fg",
         },
@@ -249,7 +258,7 @@ export const recordSlotRecipe = defineSlotRecipe({
         pendingDot: { width: "8px", height: "8px", flex: "none", borderRadius: "full", background: "brandMark" },
         pendingMeta: { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body.sm", color: "brandPressed" },
 
-        /* Nothing shown: the search matches no row. */
+        /* Nothing shown: the search, or the filters, match no row. */
         empty: { display: "grid", justifyItems: "center", gap: "8px", textAlign: "center", paddingBlock: "32px", paddingInline: "20px" },
         emptyMark: { fontFamily: "mono", fontSize: "num", lineHeight: "1", color: "border.strong" },
         emptyTitle: { fontFamily: "heading", fontSize: "title.xs", fontWeight: 700, letterSpacing: "snug", color: "fg" },

@@ -57,7 +57,11 @@
  *   fill or the selected proposal rejects it and remembers.
  * - **Cells that step in place (#1531)** — a Record's cycle, toggle and
  *   boolean: a press, Space or ⏎ takes the next state (⇧ the one before),
- *   ⌫ a cycle's first and a member's key sets it; none opens an editor.
+ *   ⌫ a cycle's first and a member's key sets it; none opens an editor. A
+ *   cell that edits out of place — a Record's title — opens through the host
+ *   on a press, ⏎ or F2. A grid a host draws opens with no ring: a press
+ *   places it, or the first move key, on the first row's first cell that
+ *   edits in place.
  * - **Grouped rows (#740)**: arrows land on a band like a row; Space or the
  *   chevron folds it; the summary gutter selects its children. Insertion
  *   uses explicit controls. A lens over a grouped sheet narrows its groups,
@@ -107,18 +111,32 @@ function withPick(edit: EditBuffer, val: string, key: string, ctx: SheetMachineC
 }
 
 /**
- * Move the ring to `to`, dropping the range; reports the move. A keyboard
- * move scrolls the row into view; a pointer move never does — the cell is
- * under the pointer already, and moving the sheet under a held button would
- * read as a drag.
+ * Move the ring to `to`, dropping the range, and place it where none was
+ * (#1531); reports the move. A keyboard move scrolls the row into view; a
+ * pointer move never does — the cell is under the pointer already, and moving
+ * the sheet under a held button would read as a drag. Where the strip
+ * previews the cell under the pointer, a keyboard move lets the hover go, so
+ * the strip follows the ring.
  */
 function moveTo(s: SheetUiState, to: CellRef, ctx: SheetMachineCtx, effects: SheetEffect[], scroll = true): SheetUiState {
     const next = clamp(to, ctx);
-    if (same(next, s.sel) && s.selEnd === null) return s;
+    if (!s.ringless && same(next, s.sel) && s.selEnd === null) return s;
     effects.push({ t: "emit.select", r: next.r, c: next.c });
     if (scroll) effects.push({ t: "scroll.to", r: next.r });
-    return { ...s, sel: next, selEnd: null };
+    const hover = scroll && ctx.previewsHover === true ? null : s.hover;
+    return { ...s, sel: next, selEnd: null, ringless: false, hover };
 }
+
+/** Where the first move key places the ring when none is placed (#1531): the first row's first cell that edits in place, else its first. */
+function firstPlace(ctx: SheetMachineCtx): CellRef {
+    for (let c = 0; c < ctx.colCount; c++) {
+        if (ctx.editableAt(0, c) && ctx.opensAt?.(0, c) !== true) return { r: 0, c };
+    }
+    return { r: 0, c: 0 };
+}
+
+/** The keys that move the ring — what places it when none is placed (#1531). */
+const MOVE_KEYS: ReadonlySet<string> = new Set(["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "PageDown", "PageUp", "Tab"]);
 
 /** The column one step left or right of a cell — past the whole span of a band's title (#740). */
 function stepColumn(r: number, c: number, dir: 1 | -1, ctx: SheetMachineCtx): number {
@@ -130,8 +148,8 @@ function stepColumn(r: number, c: number, dir: 1 | -1, ctx: SheetMachineCtx): nu
 /** Open the editor on a cell — `seed` is a printable key that starts a fresh edit. */
 function startEdit(s: SheetUiState, r: number, c: number, seed: string | undefined, ctx: SheetMachineCtx): Transition {
     if (r < 0 || r >= ctx.rowCount || c < 0 || c >= ctx.colCount) return { state: s, effects: [] };
-    // A cell that steps in place never opens an editor (#1531).
-    if (!ctx.editableAt(r, c) || ctx.stepAt?.(r, c, 1) !== undefined) return { state: s, effects: [] };
+    // A cell that steps in place, or edits out of place, never opens an editor (#1531).
+    if (!ctx.editableAt(r, c) || ctx.stepAt?.(r, c, 1) !== undefined || ctx.opensAt?.(r, c) === true) return { state: s, effects: [] };
     const effects: SheetEffect[] = [];
     const moved = moveTo(s, { r, c }, ctx, effects);
     const linkCtx = ctx.linkAt?.(r, c);
@@ -347,6 +365,12 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
     if (e.meta && (e.key === "/" || e.key === "f")) return { state: s, effects: [{ t: "focus.search" }] };
     if (ctx.rowCount === 0 || ctx.colCount === 0) return { state: s, effects: [] };
     const effects: SheetEffect[] = [];
+    // No ring placed (#1531): a move key places it on the first row's first cell that edits in place; esc climbs its
+    // ladder as ever; every other key waits for a ring.
+    if (s.ringless && e.key !== "Escape") {
+        if (!MOVE_KEYS.has(e.key)) return { state: s, effects };
+        return { state: moveTo(s, firstPlace(ctx), ctx, effects), effects };
+    }
     // A summary folds on Space; ⇧Space folds or opens every group the way this one goes.
     const rowKind = ctx.rowKindAt?.(s.sel.r);
     if (rowKind === "group" && e.key === " " && !e.meta && !e.alt) {
@@ -389,6 +413,10 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
         if (e.shift) return dropPick({ state: { ...s, selEnd: clamp(to, ctx) }, effects });
         return dropPick({ state: moveTo(s, to, ctx, effects), effects });
     };
+    /** ⏎ or F2: the editor opens on the ring's cell — or the host opens a cell that edits out of place (#1531). */
+    const editRing = (): Transition => (ctx.opensAt?.(s.sel.r, s.sel.c) === true
+        ? { state: s, effects: [{ t: "open", r: s.sel.r, c: s.sel.c }] }
+        : startEdit(s, s.sel.r, s.sel.c, undefined, ctx));
     switch (e.key) {
         case "ArrowDown": return move(1, 0);
         case "ArrowUp": return move(-1, 0);
@@ -430,10 +458,10 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
             const taken = suggestKey(s, e, ctx);
             if (taken !== null) return taken;
             if (e.meta) return { state: s, effects };
-            return startEdit(s, s.sel.r, s.sel.c, undefined, ctx);
+            return editRing();
         }
         case "F2":
-            return startEdit(s, s.sel.r, s.sel.c, undefined, ctx);
+            return editRing();
         case "Escape": {
             const dropped = escSuggest(s);
             if (dropped !== null) return dropped;
@@ -530,9 +558,10 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             // A click commits an open editor in place first.
             const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
             const effects = closed.effects;
-            // A cell that steps in place (#1531): the press takes its next state, ⇧ the one before — never a range.
+            // A cell that steps in place (#1531): the press takes its next state, ⇧ the one before — never a range. With
+            // no ring placed, a ⇧ press has no range to stretch, and places the ring as a press does.
             const stepped = ctx.stepAt?.(e.r, e.c, e.shift ? -1 : 1);
-            if (e.shift && stepped === undefined) {
+            if (e.shift && stepped === undefined && !closed.state.ringless) {
                 return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: e.c }, ctx), gsel: null }, effects };
             }
             const moved = moveTo(closed.state, { r: e.r, c: e.c }, ctx, effects, false);
@@ -542,6 +571,8 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
                 if (s.edit !== null) effects.push({ t: "gesture.end" });
                 effects.push({ t: "write", r: e.r, c: e.c, cell: stepped, text: "" });
             }
+            // A cell that edits out of place opens where the host edits it (#1531).
+            if (!e.shift && ctx.opensAt?.(e.r, e.c) === true) effects.push({ t: "open", r: e.r, c: e.c });
             return { state: moved.gsel === null ? moved : { ...moved, gsel: null }, effects };
         }
         case "cell.dbl":
@@ -557,7 +588,7 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
             const effects = closed.effects;
             const last = Math.max(0, ctx.colCount - 1);
-            if (e.shift) return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: last }, ctx), gsel: null }, effects };
+            if (e.shift && !closed.state.ringless) return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: last }, ctx), gsel: null }, effects };
             // A band's gutter selects the group's lines (#740, G7); an empty or folded group selects the band itself.
             const group = ctx.rowKindAt?.(e.r) === "group" ? ctx.groupAt?.(e.r) : undefined;
             const r0 = group?.lines !== undefined ? group.lines.r0 : e.r;
@@ -568,7 +599,7 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
                 return { state: { ...closed.state, selEnd: null, gsel: null }, effects };
             }
             effects.push({ t: "emit.select", r: r0, c: 0 }, { t: "focus.sheet" });
-            return { state: { ...closed.state, sel: clamp({ r: r0, c: 0 }, ctx), selEnd: clamp({ r: r1, c: last }, ctx), gsel: null }, effects };
+            return { state: { ...closed.state, sel: clamp({ r: r0, c: 0 }, ctx), selEnd: clamp({ r: r1, c: last }, ctx), gsel: null, ringless: false }, effects };
         }
         case "key":
             if (s.edit !== null) return { state: s, effects: [] };
@@ -624,9 +655,9 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             // The host moved the ring: commit an open editor in place, follow, scroll — no echo.
             const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
             const sel = clamp({ r: e.r, c: e.c }, ctx);
-            if (same(sel, closed.state.sel) && closed.state.selEnd === null) return closed;
+            if (!closed.state.ringless && same(sel, closed.state.sel) && closed.state.selEnd === null) return closed;
             closed.effects.push({ t: "scroll.to", r: sel.r });
-            return { state: { ...closed.state, sel, selEnd: null }, effects: closed.effects };
+            return { state: { ...closed.state, sel, selEnd: null, ringless: false }, effects: closed.effects };
         }
         case "rows.changed": {
             // Each place follows its row when the rows moved under it (#854);
@@ -652,12 +683,13 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
         }
         case "msg":
             return s.msg === e.msg ? { state: s, effects: [] } : { state: { ...s, msg: e.msg }, effects: [] };
+        // With no ring placed there is nothing to copy, and nowhere to paste (#1531).
         case "clipboard.copy": {
-            if (s.edit !== null) return { state: s, effects: [] };
+            if (s.edit !== null || s.ringless) return { state: s, effects: [] };
             return { state: s, effects: [{ t: "copy", ...selectionRect(s) }] };
         }
         case "clipboard.paste": {
-            if (s.edit !== null) return { state: s, effects: [] };
+            if (s.edit !== null || s.ringless) return { state: s, effects: [] };
             return { state: { ...s, sugg: null, armed: null, gsel: null }, effects: [{ t: "paste", r: s.sel.r, c: s.sel.c, text: e.text }] };
         }
         // ── The copilot ───────────────────────────────────────────────────
@@ -756,9 +788,12 @@ export type SheetAction =
     /** A direct UI patch from the component (the range after a paste, a message). */
     | { t: "patch"; patch: Partial<SheetUiState> };
 
-/** The initial store — `active` is the initial view tab, if the sheet opens on one; `folds`, the fold overrides it opens with (#857). */
-export function initialSheetStore(sel?: CellRef, active: string | null = null, folds?: ReadonlyMap<string, boolean>): SheetStore {
-    return { ui: initialSheetState(sel, active, folds), fx: [], fxSeq: 0 };
+/**
+ * The initial store — `active` is the initial view tab, if the sheet opens on one; `folds`, the fold overrides it opens
+ * with (#857); `ringless`, whether it opens with no ring placed (#1531).
+ */
+export function initialSheetStore(sel?: CellRef, active: string | null = null, folds?: ReadonlyMap<string, boolean>, ringless = false): SheetStore {
+    return { ui: initialSheetState(sel, active, folds, ringless), fx: [], fxSeq: 0 };
 }
 
 /**

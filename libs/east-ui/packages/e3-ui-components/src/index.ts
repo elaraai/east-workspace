@@ -25,6 +25,7 @@ import './roster/index.js';
 import './allocation/index.js';            // → implementUIComponent(AllocationComponent, EastChakraAllocation)
 import './plan/index.js';                 // → implementUIComponent(PlanComponent, EastChakraPlanPayload)
 import './sheet/frame/index.js';          // → implementUIComponent(SheetComponent, EastChakraSheet)
+import './record/index.js';               // → implementUIComponent(RecordComponent, EastChakraRecord)
 import './flowchart/index.js';            // → implementUIComponent(Flowchart.Component, EastChakraFlowchart)
 import './schematic/index.js';            // → implementUIComponent(Schematic.Component, EastChakraSchematic)
 
@@ -161,6 +162,11 @@ export {
     type SheetScopeWord,
     type SheetToneWord,
 } from './sheet/messages.js';
+
+// The Record (#1536) — its renderer registers itself against the Record
+// extension on import, and lays the record out in its frame over the Sheet's
+// one shared state, its grid in the Table's anatomy.
+export { EastChakraRecord, type EastChakraRecordProps, type RecordValue } from './record/index.js';
 
 // The Flowchart (#1243) — its renderer registers itself against the Flowchart
 // extension on import; its slot recipe is east-ui-components' theme's.
