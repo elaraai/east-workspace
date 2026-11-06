@@ -162,7 +162,7 @@ What KIND of component is it?
 ├─ Width-flexible (Schematic, Plan, Table…)   → pass --frame-width full (the `shots` sweep DEFAULT) to
 │                                                mount the frame at viewport width; the default single-shot
 │                                                frame is shrink-to-fit and collapses these
-├─ Reads e3 data (Data.bind / Decision.bind)  → a standalone shot has NO workspace: use --from-task
+├─ Reads e3 data (Data.bind / Record.bind)    → a standalone shot has NO workspace: use --from-task
 │                                                against a deployed repo, or (monorepo) the seeded
 │                                                harness: make e3-ui-examples-html-<key>
 └─ Browser-local State.bind only              → renders standalone (initial state)
@@ -305,7 +305,7 @@ e3-ui shot --from-source test/collections/table.examples.tsx -e tableFrozen --fr
 e3-ui shots src --out .shots            # PNGs, faithful width, typed skip reasons
 e3-ui shots src --out .shots --html     # + standalone HTML pairs
 
-# Data-bound e3-ui example (Data.bind / Decision.bind) — the sweep SKIPS these as
+# Data-bound e3-ui example (Data.bind / Record.bind) — the sweep SKIPS these as
 # workspace-bound; render from a deployed repo (or, in the east monorepo, the
 # seeded harness: make e3-ui-examples-html-decision/queue):
 e3-ui shot --from-task main.queue --repo ./.repos -o queue.png

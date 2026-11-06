@@ -23,7 +23,6 @@ import { BindPlatform } from '../platform/bind-runtime.js';
 import { PagedPlatform } from '../platform/paged-runtime.js';
 import { FuncPlatform } from '../platform/func-runtime.js';
 import { RecordPlatform } from '../platform/record-runtime.js';
-import { DecisionBindPlatform } from '../decision/handle-runtime.js';
 import type { QueryOverrides } from './types.js';
 
 // Fallback platform set (used when a caller doesn't pass `platforms`). It must include EVERY browser-local impl
@@ -33,7 +32,7 @@ import type { QueryOverrides } from './types.js';
 const defaultPlatformImplementations: PlatformFunction[] =
     [
         ...StateImpl,  ...SliceImpl, ...RecordSliceImpl, ...SliceApplyImpl, ...OverlayImpl,
-        ...ClipboardImpl, ...DownloadImpl, ...ShareImpl, ...DecisionBindPlatform,
+        ...ClipboardImpl, ...DownloadImpl, ...ShareImpl,
         ...BindPlatform, ...PagedPlatform, ...FuncPlatform, ...RecordPlatform,
     ];
 

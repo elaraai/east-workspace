@@ -5,7 +5,8 @@
 
 /**
  * A kind over the app's own record: what the Schematic's kinds (#1386) and the
- * Flowchart's (#1500) share. A kind maps the fields of the app's row to the
+ * Flowchart's (#1500) share, and the DecisionQueue's targets with them (#1447).
+ * A kind maps the fields of the app's row to the
  * builder's roles and closes the record behind East functions over beast2
  * bytes — its stored rows a read holds, each one's roles beside its bytes; a
  * drafted row's roles; the fields an author's card sets, any field at any
@@ -18,29 +19,31 @@
  * them apart: `Record.bind(record)` with its patch door, editable — read
  * whole, or through its source of the builder's slice with `entries:
  * Data.bindPaged(record)` beside it; `Data.bind(record)`, read only and whole;
- * or `Data.bindPaged(record)`, read only, through its source. Each builder
- * keeps its own check and its own words; what this module holds is the same
- * for every builder.
+ * or `Data.bindPaged(record)`, read only, through its source. The Schematic's
+ * kinds and the DecisionQueue's declarations tell them apart with
+ * `recordBound`, each in its own words; the Flowchart's kinds keep a check of
+ * their own. The rest of this module is the same for every builder.
  *
  * @packageDocumentation
  */
 
 import {
-    ArrayType, BlobType, BooleanType, DictType, East, EastTypeType, Expr, FunctionType, IntegerType, OptionType, StringType, StructType,
-    isSubtype, isTypeEqual, none, some, toEastTypeValue, variant,
+    ArrayType, AsyncFunctionType, BlobType, BooleanType, DictType, East, EastTypeType, Expr, FunctionType, IntegerType, OptionType, PatchType, StringType,
+    StructType, isSubtype, isTypeEqual, none, printType, some, toEastTypeValue, variant,
     type EastType, type ExprType, type NullType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import type { UIComponentType } from "@elaraai/east-ui";
 import {
-    EditingReadinessType, EditingType, Fields, FieldSpecType, RecordSliceBindType, RecordSliceReadType, recordSliceReadPlatform,
+    EditingReadinessType, EditingType, Fields, FieldSpecType, RecordSliceBindType, RecordSliceReadType, recordSliceReadPlatform, resolveRowSource,
     type FieldHints, type RecordSliceConfigType, type RecordSliceStateType,
 } from "@elaraai/east-ui/internal";
+import { RecordOutcomeType } from "../bind/record.js";
 import { scheduleAccessor } from "../schedule/accessor.js";
 import { fieldOf, fieldSetters } from "../schedule/fields.js";
 import { scheduleEntriesSeam, scheduleRecordSession } from "../schedule/session.js";
 import { ScheduleEntriesType, ScheduleFieldWriteType, ScheduleReadyEntryType } from "../schedule/types.js";
-import { optionOf, scheduleEntryByKey, scheduleLastKey, typeText } from "../schedule/window.js";
+import { checkEntries, optionOf, scheduleEntryByKey, scheduleLastKey, typeText } from "../schedule/window.js";
 import { RowInspectorType, rowInspector } from "./row-inspector.js";
 
 // ============================================================================
@@ -97,6 +100,96 @@ export interface KindBinding {
     readonly handle: ExprType<EastType>;
     /** The record's row type. */
     readonly rowType: StructType;
+}
+
+/**
+ * What a declaration's record is, bound: `Record.bind`'s or `Data.bind`'s
+ * handle, read whole, or `Data.bindPaged`'s, read by key — each over a
+ * `Dict<String, R>`, its row type `R` inferred from the handle.
+ *
+ * @typeParam R - The record's row type
+ */
+export type RecordBinding<R extends StructType> =
+    | { readonly read: (...args: never[]) => ExprType<DictType<StringType, R>>; readonly binding: unknown }
+    | { readonly page: (...args: never[]) => ExprType<OptionType<DictType<StringType, R>>>; readonly revision: unknown };
+
+/** The binding forms, as the refusals name them. */
+const FORMS = "Record.bind(record), its record declaring patch: mutation.patch() to edit it, or Data.bind(record) or Data.bindPaged(record) to read it only";
+
+/**
+ * Tells a record's binding by its handle's East struct (`bind/sources.ts`'
+ * rule): a `page` field is `Data.bindPaged`'s, a `mutate` field
+ * `Record.bind`'s — checked for its patch door — and any other `Data.bind`'s.
+ *
+ * @param record - What the declaration was given
+ * @param where - The declaration, as a refusal names it
+ * @param holds - What its record holds, as the refusal of a record of another type says it
+ *   (`a Schematic kind's record holds its entities by String key, each a struct`)
+ * @returns The binding
+ * @throws {Error} Naming the forms to use: anything but a binding of a record of structs keyed by String, a paged read of
+ *   an index's window or one naming no snapshot, and a `Record.bind` without its patch door
+ */
+export function recordBound(record: unknown, where: string, holds: string): KindBinding {
+    const refuse = (why: string): never => { throw new Error(`${where}: \`record\` is the app's record, bound — ${FORMS}${why}`); };
+    if (!(record instanceof Expr)) return refuse("");
+    const type = Expr.type(record) as EastType;
+    const fields = type.type === "Struct" ? type.fields as Record<string, EastType> : undefined;
+    if (fields === undefined) return refuse(` — and this is ${printType(type)}`);
+    let form: KindBinding["form"];
+    let recordType: EastType | undefined;
+    if (fields["page"] !== undefined) {
+        form = "paged";
+        if (fields["indexes"] !== undefined) {
+            return refuse(" — and this paged read serves the record's indexes: bind its own entries, Data.bindPaged(record), and name the indexed read " +
+                "as the kind's source of the slice");
+        }
+        const resolved = resolveRowSource(record, where);
+        if (resolved.kind !== "paged") {
+            return refuse(" — and this paged read serves an index's window: bind the record's own entries, Data.bindPaged(record)");
+        }
+        recordType = resolved.collectionType;
+    } else {
+        form = fields["mutate"] !== undefined ? "record" : "data";
+        const read = fields["read"];
+        if (read === undefined || read.type !== "Function" || read.inputs.length !== 0 || fields["binding"] === undefined) return refuse("");
+        recordType = read.output as EastType;
+    }
+    if (recordType.type !== "Dict" || !isTypeEqual(recordType.key as EastType, StringType) || (recordType.value as EastType).type !== "Struct") {
+        throw new Error(`${where}: ${holds} — and this one holds ${typeText(recordType)}`);
+    }
+    const rowType = recordType.value as StructType;
+    if (form === "paged") {
+        // A paged read of the record's own entries, at the snapshot every read of it is at.
+        checkEntries(record, StringType, rowType, `${where}: \`record\``);
+    }
+    if (form === "record") {
+        // The patch door: the record's mutation.patch(), the mutation named `patch` taking the record's patch.
+        const commit = fields["commit"];
+        const door = commit?.type === "Struct" ? (commit.fields as Record<string, EastType>)["patch"] : undefined;
+        if (door === undefined || !isTypeEqual(door, AsyncFunctionType([StringType, PatchType(recordType)], RecordOutcomeType))) {
+            throw new Error(`${where}: \`record\` is bound without its patch door — ${FORMS}`);
+        }
+    }
+    return { form, handle: record as ExprType<EastType>, rowType };
+}
+
+/**
+ * Checks a declaration's `entries` where it declares them: for a record bound
+ * to be edited, a paged read of its own entries.
+ *
+ * @param bound - The record's binding
+ * @param entries - What the declaration was given
+ * @param where - The declaration, as a refusal names it
+ * @returns The paged read, checked; `undefined` for none
+ * @throws {Error} When a read-only binding is given `entries`, or they are no paged read of the record's own entries
+ */
+export function recordEntries(bound: KindBinding, entries: unknown, where: string): ExprType<EastType> | undefined {
+    if (entries === undefined) return undefined;
+    if (bound.form !== "record") {
+        throw new Error(`${where}: \`entries\` reads an editable record by key — a kind bound ${bound.form === "data" ? "Data.bind" : "Data.bindPaged"} ` +
+            `${bound.form === "data" ? "is read whole" : "reads by key through its own binding"}: leave \`entries\` out`);
+    }
+    return checkEntries(entries, StringType, bound.rowType, `${where}: \`entries\``);
 }
 
 /** An accessor of a row and its key: what a computed role is. */

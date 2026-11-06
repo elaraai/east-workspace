@@ -8,7 +8,7 @@
  *
  * `useBindingOntology(binding)` is a thin reactive wrapper over the shared
  * `BindRuntime.buildBindHandle` — the same handle that powers every other
- * `Data.bind` consumer (the decision handle among them). It builds the handle for
+ * `Data.bind` consumer. It builds the handle for
  * the binding's `(sourceType, source, patch, mode)`, subscribes to the staged
  * store + reactive dataset cache so the canvas re-renders on edits, and exposes
  * the handle's `read` / `write` / `pending` / `commit` / `discard` as an

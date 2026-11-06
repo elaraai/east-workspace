@@ -33,9 +33,9 @@ export const layerStyles = defineLayerStyles({
         },
     },
     /** Frameless surface — the `frame` background + clipping WITHOUT the card edge
-     *  (no border, no radius). e3-ui components (DecisionQueue)
-     *  use this so they render bare like a host-framed east-ui `Table`
-     *  (#151) — a host wraps them in a `Card` when it wants the boxed look. */
+     *  (no border, no radius), for a part that renders bare like a host-framed
+     *  east-ui `Table` (#151) — a host wraps it in a `Card` when it wants the
+     *  boxed look. */
     "surface.frameless": {
         value: {
             background: "bg.surface",

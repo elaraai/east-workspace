@@ -69,8 +69,7 @@ export type DataBindModeLiteral = "staged" | "direct";
  *
  * Every {@link Data.bind} call exposes this descriptor as its `binding`
  * field, so a component that commits through the binding (the Ontology
- * editor, a decision's judgements) reaches its source and patch paths without
- * re-spelling them.
+ * editor) reaches its source and patch paths without re-spelling them.
  *
  * @property source - The dataset path of the source value the binding
  *   reads from.

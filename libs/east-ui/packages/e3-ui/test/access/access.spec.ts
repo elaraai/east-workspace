@@ -20,9 +20,7 @@ import {
 import { type TreePath } from "@elaraai/e3-types";
 import { input, record } from "@elaraai/e3";
 import { Button, Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
-import {
-    Data, DataBindHandleType, Decision, DecisionType, JudgementsType, Record, UiAccessType, deriveUiAccess, type UiAccess,
-} from "@elaraai/e3-ui";
+import { Data, DataBindHandleType, Record, UiAccessType, deriveUiAccess, type UiAccess } from "@elaraai/e3-ui";
 
 const accessEqual = equalFor(UiAccessType);
 const printAccess = printFor(UiAccessType);
@@ -55,10 +53,6 @@ const plans = record("plans", PlansType, {
         reassign: mutation.reduce(East.function([PlansType, StringType, StringType], PlansType, (_$, state, _id, _owner) => state)),
     }),
 });
-
-const decisions = input("decisions", ArrayType(DecisionType), variant("value", []));
-const decisionsPatch = input("decisions_patch", PatchType(ArrayType(DecisionType)));
-const judgements = input("judgements", JudgementsType, variant("value", new Map()));
 
 describe("deriveUiAccess", () => {
     test("a UI that only reads what it binds writes nothing", () => {
@@ -197,25 +191,6 @@ describe("deriveUiAccess: a handle handed on", () => {
             return Text.Root("Review");
         })));
         assertAccess(accessOf(handedOn), { writes: [inputPath("notes_patch"), inputPath("notes")], records: [] });
-    });
-
-    test("Decision.bind writes its views through their patch datasets, and its staged judgements only once committed", () => {
-        const deciding = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            const views = $.let(Data.bind(decisions, { patch: decisionsPatch }));
-            const staged = $.let(Data.bind(judgements, { mode: "staged" }));
-            $(Decision.bind({ decisions: [views], judgements: staged }));
-            return Text.Root("Decide");
-        })));
-        assertAccess(accessOf(deciding), { writes: [inputPath("decisions_patch")], records: [] });
-
-        const applying = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            const views = $.let(Data.bind(decisions, { patch: decisionsPatch }));
-            const staged = $.let(Data.bind(judgements, { mode: "staged" }));
-            $(Decision.bind({ decisions: [views], judgements: staged }));
-            const apply = $.const(East.function([], NullType, ($) => { $(staged.commit()); }));
-            return Button.Root("Apply", { onClick: apply });
-        })));
-        assertAccess(accessOf(applying), { writes: [inputPath("decisions_patch"), inputPath("judgements")], records: [] });
     });
 });
 

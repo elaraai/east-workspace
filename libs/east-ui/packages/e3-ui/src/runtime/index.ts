@@ -4,7 +4,7 @@
  */
 
 /**
- * e3-specific JSX tags — `<Ontology>` and `<DecisionQueue>`. The east-ui tags
+ * The e3-specific JSX tag `<Ontology>`. The east-ui tags
  * (`<VStack>`, `<Text>`, …) are imported directly from `@elaraai/east-ui`;
  * this package does not re-export them.
  *
@@ -12,4 +12,3 @@
  */
 
 export { Ontology } from "./ontology.js";
-export { DecisionQueue } from "./decision/queue.js";

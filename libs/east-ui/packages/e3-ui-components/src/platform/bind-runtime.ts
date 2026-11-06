@@ -139,9 +139,8 @@ function getBindingHelpers(sourceType: EastTypeValue): BindingHelpers {
 
 /**
  * Per-binding metadata a binding's readers need to decode its source and
- * patch bytes: the Ontology editor's commit, the decision handle's views and
- * the staged store's decoders. Keyed by `datasetCacheKey(workspace,
- * sourcePath)`.
+ * patch bytes: the Ontology editor's commit and the staged store's
+ * decoders. Keyed by `datasetCacheKey(workspace, sourcePath)`.
  */
 export interface BindingTypes {
     readonly workspace:  string;
@@ -209,9 +208,8 @@ export class BindRuntime {
     private trackingContext: Map<string, number> | null = null;
 
     // Binding types registry — populated on every `Data.bind` call so a
-    // binding's readers (the Ontology editor's commit, the decision handle,
-    // the staged store) can decode its source/patch bytes and pick the right
-    // commit code path.
+    // binding's readers (the Ontology editor's commit, the staged store) can
+    // decode its source/patch bytes and pick the right commit code path.
     private readonly bindingRegistry = new Map<string, BindingTypes>();
 
     // Suppress-set for the stale-patch fallback warning. Module
