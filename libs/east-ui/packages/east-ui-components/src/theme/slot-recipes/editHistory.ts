@@ -108,8 +108,6 @@ export const editHistorySlotRecipe = defineSlotRecipe({
          * they leave too little, a Save's words not at all and the count its number alone. */
         summary: {
             order: -1, flex: "1 1 auto", minWidth: "0", ...wholeOrNone("24px"),
-            /* The frame's loading line showing at the row's start, the count steps aside for it (R5); a Save's words do not. */
-            "&[data-history-summary=count]": { "[data-frame-slot=sessionRow]:has([data-footer-line]:not([data-idle])) &": { display: "none" } },
         },
         changes: {
             fontFamily: "mono", fontSize: "label.lg", fontWeight: "500", color: "fg.subtle", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums",

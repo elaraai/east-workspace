@@ -14,9 +14,12 @@
  *     motion);
  *   - head: 44 over a `--rule`, padded 0 8 0 0 — ← back 44 (its arrow 16 in
  *     `--ink-3`), the title DM Sans 16/700 at −0.01em;
- *   - body: what the popover holds, padded 12 16, scrolling;
+ *   - body: what the popover holds, padded 12 16, scrolling, at touch size —
+ *     its controls, and their icons as the second row's and the pane strip's
+ *     are (`Mobile Builder Frame Spec.md` FR4, FR6), so a View's are not the
+ *     toolbar's that it folds away;
  *   - foot: its actions, padded 12 16 (and the safe area), over a
- *     `--rule-strong`, 8 apart at its end.
+ *     `--rule-strong`, 8 apart at its end, their icons as the body's.
  *
  * And what a phone's main or pane opens instead, in a frame that takes it
  * (`Mobile Builder Frame Spec.md` FR9): the bottom panel, the Sheet's bottom
@@ -27,13 +30,29 @@
  *   - panelHead: 44 — the label in mono caps, ⌄ close 44 at its end, 12 into the
  *     padding, its chevron 14 in `--ink-3`;
  *   - panelBody: what the popover holds, scrolling while head and foot stay, at
- *     touch size; a list (`data-flush`) edge to edge;
+ *     touch size, its icons as the view's body's; a list (`data-flush`) edge
+ *     to edge;
  *   - panelFoot: its actions, 44 tall, 8 apart at its end.
  *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+
+/**
+ * The icons of what a view or a panel holds, at touch size. What it holds is
+ * the toolbar's, folded into it, whose icons are sized for a row of compact
+ * controls: here each control is a touch target. A control that is its icon
+ * alone, named by its label — a segment of icons, Zoom in, the period's steps —
+ * draws it as the second row's buttons do, in a target as wide as it is tall at
+ * least; a segment's or a chip's icon before its words, as the pane strip's
+ * tabs do. A caret beside a value keeps its own size.
+ */
+const TOUCH_ICONS = {
+    "& :is(button, [role=radio])[aria-label] > svg": { fontSize: "16px" },
+    "& button[aria-label]:not([role=radio]):has(> svg:only-child)": { minWidth: "44px" },
+    "& [data-seg-icon], & [data-chip-icon]": { fontSize: "14px" },
+} as const;
 
 export const frameViewSlotRecipe = defineSlotRecipe({
     className: "elara-frame-view",
@@ -68,12 +87,14 @@ export const frameViewSlotRecipe = defineSlotRecipe({
             "& input, & button:not([role=checkbox]):not([role=radio]):not([data-scope=number-input])": { minHeight: "44px" },
             /* Its segment strips across the view, each segment an equal 44 target. */
             "& [data-slot=seg]": { display: "flex", width: "100%", height: "auto", "& > [role=radio]": { flex: "1 1 0", minHeight: "44px", justifyContent: "center" } },
+            ...TOUCH_ICONS,
         },
         foot: {
             flex: "none", display: "flex", alignItems: "center", gap: "8px", boxSizing: "border-box",
             paddingTop: "12px", paddingX: "16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
             background: "bg.surface", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.strong",
             "& button": { minHeight: "44px", fontSize: "body.sm" },
+            ...TOUCH_ICONS,
         },
         footActions: {
             marginInlineStart: "auto", display: "flex", alignItems: "center", gap: "8px",
@@ -103,7 +124,8 @@ export const frameViewSlotRecipe = defineSlotRecipe({
             "&[data-flush]": { gap: "0", marginX: "-16px", marginTop: "-8px" },
             /* A select on the field's paper, as the dates and numbers beside it are, the panel being `--paper-2`. */
             "& [data-scope=select][data-part=trigger]": { background: "bg.surface" },
+            ...TOUCH_ICONS,
         },
-        panelFoot: { flex: "none", display: "flex", alignItems: "center", gap: "8px", "& button": { minHeight: "44px" } },
+        panelFoot: { flex: "none", display: "flex", alignItems: "center", gap: "8px", "& button": { minHeight: "44px" }, ...TOUCH_ICONS },
     },
 });
