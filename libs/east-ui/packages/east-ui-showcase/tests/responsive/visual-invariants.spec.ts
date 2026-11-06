@@ -1525,3 +1525,43 @@ test.describe("Visual invariants — the Pagination", () => {
         });
     }
 });
+
+test.describe("Visual invariants — the Blend, on a phone", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) >= 1000, "read on the touch viewport");
+
+    // A panel's head, its allocations and its foot at a phone's width: every word inside its panel, each whole — the
+    // cap on a line of its own rather than cut at the panel's edge, an allocation's label beside its amount rather than
+    // cut to its first letter, and the foot's buttons on the foot's line.
+    for (const name of ["blendCompare", "blendLibraryDnd"]) {
+        test(`${name}: at a phone's width every word stays inside its panel, whole`, async ({ page }) => {
+            const hash = `collections/blend/${name}`;
+            await page.goto(`/#${hash}`);
+            await page.waitForSelector("header", { timeout: 20_000 });
+            const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${hash}"]`) });
+            await entry.scrollIntoViewIfNeeded();
+            await expect(entry.locator("[data-slot='panelFoot']").first()).toBeVisible({ timeout: 20_000 });
+            await settled(page);
+            const faults = await entry.locator("[data-slot='panelFoot']").evaluateAll((feet) => feet.flatMap((foot) => {
+                // The panel: the foot's grandparent (the panel's foot slot, then the panel).
+                const panel = foot.parentElement!.parentElement!;
+                const p = panel.getBoundingClientRect();
+                const out: string[] = [];
+                const walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT);
+                for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+                    const words = (node.textContent ?? "").trim();
+                    if (words === "") continue;
+                    const range = document.createRange();
+                    range.selectNodeContents(node);
+                    const r = range.getBoundingClientRect();
+                    if (r.width > 0 && (r.left < p.left - 0.5 || r.right > p.right + 0.5)) out.push(`"${words}" past its panel`);
+                    const host = node.parentElement!;
+                    if (host.scrollWidth > host.clientWidth + 0.5 && getComputedStyle(host).textOverflow === "ellipsis" && host.scrollWidth <= p.width) {
+                        out.push(`"${words}" cut though its panel holds it`);
+                    }
+                }
+                return out;
+            }));
+            expect(faults).toEqual([]);
+        });
+    }
+});

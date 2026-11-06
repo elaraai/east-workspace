@@ -20,7 +20,7 @@
  * up painted two different greens. The buttons now come from the `button`
  * recipe at both scales (rows `xs`, the foot `md`), so they cannot disagree.
  * This recipe keeps what it is actually for: the bar's LAYOUT. Its status
- * takes the room the buttons leave, 192px at least; a bar too narrow for both
+ * takes the room the buttons leave, 192px at least while it says anything; a bar too narrow for both
  * on one line — a phone's table — puts the buttons on a line of their own
  * under it, at its right edge, wrapping them where even that is too narrow,
  * never past the bar's edge.
@@ -54,6 +54,8 @@ export const commitBarSlotRecipe = defineSlotRecipe({
             flexShrink: "1",
             flexBasis: "192px",
             minWidth: "0",
+            /* With nothing to say it asks for no room: the buttons keep their line. */
+            "&:empty": { flexBasis: "0" },
         },
         pending: { color: "fg" },
         btnRow: {
