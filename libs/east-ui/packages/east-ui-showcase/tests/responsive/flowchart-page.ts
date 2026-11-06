@@ -8,7 +8,8 @@
  * that carry its library's cards onto its canvas and save to the e3 the page
  * runs: opening an example at rest, sizing its box, opening its library and
  * a tab of it, picking a card up and carrying it, what the drag's ghost says,
- * dragging a state's card and the lane a card stands in, where a transition's
+ * dragging a state's card — by its middle, or by its key's letters — and the
+ * lane a card stands in, where a transition's
  * line lies, and leaving the page for another e3 page and coming back, its e3
  * kept in memory, so the flowchart mounts afresh over what its record holds;
  * and what is wrong with a phone's window of lanes. Every box is the page's
@@ -266,24 +267,48 @@ export async function carryTo(page: Page, root: Locator, at: { x: number; y: num
 }
 
 /**
+ * The middle of a state's key as its card draws it: its letters, not the room
+ * around them.
+ *
+ * @param card - The state's card
+ * @param key - The state's key
+ * @returns The point, in client px
+ */
+function keyLettersOf(card: Locator, key: string): Promise<{ x: number; y: number }> {
+    return card.evaluate((el, k) => {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        for (let text = walker.nextNode(); text !== null; text = walker.nextNode()) {
+            if (text.textContent?.trim() !== k) continue;
+            const range = document.createRange();
+            range.selectNodeContents(text);
+            const r = range.getBoundingClientRect();
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        }
+        throw new Error(`${k}'s card draws no letters of its key`);
+    }, key);
+}
+
+/**
  * Drag a state's card by the mouse to a point of the canvas, past the move's
  * threshold. The card is hovered first — locator actionability brings it into
  * the page's view and waits for a stable hit target, as `pickUp` does: a pane
  * collapsing, or an earlier drop, can leave it below the window, where raw
- * coordinates reach nothing — then held down and carried past the threshold: the
- * move is in flight, the card faded where it stands. The point is read after
- * — what reads it may scroll the canvas under the carried card first — then
- * carried to once main holds it (`carryTo`).
+ * coordinates reach nothing — then held down, at its middle or on its key's
+ * letters, and carried past the threshold: the move is in flight, the card
+ * faded where it stands. The point is read after — what reads it may scroll
+ * the canvas under the carried card first — then carried to once main holds it
+ * (`carryTo`).
  *
  * @param page - The page
  * @param root - The flowchart's root
  * @param key - The state's key
  * @param to - Reads the point it is carried to, in client px
+ * @param grip - Where the card is held: its middle, or its key's letters, the words its head draws
  */
-export async function dragState(page: Page, root: Locator, key: string, to: () => Promise<{ x: number; y: number }>): Promise<void> {
+export async function dragState(page: Page, root: Locator, key: string, to: () => Promise<{ x: number; y: number }>, grip: "middle" | "key" = "middle"): Promise<void> {
     const card = root.locator(`[data-flowchart-node="${key}"]`);
     await card.hover();
-    const from = middleOf(await boxOf(card));
+    const from = grip === "middle" ? middleOf(await boxOf(card)) : await keyLettersOf(card, key);
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
     await page.mouse.move(from.x + 12, from.y + 12, { steps: 3 });

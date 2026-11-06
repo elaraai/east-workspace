@@ -50,7 +50,10 @@
  *   repeat a transition pulsing it instead; and Del — in the canvas, never in
  *   a field being typed into — deleting the selected state or states with
  *   their transitions, the transition, the decision, or the lane while it
- *   holds no state.
+ *   holds no state. A drag the browser takes the pointer back from lands
+ *   nothing, and the canvas selects no text (the recipe's), so a card's drag
+ *   never turns into the browser's own drag of its words, however often it is
+ *   carried.
  * - **Drops**: where a tab of the library drops, the canvas is one drop cell
  *   of the shared drag layer, on the frame's drop target (`use-drop.ts`): it
  *   works out where a drag rests from its own drawing (`drop.ts`'
@@ -940,9 +943,18 @@ export function FlowchartCanvasView({
             const allowed = over !== null && dup === undefined && canConnect(fromKey, over);
             setDraft(d => (d === null ? d : { ...d, x: q.x, y: q.y, over, allowed, dup }));
         };
-        const up = (): void => {
+        const end = (): void => {
             window.removeEventListener("pointermove", move);
             window.removeEventListener("pointerup", up);
+            window.removeEventListener("pointercancel", cancel);
+        };
+        // The browser took the pointer back — a scroll of its own, say: the transition is let go of, and none is drawn.
+        const cancel = (): void => {
+            end();
+            setDraft(null);
+        };
+        const up = (): void => {
+            end();
             const d = draftRef.current;
             setDraft(null);
             if (!d || d.over === null) return;
@@ -959,6 +971,7 @@ export function FlowchartCanvasView({
         };
         window.addEventListener("pointermove", move);
         window.addEventListener("pointerup", up);
+        window.addEventListener("pointercancel", cancel);
     }, [connectEdit, svgPoint, connectTarget, model, canConnect]);
 
     /**
@@ -991,9 +1004,20 @@ export function FlowchartCanvasView({
             }
             setMoveDrag({ key, x: q.x, y: q.y, ...moveLanding(q) });
         };
-        const up = (): void => {
+        const end = (): void => {
             window.removeEventListener("pointermove", move);
             window.removeEventListener("pointerup", up);
+            window.removeEventListener("pointercancel", cancel);
+        };
+        // The browser took the pointer back — a touch's scroll, a drag of its own: the state stays where it stands, and
+        // the gesture was no move, so the next click on a card selects it.
+        const cancel = (): void => {
+            end();
+            movedRef.current = false;
+            setMoveDrag(null);
+        };
+        const up = (): void => {
+            end();
             const d = moveDragRef.current;
             setMoveDrag(null);
             if (!started || d === null || d.overLane === null) return;
@@ -1017,6 +1041,7 @@ export function FlowchartCanvasView({
         };
         window.addEventListener("pointermove", move);
         window.addEventListener("pointerup", up);
+        window.addEventListener("pointercancel", cancel);
     }, [moveEdit, svgPoint, moveLanding, model]);
 
     // ── render helpers ────────────────────────────────────────────────────

@@ -17,7 +17,9 @@
  *   while a state stands in it, its tooltip saying why), the "+ STATE" ghost, a
  *   state dragged between two cards of a lane, a state double-clicked into its
  *   rename, Duplicate, a handle dragged to a state (the `canConnect` veto, the
- *   in-place drop and a repeat holding as before), and the form's fields.
+ *   in-place drop and a repeat holding as before), and the form's fields. A
+ *   move or a handle's drag that the browser takes the pointer back from lands
+ *   nothing.
  * - **Keys** (R9, D1–D3): a saved state's key is printed, never a field; one
  *   the Flowchart holds is refused in the + STATE editor and in the form; a
  *   new transition's is minted and never drawn; and a new key a state the
@@ -195,6 +197,18 @@ async function drag(el: Element, from: { x: number; y: number }, to: { x: number
     await settle();
 }
 
+/**
+ * A pointer held down on an element at a point of the canvas and moved to another, then taken back by the browser —
+ * its pointer cancelled, as a touch's scroll or the browser's own drag cancels it — and let go there after.
+ */
+async function cancelledDrag(el: Element, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
+    await act(async () => { fireEvent.pointerDown(el, { pointerId: 1, pointerType: "mouse", button: 0, clientX: from.x, clientY: from.y }); });
+    await act(async () => { fireEvent.pointerMove(window, { pointerId: 1, pointerType: "mouse", clientX: to.x, clientY: to.y }); });
+    await act(async () => { fireEvent.pointerCancel(window, { pointerId: 1, pointerType: "mouse" }); });
+    await act(async () => { fireEvent.pointerUp(window, { pointerId: 1, pointerType: "mouse", clientX: to.x, clientY: to.y }); });
+    await settle();
+}
+
 /** Selects something on the canvas, and presses a key in it. */
 async function selectAndPress(c: HTMLElement, target: Element, key: string): Promise<void> {
     await gesture(() => { fireEvent.click(target); });
@@ -329,6 +343,17 @@ describe("each gesture is one step, writing its roles' fields alone in the recor
         expect(pending(c)).toBe(pendingText(1));
         expect(await save()).toEqual([ex.depotStates.name]);
         expect(printStates(await h.read(ex.depotStates))).toBe(printStates(changed(before, { SRD: { ...before.get("SRD")!, phase: "hold", seq: 1.5 } })));
+    });
+
+    test("a move or a handle's drag that the browser takes the pointer back from lands nothing — the card let go of where it stands — nor does the pointer let go after it; the next click on the card selects it", async () => {
+        const { container: c } = await h.mountExample(ex.flowchartDepotEditing);
+        const sorted = centre(c, "SRD"), held = centre(c, "HLD"), cleared = centre(c, "CLR");
+        const links = linkKeys(c);
+        await cancelledDrag(node(c, "SRD")!, sorted, { x: held.x, y: (held.y + cleared.y) / 2 });
+        await cancelledDrag(handle(c, "SRD", "left"), sorted, centre(c, "IND"));
+        expect([pending(c), centre(c, "SRD"), node(c, "SRD")!.style.opacity, linkKeys(c)]).toEqual([pendingText(0), sorted, "1", links]);
+        await gesture(() => { fireEvent.click(node(c, "SRD")!); });
+        expect(node(c, "SRD")!.hasAttribute("data-selected")).toBe(true);
     });
 
     test("a state double-clicked into its editor shows its key fixed — a saved row's key is printed, never a field — and ⏎ writes its label alone (D1)", async () => {

@@ -8,7 +8,8 @@
  * `Flowchart` design spec, in its builder frame (#1245): the root holding the
  * frame and the colours the canvas draws with; the freshness chip's dot (the
  * chip, a toolbar item, is the shared `chip`); the canvas filling main (lane
- * bands, node cards, H/V links), scrolling both ways in its own box; and the
+ * bands, node cards, H/V links), scrolling both ways in its own box and
+ * selecting no text — a drag on it is a gesture — but its editors'; and the
  * 38px derived-count footer in the frame's footer, its rule its own, the
  * shared loading line at its trailing end (#1502). Node cards are 116×40 r6
  * with a mono 12/700 code line and a 10.5px muted label. It has no hover card
@@ -205,11 +206,18 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             position: "relative",
         },
         /* Focusable, so a press inside it takes its keys (Del, #1247); a
-         * press draws no ring — the selection says what Del deletes. */
+         * press draws no ring — the selection says what Del deletes. A drag on
+         * it is a gesture, never a selection of its text, as on the
+         * Schematic's canvas: a card's words selected — by a drag, or by a
+         * double-click into its rename — would turn the next drag begun on
+         * them into the browser's own drag of the words, and the state would
+         * never land. The inline editors' fields keep their text. */
         scroll: {
             position: "absolute",
             inset: 0,
             overflow: "auto",
+            userSelect: "none",
+            "& input": { userSelect: "text" },
             _focus: { outline: "none" },
         },
         /* What main scrolls (R42): a box of the size the canvas is drawn at,

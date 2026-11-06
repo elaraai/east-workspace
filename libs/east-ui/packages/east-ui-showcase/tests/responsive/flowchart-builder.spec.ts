@@ -20,7 +20,9 @@
  *   mounted again over the records, draws what Save committed; its cards draw
  *   their details, so its lanes reach past main, and the canvas is scrolled to
  *   bring each drop's target to main's middle first, as the viewer's scrollbar
- *   brings it there, under a dragged state too;
+ *   brings it there, under a dragged state too; and a state carried by its
+ *   key's letters (`flowchartDepotEditing`) lands however often it is carried,
+ *   no carry selecting any text;
  * - **the host's props** (`flowchartDepotTopDown`): the host hears a state, a
  *   transition and a decision selected and a path ⌥-clicked; the minimap is
  *   drawn over the canvas, inside main, framed as the recipe frames it, and
@@ -203,6 +205,38 @@ test.describe("The depot's records on the e3 the page runs (#1251, #1503, FB39)"
         await expect.poll(async () => [await laneOf(again, desk), await laneOf(again, "LDD")]).toEqual(["sort", "sort"]);
         expect(await lineOf(again, "l5")).toEqual(["5 4", await inkOf(page, "status-info")]);
         await expect(saveOf(again)).toBeDisabled();
+    });
+
+    test("a state carried by its key's letters lands however often it is carried — into another lane, back, and again after an Undo — and no carry selects any text", async ({ page }) => {
+        const { root } = await openFlowchart(page, "flowchartDepotEditing");
+        await sizeTo(page, root, 900);
+        const pending = root.locator("[data-flowchart-pending]");
+        // What the page has selected: a drag over the canvas is a gesture, never a selection of its words, which the
+        // next drag begun on them would carry as the browser's own drag, the state never landing.
+        const selected = () => page.evaluate(() => getSelection()?.toString() ?? "");
+        // Into a lane, at the card's height, in the part of its band main shows: the canvas scrolled across under the
+        // carried card till the lane stands in main's middle, then read.
+        const into = (key: string, lane: string) => async () => {
+            await centreInMain(page, root, middleOf(await boxOf(root.locator(`[data-flowchart-band='${lane}']`))));
+            const [card, band, main] = await boxesOf(root, [`[data-flowchart-node='${key}']`, `[data-flowchart-band='${lane}']`, "[data-frame-slot='main']"]);
+            const left = Math.max(band!.x, main!.x), right = Math.min(band!.x + band!.width, main!.x + main!.width);
+            return { x: (left + right) / 2, y: card!.y + card!.height / 2 };
+        };
+        expect(await laneOf(root, "SRD")).toBe("sort");
+        await dragState(page, root, "SRD", into("SRD", "hold"), "key");
+        await expect.poll(() => laneOf(root, "SRD")).toBe("hold");
+        await expect(pending).toHaveText(" · 1 pending");
+        expect(await selected(), "the carry selects nothing").toBe("");
+        // Carried back by its key's letters: it lands.
+        await dragState(page, root, "SRD", into("SRD", "sort"), "key");
+        await expect.poll(() => laneOf(root, "SRD")).toBe("sort");
+        // Undo puts it back in Hold; carried once more, it lands in Sort again.
+        await root.getByRole("button", { name: "Undo", exact: true }).click();
+        await settled(page);
+        await expect.poll(() => laneOf(root, "SRD")).toBe("hold");
+        await dragState(page, root, "SRD", into("SRD", "sort"), "key");
+        await expect.poll(() => laneOf(root, "SRD")).toBe("sort");
+        expect(await selected(), "no carry selects anything").toBe("");
     });
 });
 
