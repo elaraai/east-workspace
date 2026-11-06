@@ -4,12 +4,14 @@
  */
 
 /**
- * The cells that step in place (`Record - DX Proposal.md` §4, P2, K2–K4): a
- * cycle walks its register's members in their order, a toggle and a boolean
- * flip. A click, Space or ⏎ takes the next state and ⇧ the one before; ⌫
- * sets a cycle's first member; a key that is a member's label, key or alias
- * sets that member at once. They never open an editor. The machine asks for
- * a cell's next state by its kind, so the gesture is the shared grid's,
+ * How a cell edits by its kind, where a host draws the grid (`Record - DX
+ * Proposal.md` P2–P4, K2–K4). The cells that step in place: a cycle walks
+ * its register's members in their order, a toggle and a boolean flip. A
+ * click, Space or ⏎ takes the next state and ⇧ the one before; ⌫ sets a
+ * cycle's first member; a key that is a member's label, key or alias sets
+ * that member at once. They never open an editor. A title edits out of place:
+ * a click, ⏎ or F2 opens it where the host edits it, never in the cell. The
+ * machine asks by the cell's kind, so the gesture is the shared grid's,
  * whatever draws it.
  *
  * @packageDocumentation
@@ -32,6 +34,17 @@ export type SheetStep = 1 | -1 | "first";
  */
 export function stepsInPlace(meta: SheetColumnMeta | undefined): boolean {
     return meta?.kind === "cycle" || meta?.kind === "toggle" || meta?.kind === "boolean";
+}
+
+/**
+ * Whether a column's cells edit out of place: the host opens them where it
+ * edits them, and no editor, typing, paste or clear reaches them in the grid.
+ *
+ * @param meta - The column
+ * @returns Whether its cell is a title
+ */
+export function editsOutOfPlace(meta: SheetColumnMeta | undefined): boolean {
+    return meta?.kind === "title";
 }
 
 /**

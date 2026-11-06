@@ -91,7 +91,7 @@
  * decisions and the inserts at it — and the seams offer no chips.
  */
 
-import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type ComponentType, type CSSProperties, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { SortedSet, StringType, StructType, compareFor, equalFor, fromEastTypeValue, isVariant, none, parseFor, printFor, some, variant, type EastType, type PatchPath, type ValueTypeOf, type option } from "@elaraai/east";
 import { Sheet, SheetBatchReadinessType, SheetDraftFieldType } from "@elaraai/e3-ui/internal";
@@ -101,19 +101,19 @@ import {
     type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, type LandingAttributes, historyToolbarItem, historyShortcut, takeKey,
     type ToolbarItem,
 } from "@elaraai/east-ui-components";
-import { DensityProvider, useDensityHeights, VirtualRows, devicePixels, kindOfIssue, recordSliceNoun, recordSliceWithinAt, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { DensityProvider, useDensityHeights, VirtualRows, devicePixels, kindOfIssue, recordSliceNoun, recordSliceWithinAt, type PlaceholderKind, type RowsViewport, type SlotStyles, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { SeekQueryType } from "@elaraai/east-ui";
 import { EditingIssueType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import {
     BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NEW_LINE_KEY, NULL_CELL, TITLE_KEY,
     blankIdOf, bodyIndexOfId, buildBody, buildLensBody, cellIsBlank, cellText, countNoun, densityOf, drawnPx, driverKeyOf, groupBandPx, indexColumns, indexGroup, indexRegisters, isLooseRow, isRowSpace, itemPx,
     latencyOf, layoutLensRun, layoutRun, lineAddress, lineId, lineRowsOf, parseWidth, resolveMember as resolveRegisterMember, rowIsBlank, segmentOf, stickyRows, withLine, withProposals, withoutLines,
-    type LineGroup, type SheetBodyItem, type SheetColumnIndex, type SheetColumnMeta, type SheetGeometry,
+    type LineGroup, type SheetBodyItem, type SheetColumnIndex, type SheetColumnMeta, type SheetGeometry, type SheetRegisterIndex,
 } from "./model.js";
 import { SHEET_PAGE_SIZE, useSheetPaging, type SheetViewport } from "./paging.js";
 import { placeInOrder } from "./placement.js";
 import { keyOrderOf } from "./key-order.js";
-import { clearNarrowing, narrowingEqual, narrowingOf, narrowingQuery, narrowingScope, sheetViewsEqual, writeNarrowing, writeSheetViews } from "./view-state.js";
+import { clearNarrowing, clearSearch, narrowingEqual, narrowingOf, narrowingQuery, narrowingScope, sheetViewsEqual, writeNarrowing, writeSheetViews } from "./view-state.js";
 import { useRecordViewCounts } from "./use-record-view-counts.js";
 import { NOT_PERSISTED, persistedOf, sameAnchor, sameFolds, type SheetAnchor, type SheetPersisted } from "./persisted.js";
 import { useSheetSeek, type SheetSeekNarrowing } from "./use-seek.js";
@@ -161,7 +161,8 @@ import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
 import { SheetRow, SheetRunRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry, namesMember, type SheetRowAction } from "./Rows.js";
 import { NUMBER_PX, gutterFolds, gutterWidths } from "./gutter.js";
-import { SheetCellContent } from "./cells/Cell.js";
+import { SheetCellContent, type LinkCellContext } from "./cells/Cell.js";
+import { editsOutOfPlace, keyedCell, stepCell, stepsInPlace } from "./steps.js";
 import { actionCell, actionColumnOf, canTake, caseOf, offerOf, verbOf, type ActionCase } from "./actions/model.js";
 import { createActionStore, type SheetActionHost } from "./actions/host.js";
 import { ActionForm, ActionMenu, type ActionOverlayState } from "./actions/ActionOverlay.js";
@@ -607,6 +608,112 @@ export interface SheetHost {
      * `undefined` for a cell its form has no field for, the strip shows.
      */
     cellEditor?: ((at: SheetCellEditorAt) => ReactNode | undefined) | undefined;
+    /**
+     * What draws the grid's rows and header in the Sheet's place (#1531) — the Record's, in the Table's anatomy, over
+     * the Sheet's one machine, session and lens. Such a grid opens with no ring, which a press or the first move key
+     * places; its cycles, toggles and booleans step in place, and a title opens through `onOpen`; its strip shows the
+     * cell under the pointer, and the ring's once the pointer leaves; and it has no gutter — no row numbers, seams,
+     * insertion strip or padding under the rows. Absent, the Sheet draws its own.
+     */
+    grid?: SheetGridHost | undefined;
+}
+
+/** What a row's drafts changed against what the record holds (#1531): whether it is new, and the columns whose cells differ. */
+export interface SheetRowChanges {
+    /** A new row, never applied. */
+    added: boolean;
+    /** The columns, by key, whose cells differ from what the record holds — none on a new row. */
+    dirty: ReadonlySet<string>;
+}
+
+/**
+ * A row-space row a host draws ({@link SheetGridHost.Row}, #1531): its cells, the ring's column, the range, the open
+ * editor and its draft, with the Sheet's own pointer calls — so a press, a double press and a hover are the Sheet's
+ * gestures, whatever draws them.
+ */
+export interface SheetHostRowProps {
+    /** The sheet recipe's slot styles: what a cell's content draws with. */
+    styles: Styles;
+    /** Its row-space index. */
+    r: number;
+    /** The row; `undefined` for a blank padding row. */
+    row: SheetRowValue | undefined;
+    /** The columns the grid draws. */
+    columns: SheetColumnIndex;
+    /** The registers, by name. */
+    registers: SheetRegisterIndex;
+    /** The driver column's key: a quantity's unit is its driver member's. */
+    driverColumn: string | undefined;
+    /** The rows' tracks: the host's lead, where it has one, then each column's. */
+    gridTemplate: string;
+    /** Its height, px, the rule included. */
+    rowPx: number;
+    /** The grid's id: a cell's id is `{idPrefix}-{r}-{c}`, what the grid names as its active cell. */
+    idPrefix: string;
+    /** Its place among the grid's rows, the header first. */
+    ariaRowIndex: number | undefined;
+    /** The ring's column on the ring's row; `undefined` elsewhere, and while no ring is placed. */
+    selC: number | undefined;
+    /** The range's columns on a row inside it. */
+    range: { c0: number; c1: number } | undefined;
+    /** The open editor on its row: its column, and the element laid over the cell. */
+    editor: { c: number; node: ReactNode } | undefined;
+    /** How its draft presents. */
+    draft: DraftPresentation | undefined;
+    /** What its drafts changed; `undefined` for a row no gesture has touched. */
+    changes: SheetRowChanges | undefined;
+    /** Whether a gesture may be made now: the sheet writable, and its session taking one. */
+    writable: boolean;
+    /** A link cell's halves, vocabulary and flags. */
+    linkCtx: (row: SheetRowValue | undefined, meta: SheetColumnMeta) => LinkCellContext | undefined;
+    /** What its action cells ask of the sheet; absent with no action column. Stable. */
+    actions: SheetActionHost | undefined;
+    onCellDown: (r: number, c: number, e: MouseEvent) => void;
+    onCellDouble: (r: number, c: number) => void;
+    onCellEnter: (r: number, c: number) => void;
+}
+
+/** The header a host draws over its rows ({@link SheetGridHost.Header}, #1531). */
+export interface SheetHostHeaderProps {
+    /** The columns the grid draws. */
+    columns: readonly SheetColumnMeta[];
+    /** The rows' tracks: the host's lead, where it has one, then each column's. */
+    gridTemplate: string;
+    /** A row's height, px: the header row's. */
+    rowPx: number;
+    /** The rows shown, by id: the resident rows, in order. */
+    rowIds: readonly string[];
+}
+
+/** What a host shows when the narrowing leaves no row to show ({@link SheetGridHost.Empty}, #1531). */
+export interface SheetHostEmptyProps {
+    /** The rail's search narrows the rows — else its filters alone. */
+    query: boolean;
+    /** Clears what narrows them: the search, else the filters. */
+    onClear: () => void;
+}
+
+/**
+ * A host's grid ({@link SheetHost.grid}, #1531): its rows' pitch and lead, and what draws its rows, its header and,
+ * when the narrowing leaves nothing to show, its empty state — over the Sheet's machine, session, lens and paging.
+ */
+export interface SheetGridHost {
+    /** A row's height, px, the rule included: the host's density's. */
+    rowPx: number;
+    /** The lead track before the columns, px — a Record's select column; `0` for none. */
+    leadPx: number;
+    /** What a run of rows not drawn yet shows in the lead track: a select column's box. */
+    leadRun: PlaceholderKind;
+    /** The slot styles a run of rows not drawn yet draws with — `run`, `runRow`, `runGutter` (the lead), `runCell`, `runActionCell`. */
+    runStyles: SlotStyles;
+    /** Draws a row-space row. */
+    Row: ComponentType<SheetHostRowProps>;
+    /** Draws the header over the rows: it sticks with them. */
+    Header: ComponentType<SheetHostHeaderProps>;
+    /** Shown under the header when the narrowing leaves no row to show; absent, nothing is. */
+    Empty?: ComponentType<SheetHostEmptyProps> | undefined;
+    /** A press, ⏎ or F2 on a cell that edits out of place — a title: the host opens it where it edits it. */
+    onOpen?: ((r: number, columnKey: string) => void) | undefined;
 }
 
 /** The cell a phone's bottom container edits ({@link SheetHost.cellEditor}). */
@@ -713,6 +820,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // when it would hide them all.
     const allColumns = useMemo(() => indexColumns(value.columns), [value.columns]);
     const hidden = host.hidden;
+    // A host draws the grid (#1531): its rows at its pitch, its lead before the columns, no gutter.
+    const hostGrid = host.grid;
     // The frame's width: inside it (`clientWidth`), the view a sub row's well
     // keeps its content to; its box (`offsetWidth`, which no scrollbar of its
     // own changes), what decides whether the gutter folds (#1215).
@@ -720,8 +829,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const [framePx, setFramePx] = useState<number | undefined>(undefined);
     // A phone's frame (`Mobile Sheet Spec.md`): 560 wide or less — a frame not laid out yet (0 wide) is none. The
     // columns are a window the pager pages (SH1), no gutter (R5); the column the sheet's `narrow.pin` names, where it names
-    // one the grid draws, leads the row pinned at the left (SH4) — none by default (ruled 3 Nov 2026).
-    const phoneFrame = framePx !== undefined && framePx > 0 && framePx <= 560;
+    // one the grid draws, leads the row pinned at the left (SH4) — none by default (ruled 3 Nov 2026). A host's grid is
+    // never one (#1531): it keeps its lead and its columns at every width, its rows scrolling sideways under the lead.
+    const phoneFrame = hostGrid === undefined && framePx !== undefined && framePx > 0 && framePx <= 560;
     const narrow = useMemo(() => getSomeorUndefined(value.narrow), [value.narrow]);
     const pinKey = narrow === undefined ? undefined : getSomeorUndefined(narrow.pin);
     const columns = useMemo(() => {
@@ -761,8 +871,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // narrowing's rows landed (#1398, CL8). On the grid each one measures as it was laid out, and rows land where their
     // placeholders stood.
     const densityRow = useDensityHeights(size).row;
-    // A phone's rows (SH5): 44 on a coarse pointer, 32 on a fine one, whatever the density — the rule included.
-    const rowPx = devicePixels(phoneFrame ? (coarse ? 44 : 32) : Math.max(densityRow, coarse ? 45 : 0));
+    // A phone's rows (SH5): 44 on a coarse pointer, 32 on a fine one, whatever the density — the rule included. A host's
+    // grid, its own pitch (#1531).
+    const rowPx = devicePixels(phoneFrame ? (coarse ? 44 : 32) : Math.max(hostGrid?.rowPx ?? densityRow, coarse ? 45 : 0));
     const bandPx = devicePixels(phoneFrame ? PHONE_BAND_PX : Math.max(groupBandPx(size), coarse ? 46 : 42));
     // A sub row's least height; a wrapping detail grows it, and the rows are measured.
     const subRowPx = devicePixels(30);
@@ -799,9 +910,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // Touch targets fit in separate lanes; row heights include their seam borders.
     const fullGutterPx = Math.max(parseWidth(style !== undefined ? getSomeorUndefined(style.gutterWidth) : undefined) ?? DEFAULT_GUTTER_PX, least.fine, coarse ? least.coarse : 0);
     // A frame too narrow for the touch gutter beside the first column folds it: one row-actions button holds each row's actions (#1215).
-    const folded = gutterFolds(framePx, coarse, fullGutterPx, columns.list[0]?.width);
+    const folded = hostGrid === undefined && gutterFolds(framePx, coarse, fullGutterPx, columns.list[0]?.width);
     // A phone's frame has no gutter (R5): its rows are picked by their pinned cell, and their actions are the Inspector's.
-    const gutterPx = phoneFrame ? 0 : folded ? least.folded : fullGutterPx;
+    // A host's grid has none either (#1531): its lead stands there — a Record's select column — where it has one.
+    const gutterPx = phoneFrame ? 0 : hostGrid !== undefined ? hostGrid.leadPx : folded ? least.folded : fullGutterPx;
     // A phone's window (SH1.4): the frame's width less any pinned column, shared by the columns in view — as many as
     // the sheet's `narrow.columns` says, else two.
     const narrowColumns = narrow === undefined ? undefined : getSomeorUndefined(narrow.columns);
@@ -821,8 +933,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         }
         const tracks = columns.list.map((c, i) => (i === columns.list.length - 1 ? `minmax(${c.width}px, 1fr)`
             : c.kind === "text" ? `minmax(${c.width}px, ${Math.round(c.width * 2.5)}px)` : `${c.width}px`));
-        return `${gutterPx}px ${tracks.join(" ")}`;
-    }, [gutterPx, columns, phoneFrame, slotPx, pinned, rowNumbers]);
+        // A host's grid with no lead has no lead track (#1531).
+        return hostGrid !== undefined && gutterPx === 0 ? tracks.join(" ") : `${gutterPx}px ${tracks.join(" ")}`;
+    }, [gutterPx, columns, phoneFrame, slotPx, pinned, rowNumbers, hostGrid]);
     // The columns a phone's pager pages: every one but a pinned one; and what it pages, the Row column before them while it shows.
     const pagedColumns = useMemo(() => (pinned ? columns.list.slice(1) : columns.list), [columns, pinned]);
     const pagerColumns = useMemo((): readonly SheetPagerColumn[] => {
@@ -947,7 +1060,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const first = decodedRows?.[0];
         const firstFolded = first !== undefined && (restoredFolds?.get(first.id) ?? getSomeorUndefined(first.band)?.folded === true);
         const r = group !== undefined ? (first !== undefined && !isLooseRow(first) && !firstFolded ? 1 + first.lines.length : 0) : decodedRows?.length ?? 0;
-        return initialSheetStore({ r, c }, opening, restoredFolds);
+        // A host's grid opens with no ring (#1531): a press, or the first move key, places it.
+        return initialSheetStore({ r, c }, opening, restoredFolds, hostGrid !== undefined);
     });
     const ui = store.ui;
     const folds = ui.folds;
@@ -1077,6 +1191,28 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
     }, [session, draftType, childField, readiness, draftVersion, words]);
+    // What a row's drafts changed against what the record holds (#1531), for a host's rows: derived once per session
+    // change and per rows, so between changes a row keeps it by identity and its memo holds.
+    const changesOf = useMemo(() => {
+        const byId = new Map<string, SheetRowChanges | null>();
+        return (id: string, row: SheetRowValue): SheetRowChanges | undefined => {
+            const held = byId.get(id);
+            if (held !== undefined) return held ?? undefined;
+            const began = session.originals.get(id);
+            let found: SheetRowChanges | null = null;
+            if (began !== undefined && session.entries.get(id)?.draft !== undefined) {
+                if (began.draft === undefined) found = { added: true, dirty: NOTHING };
+                else {
+                    const dirty = new Set<string>();
+                    for (const [key, cell] of row.cells) if (!cellEqual(began.wire?.cells.get(key) ?? NULL_CELL, cell)) dirty.add(key);
+                    found = { added: false, dirty };
+                }
+            }
+            byId.set(id, found);
+            return found ?? undefined;
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session; the rows, what a change is read against.
+    }, [session, draftVersion, sourceRows, layer]);
     // Temporary writes within one reducer effect batch; the transaction session
     // publishes the completed gesture and owns the rendered layer thereafter.
     const layerRef = useRef(layer);
@@ -1343,9 +1479,17 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             if (it.kind === "blank" && !canInsertRows) return false;
             // An action column is written by its actions alone (T7): typed into, pasted over and cleared never.
             if (!meta.editable || meta.kind === "stamped" || meta.kind === "action") return false;
+            // A cell that steps in place is a control, as an action cell is (#1531): an owned row's takes no step (T9).
+            if (hostGrid !== undefined && stepsInPlace(meta) && (it.kind === "real" || it.kind === "group") && it.row.owned) return false;
             return true;
         },
         kindAt: (r, c) => metaAt(r, c)?.kind ?? "text",
+        // A host's grid (#1531): its cycles, toggles and booleans step in place, its titles open where the host edits
+        // them, and its strip shows the cell under the pointer.
+        stepAt: hostGrid === undefined ? undefined : (r, c, step) => stepCell(metaAt(r, c), cellAt(r, c), registers, step),
+        keyAt: hostGrid === undefined ? undefined : (r, c, key) => keyedCell(metaAt(r, c), key, registers),
+        opensAt: hostGrid === undefined ? undefined : (r, c) => editsOutOfPlace(metaAt(r, c)),
+        previewsHover: hostGrid !== undefined,
         parse: (r, c, text) => {
             const meta = metaAt(r, c);
             if (meta === undefined) return { kind: "unrecognised" };
@@ -1438,7 +1582,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 group: g.lines.filter((l) => l.subRows.length > 0).map((l) => lineId(g.id, l.key)),
             };
         },
-    }), [rowCount, colCount, lensDrawn, exhausted, canEdit, canInsertRows, editingState.available, group, declaredNoun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, memberAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, narrowing, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, lensEnds, pageRows]);
+    }), [rowCount, colCount, lensDrawn, exhausted, canEdit, canInsertRows, editingState.available, group, declaredNoun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, memberAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, narrowing, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, lensEnds, pageRows, hostGrid, registers]);
     const ctxRef = useRef(ctx);
     ctxRef.current = ctx;
     const uiRef = useRef(ui);
@@ -1958,6 +2102,13 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 case "gesture.end":
                     recordSoFar();
                     break;
+                case "open": {
+                    // A cell that edits out of place (#1531): the host opens it once this commit is drawn, as `onSelect` is told of a move.
+                    const key = columns.list[eff.c]?.key;
+                    const onOpen = hostGrid?.onOpen;
+                    if (key !== undefined && onOpen !== undefined) queueMicrotask(() => onOpen(eff.r, key));
+                    break;
+                }
                 case "insert.rows": {
                     let afterR = eff.anchorR;
                     let lastId: string | undefined;
@@ -1984,7 +2135,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     for (let r = eff.r0; r <= eff.r1; r++) {
                         for (let c = eff.c0; c <= eff.c1; c++) {
                             const meta = metaAt(r, c);
-                            if (meta === undefined || meta.kind === "stamped" || meta.kind === "action" || !meta.editable || !canEdit) continue;
+                            // A cell that edits out of place is cleared where it edits, never in the grid (#1531).
+                            if (meta === undefined || meta.kind === "stamped" || meta.kind === "action" || editsOutOfPlace(meta) || !meta.editable || !canEdit) continue;
                             if (cellIsBlank(cellAt(r, c))) continue;
                             writes.push({ r, c, cell: NULL_CELL });
                         }
@@ -2040,8 +2192,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     for (const p of laid.cells) {
                         const meta = columns.list[p.c];
                         if (meta === undefined) continue;
-                        // An action cell takes no paste (T7).
+                        // An action cell takes no paste (T7); a cell that edits out of place takes it where it edits (#1531).
                         if (meta.kind === "action") { actions += 1; continue; }
+                        if (editsOutOfPlace(meta)) { skipped += 1; continue; }
                         const r = eff.r + p.dr;
                         const outcome = parseCell(meta, p.text, parseCtxFor(Math.min(r, blankR ?? r), meta));
                         const cell = outcome.kind === "unrecognised" ? variant("Invalid", p.text) : outcome.kind === "cell" ? outcome.cell : NULL_CELL;
@@ -2178,7 +2331,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             }
         }
         recordSoFar();
-    }, [recordGesture, failed, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo]);
+    }, [recordGesture, failed, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo, hostGrid]);
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
         if (store.fxSeq === drainedFx.current) return;
@@ -2387,6 +2540,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [dispatch, ringGesture]);
     const onCellDouble = useCallback((r: number, c: number) => { ringGesture(); dispatch({ t: "cell.dbl", r, c }); }, [dispatch, ringGesture]);
     const onCellEnter = useCallback((r: number, c: number) => dispatch({ t: "cell.enter", r, c, dragging: dragging.current }), [dispatch]);
+    // The pointer leaving a host's grid (#1531): no cell is hovered, and its strip returns to the ring's cell.
+    const onGridLeave = useCallback(() => dispatch({ t: "cell.leave" }), [dispatch]);
     const onRowPick = useCallback((r: number, e: MouseEvent) => {
         if (e.button !== 0) return;
         e.preventDefault();
@@ -2418,7 +2573,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         if (meta && (e.key === "c" || e.key === "v" || e.key === "x" || e.key === "a")) return;
         // ⏎ on an action cell takes the offer's first case (K2): a button at once, a choice's Menu, a form's Popover.
         const single = store.ui.selEnd === null || (store.ui.selEnd.r === store.ui.sel.r && store.ui.selEnd.c === store.ui.sel.c);
-        if (e.key === "Enter" && !e.shiftKey && !meta && !e.altKey && single) {
+        if (e.key === "Enter" && !e.shiftKey && !meta && !e.altKey && single && !store.ui.ringless) {
             const at = ctxRef.current.kindAt(store.ui.sel.r, store.ui.sel.c) === "action" ? columns.list[store.ui.sel.c] : undefined;
             if (at !== undefined) {
                 takeKey(e);
@@ -2455,11 +2610,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             && sheetReducer(uiRef.current, event, ctxRef.current).effects.some((fx) => fx.t === "seek.step" || fx.t === "seek.edge");
         ringGesture(seeks);
         dispatch(event);
-    }, [dispatch, store.ui.edit, store.ui.sel.r, store.ui.sel.c, store.ui.selEnd, columns, onHistoryAction, onInsert, ringGesture, phoneFrame, slotPx, pagerColumns, phoneColumns]);
+    }, [dispatch, store.ui.edit, store.ui.sel.r, store.ui.sel.c, store.ui.selEnd, store.ui.ringless, columns, onHistoryAction, onInsert, ringGesture, phoneFrame, slotPx, pagerColumns, phoneColumns]);
     // A band never copies (G9): a whole-group selection copies its lines.
     const isBandRow = useCallback((r: number) => { const k = rowAt(r)?.kind; return k === "group"; }, [rowAt]);
     const onCopy = useCallback((e: ClipboardEvent<HTMLDivElement>) => {
-        if (store.ui.edit !== null) return;
+        // With no ring placed, nothing is selected to copy (#1531).
+        if (store.ui.edit !== null || store.ui.ringless) return;
         e.preventDefault();
         const rect = selectionRect(store.ui);
         e.clipboardData.setData("text/plain", exportMatrix(cellAt, columns.list, rect, words, isBandRow));
@@ -3135,10 +3291,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [edit, ui.sugg, ctx, columns, nextTarget, words]);
 
     // The resting ring's cell detail (#844): the wanted date behind one that has happened, a column's detail text (with an enum member's own meta beside it).
+    // On a host's grid, the cell under the pointer's, else the ring's once it is placed (#1531).
+    const previewed = hostGrid !== undefined && ui.hover !== null ? ui.hover : ui.ringless ? undefined : ui.sel;
     const detail = useMemo(() => {
-        if (edit !== null || ui.selEnd !== null) return undefined;
-        const meta = metaAt(ui.sel.r, ui.sel.c);
-        const it = rowAt(ui.sel.r);
+        if (edit !== null || ui.selEnd !== null || previewed === undefined) return undefined;
+        const meta = metaAt(previewed.r, previewed.c);
+        const it = rowAt(previewed.r);
         if (meta === undefined || it === undefined || it.kind !== "real") return undefined;
         const d = cellDetail(meta, it.row.cells, words);
         if (d === undefined) return undefined;
@@ -3146,7 +3304,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const member = meta.kind === "enum" && cell !== undefined && cell.type === "String" ? resolveRegisterMember(registers, meta.register, cell.value) : undefined;
         const memberMeta = member !== undefined ? getSomeorUndefined(member.meta) ?? "" : "";
         return { label: meta.header.toUpperCase(), chips: d.chips, meta: d.meta !== "" ? d.meta : memberMeta, keys: words.m.stripKeysDetail({ date: meta.kind === "date" }) };
-    }, [edit, ui.selEnd, ui.sel, metaAt, rowAt, registers, words]);
+    }, [edit, ui.selEnd, previewed, metaAt, rowAt, registers, words]);
     const strip = useMemo(() => {
         if (edit === null || editMeta === undefined) return buildStrip({ edit: null, meta: undefined, candidates: undefined, words, today, baseDate: undefined, unit: undefined, customPreview: undefined, suggested, detail });
         const pctx = parseCtxFor(edit.r, editMeta);
@@ -3232,7 +3390,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             : Math.max(total ?? 0, endPosition) + blankRows + 1;
     const ringItem = rowAt(ui.sel.r);
     const ringCol = ringItem?.kind === "group" && group !== undefined && (ui.sel.c < group.titleSpan || !group.cells.has(columns.list[ui.sel.c]?.key ?? "")) ? 0 : ui.sel.c;
-    const activeCell = ringItem !== undefined && colCount > 0 ? `${gridId}-${ui.sel.r}-${ringCol}` : undefined;
+    const activeCell = !ui.ringless && ringItem !== undefined && colCount > 0 ? `${gridId}-${ui.sel.r}-${ringCol}` : undefined;
     // What a keyboard move's reveal reads (below): the ring's cell, and the column it sits under.
     const ringCellRef = useRef<{ id: string | undefined; col: number }>({ id: undefined, col: 0 });
     ringCellRef.current = { id: activeCell, col: ringCol };
@@ -3571,8 +3729,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const [insertPreview, setInsertPreview] = useState<{ r: number; kind: "row" | "group"; side: "gutter" | "body" } | undefined>(undefined);
     const canInsert = canEdit && editingState.available && (canInsertRows || canInsertGroups);
     // A drag in flight owns the gutter: no seam offers its chips under it — nor
-    // does a folded gutter, whose rows' menus hold the inserts (#1215).
-    const seamsOn = canInsert && !dragActive && !folded;
+    // does a folded gutter, whose rows' menus hold the inserts (#1215), nor a
+    // host's grid, which has no gutter (#1531).
+    const seamsOn = canInsert && !dragActive && !folded && hostGrid === undefined;
     /** What the seam above row `r` offers, and what each chip previews. */
     const insertActions = useCallback((r: number, side: "gutter" | "body"): InsertionActions => {
         const anchor = anchorFor(r, "before");
@@ -3996,7 +4155,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 return { on: true, label: words.m.actionStripLabel({ verb: verbOf(c), name }), chips: [{ key: "v", label: text, on: false, flat: true, title: text }], meta: "", keys: "" };
             }
             const ringMeta = metaAt(ui.sel.r, ui.sel.c);
-            if (ui.selEnd !== null || ringMeta?.kind !== "action") return undefined;
+            if (ui.ringless || ui.selEnd !== null || ringMeta?.kind !== "action") return undefined;
             const a = actionAt(ui.sel.r, ringMeta.key);
             if (a === undefined) return undefined;
             const offer = offerOf(a.column, a.cell, canEdit && editingState.available ? wireContextFor(ui.sel.r) : undefined);
@@ -4048,7 +4207,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // place, opened by a tap on that cell — never on a row's other cells — and ⌄ closed until the ring moves.
     const ringColumn = columns.list[ui.sel.c];
     const barClosed = barClosedAt !== undefined && barClosedAt.r === ui.sel.r && barClosedAt.c === ui.sel.c;
-    const barKey = phoneFrame && ui.selEnd === null && ringColumn?.kind === "action" && !barClosed ? ringColumn.key : undefined;
+    const barKey = phoneFrame && !ui.ringless && ui.selEnd === null && ringColumn?.kind === "action" && !barClosed ? ringColumn.key : undefined;
     const barRow = barKey !== undefined ? actionAt(ui.sel.r, barKey) : undefined;
     // The bar's head names the step's group too — `WO-1042 · step 20` — as nothing else on a phone's screen may (X5; F17 of the hand test).
     const barHeadOf = (r: number, key: string) => {
@@ -4092,7 +4251,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const ringRow = rowAt(ui.sel.r);
     const ringR = ui.sel.r;
     const ringC = ui.sel.c;
-    const cellEditor = !phoneFrame || hostEditor === undefined || ui.selEnd !== null || barClosed || readOnly || ringMeta === undefined
+    const cellEditor = !phoneFrame || hostEditor === undefined || ui.ringless || ui.selEnd !== null || barClosed || readOnly || ringMeta === undefined
         || !ringMeta.editable || ringMeta.kind === "action" || ringMeta.kind === "stamped" || (ringRow?.kind !== "real" && ringRow?.kind !== "group") ? undefined
         : hostEditor({ r: ringR, columnKey: ringMeta.key, band: ringRow.kind === "group", name: rowActionName(ringR), onClose: () => setBarClosedAt({ r: ringR, c: ringC }) });
     // What the runs of the optimiser left on each row (#1409, R25), by the row's id — a line's by its line id — while the
@@ -4106,9 +4265,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         // A run of rows not drawn yet (#1398, CL2): an unloaded run, a stretch the lens reads, or a failed window.
         if (item.kind === "band" || item.kind === "failed") {
             return (
-                <SheetRunRow styles={styles} band={item.kind === "band" ? item.band : undefined} failure={item.kind === "failed" ? item.failure : undefined}
+                <SheetRunRow styles={hostGrid?.runStyles ?? styles} band={item.kind === "band" ? item.band : undefined} failure={item.kind === "failed" ? item.failure : undefined}
                     loading={item.kind === "band" && runLoading(item.band)} gridTemplate={gridTemplate} columns={columns} rowPx={rowPx}
-                    bandPx={group !== undefined ? bandPx : undefined} dense={size === "sm"} noun={rowsNoun} onRetry={retryRead} ariaRowIndex={ariaRowIndex} />
+                    bandPx={group !== undefined ? bandPx : undefined} dense={size === "sm"} noun={rowsNoun} onRetry={retryRead} ariaRowIndex={ariaRowIndex}
+                    // A host's grid (#1531): its lead's shape in the lead track, where it has one.
+                    lead={hostGrid === undefined ? undefined : hostGrid.leadPx > 0 ? hostGrid.leadRun : null} />
             );
         }
         if (item.kind === "subRow") {
@@ -4202,6 +4363,38 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 </SheetRowBoundary>
             );
         }
+        // A host draws the row (#1531): the Sheet's gestures, its cells' content and its editor, in the host's anatomy.
+        if (hostGrid !== undefined) {
+            const HostRow = hostGrid.Row;
+            const real = item.kind === "real" ? item.row : undefined;
+            return (
+                <SheetRowBoundary styles={styles} rowPx={rowPx} number={item.position + 1} resetKey={real}>
+                    <HostRow
+                        styles={styles}
+                        r={r}
+                        row={real}
+                        columns={columns}
+                        registers={registers}
+                        driverColumn={driverColumn}
+                        gridTemplate={gridTemplate}
+                        rowPx={rowPx}
+                        idPrefix={gridId}
+                        ariaRowIndex={ariaRowIndex}
+                        selC={!ui.ringless && ui.sel.r === r ? ui.sel.c : undefined}
+                        range={inRangeRow ? rangeCols : undefined}
+                        editor={edit !== null && edit.r === r ? editorAt : undefined}
+                        draft={real !== undefined ? draftOf(real.id) : undefined}
+                        changes={real !== undefined ? changesOf(real.id, real) : undefined}
+                        writable={canEdit && editingState.available}
+                        linkCtx={linkCellCtx}
+                        actions={rowActions}
+                        onCellDown={onCellDown}
+                        onCellDouble={onCellDouble}
+                        onCellEnter={onCellEnter}
+                    />
+                </SheetRowBoundary>
+            );
+        }
         const lg = item.group;
         // A line with sub rows: how many, and whether they hang under it now.
         const subRowCount = item.kind === "real" && lg !== undefined ? lg.row.lines[lg.index]?.subRows.length ?? 0 : 0;
@@ -4261,7 +4454,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             />
             </SheetRowBoundary>
         );
-    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows, marks, rowActions]);
+    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.ringless, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows, marks, rowActions, hostGrid, changesOf, canEdit, editingState.available]);
 
     // ── The inspector's reads and gestures (#1188) ────────────────────────
     // Nothing here reads the source until the inspector pane asks for a
@@ -4334,10 +4527,13 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             presentation: draftOf(entry, child),
         };
     }, [placeAt, structOf, versionOf, session, childField, draftOf]);
-    // What the ring and the range hold: a hover, a key, an editor elsewhere leave it as it is.
+    // What the ring and the range hold: a hover, a key, an editor elsewhere leave it as it is — and nothing before the
+    // ring is placed (#1531).
     const selSel = ui.sel;
     const selEnd = ui.selEnd;
+    const ringless = ui.ringless;
     const selected = useMemo((): SheetSelected => {
+        if (ringless) return { kind: "none" };
         const rect = selectionRect({ sel: selSel, selEnd });
         if (rect.r0 === rect.r1) {
             const place = placeAt(rect.r0);
@@ -4355,7 +4551,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             return place === undefined ? { kind: "none" } : { kind: "one", place };
         }
         return { kind: "several", rs, r0: rect.r0, r1: rect.r1 };
-    }, [selSel, selEnd, rowAt, placeAt]);
+    }, [ringless, selSel, selEnd, rowAt, placeAt]);
     const inspectWrite = useCallback((writes: readonly SheetInspectWrite[], joins?: string) => {
         if (!canEdit || !editingState.available) return;
         gestureEvents.current = [];
@@ -5006,10 +5202,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const stuckLine = stickyLineAt !== undefined && stuck !== undefined && stuck.kind === "real" && stuck.group !== undefined
         ? { at: stickyLineAt, r: rowSpace.rowOf[stickyLineAt] ?? -1, row: stuck.row, lg: stuck.group, hit: stuck.hit, dropRow: dropText(stuck) }
         : undefined;
+    const HostHeader = hostGrid?.Header;
     const header = (
         <Box ref={headerRef} position="relative">
-            <SheetHeader styles={styles} columns={columns.list} gridTemplate={gridTemplate} picked={wr !== null} foldAll={foldAll} rowNumbers={rowNumbers}
-                selected={phoneFrame && ui.selEnd === null && (ringItem?.kind === "real" || ringItem?.kind === "group") ? ringCol : undefined} />
+            {HostHeader !== undefined
+                // A host's header (#1531): its column cells are `headerCell`s, as the Sheet's, which a key's reveal reads.
+                ? <HostHeader columns={columns.list} gridTemplate={gridTemplate} rowPx={rowPx} rowIds={rows.map((row) => row.id)} />
+                : <SheetHeader styles={styles} columns={columns.list} gridTemplate={gridTemplate} picked={wr !== null} foldAll={foldAll} rowNumbers={rowNumbers}
+                    selected={phoneFrame && ui.selEnd === null && (ringItem?.kind === "real" || ringItem?.kind === "group") ? ringCol : undefined} />}
             {stickyItem !== undefined && stickyItem.kind === "group" && group !== undefined && stickyAt !== undefined && (
                 // The band of the group whose lines scroll under the header (G1) — laid over the rows, so the list never moves.
                 // A copy: the band itself is the grid's row (#860).
@@ -5097,6 +5297,13 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             )}
         </Box>
     );
+    // A host's empty state (#1531): under its header, once every row is read and the narrowing leaves none to show.
+    const HostEmpty = hostGrid?.Empty;
+    const searched = narrowing !== undefined && narrowingQuery(narrowing).trim() !== "";
+    const narrowedAll = narrowing !== undefined && emptyNarrowing !== undefined && !narrowingEqual(narrowing, emptyNarrowing);
+    const empty = HostEmpty !== undefined && narrowing !== undefined && narrowedAll && body.length === 0 && cold !== true && !busy
+        ? <HostEmpty query={searched} onClear={() => { if (chrome !== undefined) writeNarrowing(chrome, searched ? clearSearch(narrowing) : clearNarrowing(narrowing)); }} />
+        : undefined;
     // The grid with its strip (SB4): the card — the header, the rows and the
     // insertion layer — the insertion strip, and the strip docked under them.
     const grid = (
@@ -5123,19 +5330,21 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 // CL10): readable and walked by the keys, the frame's main busy, and taking no edit, drag or drop.
                 aria-disabled={standingIn || keyHeld ? true : undefined}
                 aria-rowcount={ariaRowCount}
-                aria-colcount={colCount + 1}
+                aria-colcount={colCount + (hostGrid !== undefined && gutterPx === 0 ? 0 : 1)}
                 aria-multiselectable
                 aria-activedescendant={activeCell}
                 onKeyDown={onKeyDown}
                 onCopy={onCopy}
                 onPaste={onPaste}
+                onMouseLeave={hostGrid !== undefined ? onGridLeave : undefined}
             >
                 <VirtualRows
                     height={undefined}
                     maxHeight={undefined}
                     fillParent
                     header={header}
-                    footer={<Box height={`${BOTTOM_PAD_PX}px`} />}
+                    // A host's grid has no padding under its rows (#1531): its empty state, when it shows one.
+                    footer={hostGrid === undefined ? <Box height={`${BOTTOM_PAD_PX}px`} /> : empty}
                     count={body.length}
                     estimateSize={sizeOf}
                     getItemKey={itemKey}
@@ -5165,7 +5374,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 </Box>
             </Box>
             {/* With rows picked; or, with none, only once a completed read says there are none (#1398, CL13) — never while a paged source is still read. */}
-            {(wr !== null && edit === null || (rows.length === 0 && exhausted)) && canEdit && editingState.available && <SheetInsertStrip styles={styles}
+            {hostGrid === undefined && (wr !== null && edit === null || (rows.length === 0 && exhausted)) && canEdit && editingState.available && <SheetInsertStrip styles={styles}
                 ordered={!keyed || anchorFor(ui.sel.r, "before").child !== undefined}
                 above={canInsertRows ? () => onInsert("row", wr?.r0 ?? ui.sel.r, "before") : undefined}
                 below={canInsertRows && (group === undefined || loose || rows.length > 0) ? () => onInsert("row", wr?.r1 ?? ui.sel.r, "after") : undefined}

@@ -70,6 +70,12 @@ import { actionColumnOf } from "../actions/model.js";
 import { namesMember } from "../Rows.js";
 import type { SheetValue } from "./index.js";
 
+/**
+ * What the inspector reads of its payload: the grid's root, the inspector pane and the record's history — a Sheet's,
+ * or a Record's (#1531), which mounts it over the same parts.
+ */
+export type SheetInspectorValue = Pick<SheetValue, "sheet" | "inspector" | "history">;
+
 /** The inspector pane, decoded: its forms, and the author's own Details. */
 type PaneValue = Extract<SheetValue["inspector"], { type: "some" }>["value"];
 /** One inspector form, decoded: its struct, its fields, the fields its columns write and show, and `encode`. */
@@ -101,8 +107,8 @@ export interface SheetLastCommit {
 
 /** Props of {@link useSheetInspector}. */
 export interface SheetInspectorProps {
-    /** The sheet's payload: its inspector pane, the sheet's registers and editing, and whether it is over a record. */
-    value: SheetValue;
+    /** The payload: its inspector pane, the sheet's registers and editing, and whether it is over a record. */
+    value: SheetInspectorValue;
     /** The names the sheet keeps its viewer's state under. */
     keys: SheetKeys;
     /** The sheet's words. */
@@ -114,7 +120,7 @@ export interface SheetInspectorProps {
 }
 
 /** The host's word for a group, or the sheet's. */
-function nounOf(value: SheetValue, words: SheetWords): string {
+function nounOf(value: SheetInspectorValue, words: SheetWords): string {
     const group = getSomeorUndefined(value.sheet.group);
     return (group !== undefined ? getSomeorUndefined(group.noun)?.singular : undefined) ?? words.m.groupNoun();
 }
@@ -652,7 +658,7 @@ function PhoneTarget({ value, words, hidden, styles, inspect, target, form, noun
 
 /** Props of {@link PhoneField}. */
 interface PhoneFieldProps {
-    value: SheetValue;
+    value: SheetInspectorValue;
     words: SheetWords;
     hidden: ReadonlySet<string>;
     styles: Styles;
@@ -714,7 +720,7 @@ const compareFloats = compareFor(FloatType);
  * @param hidden - The columns this viewer hides
  * @returns The editor for a cell, as `SheetHost.cellEditor` takes it
  */
-export function sheetCellEditor(value: SheetValue, words: SheetWords, hidden: ReadonlySet<string>): (at: SheetCellEditorAt) => ReactNode | undefined {
+export function sheetCellEditor(value: SheetInspectorValue, words: SheetWords, hidden: ReadonlySet<string>): (at: SheetCellEditorAt) => ReactNode | undefined {
     const pane = getSomeorUndefined(value.inspector);
     const noun = nounOf(value, words);
     return (at) => {
@@ -728,7 +734,7 @@ export function sheetCellEditor(value: SheetValue, words: SheetWords, hidden: Re
 
 /** Props of {@link SheetCellEditor}. */
 interface CellEditorProps {
-    value: SheetValue;
+    value: SheetInspectorValue;
     words: SheetWords;
     hidden: ReadonlySet<string>;
     at: SheetCellEditorAt;
@@ -777,7 +783,7 @@ function SheetCellEditor({ value, words, hidden, at, form, field, noun }: CellEd
 
 /** Props of {@link CellEditorField}. */
 interface CellEditorFieldProps {
-    value: SheetValue;
+    value: SheetInspectorValue;
     words: SheetWords;
     hidden: ReadonlySet<string>;
     styles: Styles;

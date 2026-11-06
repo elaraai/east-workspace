@@ -65,11 +65,14 @@ export function persistFolds(s: SheetUiState, views: readonly SheetSavedView[]):
     return changed ? out : views;
 }
 
-/** The narrowing changed underneath: the range and the proposal pick drop, and the ring returns to the top. */
+/**
+ * The narrowing changed underneath: the range and the proposal pick drop, and the ring returns to the top — a ring not
+ * placed yet stays unplaced, and reports nothing (#1531).
+ */
 export function narrowed(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     const sel = clamp({ r: 0, c: s.sel.c }, ctx);
     const effects: SheetEffect[] = [];
-    if (!same(sel, s.sel)) effects.push({ t: "emit.select", r: sel.r, c: sel.c });
+    if (!s.ringless && !same(sel, s.sel)) effects.push({ t: "emit.select", r: sel.r, c: sel.c });
     return { state: { ...s, sel, selEnd: null, gsel: null, armed: null }, effects };
 }
 
@@ -96,7 +99,8 @@ export function switchTab(s: SheetUiState, ctx: SheetMachineCtx, id: string | nu
     const narrowing = view !== undefined ? view.narrowing : ctx.emptyNarrowing;
     if (narrowing !== undefined) effects.push({ t: "slice.write", state: narrowing });
     const sel = clamp({ r: 0, c: s.sel.c }, ctx);
-    if (!same(sel, s.sel)) effects.push({ t: "emit.select", r: sel.r, c: sel.c });
+    // A ring not placed yet stays unplaced, and reports nothing (#1531).
+    if (!s.ringless && !same(sel, s.sel)) effects.push({ t: "emit.select", r: sel.r, c: sel.c });
     effects.push({ t: "focus.sheet" });
     return {
         state: {

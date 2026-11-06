@@ -144,6 +144,14 @@ export const tokens = defineTokens({
             header: { sm: { value: "27px" }, md: { value: "36px" }, lg: { value: "42px" } },
             row:    { sm: { value: "27px" }, md: { value: "36px" }, lg: { value: "42px" } },
         },
+        // The design system's Row card, by density: a row's height, its rule
+        // included, and the header row's the same. The Record's rows stand at
+        // them; the Table's `density` heights above have drifted from them.
+        row: {
+            comfortable: { value: "36px" },
+            compact:     { value: "32px" },
+            condensed:   { value: "28px" },
+        },
     },
     /* The shadows — the focus rings, and nothing else — are semantic tokens
      * (they differ by colour mode): see `semantic-tokens.ts`. */
