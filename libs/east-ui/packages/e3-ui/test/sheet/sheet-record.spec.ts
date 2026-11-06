@@ -15,7 +15,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, AsyncFunctionType, BooleanType, DateTimeType, DictType, East, EastTypeType, Expr, IntegerType, NullType, OptionType, SortedMap, StringType, StructType,
+    ArrayType, AsyncFunctionType, BooleanType, DateTimeType, DictType, East, EastTypeType, Expr, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet, StringType, StructType,
     compareFor, decodeBeast2For, equalFor, isTypeEqual, none, toEastTypeValue, variant, type BlockBuilder, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
@@ -44,11 +44,17 @@ const textSheet = East.compile(East.function([], Sheet.Types.Root, ($) => {
     const jobs = $.const(BY_TEXT, textJobs);
     return createSheetRootWith(jobs, COLUMNS, {}, { keyOrdered: true });
 }), []);
-/** A sheet over jobs keyed by number: its new rows' keys named by `newRowId`. */
+/** A sheet over jobs keyed by number: a new row's key the app's — given the keys taken, the first number from their count up that none of them is. */
 const numberSheet = East.compile(East.function([], Sheet.Types.Root, ($) => {
     const jobs = $.const(BY_NUMBER, numberJobs);
-    const next = $.const(East.function([], StringType, (_$) => "11"));
-    return createSheetRootWith(jobs, COLUMNS, { newRowId: next }, { keyOrdered: true });
+    const next = $.const(East.function([SetType(IntegerType)], IntegerType, ($2, taken) => {
+        const n = $2.let(taken.size().add(1n));
+        $2.while(taken.has(n), ($3) => {
+            $3.assign(n, n.add(1n));
+        });
+        return n;
+    }));
+    return createSheetRootWith(jobs, COLUMNS, { newKey: next }, { keyOrdered: true });
 }), []);
 /** A sheet over jobs keyed by day, which takes no new rows. */
 const daySheet = East.compile(East.function([], Sheet.Types.Root, ($) => {
@@ -109,11 +115,30 @@ describe("a record's whole Dict, read in key order", () => {
         }), /a key-ordered sheet reads a Dict — a record's entries, in key order — and this source holds/);
     });
 
-    test("a key that is not a String needs `newRowId` to name a new row", () => {
-        assert.throws(() => East.function([], NullType, ($) => {
+    test("a key that is not a String needs `newKey` to name a new row, wherever the sheet adds one", () => {
+        const applied = East.asyncFunction([Editing.Types.ChangeSet(JobType, IntegerType)], Editing.Types.ApplyResult,
+            (_$, _batch) => East.value(variant("applied", { revision: none }), Editing.Types.ApplyResult));
+        const build = (options: object, internal: SheetInternalOptions) => East.function([], NullType, ($) => {
             const jobs = $.const(BY_NUMBER, numberJobs);
-            $(createSheetRootWith(jobs, COLUMNS, {}, { keyOrdered: true }));
-        }), /the rows are keyed by \.Integer, and a new row's key is minted only for a String key — pass `newRowId`/);
+            $(createSheetRootWith(jobs, COLUMNS, options, { keyOrdered: true, ...internal }));
+        });
+        assert.throws(() => build({}, { applyKeyed: applied }),
+            /the rows are keyed by \.Integer, and a new row's key is minted only for a String key — pass `newKey`, an East function from the keys taken to a new one, or `edits=\{\{ insertRows: false \}\}`/);
+        // A sheet that adds no row needs none: one that writes nowhere, one read only, one whose edits insert none.
+        build({}, {});
+        build({ readOnly: true }, { applyKeyed: applied });
+        build({ edits: { insertRows: false } }, { applyKeyed: applied });
+        // `newKey` is typed over the rows' key.
+        assert.throws(() => build({ newKey: East.function([SetType(StringType)], StringType, (_$, _taken) => "11") }, { applyKeyed: applied }),
+            /`newKey` takes the keys taken and gives a new one — an East function from .+ to \.Integer/);
+    });
+
+    test("a new row's key is the app's: the keys taken cross as their text, and its key comes back as its own", () => {
+        const root = numberSheet();
+        if (root.newKey.type !== "some") assert.fail("expected the app's newKey on the wire");
+        // 3 and 4 are taken, read back as numbers: the first number from their count up that neither is.
+        assert.equal(root.newKey.value(new SortedSet(["3", "4"], compareFor(StringType))), "5");
+        assert.equal(textSheet().newKey.type, "none", "with no newKey, a String key is the renderer's to mint");
     });
 
     test("a keyed Apply takes the session's keyed batch, and no onApply or onUpdate beside it", () => {

@@ -1044,21 +1044,21 @@ export const sheetWeekPlans = e3.record("sheet_week_plans", DictType(StringType,
  * the ERP, the row it is on owned upstream; and the machines a set of codes,
  * runs of which are offered and printed as one range. A row is ready once its
  * quantity is positive. Every gesture is journalled with its provenance
- * (`onPatch`), and a new row's id is minted from a counter (`newRowId`). Its
+ * (`onPatch`), and a new row's id is the host's own, the first `new-N` no row
+ * holds (`newKey`). Its
  * one pane is the inspector, its Details the author's own (SB58): a row's
  * quantity on a slider, written back through `update` as one transaction —
  * while a row is still missing a field, the sheet's own form shows instead.
  */
 export const sheetWeeks = example({
-    keywords: ["Sheet", "BuilderFrame", "record", "entry", "one entry", "rows", "id", "week", "State", "SegmentGroup", "drafts per entry", "inspector", "update", "Field.Slider", "column", "date", "text", "quantity", "integer", "reference", "enum", "set", "stamped", "owned", "register", "options", "level", "actual", "detail", "ranged", "DateLevel", "week", "day", "range", "time", "rule", "ready", "row", "Readiness", "completeness", "validation", "onPatch", "PatchEvent", "provenance", "source", "newRowId", "newRow", "write-back"],
-    description: "A sheet over one entry's rows — the week the viewer picks, its rows in the planner's order, each week its own drafts until Save or Discard — with every column kind and its rules (a date at each row's level with its actual, an integer, a reference, an enum narrowed by an options rule with a detail, a stamped code owning its row, a set of machines in ranges), a row rule, a journal of every gesture, ids minted by a counter, and its own Details in the inspector pane, a row's quantity on a slider written back as one transaction",
+    keywords: ["Sheet", "BuilderFrame", "record", "entry", "one entry", "rows", "id", "week", "State", "SegmentGroup", "drafts per entry", "inspector", "update", "Field.Slider", "column", "date", "text", "quantity", "integer", "reference", "enum", "set", "stamped", "owned", "register", "options", "level", "actual", "detail", "ranged", "DateLevel", "week", "day", "range", "time", "rule", "ready", "row", "Readiness", "completeness", "validation", "onPatch", "PatchEvent", "provenance", "source", "newKey", "newRow", "write-back"],
+    description: "A sheet over one entry's rows — the week the viewer picks, its rows in the planner's order, each week its own drafts until Save or Discard — with every column kind and its rules (a date at each row's level with its actual, an integer, a reference, an enum narrowed by an options rule with a detail, a stamped code owning its row, a set of machines in ranges), a row rule, a journal of every gesture, ids in the host's own scheme, and its own Details in the inspector pane, a row's quantity on a slider written back as one transaction",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const plans = $.let(Record.bind(sheetWeekPlans));
-            // The week the viewer picked, the journal and the id counter: a viewer's own state.
+            // The week the viewer picked and the journal: a viewer's own state.
             const week = $.let(State.bind([StringType], "sheet.weeks.week", "2026-W42"));
             const log = $.let(State.bind([ArrayType(StringType)], "sheet.weeks.journal", []));
-            const counter = $.let(State.bind([IntegerType], "sheet.weeks.counter", 1n));
             const weeks = $.let(["2026-W42", "2026-W43", "2026-W44"], ArrayType(StringType));
             const pick = $.const(East.function([StringType], NullType, ($, w) => { $(week.write(w)); }));
             const StatusType = StructType({ word: StringType, tone: StatusValueType });
@@ -1086,10 +1086,12 @@ export const sheetWeeks = example({
             const onPatch = $.const(East.function([Sheet.Types.PatchEvent(WeekRow)], NullType, ($, e) => {
                 $(log.write(log.read().concat([East.str`${e.origin.getTag()} · ${e.label} · ${e.readiness.getTag()}`])));
             }));
-            // The host mints a new row's id.
-            const newRowId = $.const(East.function([], StringType, ($) => {
-                const n = $.let(counter.read());
-                $(counter.write(n.add(1n)));
+            // A new row's id in the host's own scheme: given every id taken, the first new-N none of them is.
+            const newKey = $.const(East.function([SetType(StringType)], StringType, ($, taken) => {
+                const n = $.let(taken.size().add(1n));
+                $.while(taken.has(East.str`new-${n}`), ($2) => {
+                    $2.assign(n, n.add(1n));
+                });
                 return East.str`new-${n}`;
             }));
             const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(WeekRow), () => Sheet.patch(WeekRow, {
@@ -1145,7 +1147,7 @@ export const sheetWeeks = example({
                             ready={{ row: readyRow }}
                             onPatch={onPatch}
                             newRow={newRow}
-                            newRowId={newRowId}
+                            newKey={newKey}
                         />
                     </Box>
                     <Text.MonoLabel>{East.str`EDITS · ${entries.length()}`}</Text.MonoLabel>
@@ -1163,10 +1165,9 @@ export const sheetWording = example({
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const plans = $.let(Record.bind(sheetWeekPlans));
-            // The week the viewer picked, the journal and the id counter: a viewer's own state.
+            // The week the viewer picked and the journal: a viewer's own state.
             const week = $.let(State.bind([StringType], "sheet.weeks.week", "2026-W42"));
             const log = $.let(State.bind([ArrayType(StringType)], "sheet.weeks.journal", []));
-            const counter = $.let(State.bind([IntegerType], "sheet.weeks.counter", 1n));
             const weeks = $.let(["2026-W42", "2026-W43", "2026-W44"], ArrayType(StringType));
             const pick = $.const(East.function([StringType], NullType, ($, w) => { $(week.write(w)); }));
             const StatusType = StructType({ word: StringType, tone: StatusValueType });
@@ -1194,10 +1195,12 @@ export const sheetWording = example({
             const onPatch = $.const(East.function([Sheet.Types.PatchEvent(WeekRow)], NullType, ($, e) => {
                 $(log.write(log.read().concat([East.str`${e.origin.getTag()} · ${e.label} · ${e.readiness.getTag()}`])));
             }));
-            // The host mints a new row's id.
-            const newRowId = $.const(East.function([], StringType, ($) => {
-                const n = $.let(counter.read());
-                $(counter.write(n.add(1n)));
+            // A new row's id in the host's own scheme: given every id taken, the first new-N none of them is.
+            const newKey = $.const(East.function([SetType(StringType)], StringType, ($, taken) => {
+                const n = $.let(taken.size().add(1n));
+                $.while(taken.has(East.str`new-${n}`), ($2) => {
+                    $2.assign(n, n.add(1n));
+                });
                 return East.str`new-${n}`;
             }));
             const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(WeekRow), () => Sheet.patch(WeekRow, {
@@ -1254,7 +1257,7 @@ export const sheetWording = example({
                             ready={{ row: readyRow }}
                             onPatch={onPatch}
                             newRow={newRow}
-                            newRowId={newRowId}
+                            newKey={newKey}
                         />
                     </Box>
                     <Text.MonoLabel>{East.str`EDITS · ${entries.length()}`}</Text.MonoLabel>

@@ -156,7 +156,7 @@ export interface RecordNounInput {
 }
 
 /** The Sheet's options a Record takes as they are. */
-type RecordSheetOptions = "registers" | "newRow" | "edits" | "owned" | "readOnly" | "density" | "ready" | "applyMode";
+type RecordSheetOptions = "registers" | "newRow" | "newKey" | "edits" | "owned" | "readOnly" | "density" | "ready" | "applyMode";
 
 /**
  * What every `<Record>` takes beside its rows and its columns.
@@ -302,7 +302,7 @@ export function RecordTag<K extends EastType, R extends StructTypeOf, C extends 
         record: SheetRecordHandle<K, R>;
         window?: unknown;
         columns: C & RecordColumnsOf<R>;
-    } & RecordCommon<R, C> & Pick<SheetOptions<R>, RecordSheetOptions>,
+    } & RecordCommon<R, C> & Pick<SheetOptions<R, K>, RecordSheetOptions>,
 ): UIElement;
 /**
  * `<Record slice={{ slice }} columns={{ … }} onApply={Record.onApply(record, { keyed: true })} />`
@@ -314,7 +314,7 @@ export function RecordTag<K extends EastType, R extends StructTypeOf, C extends 
     props: {
         slice: RecordSlicesChromeOptions;
         columns: C & RecordColumnsOf<R>;
-    } & RecordCommon<R, C> & Pick<SheetOptions<R>, RecordSheetOptions> & Pick<SheetIndexedOptions<K, R>, "onApply">,
+    } & RecordCommon<R, C> & Pick<SheetOptions<R, K>, RecordSheetOptions> & Pick<SheetIndexedOptions<K, R>, "onApply">,
 ): UIElement;
 export function RecordTag(props: { columns: unknown }): UIElement {
     return RecordComponent.Root(createRecordPayload(props as { columns: unknown } & { [prop: string]: unknown }));

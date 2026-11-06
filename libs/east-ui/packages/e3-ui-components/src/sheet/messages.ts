@@ -514,6 +514,10 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     noticeNewRow: () => string;
     /** A new group. */
     noticeNewGroup: (p: { noun: string }) => string;
+    /** A new entry's key the app's `newKey` gave is taken already (#1536) — `The new key 7 is taken`: nothing was drafted. */
+    noticeKeyTaken: (p: { key: string }) => string;
+    /** The app's `newKey` threw (#1536): nothing was drafted. */
+    noticeKeyFailed: (p: { reason: string }) => string;
 
     // ── The builder (#1184) ────────────────────────────────────────────────
     /** The library pane's name. */
@@ -926,6 +930,8 @@ export const sheetMessages: SheetMessages = {
     noticeDiscarded: () => "Discarded new row",
     noticeNewRow: () => "New row",
     noticeNewGroup: ({ noun }) => `New ${noun}`,
+    noticeKeyTaken: ({ key }) => `The new key ${key} is taken`,
+    noticeKeyFailed: ({ reason }) => `No new key could be made — ${reason}`,
 
     libraryPane: () => "Library",
     libraryTab: ({ tab }) => (tab === "rows" ? "Rows" : "Columns"),

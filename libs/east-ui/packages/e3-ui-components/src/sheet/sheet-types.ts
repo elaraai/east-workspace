@@ -162,6 +162,10 @@ export type SheetNotice =
     | { id: "issue"; where: string; issue: EditIssue }
     /** A card's ⏎ refused below the ring's row (#1187, SB45): why. */
     | { id: "dropRefused"; word: SheetDropRefusalWord }
+    /** A new entry's key the app's `newKey` gave is taken already (#1536): its text — the gesture drafted nothing. */
+    | { id: "keyTaken"; key: string }
+    /** The app's `newKey` threw (#1536): why — the gesture drafted nothing. */
+    | { id: "keyFailed"; reason: string }
     | { id: "text"; text: string };
 
 /** All ephemeral UI state — one object, one reducer. */
