@@ -763,6 +763,18 @@ export function FlowchartCanvasView({
         scrollRef.current = el;
         setScrollEl(el);
     }, []);
+    // An editor in place — a lane's rename, a state's key and label — takes its focused field with it as it closes on ⏎ or
+    // Esc, which leaves the focus on the page's body, where the frame's ⌘Z and ⌘⇧Z go unheard (review of #1481, finding
+    // 2): the canvas takes it back. A blur that moved the focus somewhere is left there.
+    const editing = laneEdit !== null || stateEditor !== null;
+    const wasEditing = useRef(editing);
+    useEffect(() => {
+        const closed = wasEditing.current && !editing;
+        wasEditing.current = editing;
+        if (!closed) return;
+        const at = document.activeElement;
+        if (at === null || at === document.body) scrollRef.current?.focus({ preventScroll: true });
+    }, [editing]);
     /**
      * Scrolls a point of the drawing to the middle of the canvas's box at the
      * zoom it stands at, the scroll stopping at its ends: what a selection

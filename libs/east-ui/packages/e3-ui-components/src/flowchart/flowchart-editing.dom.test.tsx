@@ -610,6 +610,28 @@ describe("a lane a state stands in, the history item and its keys", () => {
         }
     });
 
+    test("an editor in place closed by ⏎ or Esc gives the keyboard back to the canvas, so ⌘Z reaches the history: a lane's rename, a + STATE and a state's rename (review of #1481, finding 2)", async () => {
+        const { container: c } = await h.mountExample(ex.flowchartDepotEditing);
+        /** ⌘Z pressed where the focus is, as a keyboard's goes. */
+        const undoHere = () => gesture(() => { fireEvent.keyDown(document.activeElement ?? document.body, { key: "z", metaKey: true }); });
+        await addLane(c);
+        await gesture(() => { fireEvent.doubleClick(c.querySelector("[data-flowchart-lane='lane-6']")!); });
+        const lane = c.querySelector<HTMLInputElement>("[data-flowchart-lane-edit]")!;
+        await gesture(() => { lane.focus(); fireEvent.change(lane, { target: { value: "Returns" } }); });
+        await gesture(() => { fireEvent.keyDown(lane, { key: "Enter" }); });
+        expect([laneHeads(c).at(-1), document.activeElement]).toEqual(["RETURNS", canvasBox(c)]);
+        await undoHere();
+        expect([laneHeads(c).at(-1), pending(c)]).toEqual([laneLabel(6).toUpperCase(), pendingText(1)]);
+        // A + STATE's ⏎, then a state's rename put back with Esc: the canvas holds the keyboard after each.
+        await addState(c, "hold", "QRT", "Quarantined");
+        expect([node(c, "QRT") !== null, document.activeElement]).toEqual([true, canvasBox(c)]);
+        await undoHere();
+        expect(node(c, "QRT")).toBeNull();
+        await gesture(() => { fireEvent.doubleClick(node(c, "SCN")!); });
+        await gesture(() => { fireEvent.keyDown(c.querySelector("[data-flowchart-stateeditor] [data-flowchart-label]")!, { key: "Escape" }); });
+        expect(document.activeElement).toBe(canvasBox(c));
+    });
+
     test("a field typed into lets go first, committing what it holds, when the history's Undo is clicked: its rename is one step, which the Undo takes back", async () => {
         const { container: c } = await h.mountExample(ex.flowchartDepotEditing);
         await addLane(c);
