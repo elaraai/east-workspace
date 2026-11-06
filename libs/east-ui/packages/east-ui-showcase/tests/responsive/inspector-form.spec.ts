@@ -21,9 +21,9 @@
  *
  * Read over the Sheet's examples — the machines' upkeep (`sheetUpkeep`, a
  * field of every kind: a machine with every field set, one with its Options
- * empty, a new row with no field given, a field changed, a row's issue), the
- * workshop's line, band, several rows and nothing selected, and a batch's
- * line and band — over the Plan's print works: one event, several, a
+ * empty, a field changed, a row's issue), the workshop's line, a new line with
+ * no field given but its notes, band, several rows and nothing selected, and a
+ * batch's line and band — over the Plan's print works: one event, several, a
  * press's row and nothing selected, and the overlaps banner (#1198) over a
  * press's row with an overlap and one of its jobs — and over the Flowchart's
  * depot (#1250, #1504): over its records a state, a transition with its
@@ -408,17 +408,22 @@ for (const phone of [false]) {
             });
         }
 
-        test("the upkeep: a new row, no field given but its name — every field Not set, its issues listed above them, nothing past the pane", async ({ page }) => {
-            const { box, pane } = await openSheet(page, "sheetUpkeep", "light", phone);
-            const blank = box.locator("[data-frame-slot=main] [data-slot=row][data-blank] [data-slot=cell][data-key=name]").first();
+        // The upkeep adds no machine — a machine's serial is its maker's — so a new row's form is read over the workshop's
+        // new line (#1536).
+        test("the workshop: a new line, no field given but its notes — its activity required, its Options Not set, its issues listed above them, nothing past the pane", async ({ page }) => {
+            const { box, pane } = await openSheet(page, "sheetWorkshop", "light", phone);
+            // The first order's blank line: a note typed there is a new operation, `newRow`'s defaults under it.
+            const blank = box.locator("[data-frame-slot=main] [data-slot=row][data-blank][data-group-id] [data-slot=cell][data-key=notes]").first();
             if (phone) await blank.tap();
             else await blank.click();
-            await page.keyboard.type("Planer");
+            await page.keyboard.type("Check the hinge cups");
             await page.keyboard.press("Enter");
             await settled(page);
-            const row = box.locator("[data-frame-slot=main] [data-slot=row]:not([data-blank])", { has: page.locator("[data-key=name]", { hasText: "Planer" }) });
-            await select(page, box, row.locator("[data-slot=cell][data-key=name]"), phone);
+            const row = box.locator("[data-frame-slot=main] [data-slot=row]:not([data-blank])", { has: page.locator("[data-key=notes]", { hasText: "Check the hinge cups" }) });
+            await select(page, box, row.locator("[data-slot=cell][data-key=notes]"), phone);
+            await expect(pane.locator("[data-sheet-inspector=line]")).toBeVisible();
             await expect(pane.locator("[data-inspector-issues]")).toBeVisible();
+            await expect(pane.locator("[data-field='start'] [data-field-set]")).toBeVisible();
             await expect.poll(() => formFaults(pane, coarse)).toEqual([]);
             expect(await paneFaults(pane)).toEqual([]);
         });
