@@ -176,10 +176,10 @@ describe("the machine on the wire", () => {
         const [ack, deferred, handed] = kindOf(ticketRoot(), "action").cases;
         assert.equal(ack!.take.type, "button");
         assert.ok(equalFor(Sheet.Types.ActionTake)(handed!.take, variant("register", "crews")));
-        assert.equal(deferred!.take.type, "form");
-        const form = deferred!.take.value as { specs: { path: string[]; label: string; editor: { type: string } }[]; scalar: boolean };
-        assert.equal(form.scalar, true);
-        assert.deepEqual(form.specs.map((s) => [s.path, s.label, s.editor.type]), [[["deferred"], "Until", "datetime"]]);
+        const form = deferred!.take;
+        if (form.type !== "form") assert.fail(`Defer's take is a ${form.type}, not a form`);
+        assert.equal(form.value.scalar, true);
+        assert.deepEqual(form.value.specs.map((s) => [s.path, s.label, s.editor.type]), [[["deferred"], "Until", "datetime"]]);
     });
 
     test("a variant whose every case is NullType is a menu of its cases, the labelled first; a struct a form, a field per field", () => {
@@ -201,11 +201,13 @@ describe("the machine on the wire", () => {
             return kindOf(root, "action");
         })();
         const byCase = new Map(kind.cases.map((c) => [c.case, c.take]));
-        assert.deepEqual((byCase.get("held")!.value as { case: string; label: string }[]).map((o) => [o.case, o.label]),
-            [["machine_down", "Machine down"], ["awaiting_parts", "Awaiting parts"], ["quality_hold", "Quality hold"]]);
-        const alert = byCase.get("alerted")!.value as { specs: { path: string[]; label: string; editor: { type: string } }[]; scalar: boolean };
-        assert.equal(alert.scalar, false);
-        assert.deepEqual(alert.specs.map((s) => [s.path.join("."), s.label, s.editor.type]), [["changes", "What changed", "text"], ["severity", "Severity", "select"]]);
+        assert.ok(equalFor(Sheet.Types.ActionTake)(byCase.get("held")!, variant("menu", [
+            { case: "machine_down", label: "Machine down" }, { case: "awaiting_parts", label: "Awaiting parts" }, { case: "quality_hold", label: "Quality hold" },
+        ])));
+        const alert = byCase.get("alerted")!;
+        if (alert.type !== "form") assert.fail(`Alert's take is a ${alert.type}, not a form`);
+        assert.equal(alert.value.scalar, false);
+        assert.deepEqual(alert.value.specs.map((s) => [s.path.join("."), s.label, s.editor.type]), [["changes", "What changed", "text"], ["severity", "Severity", "select"]]);
         // An Integer with no take: a form of one number.
         assert.equal(byCase.get("reported")!.type, "form");
     });
@@ -217,10 +219,9 @@ describe("the cell and its summary", () => {
         const cell = (i: number, key: string) => rows[i]!.cells.get(key)!;
         assert.equal(cell(0, "action").type, "Null");
         const deferred = cell(1, "action");
-        assert.equal(deferred.type, "Action");
-        const value = deferred.value as { case: string; value: Uint8Array };
-        assert.equal(value.case, "deferred");
-        assert.deepEqual(decodeBeast2For(DateTimeType)(value.value), new Date("2026-11-09T00:00:00Z"));
+        if (deferred.type !== "Action") assert.fail(`the deferred row's action cell is a ${deferred.type}, not an Action`);
+        assert.equal(deferred.value.case, "deferred");
+        assert.deepEqual(decodeBeast2For(DateTimeType)(deferred.value.value), new Date("2026-11-09T00:00:00Z"));
         assert.ok(equalFor(Sheet.Types.Cell)(cell(1, "$summary:action"), variant("String", "until 09 Nov")));
         assert.ok(equalFor(Sheet.Types.Cell)(cell(0, "$summary:action"), variant("String", "")));
         assert.ok(equalFor(Sheet.Types.Cell)(cell(0, "$name:action"), variant("String", "Spindle noise")));

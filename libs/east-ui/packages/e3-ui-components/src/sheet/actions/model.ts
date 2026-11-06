@@ -13,7 +13,7 @@
  * @packageDocumentation
  */
 
-import { NullType, decodeBeast2For, encodeBeast2For, fromEastTypeValue, isTypeEqual, type EastType, type ValueTypeOf } from "@elaraai/east";
+import { NullType, decodeBeast2For, encodeBeast2For, fromEastTypeValue, isTypeEqual, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import type { Sheet } from "@elaraai/e3-ui/internal";
 import type { SheetColumnMeta } from "../model.js";
@@ -196,7 +196,7 @@ export function canTake(offer: ActionOffer): boolean {
  * @returns The cell
  */
 export function actionCell(c: ActionCase, bytes: Uint8Array): SheetCellValue {
-    return { type: "Action", value: { case: c.name, value: bytes } } as SheetCellValue;
+    return variant("Action", { case: c.name, value: bytes });
 }
 
 /** A case's label in S14's grammar: a form's verb ends in `…`; a choice's caret is drawn beside it. */
