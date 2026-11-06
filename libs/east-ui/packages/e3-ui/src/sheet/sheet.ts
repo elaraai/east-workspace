@@ -412,11 +412,13 @@ const NarrowedType = DictType(StringType, RowSourceType(ArrayType(StringType)));
  * missing entry's key and the sheet's name.
  *
  * @param props - The sheet's props, as `<Sheet>` takes them
+ * @param internal - What only e3-ui's own builders pass: `recordKinds`, for `<Record>`'s columns
  * @returns An East expression of {@link SheetPayloadType}
  * @throws Error naming the prop and the remedy: rows from both `record` and `data`, or from neither; `entry` or `window` without a record; `id`, `onApply` or `onUpdate` over a record; `onViewsChange`, which `views` replaces; `fields` or `groupFields` without an inspector; an `optimise` that is not `Func.bind` of a function from `OptimiseRequest(R, K?)` to `OptimiseResult(R, K?)` over the sheet's rows (#1409); a `slice` that is not `{ slice: Slice.bindRecords(…) }`, one holding a source nothing names, and the rows of its `rows` source beside `record`, `data`, `entry` or `window`; `affordances` and `persist`, which moved into `slice`; a templates list written in the code or naming no source of the slice, and two naming the same; and everything `Sheet Spec.md` §3.12 and `Sheet Builder Spec.md` §4.3 refuse
  * @internal
  */
-export function createSheetPayload(props: { columns: unknown } & { [prop: string]: unknown }): ExprType<SheetPayloadType> {
+export function createSheetPayload(props: { columns: unknown } & { [prop: string]: unknown }, internal: { recordKinds?: boolean } = {}): ExprType<SheetPayloadType> {
+    const recordKinds = internal.recordKinds === true ? { recordKinds: true } : {};
     const { record, entry, window, data, columns, slice, templates, library, fields, groupFields, inspector, optimise, views, vocabulary, name, ...sheet } = props as SheetAnyProps;
     const words = sheetVocabulary(vocabulary);
     // The narrowing's props #1345 retired, refused by name for an app that still passes them.
@@ -500,7 +502,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             // The rows source's record, every row in its own order (#1349) — the renderer draws the source's narrowing
             // over them as the lens — and its record's identity, which names the session over them.
             const part = bound.parts["rows"] as unknown as RecordRowsPart;
-            const built = createSheetBuild(recordRowsOf(part), columns, { ...sheet, ...viewOptions }, { sourceId: part.sourceId, slice: sources.chrome, hold });
+            const built = createSheetBuild(recordRowsOf(part), columns, { ...sheet, ...viewOptions }, { sourceId: part.sourceId, slice: sources.chrome, hold, ...recordKinds });
             return payloadOf(built, {
                 ...parts, id: sheet.id as string | undefined,
                 history: East.value(none, OptionType(SheetHistoryType)),
@@ -508,7 +510,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             });
         }
         if (record === undefined) {
-            const built = createSheetBuild(data, columns, { ...sheet, ...viewOptions }, { slice: sources.chrome, hold });
+            const built = createSheetBuild(data, columns, { ...sheet, ...viewOptions }, { slice: sources.chrome, hold, ...recordKinds });
             return payloadOf(built, {
                 ...parts, id: sheet.id as string | undefined,
                 history: East.value(none, OptionType(SheetHistoryType)),
@@ -525,7 +527,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             ...rows.options,
             ...viewOptions,
             ...(readOnly === undefined ? {} : { readOnly }),
-        }, { ...rows.internal, slice: sources.chrome, hold });
+        }, { ...rows.internal, slice: sources.chrome, hold, ...recordKinds });
         const history = (record as { history: ExprType<SheetHistoryType> }).history;
         return payloadOf(built, {
             ...parts, id: rows.options.id,

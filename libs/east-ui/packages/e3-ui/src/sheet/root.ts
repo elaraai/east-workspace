@@ -24,6 +24,7 @@ import {
     ArrayType,
     AsyncFunctionType,
     BooleanType,
+    DateTimeType,
     DictType,
     FunctionType,
     IntegerType,
@@ -74,6 +75,8 @@ import {
     SheetGroupCellType,
     SheetNounType,
     SheetOptionsRuleType,
+    SheetLookType,
+    SheetAuditModeType,
     SHEET_TITLE_CELL,
     sheetLinesOf,
     sheetRuleCell,
@@ -85,6 +88,7 @@ import {
     type SheetEntryOf,
     type SheetHalfLiteral,
     type SheetSidesLiteral,
+    type SheetAgeUnitLiteral,
 } from "./types.js";
 import {
     type SheetColumnMeta,
@@ -103,7 +107,7 @@ import {
     buildPatchCells,
 } from "./bridge.js";
 import { buildActionKind } from "./actions.js";
-import type { SheetColumn, SheetColumnSpec, SheetFieldKey, SheetMemberKindInput, SheetMultipleInput } from "./columns.js";
+import { RECORD_COLUMN_KINDS, type SheetColumn, type SheetColumnSpec, type SheetFieldKey, type SheetMemberKindInput, type SheetMultipleInput } from "./columns.js";
 import type { SheetDriverValue, SheetRegisterValue } from "./registers.js";
 import type { SheetGroupValue } from "./group.js";
 import type { SheetSubRowsValue } from "./sub-rows.js";
@@ -378,6 +382,8 @@ export interface SheetInternalOptions {
     /** Binds each of the bridge's functions once in the block the sheet is built in, for every wire function built
      *  from it to refer to (`<Sheet>`'s block); without it each is written where it is used. */
     hold?: SheetHold;
+    /** The columns may be the Record's kinds — title, person, boolean, toggle, cycle, age, audit — which only the Record's grid draws: `<Record>`'s build. */
+    recordKinds?: boolean;
 }
 
 /** A whole-value bind handle (`State.bind` / `Data.bind`) over `Array<R>` — accepted as `data`; `R` a row struct, or an entry `Sheet.Types.Entry(P, "lines")` (#846). */
@@ -474,6 +480,7 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
             }
             return kindOf("quantity", {
                 uom,
+                unit: optionOf(cfg.unit, StringType),
                 format: cfg.format !== undefined
                     ? East.value(some(East.value(cfg.format as SubtypeExprOrValue<TickFormatType>, TickFormatType)), OptionType(TickFormatType))
                     : East.value(none, OptionType(TickFormatType)),
@@ -532,6 +539,32 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
             accepts: cfg.accepts,
             parse:   wrapCustomParse(bridge, meta, cfg.parse),
             print:   wrapCustomPrint(meta, cfg.print),
+        });
+        case "title":   return kindOf("title", { avatar: cfg.avatar === true });
+        case "person":  return kindOf("person", { register: meta.register, unassigned: optionOf(cfg.unassigned, StringType) });
+        case "boolean": return kindOf("boolean", null);
+        case "toggle":  return kindOf("toggle", { on: cfg.on, off: cfg.off, look: resolveTag(cfg.look ?? "chip", SheetLookType) });
+        case "cycle":   return kindOf("cycle", { register: meta.register, scale: cfg.scale === true, look: resolveTag(cfg.look ?? "chip", SheetLookType) });
+        case "age": {
+            const unit = (cfg as { unit?: SheetAgeUnitLiteral }).unit ?? "days";
+            const span = unit === "hours" ? 3_600_000n : unit === "weeks" ? 604_800_000n : 86_400_000n;
+            // Whole units from the moment to the browser's clock, the renderer's to call; a moment ahead of it is none yet.
+            const elapsed = East.function([DateTimeType, DateTimeType], IntegerType, ($, since, now) => {
+                const ms = $.const(since.durationMilliseconds(now));
+                return ms.less(0n).ifElse(() => 0n, () => ms.divide(span));
+            });
+            return kindOf("age", {
+                unit:   variant(unit, null),
+                stale:  cfg.stale !== undefined ? some(cfg.stale) : none,
+                absent: optionOf(cfg.absent, StringType),
+                elapsed,
+            });
+        }
+        case "audit":   return kindOf("audit", {
+            mode:   resolveTag(cfg.mode ?? "date", SheetAuditModeType),
+            absent: optionOf(cfg.absent, StringType),
+            by:     sheetRuleCell("by", meta.key),
+            verb:   sheetRuleCell("verb", meta.key),
         });
     }
 }
@@ -778,6 +811,9 @@ function buildSheet(
         .filter((e): e is [string, SheetColumn<StructType, EastType>] => e[1] !== undefined);
     if (columnEntries.length === 0) throw new Error("Sheet: declare at least one column");
     for (const [key, col] of columnEntries) {
+        if (internal.recordKinds !== true && RECORD_COLUMN_KINDS.has(col.kind)) {
+            throw new Error(`Sheet: column "${key}" is a ${col.kind} column, which a Record draws and a Sheet does not — show a system of records' rows with <Record>`);
+        }
         if (col.rowType === undefined || col.rowType === lineType) continue;
         throw new Error(groupDecl !== undefined && col.rowType === groupType
             ? `Sheet: column "${key}" was built over the group's row type — columns are declared over the line type \`${groupDecl.lines}\` holds (Sheet.column.${col.kind}(LineType, …))`

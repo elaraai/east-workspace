@@ -15,6 +15,9 @@
  * - `<Sheet>` — the planning spreadsheet, rendered in its frame with its
  *   panes as optional props, and its authoring vocabulary on `Sheet`
  *   (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.Types`).
+ * - `<Record>` — the table for a system of records, with the record binding
+ *   and its vocabulary on `Record` (`Record.bind`, `Record.onApply`,
+ *   `Record.column.*`, `Record.register.*`, `Record.Types`).
  * - `<Flowchart>` — the state-transition flowchart over the app's records:
  *   its states in ordered lanes, the transitions between them and the
  *   decisions that govern them, each record's fields mapped to its roles,
@@ -77,7 +80,6 @@ export {
     funcBindPlatformFn,
 } from './bind/func.js';
 export {
-    Record,
     RecordMutateStatusType,
     RecordErrorType,
     RecordBindingType,
@@ -88,6 +90,13 @@ export {
     type RecordApplyInsideOptions,
     recordBindPlatformFn,
 } from './bind/record.js';
+// The Record: `<Record>`, the table for a system of records, and the record
+// binding beside it — `Record.bind`, `Record.onApply`, its columns, registers,
+// hints, patches and types (`Record.column.*`, `Record.register.*`,
+// `Record.field`, `Record.patch`, `Record.Types`).
+export {
+    Record, type RecordNamespace, type RecordColumnSpec, type RecordColumnGroupInput, type RecordNounInput, type RecordCommon,
+} from './record/index.js';
 export { DataManifestType, type DataManifest } from './utils/manifest.js';
 export { deriveManifest, deriveUiAccess, UiAccessType, type UiAccess } from './utils/derive.js';
 export { ui } from './ui.js';

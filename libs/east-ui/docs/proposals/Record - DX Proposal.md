@@ -86,7 +86,7 @@ Each builder takes the row type first and returns a column checked against its f
 | date | `Record.column.date(R, cfg)` | `DateTime`, `Option<DateTime>` | In place · the Sheet's date grammar: `+3d`, `mon`, `18/9` |
 | enum | `Record.column.enum(R, register, cfg)` | `String`, `Option<String>` | Menu of the register · the member's tone is its dot |
 | reference | `Record.column.reference(R, register, cfg)` | `String`, `Option<String>` | Menu of the register · typed text resolves to a member's key |
-| set | `Record.column.set(R, register, cfg)` | `Sheet.Types.Link`, `Array<Member>`, `String` | In place · comma-separated members |
+| set | `Record.column.set(R, register, cfg)` | `Record.Types.Link`, `Array<Member>`, `String` | In place · comma-separated members |
 | action | `Record.column.action(R, V, cfg)` | `V`, `Option<V>` | The Sheet's action column (#1474): the next half takes the first case, ▾ the rest |
 | boolean | `Record.column.boolean(R, cfg)` | `Boolean` | Click or space · a Checkbox, centred |
 | title | `Record.column.title(R, cfg)` | `String` | Not in place · selects the row and opens it in the inspector |
@@ -296,7 +296,7 @@ const skills = East.function([], UIComponentType, (_$) => (
             rows: {
                 source: Data.bindPaged(recordSkills, { indexes: ["record_skills_by_name", "record_skills_by_role"] }),
                 label: "People",
-                fields: { role: { label: "Role", hints: ["Operator", "Contractor", "Team lead"] } },
+                fields: { name: { label: "Name" }, role: { label: "Role", hints: ["Operator", "Contractor", "Team lead"] } },
                 search: ["name", "role"],
             },
         }));
@@ -446,12 +446,12 @@ Every kind, as the cell-kind catalogue draws it: text, stamped, integer, quantit
 /** @jsxImportSource @elaraai/east-ui */
 import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
 import { Box, Reactive, StatusValueType, UIComponentType } from "@elaraai/east-ui";
-import { Record, Sheet } from "@elaraai/e3-ui";
+import { Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
 export const Operator = StructType({
     name: StringType, badge: StringType, notes: StringType, shifts: IntegerType, hours: FloatType,
-    started: OptionType(DateTimeType), status: StringType, role: StringType, certificates: Sheet.Types.Link,
+    started: OptionType(DateTimeType), status: StringType, role: StringType, certificates: Record.Types.Link,
     inducted: BooleanType, supervisor: OptionType(StringType), night: BooleanType, preference: StringType,
     updated: OptionType(Record.Types.Change),
 });
