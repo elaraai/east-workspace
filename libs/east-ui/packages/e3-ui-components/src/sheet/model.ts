@@ -39,15 +39,17 @@ import { actionColumnOf } from "./actions/model.js";
 
 // ── Columns ───────────────────────────────────────────────────────────────
 
-/** The column kinds (the arms of `SheetColumnKindType`). */
+/** The column kinds (the arms of `SheetColumnKindType`); the last seven only a Record draws (#1528). */
 export type SheetKind =
     | "text" | "date" | "quantity" | "integer" | "lookup" | "reference" | "enum"
-    | "set" | "link" | "stamped" | "custom" | "action";
+    | "set" | "link" | "stamped" | "custom" | "action"
+    | "title" | "person" | "boolean" | "toggle" | "cycle" | "age" | "audit";
 
 /** Default column widths per kind (px) when the author declares none. */
 const DEFAULT_WIDTH: Record<SheetKind, number> = {
     text: 200, date: 96, quantity: 112, integer: 72, lookup: 200, reference: 120, enum: 124,
     set: 240, link: 352, stamped: 104, custom: 140, action: 304,
+    title: 184, person: 160, boolean: 72, toggle: 80, cycle: 72, age: 92, audit: 232,
 };
 
 /** The copilot latency class of a kind (B§3): deterministic kinds are instant. */
@@ -72,7 +74,7 @@ export interface SheetColumnMeta {
     kind: SheetKind;
     /** Whether the sheet writes the column. */
     editable: boolean;
-    /** The register the column resolves against (lookup · reference · enum · set · link). */
+    /** The register the column resolves against (lookup · reference · enum · set · link · person · cycle). */
     register: string | undefined;
     /** An enum, lookup or link column's options rule (#844): the member keys a row is OFFERED (`undefined` = the whole register). Typed text still resolves against the whole register. */
     options: ((ctx: SheetContextValue) => readonly string[] | undefined) | undefined;
@@ -88,6 +90,8 @@ export interface SheetColumnMeta {
     dateFormat: string | undefined;
     /** A quantity column's unit per driver key. */
     uom: ReadonlyMap<string, string> | undefined;
+    /** A quantity column's one unit for every row, after the value. */
+    unit: string | undefined;
     /** A quantity column's display format. */
     format: TickFormatOpt;
     /** A stamped column's owner. */
@@ -148,6 +152,7 @@ export function indexColumns(columns: readonly SheetColumnValue[]): SheetColumnI
             base: undefined,
             dateFormat: undefined,
             uom: undefined,
+            unit: undefined,
             format: undefined,
             owner: undefined,
             accepts: undefined,
@@ -165,6 +170,7 @@ export function indexColumns(columns: readonly SheetColumnValue[]): SheetColumnI
                 break;
             case "quantity":
                 meta.uom = getSomeorUndefined(kind.value.uom);
+                meta.unit = getSomeorUndefined(kind.value.unit);
                 meta.format = getSomeorUndefined(kind.value.format);
                 break;
             case "lookup":
@@ -175,6 +181,8 @@ export function indexColumns(columns: readonly SheetColumnValue[]): SheetColumnI
                 break;
             case "reference":
             case "set":
+            case "person":
+            case "cycle":
                 meta.register = kind.value.register;
                 break;
             case "stamped":
@@ -504,6 +512,9 @@ export function cellText(cell: SheetCellValue | undefined, meta: SheetColumnMeta
         case "action":
             // An action cell reads as its state's word (S4); its summary is a rule cell of its own.
             return cell.type === "Action" ? actionColumnOf(meta)?.cases.get(cell.value.case)?.state ?? cell.value.case : rawCellText(cell);
+        case "toggle":
+            // A toggle reads as its state's word, the word typed back sets it.
+            return cell.type === "Boolean" && meta.raw.kind.type === "toggle" ? (cell.value ? meta.raw.kind.value.on : meta.raw.kind.value.off) : rawCellText(cell);
         default:
             return rawCellText(cell);
     }
