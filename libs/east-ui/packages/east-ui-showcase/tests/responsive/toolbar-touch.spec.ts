@@ -778,3 +778,34 @@ test.describe("the rail's cohort and breakdown chips, under a touch pointer (#12
         await expect.poll(() => editorChipFaults(page), { message: "with the split cleared" }).toEqual([]);
     });
 });
+
+test.describe("a phone's View and segments on a touch screen (review of #1481, finding 8)", () => {
+    test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
+
+    // Each builder's phone example, in its 390px box, with the controls its row draws narrower than 44 by their look:
+    // the time navigator's View, its icon alone, and the Flowchart's LR · TD, a segment strip's.
+    for (const [hash, names] of [
+        ["e3/roster/roster/rosterMobile", ["View"]],
+        ["e3/calendar/calendar/calendarMobile", ["View"]],
+        ["e3/allocation/allocation/allocationMobile", ["View"]],
+        ["e3/plan/plan-records/planRecordIndexesMobile", ["View"]],
+        ["e3/flowchart/flowchart/flowchartDepotPhone", ["LR", "TD"]],
+    ] as const) {
+        test(`${hash.split("/").at(-1)}: ${names.join(" · ")} take every tap within 21px of their middle, above, below and beside`, async ({ page }) => {
+            const entry = await openToolbar(page, hash);
+            const faults = await entry.locator("[data-builder-frame] > [data-frame-slot='toolbar']").first().evaluate((row, wanted) => wanted.flatMap((name) => {
+                const control = [...row.querySelectorAll<HTMLElement>("button")].find((b) => b.getBoundingClientRect().width > 0
+                    && ((b.textContent ?? "").trim() === name || b.getAttribute("aria-label") === name));
+                if (control === undefined) return [`no ${name}`];
+                control.scrollIntoView({ block: "center" });
+                const r = control.getBoundingClientRect();
+                const x = r.left + r.width / 2, y = r.top + r.height / 2;
+                return [[0, -21], [0, 21], [-21, 0], [21, 0]].flatMap(([dx, dy]) => {
+                    const hit = document.elementFromPoint(x + dx!, y + dy!);
+                    return hit !== null && control.contains(hit) ? [] : [`${name}: a tap at ${dx},${dy} lands on ${hit?.getAttribute("aria-label") ?? hit?.tagName ?? "nothing"}`];
+                });
+            }), names);
+            expect(faults).toEqual([]);
+        });
+    }
+});
