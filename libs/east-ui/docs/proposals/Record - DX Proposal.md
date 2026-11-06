@@ -60,7 +60,7 @@ A sketch: proposed names, not code that compiles today.
 | `columns` | `{ field: Record.column.*(R, …) }` | The columns, in order, keyed by the row's fields. An `age` column alone is keyed by a name of its own (§2.4) |
 | `columnGroups` | `[{ label, columnKeys }]` | The Table's column-group row: each group a run of adjacent columns under one label; `""` draws no label and no rule. The inspector's sections follow them |
 | `groupBy` | a column's key | Bands the rows by that column's value, under the Roster's collapsible band, in the column's own order (its register's members, a toggle's off then on); rows with no value lead, unbanded |
-| `registers` | `{ name: Record.register.members(…) }` | The registers the `reference`, `enum`, `set`, `person` and `cycle` columns name |
+| `registers` | `{ name: Record.register.members(…) }` | The registers the `reference`, `enum`, `set`, `person` and `cycle` columns name. A member is typed by its label, its key or an alias, and kept by its key (§2.8) |
 | `title` | `string` | The toolbar's lead: the title, then the count of the record's rows |
 | `noun` | `{ singular, plural }` | What a row is called: `18 people`, `Added a person`, `No people match the search`, `Person · new` |
 | `inspector` | `true` | The inspector pane: Details (the selected row's every field) and Issues |
@@ -86,12 +86,12 @@ Each builder takes the row type first and returns a column checked against its f
 | quantity | `Record.column.quantity(R, cfg)` | `Float`, `Option<Float>` | In place · mono, right-aligned, its `unit` after the value |
 | date | `Record.column.date(R, cfg)` | `DateTime`, `Option<DateTime>` | In place · the Sheet's date grammar: `+3d`, `mon`, `18/9` |
 | enum | `Record.column.enum(R, register, cfg)` | `String`, `Option<String>` | Menu of the register · the member's tone is its dot |
-| reference | `Record.column.reference(R, register, cfg)` | `String`, `Option<String>` | Menu of the register · typed text resolves to a member's key |
+| reference | `Record.column.reference(R, register, cfg)` | `String`, `Option<String>` | Menu of the register · a member typed by its label, key or alias (§2.8); other text kept as typed |
 | set | `Record.column.set(R, register, cfg)` | `Record.Types.Link`, `Array<Member>`, `String` | In place · comma-separated members |
 | action | `Record.column.action(R, V, cfg)` | `V`, `Option<V>` | The Sheet's action column (#1474): the next half takes the first case, ▾ the rest |
 | boolean | `Record.column.boolean(R, cfg)` | `Boolean` | Click or space · a Checkbox, centred |
 | title | `Record.column.title(R, cfg)` | `String` | Not in place · selects the row and opens it in the inspector |
-| person | `Record.column.person(R, register, cfg)` | `String`, `Option<String>` | Menu of the register's people · neutral initials, never a colour per person |
+| person | `Record.column.person(R, register, cfg)` | `String`, `Option<String>` | Menu of the register's people, typed by name (§2.8) · neutral initials, never a colour per person |
 | toggle | `Record.column.toggle(R, cfg)` | `Boolean` | Click or space flips · its two words |
 | cycle | `Record.column.cycle(R, register, cfg)` | `String` | Click → next · ⇧-click → previous · a member's label or alias sets · ⌫ the first state |
 | age | `Record.column.age(R, cfg)` | its own key | Read only · whole days (or `unit`) since `since`, to the browser's now · warns at `stale` |
@@ -230,6 +230,84 @@ Such a field can come only from `newRow`:
 - With a `newRow` that leaves one of them empty, Add drafts nothing, and the status line says `Can't add a person — the app gives no Last updated`. Duplicate takes the source row's own values, so it has them.
 
 The check belongs to the Sheet's root, so `<Sheet>` takes it too. It refuses only what already makes a draft no one can apply.
+
+### 2.8 Registers: typed by what they show, kept by their keys
+
+A register's member has a `key`, which is what a cell holds; a `label`, which is what the cell, the editor, the menu and the strip show; `aliases`, its other spellings; and `meta`, the line beside it in the menu. Every column that names one member (`enum`, `reference`, `person` and `cycle`, and the Sheet's `lookup`) is edited in the words its cells show:
+
+- Typed text finds a member by its label, its key or an alias. Text that names one whole is that member.
+- A member a gesture chooses is written by its key: the cell's own as the editor opens, a menu option, a strip chip, a taken candidate. It is never looked up again by its label.
+- Two members may show one label. Typed, the first in the register's order is meant; a pick tells them apart.
+- Text that names no member is an invalid draft on an `enum`, `person` or `cycle` column, and is kept as typed on a `reference` or `lookup` column.
+
+It is one rule, the shared grammar's, for every register kind: the Record adds no path of its own for people. A register whose labels are its keys, as §3's roles are, reads as it always has; one whose labels differ, as Example 4's statuses do (`active` shows `Active`), is typed either way. A person register over a record, keyed by id:
+
+```tsx
+/** @jsxImportSource @elaraai/east-ui */
+import { ArrayType, DictType, East, OptionType, StringType, StructType, none, some } from "@elaraai/east";
+import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
+import { Data, Record } from "@elaraai/e3-ui";
+import e3 from "@elaraai/e3";
+
+export const Person = StructType({ name: StringType, role: StringType, aliases: ArrayType(StringType) });
+export const recordPeople = e3.record("record_people", DictType(StringType, Person), {
+    initial: new Map([
+        ["P-1", { name: "A. Morgan", role: "Shift lead", aliases: [] }],
+        ["P-7", { name: "J. Smith",  role: "Picker",     aliases: ["Jo"] }],
+        ["P-9", { name: "J. Smith",  role: "Driver",     aliases: [] }],
+    ]),
+});
+export const Shift = StructType({ name: StringType, lead: OptionType(StringType) });
+export const recordShifts = e3.record("record_shifts", DictType(StringType, Shift), {
+    initial: new Map([
+        ["S-01", { name: "Mon early", lead: some("P-1") }],
+        ["S-02", { name: "Mon late",  lead: some("P-9") }],
+        ["S-03", { name: "Tue early", lead: none }],
+    ]),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+const shifts = East.function([], UIComponentType, (_$) => (
+    <Reactive>{$ => {
+        const rows = $.let(Record.bind(recordShifts));
+        const people = $.let(Data.bind(recordPeople));
+        return (
+            <Box height="240px">
+                <Record
+                    record={rows}
+                    title="Shifts"
+                    noun={{ singular: "shift", plural: "shifts" }}
+                    registers={{
+                        people: Record.register.members(people.read(), {
+                            kind:    "person",
+                            key:     (_p, id) => id,     // what a Lead cell holds: "P-9"
+                            label:   p => p.name,        // what the cell, the editor, the menu and the strip show, and a spelling typing finds
+                            meta:    p => some(p.role),  // the line beside each name in the menu, which tells the two J. Smiths apart
+                            aliases: p => p.aliases,     // other spellings typing finds: "Jo"
+                        }),
+                    }}
+                    columns={{
+                        name: Record.column.title(Shift, { header: "Shift", width: "160px" }),
+                        lead: Record.column.person(Shift, "people", { header: "Lead", width: "184px", unassigned: "No lead" }),
+                    }}
+                />
+            </Box>
+        );
+    }}</Reactive>
+));
+```
+
+In the Lead column:
+
+| The viewer | What happens |
+|---|---|
+| Looks at Mon late | `JS  J. Smith`: the initials, then the label |
+| Presses ⏎ on it | The editor opens on `J. Smith`, holding `P-9`; ⏎ again changes nothing |
+| Types `smi` | The menu lists both, each with its meta: `J. Smith · Picker`, `J. Smith · Driver` |
+| Steps ↓ to the second, then ⏎ | The cell holds `P-9`, the pick's key |
+| Types `j. smith`, then ⏎ | The first in the register's order: `P-7` |
+| Types `P-9`, or the alias `Jo` | `P-9`, or `P-7` |
+| Types `nobody`, then ⏎ | An invalid draft; a `reference` column would keep `nobody` as typed |
 
 ## 3. Worked examples
 
@@ -748,7 +826,7 @@ Record.Types.Change = { at: DateTime, by: String, verb: String }
 | The Sheet's action column | e3-ui `sheet/actions.ts`, e3-ui-components `sheet/actions/` | `Record.column.action` |
 | Index-ordered windows | e3-ui `utils/ordered-source.ts` | §2.5 bands over a paged source |
 
-The renderer is a new `record/` in e3-ui-components: the Sheet's provider over the payload's `sheet`, laid out in `BuilderFrame` with the Record's own toolbar, footer and inspector. The Sheet's machine (the ring and its keys, a cell's commit, pick and paste, the paging, the lens, the session and the inspector's reads) stays in its one hook, and its grid takes its rows, its header, its gutter and its bands from the host, so the same grid draws the Record's in the Table's anatomy (§7, decision 8). A gesture that belongs to a kind (a click that steps a cycle, Space on a toggle, a member's label typed on a cycle) is the shared machine's, by the kind. Nothing is copied.
+The renderer is a new `record/` in e3-ui-components: the Sheet's provider over the payload's `sheet`, laid out in `BuilderFrame` with the Record's own toolbar, footer and inspector. The Sheet's machine (the ring and its keys, a cell's commit, pick and paste, the paging, the lens, the session and the inspector's reads) stays in its one hook, and its grid takes its rows, its header, its gutter and its bands from the host, so the same grid draws the Record's in the Table's anatomy (§7, decision 8). A gesture that belongs to a kind (a click that steps a cycle, Space on a toggle) is the shared machine's, by the kind, and a member typed by its label is the shared grammar's, for every register kind (§2.8). Nothing is copied.
 
 ## 7. Decisions
 
