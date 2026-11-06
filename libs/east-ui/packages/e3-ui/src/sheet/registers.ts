@@ -42,8 +42,8 @@ export type SheetRegisterValue = ExprType<ArrayType<SheetRegisterMemberType>>;
  *
  * @typeParam T - The data's element type
  * @property kind - The member kind (`"machine"`, `"bay"`, `"family"`)
- * @property key - What the grammar resolves — accessor
- * @property label - What a chip prints — accessor
+ * @property key - What a cell holds and the grammar resolves — accessor
+ * @property label - What a cell, a chip and the menu show, and typed text resolves too — accessor
  * @property aliases - Alternative spellings — accessor returning the field's array
  * @property meta - Chip meta — accessor returning the field's `Option`
  * @property parent - The parent key — accessor returning the field's `Option`
@@ -52,11 +52,14 @@ export type SheetRegisterValue = ExprType<ArrayType<SheetRegisterMemberType>>;
 export interface SheetMembersConfig<T extends EastType> {
     /** The member kind. */
     kind: string;
-    /** What the grammar resolves. */
+    /** What a cell holds and the grammar resolves — the member's identity. */
     key: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<StringType>;
-    /** What a chip prints. */
+    /**
+     * What a cell, a chip and the menu show — and a spelling typed text resolves, beside the key and the aliases.
+     * Two members may show one label: typed, the first is meant; a pick from the menu or the strip tells them apart.
+     */
     label: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<StringType>;
-    /** Alternative spellings the grammar also resolves. */
+    /** Alternative spellings the grammar and typed text also resolve. */
     aliases?: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<ArrayType<StringType>>;
     /** Chip meta — return the field's `Option`. */
     meta?: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<OptionType<StringType>>;
@@ -249,7 +252,7 @@ export function concatMembers(parts: SheetRegisterValue[]): SheetRegisterValue {
 export interface SheetDriverConfig<D extends StructType> {
     /** The member key — what the driver column's cell stores. */
     key: (row: ExprType<D>) => SubtypeExprOrValue<StringType>;
-    /** What a chip / candidate prints. */
+    /** What the driver column's cell, a chip and a candidate show — and a spelling typed text resolves, beside the key and the aliases. */
     label: (row: ExprType<D>) => SubtypeExprOrValue<StringType>;
     /** Alternative spellings. */
     aliases?: (row: ExprType<D>) => SubtypeExprOrValue<ArrayType<StringType>>;

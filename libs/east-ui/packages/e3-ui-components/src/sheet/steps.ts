@@ -16,8 +16,8 @@
  */
 
 import { StringType, equalFor, variant } from "@elaraai/east";
-import { resolveMember, type SheetColumnMeta, type SheetRegisterIndex } from "./model.js";
-import type { SheetCellValue, SheetRegisterMemberValue } from "./values.js";
+import { resolveTyped, type SheetColumnMeta, type SheetRegisterIndex } from "./model.js";
+import type { SheetCellValue } from "./values.js";
 
 const stringEqual = equalFor(StringType);
 
@@ -35,22 +35,6 @@ export function stepsInPlace(meta: SheetColumnMeta | undefined): boolean {
 }
 
 /**
- * The member a cycle's typed text names: one whose label is the text, else
- * one whose key or alias is — either case.
- *
- * @param meta - The cycle column
- * @param text - What was typed
- * @param registers - The registers
- * @returns The member, or `undefined` where none is named
- */
-export function cycleMember(meta: SheetColumnMeta, text: string, registers: SheetRegisterIndex): SheetRegisterMemberValue | undefined {
-    const typed = text.trim().toLowerCase();
-    if (typed === "") return undefined;
-    const members = registers.byName.get(meta.register ?? "") ?? [];
-    return members.find((m) => stringEqual(m.label.toLowerCase(), typed)) ?? resolveMember(registers, meta.register, typed);
-}
-
-/**
  * A boolean's or a toggle's typed text as its state: a toggle's own words
  * first, then the words every checkbox reads.
  *
@@ -60,9 +44,9 @@ export function cycleMember(meta: SheetColumnMeta, text: string, registers: Shee
  */
 export function booleanOf(meta: SheetColumnMeta, text: string): boolean | undefined {
     const typed = text.trim().toLowerCase();
-    if (meta.raw.kind.type === "toggle") {
-        if (stringEqual(typed, meta.raw.kind.value.on.toLowerCase())) return true;
-        if (stringEqual(typed, meta.raw.kind.value.off.toLowerCase())) return false;
+    if (meta.states !== undefined) {
+        if (stringEqual(typed, meta.states.on.toLowerCase())) return true;
+        if (stringEqual(typed, meta.states.off.toLowerCase())) return false;
     }
     if (["true", "yes", "y", "1", "x", "on"].some((word) => stringEqual(word, typed))) return true;
     if (["false", "no", "n", "0", "off"].some((word) => stringEqual(word, typed))) return false;
@@ -102,8 +86,9 @@ export function stepCell(meta: SheetColumnMeta | undefined, cell: SheetCellValue
 }
 
 /**
- * The cell a key sets on a stepping cell (K4): on a cycle, the member whose
- * label, key or alias is the key; nothing on a toggle or a boolean.
+ * The cell a key sets on a stepping cell (K4): on a cycle, the member the
+ * key names — by its key or an alias, else by its label, as every register
+ * column is typed; nothing on a toggle or a boolean.
  *
  * @param meta - The column
  * @param key - The key pressed
@@ -111,7 +96,7 @@ export function stepCell(meta: SheetColumnMeta | undefined, cell: SheetCellValue
  * @returns The cell, or `undefined` where the key names no member
  */
 export function keyedCell(meta: SheetColumnMeta | undefined, key: string, registers: SheetRegisterIndex): SheetCellValue | undefined {
-    if (meta?.kind !== "cycle") return undefined;
-    const member = cycleMember(meta, key, registers);
+    if (meta?.kind !== "cycle" || key.trim() === "") return undefined;
+    const member = resolveTyped(registers, meta.register, key);
     return member === undefined ? undefined : variant("String", member.key);
 }

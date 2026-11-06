@@ -31,7 +31,6 @@
 
 import {
     ArrayType,
-    East,
     Expr,
     OptionType,
     StringType,

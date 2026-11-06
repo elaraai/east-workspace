@@ -9,13 +9,18 @@
  *
  * Candidate scoring (B§3.1 — Sheet Spec §5 row 3): prefix → word prefix →
  * initials → substring, ties by sheet frequency; the entry menu ranks the
- * driver column by what follows the row above.
+ * driver column by what follows the row above. Every register column is
+ * typed in the words its cells show (#1536): a member by its key, its label
+ * or an alias, the same for every register kind.
  */
 
 import { describe, test, expect } from "vitest";
 import { none, variant } from "@elaraai/east";
-import { scoreLabel, scoreCandidates, entryCandidates, candidateList, ghostFor, ghostWord, resolveFor, candidateAt } from "./candidates.js";
+import { scoreLabel, scoreCandidates, entryCandidates, candidateList, candidateFor, ghostFor, ghostWord, resolveFor, candidateAt } from "./candidates.js";
 import { indexColumns, indexRegisters, type SheetColumnMeta } from "./model.js";
+import { editText, parseCell } from "./parse/index.js";
+import { keyedCell } from "./steps.js";
+import { SHEET_WORDS } from "./words.js";
 import type { SheetRowValue } from "./values.js";
 
 const ACTS = ["Routing", "Routing - Nesting", "Routing - Profiling", "Spraying", "Inspection", "Kiln drying"];
@@ -64,12 +69,86 @@ describe("the entry menu", () => {
         // Editing row 7 (index 6): the row above is Spraying, which Routing followed twice.
         const ctx = { registers, rows, rowIndex: 6, driverColumn: "activity" };
         const menu = entryCandidates(lookupMeta, ctx);
-        expect(menu[0]).toBe("Routing");
-        expect(menu.slice(0, 3)).toEqual(["Routing", "Spraying", "Inspection"]);
+        expect(menu[0]).toEqual({ key: "Routing", label: "Routing" });
+        expect(menu.slice(0, 3).map((c) => c.key)).toEqual(["Routing", "Spraying", "Inspection"]);
         expect(menu).toHaveLength(6);
         // The empty buffer arms nothing.
         expect(candidateAt(lookupMeta, "", -1, ctx)).toBeUndefined();
         expect(candidateList(lookupMeta, "", ctx)).toEqual(menu);
+    });
+});
+
+// Two people who show one name, and one an alias finds too.
+const people = indexRegisters(new Map([["people", { members: [
+    { ...member("P-7"), label: "J. Smith" },
+    { ...member("P-9"), label: "J. Smith" },
+    { ...member("P-3"), label: "Ana Ruiz", aliases: ["ana"] },
+] }]]) as never);
+
+/** A column of a register kind over the people. */
+function overPeople(kind: string, value: Record<string, unknown>): SheetColumnMeta {
+    return indexColumns([{
+        key: "who", header: "Who", sub: none, width: none, kind: variant(kind, { register: "people", ...value }),
+        dataType: null, payloadType: null, editable: true, fill: [], detailCell: none,
+    } as never]).list[0]!;
+}
+
+const REGISTER_KINDS = [
+    overPeople("lookup", { options: none }),
+    overPeople("reference", {}),
+    overPeople("enum", { options: none }),
+    overPeople("person", { unassigned: none }),
+    overPeople("cycle", { scale: false, look: variant("chip", null) }),
+].map((meta) => [meta.kind, meta] as const);
+
+describe("a register column is typed in the words its cells show (#1536)", () => {
+    const ctx = { registers: people, rows: [], rowIndex: -1, driverColumn: undefined };
+
+    test.each(REGISTER_KINDS)("%s: a member's label, key or alias finds it, and its words are what the candidate shows", (_kind, meta) => {
+        expect(candidateList(meta, "smi", ctx)).toEqual([{ key: "P-7", label: "J. Smith" }, { key: "P-9", label: "J. Smith" }]);
+        expect(candidateList(meta, "P-3", ctx)[0]).toEqual({ key: "P-3", label: "Ana Ruiz" });
+        expect(candidateList(meta, "ana", ctx)[0]).toEqual({ key: "P-3", label: "Ana Ruiz" });
+        expect(entryCandidates(meta, ctx).map((c) => c.label)).toEqual(["J. Smith", "J. Smith", "Ana Ruiz"]);
+    });
+
+    test.each(REGISTER_KINDS)("%s: typed text commits to the member it names whole — the first of two who share a name — else the best candidate", (_kind, meta) => {
+        expect(candidateFor(meta, "j. smith", ctx)?.key).toBe("P-7");
+        expect(candidateFor(meta, "P-9", ctx)?.key).toBe("P-9");
+        expect(candidateFor(meta, "ANA", ctx)?.key).toBe("P-3");
+        expect(candidateFor(meta, "ruiz", ctx)?.key).toBe("P-3");
+        expect(candidateFor(meta, "zzz", ctx)).toBeUndefined();
+        expect(candidateFor(meta, " ", ctx)).toBeUndefined();
+    });
+
+    test("a member the row is not offered is never what typed text commits to", () => {
+        const offered = { ...ctx, allowed: () => new Set(["P-9"]) };
+        const meta = overPeople("enum", { options: none });
+        expect(candidateFor(meta, "j. smith", offered)?.key).toBe("P-9");
+        expect(candidateList(meta, "j", offered)).toEqual([{ key: "P-9", label: "J. Smith" }]);
+    });
+
+    test("a closed register keeps an unmatched text as invalid draft text; an open one keeps it as typed; both write the key", () => {
+        const parse = { ...ctx, words: SHEET_WORDS, today: new Date("2026-11-06T00:00:00Z") };
+        for (const kind of ["enum", "person", "cycle"]) {
+            const meta = overPeople(kind, kind === "enum" ? { options: none } : kind === "person" ? { unassigned: none } : { scale: false, look: variant("chip", null) });
+            expect(parseCell(meta, "Ana Ruiz", parse)).toEqual({ kind: "cell", cell: variant("String", "P-3") });
+            expect(parseCell(meta, "nobody", parse)).toEqual({ kind: "unrecognised" });
+        }
+        const lookup = overPeople("lookup", { options: none });
+        expect(parseCell(lookup, "Ana Ruiz", parse)).toEqual({ kind: "cell", cell: variant("String", "P-3") });
+        expect(parseCell(lookup, "nobody", parse)).toEqual({ kind: "cell", cell: variant("String", "nobody") });
+    });
+
+    test("a member opens for editing in the words its cell shows; a cycle's key press finds a member by its key, an alias or its label", () => {
+        const person = overPeople("person", { unassigned: none });
+        const p9 = { ...member("P-9"), label: "J. Smith" };
+        expect(editText(variant("String", "P-9"), person, SHEET_WORDS, undefined, p9 as never)).toBe("J. Smith");
+        expect(editText(variant("String", "P-9"), person, SHEET_WORDS)).toBe("P-9");
+        const levels = indexRegisters(new Map([["people", { members: [{ ...member("L-0"), label: "0" }, { ...member("L-1"), label: "1", aliases: ["s"] }] }]]) as never);
+        const cycle = overPeople("cycle", { scale: true, look: variant("chip", null) });
+        expect(keyedCell(cycle, "1", levels)).toEqual(variant("String", "L-1"));
+        expect(keyedCell(cycle, "s", levels)).toEqual(variant("String", "L-1"));
+        expect(keyedCell(cycle, "x", levels)).toBeUndefined();
     });
 });
 

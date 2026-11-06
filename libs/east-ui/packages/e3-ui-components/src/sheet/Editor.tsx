@@ -26,9 +26,10 @@
  *   register's people — mounts the common combobox the way a
  *   date column mounts the common date field: the Chakra combobox parts
  *   over the machine's own buffer and candidates (`options`, best first),
- *   the list open while the editor is, the armed candidate highlighted, a
- *   click on an option committing it. The machine keeps every key — ⏎ ⇥
- *   esc ↑ ↓ are captured before the combobox sees them;
+ *   each option its member in the words its cell shows, the list open while
+ *   the editor is, the armed candidate highlighted, a click on an option
+ *   committing that member. The machine keeps every key — ⏎ ⇥ esc ↑ ↓ are
+ *   captured before the combobox sees them;
  * - a **link** / **set** column draws BOTH halves on the cell's own grid:
  *   the active half carries a 1.5 px brand underline and the only input;
  *   the other half's chips are clickable to move the caret. Existing content
@@ -76,7 +77,7 @@ export interface LinkEditorView {
     single: boolean;
 }
 
-/** One option of an enum column's combobox: a register member, best first. */
+/** One option of a combobox column's menu: a register member, best first — its key, and the words its cell shows. */
 export interface EditorOption {
     key: string;
     label: string;
@@ -120,8 +121,10 @@ export interface SheetEditorProps {
     highlighted?: number | undefined;
     /** Browsing: the buffer is a whole option (or empty), so ↑ ↓ step the buffer through the options here instead of the machine's candidates. */
     browse?: boolean | undefined;
-    /** A click on an option: the sheet writes it and moves on. */
-    onPick?: ((label: string) => void) | undefined;
+    /** A click on an option: the sheet writes its member and moves on. */
+    onPick?: ((option: EditorOption) => void) | undefined;
+    /** ↑ ↓ while browsing reach an option: the buffer holds its member — the one of two who share its words. */
+    onBrowse?: ((option: EditorOption) => void) | undefined;
     /** A date column's level for this row (#844): at `time` the field grows a time box. */
     whenLevel?: WhenLevel | undefined;
     onChange: (val: string) => void;
@@ -157,7 +160,14 @@ const HOP_GRACE_MS = 300;
 function isRegisterKind(kind: SheetKind): boolean {
     return kind === "lookup" || kind === "reference" || kind === "enum" || kind === "person";
 }
-function isComboboxKind(kind: SheetKind): boolean {
+
+/**
+ * Whether a column's editor is the combobox: its register's members in a menu.
+ *
+ * @param kind - The column kind
+ * @returns Whether it is an enum or a person column
+ */
+export function isComboboxKind(kind: SheetKind): boolean {
     return kind === "enum" || kind === "person";
 }
 
@@ -173,7 +183,7 @@ function segmentsOf(root: HTMLElement | null): HTMLElement[] {
 }
 
 /** Renders the overlay editor. */
-export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date, seed, ghost, resolve, badge, error, focus, ariaLabel, link, options, highlighted, browse, onPick, whenLevel, onChange, onKey, onBlur, onHalfDown }: SheetEditorProps) {
+export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date, seed, ghost, resolve, badge, error, focus, ariaLabel, link, options, highlighted, browse, onPick, onBrowse, whenLevel, onChange, onKey, onBlur, onHalfDown }: SheetEditorProps) {
     const density = useDensity();
     const controlSize = density === "comfortable" ? "md" : density === "condensed" ? "xs" : "sm";
     // The number field reads and steps the buffer in the viewer's language — the one the cells print and the grammar reads (#852) — and the editor speaks the sheet's words (#861).
@@ -207,7 +217,7 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
         disableLayer: true,
         positioning: { placement: "bottom-start", gutter: 4, sameWidth: false },
         onInputValueChange: (d) => { if (d.inputValue !== value) onChange(d.inputValue); },
-        onValueChange: (d) => { const o = items.find((x) => x.key === d.value[0]); if (o !== undefined) onPick?.(o.label); },
+        onValueChange: (d) => { const o = items.find((x) => x.key === d.value[0]); if (o !== undefined) onPick?.(o); },
     });
     const focusKey = `${focus.seq}:${link?.hop ?? 0}:${link?.side ?? -1}`;
     // A PASSIVE effect, after the fields' own: the number field's machine
@@ -283,13 +293,13 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
     const handleComboboxKeyCapture = (e: KeyboardEvent<HTMLElement>) => {
         if (!COMBOBOX_MACHINE_KEYS.has(e.key)) return;
         e.stopPropagation();
-        // Browsing: ↑ ↓ step the buffer through the options; ⏎ then commits it.
+        // Browsing: ↑ ↓ step the buffer through the options — by member, so a namesake is reached too; ⏎ then commits it.
         if (browse === true && (e.key === "ArrowDown" || e.key === "ArrowUp") && items.length > 0) {
             e.preventDefault();
             const i = highlighted ?? -1;
             const next = e.key === "ArrowDown" ? Math.min(i + 1, items.length - 1) : Math.max(i - 1, 0);
             const o = items[next];
-            if (o !== undefined && o.label !== value) onChange(o.label);
+            if (o !== undefined && next !== i) onBrowse?.(o);
             return;
         }
         const el = inputRef.current;

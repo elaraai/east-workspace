@@ -14,11 +14,23 @@
  * ACCEPTS — the driver column ranked by what usually follows the row above,
  * then by sheet frequency.
  *
+ * Every register column is typed in the words its cells show (#1536): a
+ * member is found by its key, by its label and by its aliases alike. A
+ * candidate is a member — its key, what a commit writes, and its label, what
+ * the strip, the menu and the ghost show; a lookup's free text is its own key
+ * and label.
+ *
  * @packageDocumentation
  */
 
-import type { SheetColumnMeta, SheetRegisterIndex } from "./model.js";
+import { resolveTyped, type SheetColumnMeta, type SheetRegisterIndex } from "./model.js";
 import type { SheetRowValue } from "./values.js";
+
+/** One candidate: what a commit writes — a member's key — and the words it is shown and typed in, its label (else its key). */
+export interface SheetCandidate {
+    key: string;
+    label: string;
+}
 
 /** The sheet facts a candidate list reads. */
 export interface CandidateContext {
@@ -79,43 +91,37 @@ export function columnFrequency(rows: readonly SheetRowValue[], column: string):
     return f;
 }
 
-/** A register's members, in declaration order — narrowed to the column's options rule when the host gives one. */
+/** A register's members, in declaration order, each with the words it shows (its label, else its key) — narrowed to the column's options rule when the host gives one. */
 function members(ctx: CandidateContext, meta: SheetColumnMeta): { key: string; label: string; aliases: readonly string[] }[] {
     if (meta.register === undefined) return [];
-    const all = (ctx.registers.byName.get(meta.register) ?? []).map((m) => ({ key: m.key, label: m.label, aliases: m.aliases }));
+    const all = (ctx.registers.byName.get(meta.register) ?? []).map((m) => ({ key: m.key, label: m.label !== "" ? m.label : m.key, aliases: m.aliases }));
     const allowed = ctx.allowed?.(meta);
     return allowed === undefined ? all : all.filter((m) => allowed.has(m.key));
 }
 
-/** A register's member keys, in declaration order — narrowed to the column's options rule when the host gives one. */
-function memberKeys(ctx: CandidateContext, meta: SheetColumnMeta): string[] {
-    return members(ctx, meta).map((m) => m.key);
-}
-
 /**
- * The members matching `query` by key OR by any alias, best first: a
- * member's score is its best over its spellings, an alias match ranking just
- * behind the same match on the key, ties by `freq`. A register's shorthand
- * (an abbreviation, a site's own word for a member) is an alias, not a
- * substring of the member's name. With `byLabel` — a Record's person or
- * cycle, whose members are typed by the words they show — the label is a
- * spelling as good as the key.
+ * The members matching `query` by key, by label or by any alias, best
+ * first: a member's score is its best over its spellings — its label as good
+ * as its key, an alias match ranking just behind the same match on either —
+ * ties by `freq`, then the register's order. A register's shorthand (an
+ * abbreviation, a site's own word for a member) is an alias, not a substring
+ * of the member's name.
  */
-function scoreMembers(list: readonly { key: string; label: string; aliases: readonly string[] }[], query: string, freq?: ReadonlyMap<string, number>, byLabel = false): string[] {
+function scoreMembers(list: readonly { key: string; label: string; aliases: readonly string[] }[], query: string, freq?: ReadonlyMap<string, number>): SheetCandidate[] {
     return list
         .map((m) => {
             let s = scoreLabel(m.key, query);
-            const ls = byLabel ? scoreLabel(m.label, query) : -1;
+            const ls = scoreLabel(m.label, query);
             if (ls >= 0 && (s < 0 || ls < s)) s = ls;
             for (const a of m.aliases) {
                 const as = scoreLabel(a, query);
                 if (as >= 0 && (s < 0 || as + 0.25 < s)) s = as + 0.25;
             }
-            return { x: m.key, s };
+            return { m, s };
         })
         .filter((o) => o.s >= 0)
-        .sort((a, b) => a.s - b.s || (freq?.get(b.x) ?? 0) - (freq?.get(a.x) ?? 0))
-        .map((o) => o.x);
+        .sort((a, b) => a.s - b.s || (freq?.get(b.m.key) ?? 0) - (freq?.get(a.m.key) ?? 0))
+        .map((o) => ({ key: o.m.key, label: o.m.label }));
 }
 
 /** The String value of a row's column, or `""`. */
@@ -129,12 +135,21 @@ function stringAt(row: SheetRowValue | undefined, column: string): string {
  * column ranks by what usually follows the row above (a value that most
  * often came right after the previous row's driver value, over the dated
  * rows in sheet order), then by sheet frequency, then the rest of the
- * register.
+ * register. Every other register column offers its members in their order.
  */
-export function entryCandidates(meta: SheetColumnMeta, ctx: CandidateContext): string[] {
-    const keys = memberKeys(ctx, meta);
-    if (meta.kind === "enum" || meta.kind === "reference" || meta.kind === "person" || meta.kind === "cycle") return keys.slice(0, 8);
-    if (meta.kind !== "lookup") return [];
+export function entryCandidates(meta: SheetColumnMeta, ctx: CandidateContext): SheetCandidate[] {
+    const list = members(ctx, meta);
+    switch (meta.kind) {
+        case "enum":
+        case "reference":
+        case "person":
+        case "cycle":
+            return list.slice(0, 8).map((m) => ({ key: m.key, label: m.label }));
+        case "lookup":
+            break;
+        default:
+            return [];
+    }
     const score = new Map<string, number>();
     const prev = ctx.rowIndex > 0 ? ctx.rows[ctx.rowIndex - 1] : undefined;
     const prevValue = stringAt(prev, meta.key);
@@ -151,23 +166,48 @@ export function entryCandidates(meta: SheetColumnMeta, ctx: CandidateContext): s
         if (v !== "") score.set(v, (score.get(v) ?? 0) + 1);
     }
     const seen = [...score.keys()].sort((a, b) => score.get(b)! - score.get(a)!);
-    const rest = keys.filter((k) => !score.has(k));
-    return seen.concat(rest).slice(0, 8);
+    const rest = list.filter((m) => !score.has(m.key)).map((m) => m.key);
+    // A value the sheet holds shows as its member does — a member the row is not offered too — and free text as itself.
+    const shown = new Map((ctx.registers.byName.get(meta.register ?? "") ?? []).map((m) => [m.key, m.label]));
+    return seen.concat(rest).slice(0, 8).map((key) => {
+        const label = shown.get(key);
+        return { key, label: label !== undefined && label !== "" ? label : key };
+    });
 }
 
-/** The scored candidates for a typed buffer (the entry menu when empty). */
-export function candidateList(meta: SheetColumnMeta, text: string, ctx: CandidateContext): string[] {
+/** The scored candidates for a typed buffer (the entry menu when empty): the register's members, found by key, label or alias. */
+export function candidateList(meta: SheetColumnMeta, text: string, ctx: CandidateContext): SheetCandidate[] {
     const t = text.trim();
     if (t === "") return entryCandidates(meta, ctx);
     const list = members(ctx, meta);
     switch (meta.kind) {
         case "lookup": return scoreMembers(list, t, columnFrequency(ctx.rows, meta.key));
-        case "reference": return scoreMembers(list, t);
+        case "reference":
+        case "enum":
         case "person":
-        case "cycle": return scoreMembers(list, t, undefined, true);
-        case "enum": return scoreMembers(list, t.toUpperCase());
+        case "cycle": return scoreMembers(list, t);
         default: return [];
     }
+}
+
+/**
+ * The candidate typed text commits to: the member it names whole — by key or
+ * alias, else by the label it shows, the first member to show it — where the
+ * row is offered that member; else the best candidate. Two members who show
+ * one label are told apart by a pick (the menu, the strip, ⇥), never by the
+ * words alone.
+ *
+ * @param meta - The register column
+ * @param text - What was typed
+ * @param ctx - The sheet facts
+ * @returns The candidate, or `undefined` where nothing matches
+ */
+export function candidateFor(meta: SheetColumnMeta, text: string, ctx: CandidateContext): SheetCandidate | undefined {
+    if (text.trim() === "") return undefined;
+    const named = resolveTyped(ctx.registers, meta.register, text);
+    const allowed = ctx.allowed?.(meta);
+    if (named !== undefined && (allowed === undefined || allowed.has(named.key))) return { key: named.key, label: named.label !== "" ? named.label : named.key };
+    return candidateList(meta, text, ctx)[0];
 }
 
 /** Which candidate is armed: an explicit pick, else the top one once something is typed. */
@@ -177,7 +217,7 @@ export function armedIndex(text: string, hi: number): number {
 }
 
 /** The armed candidate for a buffer (`undefined` with an empty buffer — entering arms nothing). */
-export function candidateAt(meta: SheetColumnMeta, text: string, hi: number, ctx: CandidateContext): string | undefined {
+export function candidateAt(meta: SheetColumnMeta, text: string, hi: number, ctx: CandidateContext): SheetCandidate | undefined {
     if (text.trim() === "" && hi < 0) return undefined;
     const list = candidateList(meta, text, ctx);
     if (list.length === 0) return undefined;

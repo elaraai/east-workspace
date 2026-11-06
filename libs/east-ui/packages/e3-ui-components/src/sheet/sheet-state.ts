@@ -44,6 +44,12 @@
  * - **An unchanged buffer writes nothing** (#852): an editor closed on the
  *   text it opened with commits no write — nor takes a ghost when it was
  *   never touched — so opening a cell and pressing ⏎ never changes it.
+ * - **A register member is typed in the words its cell shows** (#1536): the
+ *   editor opens on its label; a member a gesture chooses — the cell's own as
+ *   it opens, a menu option, a strip chip, a candidate ⇥ or ⌘→ takes —
+ *   commits as itself, by its key, so two members who show one label are told
+ *   apart; typed words commit to the member they name whole, else the best
+ *   candidate. Back on the cell's own member, nothing is written.
  * - **A printable key seeds a fresh edit**; ⏎ / F2 edit with the value
  *   selected (⏎ takes a pending suggestion first); esc cancels.
  * - **Whole rows selected + ⌫ deletes the records**; ⌫ on cells clears them
@@ -62,7 +68,7 @@
  * @packageDocumentation
  */
 
-import { variant } from "@elaraai/east";
+import { StringType, equalFor, variant } from "@elaraai/east";
 import { ghostFor, ghostWord, resolveFor } from "./candidates.js";
 import type { SheetKind } from "./model.js";
 import {
@@ -83,9 +89,21 @@ export * from "./sheet-types.js";
 export { nextTargetOf, fillOrder, anchorRow } from "./sheet-suggest-state.js";
 export { withBuffer } from "./sheet-link-state.js";
 
+const stringEqual = equalFor(StringType);
+
 /** The register kinds — where ⌥ cycles candidates and Tab takes the ghost. */
 function isRegisterKind(kind: SheetKind): boolean {
     return kind === "lookup" || kind === "reference" || kind === "enum" || kind === "person";
+}
+
+/**
+ * The buffer once a gesture has chosen a register member (#1536): the words
+ * it shows typed, the member armed among their candidates — what the strip,
+ * the menu and the badge show — and its key what the commit writes.
+ */
+function withPick(edit: EditBuffer, val: string, key: string, ctx: SheetMachineCtx): EditBuffer {
+    const hi = ctx.candidates(edit.r, edit.c, val).findIndex((cand) => stringEqual(cand.key, key));
+    return { ...edit, val, err: false, hi, pick: key };
 }
 
 /**
@@ -118,10 +136,13 @@ function startEdit(s: SheetUiState, r: number, c: number, seed: string | undefin
     const moved = moveTo(s, { r, c }, ctx, effects);
     const linkCtx = ctx.linkAt?.(r, c);
     const val = linkCtx !== undefined ? seed ?? "" : seed ?? ctx.editTextAt(r, c);
-    const edit: EditBuffer = {
+    const opened: EditBuffer = {
         r, c, val, err: false, hi: seed !== undefined && seed.trim() !== "" ? 0 : -1, seeded: seed !== undefined,
         opened: seed === undefined && linkCtx === undefined ? val : undefined,
     };
+    // Opened on the cell's own register member, the editor holds that member — the one of two who share its words.
+    const own = seed === undefined && linkCtx === undefined ? ctx.memberAt?.(r, c) : undefined;
+    const edit = own !== undefined ? withPick(opened, val, own, ctx) : opened;
     if (linkCtx !== undefined) {
         // Existing content becomes chips; a seed replaces it (the spreadsheet convention).
         const groups: LinkGroups = seed !== undefined ? [[], []] : [[...linkCtx.initial[0]], [...linkCtx.initial[1]]];
@@ -132,11 +153,16 @@ function startEdit(s: SheetUiState, r: number, c: number, seed: string | undefin
     return { state: { ...moved, edit, selEnd: null, armed: null, gsel: null }, effects };
 }
 
-/** The text a register-kind commit takes: the armed candidate when a ghost or an explicit pick applies. */
+/**
+ * The text a register-kind commit takes: the member a gesture chose, by its
+ * key; else the armed candidate's key when a ghost or a stepped candidate
+ * applies; else the words typed, which the parse resolves (#1536).
+ */
 export function commitText(edit: EditBuffer, ctx: SheetMachineCtx): string {
     if (!isRegisterKind(ctx.kindAt(edit.r, edit.c))) return edit.val;
+    if (edit.pick !== undefined) return edit.pick;
     const cand = ctx.candidateAt(edit.r, edit.c, edit.val, edit.hi);
-    if (cand !== undefined && edit.val.trim() !== "" && (ghostFor(edit.val, cand) !== "" || edit.hi > 0)) return cand;
+    if (cand !== undefined && edit.val.trim() !== "" && (ghostFor(edit.val, cand.label) !== "" || edit.hi > 0)) return cand.key;
     return edit.val;
 }
 
@@ -179,8 +205,12 @@ function commitEdit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx): Tran
     // written (#852): re-reading a cell's own edit form could still change
     // it — the quantity grammar rounds to a whole number. An untouched
     // editor (its buffer as it opened, no candidate cycled) never takes a
-    // ghost it was not asked for either.
-    const unchanged = edit.opened !== undefined && (text === edit.opened || (edit.val === edit.opened && edit.hi < 0));
+    // ghost it was not asked for either. Holding a chosen member, it is
+    // unchanged while that member is the cell's own (#1536).
+    const own = edit.pick !== undefined ? ctx.memberAt?.(edit.r, edit.c) : undefined;
+    const unchanged = edit.opened !== undefined && (edit.pick !== undefined
+        ? own !== undefined && stringEqual(edit.pick, own)
+        : text === edit.opened || (edit.val === edit.opened && edit.hi < 0));
     if (!unchanged) {
         const outcome = ctx.parse(edit.r, edit.c, text);
         effects.push({ t: "write", r: edit.r, c: edit.c, cell: outcome.kind === "cell" ? outcome.cell : outcome.kind === "unrecognised" ? variant("Invalid", text) : null, text });
@@ -331,7 +361,7 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
     // A cell that steps in place (#1531): Space or ⏎ takes its next state (⇧ the one before), ⌫ a cycle's first, and a
     // key that names a member sets it — none opens an editor, and a read-only cell takes none of them.
     const stepAt = ctx.stepAt;
-    if (stepAt !== undefined && s.selEnd === null && !e.meta && !e.alt && stepAt(s.sel.r, s.sel.c, 1) !== undefined) {
+    if (stepAt !== undefined && (s.selEnd === null || same(s.selEnd, s.sel)) && !e.meta && !e.alt && stepAt(s.sel.r, s.sel.c, 1) !== undefined) {
         const { r, c } = s.sel;
         const write = (cell: SheetCellValue | undefined): Transition => ({ state: s, effects: ctx.editableAt(r, c) && cell !== undefined ? [{ t: "write", r, c, cell, text: "" }] : [] });
         if (e.key === " " || e.key === "Enter") return write(stepAt(r, c, e.shift ? -1 : 1));
@@ -449,7 +479,8 @@ function editorKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key" }>,
             const cur = edit.hi < 0 ? (edit.val.trim() === "" ? -1 : 0) : edit.hi;
             const back = e.key === "[" || e.key === "ArrowUp";
             const hi = cur < 0 ? 0 : (cur + (back ? -1 : 1) + n) % n;
-            return { state: { ...s, edit: { ...edit, hi } }, effects: [{ t: "schedule.suggest", latency: "instant" }] };
+            // The candidate stepped to is what commits now, not a member chosen before.
+            return { state: { ...s, edit: { ...edit, hi, pick: undefined } }, effects: [{ t: "schedule.suggest", latency: "instant" }] };
         }
         return { state: s, effects: [] };
     }
@@ -457,11 +488,11 @@ function editorKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key" }>,
     if (e.key === "Tab") {
         if (!e.shift && isRegisterKind(kind)) {
             const cand = ctx.candidateAt(edit.r, edit.c, edit.val, edit.hi);
-            const ghost = ghostFor(edit.val, cand);
-            const resolve = resolveFor(edit.val, cand);
-            if (ghost !== "" || resolve !== "") {
+            const ghost = ghostFor(edit.val, cand?.label);
+            const resolve = resolveFor(edit.val, cand?.label);
+            if (cand !== undefined && (ghost !== "" || resolve !== "")) {
                 return {
-                    state: { ...s, edit: { ...edit, val: ghost !== "" ? edit.val + ghost : resolve, err: false } },
+                    state: { ...s, edit: withPick(edit, ghost !== "" ? edit.val + ghost : resolve, cand.key, ctx) },
                     effects: [{ t: "schedule.suggest", latency: "instant" }],
                 };
             }
@@ -472,10 +503,12 @@ function editorKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key" }>,
     if (e.key === "ArrowUp") return commitEdit(s, "stay", ctx);
     if (e.key === "ArrowRight" && e.atEnd && isRegisterKind(kind)) {
         const cand = ctx.candidateAt(edit.r, edit.c, edit.val, edit.hi);
-        const ghost = ghostFor(edit.val, cand);
-        if (ghost !== "") {
+        const ghost = ghostFor(edit.val, cand?.label);
+        if (cand !== undefined && ghost !== "") {
             const take = e.meta ? ghost : ghostWord(ghost);
-            return { state: { ...s, edit: { ...edit, val: edit.val + take } }, effects: [] };
+            // The whole ghost takes its candidate; a word of it is still typing.
+            const next = take === ghost ? withPick(edit, edit.val + take, cand.key, ctx) : { ...edit, val: edit.val + take, pick: undefined };
+            return { state: { ...s, edit: next }, effects: [] };
         }
     }
     return { state: s, effects: [] };
@@ -504,7 +537,11 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             }
             const moved = moveTo(closed.state, { r: e.r, c: e.c }, ctx, effects, false);
             effects.push({ t: "focus.sheet" });
-            if (stepped !== undefined && ctx.editableAt(e.r, e.c)) effects.push({ t: "write", r: e.r, c: e.c, cell: stepped, text: "" });
+            if (stepped !== undefined && ctx.editableAt(e.r, e.c)) {
+                // The editor's commit is its own undo step, the step another.
+                if (s.edit !== null) effects.push({ t: "gesture.end" });
+                effects.push({ t: "write", r: e.r, c: e.c, cell: stepped, text: "" });
+            }
             return { state: moved.gsel === null ? moved : { ...moved, gsel: null }, effects };
         }
         case "cell.dbl":
@@ -540,7 +577,8 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             if (s.edit === null) return { state: s, effects: [] };
             if (s.edit.link !== undefined) return linkChange(s, e.val, ctx);
             const hi = e.val.trim() === "" ? -1 : 0;
-            return { state: { ...s, edit: { ...s.edit, val: e.val, err: false, hi } }, effects: [{ t: "schedule.suggest", latency: "idle" }] };
+            // Typing lets a chosen member go: the words typed are what commits now.
+            return { state: { ...s, edit: { ...s.edit, val: e.val, err: false, hi, pick: undefined } }, effects: [{ t: "schedule.suggest", latency: "idle" }] };
         }
         case "editor.key":
             return editorKey(s, e, ctx);
@@ -560,11 +598,16 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
                     effects: [{ t: "focus.editor", selectAll: false }, { t: "schedule.suggest", latency: "instant" }],
                 };
             }
+            // A candidate chip: its member, in the words it shows.
             return {
-                state: { ...s, edit: { ...s.edit, val: e.label, hi: e.i, err: false } },
+                state: { ...s, edit: e.key !== undefined ? withPick(s.edit, e.label, e.key, ctx) : { ...s.edit, val: e.label, hi: e.i, err: false } },
                 effects: [{ t: "focus.editor", selectAll: false }, { t: "schedule.suggest", latency: "instant" }],
             };
         }
+        case "editor.pick":
+            // The combobox chose a member: its words in the buffer, the member itself what commits.
+            if (s.edit === null || s.edit.link !== undefined) return { state: s, effects: [] };
+            return { state: { ...s, edit: withPick(s.edit, e.label, e.key, ctx) }, effects: [{ t: "schedule.suggest", latency: "instant" }] };
         case "half.down": {
             if (s.edit === null || s.edit.link === undefined) return { state: s, effects: [] };
             if (s.edit.link.side === e.side) return { state: s, effects: [{ t: "focus.editor", selectAll: false }] };

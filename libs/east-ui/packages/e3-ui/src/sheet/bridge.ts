@@ -107,7 +107,7 @@ import { buildDraftRowDecoder, buildDraftGroupDecoder, buildDraftEntryDecoder } 
 import { buildDraftContextBridge, buildDraftBase, buildReadyContexts } from "./context-bridge.js";
 import { SheetDraftEntryTypeFor, SheetDraftGroupTypeFor } from "./drafts.js";
 import { SheetDraftTypeFor } from "./transactions.js";
-import { RECORD_COLUMN_KINDS, type SheetAnyColumnConfig, type SheetColumn } from "./columns.js";
+import type { SheetAnyColumnConfig, SheetColumn } from "./columns.js";
 import type { SheetGroupCell } from "./group.js";
 import type { SheetDriverValue, SheetRegisterValue } from "./registers.js";
 import { actionRuleCells, buildActionCodec, describeAction, type SheetActionCodec } from "./actions.js";
@@ -309,17 +309,17 @@ export function describeColumn(key: string, col: SheetColumn<StructType, EastTyp
 function describeAge(key: string, col: SheetColumn<StructType, EastType>, rowType: StructType): SheetColumnMeta {
     const fields = rowType.fields as Record<string, EastType>;
     if (fields[key] !== undefined) {
-        throw new Error(`Record: column "${key}" is an age column, which shows no field — key it by a name of its own ("days_since"), not the row's "${key}" field`);
+        throw new Error(`Sheet: column "${key}" is an age column, which shows no field — key it by a name of its own ("days_since"), not the row's "${key}" field`);
     }
     const since = col.config.since;
-    if (since === undefined) throw new Error(`Record: age column "${key}" needs \`since\` — when its clock started, over the row`);
+    if (since === undefined) throw new Error(`Sheet: age column "${key}" needs \`since\` — when its clock started, over the row`);
     const sinceFn = East.function([rowType], undefined, (_$, r) => since(r) as SubtypeExprOrValue<EastType>);
     const out = (Expr.type(sinceFn as Expr<EastType>) as FunctionType).output as EastType;
     const payload = optionPayload(out);
     const moment = payload ?? out;
     const change = isTypeEqual(moment, RecordChangeType);
     if (!change && moment.type !== "DateTime") {
-        throw new Error(`Record: age column "${key}" has a \`since\` returning ${describeType(out)} — it must return a DateTime, a Record.Types.Change, or an Option of either`);
+        throw new Error(`Sheet: age column "${key}" has a \`since\` returning ${describeType(out)} — it must return a DateTime, a Record.Types.Change, or an Option of either`);
     }
     const derived = East.function([rowType], OptionType(DateTimeType), ($, r) => {
         const read = $.const(sinceFn as unknown as ExprType<FunctionType<[StructType], EastType>>);
@@ -364,7 +364,7 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
     // An audit column: the change the app kept, read only — its cell the moment, its who and what rule cells.
     if (kind === "audit") {
         if (!isTypeEqual(unwrapped, RecordChangeType)) {
-            throw new Error(`Record: audit column "${key}" must sit on a Record.Types.Change or Option<Record.Types.Change> field — got ${describeType(fieldType)}`);
+            throw new Error(`Sheet: audit column "${key}" must sit on a Record.Types.Change or Option<Record.Types.Change> field — got ${describeType(fieldType)}`);
         }
         const derived = East.function([rowType], OptionType(DateTimeType), ($, r) => {
             const change = $.const((r as unknown as Record<string, ExprType<EastType>>)[key]!);
@@ -456,7 +456,7 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
 
     const payloadType = SCALAR_PAYLOAD[kind] as EastType;
     if (!isTypeEqual(unwrapped, payloadType)) {
-        throw new Error(`${RECORD_COLUMN_KINDS.has(kind) ? "Record" : "Sheet"}: ${kind} column "${key}" must sit on a ${(payloadType as { type: string }).type} or Option<${(payloadType as { type: string }).type}> field — got ${(fieldType as { type: string }).type}`);
+        throw new Error(`Sheet: ${kind} column "${key}" must sit on a ${(payloadType as { type: string }).type} or Option<${(payloadType as { type: string }).type}> field — got ${(fieldType as { type: string }).type}`);
     }
     return {
         key, field: key, kind, config: cfg, fieldType, optional, payloadType,
