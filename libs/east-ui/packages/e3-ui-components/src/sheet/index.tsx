@@ -167,13 +167,13 @@ import { ActionPanel, type ActionPanelApi } from "./actions/ActionPanel.js";
 import { ActionBar } from "./actions/ActionBar.js";
 import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
 import { SheetPager, pageWindow, type SheetPagerColumn } from "./Pager.js";
-import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
+import { SheetEditor, isComboboxKind, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripModel, type StripSuggestInput } from "./Strip.js";
 import type { SheetFooterProps, SheetLoadingLine } from "./Footer.js";
 import { useSheetEditing, type DraftEdit, type LocalLayer, type SheetSeeds } from "./use-editing.js";
 import { draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
 import { useSheetToolbarItemsFor, type SheetToolbarTabs } from "./Toolbar.js";
-import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLineValue, SheetLinkValue, SheetMemberValue, SheetNarrowing, SheetNounValue, SheetProposerValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetSubRowValue, SheetSavedView } from "./values.js";
+import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLineValue, SheetLinkValue, SheetMemberValue, SheetNarrowing, SheetNounValue, SheetProposerValue, SheetRegisterMemberValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetSubRowValue, SheetSavedView } from "./values.js";
 
 export type { SheetRootValue, SheetRowValue, SheetCellValue } from "./values.js";
 
@@ -1147,6 +1147,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [rowAt]);
     /** A date column's level for a row (#844). */
     const levelAt = useCallback((r: number, meta: SheetColumnMeta) => (meta.kind === "date" && meta.level !== undefined ? meta.level(cellsAt(r)) : undefined), [cellsAt]);
+    /** The register member a cell holds the key of (#1536) — the one its label shows for, as the cell draws it. */
+    const memberAt = useCallback((r: number, c: number): SheetRegisterMemberValue | undefined => {
+        const meta = metaAt(r, c);
+        const cell = cellAt(r, c);
+        if (meta === undefined || !namesMember(meta) || cell?.type !== "String") return undefined;
+        const member = resolveRegisterMember(registers, meta.register, cell.value);
+        return member !== undefined && stringEqual(member.key, cell.value) ? member : undefined;
+    }, [metaAt, cellAt, registers]);
     const rowOf = useCallback((id: string): number | undefined => {
         const bi = anchorBodyIndex(body, id);
         if (bi < 0) return undefined;
@@ -1318,8 +1326,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         },
         editTextAt: (r, c) => {
             const meta = metaAt(r, c);
-            return meta === undefined ? "" : editText(cellAt(r, c), meta, words, levelAt(r, meta));
+            return meta === undefined ? "" : editText(cellAt(r, c), meta, words, levelAt(r, meta), memberAt(r, c));
         },
+        memberAt: (r, c) => memberAt(r, c)?.key,
         // A band's cells are never link cells, whatever column they sit under.
         linkAt: (r, c) => { const k = rowAt(r)?.kind; return k === "group" ? undefined : linkCtxFor(r, c); },
         rowOf,
@@ -1394,7 +1403,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 group: g.lines.filter((l) => l.subRows.length > 0).map((l) => lineId(g.id, l.key)),
             };
         },
-    }), [rowCount, colCount, lensDrawn, exhausted, canEdit, canInsertRows, editingState.available, group, declaredNoun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, narrowing, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, lensEnds, pageRows]);
+    }), [rowCount, colCount, lensDrawn, exhausted, canEdit, canInsertRows, editingState.available, group, declaredNoun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, memberAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, narrowing, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, lensEnds, pageRows]);
     const ctxRef = useRef(ctx);
     ctxRef.current = ctx;
     const uiRef = useRef(ui);
@@ -1861,6 +1870,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const [scrollTarget, setScrollTarget] = useState<{ index: number; align: "auto" | "start" } | undefined>(undefined);
     const runEffects = useCallback((effects: readonly SheetEffect[]) => {
         gestureEvents.current = [];
+        /** The writes so far as one gesture: one step of the history. */
+        const recordSoFar = () => {
+            try { recordGesture(gestureEvents.current); }
+            catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
+            finally { gestureEvents.current = []; }
+        };
         /** After a write: the ring follows an insert, a blank anchor's suggestions follow the new id, the copilot re-runs. */
         const afterWrite = (r: number, res: { firstInserted: number | undefined; ids: string[] }, rerun: boolean) => {
             const anchorBefore = idAt(r);
@@ -1888,6 +1903,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     afterWrite(eff.r, res, true);
                     break;
                 }
+                case "gesture.end":
+                    recordSoFar();
+                    break;
                 case "insert.rows": {
                     let afterR = eff.anchorR;
                     let lastId: string | undefined;
@@ -2106,9 +2124,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 }
             }
         }
-        try { recordGesture(gestureEvents.current); }
-        catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
-        finally { gestureEvents.current = []; }
+        recordSoFar();
     }, [recordGesture, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo]);
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
@@ -2411,40 +2427,46 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         if (edit === null || editMeta === undefined || edit.link !== undefined) return undefined;
         return candidateAt(editMeta, edit.val, edit.hi, candidateCtxFor(edit.r));
     }, [edit, editMeta, candidateCtxFor]);
-    const editGhost = edit !== null ? ghostFor(edit.val, editCand) : "";
-    const editResolve = edit !== null ? resolveFor(edit.val, editCand) : "";
+    const editGhost = edit !== null ? ghostFor(edit.val, editCand?.label) : "";
+    const editResolve = edit !== null ? resolveFor(edit.val, editCand?.label) : "";
     const editBadge = useMemo(() => {
         if (edit === null || editMeta === undefined || edit.val.trim() === "" || edit.link !== undefined) return "";
         const n = candidateList(editMeta, edit.val, candidateCtxFor(edit.r)).length;
         return n > 1 ? words.m.editorBadge({ index: words.number(Math.min(Math.max(edit.hi, 0), n - 1) + 1), total: words.number(n) }) : "";
     }, [edit, editMeta, candidateCtxFor, words]);
     const onEditorChange = useCallback((val: string) => dispatch({ t: "editor.change", val }), [dispatch]);
-    // An enum column's combobox. Two modes over the machine's
-    // buffer: BROWSING — the buffer is empty or a whole option (the cell's own
-    // value on open) — lists every option the row may take with that one
-    // highlighted, and ↑ ↓ step the buffer through them; TYPING — a partial
-    // buffer — lists the machine's candidates with its armed one highlighted,
-    // exactly what the strip shows. ⏎ commits the buffer either way; a click
-    // writes the option and moves on like ⏎.
+    // A combobox column's menu: its register's members, each in the words its
+    // cell shows (#1536). Two modes over the machine's buffer: BROWSING — the
+    // buffer is empty, or holds a member (the cell's own on open, one chosen)
+    // or spells one whole — lists every option the row may take with that one
+    // highlighted, and ↑ ↓ step the buffer through them, member by member;
+    // TYPING — a partial buffer — lists the machine's candidates with its armed
+    // one highlighted, exactly what the strip shows. ⏎ commits the buffer
+    // either way; a click writes the option's member and moves on like ⏎.
     const editCombobox = useMemo<{ options: EditorOption[]; highlighted: number; browse: boolean } | undefined>(() => {
-        if (edit === null || editMeta === undefined || editMeta.kind !== "enum") return undefined;
+        if (edit === null || editMeta === undefined || !isComboboxKind(editMeta.kind)) return undefined;
         const cctx = candidateCtxFor(edit.r);
         const allowed = cctx.allowed?.(editMeta);
-        const all = (registers.byName.get(editMeta.register ?? "") ?? []).map((m) => m.key).filter((k) => allowed === undefined || allowed.has(k));
-        const typed = edit.val.trim();
-        const exact = all.findIndex((k) => k.toLowerCase() === typed.toLowerCase());
-        const browse = typed === "" || exact >= 0;
-        const labels = browse ? all : candidateList(editMeta, edit.val, cctx);
-        const options = labels.map((label) => {
-            const m = resolveRegisterMember(registers, editMeta.register, label);
-            return { key: label, label, meta: m !== undefined ? getSomeorUndefined(m.meta) : undefined, tone: m !== undefined ? getSomeorUndefined(m.tone)?.type : undefined };
+        const members = (registers.byName.get(editMeta.register ?? "") ?? []).filter((m) => allowed === undefined || allowed.has(m.key));
+        const typed = edit.val.trim().toLowerCase();
+        const pick = edit.pick;
+        // The member the buffer holds: the one a gesture chose, else one it spells whole — its key, or the words it shows.
+        const named = pick !== undefined ? members.findIndex((m) => stringEqual(m.key, pick))
+            : typed === "" ? -1 : members.findIndex((m) => stringEqual(m.key.toLowerCase(), typed) || stringEqual(m.label.toLowerCase(), typed));
+        const browse = typed === "" || named >= 0;
+        const shown = browse ? members.map((m) => ({ key: m.key, label: m.label !== "" ? m.label : m.key })) : candidateList(editMeta, edit.val, cctx);
+        const byKey = new Map(members.map((m) => [m.key, m]));
+        const options = shown.map((c): EditorOption => {
+            const m = byKey.get(c.key);
+            return { key: c.key, label: c.label, meta: m !== undefined ? getSomeorUndefined(m.meta) : undefined, tone: m !== undefined ? getSomeorUndefined(m.tone)?.type : undefined };
         });
-        return { options, browse, highlighted: browse ? exact : edit.hi >= 0 ? Math.min(edit.hi, options.length - 1) : options.length > 0 ? 0 : -1 };
+        return { options, browse, highlighted: browse ? named : edit.hi >= 0 ? Math.min(edit.hi, options.length - 1) : options.length > 0 ? 0 : -1 };
     }, [edit, editMeta, candidateCtxFor, registers]);
-    const onEditorPick = useCallback((label: string) => {
-        dispatch({ t: "editor.change", val: label });
+    const onEditorPick = useCallback((option: EditorOption) => {
+        dispatch({ t: "editor.pick", label: option.label, key: option.key });
         dispatch({ t: "editor.key", key: "Enter", shift: false, meta: false, alt: false, atEnd: true });
     }, [dispatch]);
+    const onEditorBrowse = useCallback((option: EditorOption) => dispatch({ t: "editor.pick", label: option.label, key: option.key }), [dispatch]);
     // A date column's buffer is its edit form; the date field shows the date it names.
     const editDate = useMemo(() => {
         if (edit === null || editMeta === undefined || editMeta.kind !== "date") return undefined;
@@ -2477,7 +2499,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const onEditorBlur = useCallback(() => dispatch({ t: "editor.blur" }), [dispatch]);
     const onStripAction = useCallback((a: StripAction) => {
         switch (a.kind) {
-            case "candidate": dispatch({ t: "strip.pick", label: a.label, i: a.i }); break;
+            case "candidate": dispatch({ t: "strip.pick", label: a.label, key: a.key, i: a.i }); break;
             case "members": dispatch({ t: "strip.pick", label: a.label, i: -1, members: a.members }); break;
             case "fill": dispatch({ t: "fill.take", key: a.key }); break;
             case "rows": dispatch({ t: "proposal.take", i: (uiRef.current.sugg?.rows.length ?? 1) - 1 }); break;
@@ -3251,6 +3273,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 highlighted={editCombobox?.highlighted}
                 browse={editCombobox?.browse}
                 onPick={onEditorPick}
+                onBrowse={onEditorBrowse}
                 whenLevel={editWhenLevel}
                 onChange={onEditorChange}
                 onKey={onEditorKey}
@@ -3258,7 +3281,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 onHalfDown={onHalfDown}
             />
         )
-        : null, [edit, editMeta, editDate, styles, editGhost, editResolve, editBadge, editorFocus, onEditorChange, onEditorKey, onEditorBlur, linkView, linkGhostText, onHalfDown, editCombobox, onEditorPick, editWhenLevel]);
+        : null, [edit, editMeta, editDate, styles, editGhost, editResolve, editBadge, editorFocus, onEditorChange, onEditorKey, onEditorBlur, linkView, linkGhostText, onHalfDown, editCombobox, onEditorPick, onEditorBrowse, editWhenLevel]);
     // What a row in the range and the edited row are handed, held still while
     // they are the same — a hover elsewhere renders neither (#858).
     const rangeCols = useMemo(() => ({ c0: rect.c0, c1: rect.c1 }), [rect.c0, rect.c1]);

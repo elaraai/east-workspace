@@ -94,6 +94,8 @@ export interface SheetColumnMeta {
     unit: string | undefined;
     /** A quantity column's display format. */
     format: TickFormatOpt;
+    /** A toggle column's words for its two states: what a cell shows, and typed text sets. */
+    states: { on: string; off: string } | undefined;
     /** A stamped column's owner. */
     owner: string | undefined;
     /** A custom kind's "accepts" line. */
@@ -154,6 +156,7 @@ export function indexColumns(columns: readonly SheetColumnValue[]): SheetColumnI
             uom: undefined,
             unit: undefined,
             format: undefined,
+            states: undefined,
             owner: undefined,
             accepts: undefined,
             customParse: undefined,
@@ -184,6 +187,9 @@ export function indexColumns(columns: readonly SheetColumnValue[]): SheetColumnI
             case "person":
             case "cycle":
                 meta.register = kind.value.register;
+                break;
+            case "toggle":
+                meta.states = { on: kind.value.on, off: kind.value.off };
                 break;
             case "stamped":
                 meta.owner = getSomeorUndefined(kind.value.owner);
@@ -358,20 +364,24 @@ export function groupBandPx(size: "sm" | "md" | "lg"): number {
 
 // ── Registers and the driver ───────────────────────────────────────────────
 
-/** The registers by name, with each member indexed by key and by lower-cased alias. */
+/** The registers by name, with each member indexed by key and by lower-cased alias, and by the label it shows. */
 export interface SheetRegisterIndex {
     byName: ReadonlyMap<string, readonly SheetRegisterMemberValue[]>;
     /** Register name → lower-cased key or alias → member. */
     lookup: ReadonlyMap<string, ReadonlyMap<string, SheetRegisterMemberValue>>;
+    /** Register name → lower-cased label → the first member to show it. */
+    labels: ReadonlyMap<string, ReadonlyMap<string, SheetRegisterMemberValue>>;
 }
 
 /** Index the decoded registers. */
 export function indexRegisters(registers: ReadonlyMap<string, { members: readonly SheetRegisterMemberValue[] }>): SheetRegisterIndex {
     const byName = new Map<string, readonly SheetRegisterMemberValue[]>();
     const lookup = new Map<string, ReadonlyMap<string, SheetRegisterMemberValue>>();
+    const labels = new Map<string, ReadonlyMap<string, SheetRegisterMemberValue>>();
     for (const [name, reg] of registers) {
         byName.set(name, reg.members);
         const idx = new Map<string, SheetRegisterMemberValue>();
+        const shown = new Map<string, SheetRegisterMemberValue>();
         for (const m of reg.members) {
             const k = m.key.toLowerCase();
             if (!idx.has(k)) idx.set(k, m);
@@ -379,16 +389,35 @@ export function indexRegisters(registers: ReadonlyMap<string, { members: readonl
                 const al = a.toLowerCase();
                 if (!idx.has(al)) idx.set(al, m);
             }
+            const l = m.label.toLowerCase();
+            if (l !== "" && !shown.has(l)) shown.set(l, m);
         }
         lookup.set(name, idx);
+        labels.set(name, shown);
     }
-    return { byName, lookup };
+    return { byName, lookup, labels };
 }
 
-/** The member a register resolves `text` to — by key or alias, case-insensitively. */
+/** The member a register resolves `text` to — by key or alias, case-insensitively: what a cell's value names. */
 export function resolveMember(index: SheetRegisterIndex, register: string | undefined, text: string): SheetRegisterMemberValue | undefined {
     if (register === undefined) return undefined;
     return index.lookup.get(register)?.get(text.trim().toLowerCase());
+}
+
+/**
+ * The member typed text names whole — by key or alias, else by the label it
+ * shows, the first member to show it — case-insensitively: a register
+ * column is typed in the words its cells show.
+ *
+ * @param index - The registers
+ * @param register - The column's register
+ * @param text - What was typed
+ * @returns The member, or `undefined` where the text names none whole
+ */
+export function resolveTyped(index: SheetRegisterIndex, register: string | undefined, text: string): SheetRegisterMemberValue | undefined {
+    if (register === undefined) return undefined;
+    const t = text.trim().toLowerCase();
+    return index.lookup.get(register)?.get(t) ?? index.labels.get(register)?.get(t);
 }
 
 /** The driver member key a row resolves to — its driver column's String cell. */
@@ -514,7 +543,7 @@ export function cellText(cell: SheetCellValue | undefined, meta: SheetColumnMeta
             return cell.type === "Action" ? actionColumnOf(meta)?.cases.get(cell.value.case)?.state ?? cell.value.case : rawCellText(cell);
         case "toggle":
             // A toggle reads as its state's word, the word typed back sets it.
-            return cell.type === "Boolean" && meta.raw.kind.type === "toggle" ? (cell.value ? meta.raw.kind.value.on : meta.raw.kind.value.off) : rawCellText(cell);
+            return cell.type === "Boolean" && meta.states !== undefined ? (cell.value ? meta.states.on : meta.states.off) : rawCellText(cell);
         default:
             return rawCellText(cell);
     }
@@ -734,22 +763,6 @@ export type SheetBodyItem =
         count: number;
     }
     | { kind: "band"; band: SheetBand }
-    /**
-     * A Record's band over the rows that share a value (#1531): full width, outside the row space like a sub row —
-     * the ring never lands on it. Folded, its rows are not in the body.
-     */
-    | {
-        kind: "section";
-        /** Its value, as the band column's cell prints it: what it folds under. */
-        key: string;
-        /** What it reads: the value in words. */
-        label: string;
-        /** How many of the rows drawn share it. */
-        count: number;
-        folded: boolean;
-        /** The position of its first row. */
-        position: number;
-    }
     /** A resident window whose read failed (#853): its band, where its rows would be, with the reason and a Retry. */
     | { kind: "failed"; failure: SheetWindowFailure }
     | {
@@ -939,7 +952,7 @@ export interface SheetGeometry {
  */
 export function itemPx(item: SheetBodyItem, g: SheetGeometry): number {
     switch (item.kind) {
-        case "group": case "section": return g.bandPx;
+        case "group": return g.bandPx;
         case "subRow": return g.subRowPx;
         case "failed": return Math.max(BAND_MIN_PX, item.failure.px);
         case "band": return Math.max(BAND_MIN_PX, item.band.px);
@@ -999,56 +1012,7 @@ export function withProposals(
     return out.concat(body.slice(at + 1));
 }
 
-/**
- * The body with a Record's bands spliced in (#1530): a band over each run of
- * real rows that share a value, its count the run's length. A row with no
- * value stands under no band. A folded band's rows leave the body; the band
- * stays.
- *
- * @param body - The body items, its real rows in the order they are drawn
- * @param sectionOf - A row's band — its value's key and words — or `undefined` for a row under none
- * @param folded - The keys of the folded bands
- * @returns The body with its bands
- */
-export function withSections(
-    body: readonly SheetBodyItem[],
-    sectionOf: (row: SheetRowValue) => { key: string; label: string } | undefined,
-    folded: ReadonlySet<string>,
-): SheetBodyItem[] {
-    const of = body.map((it) => (it.kind === "real" ? sectionOf(it.row) : undefined));
-    // Each run's length, by the body index of its first row.
-    const runs = new Map<number, number>();
-    let start = -1;
-    let key: string | undefined;
-    body.forEach((it, i) => {
-        if (it.kind !== "real") return;
-        const at = of[i]?.key;
-        if (at !== undefined && start >= 0 && key === at) {
-            runs.set(start, runs.get(start)! + 1);
-            return;
-        }
-        key = at;
-        start = at === undefined ? -1 : i;
-        if (at !== undefined) runs.set(i, 1);
-    });
-    const out: SheetBodyItem[] = [];
-    let shut = false;
-    body.forEach((it, i) => {
-        const count = runs.get(i);
-        const section = of[i];
-        if (it.kind === "real") {
-            if (count !== undefined && section !== undefined) {
-                shut = folded.has(section.key);
-                out.push({ kind: "section", key: section.key, label: section.label, count, folded: shut, position: it.position });
-            } else if (section === undefined) shut = false;
-            if (shut) return;
-        }
-        out.push(it);
-    });
-    return out;
-}
-
-/** Whether a body item occupies the ROW space (paged bands, sub rows, a Record's bands and proposals do not; group summaries do). */
+/** Whether a body item occupies the ROW space (paged bands, sub rows and proposals do not; group summaries do). */
 export function isRowSpace(item: SheetBodyItem): boolean {
     return item.kind === "real" || item.kind === "blank" || item.kind === "group";
 }

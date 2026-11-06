@@ -15,10 +15,11 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, BooleanType, DateTimeType, East, FloatType, OptionType, StringType, StructType,
-    none, some, variant, type ValueTypeOf,
+    equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
-import { Record, Sheet, SheetInspectorPaneType, buildInspectorPane, createSheetBuild, createSheetRootWith } from "@elaraai/e3-ui/internal";
+import { Data, Record, RecordPayloadType, Sheet, SheetInspectorPaneType, buildInspectorPane, createSheetBuild, createSheetRootWith } from "@elaraai/e3-ui/internal";
+import { refusingPlatform } from "../refusing-platform.js";
 import * as ex from "./record.examples.js";
 
 describeEast("Record — examples", test => {
@@ -127,7 +128,7 @@ describe("the Record's kinds on the wire", () => {
         assert.equal(column.editable, false);
     });
 
-    test("an age counts whole units to the clock it is given, and none yet ahead of it", () => {
+    test("an age counts whole units to the clock it is given, and 0 ahead of it", () => {
         const days = kindOf("days_since");
         const weeks = kindOf("weeks_in");
         if (days.type !== "age" || weeks.type !== "age") assert.fail(`${days.type}, ${weeks.type}`);
@@ -176,31 +177,31 @@ describe("the Record's kinds refuse", () => {
             /column "flag" is a boolean column, which a Record draws and a Sheet does not/);
     });
 
+    // The Sheet's root says them in its words; the Record says them in its own (below).
     test("an age keyed by a field of the row", () => {
         assert.throws(() => createSheetRootWith(ROWS, { name: Record.column.age(Row, { since: r => r.updated }) }, { id: "id" }, { recordKinds: true }),
-            /column "name" is an age column, which shows no field/);
+            /^Error: Sheet: column "name" is an age column, which shows no field/);
     });
 
     test("an age whose since reads no moment", () => {
         assert.throws(() => createSheetRootWith(ROWS, { days: Record.column.age(Row, { since: r => r.name as never }) }, { id: "id" }, { recordKinds: true }),
-            /age column "days" has a `since` returning String/);
+            /^Error: Sheet: age column "days" has a `since` returning String/);
     });
 
     test("an audit on a field that holds no change", () => {
         assert.throws(() => createSheetRootWith(ROWS, { name: Record.column.audit(Row) as never }, { id: "id" }, { recordKinds: true }),
-            /audit column "name" must sit on a Record\.Types\.Change/);
+            /^Error: Sheet: audit column "name" must sit on a Record\.Types\.Change/);
     });
 
     test("a cycle or a toggle on a field of the wrong type", () => {
         assert.throws(() => createSheetRootWith(ROWS, { flag: Record.column.cycle(Row, "levels") as never }, { id: "id" }, { recordKinds: true }),
-            /Record: cycle column "flag" must sit on a String/);
+            /^Error: Sheet: cycle column "flag" must sit on a String/);
         assert.throws(() => createSheetRootWith(ROWS, { name: Record.column.toggle(Row, { on: "y", off: "n" }) as never }, { id: "id" }, { recordKinds: true }),
-            /Record: toggle column "name" must sit on a Boolean/);
+            /^Error: Sheet: toggle column "name" must sit on a Boolean/);
     });
 });
 
 describe("<Record> refuses", () => {
-    const handle = () => Record.bind(ex.recordCrew);
     const columns = {
         name: Record.column.title(ex.Crew),
         inducted: Record.column.toggle(ex.Crew, { on: "yes", off: "no" }),
@@ -209,43 +210,50 @@ describe("<Record> refuses", () => {
     const registers = { levels: Record.register.members(East.value(["0", "1"], ArrayType(StringType)), { kind: "level", key: l => l, label: l => l }) };
 
     test("a Sheet's prop it has no use for", () => {
-        assert.throws(() => Record.Payload({ record: handle(), columns, registers, group: {} }), /Record: takes no `group` — a Record bands its rows with `groupBy`/);
-        assert.throws(() => Record.Payload({ record: handle(), columns, registers, templates: [] }), /Record: takes no `templates`/);
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, group: {} }), /Record: takes no `group` — a Record bands its rows with `groupBy`/);
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, templates: [] }), /Record: takes no `templates`/);
     });
 
     test("a column group naming no column, holding none, out of order, or overlapping another", () => {
-        assert.throws(() => Record.Payload({ record: handle(), columns, registers, columnGroups: [{ label: "Core", columnKeys: ["shift"] }] }),
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, columnGroups: [{ label: "Core", columnKeys: ["shift"] }] }),
             /column group "Core" names "shift", which is not a column \(name, inducted, forklift\)/);
-        assert.throws(() => Record.Payload({ record: handle(), columns, registers, columnGroups: [{ label: "", columnKeys: [] }] }),
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, columnGroups: [{ label: "", columnKeys: [] }] }),
             /an unlabelled group holds no columns/);
-        assert.throws(() => Record.Payload({ record: handle(), columns, registers, columnGroups: [{ label: "Core", columnKeys: ["name", "forklift"] }] }),
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, columnGroups: [{ label: "Core", columnKeys: ["name", "forklift"] }] }),
             /a group is a run of adjacent columns/);
-        assert.throws(() => Record.Payload({ record: handle(), columns, registers, columnGroups: [{ label: "Core", columnKeys: ["forklift", "inducted"] }] }),
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, columnGroups: [{ label: "Core", columnKeys: ["forklift", "inducted"] }] }),
             /a group is a run of adjacent columns, named in column order/);
-        assert.throws(() => Record.Payload({ record: handle(), columns, registers, columnGroups: [{ label: "A", columnKeys: ["name"] }, { label: "B", columnKeys: ["name"] }] }),
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, columnGroups: [{ label: "A", columnKeys: ["name"] }, { label: "B", columnKeys: ["name"] }] }),
             /column "name" is in group "A" and group "B"/);
     });
 
     test("groupBy naming no column, or one with no value to share", () => {
-        assert.throws(() => Record.Payload({ record: handle(), columns, registers, groupBy: "role" }), /`groupBy` names "role", which is not a column/);
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, groupBy: "role" }), /`groupBy` names "role", which is not a column/);
         const aged = { ...columns, days: Record.column.age(ex.Skills, { since: p => p.updated }) };
-        assert.throws(() => Record.Payload({ record: handle(), columns: aged, registers, groupBy: "days" }), /an age column/);
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns: aged, registers, groupBy: "days" }), /an age column/);
     });
 
     test("the Sheet root's refusals, in the Record's words", () => {
-        assert.throws(() => Record.Payload({ record: handle(), columns }), /^Error: Record: column "forklift" names register "levels", which `registers` does not declare/);
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns }), /^Error: Record: column "forklift" names register "levels", which `registers` does not declare/);
     });
 
-    test("builds a payload with its title, noun, groups and bands", () => {
-        assert.doesNotThrow(() => Record.Payload({
-            record: handle(), columns, registers, title: "Crew", noun: { singular: "crew member", plural: "crew members" },
+    test("builds a payload with its title, noun, groups and bands, as the renderer decodes them", () => {
+        // Over a window, the payload is built without reading the record.
+        const payload = East.compile(East.function([], RecordPayloadType, () => Record.Payload({
+            record: Record.bind(ex.recordCrew), window: Data.bindPaged(ex.recordCrew), columns, registers, title: "Crew", noun: { singular: "crew member", plural: "crew members" },
             columnGroups: [{ label: "Skills", columnKeys: ["inducted", "forklift"] }], groupBy: "forklift",
-        }));
+        })), refusingPlatform)();
+        const field = RecordPayloadType.fields;
+        assert.ok(equalFor(field.title)(payload.title, some("Crew")));
+        assert.ok(equalFor(field.noun)(payload.noun, some({ singular: "crew member", plural: "crew members" })));
+        assert.ok(equalFor(field.columnGroups)(payload.columnGroups, [{ label: "Skills", columnKeys: ["inducted", "forklift"] }]));
+        assert.ok(equalFor(field.bands)(payload.bands, some({ column: "forklift" })));
+        assert.ok(equalFor(field.name)(payload.name, none));
     });
 });
 
 describe("the columns map's typing", () => {
-    // Each is refused by the compiler; built, each is refused again as the root is.
+    // Each is refused by the compiler; built, each is refused again as the root is — in the Record's words, once.
     test("an age under a field's key, and another kind under a name no field has", () => {
         assert.throws(() => Record({
             record: Record.bind(ex.recordSkills),
@@ -253,7 +261,7 @@ describe("the columns map's typing", () => {
                 // @ts-expect-error — an age shows no field, so a field's key cannot hold one
                 name: Record.column.age(ex.Skills, { since: p => p.updated }),
             },
-        }), /column "name" is an age column, which shows no field/);
+        }), /^Error: Record: column "name" is an age column, which shows no field/);
         assert.throws(() => Record({
             record: Record.bind(ex.recordSkills),
             columns: {
@@ -271,6 +279,6 @@ describe("the columns map's typing", () => {
                 // @ts-expect-error — a cycle sits on a String field
                 inducted: Record.column.cycle(ex.Crew, "levels"),
             },
-        }), /cycle column "inducted" must sit on a String/);
+        }), /^Error: Record: cycle column "inducted" must sit on a String/);
     });
 });

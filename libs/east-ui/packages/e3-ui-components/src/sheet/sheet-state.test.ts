@@ -31,8 +31,8 @@ function ctxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
         editableAt: (_r, c) => c !== 2,
         kindAt: (_r, c) => (c === 0 ? "lookup" : c === 1 ? "date" : "stamped"),
         parse: (_r, _c, text) => text.trim() === "" ? { kind: "blank" } : text === "bad" ? { kind: "unrecognised" } : { kind: "cell", cell: cell("String", text) },
-        candidates: (_r, _c, text) => (text.startsWith("ro") ? ["Routing", "Routing - Nesting"] : []),
-        candidateAt: (_r, _c, text, hi) => (text.startsWith("ro") ? (hi > 0 ? "Routing - Nesting" : "Routing") : undefined),
+        candidates: (_r, _c, text) => (text.startsWith("ro") ? [{ key: "Routing", label: "Routing" }, { key: "Routing - Nesting", label: "Routing - Nesting" }] : []),
+        candidateAt: (_r, _c, text, hi) => (text.startsWith("ro") ? (hi > 0 ? { key: "Routing - Nesting", label: "Routing - Nesting" } : { key: "Routing", label: "Routing" }) : undefined),
         editTextAt: (r, c) => `v${r}${c}`,
         ...over,
     };
@@ -242,6 +242,71 @@ describe("editing", () => {
         const clicked = run(initialSheetState(), [{ t: "cell.down", r: 2, c: 1, shift: false }]);
         expect(clicked.effects.map((e) => e.t)).toEqual(["emit.select", "focus.sheet"]);
         expect(run(initialSheetState(), [key("ArrowDown")]).effects.map((e) => e.t)).toEqual(["emit.select", "scroll.to"]);
+    });
+});
+
+describe("a register member is typed in the words its cell shows (#1536)", () => {
+    // Two people who show one name; the cell at (0, 0) holds the second.
+    const SMITHS = [{ key: "P-7", label: "J. Smith" }, { key: "P-9", label: "J. Smith" }];
+    const listOf = (text: string) => (text.trim() === "" || "j. smith".startsWith(text.trim().toLowerCase()) ? SMITHS : []);
+    const memberCtx = (kind: "lookup" | "reference" | "enum" | "person"): SheetMachineCtx => ctxOf({
+        kindAt: (_r, c) => (c === 0 ? kind : "date"),
+        // The parse as the sheet's: a key names its member, words the first who shows them.
+        parse: (_r, _c, text) => {
+            const t = text.trim().toLowerCase();
+            if (t === "") return { kind: "blank" };
+            const m = SMITHS.find((x) => x.key.toLowerCase() === t) ?? SMITHS.find((x) => x.label.toLowerCase() === t);
+            return m === undefined ? { kind: "unrecognised" } : { kind: "cell", cell: cell("String", m.key) };
+        },
+        candidates: (_r, _c, text) => listOf(text),
+        candidateAt: (_r, _c, text, hi) => {
+            const l = listOf(text);
+            return (text.trim() === "" && hi < 0) || l.length === 0 ? undefined : l[Math.min(Math.max(hi, 0), l.length - 1)];
+        },
+        editTextAt: () => "J. Smith",
+        memberAt: (r, c) => (r === 0 && c === 0 ? "P-9" : undefined),
+    });
+    const KINDS = ["lookup", "reference", "enum", "person"] as const;
+    const writes = (t: { effects: SheetEffect[] }) => t.effects.filter((e) => e.t === "write");
+
+    test.each(KINDS)("%s: opened on the cell's own member, the editor holds that member in its words; closed as it opened, nothing is written", (kind) => {
+        const ctx = memberCtx(kind);
+        const open = run(initialSheetState(), [key("Enter")], ctx).state;
+        expect(open.edit).toMatchObject({ val: "J. Smith", opened: "J. Smith", pick: "P-9", hi: 1 });
+        expect(writes(run(open, [ekey("Enter")], ctx))).toEqual([]);
+        expect(writes(run(open, [{ t: "editor.blur" }], ctx))).toEqual([]);
+    });
+
+    test.each(KINDS)("%s: a namesake chosen in the menu or the strip writes that member; chosen back to the cell's own, nothing", (kind) => {
+        const ctx = memberCtx(kind);
+        const open = run(initialSheetState(), [key("Enter")], ctx).state;
+        const p7 = { t: "write", r: 0, c: 0, cell: cell("String", "P-7"), text: "P-7" };
+        expect(writes(run(open, [{ t: "editor.pick", label: "J. Smith", key: "P-7" }, ekey("Enter")], ctx))).toEqual([p7]);
+        expect(writes(run(open, [{ t: "strip.pick", label: "J. Smith", key: "P-7", i: 0 }, ekey("Enter")], ctx))).toEqual([p7]);
+        expect(writes(run(open, [{ t: "editor.pick", label: "J. Smith", key: "P-7" }, { t: "editor.pick", label: "J. Smith", key: "P-9" }, ekey("Enter")], ctx))).toEqual([]);
+        // The member chosen is the one armed, so the strip, the menu and the badge show it.
+        expect(run(open, [{ t: "editor.pick", label: "J. Smith", key: "P-7" }], ctx).state.edit).toMatchObject({ val: "J. Smith", pick: "P-7", hi: 0 });
+    });
+
+    test.each(KINDS)("%s: typed words commit to the member they name, the first who shows them; typed back to the cell's own words, nothing is written", (kind) => {
+        const ctx = memberCtx(kind);
+        const open = run(initialSheetState(), [key("Enter")], ctx).state;
+        expect(writes(run(open, [{ t: "editor.change", val: "J. Smit" }, { t: "editor.change", val: "J. Smith" }, ekey("Enter")], ctx))).toEqual([]);
+        expect(writes(run(open, [{ t: "editor.change", val: "j. smith" }, ekey("Enter")], ctx))).toEqual([{ t: "write", r: 0, c: 0, cell: cell("String", "P-7"), text: "j. smith" }]);
+        // Typing, or stepping the candidates, lets the chosen member go.
+        expect(run(open, [{ t: "editor.change", val: "J" }], ctx).state.edit?.pick).toBeUndefined();
+        expect(run(open, [ekey("]", { alt: true })], ctx).state.edit?.pick).toBeUndefined();
+    });
+
+    test.each(KINDS)("%s: a candidate ⇥ or ⌘→ takes carries its member", (kind) => {
+        const ctx = memberCtx(kind);
+        // `j`, then the second candidate armed: the ghost completes its words, and the commit writes it.
+        const stepped = run(initialSheetState({ r: 1, c: 0 }), [key("j"), ekey("]", { alt: true })], ctx).state;
+        const p9 = { t: "write", r: 1, c: 0, cell: cell("String", "P-9"), text: "P-9" };
+        const tabbed = run(stepped, [ekey("Tab")], ctx);
+        expect(tabbed.state.edit).toMatchObject({ val: "j. Smith", pick: "P-9" });
+        expect(writes(run(tabbed.state, [ekey("Enter")], ctx))).toEqual([p9]);
+        expect(writes(run(stepped, [ekey("ArrowRight", { meta: true, atEnd: true }), ekey("Enter")], ctx))).toEqual([p9]);
     });
 });
 

@@ -16,6 +16,7 @@
  */
 
 import type { EditIssue } from "@elaraai/east-ui-components";
+import type { SheetCandidate } from "./candidates.js";
 import type { SheetKind } from "./model.js";
 import type { SheetDropRefusalWord } from "./messages.js";
 import type { ParseOutcome } from "./parse/index.js";
@@ -73,6 +74,12 @@ export interface EditBuffer {
     seeded: boolean;
     /** The text the editor opened with, when it opened on the cell's own value (not a key, not a link) — a commit of that same text writes nothing (#852). */
     opened?: string | undefined;
+    /**
+     * The register member a gesture chose, by its key (#1536): the cell's own as the editor opens on it, an option of
+     * the menu, a strip chip, a candidate ⇥ or ⌘→ took. It commits as itself, so two members who show one label are
+     * told apart; typing, or ⌥ stepping the candidates, lets it go.
+     */
+    pick?: string | undefined;
     /** The link editor's state — present on a link / set column. */
     link?: LinkEdit;
 }
@@ -200,7 +207,10 @@ export type SheetEvent =
     | { t: "editor.change"; val: string }
     | { t: "editor.key"; key: string; shift: boolean; meta: boolean; alt: boolean; atEnd: boolean }
     | { t: "editor.blur" }
-    | { t: "strip.pick"; label: string; i: number; members?: SheetMemberValue[] }
+    /** A strip chip: a candidate — its label, and its member's key — or a link chip's members. */
+    | { t: "strip.pick"; label: string; key?: string | undefined; i: number; members?: SheetMemberValue[] }
+    /** The combobox chose an option (#1536) — stepped to while browsing, or pressed: its member, in the words it shows. */
+    | { t: "editor.pick"; label: string; key: string }
     /** A click in a link editor's half moves the caret there (the buffer resolves first). */
     | { t: "half.down"; side: 0 | 1 }
     /** The controlled `selection` prop moved the ring — no `emit.select` echo. */
@@ -280,6 +290,8 @@ export type SheetEffect =
     | { t: "write"; r: number; c: number; cell: SheetCellValue | null; text: string }
     /** Write several cells of one row — a fill taken (`fill`) or the whole row filled (`row`). */
     | { t: "write.many"; r: number; writes: readonly { c: number; cell: SheetCellValue }[]; source: EditSource }
+    /** The writes before it are one gesture and the writes after it another (#1531): a press that commits an open editor, then steps the cell it lands on, is two undo steps. */
+    | { t: "gesture.end" }
     /** Insert proposed rows after the anchor, in order; `rest` re-anchors on the last one inserted. */
     | { t: "insert.rows"; anchorR: number; rows: readonly PendingRow[]; rest: readonly PendingRow[] }
     /** Clear a block of cells (stamped columns skipped by the component). */
@@ -355,11 +367,13 @@ export interface SheetMachineCtx {
     /** Parse a buffer for a cell. */
     parse: (r: number, c: number, text: string) => ParseOutcome;
     /** The candidates for a buffer (the entry menu when empty). */
-    candidates: (r: number, c: number, text: string) => string[];
+    candidates: (r: number, c: number, text: string) => SheetCandidate[];
     /** The armed candidate for a buffer, if any. */
-    candidateAt: (r: number, c: number, text: string, hi: number) => string | undefined;
+    candidateAt: (r: number, c: number, text: string, hi: number) => SheetCandidate | undefined;
     /** The cell's edit form. */
     editTextAt: (r: number, c: number) => string;
+    /** The key of the register member a cell holds (#1536): what its editor opens on, by the words the cell shows. */
+    memberAt?: ((r: number, c: number) => string | undefined) | undefined;
     /** The link editor's context for a link / set column (`undefined` on every other kind). */
     linkAt?: (r: number, c: number) => LinkEditCtx | undefined;
     /** The row-space index of a row id — a real row's, or a blank row's synthetic id (`undefined` when not resident). */
