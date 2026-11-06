@@ -573,8 +573,8 @@ export {
 export { EastChakraValueTree, type EastChakraValueTreeProps, type ValueTreeValue, type ValueTreeNodeValue, type ValueTreeStepValue, type ValueTreeLeafValue, type ValueTreePaging, type ValueTreePagedRow, type ValueTreeControls } from "./collections/value-tree";
 export { LoadingIcon, type LoadingIconProps } from "./LoadingIcon.js";
 export { useSliceReactivity, useSlicesReactivity } from "./slice/use-slice-reactivity";
-// Reusable, handle-free Slice predicate-editor pieces — used by the Experiment
-// surface's population filter (its population is an Array<SlicePredicate>).
+// Reusable, handle-free Slice predicate-editor pieces — the Slice filter and
+// cohort editors' own, for a host editing an Array<SlicePredicate> of its own.
 export { SlicePredicateBuilder, type SlicePredicateBuilderProps, type SliceFieldValue } from "./slice/predicate-builder";
 export { SliceEditPopover, type SliceEditPopoverProps, type SliceEditPopoverAnchor } from "./slice/edit";
 export { formatPredicate, predicateParts, type PredicateValue } from "./slice/predicate-format";

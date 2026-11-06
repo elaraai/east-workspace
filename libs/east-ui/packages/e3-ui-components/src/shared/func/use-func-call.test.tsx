@@ -6,8 +6,8 @@
  *
  * `useFuncCall` holds its call handle while the bound signature names the same
  * East types — East's own type equality decides it, never a string made of
- * the types. A recursive parameter type (the Experiment's rows may hold a
- * tree) binds like any other: its type value carries bigint ids, which the
+ * the types. A recursive parameter type (rows that hold a tree) binds like
+ * any other: its type value carries bigint ids, which the
  * old `JSON.stringify` key threw on, taking the whole surface down.
  */
 

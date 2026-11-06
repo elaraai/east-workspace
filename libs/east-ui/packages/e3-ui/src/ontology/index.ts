@@ -10,9 +10,11 @@
  * The Ontology card surfaces a ReactFlow-driven node/link graph editor over
  * the value of a single {@link Data.bind} binding whose source dataset is
  * typed as {@link OntologyType}. Mutations (add / delete / reconnect /
- * update node) write the whole next-ontology back through `binding.write`,
- * so it commits, discards and merges through the binding's own staged
- * buffer.
+ * update node) write the whole next-ontology back through `binding.write`:
+ * a direct binding (the default) writes each edit to the dataset; a staged
+ * one holds them until the page calls the handle's `commit()` or
+ * `discard()` — the editor has no Apply of its own, and its header says
+ * when changes are unsaved.
  *
  * Declared via the `EastUI.component` extension API — the React renderer
  * lives in `@elaraai/e3-ui-components` and is wired via
@@ -301,8 +303,8 @@ export { DiffBindingType } from '../bind/data.js';
  *   underlying source dataset must be typed as {@link OntologyType};
  *   this is a developer-side contract (the IR carrier itself is type-erased).
  * @property readonly - Render without per-node / per-link mutation
- *   surfaces. The footer commit-bar and the property drawer still render
- *   but Save / Delete / Add-node are hidden, and the canvas blocks
+ *   surfaces. The property drawer still renders but Save / Delete /
+ *   Add-node are hidden, and the canvas blocks
  *   drag-handles + context menus. Default `false`.
  * @property hideMiniMap - Suppress the minimap overlay. None ⇒ false.
  * @property hideSearch - Suppress the search field in the toolbar.
@@ -352,8 +354,8 @@ export const OntologyComponent = EastUI.component('Ontology', OntologyPayloadTyp
  *   {@link Data.bind} handle (`value={view}`) whose source dataset is typed as
  *   {@link OntologyType}. The handle's East type carries the source type, so a
  *   handle bound to any non-`OntologyType` dataset is a compile error here.
- * @property readonly - Render without mutation surfaces. The footer
- *   commit-bar and property drawer still render. Defaults to false.
+ * @property readonly - Render without mutation surfaces. The property
+ *   drawer still renders. Defaults to false.
  * @property hideMiniMap - Suppress the minimap overlay. Defaults to false.
  * @property hideSearch - Suppress the search field. Defaults to false.
  * @property density - Information-density preset (`comfortable` | `compact`
@@ -398,8 +400,7 @@ export interface OntologyOptions {
 
 /**
  * The Ontology component namespace. Surfaces a graph editor over an
- * `OntologyType`-bound dataset, committing through the binding's staged
- * buffer and its merge-aware commit.
+ * `OntologyType`-bound dataset, writing every edit through the binding.
  *
  * @remarks
  * Use `Ontology.Root({ value: view })` to render the editor.

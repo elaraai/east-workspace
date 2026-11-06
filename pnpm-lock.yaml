@@ -936,9 +936,6 @@ importers:
       '@elaraai/east-node-std':
         specifier: workspace:*
         version: link:../../../east-node/packages/east-node-std
-      '@elaraai/east-py-datascience':
-        specifier: workspace:*
-        version: link:../../../east-py/packages/east-py-datascience
       '@elaraai/east-web-std':
         specifier: workspace:*
         version: link:../../../east-web/packages/east-web-std

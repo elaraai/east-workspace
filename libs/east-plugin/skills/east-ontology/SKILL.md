@@ -142,7 +142,7 @@ const editor = East.function([], UIComponentType, (_$) =>
 
 ### `Ontology.Root` options
 
-`Ontology.Root({ value, ... })` — only `value` is required (pass the `Data.bind` handle over an `OntologyType` dataset). Options: `readonly` (hide mutation surfaces; commit-bar + drawer still render), `hideMiniMap`, `hideSearch`, `density` (`'comfortable'` | `'compact'` | `'condensed'`), `defaultView` (`'graph'` | `'table'` — the header's segmented control switches at runtime either way), `onCommitted` / `onDiscarded`, `style` (per-surface colour escape hatches — see `OntologyStyleType`).
+`Ontology.Root({ value, ... })` — only `value` is required (pass the `Data.bind` handle over an `OntologyType` dataset). Options: `readonly` (hide mutation surfaces; the property drawer still renders), `hideMiniMap`, `hideSearch`, `density` (`'comfortable'` | `'compact'` | `'condensed'`), `defaultView` (`'graph'` | `'table'` — the header's segmented control switches at runtime either way), `onCommitted` / `onDiscarded`, `style` (per-surface colour escape hatches — see `OntologyStyleType`).
 
 ### The table view
 
@@ -150,7 +150,7 @@ The editor's header has a segmented `Graph | Table` control. The table is a valu
 
 ### Edit modes and commit
 
-The editor commits through the binding's staged buffer. `Data.bind(dataset)` **without `mode`** stages edits — the footer commit-bar applies or discards them. Pass `{ mode: 'direct' }` to write each mutation straight back instead (good for read-mostly demos). For a locked view, `readonly: some(true)`.
+Every edit goes through the binding. `Data.bind(dataset)` **without `mode`** is direct: each edit is written straight to the dataset. Bind `{ mode: 'staged' }` to hold edits until they are applied: the editor's header shows *Unsaved changes*, and the page applies or drops them with the handle's `commit()` / `discard()` — the editor has no Apply of its own, so put Apply and Discard buttons beside it (disabled while `view.pending()` is false). For a locked view, `readonly: some(true)`.
 
 ## Validation
 

@@ -19,7 +19,7 @@ EAST_UI_EXAMPLE_ITEM_KEYS := $(shell for f in $$(find packages/east-ui/test \( -
                               grep -hoE '^export const [A-Za-z0-9_]+' $$f | sed -e "s|^export const |$$key--|"; done)
 
 ## Discover e3-ui example keys — top-level `packages/e3-ui/test/<key>.examples.ts`
-## files (e3-task-bound components: ontology, diff, ...). Each maps 1:1 to
+## files (e3-task-bound components: ontology, plan, ...). Each maps 1:1 to
 ## `make e3-ui-examples-html-<key>`, rendered by the e3-ui-components snapshot
 ## harness (seeds a dataset cache from each example's e3.input defaults).
 E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null \
@@ -144,9 +144,7 @@ showcase:
 
 ## Build east-ui-showcase for production deployment (used by GitHub Pages workflow)
 build-showcase:
-	# east-py-datascience first: e3-ui's experiment spec imports its types, so its
-	# dist .d.ts must exist before e3-ui compiles (pnpm topo-orders the filter set).
-	pnpm --filter @elaraai/east-py-datascience --filter @elaraai/east-ui --filter @elaraai/east-ui-components --filter @elaraai/e3-ui --filter @elaraai/e3-ui-components run build
+	pnpm --filter @elaraai/east-ui --filter @elaraai/east-ui-components --filter @elaraai/e3-ui --filter @elaraai/e3-ui-components run build
 	pnpm --filter @elaraai/east-ui-showcase run build
 
 ## The showcase's bundle alone, over what `build-js` built: what CI's browser
@@ -227,7 +225,7 @@ $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%): east-ui-examples-html-%:
 	-pnpm --filter @elaraai/east-ui-components exec playwright install chromium
 	pnpm --filter @elaraai/east-ui-components exec tsx scripts/snapshot.ts --file=$(subst --,:,$*)
 
-## Snapshot every e3-task-bound east-ui example (ontology, diff, ...) to a
+## Snapshot every e3-task-bound east-ui example (ontology, plan, ...) to a
 ## paired .html + .png under `packages/e3-ui-components/dist-examples/`. The
 ## harness seeds a reactive-dataset cache from each example's e3.input
 ## defaults, then renders via the same Playwright capture east-ui uses.
@@ -240,7 +238,7 @@ e3-ui-examples-html-all:
 ## Snapshot a single e3-ui example file. Usage:
 ##   make e3-ui-examples-html-ontology
 ## The suffix matches a discovered key from
-## `packages/e3-ui/test/<key>.examples.ts` (e.g. ontology, diff).
+## `packages/e3-ui/test/<key>.examples.ts` (e.g. ontology, plan/plan).
 $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%): e3-ui-examples-html-%:
 	-pnpm --filter @elaraai/e3-ui-components exec playwright install chromium
 	pnpm --filter @elaraai/e3-ui-components exec tsx scripts/snapshot.ts --file=$*

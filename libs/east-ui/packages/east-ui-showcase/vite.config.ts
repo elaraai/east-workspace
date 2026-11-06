@@ -173,7 +173,7 @@ export default defineConfig(({ command }) => {
         '@elaraai/east', '@elaraai/east/internal',
         '@elaraai/east-ui', '@elaraai/east-ui/internal',
         // Both subpaths MUST be pre-bundled together (like east / east-ui above), or
-        // the bare specifier (the example's `Experiment.Types.*`) and `/internal` (the
+        // the bare specifier (an example's `Ontology.Types.*`) and `/internal` (the
         // renderer's binding types) split into two type versions — a field added to a
         // type then mismatches encode vs decode ("buffer underflow reading varint").
         '@elaraai/e3-ui', '@elaraai/e3-ui/internal',

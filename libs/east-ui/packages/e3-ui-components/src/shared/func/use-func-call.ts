@@ -5,15 +5,13 @@
 
 /**
  * Imperative `Func.bind` orchestration for a renderer that calls a bound
- * function itself (#1323): the Experiment surface's **Run**, and the
- * Allocation's fit.
+ * function itself (#1323): the Allocation's fit.
  *
  * A surface receives only the function *name* in its payload
  * ({@link FuncBindingType}), not a live handle — the bound function runs after
  * the user acts, so the renderer rebuilds the call handle itself. This hook
- * takes the handle's signature (the Experiment's recovered from the bound
- * data's row type via `getBindingTypes`, the Allocation's from its plans' bin
- * values), builds a handle on the shared {@link defaultFuncRuntime}, subscribes
+ * takes the handle's signature (the Allocation's from its plans' bin values),
+ * builds a handle on the shared {@link defaultFuncRuntime}, subscribes
  * to its tracked channel, and exposes `call` / `result` / `status` / `pending`
  * for React.
  *

@@ -75,14 +75,13 @@ jobs:
         id: deps
         uses: actions/cache@v4
         with:
-          key: east-ui-deps-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-py/packages/east-py-datascience/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', '!**/node_modules/**', '!**/dist/**') }}
+          key: east-ui-deps-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', '!**/node_modules/**', '!**/dist/**') }}
           path: |
             libs/east/dist
             libs/east-node/packages/*/dist
             libs/east-web/packages/*/dist
             libs/e3/packages/*/dist
             libs/e3/test/*/dist
-            libs/east-py/packages/east-py-datascience/dist
             libs/east-diagnostics/dist
             libs/eslint-plugin-east/dist
 
@@ -93,7 +92,7 @@ jobs:
         id: js-ir
         uses: actions/cache@v4
         with:
-          key: east-ui-js-ir-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-py/packages/east-py-datascience/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', 'libs/east-ui/packages/east-ui/**', 'libs/east-ui/packages/e3-ui/**', 'libs/east-ui/Makefile', '!**/*.md', '!**/node_modules/**', '!**/dist/**') }}
+          key: east-ui-js-ir-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', 'libs/east-ui/packages/east-ui/**', 'libs/east-ui/packages/e3-ui/**', 'libs/east-ui/Makefile', '!**/*.md', '!**/node_modules/**', '!**/dist/**') }}
           path: |
             libs/east-ui/packages/east-ui/dist
             libs/east-ui/packages/e3-ui/dist
@@ -131,11 +130,6 @@ jobs:
         working-directory: libs/e3
         run: make build
 
-      - name: Build east-py-datascience TypeScript (dependency)
-        if: steps.deps.outputs.cache-hit != 'true'
-        working-directory: libs/east-py/packages/east-py-datascience
-        run: pnpm run build
-
       # Lint runs the East rules through eslint-plugin-east (#963), which loads
       # east-diagnostics' rules from its dist; the renderer's Studio spec lints
       # through it too.
@@ -162,7 +156,7 @@ jobs:
 
       - name: Package compiled workspaces
         run: |
-          find libs/east libs/east-node libs/east-web libs/e3 libs/east-ui libs/east-py/packages/east-py-datascience libs/east-diagnostics libs/eslint-plugin-east \
+          find libs/east libs/east-node libs/east-web libs/e3 libs/east-ui libs/east-diagnostics libs/eslint-plugin-east \
             -type d -name node_modules -prune -o -type d -name dist -print -prune > "$RUNNER_TEMP/east-ui-build-paths"
           tar -cf "$RUNNER_TEMP/east-ui-build.tar" -T "$RUNNER_TEMP/east-ui-build-paths"
 
@@ -200,14 +194,13 @@ jobs:
         id: deps
         uses: actions/cache@v4
         with:
-          key: east-ui-deps-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-py/packages/east-py-datascience/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', '!**/node_modules/**', '!**/dist/**') }}
+          key: east-ui-deps-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', '!**/node_modules/**', '!**/dist/**') }}
           path: |
             libs/east/dist
             libs/east-node/packages/*/dist
             libs/east-web/packages/*/dist
             libs/e3/packages/*/dist
             libs/e3/test/*/dist
-            libs/east-py/packages/east-py-datascience/dist
             libs/east-diagnostics/dist
             libs/eslint-plugin-east/dist
 
@@ -235,11 +228,6 @@ jobs:
         working-directory: libs/e3
         run: make build
 
-      - name: Build east-py-datascience TypeScript (dependency)
-        if: steps.deps.outputs.cache-hit != 'true'
-        working-directory: libs/east-py/packages/east-py-datascience
-        run: pnpm run build
-
       # Lint runs the East rules through eslint-plugin-east (#963), which loads
       # east-diagnostics' rules from its dist; the renderer's Studio spec lints
       # through it too.
@@ -259,7 +247,7 @@ jobs:
 
       - name: Package compiled workspaces
         run: |
-          find libs/east libs/east-node libs/east-web libs/e3 libs/east-ui libs/east-py/packages/east-py-datascience libs/east-diagnostics libs/eslint-plugin-east \
+          find libs/east libs/east-node libs/east-web libs/e3 libs/east-ui libs/east-diagnostics libs/eslint-plugin-east \
             -type d -name node_modules -prune -o -type d -name dist -print -prune > "$RUNNER_TEMP/east-ui-checked-paths"
           tar -cf "$RUNNER_TEMP/east-ui-checked.tar" -T "$RUNNER_TEMP/east-ui-checked-paths"
 
@@ -338,14 +326,13 @@ jobs:
         id: deps
         uses: actions/cache@v4
         with:
-          key: east-ui-deps-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-py/packages/east-py-datascience/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', '!**/node_modules/**', '!**/dist/**') }}
+          key: east-ui-deps-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', '!**/node_modules/**', '!**/dist/**') }}
           path: |
             libs/east/dist
             libs/east-node/packages/*/dist
             libs/east-web/packages/*/dist
             libs/e3/packages/*/dist
             libs/e3/test/*/dist
-            libs/east-py/packages/east-py-datascience/dist
             libs/east-diagnostics/dist
             libs/eslint-plugin-east/dist
 
@@ -356,7 +343,7 @@ jobs:
         id: js-ir
         uses: actions/cache@v4
         with:
-          key: east-ui-js-ir-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-py/packages/east-py-datascience/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', 'libs/east-ui/packages/east-ui/**', 'libs/east-ui/packages/e3-ui/**', 'libs/east-ui/Makefile', '!**/*.md', '!**/node_modules/**', '!**/dist/**') }}
+          key: east-ui-js-ir-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', 'libs/east-ui/packages/east-ui/**', 'libs/east-ui/packages/e3-ui/**', 'libs/east-ui/Makefile', '!**/*.md', '!**/node_modules/**', '!**/dist/**') }}
           path: |
             libs/east-ui/packages/east-ui/dist
             libs/east-ui/packages/e3-ui/dist
@@ -376,7 +363,7 @@ jobs:
         id: showcase-dist
         uses: actions/cache@v4
         with:
-          key: east-ui-showcase-dist-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-py/packages/east-py-datascience/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', 'libs/east-ui/packages/east-ui/**', 'libs/east-ui/packages/e3-ui/**', 'libs/east-ui/Makefile', '!**/*.md', 'libs/east-ui/packages/east-ui-components/**', 'libs/east-ui/packages/e3-ui-components/**', 'libs/east-ui/Makefile', 'pnpm-lock.yaml', '!**/*.md', '!**/*.test.ts', '!**/*.test.tsx', '!**/vitest.timings.json', 'libs/east-ui/packages/east-ui-showcase/**', '!libs/east-ui/packages/east-ui-showcase/tests/**', '!libs/east-ui/packages/east-ui-showcase/responsive.timings.json', '!libs/east-ui/packages/east-ui-showcase/scripts/responsive-*', '!libs/east-ui/packages/east-ui-showcase/playwright.config.ts', '!**/node_modules/**', '!**/dist/**') }}
+          key: east-ui-showcase-dist-${{ runner.os }}-node22-${{ hashFiles('libs/east/**', 'libs/east-node/**', 'libs/east-web/**', 'libs/e3/**', 'libs/east-py/packages/east-py-datascience/test/**', 'libs/east-diagnostics/**', 'libs/eslint-plugin-east/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json', 'paths.mk', 'tsconfig*.json', 'libs/east-ui/packages/east-ui/**', 'libs/east-ui/packages/e3-ui/**', 'libs/east-ui/Makefile', '!**/*.md', 'libs/east-ui/packages/east-ui-components/**', 'libs/east-ui/packages/e3-ui-components/**', 'libs/east-ui/Makefile', 'pnpm-lock.yaml', '!**/*.md', '!**/*.test.ts', '!**/*.test.tsx', '!**/vitest.timings.json', 'libs/east-ui/packages/east-ui-showcase/**', '!libs/east-ui/packages/east-ui-showcase/tests/**', '!libs/east-ui/packages/east-ui-showcase/responsive.timings.json', '!libs/east-ui/packages/east-ui-showcase/scripts/responsive-*', '!libs/east-ui/packages/east-ui-showcase/playwright.config.ts', '!**/node_modules/**', '!**/dist/**') }}
           path: libs/east-ui/packages/east-ui-showcase/dist
 
       - name: Install dependencies
@@ -402,11 +389,6 @@ jobs:
         if: steps.deps.outputs.cache-hit != 'true'
         working-directory: libs/e3
         run: make build
-
-      - name: Build east-py-datascience TypeScript (dependency)
-        if: steps.deps.outputs.cache-hit != 'true'
-        working-directory: libs/east-py/packages/east-py-datascience
-        run: pnpm run build
 
       # Lint runs the East rules through eslint-plugin-east (#963), which loads
       # east-diagnostics' rules from its dist; the renderer's Studio spec lints
