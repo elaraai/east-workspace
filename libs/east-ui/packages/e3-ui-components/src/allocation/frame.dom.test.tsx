@@ -325,6 +325,22 @@ describe("the board takes and keeps the keyboard (as the Calendar's does, retest
         await act(async () => { fireEvent.keyDown(document.activeElement!, { key: "z", ctrlKey: true }); }); await settle();
         expect(bin()).not.toBeNull();
     });
+    test("an Undo or a Redo leaves the keyboard where it stands, so the next key reaches the history too: a bin's Delete, then Ctrl+Z, Ctrl+Shift+Z, ⌘Z and Ctrl+Y, each pressed where the focus is", async () => {
+        const { container } = await h.mount(ex.allocationKilnYard);
+        const bin = () => container.querySelector<HTMLElement>('[data-allocation-card="3113"]');
+        await press(bin()!);
+        await act(async () => { bin()!.focus(); });
+        await act(async () => { fireEvent.keyDown(bin()!, { key: "Delete" }); }); await settle();
+        expect([bin(), document.activeElement]).toEqual([null, board(container)]);
+        const presses: [string, { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean }, boolean][] = [
+            ["z", { ctrlKey: true }, true], ["Z", { ctrlKey: true, shiftKey: true }, false], ["z", { metaKey: true }, true], ["y", { ctrlKey: true }, false],
+        ];
+        for (const [k, held, booked] of presses) {
+            // A key goes where the focus is, as a keyboard's does: to the page itself once nothing holds it.
+            await act(async () => { fireEvent.keyDown(document.activeElement ?? document.body, { key: k, ...held }); }); await settle();
+            expect([bin() !== null, document.activeElement === board(container)], `${k} ${JSON.stringify(held)}`).toEqual([booked, true]);
+        }
+    });
 });
 
 /** The view the board keeps for a reload, as storage holds it: its key, and what it keeps. */

@@ -4,158 +4,87 @@
  */
 
 /**
- * The Flowchart's types and payload (#1244, `Flowchart Builder Spec.md` §4,
- * §5, FB4–FB6): the flow and the record of flows; `Flowchart.value` and
- * `Flowchart.values`, filling a literal and refusing what would not draw or
- * commit; `Flowchart.over`, one flow from an app's tables through their
- * mappers; `Flowchart.patch`; where the flows come from — a record of flows
- * by name, or the host's flows or flow, `data`'s type picking its arm — read
- * back through the `Flowchart` carrier's beast2 bytes; a record of one flow
- * refused, as the user ruled (2026-10-07: e3's patch mutation writes only
- * keyed records); every refusal of §4.4 this child owns, each naming its
- * prop; the tag's forms, type by type; the frame's (#1245): the keys its
- * panes keep their state under, and no height of its own — the flowchart fills
- * the box it is given; the flows' (#1246): the Flows tab on the wire,
- * refused twice and over one flow, the keys the open flow and LR · TD are
- * kept under, and the editing session's Save over a record, a keyed batch
- * committed as one patch through the record's patch mutation; and the
- * editing's (#1247): over the host's flows, by name or one, the session's Save
- * handing the host's `onApply` one patch of its own value — by key, never the
- * whole value replaced — and every callback the flowchart took for an edit
- * refused, naming the remedy; and the library's (#1248): each tab on the wire
- * in the order `library` lists it, each data tab's cards from its own rows —
- * over an Array and over a Dict, apart from the flows and from the other tabs
- * — with what each card's drop sets, a tab listed twice refused, naming it,
- * and each data tab's other refusals; the drops' (#1249): the drop target
- * the flowchart's library's cards land on, under its name; and the
- * inspector's (#1250): on by default, `false` taking it away, a kind's own
- * Details crossing the wire over bytes — its `update` writing the edited row
- * back — the canvas carrying no hover card, and each hover prop and each
- * misuse of `inspector` refused at build, naming the remedy; and the
- * showcase's (#1251): the canvas carrying no density — it draws at one rhythm,
- * the user ruled on 2026-10-09 — and `density` refused at build; and the
- * request id's (#1275): the host's `onApply` handed the batch's request id with
- * its patch, and an `onApply` of the patch alone refused, by the tag's types
- * and at build; and the narrowing's (#1346): one `Slice.bindRecords`, its
- * `flows` source paging the Flows tab over a record, each templates list a
- * record of its own naming its source, its cards keyed by the record's keys,
- * an author's tab following the source it names — and every prop the
- * narrowing took before, and each misuse of the slice, refused at build,
- * naming the change.
+ * The Flowchart's kinds, payload and tag (#1500, #1501, `Flowchart Records
+ * Spec.md` §3, R1–R4, R14): one flowchart over the app's records — its
+ * states, and beside them its transitions, lanes and decisions.
+ *
+ * - Each role's check (R2): a type error, and past a cast the kind's words.
+ * - Each binding a kind's read doesn't take refused, naming the form to use
+ *   (R3), and the rail's sources (R4).
+ * - Every prop the flows took refused, naming what replaces it.
+ * - The kinds' closed functions over decoded bytes: each kind built over a
+ *   handle as `Record.bind` or `Data.bind` gives one, called, and its rows,
+ *   roles and writes read back at the record's own row type.
+ * - The payload through the carrier's bytes; the library's tabs on the wire;
+ *   and nothing of the Flow types left in the package.
+ * - The details (#1507, R18–R21): each read's check a type error, and past a
+ *   cast — or where only the built value shows it — the tag's words; the
+ *   binding a kind's read takes; and the reads and a row's values, decoded.
+ *
+ * e3-ui's specs read and write no e3: the examples build and compile here, and
+ * the renderer's tests draw them on e3-web.
  */
 
 import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import {
-    ArrayType, AsyncFunctionType, BooleanType, DictType, East, Expr, FunctionType, IntegerType, NullType, OptionType, PatchType, SortedMap,
-    StringType, StructType, applyFor, compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, isTypeEqual, none, printFor, some, variant,
+    ArrayType, BooleanType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType,
+    decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, printType, some, variant,
     type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
-import { Editing, Slice, UIComponentType } from "@elaraai/east-ui";
-import { Text } from "@elaraai/east-ui/internal";
+import { Slice, UIComponentType } from "@elaraai/east-ui";
+import { EditingReadinessType } from "@elaraai/east-ui/internal";
 import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
-import e3 from "@elaraai/e3";
+import * as E3UI from "@elaraai/e3-ui";
 import {
-    Data, Flowchart as PublicFlowchart, Record, RecordBindHandleType, RecordBindingType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType,
+    Data, DataBindHandleType, DataPagedHandleType, Flowchart as PublicFlowchart, Record, RecordBindHandleType, RecordErrorType, RecordMutateStatusType,
+    RecordOutcomeType,
 } from "@elaraai/e3-ui";
-import {
-    Flowchart, FlowchartCanvasType, FlowchartLibraryTabType, FlowchartPayloadType, buildFlowchartLibrary, flowchartKeys, type FlowchartLibraryTab,
-} from "@elaraai/e3-ui/internal";
+import * as E3UIInternal from "@elaraai/e3-ui/internal";
+import { Flowchart, FlowchartLibraryTabType, FlowchartPayloadType, buildFlowchartLibrary, flowchartKeys } from "@elaraai/e3-ui/internal";
 import * as ex from "./flowchart.examples.js";
-
-type Flow = ValueTypeOf<typeof Flowchart.Types.Flow>;
-type Flows = ValueTypeOf<typeof Flowchart.Types.Flows>;
-type Payload = ValueTypeOf<typeof FlowchartPayloadType>;
-
-const FlowType = Flowchart.Types.Flow;
-const FlowsType = Flowchart.Types.Flows;
-const flowEqual = equalFor(FlowType);
-const flowsEqual = equalFor(FlowsType);
 
 describeEast("Flowchart", (test) => {
     Assert.examples(test, {
-        flowchartFlows: ex.flowchartFlows,
-        flowchartFlowsMobile: ex.flowchartFlowsMobile,
-        flowchartRecordIndexes: ex.flowchartRecordIndexes,
-        flowchartVariants: ex.flowchartVariants,
-        flowchartLibrary: ex.flowchartLibrary,
-        flowchartWording: ex.flowchartWording,
+        flowchartDwell: ex.flowchartDwell,
         flowchartDepot: ex.flowchartDepot,
-        flowchartHandover: ex.flowchartHandover,
-        flowchartDetail: ex.flowchartDetail,
-        flowchartConflicts: ex.flowchartConflicts,
+        flowchartDepotEditing: ex.flowchartDepotEditing,
+        flowchartDepotDimmed: ex.flowchartDepotDimmed,
+        flowchartDepotPhone: ex.flowchartDepotPhone,
+        flowchartDepotTopDown: ex.flowchartDepotTopDown,
+        flowchartWording: ex.flowchartWording,
+        flowchartFlagColors: ex.flowchartFlagColors,
+        flowchartTicketMinutes: ex.flowchartTicketMinutes,
+        flowchartTicketMinutesLinear: ex.flowchartTicketMinutesLinear,
     });
 }, { platformFns: TestImpl });
 
 // ============================================================================
-// Fixtures
+// Fixtures: the depot's rows, and handles as their bindings give them
 // ============================================================================
 
-/** The inbound flow, as a literal writes it: every optional field given somewhere. */
-const INBOUND = {
-    description: "From the trailer to the van",
-    lanes: [{ key: "intake", label: "Intake" }, { key: "sort" }],
-    states: [
-        { key: "ARV", label: "Arrived", lane: "intake" },
-        { key: "CH*", label: "Sort chutes", lane: "sort", members: 12n, notes: "One per postcode area" },
-    ],
-    links: [
-        { key: "a-c", from: "ARV", to: "CH*", kind: "observed", trigger: "route",
-          evidence: { volume: 17350.0, count: 386n, measuredAt: new Date("2026-06-30T00:00:00Z"), unit: "parcels" } },
-        { from: "CH*", to: "LDD" },
-    ],
-    triggers: [{ key: "route", label: "route", letter: "R", owner: "sort-planner", queue: ["ARV"], outcomes: "CH* (×12 chutes)" }],
-} as const satisfies Parameters<typeof Flowchart.value>[0];
+type StateRow = ValueTypeOf<typeof ex.DepotState>;
+type MoveRow = ValueTypeOf<typeof ex.DepotTransition>;
+const ARV: StateRow = { name: "Arrived", phase: "intake", seq: 1, slots: none, flow: "Parcels" };
+const CHUTES: StateRow = { name: "Sort chutes (class)", phase: "sort", seq: 1, slots: some(14n), flow: "Parcels" };
+const STATES = new Map([["ARV", ARV], ["CH*", CHUTES]]);
+const AT = new Date("2026-06-30T00:00:00Z");
+const ROUTED: MoveRow = { src: "ARV", dst: "CH*", kind: variant("planned", null), trigger: some("route"), volume: some(17350), n: some(386n), at: some(AT), flow: "Parcels" };
+const UNRESOLVED: MoveRow = { src: "CH*", dst: "DLV", kind: variant("observed", null), trigger: none, volume: none, n: none, at: none, flow: "Parcels" };
+const MOVES = new Map([["l4", ROUTED], ["l10", UNRESOLVED]]);
+const LANES = new Map([["intake", { label: "Intake", seq: 1 }], ["sort", { label: "Sort", seq: 2 }]]);
+const DECISIONS = new Map([["route", { name: "route", owner: "sort-planner" }]]);
+const OWNERS = new Map([["sp", { name: "sort-planner", desk: "Sort office" }], ["ns", { name: "night-supervisor", desk: "Night shift" }]]);
 
-/** The inbound flow's value, written out field by field. */
-const INBOUND_VALUE: Flow = {
-    description: some("From the trailer to the van"),
-    lanes: [{ key: "intake", label: some("Intake") }, { key: "sort", label: none }],
-    states: [
-        { key: "ARV", label: some("Arrived"), lane: "intake", members: none, notes: none },
-        { key: "CH*", label: some("Sort chutes"), lane: "sort", members: some(12n), notes: some("One per postcode area") },
-    ],
-    links: [
-        {
-            key: some("a-c"), from: "ARV", to: "CH*", kind: some(variant("observed", null)), trigger: some("route"),
-            evidence: some({ volume: some(17350.0), count: some(386n), measuredAt: some(new Date("2026-06-30T00:00:00Z")), unit: some("parcels") }),
-        },
-        { key: none, from: "CH*", to: "LDD", kind: none, trigger: none, evidence: none },
-    ],
-    triggers: [{ key: "route", label: "route", letter: some("R"), owner: some("sort-planner"), queue: some(["ARV"]), outcomes: some("CH* (×12 chutes)") }],
-};
+/** A stage, its order an Integer: a lane that takes a whole order alone. */
+const Stage = StructType({ label: StringType, seq: IntegerType });
+/** A rule with the states queued at it: an Array of keys, or a Set of them. */
+const QueuedRule = StructType({ name: StringType, queue: ArrayType(StringType) });
+const SetRule = StructType({ name: StringType, queue: SetType(StringType) });
 
-/** The returns flow: the least a literal writes. */
-const RETURNS = {
-    lanes: [{ key: "counter" }],
-    states: [{ key: "RCV", lane: "counter" }],
-    links: [],
-} as const satisfies Parameters<typeof Flowchart.value>[0];
-
-const RETURNS_VALUE: Flow = {
-    description: none,
-    lanes: [{ key: "counter", label: none }],
-    states: [{ key: "RCV", label: none, lane: "counter", members: none, notes: none }],
-    links: [],
-    triggers: [],
-};
-
-const FLOWS: Flows = Flowchart.values({ "Returns": RETURNS, "Inbound parcels": INBOUND });
-
-/** Run `build` inside a block, as a flowchart's factory runs. */
-function inBlock<T>(build: ($: BlockBuilder<NullType>) => T): T {
-    let out: T | undefined;
-    East.function([], NullType, ($) => { out = build($); });
-    return out!;
-}
-
-/**
- * A `Record.bind` handle over a record of `type`, as the record runtime gives
- * one: its read answers `value`, and with `patch` it is bound with its patch
- * mutation.
- */
-function boundRecord<T extends EastType>(type: T, value: ValueTypeOf<T>, patch: boolean) {
+/** A `Record.bind` handle over a record of `type`, as `Record.bind` gives one: its read answers `value`, bound with its patch door when `patch`. */
+function recordHandle<T extends EastType>(type: T, value: ValueTypeOf<T>, name: string, patch = true) {
     const handleType = RecordBindHandleType(type, patch ? { patch: [PatchType(type)] } : {});
     return East.function([], handleType, (_$) => ({
         read: East.function([], type, (_$2) => value as never),
@@ -172,1085 +101,1174 @@ function boundRecord<T extends EastType>(type: T, value: ValueTypeOf<T>, patch: 
             ? { patch: East.asyncFunction([StringType, PatchType(type)], RecordOutcomeType, (_$2) => variant("committed", { commitHash: "c", stateHash: "s" })) }
             : {},
         start: East.function([], NullType, (_$2) => null),
-        binding: { name: "flows", mutations: patch ? ["patch"] : [] },
+        binding: { name, mutations: patch ? ["patch"] : [] },
     }) as never);
 }
 
-const flowsRecord = boundRecord(FlowsType, FLOWS, true);
-const unpatchedFlows = boundRecord(FlowsType, FLOWS, false);
-/** A record of one flow, bound with a mutation named `patch` of the flow's patch: refused, a record holding flows by name. */
-const flowRecord = boundRecord(FlowType, INBOUND_VALUE, true);
+/** A `Data.bind` handle over a record of `type`, as `Data.bind` gives one: its read answers `value`. */
+function dataHandle<T extends EastType>(type: T, value: ValueTypeOf<T>, name: string) {
+    return East.function([], DataBindHandleType(type), (_$) => ({
+        read: East.function([], type, (_$2) => value as never),
+        write: East.function([type], NullType, (_$2) => null),
+        writeAndStart: East.function([type], NullType, (_$2) => null),
+        start: East.function([], NullType, (_$2) => null),
+        source: East.function([], type, (_$2) => value as never),
+        pending: East.function([], BooleanType, (_$2) => false),
+        commit: East.function([], NullType, (_$2) => null),
+        discard: East.function([], NullType, (_$2) => null),
+        has: East.function([], BooleanType, (_$2) => true),
+        status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
+        binding: { source: [variant("field", "inputs"), variant("field", name)], patch: none, mode: variant("staged", null) },
+    }) as never);
+}
 
-/** A record of flows whose mutation named `patch` takes something other than the record's patch: one flow's. */
-const WrongDoorHandle = StructType({
-    read: FunctionType([], FlowsType),
-    history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
-    commit: StructType({ patch: AsyncFunctionType([StringType, PatchType(FlowType)], RecordOutcomeType) }),
-    binding: RecordBindingType,
+const statesRecord = recordHandle(DictType(StringType, ex.DepotState), STATES, "states");
+const statesUnpatched = recordHandle(DictType(StringType, ex.DepotState), STATES, "states", false);
+const statesData = dataHandle(DictType(StringType, ex.DepotState), STATES, "states");
+const movesRecord = recordHandle(DictType(StringType, ex.DepotTransition), MOVES, "moves");
+const lanesData = dataHandle(DictType(StringType, ex.DepotLane), LANES, "lanes");
+const lanesRecord = recordHandle(DictType(StringType, ex.DepotLane), LANES, "lanes");
+const stagesRecord = recordHandle(DictType(StringType, Stage), new Map([["open", { label: "Open", seq: 1n }]]), "stages");
+const decisionsRecord = recordHandle(DictType(StringType, ex.DepotDecision), DECISIONS, "decisions");
+const queuedRecord = recordHandle(DictType(StringType, QueuedRule), new Map([["route", { name: "route", queue: ["ARV", "CH*"] }]]), "rules");
+const setRecord = recordHandle(DictType(StringType, SetRule), new Map([["route", { name: "route", queue: new Set(["ARV", "CH*"]) }]]), "rules");
+
+/** The cards a kind lists: a record's rows, keyed by String. */
+const STEP_CARDS = new Map([
+    ["chutes", { name: "Sort chutes", group: "Sort", values: { name: "Sort chutes", slots: some(12n), flow: "Parcels" } }],
+]);
+const LANE_CARDS = new Map([["returns", { name: "Returns", group: "Lanes", values: { label: "Returns" } }]]);
+
+/** The depot's states read through their source of the rail: a paged read of the states' record through its flow index, the flow offered. */
+const statesSource = () => ({
+    source: Data.bindPaged(ex.depotStates, { indexes: ["flowchart_states_by_flow"] }),
+    fields: { flow: { label: "Flow", hints: ["Parcels", "Returns"] } },
 });
-const wrongDoorFlows = East.function([], WrongDoorHandle, (_$) => ({
-    read: East.function([], FlowsType, (_$2) => FLOWS),
-    history: East.function([], OptionType(ArrayType(RecordCommitInfoType)), (_$2) => none),
-    commit: { patch: East.asyncFunction([StringType, PatchType(FlowType)], RecordOutcomeType, (_$2) => variant("committed", { commitHash: "c", stateHash: "s" })) },
-    binding: { name: "flows", mutations: ["patch"] },
-}));
-const JobType = StructType({ task: StringType });
-const jobsRecord = boundRecord(DictType(StringType, JobType), new Map(), true);
+
+/** Builds an East function as a surface does, making each check its build makes; what it refuses, it throws. */
+function built(make: ($: BlockBuilder<UIComponentType>) => ExprType<UIComponentType>): void {
+    East.function([], UIComponentType, ($) => make($));
+}
 
 /** The payload `<Flowchart>` carries, read back from the carrier's bytes. */
-function carried(build: ($: BlockBuilder<UIComponentType>) => ExprType<UIComponentType>): Payload {
-    const ui = East.compile(East.function([], UIComponentType, ($) => build($)), [])();
+function carried(make: ($: BlockBuilder<UIComponentType>) => ExprType<UIComponentType>): ValueTypeOf<typeof FlowchartPayloadType> {
+    const ui = East.compile(East.function([], UIComponentType, ($) => make($)), [])();
     if (ui.type !== "Extension") assert.fail(`expected the Flowchart extension, got the ${ui.type} arm`);
     assert.equal(ui.value.kind, "Flowchart");
     return decodeBeast2For(FlowchartPayloadType)(ui.value.payload);
 }
 
-/** The host's flow from its tables, as an app's rows and mappers give it. */
-const STATE_ROWS = [
-    { code: "ARV", name: "Arrived", phase: "intake", slots: none },
-    { code: "CH*", name: "Sort chutes", phase: "sort", slots: some(12n) },
-];
-const LINK_ROWS = [
-    { id: "a-c", src: "ARV", dst: "CH*", observed: true, decision: some("route"), parcels: some(17350.0), n: some(386n), at: new Date("2026-06-30T00:00:00Z") },
-    { id: "c-l", src: "CH*", dst: "LDD", observed: false, decision: none, parcels: none, n: none, at: new Date("2026-06-30T00:00:00Z") },
-];
-const TRIGGER_ROWS = [{ id: "route", name: "route", who: "sort-planner" }];
+/** A kind built over its handle and called: what the payload carries for it. */
+function kindOf<T extends EastType>(kindType: T, make: ($: BlockBuilder<T>) => ExprType<T>): ValueTypeOf<T> {
+    return East.compile(East.function([], kindType as EastType, ($) => make($ as never) as never), [])() as ValueTypeOf<T>;
+}
 
-// ============================================================================
-// The types (FB4)
-// ============================================================================
-
-describe("the flow types (§5.1)", () => {
-    hostTest("a flow is { description, lanes, states, links, triggers } of the row types, and a record of flows is a Dict of flows by name", () => {
-        assert.ok(isTypeEqual(Flowchart.Types.Flow, StructType({
-            description: OptionType(StringType),
-            lanes: ArrayType(Flowchart.Types.Lane),
-            states: ArrayType(Flowchart.Types.State),
-            links: ArrayType(Flowchart.Types.Link),
-            triggers: ArrayType(Flowchart.Types.Trigger),
-        })));
-        assert.ok(isTypeEqual(Flowchart.Types.Flows, DictType(StringType, Flowchart.Types.Flow)));
-        assert.equal(PublicFlowchart.Types.Flow, Flowchart.Types.Flow, "the public namespace carries the same type");
-    });
-
-    hostTest("the row types keep their names and their types", () => {
-        assert.ok(isTypeEqual(Flowchart.Types.State, StructType({
-            key: StringType, label: OptionType(StringType), lane: StringType, members: OptionType(IntegerType), notes: OptionType(StringType),
-        })));
-        assert.ok(isTypeEqual(Flowchart.Types.Lane, StructType({ key: StringType, label: OptionType(StringType) })));
-    });
-});
-
-// ============================================================================
-// Flowchart.value and Flowchart.values (FB4, §4.4)
-// ============================================================================
-
-describe("Flowchart.value and Flowchart.values (§4.3)", () => {
-    hostTest("value fills what a literal leaves out and keeps what it writes", () => {
-        assert.ok(flowEqual(Flowchart.value(INBOUND), INBOUND_VALUE), "every field the literal writes, filled where it does not");
-        assert.ok(flowEqual(Flowchart.value(RETURNS), RETURNS_VALUE), "the least literal: none and empty everywhere else");
-    });
-
-    hostTest("values holds each flow by name, in name order, as value builds it", () => {
-        assert.ok(flowsEqual(FLOWS, new SortedMap([["Inbound parcels", INBOUND_VALUE], ["Returns", RETURNS_VALUE]], compareFor(StringType))));
-        assert.deepEqual([...FLOWS.keys()], ["Inbound parcels", "Returns"]);
-    });
-
-    hostTest("a link naming a state the flow does not have is kept — it draws as the unresolved ghost — and links without a key never clash", () => {
-        const flow = Flowchart.value({
-            lanes: [{ key: "intake" }], states: [{ key: "ARV", lane: "intake" }],
-            links: [{ from: "ARV", to: "GONE" }, { from: "ARV", to: "GONE" }],
-        });
-        assert.deepEqual(flow.links.map((l) => l.to), ["GONE", "GONE"]);
-    });
-
-    const refusals: [string, Parameters<typeof Flowchart.value>[0], RegExp][] = [
-        ["two lanes of one key", { lanes: [{ key: "a" }, { key: "a" }], states: [], links: [] },
-            /^Error: Flowchart\.value: two lanes are keyed "a" — a lane's key is its identity in the flow, so give each lane its own$/],
-        ["two states of one key", { lanes: [{ key: "a" }], states: [{ key: "S", lane: "a" }, { key: "S", lane: "a" }], links: [] },
-            /^Error: Flowchart\.value: two states are keyed "S" — a state's key is its identity in the flow, so give each state its own$/],
-        ["two links of one key", { lanes: [], states: [], links: [{ key: "k", from: "A", to: "B" }, { key: "k", from: "B", to: "C" }] },
-            /^Error: Flowchart\.value: two links are keyed "k" — a link's key is its identity in the flow, so give each link its own$/],
-        ["two decisions of one key", { lanes: [], states: [], links: [], triggers: [{ key: "r", label: "route" }, { key: "r", label: "rest" }] },
-            /^Error: Flowchart\.value: two decisions are keyed "r" — a decision's key is its identity in the flow, so give each decision its own$/],
-        ["a state naming no lane the flow has", { lanes: [{ key: "a" }], states: [{ key: "S", lane: "b" }], links: [] },
-            /^Error: Flowchart\.value: the state "S" names the lane "b", which the flow has none of — add it to `lanes`, or name a lane the flow has$/],
-        ["a link naming a decision the flow does not have", { lanes: [], states: [], links: [{ from: "A", to: "B", trigger: "route" }], triggers: [{ key: "customs", label: "customs" }] },
-            /^Error: Flowchart\.value: the link "A" → "B" names the decision "route", which the flow has none of — add it to `triggers`, or leave the link's `trigger` out$/],
-    ];
-    for (const [what, flow, refusal] of refusals) {
-        hostTest(`value refuses ${what}, naming it and the remedy`, () => {
-            assert.throws(() => Flowchart.value(flow), refusal);
-        });
-    }
-
-    hostTest("values refuses what value refuses, naming the flow", () => {
-        assert.throws(() => Flowchart.values({ "Inbound parcels": INBOUND, "Returns": { lanes: [{ key: "a" }], states: [{ key: "S", lane: "b" }], links: [] } }),
-            /^Error: Flowchart\.values: "Returns": the state "S" names the lane "b", which the flow has none of/);
-    });
-});
-
-// ============================================================================
-// Flowchart.over (FB4)
-// ============================================================================
-
-describe("Flowchart.over (§4.3)", () => {
-    hostTest("builds one flow from the app's tables through their mappers, as the literal of the same flow is", () => {
-        const built = East.compile(East.function([], FlowType, ($) => {
-            const states = $.const(STATE_ROWS);
-            const links = $.const(LINK_ROWS);
-            const triggers = $.const(TRIGGER_ROWS);
-            return Flowchart.over(states, {
-                state: (s) => ({ key: s.code, label: s.name, lane: s.phase, members: s.slots }),
-                links,
-                link: (l) => ({
-                    key: l.id, from: l.src, to: l.dst,
-                    kind: l.observed.ifElse(() => variant("observed", null), () => variant("planned", null)),
-                    trigger: l.decision,
-                    evidence: { volume: l.parcels, count: l.n, measuredAt: some(l.at), unit: "parcels" },
-                }),
-                lanes: [{ key: "intake", label: "Intake" }, { key: "sort" }],
-                triggers,
-                trigger: (t) => ({ key: t.id, label: t.name, owner: t.who }),
-            });
-        }), [])();
-        const expected = Flowchart.value({
-            lanes: [{ key: "intake", label: "Intake" }, { key: "sort" }],
-            states: [{ key: "ARV", label: "Arrived", lane: "intake" }, { key: "CH*", label: "Sort chutes", lane: "sort", members: 12n }],
-            links: [
-                { key: "a-c", from: "ARV", to: "CH*", kind: "observed", trigger: "route",
-                  evidence: { volume: 17350.0, count: 386n, measuredAt: new Date("2026-06-30T00:00:00Z"), unit: "parcels" } },
-                { key: "c-l", from: "CH*", to: "LDD", kind: "planned", evidence: { measuredAt: new Date("2026-06-30T00:00:00Z"), unit: "parcels" } },
-            ],
-            triggers: [{ key: "route", label: "route", owner: "sort-planner" }],
-        });
-        assert.ok(flowEqual(built, expected));
-    });
-
-    hostTest("takes rows already of the flowchart's types as they are, and no triggers as none", () => {
-        const flow = Flowchart.value(INBOUND);
-        const built = East.compile(East.function([], FlowType, ($) => {
-            const states = $.const(flow.states, ArrayType(Flowchart.Types.State));
-            return Flowchart.over(states, {
-                links: $.const(flow.links, ArrayType(Flowchart.Types.Link)),
-                lanes: $.const(flow.lanes, ArrayType(Flowchart.Types.Lane)),
-                triggers: $.const(flow.triggers, ArrayType(Flowchart.Types.Trigger)),
-            });
-        }), [])();
-        assert.ok(flowEqual(built, { ...flow, description: none }), "the same rows; a flow from tables has no description");
-        const bare = East.compile(East.function([], FlowType, ($) => Flowchart.over($.const(flow.states, ArrayType(Flowchart.Types.State)), {
-            links: [], lanes: [{ key: "intake" }],
-        })), [])();
-        assert.deepEqual([bare.triggers, bare.lanes], [[], [{ key: "intake", label: none }]]);
-    });
-
-    hostTest("a mapper's kind may be the literal \"planned\" or \"observed\"", () => {
-        const built = East.compile(East.function([], FlowType, ($) => Flowchart.over($.const(STATE_ROWS), {
-            state: (s) => ({ key: s.code, lane: s.phase }),
-            links: $.const(LINK_ROWS),
-            link: (l) => ({ from: l.src, to: l.dst, kind: "observed" }),
-            lanes: [{ key: "intake" }, { key: "sort" }],
-        })), [])();
-        assert.deepEqual(built.links.map((l) => l.kind), [some(variant("observed", null)), some(variant("observed", null))]);
-    });
-});
-
-// ============================================================================
-// Flowchart.patch (FB4)
-// ============================================================================
-
-describe("Flowchart.patch (§4.3)", () => {
-    hostTest("a patch over a row is every field an Option: the fields it sets some, the rest none", () => {
-        const StatePatch = Flowchart.Types.Patch(Flowchart.Types.State);
-        assert.ok(isTypeEqual(StatePatch, StructType({
-            key: OptionType(StringType), label: OptionType(OptionType(StringType)), lane: OptionType(StringType),
-            members: OptionType(OptionType(IntegerType)), notes: OptionType(OptionType(StringType)),
-        })));
-        const patch = East.compile(East.function([], StatePatch, (_$) =>
-            Flowchart.patch(Flowchart.Types.State, { key: "HLD", label: some("Held"), members: none })), [])();
-        assert.ok(equalFor(StatePatch)(patch, { key: some("HLD"), label: some(some("Held")), lane: none, members: some(none), notes: none }));
-        const LinkPatch = Flowchart.Types.Patch(Flowchart.Types.Link);
-        const retype = East.compile(East.function([], LinkPatch, (_$) =>
-            Flowchart.patch(Flowchart.Types.Link, { kind: some(variant("observed", null)) })), [])();
-        assert.deepEqual(retype.kind, some(some(variant("observed", null))));
-        assert.deepEqual([retype.key, retype.from, retype.to, retype.trigger], [none, none, none, none]);
-    });
-
-    hostTest("a patch is over one of a flow's rows: another type is refused, naming the four", () => {
-        const Job = StructType({ task: StringType });
-        assert.throws(() => inBlock((_$) => Flowchart.patch(Job as never, {})),
-            /^Error: Flowchart\.patch: patches one of a flow's rows — Flowchart\.Types\.State, Flowchart\.Types\.Link, Flowchart\.Types\.Lane, Flowchart\.Types\.Trigger — and this is \.Struct/);
-        assert.throws(() => Flowchart.Types.Patch(Job as never), /^Error: Flowchart\.Types\.Patch: patches one of a flow's rows/);
-    });
-});
-
-// ============================================================================
-// The payload, and the arm the source's type picks (FB5, FB6)
-// ============================================================================
-
-describe("the payload (FB6)", () => {
-    hostTest("the payload is FlowchartPayloadType, on the Flowchart carrier", () => {
-        inBlock(($) => {
-            const flows = $.let(flowsRecord());
-            const payload = Flowchart.Payload({ record: flows });
-            assert.ok(isTypeEqual(Expr.type(payload as unknown as Expr) as EastType, FlowchartPayloadType));
-        });
-        assert.equal(Flowchart.Component.name, "Flowchart");
-    });
-
-    hostTest("a record of flows is the record arm: its read, history and patch write cross the payload, and `flow` opens first", () => {
-        const payload = carried(($) => PublicFlowchart({ record: $.let(flowsRecord()), flow: "Returns", name: "depot", inspector: true }));
-        if (payload.source.type !== "record") assert.fail(`expected the record arm, got ${payload.source.type}`);
-        assert.ok(flowsEqual(payload.source.value.read(), FLOWS), "the record's read, called where the renderer calls it");
-        assert.deepEqual(payload.source.value.history(), none);
-        assert.deepEqual([payload.open, payload.name, payload.inspector, payload.readOnly, payload.library],
-            [some("Returns"), some("depot"), some({ state: none, transition: none }), false, []]);
-    });
-
-    hostTest("over a record, the editing session's Apply commits its keyed batch as one patch through the record's patch mutation — a new flow's insert by name (#1246)", async () => {
-        // A record whose patch write answers with the patch it was handed, printed, as the state it wrote.
-        const printPatch = printFor(PatchType(FlowsType));
-        const echoing = East.function([], RecordBindHandleType(FlowsType, { patch: [PatchType(FlowsType)] }), (_$) => ({
-            read: East.function([], FlowsType, (_$2) => FLOWS),
-            status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
-            history: East.function([], OptionType(ArrayType(RecordCommitInfoType)), (_$2) => none),
-            mutate: {
-                pending: East.function([], BooleanType, (_$2) => false),
-                status: East.function([], RecordMutateStatusType, (_$2) => variant("idle", null)),
-                error: East.function([], OptionType(RecordErrorType), (_$2) => none),
-                cancel: East.function([], NullType, (_$2) => null),
-                patch: East.function([PatchType(FlowsType)], NullType, (_$2) => null),
-            },
-            commit: {
-                patch: East.asyncFunction([StringType, PatchType(FlowsType)], RecordOutcomeType,
-                    (_$2, requestId, patch) => variant("committed", { commitHash: requestId, stateHash: East.print(patch) })),
-            },
-            start: East.function([], NullType, (_$2) => null),
-            binding: { name: "flows", mutations: ["patch"] },
-        }) as never);
-        const payload = carried(($) => PublicFlowchart({ record: $.let(echoing()) }));
-        if (payload.source.type !== "record") assert.fail(`expected the record arm, got ${payload.source.type}`);
-        // The session's batch: a new flow, one lane, inserted under its name.
-        const night: Flow = { description: none, lanes: [{ key: "lane-1", label: some("Lane 1") }], states: [], links: [], triggers: [] };
-        const ChangeSet = Editing.Types.ChangeSet(FlowType, StringType);
-        const batch = encodeBeast2For(ChangeSet)({
-            requestId: "r-1", base: variant("snapshot", new SortedMap([], compareFor(StringType))), label: "New flow",
-            changes: [{ id: "Night shift", patch: diffFor(OptionType(FlowType))(none, some(night)), place: some(variant("keyOrder", null)) }],
-        });
-        const answer = await payload.source.value.apply(batch);
-        const inserted = new SortedMap([["Night shift", variant("insert", night)]], compareFor(StringType));
-        assert.deepEqual(answer, variant("applied", { revision: some(printPatch(variant("patch", inserted) as never)) }),
-            "one commit through the patch door: the flow inserted by name, and nothing else");
-    });
-
-    hostTest("Flowchart.library.flows() is the Flows tab on the wire, over a record of flows and over the host's flows by name (#1246)", () => {
-        const overRecord = carried(($) => PublicFlowchart({ record: $.let(flowsRecord()), library: [PublicFlowchart.library.flows()] }));
-        const overData = carried((_$) => PublicFlowchart({ data: FLOWS, library: [PublicFlowchart.library.flows()] }));
-        const noTab = carried((_$) => PublicFlowchart({ data: FLOWS, library: [] }));
-        assert.deepEqual([overRecord.library, overData.library, noTab.library], [[variant("flows", null)], [variant("flows", null)], []]);
-        assert.deepEqual(PublicFlowchart.library.flows(), { kind: "flows" });
-    });
-
-    hostTest("an e3 record of flows declares mutation.patch; e3 refuses it to a record of one flow, so a record always holds flows by name", () => {
-        const flows = e3.record("flowchart_spec_flows", FlowsType, {
-            initial: FLOWS,
-            mutations: (mutation) => ({
-                patch: mutation.patch(),
-            }),
-        });
-        const one = e3.record("flowchart_spec_one", FlowType, { initial: INBOUND_VALUE });
-        inBlock(($) => {
-            const payload = Flowchart.Payload({ record: $.let(Record.bind(flows)) });
-            assert.ok(isTypeEqual(Expr.type(payload as unknown as Expr) as EastType, FlowchartPayloadType));
-        });
-        // The ruling's reason: e3 writes a patch by key.
-        assert.throws(() => e3.record("flowchart_spec_one", FlowType, { initial: INBOUND_VALUE, mutations: (mutation) => ({ patch: mutation.patch() }) }),
-            /writes a delta addressed by key, so it needs a Dict or Set record/);
-        assert.throws(() => inBlock(($) => Flowchart.Payload({ record: $.let(Record.bind(one, [])) })),
-            /^Error: Flowchart: `record` holds flows by name, Flowchart\.Types\.Flows — e3's patch mutation writes only keyed records — and this record holds one flow/);
-    });
-
-    hostTest("a lone flow is a record of flows with one entry: the canvas's first by name", () => {
-        const payload = carried(($) => PublicFlowchart({ record: $.let(boundRecord(FlowsType, Flowchart.values({ "Hand-over": RETURNS }), true)()), readOnly: true }));
-        if (payload.source.type !== "record") assert.fail(`expected the record arm, got ${payload.source.type}`);
-        assert.deepEqual([...payload.source.value.read().keys()], ["Hand-over"]);
-        assert.deepEqual([payload.open, payload.readOnly], [none, true]);
-    });
-
-    hostTest("the host's flows — a value, an expression or a bind handle — are the data arm's flows, with the session's Save when the host gives onApply", () => {
-        const apply = East.asyncFunction([StringType, PatchType(FlowsType)], Editing.Types.ApplyResult, (_$) => variant("applied", { revision: none }));
-        const asValue = carried((_$) => PublicFlowchart({ data: FLOWS, flow: "Inbound parcels" }));
-        const asExpr = carried(($) => PublicFlowchart({ data: $.const(FLOWS, FlowsType), onApply: $.const(apply) }));
-        const handle = East.function([], StructType({ read: FunctionType([], FlowsType) }), (_$) => ({ read: East.function([], FlowsType, (_$2) => FLOWS) }));
-        const asHandle = carried(($) => PublicFlowchart({ data: $.let(handle()) }));
-        for (const [form, payload, applies] of [["value", asValue, false], ["expression", asExpr, true], ["bind handle", asHandle, false]] as const) {
-            if (payload.source.type !== "data" || payload.source.value.type !== "flows") assert.fail(`${form}: expected the data arm's flows`);
-            assert.ok(flowsEqual(payload.source.value.value.value, FLOWS), `${form}: the flows`);
-            assert.equal(payload.source.value.value.apply.type, applies ? "some" : "none", `${form}: the session's Save`);
-        }
-        assert.deepEqual(asValue.open, some("Inbound parcels"));
-    });
-
-    hostTest("over the host's flows by name, the session's Save hands the host's onApply the batch's request id and one patch of the flows, by name — an update, an insert, a delete — never the whole value replaced (#1247, FB22, #1275)", async () => {
-        // The host's commit answers with the request id and the patch it was handed, printed, as the revision.
-        const printPatch = printFor(PatchType(FlowsType));
-        const echo = East.asyncFunction([StringType, PatchType(FlowsType)], Editing.Types.ApplyResult,
-            (_$, requestId, patch) => variant("applied", { revision: some(East.str`${requestId} ${East.print(patch)}`) }));
-        const payload = carried(($) => PublicFlowchart({ data: FLOWS, onApply: $.const(echo) }));
-        if (payload.source.type !== "data" || payload.source.value.type !== "flows") assert.fail("expected the data arm's flows");
-        const save = payload.source.value.value.apply;
-        if (save.type !== "some") assert.fail("expected the session's Save");
-        const ChangeSet = Editing.Types.ChangeSet(FlowType, StringType);
-        const optionDiff = diffFor(OptionType(FlowType));
-        /** The session's batch over one flow of the host's, as it stood, and as the drafts leave it. */
-        const batchOf = (name: string, before: Flow | undefined, after: Flow | undefined) => encodeBeast2For(ChangeSet)({
-            requestId: `r-${name}`, label: "Save",
-            base: variant("snapshot", new SortedMap(before === undefined ? [] : [[name, before]], compareFor(StringType))),
-            changes: [{ id: name, patch: optionDiff(before === undefined ? none : some(before), after === undefined ? none : some(after)), place: before === undefined ? some(variant("keyOrder", null)) : none }],
-        });
-        // What the host's commit is handed: the diff of its whole value, before the drafts and after — by name.
-        const flowsDiff = diffFor(FlowsType);
-        const applyFlows = applyFor(FlowsType);
-        const hostAfter = (name: string, flow: Flow | undefined): Flows => {
-            const after = new SortedMap(FLOWS, compareFor(StringType));
-            if (flow === undefined) after.delete(name);
-            else after.set(name, flow);
-            return after;
-        };
-
-        // An update: the returns flow's lane renamed — its update by name, which reaches it alone.
-        const renamed: Flow = { ...RETURNS_VALUE, lanes: [{ key: "counter", label: some("Front counter") }] };
-        const update = flowsDiff(FLOWS, hostAfter("Returns", renamed));
-        assert.deepEqual(await save.value(batchOf("Returns", RETURNS_VALUE, renamed)), variant("applied", { revision: some(`r-Returns ${printPatch(update)}`) }));
-        assert.equal(update.type, "patch");
-        assert.ok(flowsEqual(applyFlows(FLOWS, update), hostAfter("Returns", renamed)));
-
-        // An insert: a new flow by name.
-        const night: Flow = { description: none, lanes: [{ key: "lane-1", label: some("Lane 1") }], states: [], links: [], triggers: [] };
-        const insert = flowsDiff(FLOWS, hostAfter("Night shift", night));
-        assert.deepEqual(await save.value(batchOf("Night shift", undefined, night)), variant("applied", { revision: some(`r-Night shift ${printPatch(insert)}`) }));
-
-        // A delete: the flow by name — its one-flow snapshot emptied, whose own diff would replace the
-        // host's whole value; the host's other flows stay.
-        const removal = flowsDiff(FLOWS, hostAfter("Returns", undefined));
-        assert.deepEqual(await save.value(batchOf("Returns", RETURNS_VALUE, undefined)), variant("applied", { revision: some(`r-Returns ${printPatch(removal)}`) }));
-        assert.equal(removal.type, "patch");
-        assert.deepEqual([...applyFlows(FLOWS, removal).keys()], ["Inbound parcels"]);
-    });
-
-    hostTest("over the host's one flow, the session's Save hands the host's onApply the batch's request id and the flow's own patch; adding or removing the flow is refused (#1247, FB22, #1275)", async () => {
-        const printPatch = printFor(PatchType(FlowType));
-        const echo = East.asyncFunction([StringType, PatchType(FlowType)], Editing.Types.ApplyResult,
-            (_$, requestId, patch) => variant("applied", { revision: some(East.str`${requestId} ${East.print(patch)}`) }));
-        const payload = carried(($) => PublicFlowchart({ data: INBOUND_VALUE, onApply: $.const(echo) }));
-        if (payload.source.type !== "data" || payload.source.value.type !== "flow") assert.fail("expected the data arm's flow");
-        const save = payload.source.value.value.apply;
-        if (save.type !== "some") assert.fail("expected the session's Save");
-        const ChangeSet = Editing.Types.ChangeSet(FlowType, StringType);
-        const optionDiff = diffFor(OptionType(FlowType));
-        // A state moved to another lane: the flow's patch, and nothing about its entry.
-        const moved: Flow = { ...INBOUND_VALUE, states: [INBOUND_VALUE.states[0]!, { ...INBOUND_VALUE.states[1]!, lane: "intake" }] };
-        const batch = encodeBeast2For(ChangeSet)({
-            requestId: "r-one", label: "Move state", base: variant("snapshot", new SortedMap([["", INBOUND_VALUE]], compareFor(StringType))),
-            changes: [{ id: "", patch: optionDiff(some(INBOUND_VALUE), some(moved)), place: none }],
-        });
-        const patch = diffFor(FlowType)(INBOUND_VALUE, moved);
-        assert.deepEqual(await save.value(batch), variant("applied", { revision: some(`r-one ${printPatch(patch)}`) }));
-        assert.ok(flowEqual(applyFor(FlowType)(INBOUND_VALUE, patch), moved));
-        // One flow is changed in place: a batch removing it reaches no host.
-        const removal = encodeBeast2For(ChangeSet)({
-            requestId: "r-gone", label: "Delete", base: variant("snapshot", new SortedMap([["", INBOUND_VALUE]], compareFor(StringType))),
-            changes: [{ id: "", patch: optionDiff(some(INBOUND_VALUE), none), place: none }],
-        });
-        assert.deepEqual(await save.value(removal), variant("rejected", [{ entry: "", row: none, field: none, message: "One flow is changed in place: Save never adds or removes it" }]));
-    });
-
-    hostTest("the host's one flow — Flowchart.over's expression, or a value — is the data arm's flow", () => {
-        const fromTables = carried(($) => PublicFlowchart({
-            data: Flowchart.over($.const(STATE_ROWS), {
-                state: (s) => ({ key: s.code, lane: s.phase }), links: $.const(LINK_ROWS), link: (l) => ({ from: l.src, to: l.dst }), lanes: [{ key: "intake" }, { key: "sort" }],
-            }),
-        }));
-        const asValue = carried((_$) => PublicFlowchart({ data: INBOUND_VALUE }));
-        for (const [form, payload] of [["Flowchart.over", fromTables], ["value", asValue]] as const) {
-            if (payload.source.type !== "data" || payload.source.value.type !== "flow") assert.fail(`${form}: expected the data arm's flow`);
-        }
-        if (asValue.source.type === "data" && asValue.source.value.type === "flow") assert.ok(flowEqual(asValue.source.value.value.value, INBOUND_VALUE));
-        if (fromTables.source.type === "data" && fromTables.source.value.type === "flow") {
-            assert.deepEqual(fromTables.source.value.value.value.states.map((s) => s.key), ["ARV", "CH*"]);
-        }
-    });
-
-    hostTest("the canvas carries today's options, none for every one left out — and no height: the flowchart fills its box (#1245); no hover card: the inspector shows what is selected (#1250); no density: it draws at one rhythm (#1251)", () => {
-        assert.deepEqual(Object.keys(FlowchartCanvasType.fields).filter((field) => /height|hover|density/iu.test(field)), []);
-        const payload = carried((_$) => PublicFlowchart({ data: INBOUND_VALUE }));
-        const canvas = payload.canvas;
-        for (const [field, value] of Object.entries(canvas)) assert.deepEqual(value, none, `canvas.${field} is none`);
-        const given = carried(($) => PublicFlowchart({
-            data: INBOUND_VALUE, orientation: "TD", legend: false, minimap: true,
-            freshness: { label: "scans-2026.09" }, onSelectState: $.const(East.function([StringType], NullType, (_$2) => null)),
-        }));
-        assert.deepEqual([given.canvas.orientation, given.canvas.legend, given.canvas.minimap, given.canvas.freshness],
-            [some(variant("TD", null)), some(false), some(true), some({ label: "scans-2026.09", date: none })]);
-        assert.equal(given.canvas.onSelectState.type, "some");
-    });
-
-    hostTest("the payload round-trips through beast2 — the carrier's bytes decode to what Flowchart.Payload builds, and a library tab's wire encodes and decodes", () => {
-        const decoded = carried((_$) => PublicFlowchart({ data: FLOWS, flow: "Returns", name: "depot" }));
-        const built = East.compile(East.function([], FlowchartPayloadType, (_$) => Flowchart.Payload({ data: FLOWS, flow: "Returns", name: "depot" })), [])();
-        assert.ok(equalFor(FlowchartPayloadType)(decoded, built), "the carrier's payload is the one Flowchart.Payload builds");
-        const again = decodeBeast2For(FlowchartPayloadType)(encodeBeast2For(FlowchartPayloadType)(decoded));
-        assert.ok(equalFor(FlowchartPayloadType)(again, decoded));
-        const tabs: ValueTypeOf<typeof FlowchartLibraryTabType>[] = [
-            variant("flows", null),
-            variant("states", { name: some("Steps"), icon: some("box"), cards: [{ key: "HLD", label: "Hold", meta: some("hold"), group: none,
-                sets: { key: some("HLD"), label: some(some("Held")), lane: none, members: none, notes: none } }], source: "steps" }),
-            variant("transitions", { name: none, icon: none, cards: [{ key: "obs", label: "Observed", meta: none, group: none,
-                sets: { key: none, from: none, to: none, kind: some(some(variant("observed", null))), trigger: none, evidence: none } }], source: "moves" }),
-            variant("tab", { name: "Owners", icon: none, lands: variant("decision", [{ key: "desk", label: "Customs desk", meta: none, group: none,
-                sets: { key: none, label: none, letter: none, owner: some(some("customs-desk")), queue: none, outcomes: none } }]), source: some("owners") }),
-            variant("tab", { name: "Notes", icon: none, lands: variant("none", [{ key: "n1", label: "Read me", meta: none, group: none }]), source: none }),
-        ];
-        const tabsType = ArrayType(FlowchartLibraryTabType);
-        assert.ok(equalFor(tabsType)(decodeBeast2For(tabsType)(encodeBeast2For(tabsType)(tabs)), tabs));
-    });
-
-    hostTest("a flowchart keeps its frame's panes (#1245), its open flow, its library, LR · TD (#1246) and its drop target (#1249) under its name", () => {
-        assert.deepEqual(flowchartKeys(undefined), {
-            frame: "flowchart.frame", flow: "flowchart.flow", library: "flowchart.library", orientation: "flowchart.orientation", surface: "flowchart.surface",
-        });
-        assert.deepEqual(flowchartKeys("depot"), {
-            frame: "flowchart.depot.frame", flow: "flowchart.depot.flow", library: "flowchart.library.depot", orientation: "flowchart.depot.orientation",
-            surface: "flowchart.depot.surface",
-        });
-    });
-});
-
-// ============================================================================
-// The inspector (#1250, FB44, FB45)
-// ============================================================================
-
-describe("the inspector (#1250, FB44, FB45)", () => {
-    const StateType = Flowchart.Types.State;
-    const LinkType = Flowchart.Types.Link;
-    /** Each kind's Details its form: the pane with no author's own. */
-    const FORMS = some({ state: none, transition: none });
-
-    hostTest("is on by default — no prop, `true` and `{}` give the pane, each kind's Details its form — and `false` takes it away (FB44)", () => {
-        const cases: [string, ($: BlockBuilder<UIComponentType>) => object, ValueTypeOf<typeof FlowchartPayloadType>["inspector"]][] = [
-            ["no prop", (_$) => ({ data: FLOWS }), FORMS],
-            ["true", (_$) => ({ data: FLOWS, inspector: true }), FORMS],
-            ["{}", (_$) => ({ data: FLOWS, inspector: {} }), FORMS],
-            ["false", (_$) => ({ data: FLOWS, inspector: false }), none],
-            ["no prop, over a record", ($) => ({ record: $.let(flowsRecord()) }), FORMS],
-            ["false, over a record", ($) => ({ record: $.let(flowsRecord()), inspector: false }), none],
-        ];
-        for (const [what, props, expected] of cases) {
-            assert.deepEqual(carried(($) => PublicFlowchart(props($) as never)).inspector, expected, what);
-        }
-    });
-
-    hostTest("a kind's own Details cross the wire over bytes: the state's is called with the state selected, its `update` writing the edited state back; the transition's Details stay its form (FB45)", () => {
-        const payload = carried(($) => PublicFlowchart({
-            data: FLOWS,
-            inspector: {
-                state: $.const(East.function([StateType, FunctionType([StateType], NullType)], UIComponentType, ($2, s, update) => {
-                    const held = $2.const({ key: s.key, label: some("Held"), lane: s.lane, members: s.members, notes: s.notes }, StateType);
-                    $2(update(held));
-                    return Text.Root(s.key);
-                })),
-            },
-        }));
-        if (payload.inspector.type !== "some") assert.fail("the pane is on");
-        const own = payload.inspector.value.state;
-        if (own.type !== "some") assert.fail("the state's own Details ride the wire");
-        assert.equal(payload.inspector.value.transition.type, "none", "a transition's Details are its form");
-        const chutes = INBOUND_VALUE.states[1]!;
-        const written: Uint8Array[] = [];
-        const ui = own.value(encodeBeast2For(StateType)(chutes), (bytes: Uint8Array) => { written.push(bytes); return null; });
-        const expected = East.compile(East.function([], UIComponentType, (_$) => Text.Root("CH*")), [])();
-        assert.ok(equalFor(UIComponentType)(ui, expected), "the author's UI, over the state given");
-        assert.equal(written.length, 1);
-        assert.ok(equalFor(StateType)(decodeBeast2For(StateType)(written[0]!), { ...chutes, label: some("Held") }), "update wrote the edited state, as a state's bytes");
-    });
-
-    hostTest("a transition's own Details are called with the transition selected, and its `update` writes the edited transition back", () => {
-        const payload = carried(($) => PublicFlowchart({
-            data: FLOWS,
-            inspector: {
-                transition: $.const(East.function([LinkType, FunctionType([LinkType], NullType)], UIComponentType, ($2, l, update) => {
-                    const observed = $2.const({ key: l.key, from: l.from, to: l.to, kind: some(variant("observed", null)), trigger: l.trigger, evidence: l.evidence }, LinkType);
-                    $2(update(observed));
-                    return Text.Root(l.to);
-                })),
-            },
-        }));
-        if (payload.inspector.type !== "some" || payload.inspector.value.transition.type !== "some") assert.fail("the transition's own Details ride the wire");
-        assert.equal(payload.inspector.value.state.type, "none", "a state's Details are its form");
-        const link = INBOUND_VALUE.links[1]!;
-        const written: Uint8Array[] = [];
-        payload.inspector.value.transition.value(encodeBeast2For(LinkType)(link), (bytes: Uint8Array) => { written.push(bytes); return null; });
-        assert.ok(equalFor(LinkType)(decodeBeast2For(LinkType)(written[0]!), { ...link, kind: some(variant("observed", null)) }));
-    });
-});
-
-// ============================================================================
-// The library (#1248, §4.2, FB25–FB29): each tab's cards from its own rows
-// ============================================================================
-
-/** A step type: the state templates' row, keyed by its code in its templates record (#1346). */
-const StepRow = StructType({ name: StringType, kind: StringType, slots: OptionType(IntegerType) });
-type Step = ValueTypeOf<typeof StepRow>;
-/** The step types, a templates record by code: its rows in its key order. */
-const STEPS = new SortedMap<string, Step>([
-    ["HLD", { name: "Held", kind: "Hold", slots: none }],
-    ["CH*", { name: "Sort chutes", kind: "Sort", slots: some(14n) }],
-], compareFor(StringType));
-/** A transition type, by name: the transition templates' row. */
-const MoveRow = StructType({ kind: Flowchart.Types.Kind, decision: OptionType(StringType) });
-type Move = ValueTypeOf<typeof MoveRow>;
-/** The transition types, a templates record by name, in name order. */
-const MOVES = new SortedMap<string, Move>([
-    ["Routed", { kind: variant("planned", null), decision: some("route") }],
-    ["Observed", { kind: variant("observed", null), decision: none }],
-], compareFor(StringType));
-/** A role that owns a decision: the author's tab's row. */
-const OwnerRow = StructType({ role: StringType, desk: StringType });
-/** The roles, an Array: a key that repeats — the customs desk's — keeps its first card. */
-const OWNERS: ValueTypeOf<typeof OwnerRow>[] = [
-    { role: "customs-desk", desk: "Hold bay" },
-    { role: "sort-planner", desk: "Sort hall" },
-    { role: "customs-desk", desk: "Gate" },
-];
-
-type LibraryWire = ValueTypeOf<typeof FlowchartLibraryTabType>[];
-const libraryEqual = equalFor(ArrayType(FlowchartLibraryTabType));
-
-/** The state templates' tab over its record's rows: each card's key its code, the line under it its code, grouped by its kind, following `source` — `null`, none, as a list written in the code names. */
-function stepsTab(rows: Parameters<typeof PublicFlowchart.library.states<typeof StepRow>>[0], source: string | null = "steps") {
-    return PublicFlowchart.library.states(rows, {
-        name: "Steps", icon: "box", ...(source === null ? {} : { source }),
-        label: (s) => s.name, meta: (_s, code) => some(code), group: (s) => s.kind,
-        drop: (s, code) => PublicFlowchart.patch(PublicFlowchart.Types.State, { key: code, label: some(s.name), members: s.slots }),
+/** Whether `build` throws an Error whose message is `message`, exactly. */
+function refused(build: () => void, message: string): void {
+    assert.throws(build, (error: unknown) => {
+        assert.ok(error instanceof Error, "an Error");
+        assert.equal(error.message, message);
+        return true;
     });
 }
 
-/** The transition templates' tab over its record's rows, unnamed: each card labelled by its key, following `source` — `null`, none. */
-function movesTab(rows: Parameters<typeof PublicFlowchart.library.transitions<typeof MoveRow>>[0], source: string | null = "moves") {
-    return PublicFlowchart.library.transitions(rows, {
-        ...(source === null ? {} : { source }),
-        label: (_m, name) => name,
-        drop: (m) => PublicFlowchart.patch(PublicFlowchart.Types.Link, { kind: some(m.kind), trigger: m.decision }),
-    });
+const stateBytes = encodeBeast2For(ex.DepotState);
+const stateOf = decodeBeast2For(ex.DepotState);
+const stateEqual = equalFor(ex.DepotState);
+const moveBytes = encodeBeast2For(ex.DepotTransition);
+const moveOf = decodeBeast2For(ex.DepotTransition);
+const moveEqual = equalFor(ex.DepotTransition);
+const laneBytes = encodeBeast2For(ex.DepotLane);
+const laneOf = decodeBeast2For(ex.DepotLane);
+const laneEqual = equalFor(ex.DepotLane);
+const vocabularyEqual = equalFor(FlowchartPayloadType.fields.vocabulary);
+const optionString = equalFor(OptionType(StringType));
+/** The canvas's `narrow`, as the payload carries it. */
+const narrowEqual = equalFor(FlowchartPayloadType.fields.canvas.fields.narrow);
+const optionFloat = equalFor(OptionType(FloatType));
+const keysEqual = equalFor(ArrayType(StringType));
+/** The rows a reader read of a record by key, as a kind's `rowsOf` takes them: an Array of `{ key, row }`, as bytes. */
+const readOf = <R extends StructType>(row: R, read: { key: string; row: ValueTypeOf<R> }[]) => encodeBeast2For(ArrayType(StructType({ key: StringType, row })))(read as never);
+
+// ============================================================================
+// R2: each role a field of the app's row, checked
+// ============================================================================
+
+/** The roles' type checks (R2): never called — `tsc` checks what each line says. */
+function typeChecks($: BlockBuilder<UIComponentType>): void {
+    const states = $.let(Record.bind(ex.depotStates));
+    const transitions = $.let(Record.bind(ex.depotTransitions));
+    const lanes = $.let(Data.bind(ex.depotLanes));
+    const decisions = $.let(Data.bind(ex.depotDecisions));
+    const stages = $.let(stagesRecord());
+    const rules = $.let(queuedRecord());
+    // What fits, as the examples write it.
+    PublicFlowchart.states(states, { label: "name", lane: "phase", order: "seq", members: (s) => s.slots });
+    PublicFlowchart.transitions(transitions, { from: "src", to: "dst", decision: "trigger", kind: (t) => t.kind });
+    PublicFlowchart.lanes(stages, { label: "label", order: "seq" });
+    PublicFlowchart.decisions(rules, { label: (r) => r.name, queue: "queue" });
+    // @ts-expect-error — `slots` is an Option of an Integer: a state's label is a String field, or an Option of one
+    PublicFlowchart.states(states, { label: "slots" });
+    // @ts-expect-error — `volume` is an Option of a Float: an end names a state by its key, a String field
+    PublicFlowchart.transitions(transitions, { from: "volume", to: "dst" });
+    // @ts-expect-error — `name` is a String: a state's order is a Float field
+    PublicFlowchart.states(states, { label: "name", order: "name" });
+    // @ts-expect-error — `seq` is a Float: a state's lane names its lane by key, a String field
+    PublicFlowchart.states(states, { label: "name", lane: "seq" });
+    // @ts-expect-error — `label` is a String: a lane's order is an Integer or a Float field
+    PublicFlowchart.lanes(lanes, { label: "label", order: "label" });
+    // @ts-expect-error — `owner` is a String: a decision's queue is an Array or a Set of String field
+    PublicFlowchart.decisions(decisions, { label: (d) => d.name, queue: "owner" });
+    // @ts-expect-error — `members` returns an Option of an Integer
+    PublicFlowchart.states(states, { label: "name", members: (s) => s.name });
+    // @ts-expect-error — the lanes are read whole: a paged read is no binding of theirs
+    PublicFlowchart.lanes($.let(Data.bindPaged(ex.depotLanes)), { label: "label" });
+    // @ts-expect-error — the Flowchart takes no `record`: its records are its kinds
+    PublicFlowchart({ states: PublicFlowchart.states(states, { label: "name" }), record: states });
+    // @ts-expect-error — nor `data`
+    PublicFlowchart({ states: PublicFlowchart.states(states, { label: "name" }), data: states });
+    // @ts-expect-error — `narrowed` is "hide" or "dim"
+    PublicFlowchart({ states: PublicFlowchart.states(states, { label: "name" }), narrowed: "fade" });
+    // @ts-expect-error — `inspector` is a switch: a kind's own Details is its kind's `inspector`
+    PublicFlowchart({ states: PublicFlowchart.states(states, { label: "name" }), inspector: { state: true } });
 }
 
-/** The author's Owners tab over its rows: a role dropped on a decision owns it; following `source`, when it names one. */
-function ownersTab(rows: Parameters<typeof PublicFlowchart.library.tab<typeof OwnerRow>>[0], source?: string) {
-    return PublicFlowchart.library.tab(rows, {
-        name: "Owners", icon: "user-tie", ...(source === undefined ? {} : { source }),
-        key: (o) => o.role, label: (o) => o.role, meta: (o) => some(o.desk),
-        drop: (o) => PublicFlowchart.patch(PublicFlowchart.Types.Trigger, { owner: some(o.role) }),
-    });
-}
-
-/**
- * The library on the wire, as the payload builds it beside its slice's
- * sources — over flows by name, or over one flow — compiled and run: no slice
- * runs here, so the sources are given by name, as the payload hands them on.
- */
-function libraryWire(library: ($: BlockBuilder<ArrayType<typeof FlowchartLibraryTabType>>) => readonly FlowchartLibraryTab[], sources: readonly string[], many = true): LibraryWire {
-    return East.compile(East.function([], ArrayType(FlowchartLibraryTabType), ($) => buildFlowchartLibrary(library($), many, sources)), [])() as LibraryWire;
-}
-
-/** The state templates' cards over STEPS, in the record's key order: each card's key its row's key in the record. */
-const STEP_CARDS = [
-    { key: "CH*", label: "Sort chutes", meta: some("CH*"), group: some("Sort"), sets: { key: some("CH*"), label: some(some("Sort chutes")), lane: none, members: some(some(14n)), notes: none } },
-    { key: "HLD", label: "Held", meta: some("HLD"), group: some("Hold"), sets: { key: some("HLD"), label: some(some("Held")), lane: none, members: some(none), notes: none } },
-];
-/** The transition templates' cards over MOVES, in name order. */
-const MOVE_CARDS = [
-    { key: "Observed", label: "Observed", meta: none, group: none, sets: { key: none, from: none, to: none, kind: some(some(variant("observed", null))), trigger: some(none), evidence: none } },
-    { key: "Routed", label: "Routed", meta: none, group: none, sets: { key: none, from: none, to: none, kind: some(some(variant("planned", null))), trigger: some(some("route")), evidence: none } },
-];
-/** The Owners tab's cards over OWNERS: each sets a decision's owner, the customs desk's repeat folded. */
-const OWNER_CARDS = OWNERS.slice(0, 2).map((o) => ({
-    key: o.role, label: o.role, meta: some(o.desk), group: none,
-    sets: { key: none, label: none, letter: none, owner: some(some(o.role)), queue: none, outcomes: none },
-}));
-
-/** A slice whose sources each page the step types through their kind, under each name given: what templates lists and tabs name. */
-const templatesSlice = (...names: string[]) => Slice.bindRecords("flowchart.spec.templates",
-    Object.fromEntries(names.map((name) => [name, { source: Data.bindPaged(ex.stepTemplates, { indexes: ["flowchart_steps_by_kind"] }) }])) as never);
-/** A slice whose `flows` source pages a record of flows through its lanes. */
-const flowsSlice = () => Slice.bindRecords("flowchart.spec.flows", { flows: { source: Data.bindPaged(ex.indexedFlows, { indexes: ["lane"] }) } });
-
-describe("the library (#1248, FB25–FB29)", () => {
-    hostTest("each tab on the wire, in the order `library` lists it: the Flows tab, then each data tab's cards from its own rows — a templates record's by its keys, an author's Array — each with what its drop sets and the source it follows (#1346)", () => {
-        const library = libraryWire(($) => [
-            PublicFlowchart.library.flows(),
-            stepsTab($.const(STEPS, DictType(StringType, StepRow))),
-            movesTab($.const(MOVES, DictType(StringType, MoveRow))),
-            ownersTab($.const(OWNERS, ArrayType(OwnerRow))),
-        ], ["steps", "moves"]);
-        const expected: LibraryWire = [
-            variant("flows", null),
-            // A templates record: each card its row, keyed by the record's key, in the record's order; each the state its drop seeds.
-            variant("states", { name: some("Steps"), icon: some("box"), cards: STEP_CARDS, source: "steps" }),
-            // Unnamed, so the renderer names it.
-            variant("transitions", { name: none, icon: none, cards: MOVE_CARDS, source: "moves" }),
-            // An author's tab whose drop is a decision's patch: its cards land on a decision; naming no source, it lists its rows whole.
-            variant("tab", { name: "Owners", icon: some("user-tie"), lands: variant("decision", OWNER_CARDS), source: none }),
-        ];
-        assert.ok(libraryEqual(library, expected), "the tabs, their cards and their sources");
+describe("each role is a field of the app's row, named and checked (R2)", () => {
+    hostTest("a role naming a field the row lacks, or one of another type, is a type error, and past a cast the kind's words", () => {
+        assert.equal(typeof typeChecks, "function");
+        const states = (spec: object) => () => built(($) => {
+            const record = $.let(statesRecord());
+            const lanes = $.let(lanesData());
+            return PublicFlowchart({ states: Flowchart.states(record, spec as never), lanes: Flowchart.lanes(lanes, { label: "label" }) });
+        });
+        refused(states({ label: "title", lane: "phase" }),
+            "Flowchart.states: `label` names \"title\", a field the row does not have (name, phase, seq, slots, flow)");
+        refused(states({ label: "slots", lane: "phase" }),
+            "Flowchart.states: `label` names a String field, or an Option of one — \"slots\" holds an Option of .Integer");
+        refused(states({ label: "name", lane: "seq" }),
+            "Flowchart.states: `lane` names a String field holding its lane's key — \"seq\" holds .Float");
+        refused(states({ label: "name", lane: "phase", order: "flow" }),
+            "Flowchart.states: `order` names a Float field, the state's place in its lane — \"flow\" holds .String");
+        refused(states({ label: "phase", lane: "phase" }),
+            "Flowchart.states: `label` and `lane` both name \"phase\" — a state's name and its lane are two fields");
+        refused(states({ label: "name", lane: "phase", members: "slots" }),
+            "Flowchart.states: `members` is an accessor, (row, key) => an Option of an Integer");
+        refused(states({ label: "name", lane: "phase", name: "" }), "Flowchart.states: `name` is what one is called, a string");
+        refused(states({ label: "name", lane: "phase", icon: 3 }), "Flowchart.states: `icon` is a Font Awesome solid icon's name");
     });
 
-    hostTest("an author's tab without a drop is read, never dragged; over an Array a row's key is its index, printed, and over a Dict its key", () => {
-        const payload = carried(($) => PublicFlowchart({
-            data: INBOUND_VALUE,
-            library: [
-                PublicFlowchart.library.tab($.const(OWNERS, ArrayType(OwnerRow)), { name: "Desks", key: (_o, i) => i, label: (o) => o.desk }),
-                PublicFlowchart.library.tab($.const(MOVES, DictType(StringType, MoveRow)), { name: "Moves", key: (_m, name) => name, label: (_m, name) => name, group: (m) => m.decision.match({ some: () => "decided", none: () => "free" }) }),
-            ],
-        }));
-        const expected: LibraryWire = [
-            variant("tab", { name: "Desks", icon: none, lands: variant("none", [
-                { key: "0", label: "Hold bay", meta: none, group: none },
-                { key: "1", label: "Sort hall", meta: none, group: none },
-                { key: "2", label: "Gate", meta: none, group: none },
-            ]), source: none }),
-            variant("tab", { name: "Moves", icon: none, lands: variant("none", [
-                { key: "Observed", label: "Observed", meta: none, group: some("free") },
-                { key: "Routed", label: "Routed", meta: none, group: some("decided") },
-            ]), source: none }),
-        ];
-        assert.ok(libraryEqual(payload.library, expected), "each card by its row's key, read only");
-    });
-
-    hostTest("an author's drop lands where its patch's type says: a state, a transition, a lane's header or a decision's diamond", () => {
-        const payload = carried(($) => {
-            const rows = $.const(OWNERS.slice(0, 2), ArrayType(OwnerRow));
-            const owners = (name: string, drop: (o: ExprType<typeof OwnerRow>) => unknown) =>
-                PublicFlowchart.library.tab(rows, { name, key: (o) => o.role, label: (o) => o.role, drop: drop as never });
+    hostTest("a transition's ends are two String fields, and its decision a third", () => {
+        const transitions = (spec: object) => () => built(($) => {
+            const states = $.let(statesRecord());
+            const moves = $.let(movesRecord());
+            const decisions = $.let(decisionsRecord());
             return PublicFlowchart({
-                data: INBOUND_VALUE,
-                library: [
-                    owners("On a state", (o) => PublicFlowchart.patch(PublicFlowchart.Types.State, { notes: some(o.desk) })),
-                    owners("On a transition", (o) => PublicFlowchart.patch(PublicFlowchart.Types.Link, { trigger: some(o.role) })),
-                    owners("On a lane", (o) => PublicFlowchart.patch(PublicFlowchart.Types.Lane, { label: some(o.desk) })),
-                    owners("On a decision", (o) => PublicFlowchart.patch(PublicFlowchart.Types.Trigger, { owner: some(o.role) })),
-                ],
+                states: Flowchart.states(states, { label: "name" }),
+                transitions: Flowchart.transitions(moves, spec as never),
+                decisions: Flowchart.decisions(decisions, { label: (d) => d.name }),
             });
         });
-        assert.deepEqual(payload.library.map((tab) => (tab.type === "tab" ? [tab.value.name, tab.value.lands.type, tab.value.lands.value.length] : tab.type)), [
-            ["On a state", "state", 2], ["On a transition", "transition", 2], ["On a lane", "lane", 2], ["On a decision", "decision", 2],
+        refused(transitions({ from: 1, to: "dst" }), "Flowchart.transitions: `from` names the String field holding a state's key");
+        refused(transitions({ from: "volume", to: "dst" }),
+            "Flowchart.transitions: `from` names a state by its key, a String field — \"volume\" holds an Option of .Float");
+        refused(transitions({ from: "src", to: "src" }),
+            "Flowchart.transitions: `from` and `to` both name \"src\" — a transition's ends are two fields");
+        refused(transitions({ from: "src", to: "dst", decision: "dst" }),
+            "Flowchart.transitions: `decision` and `to` both name \"dst\" — a transition's decision and its ends are three fields");
+        refused(transitions({ from: "src", to: "dst", kind: "kind" }),
+            "Flowchart.transitions: `kind` is an accessor, (row, key) => a Flowchart.Types.Kind, planned or observed");
+    });
+
+    hostTest("a lane's order is an Integer or a Float field; a decision's label an accessor and its queue an Array or a Set of keys", () => {
+        const lanes = (spec: object) => () => built(($) => {
+            const states = $.let(statesRecord());
+            const record = $.let(lanesRecord());
+            return PublicFlowchart({ states: Flowchart.states(states, { label: "name", lane: "phase" }), lanes: Flowchart.lanes(record, spec as never) });
+        });
+        refused(lanes({ label: "label", order: "label" }),
+            "Flowchart.lanes: `order` names an Integer or a Float field, the lane's place among the lanes — \"label\" holds .String");
+        refused(lanes({ label: "label", entries: true }), "Flowchart.lanes: the lanes are read whole — leave entries out");
+        const decisions = (spec: object) => () => built(($) => {
+            const states = $.let(statesRecord());
+            const record = $.let(decisionsRecord());
+            return PublicFlowchart({ states: Flowchart.states(states, { label: "name" }), decisions: Flowchart.decisions(record, spec as never) });
+        });
+        const named = (d: ExprType<typeof ex.DepotDecision>) => d.name;
+        refused(decisions({ label: "name" }), "Flowchart.decisions: `label` is an accessor giving a decision's name, (row, key) => …");
+        refused(decisions({ label: named, queue: "owner" }),
+            "Flowchart.decisions: `queue` names an Array or a Set of String field, the states queued at it by key — \"owner\" holds .String");
+        refused(decisions({ label: named, entries: true }), "Flowchart.decisions: the decisions are read whole — leave entries out");
+    });
+});
+
+// ============================================================================
+// R3: how a kind is bound follows how it is read
+// ============================================================================
+
+describe("a kind's binding follows its read: every other form is refused, naming the one to use (R3)", () => {
+    const FORMS = "bind Record.bind(record) to edit them, Data.bind(record) to read them whole, or Data.bindPaged(record) to read them through their source";
+
+    hostTest("the states are a binding of a record of the app's: a value, a read and a record bound without its patch door are refused", () => {
+        refused(() => built((_$) => PublicFlowchart({ states: Flowchart.states(STATES as never, { label: "name" } as never) })),
+            `Flowchart.states: the states are a record of the app's: ${FORMS}`);
+        refused(() => built(($) => {
+            const states = $.let(Data.bind(ex.depotStates));
+            return PublicFlowchart({ states: Flowchart.states(states.read() as never, { label: "name" } as never) });
+        }), `Flowchart.states: the states are a record of the app's: ${FORMS} — and this is ${printType(DictType(StringType, ex.DepotState))}`);
+        refused(() => built(($) => {
+            const states = $.let(statesUnpatched());
+            return PublicFlowchart({ states: Flowchart.states(states, { label: "name" }) });
+        }), "Flowchart.states: the states' record is bound without its patch door — its record declares patch: mutation.patch(), which Save writes each change through");
+    });
+
+    hostTest("entries read beside Record.bind alone, and through the states' source of the slice", () => {
+        refused(() => built(($) => {
+            const states = $.let(Data.bind(ex.depotStates));
+            const entries = $.let(Data.bindPaged(ex.depotStates));
+            return PublicFlowchart({ states: Flowchart.states(states, { label: "name", entries }) });
+        }), "Flowchart.states: entries reads beside Record.bind: bind the states with Record.bind(record), or bind Data.bindPaged(record) alone to read them through their source, read only");
+        refused(() => built(($) => {
+            const states = $.let(Record.bind(ex.depotStates));
+            const entries = $.let(Data.bindPaged(ex.depotStates));
+            return PublicFlowchart({ states: Flowchart.states(states, { label: "name", entries }) });
+        }), "Flowchart.states: the states are read through their source of the slice: give a source named states, Data.bindPaged(record, { indexes }) over the states' record, or drop entries");
+    });
+
+    hostTest("a read through the slice's source takes Data.bindPaged alone, or Record.bind with its entries", () => {
+        const sliced = (bind: ($: BlockBuilder<UIComponentType>) => object) => () => built(($) => {
+            const slice = $.let(Slice.bindRecords("flowchart.spec.bindings", { states: statesSource() }));
+            return PublicFlowchart({ slice: { slice }, ...bind($) } as never);
+        });
+        refused(sliced(($) => ({ states: Flowchart.states($.let(Data.bind(ex.depotStates)), { label: "name" }) })),
+            "Flowchart.states: Data.bind(record) reads the states whole, and the slice's source \"states\" reads them through it — " +
+            "bind Data.bindPaged(record) to read them through their source, read only, or Record.bind(record) with entries: Data.bindPaged(record) to edit them");
+        refused(sliced(($) => ({ states: Flowchart.states($.let(Record.bind(ex.depotStates)), { label: "name" }) })),
+            "Flowchart.states: the slice's source \"states\" reads only its narrowing, and a row is read by its key — the inspector's, " +
+            "a gesture's original and Save's confirmation: give entries: Data.bindPaged(record) beside Record.bind, the states' record's own entries");
+        refused(() => built(($) => PublicFlowchart({ states: Flowchart.states($.let(Data.bindPaged(ex.depotStates)), { label: "name" }) })),
+            "Flowchart.states: Data.bindPaged(record) reads the states through their source of the slice: give a source named states, " +
+            "Data.bindPaged(record, { indexes }) over the states' record — or bind Data.bind(record) to read them whole");
+        refused(() => built(($) => {
+            const indexed = $.let(Data.bindPaged(ex.depotStates, { indexes: ["flowchart_states_by_flow"] }));
+            return PublicFlowchart({ states: Flowchart.states(indexed as never, { label: "name" } as never) });
+        }), `Flowchart.states: the states are a record of the app's: ${FORMS} — and this paged read reads the record through its indexes: ` +
+            "bind its own entries, Data.bindPaged(record), and name the indexed read as the states' source of the slice");
+        // Each form it takes builds: Data.bindPaged alone, and Record.bind with its entries.
+        built(($) => {
+            const slice = $.let(Slice.bindRecords("flowchart.spec.paged", { states: statesSource() }));
+            return PublicFlowchart({ slice: { slice }, states: Flowchart.states($.let(Data.bindPaged(ex.depotStates)), { label: "name" }) });
+        });
+        built(($) => {
+            const slice = $.let(Slice.bindRecords("flowchart.spec.edited", { states: statesSource() }));
+            const states = $.let(Record.bind(ex.depotStates));
+            const entries = $.let(Data.bindPaged(ex.depotStates));
+            return PublicFlowchart({ slice: { slice }, states: Flowchart.states(states, { label: "name", entries }) });
+        });
+    });
+
+    hostTest("the lanes and the decisions are read whole: a paged read is refused", () => {
+        const WHOLE = "a record of the app's, read whole: bind Record.bind(record) to edit them, or Data.bind(record) to read them" +
+            " — and this is Data.bindPaged(record), which reads a record through its source of the slice";
+        refused(() => built(($) => PublicFlowchart({
+            states: Flowchart.states($.let(statesRecord()), { label: "name", lane: "phase" }),
+            lanes: Flowchart.lanes($.let(Data.bindPaged(ex.depotLanes)) as never, { label: "label" } as never),
+        })), `Flowchart.lanes: the lanes are ${WHOLE}`);
+        refused(() => built(($) => PublicFlowchart({
+            states: Flowchart.states($.let(statesRecord()), { label: "name" }),
+            decisions: Flowchart.decisions($.let(Data.bindPaged(ex.depotDecisions)) as never, { label: (d: ExprType<typeof ex.DepotDecision>) => d.name } as never),
+        })), `Flowchart.decisions: the decisions are ${WHOLE}`);
+    });
+
+    hostTest("a role naming another kind's key needs that kind, and the lanes need the states' lane", () => {
+        refused(() => built(($) => PublicFlowchart({ states: Flowchart.states($.let(statesRecord()), { label: "name", lane: "phase" }) })),
+            "Flowchart: a state's lane names a lane — give lanes={Flowchart.lanes(…)}, or drop lane");
+        refused(() => built(($) => PublicFlowchart({
+            states: Flowchart.states($.let(statesRecord()), { label: "name" }),
+            lanes: Flowchart.lanes($.let(lanesData()), { label: "label" }),
+        })), "Flowchart: the lanes are columns: give the states their lane — Flowchart.states(record, { label, lane })");
+        refused(() => built(($) => PublicFlowchart({
+            states: Flowchart.states($.let(statesRecord()), { label: "name" }),
+            transitions: Flowchart.transitions($.let(movesRecord()), { from: "src", to: "dst", decision: "trigger" }),
+        })), "Flowchart: a transition's decision names a decision — give decisions={Flowchart.decisions(…)}, or drop decision");
+    });
+});
+
+// ============================================================================
+// The props: each kind by its prop, and every prop the flows took refused
+// ============================================================================
+
+describe("<Flowchart>'s props: each kind by its prop, and every prop the flows took refused, naming what replaces it (R1)", () => {
+    const tag = (props: object) => () => built(($) => PublicFlowchart({ states: Flowchart.states($.let(statesRecord()), { label: "name" }), ...props } as never));
+
+    hostTest("the states are needed, and each kind goes in its own prop", () => {
+        refused(() => built((_$) => PublicFlowchart({} as never)),
+            "Flowchart: needs its states — states={Flowchart.states(record, { label, lane?, order? })}, over the app's record");
+        refused(() => built(($) => PublicFlowchart({ states: Flowchart.transitions($.let(movesRecord()), { from: "src", to: "dst" }) } as never)),
+            "Flowchart: `states` is Flowchart.states(record, { label, lane?, order? }) over the app's record — " +
+            "and this is Flowchart.transitions(record, { from, to, decision? }): give it as `transitions`");
+        refused(tag({ lanes: "lanes" }), "Flowchart: `lanes` is Flowchart.lanes(record, { label, order? }) over the app's record");
+    });
+
+    hostTest("the flows' props are gone, each refused with what replaces it", () => {
+        const RECORDS = "the Flowchart takes no `record`, `data`, `flow` or `onApply` — its records are its kinds: " +
+            "states={Flowchart.states(Record.bind(steps), { label, lane, order })}, transitions={Flowchart.transitions(Record.bind(moves), { from, to })}, " +
+            "lanes={Flowchart.lanes(Data.bind(phases), { label })} and decisions={Flowchart.decisions(Data.bind(rules), { label })}";
+        for (const prop of ["record", "data", "flow", "onApply"]) refused(tag({ [prop]: true }), `Flowchart: \`${prop}\` is gone — ${RECORDS}`);
+        refused(tag({ links: true }), "Flowchart: `links` is gone — the transitions are `transitions`: transitions={Flowchart.transitions(record, { from, to })}");
+        refused(tag({ triggers: true }), "Flowchart: `triggers` is gone — the decisions are `decisions`: decisions={Flowchart.decisions(record, { label })}");
+        refused(tag({ window: true }), "Flowchart: `window` is gone — the states and the transitions read through their sources of the slice, `states` and `transitions` — " +
+            "slice={{ slice: Slice.bindRecords(key, { states: { source: Data.bindPaged(steps, { indexes }) } }) }}");
+        for (const prop of ["state", "link", "lane", "trigger"]) {
+            refused(tag({ [prop]: true }), `Flowchart: \`${prop}\` is gone — a kind maps its record's fields to its roles — Flowchart.states(record, { label, lane, order }), ` +
+                "Flowchart.transitions(record, { from, to, decision }), Flowchart.lanes(record, { label, order }) and Flowchart.decisions(record, { label })");
+        }
+        refused(tag({ height: "560px" }), "Flowchart: `height` is gone — the Flowchart fills the box it is given — give it a box of its own height: <Box height=\"560px\"><Flowchart … /></Box>");
+        refused(tag({ density: "compact" }), "Flowchart: `density` is gone — the canvas draws at one rhythm — leave `density` out");
+        refused(tag({ onAddState: true }), "Flowchart: `onAddState` is gone — every gesture is a transaction of the Flowchart's editing session, and Save writes each record " +
+            "through its patch door — bind a kind with Record.bind(record), its record declaring patch: mutation.patch(), to edit it");
+        refused(tag({ stateHover: true }), "Flowchart: `stateHover` is gone — the inspector shows what is selected, and a kind's own Details is its kind's `inspector`: " +
+            "Flowchart.states(record, { …, inspector: East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …) })");
+        refused(tag({ affordances: ["fields"] }), "Flowchart: `affordances` is gone — it moved into `slice`: slice={{ slice: Slice.bindRecords(key, { … }), affordances }}");
+    });
+
+    hostTest("a prop it doesn't take is refused, naming those it does — `id` among them, the Flowchart keeping its state apart by `name`", () => {
+        refused(tag({ id: "depot" }), "Flowchart: `id` is not a prop of <Flowchart> — it takes states, transitions, lanes, decisions, slice, narrowed, library, inspector, " +
+            "vocabulary, readOnly, name, orientation, freshness, minimap, legend, onSelectState, onSelectLink, onSelectTrigger, onTracePath, canConnect, narrow");
+        refused(tag({ name: "" }), "Flowchart: `name` keeps the Flowchart's state apart — a string, needed only when one surface holds two");
+        refused(tag({ narrowed: "fade" }), "Flowchart: `narrowed` is \"hide\" (the default), which leaves what the narrowing leaves out off the canvas, or \"dim\", which draws it as context");
+        refused(tag({ inspector: { state: true } }), "Flowchart: `inspector` is true or false — on unless false — and a kind's own Details is its kind's `inspector`: " +
+            "Flowchart.states(record, { …, inspector: East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …) })");
+    });
+
+    hostTest("`vocabulary` names a transition's kinds alone, a kind's noun its own `name` (#1516) — an empty word, a kind's noun and a word it has none of each refused", () => {
+        refused(tag({ vocabulary: { planned: " " } }), "Flowchart: `vocabulary.planned` must not be empty — leave it out to keep \"Planned\"");
+        refused(tag({ vocabulary: { state: "Stop" } }), "Flowchart: `vocabulary.state` is not one of its words — a kind's noun is its own `name`: Flowchart.states(record, { label, name })");
+        refused(tag({ vocabulary: { transition: "Hop" } }), "Flowchart: `vocabulary.transition` is not one of its words — a kind's noun is its own `name`: Flowchart.transitions(record, { from, to, name })");
+        refused(tag({ vocabulary: { flow: "Route" } }), "Flowchart: `vocabulary.flow` is not one of its words — it takes `planned` and `observed`, a transition's kinds, and a kind's noun is its own `name`");
+        refused(tag({ vocabulary: "Designed" }), "Flowchart: `vocabulary` takes the app's words for a transition's kinds — vocabulary={{ planned?, observed? }}");
+    });
+
+    hostTest("the shared keys keep a named Flowchart's state apart", () => {
+        assert.deepEqual(flowchartKeys(undefined), { frame: "flowchart.frame", library: "flowchart.library", orientation: "flowchart.orientation", surface: "flowchart.surface" });
+        assert.deepEqual(flowchartKeys("depot"), { frame: "flowchart.depot.frame", library: "flowchart.library.depot", orientation: "flowchart.depot.orientation", surface: "flowchart.depot.surface" });
+    });
+});
+
+// ============================================================================
+// R4: the rail
+// ============================================================================
+
+describe("the rail is one Slice.bindRecords, its states and transitions sources each named after its kind (R4)", () => {
+    hostTest("`slice` takes { slice }, and no brush", () => {
+        refused(() => built(($) => {
+            const slice = $.let(Slice.bindRecords("flowchart.spec.shape", { states: statesSource() }));
+            return PublicFlowchart({ slice, states: Flowchart.states($.let(Data.bindPaged(ex.depotStates)), { label: "name" }) } as never);
+        }), "Flowchart: `slice` takes { slice } — slice={{ slice: Slice.bindRecords(key, { … }), affordances?, persist? }}, its sources `states` and `transitions` each named after the kind it narrows");
+        refused(() => built(($) => {
+            const slice = $.let(Slice.bindRecords("flowchart.spec.brush", { states: statesSource() }));
+            return PublicFlowchart({ slice: { slice, affordances: ["brush"] }, states: Flowchart.states($.let(Data.bindPaged(ex.depotStates)), { label: "name" }) });
+        }), "Flowchart: `slice`'s affordances list \"brush\", and a flowchart has no continuous axis to brush along — mount fields, search, presets or summary");
+    });
+
+    hostTest("the lanes and the decisions are read whole: a source named after either is refused", () => {
+        refused(() => built(($) => {
+            const slice = $.let(Slice.bindRecords("flowchart.spec.lanes", { lanes: statesSource() }));
+            return PublicFlowchart({ slice: { slice }, states: Flowchart.states($.let(statesRecord()), { label: "name" }) });
+        }), "Flowchart: the lanes are read whole: drop the lanes source");
+        refused(() => built(($) => {
+            const slice = $.let(Slice.bindRecords("flowchart.spec.decisions", { decisions: statesSource() }));
+            return PublicFlowchart({ slice: { slice }, states: Flowchart.states($.let(statesRecord()), { label: "name" }) });
+        }), "Flowchart: the decisions are read whole: drop the decisions source");
+    });
+
+    hostTest("every other source is named by a list of cards, a tab or details: a source nothing names is refused", () => {
+        refused(() => built(($) => {
+            const slice = $.let(Slice.bindRecords("flowchart.spec.stray", { states: statesSource(), extra: statesSource() }));
+            return PublicFlowchart({ slice: { slice }, states: Flowchart.states($.let(Data.bindPaged(ex.depotStates)), { label: "name" }) });
+        }), "Flowchart: `slice` narrows its states and its transitions, each by the source named after it, and the cards lists, tabs and details that name a source — " +
+            "its source 'extra' is none of them; name the sources `states`");
+    });
+});
+
+// ============================================================================
+// A kind's cards (R14, D8)
+// ============================================================================
+
+describe("a kind's cards are a record's rows, following their own source of the rail (R14, D8)", () => {
+    const steps = ($: BlockBuilder<UIComponentType>) => $.const(STEP_CARDS, DictType(StringType, ex.StepCard));
+
+    hostTest("cards are Flowchart.templates' over a Dict of rows, their values every field but what a drop writes", () => {
+        refused(() => built(($) => {
+            const listed = $.const([...STEP_CARDS.values()], ArrayType(ex.StepCard));
+            return PublicFlowchart({ states: Flowchart.states($.let(statesRecord()), {
+                label: "name", templates: Flowchart.templates(listed as never, {
+                    name: (c: ExprType<typeof ex.StepCard>) => c.name, values: (c: ExprType<typeof ex.StepCard>) => c.values, source: "stepCards",
+                }) as never,
+            }) });
+        }), `Flowchart.templates: the cards are a record's rows, keyed by String — a Dict, Data.bind(record).read() — and these are ${printType(ArrayType(ex.StepCard))}`);
+        refused(() => built(($) => PublicFlowchart({ states: Flowchart.states($.let(statesRecord()), {
+            label: "name", templates: [{ name: "Sort chutes" }] as never,
+        }) })), "Flowchart.states: `templates` are records — Flowchart.templates(cards.read(), { name, values, source }) over a record of the app's, its source one of the slice's");
+        // The states' cards give every field but the lane and the order: these give a lane too.
+        const WithLane = StructType({ name: StringType, phase: StringType, slots: OptionType(IntegerType), flow: StringType });
+        refused(() => built(($) => PublicFlowchart({
+            states: Flowchart.states($.let(statesRecord()), {
+                label: "name", lane: "phase", order: "seq",
+                templates: Flowchart.templates(steps($), {
+                    name: (c) => c.name, values: (c) => East.value({ name: c.name, phase: "sort", slots: c.values.slots, flow: c.values.flow }, WithLane), source: "stepCards",
+                }) as never,
+            }),
+            lanes: Flowchart.lanes($.let(lanesData()), { label: "label" }),
+        })), `Flowchart.states: its cards' \`values\` give every field of the row but \`phase\` and \`seq\` — ${printType(StructType({ name: StringType, slots: OptionType(IntegerType), flow: StringType }))} ` +
+            `— and these give ${printType(WithLane)}`);
+    });
+
+    hostTest("a list of cards names its source of the slice, and never a kind's own", () => {
+        refused(() => built(($) => PublicFlowchart({
+            states: Flowchart.states($.let(statesRecord()), {
+                label: "name", lane: "phase", order: "seq",
+                templates: Flowchart.templates(steps($), { name: (c) => c.name, values: (c) => c.values, source: "stepCards" }),
+            }),
+            lanes: Flowchart.lanes($.let(lanesData()), { label: "label" }),
+        })), "Flowchart: templates are records now — bind them in Slice.bindRecords and name the source, Flowchart.templates(rows, { …, source }) " +
+            "(it has no slice — 'stepCards' is not one of them)");
+        refused(() => built(($) => {
+            const slice = $.let(Slice.bindRecords("flowchart.spec.cards", { states: statesSource() }));
+            return PublicFlowchart({ slice: { slice }, states: Flowchart.states($.let(Data.bindPaged(ex.depotStates)), {
+                label: "name", lane: "phase", order: "seq",
+                templates: Flowchart.templates(steps($), { name: (c) => c.name, values: (c) => c.values, source: "states" }),
+            }), lanes: Flowchart.lanes($.let(lanesData()), { label: "label" }) });
+        }), "Flowchart: the states' cards name the source 'states', which narrows the states — a kind's cards are a record of their own, and their own source of the slice");
+    });
+});
+
+// ============================================================================
+// The kinds' closed functions, over decoded bytes
+// ============================================================================
+
+describe("the states' closed functions, over decoded bytes (R1, R8)", () => {
+    const states = kindOf(Flowchart.Types.StateKind, ($) => {
+        const record = $.let(statesRecord());
+        const cards = $.const(STEP_CARDS, DictType(StringType, ex.StepCard));
+        return Flowchart.states(record, {
+            label: "name", lane: "phase", order: "seq", members: (s) => s.slots,
+            templates: Flowchart.templates(cards, { name: (c) => c.name, group: (c) => some(c.group), values: (c) => c.values, source: "stepCards" }),
+            ready: (s) => s.flow.equal("").ifElse(
+                () => variant("incomplete", [{ field: "flow", message: "Give the state its flow" }]),
+                () => variant("ready", null),
+            ),
+        }).build(undefined, false);
+    });
+
+    hostTest("what one is called and its icon, unless given; editable through its patch door; its row type the record's", () => {
+        assert.equal(states.name, "State");
+        assert.equal(states.icon, "square");
+        assert.equal(states.editable, true);
+        assert.equal(states.editing.type, "some");
+        assert.ok(isTypeEqual(fromEastTypeValue(states.rowType), ex.DepotState));
+    });
+
+    hostTest("its rows: each stored state's roles beside its own row, by key", () => {
+        const rows = states.rows();
+        if (rows.type !== "some") assert.fail("a record read whole holds its rows");
+        assert.ok(keysEqual([...rows.value.keys()], ["ARV", "CH*"]));
+        const chutes = rows.value.get("CH*")!;
+        assert.ok(stateEqual(stateOf(chutes.row), CHUTES), "the row crosses whole, its own fields among it");
+        assert.equal(chutes.roles.label, "Sort chutes (class)");
+        assert.ok(optionString(chutes.roles.lane, some("sort")));
+        assert.ok(optionFloat(chutes.roles.order, some(1)));
+        assert.ok(equalFor(OptionType(IntegerType))(chutes.roles.members, some(14n)));
+        assert.equal(rows.value.get("ARV")!.roles.members.type, "none");
+    });
+
+    hostTest("a read by key, and rows a reader read by key made stored states", () => {
+        const roles = states.read(stateBytes(ARV), "ARV");
+        assert.equal(roles.label, "Arrived");
+        assert.ok(optionString(roles.lane, some("intake")));
+        const read = states.rowsOf(readOf(ex.DepotState, [{ key: "CH*", row: CHUTES }]));
+        assert.ok(keysEqual([...read.keys()], ["CH*"]));
+        assert.ok(stateEqual(stateOf(read.get("CH*")!.row), CHUTES));
+    });
+
+    hostTest("a gesture writes its roles' fields alone, every other field as it was (R8)", () => {
+        const moved = states.write(stateBytes(ARV), { label: none, lane: some("sort"), order: some(1.5) });
+        if (moved.type !== "some") assert.fail("a state takes a move");
+        assert.ok(stateEqual(stateOf(moved.value), { ...ARV, phase: "sort", seq: 1.5 }));
+        const renamed = states.write(stateBytes(CHUTES), { label: some("Chutes"), lane: none, order: none });
+        if (renamed.type !== "some") assert.fail("a state takes a rename");
+        assert.ok(stateEqual(stateOf(renamed.value), { ...CHUTES, name: "Chutes" }));
+    });
+
+    hostTest("a new state: its roles over a card's values, or over its type's defaults", () => {
+        assert.equal(states.templates.length, 1);
+        const card = states.templates[0]!;
+        assert.equal(card.key, "chutes");
+        assert.equal(card.name, "Sort chutes");
+        assert.ok(optionString(card.group, some("Sort")));
+        assert.ok(optionString(states.templatesSource, some("stepCards")));
+        const dropped = states.create({ label: none, lane: some("sort"), order: some(3) }, some(card.values));
+        if (dropped.type !== "some") assert.fail("a card makes a state");
+        assert.ok(stateEqual(stateOf(dropped.value), { name: "Sort chutes", phase: "sort", seq: 3, slots: some(12n), flow: "Parcels" }));
+        const added = states.create({ label: some("Weighed"), lane: some("intake"), order: some(3) }, none);
+        if (added.type !== "some") assert.fail("+ STATE makes a state");
+        assert.ok(stateEqual(stateOf(added.value), { name: "Weighed", phase: "intake", seq: 3, slots: none, flow: "" }));
+    });
+
+    hostTest("an author's card sets its fields; the form edits the fields no role writes; the app's ready checks a drafted state", () => {
+        const set = states.set(stateBytes(ARV), [{ path: ["flow"], value: encodeBeast2For(StringType)("Returns") }]);
+        if (set.type !== "some") assert.fail("flow is the state's");
+        assert.ok(stateEqual(stateOf(set.value), { ...ARV, flow: "Returns" }));
+        assert.equal(states.set(stateBytes(ARV), [{ path: ["desk"], value: encodeBeast2For(StringType)("Night shift") }]).type, "none", "a field the row lacks: nothing to write");
+        assert.ok(keysEqual(states.fields.map((field) => field.path.join(".")), ["slots", "flow"]));
+        if (states.ready.type !== "some") assert.fail("the app's check crosses");
+        const [drafted, named] = states.ready.value([
+            { id: "NEW", entry: stateBytes({ ...ARV, flow: "" }) },
+            { id: "ARV", entry: stateBytes(ARV) },
         ]);
-        const onLane = payload.library[2]!;
-        if (onLane.type !== "tab" || onLane.value.lands.type !== "lane") assert.fail("expected the lane's cards");
-        assert.deepEqual(onLane.value.lands.value[0], { key: "customs-desk", label: "customs-desk", meta: none, group: none, sets: { key: none, label: some(some("Hold bay")) } });
+        assert.ok(equalFor(EditingReadinessType)(drafted!, variant("incomplete", [{ field: "flow", message: "Give the state its flow" }])));
+        assert.ok(equalFor(EditingReadinessType)(named!, variant("ready", null)));
     });
 
-    hostTest("each tab takes its own bound data — a templates record's rows, a record's — apart from the flows and from the other tabs (the user, 2026-10-08; #1346)", () => {
-        // The step types and the owners are records of their own, bound beside the record of flows.
-        const stepsRecord = boundRecord(DictType(StringType, StepRow), STEPS, false);
-        const ownersRecord = boundRecord(DictType(StringType, OwnerRow), new SortedMap([["customs", OWNERS[0]!]], compareFor(StringType)), false);
-        const library = libraryWire(($) => {
-            const steps = $.let(stepsRecord());
-            const owners = $.let(ownersRecord());
-            return [PublicFlowchart.library.flows(), stepsTab(steps.read()), ownersTab(owners.read(), "owners"), movesTab($.const(MOVES, DictType(StringType, MoveRow)))];
-        }, ["steps", "owners", "moves"]);
-        const cardKeys = (tab: LibraryWire[number]) => {
-            switch (tab.type) {
-                case "flows": return [];
-                case "states": return tab.value.cards.map((c) => c.key);
-                case "transitions": return tab.value.cards.map((c) => c.key);
-                case "tab": return tab.value.lands.value.map((c) => c.key);
-            }
-        };
-        // Each tab's cards are its own rows', none of the flows' states, nor another tab's rows.
-        assert.deepEqual(library.map(cardKeys), [[], ["CH*", "HLD"], ["customs-desk"], ["Observed", "Routed"]]);
-        const flowStates = new Set([...FLOWS.values()].flatMap((f) => f.states.map((s) => s.key)));
-        assert.deepEqual(cardKeys(library[1]!).filter((key) => flowStates.has(key)), ["CH*"], "a step type may share a code with a flow's state: its card is the row's");
-        if (library[1]!.type !== "states") assert.fail("expected the state templates");
-        assert.deepEqual(library[1]!.value.cards.map((c) => c.label), ["Sort chutes", "Held"], "the record's rows, by key: its labels, not the flow's");
+    hostTest("bound with Data.bind, the states are read only", () => {
+        const readOnly = kindOf(Flowchart.Types.StateKind, ($) => Flowchart.states($.let(statesData()), { label: "name" }).build(undefined, false));
+        assert.equal(readOnly.editable, false);
+        assert.equal(readOnly.editing.type, "none");
+        assert.equal(readOnly.history.type, "none");
+        assert.equal(readOnly.ready.type, "none");
     });
-
-    hostTest("a template tab left unnamed is named by the renderer; named, its name rides the wire (FB25)", () => {
-        const library = libraryWire(($) => [
-            PublicFlowchart.library.states($.const(STEPS, DictType(StringType, StepRow)), { label: (s) => s.name, source: "steps",
-                drop: (_s, code) => PublicFlowchart.patch(PublicFlowchart.Types.State, { key: code }) }),
-            PublicFlowchart.library.transitions($.const(MOVES, DictType(StringType, MoveRow)), { name: "Retypes", label: (_m, n) => n, source: "moves",
-                drop: (m) => PublicFlowchart.patch(PublicFlowchart.Types.Link, { kind: some(m.kind) }) }),
-        ], ["steps", "moves"]);
-        assert.deepEqual(library.map((tab) => (tab.type === "states" || tab.type === "transitions" ? [tab.type, tab.value.name, tab.value.icon] : [tab.type])), [
-            ["states", none, none], ["transitions", some("Retypes"), none],
-        ]);
-    });
-
-    hostTest("a template tab's cards and a one-flow flowchart: over one flow the library takes every tab but the Flows tab (FB16)", () => {
-        const library = libraryWire(($) => [
-            stepsTab($.const(STEPS, DictType(StringType, StepRow))), movesTab($.const(MOVES, DictType(StringType, MoveRow))), ownersTab($.const(OWNERS, ArrayType(OwnerRow))),
-        ], ["steps", "moves"], false);
-        assert.deepEqual(library.map((tab) => tab.type), ["states", "transitions", "tab"]);
-    });
-
-    hostTest("an author's tab follows the source of the slice it names, by its cards' keys (#1346); naming none, it lists its rows whole; a source the slice lacks is refused", () => {
-        const owners = ($: BlockBuilder<ArrayType<typeof FlowchartLibraryTabType>>, source?: string) => [ownersTab($.const(OWNERS, ArrayType(OwnerRow)), source)];
-        const [followed] = libraryWire(($) => owners($, "owners"), ["steps", "owners"]);
-        if (followed?.type !== "tab") assert.fail("expected an author's tab");
-        assert.deepEqual(followed.value.source, some("owners"));
-        const [whole] = libraryWire(($) => owners($), ["steps", "owners"]);
-        if (whole?.type !== "tab") assert.fail("expected an author's tab");
-        assert.deepEqual(whole.value.source, none);
-        assert.throws(() => libraryWire(($) => owners($, "owners"), ["steps"]),
-            /^Error: Flowchart: the "Owners" tab's source 'owners' is not one of the slice's sources \(steps\)$/);
-        assert.throws(() => libraryWire(($) => owners($, "owners"), []), /\(it has no slice\)$/);
-    });
-
-    hostTest("templates are records (#1340, ruling 9; #1346): a list written in the code, one naming no source or one the slice lacks, one naming `flows`, the two lists naming one source, rows that are no record's and a `key` are each refused, naming the change", () => {
-        const build = (props: ($: BlockBuilder<NullType>) => object) => () => inBlock(($) => Flowchart.Payload(props($)));
-        const steps = ($: BlockBuilder<NullType>) => $.let(Data.bind(ex.stepTemplates)).read();
-        const change = /^Error: Flowchart: templates are records now — bind them in Slice\.bindRecords and name the source, Flowchart\.library\.states\(rows, \{ …, source: "stateTemplates" \}\)/;
-        // A list naming no source — one written in the code — beside a slice, and with none.
-        assert.throws(build(($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") }, library: [stepsTab(steps($), null)] })),
-            new RegExp(`${change.source} \\(the slice's sources: steps\\)$`));
-        assert.throws(build(($) => ({ record: $.let(flowsRecord()), library: [stepsTab(steps($), null)] })), new RegExp(`${change.source} \\(it has no slice\\)$`));
-        // A source the slice lacks, and one with no slice at all.
-        assert.throws(build(($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") }, library: [stepsTab(steps($), "moves")] })),
-            /\(the slice's sources: steps — 'moves' is not one of them\)$/);
-        assert.throws(build(($) => ({ record: $.let(flowsRecord()), library: [stepsTab(steps($))] })), /\(it has no slice — 'steps' is not one of them\)$/);
-        // The transition templates' declaration, in their refusal.
-        assert.throws(build(($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") }, library: [movesTab($.const(MOVES, DictType(StringType, MoveRow)), null)] })),
-            /^Error: Flowchart: templates are records now — bind them in Slice\.bindRecords and name the source, Flowchart\.library\.transitions\(rows, \{ …, source: "transitionTemplates" \}\)/);
-        // `flows` narrows the flows, and each list is a record of its own: its own source.
-        assert.throws(build(($) => ({ record: $.let(flowsRecord()), slice: { slice: Slice.bindRecords("flowchart.spec.both", {
-            flows: { source: Data.bindPaged(ex.indexedFlows, { indexes: ["lane"] }) },
-            steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: ["flowchart_steps_by_kind"] }) },
-        }) }, library: [stepsTab(steps($), "flows")] })),
-            /^Error: Flowchart: Flowchart\.library\.states\(\) names the source 'flows', which narrows the flows — each templates list is a record of its own, and its own source of the slice$/);
-        assert.throws(build(($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") },
-            library: [stepsTab(steps($)), movesTab($.const(MOVES, DictType(StringType, MoveRow)), "steps")] })),
-            /^Error: Flowchart: the state templates and the transition templates both name the source 'steps' — each templates list is a record of its own, and its own source of the slice$/);
-        // A templates list's rows are its record's — a Dict — and its cards are keyed by the record's keys.
-        assert.throws(build(($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") },
-            library: [PublicFlowchart.library.states($.const([], ArrayType(StepRow)) as never, { label: (s: ExprType<typeof StepRow>) => s.name, source: "steps",
-                drop: () => PublicFlowchart.patch(PublicFlowchart.Types.State, {}) })] })),
-            /^Error: Flowchart: Flowchart\.library\.states\(\) lists templates, which are records — its rows are its templates record's, each card a row by its key: a Dict<String, T>, its binding's read\(\) — and these are an Array$/);
-        assert.throws(build(($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") },
-            library: [PublicFlowchart.library.states(steps($), { key: (_s: unknown, code: ExprType<StringType>) => code, label: (s: ExprType<typeof StepRow>) => s.name, source: "steps",
-                drop: () => PublicFlowchart.patch(PublicFlowchart.Types.State, {}) } as never)] })),
-            /^Error: Flowchart: Flowchart\.library\.states\(\)'s cards are its templates record's rows, each keyed by the record's key, which its source follows — leave `key` out$/);
-    });
-
-    for (const [field, sets] of [
-        ["key", { key: some("moved") }],
-        ["from", { from: "ARV" }],
-        ["to", { to: "LDD" }],
-    ] as const) {
-        hostTest(`a transition card whose drop sets the transition's \`${field}\` is refused as the tab's cards are read, naming the tab, the card and the field (#1248, §4.4)`, () => {
-            const refusal = new RegExp(`Flowchart: Flowchart\\.library\\.transitions\\(\\)'s card "Routed" sets a transition's \`${field}\` — a transition card retypes the transition it lands on, its kind, its decision and its other fields, never its key or its ends: leave \`key\`, \`from\` and \`to\` out of its Flowchart\\.patch`);
-            assert.throws(() => libraryWire(($) => [PublicFlowchart.library.transitions($.const(MOVES, DictType(StringType, MoveRow)), {
-                label: (_m, name) => name, source: "moves",
-                // The observed move retypes; the routed one, in name order the second, also rewires.
-                drop: (m) => m.decision.match({
-                    some: () => PublicFlowchart.patch(PublicFlowchart.Types.Link, { kind: some(m.kind), ...sets } as never),
-                    none: () => PublicFlowchart.patch(PublicFlowchart.Types.Link, { kind: some(m.kind) }),
-                }),
-            })], ["moves"]), refusal);
-        });
-    }
 });
 
-// ============================================================================
-// The narrowing (#1346): one Slice.bindRecords — the Flows tab's `flows`
-// source over a record, and each source a templates list or a tab names
-// ============================================================================
+describe("the transitions', the lanes' and the decisions' closed functions, over decoded bytes (R1, R8)", () => {
+    const transitions = kindOf(Flowchart.Types.TransitionKind, ($) => Flowchart.transitions($.let(movesRecord()), {
+        from: "src", to: "dst", decision: "trigger", kind: (t) => t.kind,
+        evidence: (t) => some({ volume: t.volume, count: t.n, measuredAt: t.at, unit: some("parcels") }),
+    }).build(undefined, false));
 
-describe("the narrowing (#1346)", () => {
-    const typeOf = (e: unknown): EastType => Expr.type(e as Expr) as EastType;
-
-    hostTest("over a record, a `flows` source pages the Flows tab, and the templates lists and the tabs follow the sources they name: the payload builds over each", () => {
-        inBlock(($) => {
-            const flows = $.let(flowsRecord());
-            const steps = $.let(Data.bind(ex.stepTemplates));
-            // The Flows tab over the slice's `flows` source.
-            assert.ok(isTypeEqual(typeOf(Flowchart.Payload({ record: flows, slice: { slice: flowsSlice() }, library: [Flowchart.library.flows()] })), FlowchartPayloadType));
-            // The flows and a templates list, one rail.
-            const both = Slice.bindRecords("flowchart.spec.both", {
-                flows: { source: Data.bindPaged(ex.indexedFlows, { indexes: ["lane"] }), fields: { lane: { label: "Lane" } } },
-                steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: ["flowchart_steps_by_kind"] }) },
-            });
-            assert.ok(isTypeEqual(typeOf(Flowchart.Payload({ record: flows, slice: { slice: both, affordances: ["fields", "search", "summary"] },
-                library: [Flowchart.library.flows(), stepsTab(steps.read())] })), FlowchartPayloadType));
-            // Over the host's flows, and over its one flow, the slice narrows only the lists and the tabs that name a source.
-            assert.ok(isTypeEqual(typeOf(Flowchart.Payload({ data: FLOWS, slice: { slice: templatesSlice("steps") }, library: [Flowchart.library.flows(), stepsTab(steps.read())] })), FlowchartPayloadType));
-            assert.ok(isTypeEqual(typeOf(Flowchart.Payload({ data: INBOUND_VALUE, slice: { slice: templatesSlice("steps", "owners") },
-                library: [stepsTab(steps.read()), ownersTab($.const(OWNERS, ArrayType(OwnerRow)), "owners")] })), FlowchartPayloadType));
-        });
+    hostTest("a transition's roles: its ends, its decision, its kind and its evidence", () => {
+        assert.equal(transitions.name, "Transition");
+        assert.equal(transitions.icon, "arrow-right");
+        const rows = transitions.rows();
+        if (rows.type !== "some") assert.fail("a record read whole holds its rows");
+        const routed = rows.value.get("l4")!.roles;
+        assert.equal(routed.from, "ARV");
+        assert.equal(routed.to, "CH*");
+        assert.ok(optionString(routed.decision, some("route")));
+        assert.equal(routed.kind.type, "planned");
+        assert.ok(equalFor(OptionType(Flowchart.Types.Evidence))(routed.evidence,
+            some({ volume: some(17350), count: some(386n), measuredAt: some(AT), unit: some("parcels") })));
+        assert.equal(rows.value.get("l10")!.roles.kind.type, "observed");
     });
 
-    hostTest("the record's flows read whole cross the record arm when the slice holds no `flows` source: the templates' rail narrows the library alone", () => {
-        inBlock(($) => {
-            const steps = $.let(Data.bind(ex.stepTemplates));
-            const payload = Flowchart.Payload({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") }, library: [Flowchart.library.flows(), stepsTab(steps.read())] });
-            assert.ok(isTypeEqual(typeOf(payload), FlowchartPayloadType));
+    hostTest("unless given, a transition is planned with no evidence and no decision", () => {
+        const plain = kindOf(Flowchart.Types.TransitionKind, ($) => Flowchart.transitions($.let(movesRecord()), { from: "src", to: "dst" }).build(undefined, false));
+        const rows = plain.rows();
+        if (rows.type !== "some") assert.fail("read whole");
+        assert.equal(rows.value.get("l10")!.roles.kind.type, "planned");
+        assert.equal(rows.value.get("l10")!.roles.evidence.type, "none");
+        assert.equal(rows.value.get("l4")!.roles.decision.type, "none");
+    });
+
+    hostTest("Connect writes its ends; a decision's Del clears it; every other field as it was", () => {
+        const reconnected = transitions.write(moveBytes(ROUTED), { from: none, to: some("SRD"), decision: none });
+        if (reconnected.type !== "some") assert.fail("a transition takes its ends");
+        assert.ok(moveEqual(moveOf(reconnected.value), { ...ROUTED, dst: "SRD" }));
+        const cleared = transitions.write(moveBytes(ROUTED), { from: none, to: none, decision: some(none) });
+        if (cleared.type !== "some") assert.fail("a transition's decision clears");
+        assert.ok(moveEqual(moveOf(cleared.value), { ...ROUTED, trigger: none }));
+        // Connect writes the ends alone: every other field is its type's default — `kind`'s the first of its cases in
+        // East's order, which is by name.
+        const connected = transitions.create({ from: some("ARV"), to: some("SCN"), decision: none }, none);
+        if (connected.type !== "some") assert.fail("Connect makes a transition");
+        assert.ok(moveEqual(moveOf(connected.value),
+            { src: "ARV", dst: "SCN", kind: variant("observed", null), trigger: none, volume: none, n: none, at: none, flow: "" }));
+    });
+
+    hostTest("a lane's roles, its label and its order written, and a new lane over a card's values", () => {
+        const lanes = kindOf(Flowchart.Types.LaneKind, ($) => {
+            const cards = $.const(LANE_CARDS, DictType(StringType, ex.LaneCard));
+            return Flowchart.lanes($.let(lanesRecord()), {
+                label: "label", order: "seq",
+                templates: Flowchart.templates(cards, { name: (c) => c.name, values: (c) => c.values, source: "laneCards" }),
+            }).build(undefined, false);
         });
+        assert.equal(lanes.name, "Lane");
+        assert.equal(lanes.icon, "table-columns");
+        const rows = lanes.rows();
+        if (rows.type !== "some") assert.fail("read whole");
+        assert.equal(rows.value.get("sort")!.roles.label, "Sort");
+        assert.ok(optionFloat(rows.value.get("sort")!.roles.order, some(2)));
+        const renamed = lanes.write(laneBytes({ label: "Sort", seq: 2 }), { label: some("Sortation"), order: none });
+        if (renamed.type !== "some") assert.fail("a lane takes a rename");
+        assert.ok(laneEqual(laneOf(renamed.value), { label: "Sortation", seq: 2 }));
+        const added = lanes.create({ label: none, order: some(2.5) }, some(lanes.templates[0]!.values));
+        if (added.type !== "some") assert.fail("a card makes a lane");
+        assert.ok(laneEqual(laneOf(added.value), { label: "Returns", seq: 2.5 }));
+    });
+
+    hostTest("a lane's Integer order takes a whole order alone: between two whole numbers it writes nothing", () => {
+        const stages = kindOf(Flowchart.Types.LaneKind, ($) => Flowchart.lanes($.let(stagesRecord()), { label: "label", order: "seq" }).build(undefined, false));
+        const bytes = encodeBeast2For(Stage)({ label: "Open", seq: 1n });
+        const rows = stages.rows();
+        if (rows.type !== "some") assert.fail("read whole");
+        assert.ok(optionFloat(rows.value.get("open")!.roles.order, some(1)), "an Integer order read as a Float");
+        const whole = stages.write(bytes, { label: none, order: some(4) });
+        if (whole.type !== "some") assert.fail("a whole order fits");
+        assert.ok(equalFor(Stage)(decodeBeast2For(Stage)(whole.value), { label: "Open", seq: 4n }));
+        assert.equal(stages.write(bytes, { label: none, order: some(1.5) }).type, "none");
+        assert.equal(stages.create({ label: some("Close"), order: some(2.5) }, none).type, "none");
+    });
+
+    hostTest("a decision's roles; its queue takes a deleted state's key out, from an Array or a Set; with no queue, none", () => {
+        const decisions = kindOf(Flowchart.Types.DecisionKind, ($) => Flowchart.decisions($.let(decisionsRecord()), {
+            label: (d) => d.name, owner: (d) => some(d.owner),
+        }).build(undefined, false));
+        assert.equal(decisions.name, "Decision");
+        assert.equal(decisions.icon, "diamond");
+        const rows = decisions.rows();
+        if (rows.type !== "some") assert.fail("read whole");
+        const route = rows.value.get("route")!.roles;
+        assert.equal(route.label, "route");
+        assert.ok(optionString(route.owner, some("sort-planner")));
+        assert.equal(route.letter.type, "none", "the renderer letters it by its label's first");
+        assert.ok(keysEqual(route.queue, []));
+        assert.equal(decisions.unqueue.type, "none");
+
+        const queued = kindOf(Flowchart.Types.DecisionKind, ($) => Flowchart.decisions($.let(queuedRecord()), { label: (r) => r.name, queue: "queue" }).build(undefined, false));
+        if (queued.unqueue.type !== "some") assert.fail("a queue takes a state out");
+        const rule = encodeBeast2For(QueuedRule)({ name: "route", queue: ["ARV", "CH*"] });
+        const out = queued.unqueue.value(rule, "ARV");
+        if (out.type !== "some") assert.fail("ARV was queued");
+        assert.ok(equalFor(QueuedRule)(decodeBeast2For(QueuedRule)(out.value), { name: "route", queue: ["CH*"] }));
+        assert.equal(queued.unqueue.value(rule, "SRD").type, "none", "a key not queued: nothing to write");
+
+        const setQueued = kindOf(Flowchart.Types.DecisionKind, ($) => Flowchart.decisions($.let(setRecord()), { label: (r) => r.name, queue: "queue" }).build(undefined, false));
+        const setRows = setQueued.rows();
+        if (setRows.type !== "some" || setQueued.unqueue.type !== "some") assert.fail("read whole, its queue a Set");
+        assert.ok(keysEqual(setRows.value.get("route")!.roles.queue, ["ARV", "CH*"]));
+        const fromSet = setQueued.unqueue.value(encodeBeast2For(SetRule)({ name: "route", queue: new Set(["ARV", "CH*"]) }), "CH*");
+        if (fromSet.type !== "some") assert.fail("CH* was queued");
+        assert.ok(equalFor(SetRule)(decodeBeast2For(SetRule)(fromSet.value), { name: "route", queue: new Set(["ARV"]) }));
     });
 });
 
 // ============================================================================
-// §4.4: every refusal this child owns, at build, naming its prop and remedy
+// The payload, through its carrier
 // ============================================================================
 
-describe("refused when the surface is built (§4.4, FB5)", () => {
-    /** Build a flowchart in a block, as a surface's body builds one. */
-    const build = (props: ($: BlockBuilder<NullType>) => object) => () => inBlock(($) => Flowchart.Payload(props($)));
+describe("<Flowchart>'s payload, through its carrier (R1)", () => {
+    hostTest("the kinds it is given, each closed; the rest none; the inspector on, hiding what the narrowing leaves out, unnamed", () => {
+        const payload = carried(($) => PublicFlowchart({
+            states: Flowchart.states($.let(statesRecord()), { label: "name", lane: "phase", order: "seq" }),
+            lanes: Flowchart.lanes($.let(lanesData()), { label: "label", order: "seq" }),
+        }));
+        assert.equal(payload.states.name, "State");
+        assert.equal(payload.transitions.type, "none");
+        assert.equal(payload.decisions.type, "none");
+        if (payload.lanes.type !== "some") assert.fail("the lanes cross");
+        assert.equal(payload.lanes.value.editable, false, "Data.bind: read only");
+        assert.equal(payload.narrowed.type, "hide");
+        assert.equal(payload.inspector, true);
+        assert.ok(vocabularyEqual(payload.vocabulary, { planned: "Planned", observed: "Observed" }), "a transition's kinds in the Flowchart's own words");
+        assert.equal(payload.readOnly, false);
+        assert.equal(payload.name.type, "none");
+        assert.equal(payload.slice.type, "none");
+        assert.equal(payload.shown.size, 0);
+        assert.equal(payload.library.length, 0);
+        assert.equal(payload.canvas.orientation.type, "none");
+        assert.ok(narrowEqual(payload.canvas.narrow, none));
+    });
 
-    const refusals: [string, ($: BlockBuilder<NullType>) => object, RegExp][] = [
-        ["flows from both `record` and `data`", ($) => ({ record: $.let(flowsRecord()), data: FLOWS }),
-            /^Error: Flowchart: takes its flows from `record` or from `data`, never both$/],
-        ["flows from neither", (_$) => ({ legend: false }),
-            /^Error: Flowchart: needs its flows — `record`, an e3 record of Flowchart\.Types\.Flows bound with its patch mutation, or `data`: flows by name or one flow/],
-        ["`onApply` over a record", ($) => ({ record: $.let(flowsRecord()), onApply: East.asyncFunction([StringType, PatchType(FlowsType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })) }),
-            /^Error: Flowchart: `onApply` commits `data`'s edits — a flowchart over `record` commits through the record's patch mutation; leave `onApply` out$/],
-        ["`flow` over the host's one flow", (_$) => ({ data: INBOUND_VALUE, flow: "Inbound parcels" }),
-            /^Error: Flowchart: `flow` opens one of many flows first, and this `data` is one flow, Flowchart\.Types\.Flow — leave `flow` out$/],
-        ["a record of one flow, with the remedy: a record of flows with one entry, or `data`", ($) => ({ record: $.let(flowRecord()) }),
-            /^Error: Flowchart: `record` holds flows by name, Flowchart\.Types\.Flows — e3's patch mutation writes only keyed records — and this record holds one flow: make it a record of flows with one entry \(Flowchart\.values\(\{ \[name\]: flow \}\)\), or pass the flow as `data`$/],
-        ["a record of another type", ($) => ({ record: $.let(jobsRecord()) }),
-            /^Error: Flowchart: `record` holds flows by name, Flowchart\.Types\.Flows — declare it with that type — and this record holds \.Dict/],
-        ["a record not bound with its patch mutation", ($) => ({ record: $.let(unpatchedFlows()) }),
-            /^Error: Flowchart: `record` is an e3 record bound with its patch mutation — Record\.bind\(record\), its record declaring patch: mutation\.patch\(\), and this binding has no `patch`$/],
-        ["a record whose `patch` takes another patch than the record's", ($) => ({ record: $.let(wrongDoorFlows()) }),
-            /^Error: Flowchart: `record` is an e3 record bound with its patch mutation — Record\.bind\(record\), its record declaring patch: mutation\.patch\(\), and this binding has a `patch` that takes another patch than the record's$/],
-        ["a `record` that is no bound record", (_$) => ({ record: FLOWS }),
-            /^Error: Flowchart: `record` is an e3 record bound with its patch mutation — Record\.bind\(record\), its record declaring patch: mutation\.patch\(\)$/],
-        ["`data` of neither flow type", ($) => ({ data: $.const([{ code: "ARV" }]) }),
-            /^Error: Flowchart: `data` is Flowchart\.Types\.Flows, flows by name, or Flowchart\.Types\.Flow, one flow — a value, an expression or a bind handle of either; Flowchart\.over builds one flow from an app's tables — and this is \.Array/],
-        ["a `data` value of neither flow type", (_$) => ({ data: [{ code: "ARV" }] }),
-            /^Error: Flowchart: `data` is .* — and this value is neither$/],
-        ["an `onApply` over another patch", ($) => ({ data: INBOUND_VALUE, onApply: $.const(East.asyncFunction([StringType, PatchType(FlowsType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none }))) }),
-            /^Error: Flowchart: `onApply` commits `data`'s edits, one patch of the value at a time — an East\.asyncFunction from the session's request id and PatchType\(Flowchart\.Types\.Flow\), \[StringType, PatchType\(Flowchart\.Types\.Flow\)\], to Editing\.Types\.ApplyResult; a Retry hands the same id again — and this one is/],
-        ["an `onApply` of the patch alone, with no request id (#1275)", ($) => ({ data: FLOWS, onApply: $.const(East.asyncFunction([PatchType(FlowsType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none }))) }),
-            /^Error: Flowchart: `onApply` commits `data`'s edits, one patch of the value at a time — an East\.asyncFunction from the session's request id and PatchType\(Flowchart\.Types\.Flows\), \[StringType, PatchType\(Flowchart\.Types\.Flows\)\], to Editing\.Types\.ApplyResult; a Retry hands the same id again — and this one is/],
-        ["a table, which Flowchart.over takes", (_$) => ({ data: INBOUND_VALUE, states: STATE_ROWS }),
-            /^Error: Flowchart: `states` is one of the tables, or the row mappers, Flowchart\.over builds a flow from — pass data=\{Flowchart\.over\(states, \{ … \}\)\}/],
-        ["a row mapper, which Flowchart.over takes", (_$) => ({ data: INBOUND_VALUE, link: () => ({}) }),
-            /^Error: Flowchart: `link` is one of the tables, or the row mappers, Flowchart\.over builds a flow from/],
-        ["`height`, which the box the flowchart fills sets (#1245)", (_$) => ({ data: INBOUND_VALUE, height: "560px" }),
-            /^Error: Flowchart: `height` is not a prop — the flowchart fills the box it is given; give it a box of its own height: <Box height="560px"><Flowchart … \/><\/Box>$/],
-        ["`maxHeight`, which the box the flowchart fills sets (#1245)", (_$) => ({ data: INBOUND_VALUE, maxHeight: "560px" }),
-            /^Error: Flowchart: `maxHeight` is not a prop — the flowchart fills the box it is given/],
-        ["`density` over the host's flow: the canvas draws at one rhythm (#1251, the user's ruling, 2026-10-09)", (_$) => ({ data: INBOUND_VALUE, density: "compact" }),
-            /^Error: Flowchart: `density` is not a prop — the canvas draws at one rhythm, the spec's 116×40 state cards in their lanes; leave `density` out$/],
-        ["`density` over a record: the canvas draws at one rhythm (#1251)", ($) => ({ record: $.let(flowsRecord()), density: "comfortable" }),
-            /^Error: Flowchart: `density` is not a prop — the canvas draws at one rhythm, the spec's 116×40 state cards in their lanes; leave `density` out$/],
-        ["the Flows tab over one flow (#1246, FB16)", (_$) => ({ data: INBOUND_VALUE, library: [Flowchart.library.flows()] }),
-            /^Error: Flowchart: Flowchart\.library\.flows\(\) lists flows by name, and this `data` is one flow, Flowchart\.Types\.Flow — leave the Flows tab out of `library`, or pass the flows by name$/],
-        ["the Flows tab listed twice (#1246)", ($) => ({ record: $.let(flowsRecord()), library: [Flowchart.library.flows(), Flowchart.library.flows()] }),
-            /^Error: Flowchart: the library lists Flowchart\.library\.flows\(\) twice — each tab once$/],
-        ["a `library` that is no list of Flowchart.library calls (#1246)", (_$) => ({ data: FLOWS, library: [{ kind: "rows" }] }),
-            /^Error: Flowchart: `library` lists the library pane's tabs, each a Flowchart\.library\.\* call — library=\{\[Flowchart\.library\.flows\(\)\]\}$/],
-        ["a template tab without the rows it reads, which no Flowchart.library call makes (#1248)", (_$) => ({ data: FLOWS, library: [{ kind: "states" }] }),
-            /^Error: Flowchart: `library` lists the library pane's tabs, each a Flowchart\.library\.\* call — library=\{\[Flowchart\.library\.flows\(\)\]\}$/],
-        ["the state templates listed twice, naming the tab (#1248, FB29)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") },
-            library: [stepsTab($.const(STEPS, DictType(StringType, StepRow))), stepsTab($.const(new SortedMap<string, Step>([], compareFor(StringType)), DictType(StringType, StepRow)))] }),
-            /^Error: Flowchart: the library lists Flowchart\.library\.states\(\) twice — each tab once$/],
-        ["the transition templates listed twice, naming the tab (#1248, FB29)", ($) => ({ data: FLOWS, slice: { slice: templatesSlice("moves") },
-            library: [movesTab($.const(MOVES, DictType(StringType, MoveRow))), movesTab($.const(MOVES, DictType(StringType, MoveRow)))] }),
-            /^Error: Flowchart: the library lists Flowchart\.library\.transitions\(\) twice — each tab once$/],
-        ["two of the author's tabs of one name, naming it (#1248, FB29)", ($) => ({ data: INBOUND_VALUE, library: [ownersTab($.const(OWNERS, ArrayType(OwnerRow))), ownersTab($.const([], ArrayType(OwnerRow)))] }),
-            /^Error: Flowchart: the library lists two tabs named "Owners" — each tab's name is its own$/],
-        ["an author's tab's rows that are no collection (#1248, §4.4)", ($) => ({ data: FLOWS, library: [PublicFlowchart.library.tab($.const(7n) as never, { name: "Seven", key: () => "k", label: () => "l" })] }),
-            /^Error: Flowchart: the "Seven" tab reads its rows as an Array<T> or a Dict<String, T> — a value, or an expression such as a binding's read\(\), its own apart from the flows and the other tabs — and these are \.Integer$/],
-        ["a templates list's rows that are no record's (#1346, §4.4)", ($) => ({ data: FLOWS, slice: { slice: templatesSlice("steps") },
-            library: [PublicFlowchart.library.states($.const(7n) as never, { label: () => "l", source: "steps", drop: () => PublicFlowchart.patch(PublicFlowchart.Types.State, {}) })] }),
-            /^Error: Flowchart: Flowchart\.library\.states\(\) reads its rows as a Dict<String, T> — its templates record's, its binding's read\(\), its own apart from the flows and the other tabs — and these are \.Integer$/],
-        ["a data tab's rows by keys that are no String (#1248, §4.4)", ($) => ({ data: FLOWS, library: [PublicFlowchart.library.tab($.const(new SortedMap([[1n, "one"]], compareFor(IntegerType)), DictType(IntegerType, StringType)) as never, { name: "Numbers", key: () => "k", label: () => "l" })] }),
-            /^Error: Flowchart: the "Numbers" tab reads its rows as an Array<T> or a Dict<String, T> — .* — and these are \.Dict/],
-        ["a state template's drop over another row than a state (#1248, §4.4)", ($) => ({ data: FLOWS, slice: { slice: templatesSlice("steps") },
-            library: [PublicFlowchart.library.states($.const(STEPS, DictType(StringType, StepRow)), { label: (s) => s.name, source: "steps", drop: (() => PublicFlowchart.patch(PublicFlowchart.Types.Lane, {})) as never })] }),
-            /^Error: Flowchart: Flowchart\.library\.states\(\)'s `drop` returns the fields of the state a card adds — Flowchart\.patch\(Flowchart\.Types\.State, \{ … \}\) — and this one returns \.Struct/],
-        ["a transition template's drop over another row than a transition (#1248, §4.4)", ($) => ({ data: FLOWS, slice: { slice: templatesSlice("moves") },
-            library: [PublicFlowchart.library.transitions($.const(MOVES, DictType(StringType, MoveRow)), { label: (_m, n) => n, source: "moves", drop: (() => PublicFlowchart.patch(PublicFlowchart.Types.State, {})) as never })] }),
-            /^Error: Flowchart: Flowchart\.library\.transitions\(\)'s `drop` returns the fields a card sets on the transition it lands on — Flowchart\.patch\(Flowchart\.Types\.Link, \{ … \}\) — and this one returns \.Struct/],
-        ["an author's drop over none of a flow's rows (#1248, §4.4)", ($) => ({ data: FLOWS, library: [PublicFlowchart.library.tab($.const(OWNERS, ArrayType(OwnerRow)), { name: "Jobs", key: (o) => o.role, label: (o) => o.role, drop: (o) => East.value({ task: some(o.role) }, StructType({ task: OptionType(StringType) })) })] }),
-            /^Error: Flowchart: the "Jobs" tab's `drop` returns a patch over one of a flow's rows, its type naming what a card lands on — Flowchart\.patch\(Flowchart\.Types\.State, Link, Lane or Trigger, \{ … \}\) — and this one returns \.Struct/],
-        // The narrowing (#1346): one Slice.bindRecords, its `flows` source the Flows tab's; every prop it took before refused, naming the change.
-        ["`window`, which the slice's `flows` source replaced (#1346)", ($) => ({ record: $.let(flowsRecord()), window: $.let(Data.bindPaged(ex.indexedFlows)) }),
-            /^Error: Flowchart: `window=\{Slice\.rows\(slice\)\}` is gone — the Flows tab pages the `flows` source of `slice`: slice=\{\{ slice: Slice\.bindRecords\(key, \{ flows: \{ source: Data\.bindPaged\(record, \{ indexes \}\), fields \} \}\) \}\}$/],
-        ["`affordances` beside the slice, which moved into it (#1346)", ($) => ({ record: $.let(flowsRecord()), affordances: ["fields"] }),
-            /^Error: Flowchart: `affordances` moved into `slice` — slice=\{\{ slice, affordances \}\}$/],
-        ["the bare handle as `slice`, as a flow from the host's tables was narrowed by (#1346)", ($) => ({ data: INBOUND_VALUE, slice: $.let(depotSlice($)) }),
-            /^Error: Flowchart: `slice` takes \{ slice \} — slice=\{\{ slice: Slice\.bindRecords\(key, \{ flows, … \}\) \}\} over a record of flows; the bare handle is gone, and a flow built from the host's tables \(Flowchart\.over over `data`\) is never narrowed: narrow its rows in the task that builds them$/],
-        ["the bare `Slice.bindRecords` handle as `slice` (#1346)", ($) => ({ record: $.let(flowsRecord()), slice: $.let(flowsSlice()) }),
-            /^Error: Flowchart: `slice` takes \{ slice \} — /],
-        ["`Slice.bind` as the narrowing (#1340, ruling 1)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: depotSlice($) } }),
-            /^Error: Flowchart: `slice` is Slice\.bindRecords\(key, \{ flows \}\) — name each source after what it narrows; Slice\.bind and Slice\.bindRecord are not taken$/],
-        ["a single `Slice.bindRecord` as the narrowing (#1340, ruling 1)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: Slice.bindRecord("flowchart.spec.single", Data.bindPaged(ex.indexedFlows, { indexes: ["lane"] })) } }),
-            /^Error: Flowchart: `slice` is Slice\.bindRecords\(key, \{ flows \}\) — name each source after what it narrows; Slice\.bind and Slice\.bindRecord are not taken$/],
-        ["a source nothing names (#1346)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("jobs") } }),
-            /^Error: Flowchart: `slice` narrows its flows, and the templates lists and tabs that name a source — its source 'jobs' is none of them; name the sources `flows`$/],
-        ["a `flows` source over the host's flows, which nothing narrows (#1346)", (_$) => ({ data: FLOWS, slice: { slice: flowsSlice() } }),
-            /^Error: Flowchart: `slice`'s `flows` source pages a record of flows, and these flows are the host's, which nothing narrows — bind the record as record=\{Record\.bind\(record\), its record declaring patch: mutation\.patch\(\)\}, or leave `flows` out of the slice$/],
-        ["a `flows` source over the host's one flow (#1346)", (_$) => ({ data: INBOUND_VALUE, slice: { slice: flowsSlice() } }),
-            /^Error: Flowchart: `slice`'s `flows` source pages a record of flows, and these flows are the host's, which nothing narrows/],
-        ["a `flows` source over a record of another type (#1346)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: Slice.bindRecords("flowchart.spec.steps", { flows: { source: Data.bindPaged(ex.stepTemplates, { indexes: ["flowchart_steps_by_kind"] }) } }) } }),
-            /^Error: Flowchart: `slice`'s `flows` source pages a record of flows by name, Flowchart\.Types\.Flows, its rows joined — Data\.bindPaged\(record, \{ indexes \}\) over the record `record` binds — and this one pages /],
-        ["\"brush\" among the slice's affordances (#1346)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: flowsSlice(), affordances: ["fields", "brush"] } }),
-            /^Error: Flowchart: `slice`'s affordances list "brush", and a flowchart has no continuous axis to brush along — mount fields, search, presets or summary$/],
-    ];
-    // Every callback the flowchart took for an edit, and `linkMode`, over either source (#1247, FB24).
-    const callbacks: [string, ($: BlockBuilder<NullType>) => unknown][] = [
-        ["linkMode", (_$) => "connect"],
-        ["onCreateLink", ($) => $.const(East.function([StructType({ from: StringType, to: StringType })], NullType, (_$2) => null))],
-        ["onDeleteLink", ($) => $.const(East.function([StringType], NullType, (_$2) => null))],
-        ["onAddLane", ($) => $.const(East.function([], NullType, (_$2) => null))],
-        ["onRenameLane", ($) => $.const(East.function([StructType({ key: StringType, label: StringType })], NullType, (_$2) => null))],
-        ["onDeleteLane", ($) => $.const(East.function([StringType], NullType, (_$2) => null))],
-        ["onAddState", ($) => $.const(East.function([StructType({ lane: StringType, key: StringType, label: StringType })], NullType, (_$2) => null))],
-        ["onEditState", ($) => $.const(East.function([StructType({ key: StringType, code: StringType, label: StringType })], NullType, (_$2) => null))],
-        ["onMoveState", ($) => $.const(East.function([StructType({ key: StringType, lane: StringType })], NullType, (_$2) => null))],
-    ];
-    for (const [callback, given] of callbacks) {
-        const refusal = new RegExp(`^Error: Flowchart: \`${callback}\` is not a prop — every gesture is a transaction of the flowchart's editing session, and Save commits them as one patch: over \`record\`, through its patch mutation; over \`data\`, through the host's \`onApply\`$`);
-        refusals.push([`\`${callback}\` over a record — the session's gestures replace it (#1247, FB24)`, ($) => ({ record: $.let(flowsRecord()), [callback]: given($) }), refusal]);
-        refusals.push([`\`${callback}\` over the host's flow — the session's gestures replace it (#1247, FB24)`, ($) => ({ data: INBOUND_VALUE, [callback]: given($) }), refusal]);
-    }
-    /** A refusal's exact words, as the pattern a test matches. */
-    const exactly = (text: string): RegExp => new RegExp(`^Error: ${text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}$`);
-    // Each hover card's builder, over either source (#1250, FB46): the hover cards went, and the inspector names the remedy.
-    const hover = ($: BlockBuilder<NullType>) => $.const(East.function([StringType], UIComponentType, (_$2, key) => Text.Root(key)));
-    const HOVER_REMEDIES = [
-        ["stateHover", "give a state its own Details with inspector={{ state: East.function([Flowchart.Types.State, FunctionType([Flowchart.Types.State], NullType)], UIComponentType, ($, state, update) => …) }}"],
-        ["linkHover", "give a transition its own Details with inspector={{ transition: East.function([Flowchart.Types.Link, FunctionType([Flowchart.Types.Link], NullType)], UIComponentType, ($, link, update) => …) }}"],
-        ["triggerHover", "a decision's Details are its form — every field, and the transitions it governs"],
-    ] as const;
-    for (const [prop, remedy] of HOVER_REMEDIES) {
-        const refusal = exactly(`Flowchart: \`${prop}\` is not a prop — the hover cards went, and the inspector, on by default, shows what is selected: ${remedy}`);
-        refusals.push([`\`${prop}\` over a record — the inspector replaces it (#1250, FB46)`, ($) => ({ record: $.let(flowsRecord()), [prop]: hover($) }), refusal]);
-        refusals.push([`\`${prop}\` over the host's flow — the inspector replaces it (#1250, FB46)`, ($) => ({ data: INBOUND_VALUE, [prop]: hover($) }), refusal]);
-    }
-    // `inspector` of another kind, a key it does not take, and a kind's own Details of another type (#1250, FB44, FB45).
-    const ON_BY_DEFAULT = exactly("Flowchart: `inspector` is on by default — inspector={false} removes the pane, and inspector={{ state, transition }} gives a state or a transition its own Details, each an East function over the row and its writer");
-    const own = <R extends typeof Flowchart.Types.State | typeof Flowchart.Types.Link>($: BlockBuilder<NullType>, row: R) =>
-        $.const(East.function([row, FunctionType([row], NullType)], UIComponentType, (_$2) => Text.Root("own")));
-    const ownState = exactly("Flowchart: `inspector.state` is a state's own Details — an East function over the state and its writer: East.function([Flowchart.Types.State, FunctionType([Flowchart.Types.State], NullType)], UIComponentType, ($, state, update) => …)");
-    const ownTransition = exactly("Flowchart: `inspector.transition` is a transition's own Details — an East function over the transition and its writer: East.function([Flowchart.Types.Link, FunctionType([Flowchart.Types.Link], NullType)], UIComponentType, ($, link, update) => …)");
-    refusals.push(
-        ["an `inspector` that is a word (#1250)", (_$) => ({ data: INBOUND_VALUE, inspector: "on" }), ON_BY_DEFAULT],
-        ["an `inspector` that is a function: a kind's own Details are given by kind (#1250)", ($) => ({ data: INBOUND_VALUE, inspector: own($, Flowchart.Types.State) }), ON_BY_DEFAULT],
-        ["an `inspector` naming a kind it gives no own Details for (#1250)", ($) => ({ data: INBOUND_VALUE, inspector: { decision: own($, Flowchart.Types.State) } }),
-            exactly("Flowchart: `inspector` gives a state or a transition its own Details — { state, transition } — and `decision` is neither: every other kind's Details are its form")],
-        ["a state's own Details over a transition (#1250, FB45)", ($) => ({ data: INBOUND_VALUE, inspector: { state: own($, Flowchart.Types.Link) } }), ownState],
-        ["a state's own Details that return no UI (#1250, FB45)", ($) => ({ data: INBOUND_VALUE, inspector: { state: $.const(East.function([Flowchart.Types.State, FunctionType([Flowchart.Types.State], NullType)], StringType, (_$2, s) => s.key)) } }), ownState],
-        ["a transition's own Details over a state (#1250, FB45)", ($) => ({ record: $.let(flowsRecord()), inspector: { transition: own($, Flowchart.Types.State) } }), ownTransition],
-    );
-    for (const [what, props, refusal] of refusals) {
-        hostTest(`refuses ${what}`, () => {
-            assert.throws(build(props), refusal);
-        });
-    }
+    hostTest("every kind, the inspector off, read only, dimmed and named; the canvas's options", () => {
+        const payload = carried(($) => PublicFlowchart({
+            states: Flowchart.states($.let(statesRecord()), { label: "name", lane: "phase", name: "Step", icon: "circle-nodes" }),
+            transitions: Flowchart.transitions($.let(movesRecord()), { from: "src", to: "dst", decision: "trigger" }),
+            lanes: Flowchart.lanes($.let(lanesData()), { label: "label" }),
+            decisions: Flowchart.decisions($.let(decisionsRecord()), { label: (d) => d.name }),
+            inspector: false, readOnly: true, narrowed: "dim", name: "depot", orientation: "TD", legend: true, narrow: { lanes: 1 },
+            vocabulary: { planned: "Designed" },
+        }));
+        assert.equal(payload.states.name, "Step");
+        assert.equal(payload.states.icon, "circle-nodes");
+        assert.equal(payload.transitions.type, "some");
+        assert.equal(payload.decisions.type, "some");
+        assert.equal(payload.inspector, false);
+        assert.ok(vocabularyEqual(payload.vocabulary, { planned: "Designed", observed: "Observed" }), "the app's word, and the default for the one it leaves out");
+        assert.equal(payload.readOnly, true);
+        assert.equal(payload.narrowed.type, "dim");
+        assert.ok(optionString(payload.name, some("depot")));
+        if (payload.canvas.orientation.type !== "some") assert.fail("the orientation crosses");
+        assert.equal(payload.canvas.orientation.value.type, "TD");
+        assert.ok(equalFor(OptionType(BooleanType))(payload.canvas.legend, some(true)));
+        assert.ok(narrowEqual(payload.canvas.narrow, some({ lanes: some(1n) })));
+    });
+
+    hostTest("the payload is one type whatever the rows hold: it crosses beast2 and back", () => {
+        const payload = carried(($) => PublicFlowchart({
+            states: Flowchart.states($.let(statesRecord()), { label: "name", lane: "phase", order: "seq" }),
+            transitions: Flowchart.transitions($.let(movesRecord()), { from: "src", to: "dst" }),
+            lanes: Flowchart.lanes($.let(stagesRecord()), { label: "label", order: "seq" }),
+        }));
+        const again = decodeBeast2For(FlowchartPayloadType)(encodeBeast2For(FlowchartPayloadType)(payload));
+        assert.equal(again.states.name, payload.states.name);
+        if (again.lanes.type !== "some") assert.fail("the lanes cross");
+        assert.ok(isTypeEqual(fromEastTypeValue(again.lanes.value.rowType), Stage), "each kind carries its own row type");
+    });
 });
 
-/** A slice over the depot's transitions — what a host narrows the links it builds its flow from with. */
-function depotSlice($: BlockBuilder<NullType>) {
-    const links = $.const([{ src: "ARV", dst: "SCN" }]);
-    return Slice.bind("flowchart.spec.slice", links, { fields: { src: { label: "From" } } });
-}
-
 // ============================================================================
-// The tag's forms (FB5): each arm's props, type by type
+// The library's tabs (R14)
 // ============================================================================
 
-hostTest("the tag's forms type each arm's props — a prop another arm takes fails to compile", () => {
-    // Type-level: the build never runs. A form that accepted one of these
-    // would fail the build on its unused directive.
-    const never = (): void => {
-        inBlock(($) => {
-            const flows = $.let(flowsRecord());
-            const one = $.let(flowRecord());
-            const jobs = $.let(jobsRecord());
-            const slice = $.let(depotSlice($));
-            // The narrowing (#1346): one Slice.bindRecords — the flows, and the templates' record.
-            const narrowing = $.let(Slice.bindRecords("flowchart.spec.forms", {
-                flows: { source: Data.bindPaged(ex.indexedFlows, { indexes: ["lane"] }) },
-                steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: ["flowchart_steps_by_kind"] }) },
-            }));
-            const applyFlows = $.const(East.asyncFunction([StringType, PatchType(FlowsType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));
-            const applyFlow = $.const(East.asyncFunction([StringType, PatchType(FlowType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));
-            // The host's commit before #1275: the patch alone, no request id.
-            const patchOnlyFlows = $.const(East.asyncFunction([PatchType(FlowsType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));
-            const patchOnlyFlow = $.const(East.asyncFunction([PatchType(FlowType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));
-            // Each form, as it is written.
-            PublicFlowchart({ record: flows, flow: "Returns", inspector: true, name: "depot", library: [PublicFlowchart.library.flows()] });
-            PublicFlowchart({ data: FLOWS, flow: "Returns", onApply: applyFlows, slice: { slice: narrowing }, library: [PublicFlowchart.library.flows()] });
-            PublicFlowchart({ record: flows, slice: { slice: narrowing, affordances: ["fields", "search", "summary"], persist: "local" }, library: [PublicFlowchart.library.flows()] });
-            PublicFlowchart({ data: INBOUND_VALUE, onApply: applyFlow, library: [] });
-            // @ts-expect-error — one flow has no Flows tab: there are no flows by name to list (#1246, FB16)
-            PublicFlowchart({ data: INBOUND_VALUE, library: [PublicFlowchart.library.flows()] });
-            // @ts-expect-error — a record holds flows by name: a lone flow is a record of one entry, or `data`
-            PublicFlowchart({ record: one });
-            // @ts-expect-error — a record commits through its patch mutation, never the host's onApply
-            PublicFlowchart({ record: flows, onApply: applyFlows });
-            // @ts-expect-error — `slice` takes { slice }, one Slice.bindRecords: the bare handle is gone (#1346)
-            PublicFlowchart({ record: flows, slice });
-            // @ts-expect-error — the narrowing is one Slice.bindRecords: Slice.bind is not taken (#1340, ruling 1)
-            PublicFlowchart({ data: INBOUND_VALUE, slice: { slice } });
-            // @ts-expect-error — the Flows tab pages the slice's `flows` source: `window` is gone (#1346)
-            PublicFlowchart({ record: flows, window: narrowing });
-            // @ts-expect-error — the rail's affordances are the slice's (#1346)
-            PublicFlowchart({ record: flows, affordances: ["fields"] });
-            // @ts-expect-error — a record of jobs is no record of flows
-            PublicFlowchart({ record: jobs });
-            // @ts-expect-error — the host's one flow has no `flow` to open
-            PublicFlowchart({ data: INBOUND_VALUE, flow: "Returns" });
-            // @ts-expect-error — one flow's onApply takes the flow's patch, never the flows'
-            PublicFlowchart({ data: INBOUND_VALUE, onApply: applyFlows });
-            // @ts-expect-error — the host's onApply takes the session's request id with its patch (#1275)
-            PublicFlowchart({ data: FLOWS, onApply: patchOnlyFlows });
-            // @ts-expect-error — the host's onApply takes the session's request id with its one flow's patch (#1275)
-            PublicFlowchart({ data: INBOUND_VALUE, onApply: patchOnlyFlow });
-            // @ts-expect-error — the flows come from one source
-            PublicFlowchart({ record: flows, data: FLOWS });
-            // @ts-expect-error — the tables are Flowchart.over's
-            PublicFlowchart({ data: INBOUND_VALUE, states: STATE_ROWS });
-            // @ts-expect-error — the flowchart fills the box it is given: no height of its own (#1245)
-            PublicFlowchart({ data: INBOUND_VALUE, height: "560px" });
-            // @ts-expect-error — the canvas draws at one rhythm: no density (#1251)
-            PublicFlowchart({ record: flows, density: "compact" });
-            // @ts-expect-error — every gesture is the editing session's: no callback for an edit (#1247, FB24)
-            PublicFlowchart({ record: flows, onAddState: $.const(East.function([StructType({ lane: StringType, key: StringType, label: StringType })], NullType, (_$2) => null)) });
-            // @ts-expect-error — connecting is the session's whenever the flowchart edits: no link mode (#1247, FB24)
-            PublicFlowchart({ data: INBOUND_VALUE, onApply: applyFlow, linkMode: "connect" });
-            // The inspector (#1250): on by default, `false` taking it away, and a state's or a transition's own Details.
-            PublicFlowchart({ data: INBOUND_VALUE, inspector: false });
-            PublicFlowchart({ record: flows, inspector: {
-                state: $.const(East.function([PublicFlowchart.Types.State, FunctionType([PublicFlowchart.Types.State], NullType)], UIComponentType, (_$2, s) => Text.Root(s.key))),
-                transition: $.const(East.function([PublicFlowchart.Types.Link, FunctionType([PublicFlowchart.Types.Link], NullType)], UIComponentType, (_$2, l) => Text.Root(l.to))),
-            } });
-            // @ts-expect-error — the hover cards went: the inspector shows what is selected (#1250, FB46)
-            PublicFlowchart({ data: INBOUND_VALUE, stateHover: $.const(East.function([StringType], UIComponentType, (_$2, key) => Text.Root(key))) });
-            // @ts-expect-error — a kind's own Details are a state's or a transition's: a decision's are its form (#1250, FB45)
-            PublicFlowchart({ data: INBOUND_VALUE, inspector: { decision: true } });
-            // The library's data tabs (#1248): one flow takes every tab but the Flows tab; the templates are records (#1346).
-            const steps = $.const(STEPS, DictType(StringType, StepRow));
-            const moves = $.const(MOVES, DictType(StringType, MoveRow));
-            const owners = $.const(OWNERS, ArrayType(OwnerRow));
-            PublicFlowchart({ data: INBOUND_VALUE, slice: { slice: narrowing }, library: [stepsTab(steps), movesTab(moves), ownersTab(owners)] });
-            PublicFlowchart({ record: flows, slice: { slice: narrowing }, library: [PublicFlowchart.library.flows(), stepsTab(steps), movesTab(moves), ownersTab(owners, "steps")] });
-            // @ts-expect-error — a state template's drop is the fields of the state it adds (#1248)
-            PublicFlowchart.library.states(steps, { label: (s) => s.name, drop: () => PublicFlowchart.patch(PublicFlowchart.Types.Link, {}) });
-            // @ts-expect-error — a transition template's drop is the fields it sets on a transition (#1248)
-            PublicFlowchart.library.transitions(moves, { label: (_m, n) => n, drop: () => PublicFlowchart.patch(PublicFlowchart.Types.State, {}) });
-            // @ts-expect-error — an author's tab is named: its name is its identity in `library` (#1248)
-            PublicFlowchart.library.tab(owners, { key: (o) => o.role, label: (o) => o.role });
-            // @ts-expect-error — an author's card is keyed (#1248)
-            PublicFlowchart.library.tab(owners, { name: "Owners", label: (o) => o.role });
-            // @ts-expect-error — a template's card is its record's row, keyed by the record's key: it takes no key (#1346)
-            PublicFlowchart.library.states(steps, { key: (_s, code) => code, label: (s) => s.name, drop: (_s, code) => PublicFlowchart.patch(PublicFlowchart.Types.State, { key: code }) });
-            // @ts-expect-error — a templates list reads its templates record's rows, a Dict, never an Array (#1346)
-            PublicFlowchart.library.states($.const([], ArrayType(StepRow)), { label: (s) => s.name, drop: (_s, code) => PublicFlowchart.patch(PublicFlowchart.Types.State, { key: code }) });
+describe("the library's tabs (R14)", () => {
+    /** The depot's kinds with their cards — the states', where `withCards` — each list following its source of the rail, and the library the test gives. */
+    const depot = (library: ($: BlockBuilder<UIComponentType>) => unknown, withCards = true) => ($: BlockBuilder<UIComponentType>) => {
+        const laneCardsSource = { source: Data.bindPaged(ex.laneCards, { indexes: ["flowchart_lane_cards_by_group"] }), fields: { group: { label: "Group" } } };
+        const slice = withCards
+            ? $.let(Slice.bindRecords("flowchart.spec.library", {
+                stepCards: { source: Data.bindPaged(ex.stepCards, { indexes: ["flowchart_step_cards_by_group"] }), fields: { group: { label: "Group" } } },
+                laneCards: laneCardsSource,
+            }))
+            : $.let(Slice.bindRecords("flowchart.spec.library.lanes", { laneCards: laneCardsSource }));
+        const steps = $.const(STEP_CARDS, DictType(StringType, ex.StepCard));
+        const laneRows = $.const(LANE_CARDS, DictType(StringType, ex.LaneCard));
+        return PublicFlowchart({
+            slice: { slice },
+            states: Flowchart.states($.let(statesRecord()), {
+                label: "name", lane: "phase", order: "seq",
+                ...(withCards ? { templates: Flowchart.templates(steps, { name: (c) => c.name, group: (c) => some(c.group), values: (c) => c.values, source: "stepCards" }) } : {}),
+            }),
+            lanes: Flowchart.lanes($.let(lanesRecord()), {
+                label: "label", order: "seq",
+                templates: Flowchart.templates(laneRows, { name: (c) => c.name, values: (c) => c.values, source: "laneCards" }),
+            }),
+            decisions: Flowchart.decisions($.let(decisionsRecord()), { label: (d) => d.name, owner: (d) => some(d.owner) }),
+            library: library($) as never,
         });
     };
-    assert.equal(typeof never, "function");
+    const owners = ($: BlockBuilder<UIComponentType>) => $.const(OWNERS, DictType(StringType, ex.DecisionOwner));
+
+    hostTest("each kind's tab, then an author's, in the order `library` lists them; an owner's card lands on a decision, setting its owner", () => {
+        // The library's wire alone, built against the depot's kinds: a rail's sources are read only on e3, which e3-ui's specs never read.
+        const tabs = East.compile(East.function([], ArrayType(FlowchartLibraryTabType), ($) => buildFlowchartLibrary([
+            PublicFlowchart.library.states({ name: "Steps", icon: "shapes" }),
+            PublicFlowchart.library.lanes(),
+            PublicFlowchart.library.tab($.const(OWNERS, DictType(StringType, ex.DecisionOwner)), {
+                name: "Owners", icon: "user-tie", label: (o) => o.name, meta: (o) => some(o.desk),
+                drop: (o) => PublicFlowchart.patch(ex.DepotDecision, { owner: o.name }),
+            }),
+        ], {
+            kinds: [
+                { sort: "states", rowType: ex.DepotState, templates: true },
+                { sort: "lanes", rowType: ex.DepotLane, templates: true },
+                { sort: "decisions", rowType: ex.DepotDecision, templates: false },
+            ],
+            sources: [],
+        })), [])();
+        assert.ok(keysEqual(tabs.map((tab) => tab.type), ["states", "lanes", "tab"]));
+        const tabEqual = equalFor(FlowchartLibraryTabType);
+        assert.ok(tabEqual(tabs[0]!, variant("states", { name: some("Steps"), icon: some("shapes") })));
+        assert.ok(tabEqual(tabs[1]!, variant("lanes", { name: none, icon: none })));
+        const author = tabs[2]!;
+        if (author.type !== "tab") assert.fail("the author's tab");
+        assert.equal(author.value.name, "Owners");
+        assert.ok(optionString(author.value.drop, some("decisions")), "its patch is over a decision's row: it lands on a decision");
+        assert.equal(author.value.source.type, "none", "naming no source, it lists its rows whole");
+        assert.ok(keysEqual(author.value.cards.map((card) => card.key), ["ns", "sp"]));
+        const planner = author.value.cards[1]!;
+        assert.equal(planner.label, "sort-planner");
+        assert.ok(optionString(planner.meta, some("Sort office")));
+        assert.equal(planner.sets.length, 1);
+        assert.ok(keysEqual(planner.sets[0]!.path, ["owner"]));
+        assert.equal(decodeBeast2For(StringType)(planner.sets[0]!.value), "sort-planner", "the owner it sets, as bytes at the field's type");
+    });
+
+    hostTest("the tabs build beside the kinds and the rail, each list following its source", () => {
+        built(depot(($) => [
+            PublicFlowchart.library.states(),
+            PublicFlowchart.library.lanes({ name: "Columns" }),
+            PublicFlowchart.library.tab(owners($), {
+                name: "Owners", label: (o) => o.name, drop: (o) => PublicFlowchart.patch(ex.DepotDecision, { owner: o.name }),
+            }),
+        ]));
+    });
+
+    hostTest("each misuse refused, naming the change", () => {
+        refused(() => built(depot(() => ["states"])),
+            "Flowchart: `library` lists the library pane's tabs, in order, each a Flowchart.library.* call — states(), transitions(), lanes() or tab(rows, { … })");
+        refused(() => built(depot(() => [PublicFlowchart.library.states(), PublicFlowchart.library.states()])),
+            "Flowchart: the library lists Flowchart.library.states() twice — each tab once");
+        refused(() => built(depot(() => [PublicFlowchart.library.transitions()])),
+            "Flowchart: the library lists Flowchart.library.transitions(), and this Flowchart has no transitions — give transitions={Flowchart.transitions(record, { from, to, …, " +
+            "templates: Flowchart.templates(cards.read(), { name, values, source }) })}");
+        refused(() => built(depot(() => [PublicFlowchart.library.states()], false)),
+            "Flowchart: the library lists Flowchart.library.states(), and the states have no cards — give them their cards: Flowchart.states(record, { label, …, " +
+            "templates: Flowchart.templates(cards.read(), { name, values, source }) })");
+        const tab = ($: BlockBuilder<UIComponentType>) => PublicFlowchart.library.tab(owners($), { name: "Owners", label: (o) => o.name });
+        refused(() => built(depot(($) => [tab($), tab($)])), "Flowchart: the library lists two tabs named \"Owners\" — each tab's name is its own");
+        refused(() => built(depot(($) => [PublicFlowchart.library.tab(owners($), {
+            name: "Owners", label: (o) => o.name, drop: (o) => PublicFlowchart.patch(ex.DecisionOwner, { desk: o.desk }),
+        })])), "Flowchart: the \"Owners\" tab's `drop` returns a patch over no kind's row type — build it with Flowchart.patch(RowType, { … }) " +
+            "over the row type of the kind its cards land on (states, lanes, decisions)");
+        refused(() => built(depot(($) => [PublicFlowchart.library.tab(owners($), { name: "Owners", label: (o) => o.name, source: "owners" })])),
+            "Flowchart: the Owners tab's source 'owners' is not one of the slice's sources (stepCards, laneCards)");
+        refused(() => built(depot(($) => [PublicFlowchart.library.tab($.const([...OWNERS.values()], ArrayType(ex.DecisionOwner)), {
+            name: "Owners", label: (o) => o.name, source: "stepCards",
+        })])), "Flowchart: the \"Owners\" tab follows the source 'stepCards' by its cards' keys, each a row's key in that record — " +
+            "read its rows as that record's, a Dict<String, T>, its binding's read(), never an Array keyed by index");
+    });
+
+    hostTest("a kind's tab takes at most its name and its icon: its cards are on the kind", () => {
+        refused(() => PublicFlowchart.library.states({ label: "Steps" } as never),
+            "Flowchart.library.states() lists the states' cards, which are on the kind — Flowchart.states(record, { label, …, " +
+            "templates: Flowchart.templates(cards.read(), { name, values, source }) }) — and takes at most { name, icon } — `label` is neither");
+        refused(() => PublicFlowchart.library.lanes({ name: "" }), "Flowchart.library.lanes(): `name` is the tab's name, a string");
+        refused(() => PublicFlowchart.library.transitions({ icon: "" }), "Flowchart.library.transitions(): `icon` is a Font Awesome solid icon's name");
+    });
+});
+
+// ============================================================================
+// The details (#1507, R18–R21)
+// ============================================================================
+
+type EvidenceRow = ValueTypeOf<typeof ex.StateEvidence>;
+type MoveEvidenceRow = ValueTypeOf<typeof ex.MoveEvidence>;
+/** What the depot measured in its Hold state: the app's own row, keyed as the states are. */
+const HELD: EvidenceRow = {
+    flags: new Set(["Hazmat", "At risk", "Customs"]), equipment: new Set(["Scanner", "X-ray"]), shifts: new Set(["Early", "Late"]),
+    parcels: 1080n, waiting: 70n,
+    hours: [12n, 30n, 64n, 120n, 180n, 210n, 160n, 120n, 90n, 50n, 30n, 14n],
+    service: new Map([["International", 539n], ["Standard", 335n], ["Priority", 130n], ["Economy", 76n]]),
+    exceptions: new Map([["Missing documents", 412n], ["Duty unpaid", 236n]]),
+    // No service's own figures: these details are read unweighed.
+    byService: new Map(),
+};
+/** What it measured on the move out of Hold: keyed as the transitions are. */
+const CLEARED: MoveEvidenceRow = {
+    region: new Map([["Overseas", 727n], ["Metro", 141n]]),
+    service: new Map([["International", 505n]]),
+    origins: new Map([["Air hub", { parcels: 293n, late: 5n }], ["Rail yard", { parcels: 122n, late: 0n }]]),
+};
+/** The depot's bins, in hours: a quarter hour apiece at first, then hours, days and a week. */
+const HOURS = [0, 0.25, 0.5, 1, 2, 4, 8, 12, 24, 48, 96, 168];
+/** A row of measures a figure reads: an Integer, an Option of one, and a Float. */
+const Measures = StructType({ parcels: IntegerType, held: OptionType(IntegerType), share: FloatType });
+
+const evidenceData = dataHandle(DictType(StringType, ex.StateEvidence), new Map([["HLD", HELD]]), "evidence");
+const evidenceRecord = recordHandle(DictType(StringType, ex.StateEvidence), new Map([["HLD", HELD]]), "evidence");
+const moveEvidenceData = dataHandle(DictType(StringType, ex.MoveEvidence), new Map([["l7", CLEARED]]), "moveEvidence");
+const minutesData = dataHandle(DictType(StringType, ex.TicketMinutes), new Map([["NEW", { minutes: [140n, 96n, 120n, 64n, 30n, 22n, 9n, 4n, 2n, 1n, 0n, 0n] }]]), "minutes");
+const measuresData = dataHandle(DictType(StringType, Measures), new Map([["HLD", { parcels: 1080n, held: some(70n), share: 0.5 }]]), "measures");
+/** A Data.bindPaged handle over the evidence, as the paged binding gives one. */
+const evidencePaged = East.function([], DataPagedHandleType(DictType(StringType, ex.StateEvidence)), (_$) => ({
+    id: ".records.evidence",
+    page: East.function([IntegerType, IntegerType], OptionType(DictType(StringType, ex.StateEvidence)), (_$2) => none),
+    total: East.function([], OptionType(IntegerType), (_$2) => none),
+    seek: none,
+    revision: East.function([], OptionType(StringType), (_$2) => none),
+    refresh: East.function([OptionType(StringType)], NullType, (_$2) => null),
+}));
+const evidenceBytes = encodeBeast2For(ex.StateEvidence);
+const moveEvidenceBytes = encodeBeast2For(ex.MoveEvidence);
+const minutesBytes = encodeBeast2For(ex.TicketMinutes);
+const measuresBytes = encodeBeast2For(Measures);
+const detailRowEqual = equalFor(Flowchart.Types.DetailRow);
+const readsEqual = equalFor(Flowchart.Types.Details.fields.reads);
+/** The tags' looks as the app keeps them: Flowchart.Types.TagColor rows, the first ranked first. */
+const LOOKS = [
+    { tag: "Hazmat", colorPalette: variant("danger", null), variant: variant("solid", null) },
+    { tag: "At risk", colorPalette: variant("warning", null), variant: variant("subtle", null) },
+] as const;
+
+/** The details' type checks (R20, R21): never called — `tsc` checks what each line says. */
+function detailsTypeChecks($: BlockBuilder<UIComponentType>): void {
+    const states = $.let(Data.bind(ex.depotStates));
+    const transitions = $.let(Data.bind(ex.depotTransitions));
+    const stateRows = $.let(Data.bind(ex.stateEvidence));
+    const moveRows = $.let(Data.bind(ex.moveEvidence));
+    // What fits, as the examples write it: any mix of the four, each where its show says.
+    PublicFlowchart.states(states, {
+        label: "name",
+        details: PublicFlowchart.details(stateRows, {
+            details: [
+                PublicFlowchart.figure("parcels", { label: "Parcels", unit: "parcels" }),
+                PublicFlowchart.tags("flags", { label: "Flags", colors: { Hazmat: { colorPalette: "danger", variant: "solid" } }, legend: true }),
+                PublicFlowchart.tags("shifts", { label: "Shifts", show: "inspector" }),
+                PublicFlowchart.histogram("hours", { unit: "hours", label: "Time in state", bins: HOURS, ticks: [1, 12, 48, 168] }),
+                PublicFlowchart.list("service", { label: "Service" }),
+            ],
+        }),
+    });
+    PublicFlowchart.transitions(transitions, {
+        from: "src", to: "dst",
+        details: PublicFlowchart.details(moveRows, {
+            details: [
+                PublicFlowchart.list("region", { label: "Region", top: 1 }),
+                PublicFlowchart.list("origins", { label: "Origin", show: "inspector" }, (item) => ({ value: item.parcels })),
+            ],
+        }),
+    });
+    // A transition's tags and histograms in the inspector alone: its label draws lines.
+    PublicFlowchart.transitions(transitions, { from: "src", to: "dst", details: PublicFlowchart.details(stateRows, { details: [PublicFlowchart.histogram("hours", { unit: "hours", bins: HOURS, show: "inspector" })] }) });
+    // @ts-expect-error — `service` is keyed by a String: a histogram reads a Dict from a duration to its count — "hours" fits
+    PublicFlowchart.details(stateRows, { details: [PublicFlowchart.histogram("service", { unit: "hours" })] });
+    // @ts-expect-error — `hours` is an Array of counts: beside one, the bins are required
+    PublicFlowchart.details(stateRows, { details: [PublicFlowchart.histogram("hours", { unit: "hours" })] });
+    // @ts-expect-error — `service` is a Dict: tags read an Array or a Set of strings — "flags", "equipment", "shifts" fit
+    PublicFlowchart.details(stateRows, { details: [PublicFlowchart.tags("service", { label: "Service" })] });
+    // @ts-expect-error — `parcels` is an Integer: a list reads a Dict from an item's name
+    PublicFlowchart.details(stateRows, { details: [PublicFlowchart.list("parcels")] });
+    // @ts-expect-error — `top` is 1, 2 or 3: the inspector lists every item
+    PublicFlowchart.details(moveRows, { details: [PublicFlowchart.list("region", { top: 5 })] });
+    // @ts-expect-error — `colorPalette` is one of east-ui's colour schemes
+    PublicFlowchart.details(stateRows, { details: [PublicFlowchart.tags("flags", { colors: { Hazmat: { colorPalette: "crimson" } } })] });
+    // @ts-expect-error — "Only tags on the canvas go in the legend — show them on the canvas, or drop legend"
+    PublicFlowchart.details(stateRows, { details: [PublicFlowchart.tags("shifts", { legend: true, show: "inspector" })] });
+    // @ts-expect-error — "A transition's label draws lines: a figure or a list — give the histogram show: "inspector""
+    PublicFlowchart.transitions(transitions, { from: "src", to: "dst", details: PublicFlowchart.details(stateRows, { details: [PublicFlowchart.histogram("hours", { unit: "hours", bins: HOURS })] }) });
+    // @ts-expect-error — "… give the tags show: "inspector""
+    PublicFlowchart.transitions(transitions, { from: "src", to: "dst", details: PublicFlowchart.details(stateRows, { details: [PublicFlowchart.tags("flags")] }) });
+}
+
+describe("the details: named, typed reads over the app's rows, read only and read as their kind is (R18–R21)", () => {
+    /** The depot's states read whole, with the details given; what the tag builds, and what it refuses. */
+    const whole = (details: ($: BlockBuilder<UIComponentType>) => unknown, props: object = {}) => () => built(($) => PublicFlowchart({
+        states: Flowchart.states($.let(statesRecord()), { label: "name", details: details($) as never }),
+        ...props,
+    } as never));
+    /** The depot's states read through their source of the slice, with the details given. */
+    const sourced = (details: ($: BlockBuilder<UIComponentType>) => unknown) => () => built(($) => {
+        const slice = $.let(Slice.bindRecords("flowchart.spec.details", { states: statesSource() }));
+        return PublicFlowchart({ slice: { slice }, states: Flowchart.states($.let(Data.bindPaged(ex.depotStates)), { label: "name", details: details($) as never }) });
+    });
+    /** The depot's transitions with the details given, beside its states. */
+    const moved = (details: ($: BlockBuilder<UIComponentType>) => unknown) => () => built(($) => PublicFlowchart({
+        states: Flowchart.states($.let(statesRecord()), { label: "name" }),
+        transitions: Flowchart.transitions($.let(movesRecord()), { from: "src", to: "dst", details: details($) as never }),
+    }));
+    const parcels = ($: BlockBuilder<UIComponentType>) => Flowchart.details($.let(evidenceData()), { details: [Flowchart.figure("parcels")] });
+
+    hostTest("each read's misfit is a type error naming what fits, and the words where a type error would not say why", () => {
+        assert.equal(typeof detailsTypeChecks, "function");
+    });
+
+    hostTest("the details are read only, and read as their kind is: whole beside a kind read whole, by key beside one read through its source (R18, R19)", () => {
+        const READ_ONLY = "Flowchart.details: details are read only: bind them with Data.bind(record), or Data.bindPaged(record) beside a kind read through its source";
+        refused(whole(($) => Flowchart.details($.let(evidenceRecord()), { details: [Flowchart.figure("parcels")] })), READ_ONLY);
+        refused(whole(($) => Flowchart.details($.let(evidenceData()).read() as never, { details: [Flowchart.figure("parcels")] } as never)),
+            `${READ_ONLY} — and this is ${printType(DictType(StringType, ex.StateEvidence))}`);
+        refused(sourced(parcels),
+            "Flowchart.states: the states are read through their source, so their details are read by key: bind them with Data.bindPaged(record)");
+        refused(whole(($) => Flowchart.details($.let(evidencePaged()), { details: [Flowchart.figure("parcels")] })),
+            "Flowchart.states: the states are read whole, so their details are read whole: bind them with Data.bind(record)");
+        // Each form it takes builds: Data.bind beside a kind read whole, and Data.bindPaged beside one read through its source.
+        whole(parcels)();
+        sourced(($) => Flowchart.details($.let(Data.bindPaged(ex.stateEvidence)), { details: [Flowchart.figure("parcels")] }))();
+    });
+
+    hostTest("a kind's details are Flowchart.details', and every element of their array a read (R21)", () => {
+        refused(whole(() => ({ details: [] })),
+            "Flowchart.states: `details` takes Flowchart.details(binding, { details: [ … ] }) — the reads over the app's rows, keyed as the states are");
+        refused(whole(($) => Flowchart.details($.let(evidenceData()), { details: [Flowchart.figure("parcels"), "waiting"] } as never)),
+            "Flowchart.details: `details` holds reads — Flowchart.figure, .histogram, .list or .tags — and the 2nd is none");
+    });
+
+    hostTest("past a cast, a read naming a field the row lacks, or one of another type, names the fields that fit (R20)", () => {
+        const read = (make: () => unknown) => whole(($) => Flowchart.details($.let(evidenceData()), { details: [make()] } as never));
+        refused(read(() => Flowchart.figure("dwell" as never)),
+            "Flowchart.figure: \"dwell\" is no field of the details' row (flags, equipment, shifts, parcels, waiting, hours, service, exceptions, byService)");
+        refused(read(() => Flowchart.histogram("service" as never, { unit: "hours" } as never)),
+            `Flowchart.histogram: "service" holds ${printType(DictType(StringType, IntegerType))} — a histogram reads a Dict from a duration to its count, both numbers, ` +
+            "or an Array of counts beside its bins: \"hours\"");
+        refused(read(() => Flowchart.tags("service" as never)),
+            `Flowchart.tags: "service" holds ${printType(DictType(StringType, IntegerType))} — tags read an Array or a Set of strings: "flags", "equipment", "shifts"`);
+        refused(read(() => Flowchart.histogram("hours", { unit: "hours" } as never)),
+            "Flowchart.histogram: \"hours\" is an Array of counts — give the bins it counts in, bins: [0, …]");
+        refused(() => built(($) => PublicFlowchart({
+            states: Flowchart.states($.let(statesRecord()), { label: "name" }),
+            transitions: Flowchart.transitions($.let(movesRecord()), {
+                from: "src", to: "dst", details: Flowchart.details($.let(moveEvidenceData()), { details: [Flowchart.list("origins", { label: "Origin" })] }),
+            }),
+        })), "Flowchart.list: \"origins\" holds structs — give a draw, (item) => ({ value: item.parcels })");
+    });
+
+    hostTest("what only the read shows is refused as it is made: the bins' order, the looks, the lines and the legend", () => {
+        refused(() => Flowchart.histogram("hours", { unit: "hours", bins: [0, 12, 4] }), "Flowchart.histogram: the bins' edges ascend — 12, then 4");
+        refused(() => Flowchart.tags("flags", { colors: { Hazmat: { colorPalette: "crimson" } } } as never),
+            "Flowchart.tags: \"Hazmat\"'s colorPalette is one of east-ui's colour schemes — \"danger\", \"red\", \"brand\", … — and this is \"crimson\"");
+        refused(() => Flowchart.list("region", { top: 5 } as never), "Flowchart.list: `top` is 1, 2 or 3 — the inspector lists every item");
+        refused(() => Flowchart.tags("shifts", { legend: true, show: "inspector" }),
+            "Flowchart.tags: only tags on the canvas go in the legend — show them on the canvas, or drop legend");
+    });
+
+    hostTest("a transition's label draws figures and lists, three lines at most under its evidence (R21)", () => {
+        refused(moved(($) => Flowchart.details($.let(evidenceData()), { details: [Flowchart.histogram("hours", { unit: "hours", bins: HOURS })] } as never)),
+            "Flowchart.transitions: a transition's label draws lines: a figure or a list — give the histogram show: \"inspector\"");
+        refused(moved(($) => Flowchart.details($.let(evidenceData()), { details: [Flowchart.tags("flags")] } as never)),
+            "Flowchart.transitions: a transition's label draws lines: a figure or a list — give the tags show: \"inspector\"");
+        refused(moved(($) => Flowchart.details($.let(moveEvidenceData()), {
+            details: [Flowchart.list("region", { top: 2 }), Flowchart.list("service", { top: 2 })],
+        })), "Flowchart.transitions: a transition's label draws three lines at most under its evidence, and these draw 4 — give one show: \"inspector\", or lower its top");
+        // Three lines fit, and a read in the inspector alone draws none.
+        moved(($) => Flowchart.details($.let(moveEvidenceData()), {
+            details: [Flowchart.list("region", { top: 2 }), Flowchart.list("service"), Flowchart.list("origins", { show: "inspector" }, (o) => ({ value: o.parcels }))],
+        }))();
+    });
+
+    hostTest("a read shown in the inspector alone needs the inspector's pane", () => {
+        const shifts = ($: BlockBuilder<UIComponentType>) => Flowchart.details($.let(evidenceData()), { details: [Flowchart.tags("shifts", { show: "inspector" })] });
+        refused(whole(shifts, { inspector: false }), "Flowchart: the inspector's reads have no pane — drop inspector={false}, or show them on the canvas");
+        whole(shifts)();
+        whole(($) => Flowchart.details($.let(evidenceData()), { details: [Flowchart.tags("shifts", { show: "canvas" })] }), { inspector: false })();
+    });
+
+    hostTest("the tag colour example's reads cross: the app's looks, first defined first shown, and the legend; a row's tags (R30, R31)", () => {
+        const details = kindOf(Flowchart.Types.Details, ($) => {
+            const looks = $.const(LOOKS as never, ArrayType(Flowchart.Types.TagColor));
+            return Flowchart.details($.let(evidenceData()), {
+                details: [
+                    Flowchart.tags("flags", { label: "Flags", colors: looks, legend: true }),
+                    // A literal: each tag's look as a Tag takes it, subtle unless given.
+                    Flowchart.tags("equipment", { colors: { "X-ray": { colorPalette: "brand", variant: "outline" }, Scanner: { colorPalette: "neutral" } } }),
+                ],
+            }).build("states", "Flowchart.states", false);
+        });
+        assert.ok(readsEqual(details.reads, [
+            { show: variant("all", null), read: variant("tags", { label: "Flags", colors: [...LOOKS], legend: true }) },
+            { show: variant("all", null), read: variant("tags", {
+                label: "equipment",
+                colors: [
+                    { tag: "X-ray", colorPalette: variant("brand", null), variant: variant("outline", null) },
+                    { tag: "Scanner", colorPalette: variant("neutral", null), variant: variant("subtle", null) },
+                ],
+                legend: false,
+            }) },
+        ]));
+        if (details.rows.type !== "some") assert.fail("read whole beside a kind read whole");
+        const rows = details.rows.value();
+        if (rows.type !== "some") assert.fail("the details' rows, by key");
+        assert.ok(keysEqual([...rows.value.keys()], ["HLD"]));
+        assert.equal(details.paged.type, "none");
+        // A Set's tags in its order; the renderer draws them in the order their looks are defined.
+        assert.ok(detailRowEqual(details.values(rows.value.get("HLD")!), [
+            variant("tags", ["At risk", "Customs", "Hazmat"]),
+            variant("tags", ["Scanner", "X-ray"]),
+        ]));
+    });
+
+    hostTest("the bins example's reads cross: the app's bins, its scale and its ticks; each count at its bin's edge (R26–R28)", () => {
+        const details = kindOf(Flowchart.Types.Details, ($) => Flowchart.details($.let(minutesData()), {
+            details: [Flowchart.histogram("minutes", {
+                unit: "minutes", label: "Time in state", counts: "tickets",
+                bins: [0, 1, 2, 5, 10, 15, 30, 60, 120, 240, 480, 1440], scale: "band",
+                ticks: [5, 60, { at: 480, label: "a shift" }, { at: 1440, label: "a day" }],
+            })],
+        }).build("states", "Flowchart.states", false));
+        const bins = [0, 1, 2, 5, 10, 15, 30, 60, 120, 240, 480, 1440];
+        assert.ok(readsEqual(details.reads, [{
+            show: variant("all", null),
+            read: variant("histogram", {
+                label: "Time in state", unit: variant("minutes", null), counts: some("tickets"), bins: some(bins), scale: variant("band", null),
+                ticks: some([{ at: 5, label: none }, { at: 60, label: none }, { at: 480, label: some("a shift") }, { at: 1440, label: some("a day") }]),
+            }),
+        }]));
+        const counts = [140n, 96n, 120n, 64n, 30n, 22n, 9n, 4n, 2n, 1n, 0n, 0n];
+        assert.ok(detailRowEqual(details.values(minutesBytes({ minutes: counts })),
+            [variant("histogram", counts.map((count, i) => ({ from: bins[i]!, count: Number(count) })))]));
+        // The same bins drawn to scale, as the to-scale example draws them: the scale crosses as the app gives it.
+        const toScale = kindOf(Flowchart.Types.Details, ($) => Flowchart.details($.let(minutesData()), {
+            details: [Flowchart.histogram("minutes", { unit: "minutes", label: "Time in state", counts: "tickets", bins, scale: "linear" })],
+        }).build("states", "Flowchart.states", false));
+        assert.ok(readsEqual(toScale.reads, [{
+            show: variant("all", null),
+            read: variant("histogram", {
+                label: "Time in state", unit: variant("minutes", null), counts: some("tickets"), bins: some(bins), scale: variant("linear", null), ticks: none,
+            }),
+        }]));
+        // Another number of counts than bins: each at NaN, which no bin holds — the renderer lists the row in Issues and draws its bars absent.
+        assert.ok(detailRowEqual(details.values(minutesBytes({ minutes: [3n, 4n] })),
+            [variant("histogram", [{ from: NaN, count: 3 }, { from: NaN, count: 4 }])]));
+        assert.ok(detailRowEqual(details.values(minutesBytes({ minutes: [] })), [variant("histogram", [{ from: NaN, count: 0 }])]));
+    });
+
+    hostTest("a figure reads a number or an Option of one, as a Float; a list a Dict, through its draw for structs; labels and lines unless given", () => {
+        const figures = kindOf(Flowchart.Types.Details, ($) => Flowchart.details($.let(measuresData()), {
+            details: [Flowchart.figure("parcels", { label: "Parcels", unit: "parcels" }), Flowchart.figure("held"), Flowchart.figure("share", { show: "canvas" })],
+        }).build("states", "Flowchart.states", false));
+        assert.ok(readsEqual(figures.reads, [
+            { show: variant("all", null), read: variant("figure", { label: "Parcels", unit: some("parcels") }) },
+            { show: variant("all", null), read: variant("figure", { label: "held", unit: none }) },
+            { show: variant("canvas", null), read: variant("figure", { label: "share", unit: none }) },
+        ]));
+        assert.ok(detailRowEqual(figures.values(measuresBytes({ parcels: 1080n, held: some(70n), share: 0.5 })),
+            [variant("figure", some(1080)), variant("figure", some(70)), variant("figure", some(0.5))]));
+        assert.ok(detailRowEqual(figures.values(measuresBytes({ parcels: 0n, held: none, share: 0 })),
+            [variant("figure", some(0)), variant("figure", none), variant("figure", some(0))]));
+
+        const lists = (noun: "states" | "transitions") => kindOf(Flowchart.Types.Details, ($) => Flowchart.details($.let(moveEvidenceData()), {
+            details: [
+                Flowchart.list("region", { label: "Region", unit: "parcels" }),
+                Flowchart.list("origins", { label: "Origin", show: "inspector" }, (o) => ({
+                    value: o.parcels,
+                    note: East.equal(o.late, 0n).ifElse((_$) => East.value(none, OptionType(StringType)), (_$) => East.value(some(East.str`${o.late} late`), OptionType(StringType))),
+                })),
+            ],
+        }).build(noun, `Flowchart.${noun}`, false));
+        const onCard = lists("states");
+        const onLabel = lists("transitions");
+        assert.ok(readsEqual(onCard.reads, [
+            { show: variant("all", null), read: variant("list", { label: "Region", unit: some("parcels"), top: 2n }) },
+            { show: variant("inspector", null), read: variant("list", { label: "Origin", unit: none, top: 2n }) },
+        ]), "a card draws a list's top 2 unless given");
+        assert.ok(readsEqual(onLabel.reads, [
+            { show: variant("all", null), read: variant("list", { label: "Region", unit: some("parcels"), top: 1n }) },
+            { show: variant("inspector", null), read: variant("list", { label: "Origin", unit: none, top: 1n }) },
+        ]), "a label its top 1");
+        assert.ok(detailRowEqual(onCard.values(moveEvidenceBytes(CLEARED)), [
+            variant("list", [{ name: "Metro", value: 141, note: none }, { name: "Overseas", value: 727, note: none }]),
+            variant("list", [{ name: "Air hub", value: 293, note: some("5 late") }, { name: "Rail yard", value: 122, note: none }]),
+        ]));
+    });
+
+    hostTest("the payload carries each kind's details: their reads and their rows read as the kind is; a kind without them, none (R19)", () => {
+        const payload = carried(($) => PublicFlowchart({
+            states: Flowchart.states($.let(statesRecord()), {
+                label: "name", details: Flowchart.details($.let(evidenceData()), { details: [Flowchart.figure("parcels"), Flowchart.list("service")] }),
+            }),
+            transitions: Flowchart.transitions($.let(movesRecord()), { from: "src", to: "dst" }),
+        }));
+        if (payload.states.details.type !== "some") assert.fail("the states' details cross");
+        assert.equal(payload.states.details.value.reads.length, 2);
+        assert.equal(payload.states.details.value.rows.type, "some", "read whole, beside the states read whole");
+        if (payload.transitions.type !== "some") assert.fail("the transitions cross");
+        assert.equal(payload.transitions.value.details.type, "none", "no details: today's labels");
+        // By key beside a kind read through its source: the paged read named, every drawn key asked of it in one request.
+        const paged = kindOf(Flowchart.Types.Details, ($) => Flowchart.details($.let(evidencePaged()), { details: [Flowchart.figure("parcels")] })
+            .build("states", "Flowchart.states", true));
+        assert.equal(paged.rows.type, "none");
+        assert.ok(optionString(paged.paged, some(".records.evidence")));
+        assert.ok(detailRowEqual(paged.values(evidenceBytes(HELD)), [variant("figure", some(1080))]));
+    });
+
+    hostTest("the reads and the tags' look are on the public namespace", () => {
+        for (const member of ["details", "figure", "histogram", "list", "tags"] as const) assert.equal(typeof PublicFlowchart[member], "function", `Flowchart.${member}`);
+        assert.ok(isTypeEqual(PublicFlowchart.Types.TagColor, Flowchart.Types.TagColor));
+    });
+});
+
+// ============================================================================
+// The Flow types are gone (R1)
+// ============================================================================
+
+describe("nothing of the Flow types is left in the package (R1)", () => {
+    hostTest("no export, member or type of the flows", () => {
+        const FLOWS = /^Flowchart(Flows?|State|Link|Lane|Trigger|Source|Data|Window|Apply|Over|Values?)(Type)?$|^FlowchartFlowsTab$|^FlowchartOneFlowLibraryTab$/;
+        assert.ok(keysEqual(Object.keys(E3UI).filter((name) => FLOWS.test(name)), []));
+        assert.ok(keysEqual(Object.keys(E3UIInternal).filter((name) => FLOWS.test(name)), []));
+        for (const member of ["over", "values", "value"]) assert.equal(member in PublicFlowchart, false, `Flowchart.${member} is gone`);
+        for (const type of ["Flows", "Flow", "State", "Link", "Lane", "Trigger"]) {
+            assert.equal(type in PublicFlowchart.Types, false, `Flowchart.Types.${type} is gone`);
+            assert.equal(type in Flowchart.Types, false, `the internal Flowchart.Types.${type} is gone`);
+        }
+        assert.ok(keysEqual(Object.keys(PublicFlowchart.library).sort(), ["lanes", "states", "tab", "transitions"]), "no Flows tab");
+    });
 });

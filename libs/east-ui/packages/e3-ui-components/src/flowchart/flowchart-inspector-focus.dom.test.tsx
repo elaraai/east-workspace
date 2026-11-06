@@ -5,53 +5,19 @@
  * @vitest-environment jsdom
  *
  * The Flowchart's Details keep the keyboard as a control it is on goes
- * (#1398): Delete on a state takes the state away, Details turns to the open
- * flow, and the button the focus was on goes with the view it was in — the
- * focus lands on the open flow's heading, never on the page's body. Over the
- * depot's record of flows on e3 itself (`flowchart.test-utils.tsx`).
+ * (#1398, `Flowchart Records Spec.md` R15): Delete on a state takes the state
+ * away, Details turns to the flowchart, and the button the focus was on goes
+ * with the view it was in — the focus lands on the flowchart's heading, never
+ * on the page's body. Over the depot's four records on e3 itself, bound to be
+ * edited and read whole (`flowchart.test-utils.tsx`).
  */
 
-import { afterEach, beforeAll, beforeEach, expect, test } from "vitest";
-import { cleanup, fireEvent } from "@testing-library/react";
-import { UIStore } from "@elaraai/east-ui-components";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { Flowchart } from "@elaraai/e3-ui/internal";
+import { expect, test } from "vitest";
+import { fireEvent, waitFor } from "@testing-library/react";
+import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
 import { act, flowchartHarness, settle } from "./flowchart.test-utils.js";
 
 const h = flowchartHarness();
-
-// jsdom lacks the ResizeObserver the panes and the canvas reach for, the matchMedia the popovers do, and a listbox's scroll.
-beforeAll(() => {
-    class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = ResizeObserverStub;
-    (globalThis as { matchMedia?: unknown }).matchMedia ??= (query: string) => ({
-        matches: false, media: query, onchange: null,
-        addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; },
-    });
-    Element.prototype.scrollTo ??= function scrollTo() { /* jsdom lays nothing out */ };
-});
-
-// Each test its own UI store: its sessions, its open flow and its panes stay its own.
-beforeEach(() => {
-    initializeStore(new UIStore());
-});
-
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
-});
-
-/** The sort flow: three lanes, a class of chutes and the transitions between its states. */
-const SORT_INPUT = {
-    description: "From the belt to the chutes",
-    lanes: [{ key: "induct", label: "Induct" }, { key: "sort", label: "Sort" }, { key: "hold", label: "Hold" }],
-    states: [
-        { key: "IND", label: "Inducting", lane: "induct" },
-        { key: "CH*", label: "Sort chutes", lane: "sort", members: 14n },
-        { key: "SRD", label: "Sorted", lane: "sort" },
-    ],
-    links: [{ from: "IND", to: "CH*" }, { from: "CH*", to: "SRD", kind: "observed" }],
-} as const satisfies Parameters<typeof Flowchart.value>[0];
 
 /** The inspector pane. */
 const pane = (c: HTMLElement): HTMLElement => c.querySelector<HTMLElement>("[data-frame-slot='end']")!;
@@ -61,8 +27,9 @@ const panel = (c: HTMLElement): HTMLElement => pane(c).querySelector<HTMLElement
 const showing = (c: HTMLElement): string | null => panel(c).querySelector("[data-flowchart-inspector]")?.getAttribute("data-flowchart-inspector") ?? null;
 
 test("Delete on a state in Details keeps the keyboard in the inspector: the focus lands on the heading of the view drawn in its place, never on the page's body", async () => {
-    await h.commitFlows(Flowchart.values({ "Sort": SORT_INPUT }));
-    const { container } = await h.mountRecord({ flow: "Sort", library: [Flowchart.library.flows()] });
+    const { container } = await h.mountExample(ex.flowchartDepotEditing);
+    // What the reader read reaches the canvas in a task of its own, once its last request lands.
+    await waitFor(() => expect(container.querySelector('[data-flowchart-node="CH*"]')).not.toBeNull());
     await act(async () => { fireEvent.click(container.querySelector('[data-flowchart-node="CH*"]')!); });
     await settle();
     expect(showing(container)).toBe("state");
@@ -71,11 +38,11 @@ test("Delete on a state in Details keeps the keyboard in the inspector: the focu
     expect(document.activeElement).toBe(remove);
     await act(async () => { fireEvent.click(remove); });
     await settle();
-    // The state is gone, and Details shows the open flow.
-    expect([container.querySelector('[data-flowchart-node="CH*"]'), showing(container)]).toEqual([null, "flow"]);
+    // The state is gone, and Details shows the flowchart: nothing is selected.
+    expect([container.querySelector('[data-flowchart-node="CH*"]'), showing(container)]).toEqual([null, "flowchart"]);
     expect(document.activeElement).not.toBe(document.body);
     expect(pane(container).contains(document.activeElement)).toBe(true);
-    // The open flow's heading holds the keyboard, naming what Details shows.
+    // The flowchart's heading holds the keyboard, naming what Details shows.
     const focused = document.activeElement!;
-    expect([focused.hasAttribute("data-focus-home"), focused.closest("[data-flowchart-inspector]")?.getAttribute("data-flowchart-inspector")]).toEqual([true, "flow"]);
+    expect([focused.hasAttribute("data-focus-home"), focused.closest("[data-flowchart-inspector]")?.getAttribute("data-flowchart-inspector")]).toEqual([true, "flowchart"]);
 });

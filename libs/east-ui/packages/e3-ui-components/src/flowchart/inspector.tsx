@@ -4,212 +4,247 @@
  */
 
 /**
- * The inspector pane (#1250, `Flowchart Builder Spec.md` §5.3, §8, §9.9,
- * FB35–FB38, FB44, FB45): the Flowchart's end pane — on by default, as the
- * user ruled on 2026-10-08, unless `inspector={false}` — its tabs Details and
- * Issues, Issues with its count; collapsed, a rail with its icon, the issue
- * count and what is selected.
+ * The Flowchart's inspector (#1504, `Flowchart Records Spec.md` R13, R15–R17):
+ * its end pane — on unless `inspector={false}` — its tabs Details and Issues,
+ * Issues with its count; collapsed, a rail with its icon, the issues' count
+ * and what is selected.
  *
- * Details shows §5.3's view of what is selected, every field through the
- * shared `FieldForm` — the shared input each field's East type takes, by
- * `Fields` over the Flowchart's own types — its head naming what it shows
- * (`STATE · SRT`) with a Pending or New chip while the drafts hold it
- * otherwise than the record:
+ * Details shows what is selected: a row of the app's, under its head — its
+ * kind's name and the name the Flowchart gives it everywhere (`State · SCN`,
+ * `Transition · DSP → DLV`), and a Pending or New chip while its drafts hold
+ * it otherwise than its record. A state's and a transition's head is followed
+ * by the reads its kind's details show there, in their order and in full
+ * (`details-pane.tsx`, R35, R36) — then:
  *
- * - **a state**: its key — a new key rekeying its transitions' ends and the
- *   decisions' queues — label, lane (a select over the flow's lanes), members
- *   (a number, Set and Clear) and notes; its transitions in and out, each a
- *   link that selects it; Duplicate and Delete. A key no row stands for —
- *   an unresolved transition's end — says so, with its transitions;
- * - **a transition**: its ends (selects over the flow's states), its kind
- *   (Planned · Observed), its decision (a select over the flow's decisions,
- *   and none) and its key; its evidence read only — volume and unit, count,
- *   when measured; Delete;
- * - **a decision**: its key, label, letter, owner, queue (tags over the
- *   flow's states) and outcomes; the transitions it governs, each a link;
- *   Delete, which clears it from them;
- * - **a lane**, which a click on its header selects: its key — a new key
- *   moving its states with it — and its label; how many states it holds;
- *   Delete, off while it holds any, saying why;
- * - **several states**: how many; a lane every one moves to; Delete;
- * - **nothing**: the open flow — over many flows its name (a new name renames
- *   it, one transaction) and its description, Duplicate and Delete; over one,
- *   its description — its counts, over a record its last save and who made
- *   it, and three hints. A flow its drafts delete says so.
+ * - **a state**: its key, printed — a new state's the viewer's to change until
+ *   Save, the transitions naming it following (R9) — its label and its lane,
+ *   the lane chosen from the lanes, each written as the canvas's rename and
+ *   move write them (R8); its kind's form over the fields no role writes, or
+ *   its kind's own Details in the form's place; Duplicate and Delete; and its
+ *   transitions, In, Out and In place, each with its volume and each a control
+ *   that selects it. A key no state is keyed by — an unresolved end, its ghost
+ *   — says so, with its transitions;
+ * - **a transition**: its ends, each chosen from the states drawn, and its
+ *   decision, chosen from the decisions, written as a retarget writes them;
+ *   its kind's form or own Details; Delete; and its evidence, read only. Its
+ *   key is minted and never drawn;
+ * - **a decision**: its key, printed; its kind's form or own Details; Delete;
+ *   and the transitions it governs;
+ * - **a lane**, which a click on its header selects: its key — a new lane's the
+ *   viewer's to change until Save, its states following — and its label; its
+ *   kind's form or own Details; how many states it holds; and Delete, off
+ *   while it holds any, saying why;
+ * - **several states**: how many; a lane every one moves to; and Delete;
+ * - **nothing**: the flowchart, as the Schematic's names its drawing (R15) —
+ *   the lanes, states, transitions and decisions it holds, counted; its
+ *   transitions planned · observed · unresolved; each record's last save and
+ *   who made it; and its hints.
  *
- * Every edit is one transaction of the open flow's session, made by the
- * frame's `edit`; a field the drafts changed is tinted against the record. A
- * key or a name left empty, or a name the flowchart holds, is refused — the
- * footer saying why — and the field shows what it held. Read only (FB38) —
- * over the host's data without `onApply`, or with `readOnly` — Details shows
- * every field and edits none; while the session takes no edit (a Save in
- * flight, drafts out of date) its controls are off. A state's or a
- * transition's own Details, the author's (FB45), show in place of its form:
- * the row as bytes, and its `update`, the edited row back as one transaction.
+ * Every edit is one step of the history, through the gestures the canvas
+ * makes (`edits.ts`): a role through its kind's `write`, a field of the form
+ * through its kind's `set`, and the row an own Details hands back, whole. A
+ * field its drafts changed is tinted against its record. Read only — a kind
+ * bound read only, or the Flowchart `readOnly` (R13) — Details prints every
+ * field and edits none, an own Details giving way to the form; while a record
+ * takes no edit — a Save in flight, or what the canvas draws standing in while
+ * a new narrowing is read — its controls are off. A key typed that the
+ * Flowchart holds already, or one left empty, is refused, the footer saying
+ * why, and the field shows the key it has.
  *
- * Details keeps the keyboard (#1398): a control that goes with the view it was
- * pressed in — Delete, which shows the open flow; Duplicate and a transition's
- * link, which select another; a refused edit's form drawn again — leaves the
- * focus on the heading of the view drawn in its place
- * (`../shared/focus-home.ts`), never on the page's body: it names what Details
- * shows now, and the next Tab goes on through the controls under it.
+ * Details keeps the keyboard (#1398): a control that goes with the view it
+ * belongs to — Delete, which leaves nothing selected; Duplicate and a
+ * transition's line, which select another; a refused edit's form drawn again
+ * — leaves the focus on the heading of the view drawn in its place
+ * (`../shared/focus-home.ts`), never on the page's body.
  *
- * Issues (FB37) lists the open flow's issues — two of one key, which holds
- * Save off; a state naming a missing lane; a transition naming a missing
- * state; a decision's queue naming one; a Save's conflict or refusal — each
- * a control that selects what it names and brings it into view.
+ * Issues (R16) lists the Flowchart's issues (`issues.ts`), each a control that
+ * selects what it names and brings it into view. An issue of an unsaved change
+ * the narrowing hides says on a line of its own which of the rail's choices
+ * hide it, asked of e3 through its source's hidden pick, and Go to issue on it
+ * is the frame's hidden pick: those choices cleared, then selected once it is
+ * drawn (R11).
  *
- * Styles are the `flowchartInspector` recipe's, the form's `fieldForm`'s and
+ * Its look is the `flowchartInspector` recipe's, the form's `fieldForm`'s and
  * the buttons the shared `button`'s; the pane — its tab row, its collapse
  * control and its rail — is the Dock's.
  *
  * @packageDocumentation
  */
 
-import { memo, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import {
-    DateTimeType, IntegerType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant,
-    type ValueTypeOf, type option,
+    DateTimeType, IntegerType, OptionType, StringType, StructType, compareFor, encodeBeast2For, equalFor, fromEastTypeValue, none, some,
+    type EastType, type StructType as EastStructType, type option,
 } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui/internal";
-import { Flowchart, type FlowchartInspectorType, type flowchartKeys } from "@elaraai/e3-ui/internal";
 import {
-    EastChakraComponent, EmptyStateView, FieldForm, fieldFormMessages, getSomeorUndefined, useDataStable,
-    type BuilderFrameDock, type FieldFormWords, type FieldOption,
+    EastChakraComponent, FieldForm, fieldFormMessages, getSomeorUndefined, type BuilderFrameDock, type FieldFormWords, type FieldOption,
 } from "@elaraai/east-ui-components";
 import { FrameDrawer } from "@elaraai/east-ui-components/internal";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
+import { askHiding, hiddenLine, hiddenOf, type RowHidden, type RowHiding, type SourceHiding } from "../shared/schedule/hidden.js";
+import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
+import { draftedRow, rowCodec } from "../shared/schedule/records.js";
+import type { FlowchartDetailsModel } from "./details.js";
+import { FlowchartPaneReads } from "./details-pane.js";
+import { kindOf, type FlowchartEditing, type FlowchartFieldWrites } from "./editing.js";
 import {
-    deleteDecision, deleteLane, deleteLink, deleteState, deleteStates, describeFlow, duplicateState, laneStates, linkKeyOf, linkRow, moveStates,
-    setDecisionRow, setLaneRow, setLinkRow, setStateRow, stateRow, type FlowchartEdit,
+    deleteDecision, deleteLane, deleteLink, deleteStates, duplicateState, editLink, moveStates, rekey, renameLane, renameState, setFields, setRow,
+    type FlowchartGesture, type FlowchartHolding, type GestureEdits,
 } from "./edits.js";
-import type { FlowchartLastSave } from "./footer.js";
+import type { FlowchartLastSaves } from "./footer.js";
 import type { FlowchartIssue } from "./issues.js";
-import type { FlowchartInspectWord, FlowchartRefusedWord, FlowchartWords } from "./messages.js";
-import type { FlowchartFlowValue, FlowchartLinkValue, FlowchartModel, FlowchartStateValue, FlowchartTriggerValue } from "./model.js";
+import type { FlowchartWords } from "./messages.js";
+import {
+    fmtVolume, type FlowchartModel, type FlowchartRow, type FlowchartRows, type FlowchartTransitionRoles, type FlowchartValue, type LinkClass,
+} from "./model.js";
+import type { FlowchartHeld, FlowchartSort } from "./read.js";
 import type { FlowchartSelection } from "./selection.js";
 
 type Styles = Record<string, SystemStyleObject>;
-/** The names a flowchart keeps its viewer's state under. */
-type FlowchartKeys = ReturnType<typeof flowchartKeys>;
-/** The inspector pane on the wire, decoded: each kind's own Details. */
-export type FlowchartInspectorValue = ValueTypeOf<typeof FlowchartInspectorType>;
+/** A kind of any sort, as the payload carries it. */
+type AnyKind = NonNullable<ReturnType<typeof kindOf>>;
 /** An author's own Details, decoded: the row as bytes and its writer, to UI. */
-type OwnDetails = Extract<FlowchartInspectorValue["state"], { type: "some" }>["value"];
+type OwnDetails = Extract<AnyKind["inspector"], { type: "some" }>["value"];
+/** One field of the form written, as a kind's `set` takes it. */
+type FieldWrite = FlowchartFieldWrites[number];
 
-/** The inspector open: the design system's 320px (§8), as the Sheet's and the Plan's are. */
+/** The inspector open: the design system's 320px, as the Schematic's, the Plan's and the Sheet's are. */
 const INSPECTOR_SIZE = "320px";
-
-const keyEqual = equalFor(StringType);
-const flowEqual = equalFor(Flowchart.Types.Flow);
-const stateEqual = equalFor(Flowchart.Types.State);
-const linkEqual = equalFor(Flowchart.Types.Link);
-const triggerEqual = equalFor(Flowchart.Types.Trigger);
-const laneEqual = equalFor(Flowchart.Types.Lane);
-const encodeState = encodeBeast2For(Flowchart.Types.State);
-const decodeState = decodeBeast2For(Flowchart.Types.State);
-const encodeLink = encodeBeast2For(Flowchart.Types.Link);
-const decodeLink = decodeBeast2For(Flowchart.Types.Link);
-
-/** A transition as its form edits it: its ends, its kind — planned when it names none — its decision and its own key. */
-const LinkFormType = StructType({
-    from: StringType,
-    to: StringType,
-    kind: Flowchart.Types.Kind,
-    trigger: OptionType(StringType),
-    key: OptionType(StringType),
-});
-/** A transition's evidence as its form prints it: the volume with its unit, the count, and when it was measured. */
-const EvidenceFormType = StructType({
-    volume: OptionType(StringType),
-    count: OptionType(IntegerType),
-    measured: OptionType(DateTimeType),
-});
-/** The open flow as its form edits it: its name, and its description. */
-const FlowFormType = StructType({ name: StringType, description: OptionType(StringType) });
-/** Several states as the form moves them: the lane each goes to. */
-const MoveFormType = StructType({ lane: StringType });
 
 /** A form that takes no edit: read only. */
 const NO_EDIT = (): void => {};
 /** What a new row's form is tinted against: nothing — every field it has is a change. */
 const NEW_ROW: Readonly<Record<string, unknown>> = {};
 
-/** The edits Details makes (#1250), each one transaction of the open flow's session, through the frame. */
-export interface FlowchartInspectorEdit {
-    /** The open flow as its session holds it now — never a render's copy. */
-    readonly now: () => FlowchartFlowValue | undefined;
-    /** Records the flow an edit leaves, as one transaction; whether it was recorded. */
-    readonly record: (flow: FlowchartFlowValue, edit: FlowchartEdit) => boolean;
-    /** Renames the open flow — refused, the footer saying why, for an empty name or one the flowchart holds; whether it was recorded. */
-    readonly rename: (name: string) => boolean | Promise<boolean>;
-    /** Duplicates the open flow into a new flow, which opens. */
-    readonly duplicate: () => void;
-    /** Deletes the open flow. */
-    readonly remove: () => void;
-    /** Says why an edit was refused, in the footer. */
-    readonly refuse: (why: FlowchartRefusedWord) => void;
-}
+const stringEqual = equalFor(StringType);
+const compareKey = compareFor(StringType);
 
-/** What the inspector reads of the flowchart. */
+/** A state's roles as its form edits them: its key, its label and its lane. */
+const StateRolesForm = StructType({ key: StringType, label: StringType, lane: StringType });
+/** A transition's roles as its form edits them: its ends and its decision. */
+const TransitionRolesForm = StructType({ from: StringType, to: StringType, decision: OptionType(StringType) });
+/** A lane's roles as its form edits them: its key and its label. */
+const LaneRolesForm = StructType({ key: StringType, label: StringType });
+/** A decision's key, as its form prints it. */
+const DecisionKeyForm = StructType({ key: StringType });
+/** A transition's evidence as its form prints it: the volume with its unit, the count, and when it was measured. */
+const EvidenceForm = StructType({ volume: OptionType(StringType), count: OptionType(IntegerType), measured: OptionType(DateTimeType) });
+/** Several states as the form moves them: the lane each goes to. */
+const MoveForm = StructType({ lane: StringType });
+
+/** A chip in a view's head: drafted since the record held it, new, a key no state is keyed by, a transition naming one. */
+type Chip = "pending" | "new" | "noRow" | "unresolved";
+
+/** What the inspector reads of the Flowchart. */
 export interface FlowchartInspectorProps {
-    /** The payload's inspector pane: each kind's own Details. */
-    readonly pane: FlowchartInspectorValue;
-    /** The open flow, as its drafts stand; `undefined` while no flow is open, or its drafts delete it. */
-    readonly flow: FlowchartFlowValue | undefined;
-    /** The open flow as its source holds it — what a field the drafts changed is tinted against; `undefined` for a new flow. */
-    readonly held: FlowchartFlowValue | undefined;
-    /** The open flow's view model: its ghosts, its decisions' letters, its transitions' split. */
+    /** The payload, decoded: each kind's name, form, own Details and row type. */
+    readonly value: FlowchartValue;
+    /** What the canvas draws, the drafts in place. */
     readonly model: FlowchartModel;
-    /** The name the open flow's drafts give it, over many flows; `undefined` over one. */
-    readonly name: string | undefined;
-    /** The name its source holds it under; `undefined` for a new flow, or over one. */
-    readonly heldName: string | undefined;
-    /** Whether the open flow's drafts delete it. */
-    readonly deleted: boolean;
-    /** What is selected, as the open flow holds it. */
+    /** The rows it draws, the drafts in place. */
+    readonly rows: FlowchartRows;
+    /** Each kind's stored rows the read holds: what a form is tinted against. */
+    readonly held: FlowchartHeld;
+    /** What is selected, as the canvas draws it. */
     readonly selection: FlowchartSelection | null;
+    /** The editing: each record's session and drafts, and which kinds take an edit. */
+    readonly editing: FlowchartEditing;
+    /**
+     * Records a gesture's edits as one step, as the canvas's are — what the gesture reads the latest the frame holds —
+     * clearing the footer's refusal.
+     *
+     * @param gesture - The gesture
+     * @param edits - Its edits, over what it reads; `undefined` where it makes none
+     * @returns The edits recorded; `undefined` where nothing was
+     */
+    readonly act: (gesture: FlowchartGesture, edits: (holding: FlowchartHolding) => GestureEdits | undefined) => GestureEdits | undefined;
+    /** Says why an edit was refused, in the footer. */
+    readonly refuse: (words: string) => void;
     /** Selects something, or nothing — a transition in a state's Details, an issue's row — bringing it into view unless `scroll` is `false`. */
     readonly reveal: (selection: FlowchartSelection | null, scroll?: boolean) => void;
-    /** The open flow's issues, and its Save's. */
+    /** The Flowchart's issues, and its sessions'. */
     readonly issues: readonly FlowchartIssue[];
-    /** The edits Details makes; `undefined` where the flowchart edits nothing — read only (FB38). */
-    readonly edit: FlowchartInspectorEdit | undefined;
-    /** Whether the open flow's session takes an edit now: off while a Save is in flight, or its drafts are out of date. */
-    readonly available: boolean;
-    /** Whether the flows are a record's: its last save is said. */
-    readonly record: boolean;
-    /** The record's last save, when it has one. */
-    readonly saved: FlowchartLastSave | undefined;
-    /** The names the flowchart keeps its state under. */
-    readonly keys: FlowchartKeys;
-    /** The flowchart's words. */
+    /** Each source's hidden pick, by its kind: what an issue of a change the narrowing hides asks e3 which choices hide its row through. */
+    readonly picks: HiddenPicks;
+    /**
+     * Goes to a change the narrowing hides — the frame's hidden pick, as Find's is: the choices hiding it cleared, and
+     * selected once the narrowing they leave draws it.
+     *
+     * @param at - What the issue names
+     * @param hidden - What hides it, as far as e3 has said; `undefined` where nothing does
+     */
+    readonly goToWaiting: (at: FlowchartSelection, hidden: readonly SourceHiding[] | undefined) => void;
+    /** Each record's last save, and who made it. */
+    readonly saves: FlowchartLastSaves;
+    /** The details: the reads a state's or a transition's Details shows after its head. */
+    readonly details: FlowchartDetailsModel;
+    /** Where an own Details keeps its own state. */
+    readonly storageKey: string;
+    /** The Flowchart's words. */
     readonly words: FlowchartWords;
 }
 
+/** Every view's props: the inspector's, and the recipe's styles. */
+interface ViewProps extends FlowchartInspectorProps {
+    readonly styles: Styles;
+}
+
+/** A row's view: the inspector's, and the key of what it shows. */
+interface RowViewProps extends ViewProps {
+    readonly at: string;
+}
+
+/** A kind's name, as the payload gives it: what one is called. */
+function kindName(value: FlowchartValue, sort: FlowchartSort): string {
+    return kindOf(value, sort)?.name ?? "";
+}
+
+/** A transition the canvas draws, by its key, its drafts in place. */
+function transitionAt(rows: FlowchartRows, key: string): FlowchartRow<FlowchartTransitionRoles> | undefined {
+    return rows.transitions.find((transition) => stringEqual(transition.key, key));
+}
+
+/** A transition named by its ends' keys, as the Flowchart names it everywhere. */
+function endsOf(roles: FlowchartTransitionRoles): string {
+    return `${roles.from} → ${roles.to}`;
+}
+
+/** A lane's header, by its key; its key where the canvas draws no lane of it. */
+function laneLabel(model: FlowchartModel, key: string): string {
+    return model.lanes.find((lane) => lane.band === "lane" && stringEqual(lane.key, key))?.label ?? key;
+}
+
+/** A state's name on its card: its label, else its key. */
+function stateName(model: FlowchartModel, key: string): string {
+    const node = model.nodesByKey.get(key);
+    return node === undefined || node.ghost || node.label === undefined ? key : node.label;
+}
+
 /**
- * What a selection is, as the inspector names it — in its head, on its rail
- * and where an issue is.
+ * What is selected, as the head and the collapsed rail name it — `State · SCN`,
+ * `Transition · DSP → DLV`, `Decision · R`, `Lane · Sort`, `3 states` — by the
+ * name Issues gives it too.
  *
+ * @param props - The inspector's props
  * @param selection - What is selected
- * @param flow - The open flow
- * @param model - Its view model: its decisions' letters, its lanes' labels
- * @param words - The flowchart's words
- * @returns What it is, in words
+ * @returns Its name
  */
-function whatOf(selection: FlowchartSelection, flow: FlowchartFlowValue, model: FlowchartModel, words: FlowchartWords): FlowchartInspectWord {
+function whatOf(props: FlowchartInspectorProps, selection: FlowchartSelection): string {
+    const { value, model, rows, words } = props;
+    const m = words.m;
     switch (selection.kind) {
-        case "state": return { what: "state", key: selection.key };
-        case "states": return { what: "states", n: selection.keys.length, count: words.number(selection.keys.length) };
+        case "state": return m.inspectorWhat({ what: "row", kind: value.states.name, name: selection.key });
         case "link": {
-            const at = linkRow(flow, selection.key);
-            return { what: "transition", from: at?.link.from ?? selection.key, to: at?.link.to ?? selection.key };
+            const roles = transitionAt(rows, selection.key)?.roles;
+            return m.inspectorWhat({ what: "row", kind: kindName(value, "transitions"), name: roles === undefined ? selection.key : endsOf(roles) });
         }
-        case "trigger": return { what: "decision", letter: model.triggers.get(selection.key)?.letter ?? selection.key };
-        case "lane": {
-            const lane = flow.lanes.find((l) => keyEqual(l.key, selection.key));
-            return { what: "lane", label: (lane === undefined ? undefined : getSomeorUndefined(lane.label)) ?? selection.key };
+        case "trigger": return m.inspectorWhat({ what: "row", kind: kindName(value, "decisions"), name: model.triggers.get(selection.key)?.letter ?? selection.key });
+        case "lane": return m.inspectorWhat({ what: "row", kind: kindName(value, "lanes"), name: laneLabel(model, selection.key) });
+        case "states": {
+            const n = selection.keys.length;
+            return m.inspectorWhat({ what: "several", n, count: words.number(n), name: value.states.name.toLocaleLowerCase(words.locale) });
         }
     }
 }
@@ -217,11 +252,12 @@ function whatOf(selection: FlowchartSelection, flow: FlowchartFlowValue, model: 
 /**
  * The inspector pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - The pane, the open flow as its drafts and its source hold it, what is selected, the issues, the edits and the words
- * @returns The pane: its tabs Details and Issues, 320px wide, its collapsed state kept per viewer
+ * @param props - The payload, what the canvas draws, what is selected, the editing, the issues, the saves and the words
+ * @returns The pane — 320px wide, its collapsed state kept per viewer — or `undefined`, no pane, given `inspector={false}`
  */
-export function inspectorPane(props: FlowchartInspectorProps): BuilderFrameDock {
-    const { words, issues, selection, flow, model } = props;
+export function flowchartInspectorPane(props: FlowchartInspectorProps): BuilderFrameDock | undefined {
+    if (!props.value.inspector) return undefined;
+    const { words, issues, selection } = props;
     const m = words.m;
     const n = issues.length;
     return {
@@ -229,12 +265,12 @@ export function inspectorPane(props: FlowchartInspectorProps): BuilderFrameDock 
         icon: "sliders",
         size: INSPECTOR_SIZE,
         persist: "local",
-        // Collapsed, the rail counts the issues (FB35) and names what is selected.
-        badge: n > 0 ? words.number(n) : undefined,
-        detail: selection === null || flow === undefined ? undefined : m.inspectorWhat(whatOf(selection, flow, model, words)),
+        // Collapsed, the rail counts the issues and names what is selected.
+        badge: n > 0 ? n : undefined,
+        detail: selection === null ? undefined : whatOf(props, selection),
         tabs: [
             { key: "details", label: m.inspectorTab({ tab: "details" }), body: <FlowchartInspectorDetails {...props} /> },
-            { key: "issues", label: m.inspectorTab({ tab: "issues" }), count: words.number(n), body: <FlowchartInspectorIssues {...props} /> },
+            { key: "issues", label: m.inspectorTab({ tab: "issues" }), count: n, body: <FlowchartInspectorIssues {...props} /> },
         ],
     };
 }
@@ -243,92 +279,15 @@ export function inspectorPane(props: FlowchartInspectorProps): BuilderFrameDock 
 // The shared parts
 // ============================================================================
 
-/** A view's head: what it shows, its name under that, and its chip — its view's home, where the keyboard lands as a control goes with the view. */
-function Head({ styles, what, name, chip, words }: {
-    styles: Styles; what: string; name: string | undefined; chip: "pending" | "new" | "deleted" | "noRow" | undefined; words: FlowchartWords;
-}) {
+/** A view's head: what it shows, its name under that, and its chips — its view's home, where the keyboard lands as a control goes with the view. */
+function Head({ styles, what, name, chips, words }: { styles: Styles; what: string; name: string | undefined; chips: readonly Chip[]; words: FlowchartWords }) {
     return (
         <Box css={styles.head} {...FOCUS_HOME_PROPS}>
             <Box css={styles.eyebrow} data-inspector-what="">{what}</Box>
             {name !== undefined && <Box css={styles.name} data-inspector-name="">{name}</Box>}
             <Box css={styles.marks}>
-                {chip !== undefined && <Box as="span" css={styles.chip} data-inspector-chip="" data-state={chip}>{words.m.inspectorChip({ state: chip })}</Box>}
-            </Box>
-        </Box>
-    );
-}
-
-/** A row's chip: New while the record holds none of it, Pending while the drafts hold it otherwise. */
-function chipOf<R>(row: R, was: R | undefined, equal: (a: R, b: R) => boolean): "pending" | "new" | undefined {
-    if (was === undefined) return "new";
-    return equal(was, row) ? undefined : "pending";
-}
-
-/**
- * The record's row a drafted one began as — what its form is tinted against:
- * the record's row of its key, the last as the canvas draws it; or, its key
- * drafted anew, the record's row at its place, whose key the drafts no longer
- * hold.
- *
- * @param held - The record's rows of the kind; `undefined` for a new flow
- * @param drafted - The drafts' rows of the kind
- * @param keyOf - A row's key, by its place: a transition's the one it goes by
- * @param at - The drafted row's key
- * @returns The row it began as, or `undefined` for a row the record holds none of
- */
-function heldRow<R>(held: readonly R[] | undefined, drafted: readonly R[], keyOf: (row: R, index: number) => string, at: string): R | undefined {
-    if (held === undefined) return undefined;
-    let found: R | undefined;
-    held.forEach((row, i) => { if (keyEqual(keyOf(row, i), at)) found = row; });
-    if (found !== undefined) return found;
-    let index = -1;
-    drafted.forEach((row, i) => { if (keyEqual(keyOf(row, i), at)) index = i; });
-    const there = index < 0 ? undefined : held[index];
-    if (there === undefined) return undefined;
-    const thereKey = keyOf(there, index);
-    return drafted.some((row, i) => keyEqual(keyOf(row, i), thereKey)) ? undefined : there;
-}
-
-/** The transitions a list shows, each its key, its ends, and its kind in words. */
-interface LinkLine {
-    readonly key: string;
-    readonly from: string;
-    readonly to: string;
-    readonly meta: string;
-}
-
-/**
- * Transitions as a list shows them: each its ends, and under them its kind —
- * unresolved where an end has no state — and its decision.
- *
- * @param flow - The open flow
- * @param pick - Which of its transitions
- * @param words - The flowchart's words
- * @returns The lines, in the flow's order
- */
-function linkLines(flow: FlowchartFlowValue, pick: (link: FlowchartLinkValue) => boolean, words: FlowchartWords): LinkLine[] {
-    const hasState = (key: string): boolean => flow.states.some((s) => keyEqual(s.key, key));
-    return flow.links.flatMap((link, i): LinkLine[] => {
-        if (!pick(link)) return [];
-        const kind = !hasState(link.from) || !hasState(link.to) ? "unresolved" : getSomeorUndefined(link.kind)?.type ?? "planned";
-        return [{ key: linkKeyOf(link, i), from: link.from, to: link.to, meta: words.m.inspectorLinkKind({ kind, decision: getSomeorUndefined(link.trigger) }) }];
-    });
-}
-
-/** A list of transitions under its head, each a control that selects it and brings it into view. */
-function Links({ styles, title, lines, reveal }: { styles: Styles; title: string; lines: readonly LinkLine[]; reveal: FlowchartInspectorProps["reveal"] }) {
-    if (lines.length === 0) return null;
-    return (
-        <Box css={styles.section} data-inspector-links="">
-            <Box css={styles.sectionHead}>{title}</Box>
-            <Box as="ul" css={styles.links}>
-                {lines.map((line) => (
-                    <Box as="li" key={line.key}>
-                        <chakra.button type="button" css={styles.link} data-inspector-link={line.key} onClick={() => reveal({ kind: "link", key: line.key })}>
-                            <Box as="span" css={styles.linkText}>{`${line.from} → ${line.to}`}</Box>
-                            <Box as="span" css={styles.linkMeta}>{line.meta}</Box>
-                        </chakra.button>
-                    </Box>
+                {chips.map((chip) => (
+                    <Box as="span" key={chip} css={styles.chip} data-inspector-chip="" data-state={chip}>{words.m.inspectorChip({ state: chip })}</Box>
                 ))}
             </Box>
         </Box>
@@ -345,11 +304,7 @@ function Action({ action, onClick, disabled, words }: { action: "duplicate" | "d
     );
 }
 
-/**
- * A view's edits: its form — or the author's own Details — and its gestures,
- * in one fieldset, off while the session takes no edit. Read only, there are
- * no gestures.
- */
+/** A view's edits: its forms — or an own Details — and its gestures, in one fieldset, off while its record takes no edit. */
 function Edits({ styles, available, children, actions }: { styles: Styles; available: boolean; children: ReactNode; actions: ReactNode | undefined }) {
     return (
         <chakra.fieldset css={styles.edits} disabled={!available} data-inspector-edits="">
@@ -359,60 +314,269 @@ function Edits({ styles, available, children, actions }: { styles: Styles; avail
     );
 }
 
-/**
- * A view's form, remounted after a refused edit so its input shows what the
- * row holds again — or, read only, every field printed.
- */
-function Form({ styles, specs, value, baseline, options, onChange, readOnly, words, refused }: {
-    styles: Styles; specs: readonly FieldSpecValue[]; value: unknown; baseline: unknown;
-    options?: Readonly<Record<string, readonly FieldOption[]>> | undefined;
-    onChange: (path: readonly string[], value: unknown) => void; readOnly: boolean; words: FieldFormWords; refused: number;
-}) {
-    return (
-        <Box css={styles.fields} data-inspector-fields="form">
-            <FieldForm key={refused} specs={specs} value={value} baseline={baseline} options={options} onChange={onChange} readOnly={readOnly} words={words} />
-        </Box>
-    );
+/** A fact on a line of its own. */
+function Fact({ styles, fact, children }: { styles: Styles; fact: string; children: ReactNode }) {
+    return <Box css={styles.section}><Box css={styles.fact} data-inspector-fact={fact}>{children}</Box></Box>;
 }
 
-/**
- * An author's own Details for a row (FB45): what their function returns for
- * the row, its `update` writing the edited row back — or, where it fails,
- * nothing, and the form shows.
- *
- * @param author - The author's function, decoded; `undefined` for none
- * @param bytes - The row, encoded
- * @param update - The writer of the edited row's bytes
- * @param kind - What the row is, for the console
- * @returns The UI it returns, or `undefined`
- */
-function useOwnDetails(author: OwnDetails | undefined, bytes: Uint8Array | undefined, update: (edited: Uint8Array) => null, kind: string) {
-    return useMemo(() => {
-        if (author === undefined || bytes === undefined) return undefined;
-        try {
-            return author(bytes, update);
-        } catch (err) {
-            console.error(`[Flowchart] the ${kind}'s own Details failed; its form shows instead:`, err);
-            return undefined;
-        }
-    }, [author, bytes, update, kind]);
-}
-
-/** The form's words: the field form's, its reference with no key a transition's decision's none. */
-function useFormWords(words: FlowchartWords): FieldFormWords {
-    return useMemo(() => ({ ...words, m: { ...fieldFormMessages, unassigned: words.m.noDecision } }), [words]);
-}
-
-/** A remount counter for a form whose edit was refused: its input shows what the row holds again. */
+/** A remount counter for a form whose edit was refused: its inputs show what the row holds again. */
 function useRefused(): [number, () => void] {
     const [refused, setRefused] = useState(0);
     const bump = useCallback(() => setRefused((n) => n + 1), []);
     return [refused, bump];
 }
 
-/** Every view's props: the inspector's, and the recipe's styles. */
-interface ViewProps extends FlowchartInspectorProps {
-    readonly styles: Styles;
+/** The form's words where it chooses a decision: the field form's, its reference with no key the Flowchart's no decision. */
+function useDecisionWords(words: FlowchartWords): FieldFormWords {
+    return useMemo(() => ({ ...words, m: { ...fieldFormMessages, unassigned: words.m.noDecision } }), [words]);
+}
+
+/**
+ * An own Details for a row: what the author's function returns for its bytes,
+ * its `update` writing the edited row back — or, where it fails, nothing, and
+ * the form shows.
+ *
+ * @param author - The kind's own Details; `undefined` for none, or a kind read only
+ * @param bytes - The row, as bytes
+ * @param update - The writer of the edited row's bytes
+ * @param what - What the row is, for the console
+ * @returns The UI it returns, or `undefined`
+ */
+function useOwnDetails(author: OwnDetails | undefined, bytes: Uint8Array | undefined, update: (edited: Uint8Array) => null, what: string): unknown {
+    return useMemo(() => {
+        if (author === undefined || bytes === undefined) return undefined;
+        try {
+            return author(bytes, update);
+        } catch (err) {
+            console.error(`[Flowchart] ${what}'s own Details failed; its form shows instead:`, err);
+            return undefined;
+        }
+    }, [author, bytes, update, what]);
+}
+
+/**
+ * A field of the form edited, as its kind's `set` takes it: its path, and its
+ * value as bytes at the field's type — its spec's, else the row's own field's.
+ *
+ * @param specs - The form's specs
+ * @param rowType - The row type
+ * @param path - The field's path
+ * @param next - Its new value
+ * @returns The write; `undefined` for a path no field is at
+ */
+function fieldWrite(specs: readonly FieldSpecValue[], rowType: AnyKind["rowType"], path: readonly string[], next: unknown): FieldWrite | undefined {
+    const spec = specs.find((field) => field.path.length === path.length && field.path.every((part, i) => stringEqual(part, path[i]!)));
+    const row = fromEastTypeValue(rowType) as EastStructType;
+    const type = spec !== undefined ? fromEastTypeValue(spec.type) as EastType : path.length === 1 ? row.fields[path[0]!] : undefined;
+    if (type === undefined) return undefined;
+    return { path: [...path], value: encodeBeast2For(type)(next as never) };
+}
+
+/** A row as Details holds it: as its drafts hold it, else its record; what its form is tinted against; its chip. */
+interface RowState {
+    /** The app's row now, decoded: drafted, else as its record holds it; `undefined` for none. */
+    readonly row: unknown;
+    /** The row now, as bytes: what an own Details is handed. */
+    readonly bytes: Uint8Array | undefined;
+    /** What its form is tinted against: its record's row, or — a new row — nothing. */
+    readonly baseline: unknown;
+    /** New while its record holds none of it; Pending while its drafts hold it otherwise. */
+    readonly chip: "pending" | "new" | undefined;
+    /** Whether a gesture made it, unsaved: its key is the viewer's to change. */
+    readonly created: boolean;
+}
+
+/**
+ * A record's row as Details holds it: drafted, its session's version; else as
+ * its record holds it, from the read's bytes.
+ *
+ * @param editing - The editing
+ * @param sort - The row's kind
+ * @param kind - The kind: its row type
+ * @param key - The row's key
+ * @param stored - Its stored row's bytes, as the read holds them
+ * @returns The row's state
+ */
+function useRowState(editing: FlowchartEditing, sort: FlowchartSort, kind: AnyKind | undefined, key: string, stored: Uint8Array | undefined): RowState {
+    const codec = useMemo(() => (kind === undefined ? undefined : rowCodec(kind.rowType)), [kind]);
+    const decoded = useMemo(() => (stored === undefined || codec === undefined ? undefined : codec.decode(stored)), [stored, codec]);
+    const drafted = editing.schedule.draftsOf(sort).has(key);
+    const session = drafted ? editing.schedule.sessions.find((part) => stringEqual(part.kind, sort))?.session : undefined;
+    const draft = drafted ? draftedRow(session?.entries.get(key))?.row : undefined;
+    const row = drafted ? draft : decoded;
+    const bytes = useMemo(() => {
+        if (row === undefined || codec === undefined) return undefined;
+        return !drafted && stored !== undefined ? stored : codec.encode(row);
+    }, [row, codec, drafted, stored]);
+    const kindDrafts: ReadonlyMap<string, { readonly created: boolean } | undefined> = editing.drafts[sort];
+    const created = kindDrafts.get(key)?.created === true;
+    return { row, bytes, baseline: decoded ?? NEW_ROW, chip: drafted ? (created ? "new" : "pending") : undefined, created };
+}
+
+/**
+ * A row's side of its record, as Details edits it: its kind's form or its own
+ * Details over the row as its drafts and its record hold it; each field one
+ * step through the kind's `set`, the own Details' row one step whole.
+ *
+ * @param props - The view's props
+ * @param sort - The row's kind
+ * @param key - Its key
+ * @param what - What it is, for the console
+ * @returns The kind, whether it writes and takes an edit now, the row's state, the form's edit, and the own Details
+ */
+function useSide(props: ViewProps, sort: FlowchartSort, key: string, what: string) {
+    const { value, editing, held, act } = props;
+    const kind = kindOf(value, sort);
+    const writes = kind !== undefined && editing.editable(sort);
+    const available = writes && editing.available(sort);
+    const rows: ReadonlyMap<string, { readonly row: Uint8Array }> | undefined = held[sort];
+    const state = useRowState(editing, sort, kind, key, rows?.get(key)?.row);
+    const [refused, bump] = useRefused();
+    const onField = useCallback((path: readonly string[], next: unknown) => {
+        if (kind === undefined) return;
+        const write = fieldWrite(kind.fields, kind.rowType, path, next);
+        if (write === undefined || act("form", (holding) => setFields(holding, sort, key, [write])) === undefined) bump();
+    }, [kind, sort, key, act, bump]);
+    const update = useCallback((edited: Uint8Array): null => {
+        if (writes) act("details", (holding) => setRow(holding, sort, key, edited));
+        return null;
+    }, [writes, sort, key, act]);
+    // Read only, the form prints every field: an own Details is for a record that takes its edits.
+    const own = useOwnDetails(writes && kind !== undefined ? getSomeorUndefined(kind.inspector) : undefined, state.bytes, update, what);
+    return { kind, writes, available, state, onField, own, refused, bump };
+}
+
+/**
+ * A row's fields: its roles' form, then its kind's form over the fields no
+ * role writes — or its kind's own Details in that form's place.
+ */
+function RowFields({ styles, roles, side, storageKey }: {
+    styles: Styles; roles: ReactNode; side: ReturnType<typeof useSide>; storageKey: string;
+}) {
+    const { kind, writes, state, onField, own, refused } = side;
+    const specs = kind?.fields ?? [];
+    return (
+        <>
+            <Box css={styles.rowForms} data-inspector-fields="row">
+                {roles}
+                {own === undefined && specs.length > 0 && (
+                    <Box data-inspector-form="fields">
+                        <FieldForm key={refused} specs={specs} value={state.row} baseline={state.baseline} onChange={writes ? onField : NO_EDIT} readOnly={!writes} />
+                    </Box>
+                )}
+            </Box>
+            {own !== undefined && (
+                <Box css={styles.custom} data-inspector-fields="custom">
+                    <EastChakraComponent value={own as never} storageKey={storageKey} />
+                </Box>
+            )}
+        </>
+    );
+}
+
+/** A transition as a list shows it: its key, its ends, its kind and its decision, and its volume. */
+interface LinkLine {
+    readonly key: string;
+    readonly from: string;
+    readonly to: string;
+    readonly meta: string;
+    readonly volume: string;
+}
+
+/**
+ * Transitions as a list shows them, in key order (R37): each its ends' keys,
+ * its kind — unresolved where an end is no state's — and its decision, and its
+ * evidence's volume with its unit — *not measured* without one. What the
+ * narrowing draws as context is left out.
+ *
+ * @param props - The inspector's props: what the canvas draws
+ * @param pick - Which of its transitions
+ * @returns The lines
+ */
+function linkLines(props: FlowchartInspectorProps, pick: (roles: FlowchartTransitionRoles) => boolean): LinkLine[] {
+    const { model, rows, words } = props;
+    const unresolved = (key: string): boolean => model.nodesByKey.get(key)?.ghost !== false;
+    return rows.transitions
+        .filter((transition) => !transition.dimmed && pick(transition.roles))
+        .sort((a, b) => compareKey(a.key, b.key))
+        .map((transition) => {
+            const { from, to } = transition.roles;
+            const kind: LinkClass = unresolved(from) || unresolved(to) ? "unresolved" : transition.roles.kind.type;
+            const decision = getSomeorUndefined(transition.roles.decision);
+            const trigger = decision === undefined ? undefined : model.triggers.get(decision);
+            const evidence = getSomeorUndefined(transition.roles.evidence);
+            const volume = evidence === undefined ? undefined : getSomeorUndefined(evidence.volume);
+            const unit = evidence === undefined ? undefined : getSomeorUndefined(evidence.unit);
+            return {
+                key: transition.key, from, to,
+                meta: words.m.inspectorLinkKind({
+                    kind,
+                    decision: decision === undefined ? undefined : trigger === undefined || trigger.label.length === 0 ? decision : trigger.label,
+                }),
+                volume: words.m.inspectorVolume({
+                    volume: volume === undefined ? undefined : unit === undefined ? fmtVolume(volume, words) : `${fmtVolume(volume, words)} ${unit}`,
+                }),
+            };
+        });
+}
+
+/** One group of a list of transitions: its head — `In · 2` — and its lines. */
+interface LinkGroup {
+    readonly key: string;
+    readonly head: string | undefined;
+    readonly lines: readonly LinkLine[];
+}
+
+/** A list of transitions under its head, in groups, each line a control that selects its transition and brings it into view. */
+function Transitions({ styles, title, groups, reveal }: { styles: Styles; title: string; groups: readonly LinkGroup[]; reveal: FlowchartInspectorProps["reveal"] }) {
+    const shown = groups.filter((group) => group.lines.length > 0);
+    if (shown.length === 0) return null;
+    return (
+        <Box css={styles.section} data-inspector-links="">
+            <Box css={styles.sectionHead}>{title}</Box>
+            {shown.map((group) => (
+                <Fragment key={group.key}>
+                    {group.head !== undefined && <Box css={styles.linkGroup} data-inspector-link-group={group.key}>{group.head}</Box>}
+                    <Box as="ul" css={styles.links} data-inspector-link-list={group.key}>
+                        {group.lines.map((line) => (
+                            <Box as="li" key={line.key}>
+                                <chakra.button type="button" css={styles.link} data-inspector-link={line.key} onClick={() => reveal({ kind: "link", key: line.key })}>
+                                    <Box as="span" css={styles.linkText}>{`${line.from} → ${line.to}`}</Box>
+                                    <Box as="span" css={styles.linkMeta}>{line.meta}</Box>
+                                    <Box as="span" css={styles.linkVolume} data-inspector-link-volume="">{line.volume}</Box>
+                                </chakra.button>
+                            </Box>
+                        ))}
+                    </Box>
+                </Fragment>
+            ))}
+        </Box>
+    );
+}
+
+/**
+ * A state's transitions in their groups: In, Out and In place.
+ *
+ * @param props - The inspector's props
+ * @param key - The state's key
+ * @returns Its transitions' count, and the groups
+ */
+function stateGroups(props: FlowchartInspectorProps, key: string): { n: number; groups: LinkGroup[] } {
+    const m = props.words.m;
+    const lines = linkLines(props, (roles) => stringEqual(roles.from, key) || stringEqual(roles.to, key));
+    const into = lines.filter((line) => stringEqual(line.to, key) && !stringEqual(line.from, key));
+    const out = lines.filter((line) => stringEqual(line.from, key) && !stringEqual(line.to, key));
+    const inPlace = lines.filter((line) => stringEqual(line.from, key) && stringEqual(line.to, key));
+    const head = (section: "in" | "out" | "inPlace", group: readonly LinkLine[]) =>
+        m.inspectorSection({ section, n: group.length, count: props.words.number(group.length), name: "" });
+    return {
+        n: lines.length,
+        groups: [
+            { key: "in", head: head("in", into), lines: into },
+            { key: "out", head: head("out", out), lines: out },
+            { key: "inPlace", head: head("inPlace", inPlace), lines: inPlace },
+        ],
+    };
 }
 
 // ============================================================================
@@ -420,8 +584,8 @@ interface ViewProps extends FlowchartInspectorProps {
 // ============================================================================
 
 /**
- * The Details tab: what is selected — a state, a transition, a decision, a lane, several states — or the open flow; the
- * keyboard kept as a control goes with the view it was in, on the heading of the view drawn in its place.
+ * The Details tab: what is selected — a state, a transition, a decision, a lane, several states — or the flowchart; the
+ * keyboard kept as a control goes with the view it belongs to, on the heading of the view drawn in its place.
  */
 const FlowchartInspectorDetails = memo(function FlowchartInspectorDetails(props: FlowchartInspectorProps) {
     const styles = useSlotRecipe({ key: "flowchartInspector" })() as Styles;
@@ -435,331 +599,309 @@ const FlowchartInspectorDetails = memo(function FlowchartInspectorDetails(props:
 
 /** What Details shows, a view a selection: what was typed for one never lands on the next. */
 function detailsView(view: ViewProps): ReactNode {
-    const { flow, selection, deleted } = view;
-    if (flow === undefined) return deleted ? <DeletedFlow {...view} /> : <NoFlow {...view} />;
-    if (selection === null) return <FlowView key="flow" {...view} flow={flow} />;
+    const { selection, model } = view;
+    if (selection === null) return <FlowchartView key="flowchart" {...view} />;
     switch (selection.kind) {
-        case "state": return <StateView key={`state:${selection.key}`} {...view} flow={flow} at={selection.key} />;
-        case "link": return <LinkView key={`link:${selection.key}`} {...view} flow={flow} at={selection.key} />;
-        case "trigger": return <DecisionView key={`trigger:${selection.key}`} {...view} flow={flow} at={selection.key} />;
-        case "lane": return <LaneView key={`lane:${selection.key}`} {...view} flow={flow} at={selection.key} />;
-        case "states": return <SeveralView key="states" {...view} flow={flow} picked={selection.keys} />;
+        case "state": return model.nodesByKey.get(selection.key)?.ghost === true
+            ? <GhostView key={`ghost:${selection.key}`} {...view} at={selection.key} />
+            : <StateView key={`state:${selection.key}`} {...view} at={selection.key} />;
+        case "link": return <LinkView key={`link:${selection.key}`} {...view} at={selection.key} />;
+        case "trigger": return <DecisionView key={`trigger:${selection.key}`} {...view} at={selection.key} />;
+        case "lane": return <LaneView key={`lane:${selection.key}`} {...view} at={selection.key} />;
+        case "states": return <SeveralView key="states" {...view} picked={selection.keys} />;
     }
 }
 
-/** A row's view: the open flow, and the key of what it shows. */
-interface RowProps extends ViewProps {
-    readonly flow: FlowchartFlowValue;
-    readonly at: string;
+/**
+ * A key typed for a new row (R9): refused — the footer saying why, the field
+ * showing the key it has — when it is empty or the Flowchart holds it already;
+ * else the row under it, the rows naming it following, and the selection with
+ * it.
+ *
+ * @param props - The view's props
+ * @param sort - The row's kind: a state's or a lane's
+ * @param from - Its key
+ * @param typed - The key typed
+ * @param bump - Draws the form again, showing the key it has
+ */
+function typedKey(props: RowViewProps, sort: "states" | "lanes", from: string, typed: string, bump: () => void): void {
+    const { value, editing, act, refuse, reveal, words } = props;
+    const to = typed.trim();
+    if (stringEqual(to, from)) {
+        bump();
+        return;
+    }
+    const why = to.length === 0 ? "empty" as const : editing.taken(sort, to) ? "taken" as const : undefined;
+    if (why !== undefined) {
+        refuse(words.m.inspectorKeyRefused({ name: kindName(value, sort).toLocaleLowerCase(words.locale), key: to, why }));
+        bump();
+        return;
+    }
+    if (act("rekey", (holding) => rekey(holding, sort, from, to)) === undefined) bump();
+    else reveal(sort === "states" ? { kind: "state", key: to } : { kind: "lane", key: to }, false);
 }
 
 // ── A state ─────────────────────────────────────────────────────────────────
 
-/** A state: its head, its fields — or its author's own Details — its transitions, Duplicate and Delete. */
-function StateView(props: RowProps) {
-    const { flow, held, at, styles, words, edit, available, pane, keys, reveal } = props;
+/** A state: its head, its roles and its kind's form — or own Details — Duplicate and Delete, and its transitions. */
+function StateView(props: RowViewProps) {
+    const { at, styles, words, value, model, rows, held, act, reveal, storageKey } = props;
     const m = words.m;
-    const formWords = useFormWords(words);
-    const [refused, refuse] = useRefused();
-    const state = stateRow(flow, at);
-    const was = heldRow(held?.states, flow.states, (s) => s.key, at);
-    const specs = useMemo(() => Fields.specs(Flowchart.Types.State, {
-        key: Fields.text({ label: m.inspectorField({ field: "key" }), help: m.inspectorHelp({ help: "stateKey" }) }),
+    const side = useSide(props, "states", at, value.states.name);
+    const { created } = side.state;
+    const lanes = getSomeorUndefined(value.lanes);
+    const keyed = created && side.writes;
+    const specs = useMemo(() => Fields.specs(StateRolesForm, {
+        key: keyed ? Fields.text({ label: m.inspectorField({ field: "key" }), help: m.inspectorKeyHelp() }) : Fields.readonly({ label: m.inspectorField({ field: "key" }) }),
         label: Fields.text({ label: m.inspectorField({ field: "label" }) }),
-        lane: Fields.reference({ of: "lanes", label: m.inspectorField({ field: "lane" }) }),
-        members: Fields.number<bigint>({ label: m.inspectorField({ field: "members" }), min: 1n }),
-        notes: Fields.text({ label: m.inspectorField({ field: "notes" }) }),
-    }), [m]);
+        lane: Fields.reference({ of: "lanes", label: lanes?.name ?? "" }),
+    }, lanes === undefined ? ["lane"] : []), [m, keyed, lanes]);
     const options = useMemo(() => ({
-        lanes: flow.lanes.map((l): FieldOption => ({ key: l.key, label: getSomeorUndefined(l.label) ?? l.key })),
-    }), [flow.lanes]);
-    // A state as the edit leaves it, recorded over the state as the session holds it now: its new key, followed.
-    const write = useCallback((next: FlowchartStateValue): void => {
-        const now = edit?.now();
-        if (edit === undefined || now === undefined || stateRow(now, at) === undefined) return;
-        if (keyEqual(next.key.trim(), "")) {
-            edit.refuse({ why: "emptyKey", what: "state" });
-            refuse();
-            return;
-        }
-        const keyed = { ...next, key: next.key.trim() };
-        if (edit.record(setStateRow(now, at, keyed), "editState") && !keyEqual(keyed.key, at)) reveal({ kind: "state", key: keyed.key }, false);
-    }, [edit, at, refuse, reveal]);
-    const onChange = useCallback((path: readonly string[], value: unknown) => {
-        const now = edit?.now();
-        const current = now === undefined ? undefined : stateRow(now, at);
-        if (current === undefined) return;
-        write({ ...current, [path[0]!]: value } as FlowchartStateValue);
-    }, [edit, at, write]);
-    // The author's own Details (FB45): the state as bytes, held by its data; its update, the edited state back.
-    const stable = useDataStable(state, (a, b) => (a === undefined || b === undefined ? a === undefined && b === undefined : stateEqual(a, b)));
-    const bytes = useMemo(() => (stable === undefined ? undefined : encodeState(stable)), [stable]);
-    const update = useCallback((edited: Uint8Array): null => { write(decodeState(edited)); return null; }, [write]);
-    const own = useOwnDetails(getSomeorUndefined(pane.state), bytes, update, "state");
-
-    if (state === undefined) return <GhostView {...props} />;
-    const lines = linkLines(flow, (l) => keyEqual(l.from, at) || keyEqual(l.to, at), words);
-    const actions = edit === undefined ? undefined : (
+        lanes: model.lanes.filter((lane) => lane.band === "lane").map((lane): FieldOption => ({ key: lane.key, label: lane.label })),
+    }), [model.lanes]);
+    const roles = rows.states.find((state) => stringEqual(state.key, at))?.roles;
+    const stored = held.states.get(at)?.roles;
+    const { bump, refused } = side;
+    const onRole = useCallback((path: readonly string[], next: unknown) => {
+        const field = path[0]!;
+        if (stringEqual(field, "key")) typedKey(props, "states", at, next as string, bump);
+        else if (stringEqual(field, "label")) {
+            if (act("renameState", (holding) => renameState(holding, at, next as string)) === undefined) bump();
+        } else if (act("moveStates", (holding) => moveStates(holding, [at], next as string)) === undefined) bump();
+    }, [props, at, act, bump]);
+    if (roles === undefined) return null;
+    const transitions = stateGroups(props, at);
+    const actions = !side.writes ? undefined : (
         <>
             <Action action="duplicate" words={words} onClick={() => {
-                const now = edit.now();
-                const copy = now === undefined ? undefined : duplicateState(now, at);
-                if (copy !== undefined && edit.record(copy.flow, "duplicateState")) reveal({ kind: "state", key: copy.key });
+                const copy = act("duplicateState", (holding) => duplicateState(holding, at));
+                if (copy?.key !== undefined) reveal({ kind: "state", key: copy.key });
             }} />
             <Action action="delete" words={words} onClick={() => {
-                const now = edit.now();
-                if (now !== undefined && edit.record(deleteState(now, at), "deleteState")) reveal(null);
+                if (act("deleteStates", (holding) => deleteStates(holding, [at])) !== undefined) reveal(null);
             }} />
         </>
     );
+    const label = roles.label.length === 0 ? undefined : roles.label;
     return (
         <Box css={styles.root} data-flowchart-inspector="state">
-            <Head styles={styles} words={words} what={m.inspectorWhat({ what: "state", key: state.key })} name={getSomeorUndefined(state.label)}
-                chip={chipOf(state, was, stateEqual)} />
-            <Edits styles={styles} available={available} actions={actions}>
-                {own !== undefined ? (
-                    <Box css={styles.custom} data-inspector-fields="custom">
-                        <EastChakraComponent value={own} storageKey={`${keys.frame}.inspector.state`} />
+            <Head styles={styles} words={words} what={m.inspectorWhat({ what: "row", kind: value.states.name, name: at })} name={label}
+                chips={side.state.chip === undefined ? [] : [side.state.chip]} />
+            <FlowchartPaneReads styles={styles} kind={props.details.states} at={at} words={words} />
+            <Edits styles={styles} available={side.available} actions={actions}>
+                <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.states`} roles={(
+                    <Box data-inspector-form="roles">
+                        <FieldForm key={refused} specs={specs} value={{ key: at, label: roles.label, lane: getSomeorUndefined(roles.lane) }}
+                            baseline={created || stored === undefined ? NEW_ROW : { key: at, label: stored.label, lane: getSomeorUndefined(stored.lane) }}
+                            options={options} onChange={side.writes ? onRole : NO_EDIT} readOnly={!side.writes} />
                     </Box>
-                ) : (
-                    <Form styles={styles} specs={specs} value={state} baseline={was ?? NEW_ROW} options={options} words={formWords}
-                        onChange={edit === undefined ? NO_EDIT : onChange} readOnly={edit === undefined} refused={refused} />
-                )}
+                )} />
             </Edits>
-            <Links styles={styles} reveal={reveal} lines={lines} title={m.inspectorSection({ section: "transitions", n: lines.length, count: words.number(lines.length) })} />
+            <Transitions styles={styles} reveal={reveal} groups={transitions.groups}
+                title={m.inspectorSection({ section: "transitions", n: transitions.n, count: words.number(transitions.n), name: kindName(value, "transitions") })} />
         </Box>
     );
 }
 
-/** A state no row stands for — an unresolved transition's end: says so, with its transitions, and Delete takes them away. */
-function GhostView({ flow, at, styles, words, edit, available, reveal }: RowProps) {
+/** A key no state is keyed by — an unresolved end, its ghost: says so, with its transitions; Delete takes them away. */
+function GhostView(props: RowViewProps) {
+    const { at, styles, words, value, editing, act, reveal } = props;
     const m = words.m;
-    const lines = linkLines(flow, (l) => keyEqual(l.from, at) || keyEqual(l.to, at), words);
-    const actions = edit === undefined ? undefined : (
+    const transitions = stateGroups(props, at);
+    const writes = editing.editable("transitions");
+    const actions = !writes ? undefined : (
         <Action action="delete" words={words} onClick={() => {
-            const now = edit.now();
-            if (now !== undefined && edit.record(deleteState(now, at), "deleteState")) reveal(null);
+            if (act("deleteStates", (holding) => deleteStates(holding, [at])) !== undefined) reveal(null);
         }} />
     );
+    const n = transitions.n;
+    const lower = (sort: FlowchartSort) => kindName(value, sort).toLocaleLowerCase(words.locale);
     return (
         <Box css={styles.root} data-flowchart-inspector="ghost">
-            <Head styles={styles} words={words} what={m.inspectorWhat({ what: "state", key: at })} name={undefined} chip="noRow" />
-            <Box css={styles.section}>
-                <Box css={styles.fact} data-inspector-fact="ghost">{m.inspectorNoRow({ n: lines.length, count: words.number(lines.length) })}</Box>
-            </Box>
-            <Links styles={styles} reveal={reveal} lines={lines} title={m.inspectorSection({ section: "transitions", n: lines.length, count: words.number(lines.length) })} />
-            {actions !== undefined && <Edits styles={styles} available={available} actions={actions}>{null}</Edits>}
+            <Head styles={styles} words={words} what={m.inspectorWhat({ what: "row", kind: value.states.name, name: at })} name={at} chips={["noRow"]} />
+            <Fact styles={styles} fact="ghost">
+                {m.inspectorNoRow({ n, count: words.number(n), key: at, state: lower("states"), transition: lower("transitions") })}
+            </Fact>
+            <Transitions styles={styles} reveal={reveal} groups={transitions.groups}
+                title={m.inspectorSection({ section: "transitions", n, count: words.number(n), name: kindName(value, "transitions") })} />
+            {actions !== undefined && <Edits styles={styles} available={editing.available("transitions")} actions={actions}>{null}</Edits>}
         </Box>
     );
 }
 
 // ── A transition ────────────────────────────────────────────────────────────
 
-/** A transition as its form edits it. */
-function linkForm(link: FlowchartLinkValue): ValueTypeOf<typeof LinkFormType> {
-    return { from: link.from, to: link.to, kind: getSomeorUndefined(link.kind) ?? variant("planned", null), trigger: link.trigger, key: link.key };
-}
-
-/** A transition: its head, its fields — or its author's own Details — its evidence read only, and Delete. */
-function LinkView({ flow, held, at, styles, words, edit, available, pane, keys, reveal }: RowProps) {
+/** A transition: its head, its ends and its decision, its kind's form — or own Details — Delete, and its evidence. */
+function LinkView(props: RowViewProps) {
+    const { at, styles, words, value, model, rows, held, act, reveal, storageKey } = props;
     const m = words.m;
-    const formWords = useFormWords(words);
-    const found = linkRow(flow, at);
-    const was = heldRow(held?.links, flow.links, linkKeyOf, at);
-    const specs = useMemo(() => Fields.specs(LinkFormType, {
+    const name = kindName(value, "transitions");
+    const side = useSide(props, "transitions", at, name);
+    const decisions = getSomeorUndefined(value.decisions);
+    const decisionWords = useDecisionWords(words);
+    const specs = useMemo(() => Fields.specs(TransitionRolesForm, {
         from: Fields.reference({ of: "states", label: m.inspectorField({ field: "from" }) }),
         to: Fields.reference({ of: "states", label: m.inspectorField({ field: "to" }) }),
-        kind: Fields.select<"planned" | "observed">({ label: m.inspectorField({ field: "kind" }), labels: { planned: m.kindLabel({ kind: "planned" }), observed: m.kindLabel({ kind: "observed" }) } }),
-        trigger: Fields.reference({ of: "decisions", label: m.inspectorField({ field: "trigger" }) }),
-        key: Fields.text({ label: m.inspectorField({ field: "key" }), help: m.inspectorHelp({ help: "linkKey" }) }),
-    }), [m]);
-    const evidenceSpecs = useMemo(() => Fields.specs(EvidenceFormType, {
-        volume: Fields.readonly({ label: m.inspectorField({ field: "volume" }) }),
-        count: Fields.readonly({ label: m.inspectorField({ field: "count" }) }),
-        measured: Fields.readonly({ label: m.inspectorField({ field: "measured" }) }),
-    }), [m]);
-    const options = useMemo(() => {
-        const seen = new Set<string>();
-        const states = flow.states.flatMap((s): FieldOption[] => {
-            if (seen.has(s.key)) return [];
-            seen.add(s.key);
-            const label = getSomeorUndefined(s.label);
-            return [{ key: s.key, label: label === undefined ? s.key : `${s.key} · ${label}` }];
-        });
-        return { states, decisions: flow.triggers.map((t): FieldOption => ({ key: t.key, label: t.label })) };
-    }, [flow.states, flow.triggers]);
-    // A transition as the edit leaves it, recorded over it as the session holds it now: the key it goes by after, followed.
-    const write = useCallback((next: FlowchartLinkValue): void => {
-        const now = edit?.now();
-        const before = now === undefined ? undefined : linkRow(now, at);
-        if (edit === undefined || now === undefined || before === undefined) return;
-        const own = getSomeorUndefined(next.key);
-        const keyed = { ...next, key: own === undefined || keyEqual(own.trim(), "") ? none : some(own.trim()) };
-        const after = linkKeyOf(keyed, before.index);
-        if (edit.record(setLinkRow(now, at, keyed), "editTransition") && !keyEqual(after, at)) reveal({ kind: "link", key: after }, false);
-    }, [edit, at, reveal]);
-    const onChange = useCallback((path: readonly string[], value: unknown) => {
-        const now = edit?.now();
-        const current = now === undefined ? undefined : linkRow(now, at)?.link;
-        if (current === undefined) return;
+        decision: Fields.reference({ of: "decisions", label: decisions?.name ?? "" }),
+    }, decisions === undefined ? ["decision"] : []), [m, decisions]);
+    // The states the canvas draws as themselves, and the decisions: a choice always holds its own value, shown as itself.
+    const options = useMemo(() => ({
+        states: model.nodes.filter((node) => !node.ghost && !node.dimmed)
+            .map((node): FieldOption => ({ key: node.key, label: node.label === undefined ? node.key : m.inspectorChoice({ key: node.key, label: node.label }) })),
+        decisions: [...model.triggers.values()].map((trigger): FieldOption => ({ key: trigger.key, label: trigger.label.length === 0 ? trigger.key : trigger.label })),
+    }), [model, m]);
+    const { bump, refused } = side;
+    const onRole = useCallback((path: readonly string[], next: unknown) => {
         const field = path[0]!;
-        // The kind its form shows is never none: a pick of it is the transition's kind.
-        write({ ...current, [field]: keyEqual(field, "kind") ? some(value) : value } as FlowchartLinkValue);
-    }, [edit, at, write]);
-    const stable = useDataStable(found?.link, (a, b) => (a === undefined || b === undefined ? a === undefined && b === undefined : linkEqual(a, b)));
-    const bytes = useMemo(() => (stable === undefined ? undefined : encodeLink(stable)), [stable]);
-    const update = useCallback((edited: Uint8Array): null => { write(decodeLink(edited)); return null; }, [write]);
-    const own = useOwnDetails(getSomeorUndefined(pane.transition), bytes, update, "transition");
-
-    if (found === undefined) return null;
-    const link = found.link;
-    const evidence = getSomeorUndefined(link.evidence);
-    const evidenceValue = evidence === undefined ? undefined : (() => {
-        const volume = getSomeorUndefined(evidence.volume);
-        const unit = getSomeorUndefined(evidence.unit);
-        return {
-            volume: volume === undefined ? none : some(unit === undefined ? words.number(volume) : `${words.number(volume)} ${unit}`),
-            count: evidence.count,
-            measured: evidence.measuredAt,
-        };
-    })();
-    const actions = edit === undefined ? undefined : (
+        const write = stringEqual(field, "from") ? { from: some(next as string), to: none, decision: none }
+            : stringEqual(field, "to") ? { from: none, to: some(next as string), decision: none }
+                : { from: none, to: none, decision: some(next as option<string>) };
+        if (act("editLink", (holding) => editLink(holding, at, write)) === undefined) bump();
+    }, [at, act, bump]);
+    const transition = transitionAt(rows, at);
+    if (transition === undefined) return null;
+    const roles = transition.roles;
+    const stored = held.transitions?.get(at)?.roles;
+    const unresolved = [roles.from, roles.to].some((end) => model.nodesByKey.get(end)?.ghost !== false);
+    const chips: Chip[] = [...(side.state.chip === undefined ? [] : [side.state.chip]), ...(unresolved ? ["unresolved" as const] : [])];
+    const evidence = getSomeorUndefined(roles.evidence);
+    const volume = evidence === undefined ? undefined : getSomeorUndefined(evidence.volume);
+    const unit = evidence === undefined ? undefined : getSomeorUndefined(evidence.unit);
+    const actions = !side.writes ? undefined : (
         <Action action="delete" words={words} onClick={() => {
-            const now = edit.now();
-            if (now !== undefined && edit.record(deleteLink(now, at), "deleteLink")) reveal(null);
+            if (act("deleteLink", (holding) => deleteLink(holding, at)) !== undefined) reveal(null);
         }} />
     );
-    const from = stateRow(flow, link.from);
-    const to = stateRow(flow, link.to);
-    const ends = `${(from === undefined ? undefined : getSomeorUndefined(from.label)) ?? link.from} → ${(to === undefined ? undefined : getSomeorUndefined(to.label)) ?? link.to}`;
     return (
         <Box css={styles.root} data-flowchart-inspector="transition">
-            <Head styles={styles} words={words} what={m.inspectorWhat({ what: "transition", from: link.from, to: link.to })} name={ends}
-                chip={chipOf(link, was, linkEqual)} />
-            <Edits styles={styles} available={available} actions={actions}>
-                {own !== undefined ? (
-                    <Box css={styles.custom} data-inspector-fields="custom">
-                        <EastChakraComponent value={own} storageKey={`${keys.frame}.inspector.transition`} />
+            <Head styles={styles} words={words} what={m.inspectorWhat({ what: "row", kind: name, name: endsOf(roles) })}
+                name={`${stateName(model, roles.from)} → ${stateName(model, roles.to)}`} chips={chips} />
+            <FlowchartPaneReads styles={styles} kind={props.details.transitions} at={at} words={words} />
+            <Edits styles={styles} available={side.available} actions={actions}>
+                <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.transitions`} roles={(
+                    <Box data-inspector-form="roles">
+                        <FieldForm key={refused} specs={specs} value={{ from: roles.from, to: roles.to, decision: roles.decision }}
+                            baseline={side.state.created || stored === undefined ? NEW_ROW : { from: stored.from, to: stored.to, decision: stored.decision }}
+                            options={options} onChange={side.writes ? onRole : NO_EDIT} readOnly={!side.writes} words={decisionWords} />
                     </Box>
-                ) : (
-                    <>
-                        {/* Never refused — an emptied key is the transition going by its ends — so never remounted. */}
-                        <Form styles={styles} specs={specs} value={linkForm(link)} baseline={was === undefined ? NEW_ROW : linkForm(was)} options={options} words={formWords}
-                            onChange={edit === undefined ? NO_EDIT : onChange} readOnly={edit === undefined} refused={0} />
-                        {evidenceValue !== undefined && (
-                            <Box css={styles.section} data-inspector-evidence="">
-                                <Box css={styles.sectionHead}>{m.inspectorSection({ section: "evidence", n: 0, count: "" })}</Box>
-                                <FieldForm specs={evidenceSpecs} value={evidenceValue} onChange={NO_EDIT} readOnly words={formWords} />
-                            </Box>
-                        )}
-                    </>
-                )}
+                )} />
             </Edits>
+            {evidence !== undefined && (
+                <Box css={styles.section} data-inspector-evidence="">
+                    <Box css={styles.sectionHead}>{m.inspectorSection({ section: "evidence", n: 0, count: "", name })}</Box>
+                    <FieldForm specs={EVIDENCE_SPECS(m)} onChange={NO_EDIT} readOnly value={{
+                        volume: volume === undefined ? none : some(unit === undefined ? words.number(volume) : `${words.number(volume)} ${unit}`),
+                        count: evidence.count,
+                        measured: evidence.measuredAt,
+                    }} />
+                </Box>
+            )}
         </Box>
     );
 }
 
+/** The evidence's form, read only: its specs, made once for a message table. */
+const evidenceSpecs = new WeakMap<FlowchartWords["m"], readonly FieldSpecValue[]>();
+
+/**
+ * The evidence's specs for a message table, made once.
+ *
+ * @param m - The message table
+ * @returns The specs
+ */
+function EVIDENCE_SPECS(m: FlowchartWords["m"]): readonly FieldSpecValue[] {
+    let specs = evidenceSpecs.get(m);
+    if (specs === undefined) {
+        specs = Fields.specs(EvidenceForm, {
+            volume: Fields.readonly({ label: m.inspectorField({ field: "volume" }) }),
+            count: Fields.readonly({ label: m.inspectorField({ field: "count" }) }),
+            measured: Fields.readonly({ label: m.inspectorField({ field: "measured" }) }),
+        });
+        evidenceSpecs.set(m, specs);
+    }
+    return specs;
+}
+
 // ── A decision ──────────────────────────────────────────────────────────────
 
-/** A decision: its head, its fields, the transitions it governs, and Delete. */
-function DecisionView({ flow, held, at, styles, words, edit, available, reveal, model }: RowProps) {
+/** A decision: its head, its key and its kind's form — or own Details — Delete, and the transitions it governs. */
+function DecisionView(props: RowViewProps) {
+    const { at, styles, words, value, model, act, reveal, storageKey } = props;
     const m = words.m;
-    const formWords = useFormWords(words);
-    const [refused, refuse] = useRefused();
-    const trigger = flow.triggers.find((t) => keyEqual(t.key, at));
-    const was = heldRow(held?.triggers, flow.triggers, (t) => t.key, at);
-    const stateKeys = useMemo(() => [...new Set(flow.states.map((s) => s.key))], [flow.states]);
-    const specs = useMemo(() => Fields.specs(Flowchart.Types.Trigger, {
-        key: Fields.text({ label: m.inspectorField({ field: "key" }), help: m.inspectorHelp({ help: "decisionKey" }) }),
-        label: Fields.text({ label: m.inspectorField({ field: "label" }) }),
-        letter: Fields.text({ label: m.inspectorField({ field: "letter" }) }),
-        owner: Fields.text({ label: m.inspectorField({ field: "owner" }) }),
-        queue: Fields.tags({ label: m.inspectorField({ field: "queue" }), options: stateKeys }),
-        outcomes: Fields.text({ label: m.inspectorField({ field: "outcomes" }) }),
-    }), [m, stateKeys]);
-    const onChange = useCallback((path: readonly string[], value: unknown) => {
-        const now = edit?.now();
-        const current = now === undefined ? undefined : now.triggers.find((t) => keyEqual(t.key, at));
-        if (edit === undefined || now === undefined || current === undefined) return;
-        const next = { ...current, [path[0]!]: value } as FlowchartTriggerValue;
-        if (keyEqual(next.key.trim(), "")) {
-            edit.refuse({ why: "emptyKey", what: "decision" });
-            refuse();
-            return;
-        }
-        const keyed = { ...next, key: next.key.trim() };
-        if (edit.record(setDecisionRow(now, at, keyed), "editDecision") && !keyEqual(keyed.key, at)) reveal({ kind: "trigger", key: keyed.key }, false);
-    }, [edit, at, refuse, reveal]);
+    const name = kindName(value, "decisions");
+    const side = useSide(props, "decisions", at, name);
+    const specs = useMemo(() => Fields.specs(DecisionKeyForm, { key: Fields.readonly({ label: m.inspectorField({ field: "key" }) }) }), [m]);
+    const trigger = model.triggers.get(at);
     if (trigger === undefined) return null;
-    const lines = linkLines(flow, (l) => l.trigger.type === "some" && keyEqual(l.trigger.value, at), words);
-    const actions = edit === undefined ? undefined : (
+    const lines = linkLines(props, (roles) => roles.decision.type === "some" && stringEqual(roles.decision.value, at));
+    const actions = !side.writes ? undefined : (
         <Action action="delete" words={words} onClick={() => {
-            const now = edit.now();
-            if (now !== undefined && edit.record(deleteDecision(now, at), "deleteDecision")) reveal(null);
+            if (act("deleteDecision", (holding) => deleteDecision(holding, at)) !== undefined) reveal(null);
         }} />
     );
     return (
         <Box css={styles.root} data-flowchart-inspector="decision">
-            <Head styles={styles} words={words} what={m.inspectorWhat({ what: "decision", letter: model.triggers.get(at)?.letter ?? at })} name={trigger.label}
-                chip={chipOf(trigger, was, triggerEqual)} />
-            <Edits styles={styles} available={available} actions={actions}>
-                <Form styles={styles} specs={specs} value={trigger} baseline={was ?? NEW_ROW} words={formWords}
-                    onChange={edit === undefined ? NO_EDIT : onChange} readOnly={edit === undefined} refused={refused} />
+            <Head styles={styles} words={words} what={m.inspectorWhat({ what: "row", kind: name, name: trigger.letter })}
+                name={trigger.label.length === 0 ? undefined : trigger.label} chips={side.state.chip === undefined ? [] : [side.state.chip]} />
+            <Edits styles={styles} available={side.available} actions={actions}>
+                <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.decisions`} roles={(
+                    <Box data-inspector-form="roles">
+                        <FieldForm specs={specs} value={{ key: at }} onChange={NO_EDIT} readOnly />
+                    </Box>
+                )} />
             </Edits>
-            <Links styles={styles} reveal={reveal} lines={lines} title={m.inspectorSection({ section: "governs", n: lines.length, count: words.number(lines.length) })} />
+            <Transitions styles={styles} reveal={reveal} groups={[{ key: "governs", head: undefined, lines }]}
+                title={m.inspectorSection({ section: "governs", n: lines.length, count: words.number(lines.length), name: kindName(value, "transitions") })} />
         </Box>
     );
 }
 
 // ── A lane ──────────────────────────────────────────────────────────────────
 
-/** A lane: its head, its fields, how many states it holds, and Delete — off while it holds any, saying why. */
-function LaneView({ flow, held, at, styles, words, edit, available, reveal }: RowProps) {
+/** A lane: its head, its key and its label, its kind's form — or own Details — how many states it holds, and Delete. */
+function LaneView(props: RowViewProps) {
+    const { at, styles, words, value, model, rows, held, act, reveal, storageKey } = props;
     const m = words.m;
-    const formWords = useFormWords(words);
-    const [refused, refuse] = useRefused();
-    const lane = flow.lanes.find((l) => keyEqual(l.key, at));
-    const was = heldRow(held?.lanes, flow.lanes, (l) => l.key, at);
-    const specs = useMemo(() => Fields.specs(Flowchart.Types.Lane, {
-        key: Fields.text({ label: m.inspectorField({ field: "key" }), help: m.inspectorHelp({ help: "laneKey" }) }),
+    const name = kindName(value, "lanes");
+    const side = useSide(props, "lanes", at, name);
+    const { created } = side.state;
+    const keyed = created && side.writes;
+    const specs = useMemo(() => Fields.specs(LaneRolesForm, {
+        key: keyed ? Fields.text({ label: m.inspectorField({ field: "key" }), help: m.inspectorKeyHelp() }) : Fields.readonly({ label: m.inspectorField({ field: "key" }) }),
         label: Fields.text({ label: m.inspectorField({ field: "label" }) }),
-    }), [m]);
-    const onChange = useCallback((path: readonly string[], value: unknown) => {
-        const now = edit?.now();
-        const current = now === undefined ? undefined : now.lanes.find((l) => keyEqual(l.key, at));
-        if (edit === undefined || now === undefined || current === undefined) return;
-        const next = { ...current, [path[0]!]: value } as typeof current;
-        if (keyEqual(next.key.trim(), "")) {
-            edit.refuse({ why: "emptyKey", what: "lane" });
-            refuse();
-            return;
-        }
-        const keyed = { ...next, key: next.key.trim() };
-        if (edit.record(setLaneRow(now, at, keyed), "editLane") && !keyEqual(keyed.key, at)) reveal({ kind: "lane", key: keyed.key }, false);
-    }, [edit, at, refuse, reveal]);
+    }), [m, keyed]);
+    const { bump, refused } = side;
+    const onRole = useCallback((path: readonly string[], next: unknown) => {
+        if (stringEqual(path[0]!, "key")) typedKey(props, "lanes", at, next as string, bump);
+        else if (act("renameLane", (holding) => renameLane(holding, at, next as string)) === undefined) bump();
+    }, [props, at, act, bump]);
+    const lane = rows.lanes?.find((row) => stringEqual(row.key, at));
     if (lane === undefined) return null;
-    const holds = laneStates(flow, at);
-    const actions = edit === undefined ? undefined : (
+    const stored = held.lanes?.get(at)?.roles;
+    const holds = model.laneStates.get(at) ?? 0;
+    const states = value.states.name.toLocaleLowerCase(words.locale);
+    const actions = !side.writes ? undefined : (
         <>
             <Action action="delete" words={words} disabled={holds > 0} onClick={() => {
-                const now = edit.now();
-                const next = now === undefined ? undefined : deleteLane(now, at);
-                if (next !== undefined && edit.record(next, "deleteLane")) reveal(null);
+                if (act("deleteLane", (holding) => deleteLane(holding, at)) !== undefined) reveal(null);
             }} />
-            {holds > 0 && <Box css={styles.why} data-inspector-why="">{m.laneHoldsStates({ n: holds, count: words.number(holds) })}</Box>}
+            {holds > 0 && <Box css={styles.why} data-inspector-why="">{m.laneHoldsStates({ n: holds, count: words.number(holds), name: states })}</Box>}
         </>
     );
     return (
         <Box css={styles.root} data-flowchart-inspector="lane">
-            <Head styles={styles} words={words} what={m.inspectorWhat({ what: "lane", label: getSomeorUndefined(lane.label) ?? lane.key })}
-                name={undefined} chip={chipOf(lane, was, laneEqual)} />
-            <Edits styles={styles} available={available} actions={actions}>
-                <Form styles={styles} specs={specs} value={lane} baseline={was ?? NEW_ROW} words={formWords}
-                    onChange={edit === undefined ? NO_EDIT : onChange} readOnly={edit === undefined} refused={refused} />
+            <Head styles={styles} words={words} what={m.inspectorWhat({ what: "row", kind: name, name: laneLabel(model, at) })} name={undefined}
+                chips={side.state.chip === undefined ? [] : [side.state.chip]} />
+            <Edits styles={styles} available={side.available} actions={actions}>
+                <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.lanes`} roles={(
+                    <Box data-inspector-form="roles">
+                        <FieldForm key={refused} specs={specs} value={{ key: at, label: lane.roles.label }}
+                            baseline={created || stored === undefined ? NEW_ROW : { key: at, label: stored.label }}
+                            onChange={side.writes ? onRole : NO_EDIT} readOnly={!side.writes} />
+                    </Box>
+                )} />
             </Edits>
-            <Box css={styles.section}>
-                <Box css={styles.fact} data-inspector-fact="lane">{m.inspectorLaneStates({ n: holds, count: words.number(holds) })}</Box>
-            </Box>
+            <Fact styles={styles} fact="lane">{m.inspectorLaneStates({ n: holds, count: words.number(holds), name: states })}</Fact>
         </Box>
     );
 }
@@ -767,139 +909,136 @@ function LaneView({ flow, held, at, styles, words, edit, available, reveal }: Ro
 // ── Several states ──────────────────────────────────────────────────────────
 
 /** Several states: how many; the lane every one moves to; and Delete. */
-function SeveralView({ flow, picked, styles, words, edit, available, reveal }: ViewProps & { readonly flow: FlowchartFlowValue; readonly picked: readonly string[] }) {
+function SeveralView(props: ViewProps & { readonly picked: readonly string[] }) {
+    const { picked, styles, words, value, model, editing, act, reveal } = props;
     const m = words.m;
-    const formWords = useFormWords(words);
-    const specs = useMemo(() => Fields.specs(MoveFormType, {
-        lane: Fields.reference({ of: "lanes", label: m.inspectorField({ field: "moveTo" }), help: m.inspectorHelp({ help: "moveTo" }) }),
-    }), [m]);
+    const lanes = getSomeorUndefined(value.lanes);
+    const writes = editing.editable("states");
+    const specs = useMemo(() => Fields.specs(MoveForm, {
+        lane: Fields.reference({ of: "lanes", label: m.inspectorField({ field: "moveTo", name: (lanes?.name ?? "").toLocaleLowerCase(words.locale) }) }),
+    }), [m, lanes, words.locale]);
     const options = useMemo(() => ({
-        lanes: flow.lanes.map((l): FieldOption => ({ key: l.key, label: getSomeorUndefined(l.label) ?? l.key })),
-    }), [flow.lanes]);
+        lanes: model.lanes.filter((lane) => lane.band === "lane").map((lane): FieldOption => ({ key: lane.key, label: lane.label })),
+    }), [model.lanes]);
+    const [refused, bump] = useRefused();
+    const onChange = useCallback((_path: readonly string[], next: unknown) => {
+        if (act("moveStates", (holding) => moveStates(holding, picked, next as string)) === undefined) bump();
+    }, [act, picked, bump]);
     // The lane they share, when they do.
-    const lanes = picked.map((key) => stateRow(flow, key)?.lane);
-    const first = lanes[0];
-    const shared = first !== undefined && lanes.every((lane) => lane !== undefined && keyEqual(lane, first)) ? first : undefined;
-    const onChange = useCallback((_path: readonly string[], value: unknown) => {
-        const now = edit?.now();
-        if (edit !== undefined && now !== undefined) edit.record(moveStates(now, picked, value as string), "moveStates");
-    }, [edit, picked]);
-    const actions = edit === undefined ? undefined : (
+    const held = picked.map((key) => model.nodesByKey.get(key)?.lane);
+    const first = held[0];
+    const shared = first !== undefined && held.every((lane) => lane !== undefined && stringEqual(lane, first)) ? first : undefined;
+    const n = picked.length;
+    const actions = !writes ? undefined : (
         <Action action="delete" words={words} onClick={() => {
-            const now = edit.now();
-            if (now !== undefined && edit.record(deleteStates(now, picked), "deleteStates")) reveal(null);
+            if (act("deleteStates", (holding) => deleteStates(holding, picked)) !== undefined) reveal(null);
         }} />
     );
     return (
         <Box css={styles.root} data-flowchart-inspector="several">
             <Box css={styles.head} {...FOCUS_HOME_PROPS}>
-                <Box css={styles.summary} data-inspector-several="">{m.inspectorWhat({ what: "states", n: picked.length, count: words.number(picked.length) })}</Box>
+                <Box css={styles.summary} data-inspector-several="">
+                    {m.inspectorWhat({ what: "several", n, count: words.number(n), name: value.states.name.toLocaleLowerCase(words.locale) })}
+                </Box>
             </Box>
-            <Edits styles={styles} available={available} actions={actions}>
-                <Form styles={styles} specs={specs} value={{ lane: shared }} baseline={undefined} options={options} words={formWords}
-                    onChange={edit === undefined ? NO_EDIT : onChange} readOnly={edit === undefined} refused={0} />
-            </Edits>
+            {(lanes !== undefined || actions !== undefined) && (
+                <Edits styles={styles} available={writes && editing.available("states")} actions={actions}>
+                    {lanes !== undefined && (
+                        <Box css={styles.bulk} data-inspector-fields="move">
+                            <FieldForm key={refused} specs={specs} value={{ lane: shared }} options={options}
+                                onChange={writes ? onChange : NO_EDIT} readOnly={!writes} />
+                        </Box>
+                    )}
+                </Edits>
+            )}
         </Box>
     );
 }
 
-// ── Nothing selected: the open flow ─────────────────────────────────────────
+// ── Nothing selected: the flowchart ─────────────────────────────────────────
 
-/** Nothing selected: the open flow — its name and description, Duplicate and Delete over many flows — its counts, its last save and three hints. */
-function FlowView({ flow, held, name, heldName, styles, words, edit, available, record, saved, model }: ViewProps & { readonly flow: FlowchartFlowValue }) {
+/** Nothing selected: the flowchart's counts, its transitions' split, each record's last save with who made it, and its hints. */
+function FlowchartView({ styles, words, value, model, saves, editing }: ViewProps) {
     const m = words.m;
-    const formWords = useFormWords(words);
-    const many = name !== undefined;
+    // In a phone's pane, the hint is a tap's: no several selected or renamed in place there.
     const touch = useContext(FrameDrawer);
-    const specs = useMemo(() => Fields.specs(FlowFormType, {
-        name: Fields.text({ label: m.inspectorField({ field: "name" }), help: m.inspectorHelp({ help: "flowName" }) }),
-        description: Fields.text({ label: m.inspectorField({ field: "description" }) }),
-    }, many ? [] : ["name"]), [m, many]);
-    const [refused, refuse] = useRefused();
-    const onChange = useCallback((path: readonly string[], value: unknown) => {
-        if (edit === undefined) return;
-        if (keyEqual(path[0]!, "name")) {
-            // A rename refused leaves the name as it was: the field shows it again.
-            void Promise.resolve(edit.rename(value as string)).then(accepted => { if (!accepted) refuse(); }, refuse);
-            return;
-        }
-        const now = edit.now();
-        if (now !== undefined) edit.record(describeFlow(now, value as option<string>), "describeFlow");
-    }, [edit, refuse]);
     const counts = model.counts;
-    const stats: [what: "lanes" | "states" | "transitions" | "decisions", n: number][] = [
-        ["lanes", flow.lanes.length], ["states", flow.states.length], ["transitions", flow.links.length], ["decisions", flow.triggers.length],
+    const stats = [
+        ...(value.lanes.type === "some" ? [{ key: "lanes", name: value.lanes.value.name, n: counts.lanes }] : []),
+        { key: "states", name: value.states.name, n: counts.states },
+        ...(value.transitions.type === "some" ? [{ key: "transitions", name: value.transitions.value.name, n: counts.transitions }] : []),
+        ...(value.decisions.type === "some" ? [{ key: "decisions", name: value.decisions.value.name, n: counts.decisions }] : []),
     ];
-    const actions = edit === undefined || !many ? undefined : (
-        <>
-            <Action action="duplicate" words={words} onClick={edit.duplicate} />
-            <Action action="delete" words={words} onClick={edit.remove} />
-        </>
-    );
-    // New while the source holds none of it; Pending while its drafts change it, or its name.
-    const renamed = name !== undefined && heldName !== undefined && !keyEqual(name, heldName);
-    const chip = held === undefined ? (edit !== undefined ? "new" : undefined) : renamed || !flowEqual(held, flow) ? "pending" : undefined;
+    const hints = editing.edits ? [1, 2, 3] as const : [1, 2] as const;
     return (
-        <Box css={styles.root} data-flowchart-inspector="flow">
-            <Head styles={styles} words={words} what={m.inspectorWhat({ what: "flow" })} name={name} chip={chip} />
-            <Edits styles={styles} available={available} actions={actions}>
-                <Form styles={styles} specs={specs} value={{ name: name ?? "", description: flow.description }}
-                    baseline={held === undefined ? NEW_ROW : { name: heldName ?? name ?? "", description: held.description }} words={formWords}
-                    onChange={edit === undefined ? NO_EDIT : onChange} readOnly={edit === undefined} refused={refused} />
-            </Edits>
+        <Box css={styles.root} data-flowchart-inspector="flowchart">
+            <Box css={styles.head} {...FOCUS_HOME_PROPS}>
+                <Box css={styles.eyebrow} data-inspector-what="">{m.inspectorWhat({ what: "flowchart" })}</Box>
+            </Box>
             <Box css={styles.stats} data-inspector-counts="">
-                {stats.map(([what, n]) => (
-                    <Box key={what} css={styles.stat} data-count={what}>
-                        <Box as="span" css={styles.statValue}>{words.number(n)}</Box>
-                        <Box as="span" css={styles.statLabel}>{m.inspectorCount({ what, n })}</Box>
+                {stats.map((stat) => (
+                    <Box key={stat.key} css={styles.stat} data-count={stat.key}>
+                        <Box as="span" css={styles.statValue}>{words.number(stat.n)}</Box>
+                        <Box as="span" css={styles.statLabel}>{m.inspectorCount({ name: stat.name, n: stat.n })}</Box>
                     </Box>
                 ))}
             </Box>
-            <Box css={styles.section}>
-                <Box css={styles.fact} data-inspector-split="">
+            {value.transitions.type === "some" && (
+                <Fact styles={styles} fact="split">
                     {m.inspectorSplit({ planned: words.number(counts.planned), observed: words.number(counts.observed), unresolved: words.number(counts.unresolved) })}
+                </Fact>
+            )}
+            {saves.records.length > 0 && (
+                <Box css={styles.section}>
+                    {saves.records.map((save) => (
+                        <Box key={save.sort} css={styles.fact} data-inspector-saved={save.sort}>{m.inspectorSaved({ name: save.name, when: save.when, by: save.by })}</Box>
+                    ))}
                 </Box>
-                {record && <Box css={styles.fact} data-inspector-saved="">{m.inspectorSaved({ when: saved?.when, by: saved?.by })}</Box>}
-            </Box>
+            )}
             <Box as="ul" css={styles.hints}>
                 {touch ? <Box as="li" css={styles.hint}>{m.inspectorHintTouch()}</Box>
-                    : ([1, 2, 3] as const).map((n) => <Box as="li" key={n} css={styles.hint}>{m.inspectorHint({ n })}</Box>)}
+                    : hints.map((n) => <Box as="li" key={n} css={styles.hint}>{m.inspectorHint({ n, edits: editing.edits })}</Box>)}
             </Box>
         </Box>
     );
 }
 
-/** A flow its drafts delete: says so, and how to keep it. */
-function DeletedFlow({ name, styles, words }: ViewProps) {
-    const m = words.m;
-    return (
-        <Box css={styles.root} data-flowchart-inspector="deleted">
-            <Head styles={styles} words={words} what={m.inspectorWhat({ what: "flow" })} name={name} chip="deleted" />
-            <Box css={styles.section}>
-                <Box css={styles.fact} data-inspector-fact="deleted">{m.flowDeleted({ part: "hint", name: name ?? "" })}</Box>
-            </Box>
-        </Box>
-    );
-}
-
-/** No flow open: the shared empty state saying so. */
-function NoFlow({ styles, words }: ViewProps) {
-    const m = words.m;
-    return (
-        <Box css={styles.empty} data-flowchart-inspector="none">
-            <EmptyStateView icon={{ prefix: "fas", name: "diagram-project" }} title={m.inspectorNoFlow({ part: "title" })} description={m.inspectorNoFlow({ part: "hint" })} />
-        </Box>
-    );
-}
-
 // ============================================================================
-// Issues (FB37)
+// Issues (R16)
 // ============================================================================
 
-/** The Issues tab: every issue of the open flow, each a control that selects what it names. */
-const FlowchartInspectorIssues = memo(function FlowchartInspectorIssues({ issues, flow, model, name, reveal, words }: FlowchartInspectorProps) {
+/**
+ * The Issues tab: every issue of the Flowchart and of its unsaved changes, each a control that selects what it names and
+ * brings it into view. An issue of a change the narrowing hides says on a line of its own which of the rail's choices
+ * hide its row, asked of e3 through its source's hidden pick, and Go to issue on it is the frame's hidden pick
+ * (`goToWaiting`): those choices cleared, then selected once it is drawn.
+ */
+const FlowchartInspectorIssues = memo(function FlowchartInspectorIssues({ issues, value, picks, reveal, goToWaiting, words }: FlowchartInspectorProps) {
     const styles = useSlotRecipe({ key: "flowchartInspector" })() as Styles;
     const m = words.m;
+    // Each issue's rows of the rail's sources whose narrowing hides what it names: each source's hidden pick, and the row.
+    const hidingsOf = (issue: FlowchartIssue): RowHiding[] => issue.hiding.flatMap((hiding) => {
+        const pick = picks.get(hiding.sort);
+        return pick === undefined ? [] : [{ pick, id: hiding.key }];
+    });
+    const hidings = issues.flatMap(hidingsOf);
+    // The narrowing hides each, as the Flowchart knows: each says so at once while e3 is asked which choices do — asked
+    // once at its record's revision and its narrowing, so a render that moves neither asks nothing. Asked after every
+    // render: the revision and the narrowing land in renders of their own.
+    useEffect(() => {
+        if (hidings.length > 0) askHiding(hidings, true);
+    });
+    // What hides an issue's row, as far as e3 has said: `undefined` for any other issue, and for one nothing hides.
+    const hiddenOfIssue = (issue: FlowchartIssue): readonly RowHidden[] | undefined => {
+        const of = hidingsOf(issue);
+        return of.length === 0 ? undefined : hiddenOf(of);
+    };
+    // Go to issue: what it names selected and brought into view — a change the narrowing hides through the frame's hidden
+    // pick, the choices hiding it cleared first.
+    const goTo = (issue: FlowchartIssue) => {
+        if (issue.at !== null && issue.hiding.length > 0) goToWaiting(issue.at, hiddenOfIssue(issue));
+        else reveal(issue.at);
+    };
     if (issues.length === 0) {
         return (
             <Box css={styles.empty} data-inspector-no-issues="">
@@ -910,16 +1049,20 @@ const FlowchartInspectorIssues = memo(function FlowchartInspectorIssues({ issues
     }
     return (
         <Box as="ul" css={styles.issueList} data-inspector-issue-list="">
-            {issues.map((issue, i) => (
-                <Box as="li" key={i}>
-                    <chakra.button type="button" css={styles.issueItem} data-inspector-issue="" onClick={() => reveal(issue.at)}>
-                        <Box as="span" css={styles.issueWhere}>
-                            {issue.at === null || flow === undefined ? (name ?? m.inspectorWhat({ what: "flow" })) : m.inspectorWhat(whatOf(issue.at, flow, model, words))}
-                        </Box>
-                        <Box as="span" css={styles.issueMessage} data-kind={issue.blocking ? "invalid" : "warning"}>{m.issueText(issue.word)}</Box>
-                    </chakra.button>
-                </Box>
-            ))}
+            {issues.map((issue, i) => {
+                const hiddenBy = hiddenOfIssue(issue);
+                const hidden = hiddenBy === undefined ? undefined : hiddenLine(hiddenBy, words, m);
+                const sort = issue.where.sort;
+                return (
+                    <Box as="li" key={i}>
+                        <chakra.button type="button" css={styles.issueItem} data-inspector-issue={issue.word.issue} onClick={() => goTo(issue)}>
+                            <Box as="span" css={styles.issueWhere}>{m.issueWhere({ kind: sort === undefined ? undefined : kindName(value, sort), name: issue.where.name })}</Box>
+                            <Box as="span" css={styles.issueMessage} data-kind={issue.blocking ? "invalid" : "warning"}>{m.issueText(issue.word)}</Box>
+                            {hidden !== undefined && <Box as="span" css={styles.issueHidden} data-inspector-issue-hidden="">{hidden}</Box>}
+                        </chakra.button>
+                    </Box>
+                );
+            })}
         </Box>
     );
 });

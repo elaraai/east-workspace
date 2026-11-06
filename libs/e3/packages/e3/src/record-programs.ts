@@ -37,6 +37,7 @@ import {
 } from '@elaraai/e3-types';
 import { functionAt, sameEastType, signatureOf, type IndexFunction } from './record-guards.js';
 import { argumentsType, callWithArguments, programOverArguments } from './record-arguments.js';
+import { emptiedRow } from './record-index.js';
 import { NestedPatchedType } from './record-nested-programs.js';
 import { patchTypeOf } from './record-patches.js';
 import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './types.js';
@@ -97,24 +98,57 @@ export function summed(index: RecordIndexDef): boolean {
 }
 
 /**
- * A record's index as it is built and bound (#1434): as declared, but, beside
- * a nested series index of the record, one that carries nothing — a plain or
- * an interval index with no `value` — or the row — an area index, a key-form
- * series index — carries the lean row instead: its rows without the listed
- * collections, so a page of them reads no nested item and no segment of the
- * record's own. An index with a `value` of its own carries its own.
+ * A record's index as it is built and bound (#1434, #1521): as declared, but,
+ * beside a nested series index or an entries index of the record, one that
+ * carries nothing — a plain or an interval index with no `value` — or the row
+ * — an area index, a key-form series index — carries the lean row instead:
+ * its rows without the nested series index's collections, or with every field
+ * the entries indexes file emptied, so a page of them reads no nested item, no
+ * entry and no segment of the record's own. An index with a `value` of its
+ * own carries its own, an entries index's lean rows among them.
  *
  * @param rec - The record, its indexes declared
  * @param index - One of its indexes
  * @returns The index as it is built
  */
 export function builtIndex(rec: RecordDef, index: RecordIndexDef): RecordIndexDef {
-  const nested = Object.values(rec.indexes).find((other) => other.nested !== undefined)?.nested;
-  if (nested === undefined || index.nested !== undefined || summed(index)) return index;
+  if (index.nested !== undefined || index.entries !== undefined || summed(index)) return index;
   const carriesTheRow = index.area !== undefined || index.series !== undefined;
   if (index.valueFn !== undefined && !carriesTheRow) return index;
+  const lean = leanRowOf(rec);
+  if (lean === undefined) return index;
   const { valueType } = dictEntry(rec.type, `index '${index.name}'`);
-  return { ...index, valueFn: nested.lean, valueType };
+  return { ...index, valueFn: lean, valueType };
+}
+
+/** Each record's lean row beside several entries indexes, built the first time it is read ({@link leanRowOf}). */
+const ENTRIES_LEAN = new WeakMap<RecordDef, { toIR(): unknown }>();
+
+/**
+ * The lean row a record's other indexes carry ({@link builtIndex}): beside its
+ * nested series index, the row without the collections it files (#1434);
+ * beside its entries indexes, the row with every field they file emptied —
+ * the one's own lean row, or, beside several, one emptying each (#1521); none
+ * beside neither. A record declares one kind or the other, never both.
+ *
+ * @param rec - The record, its indexes declared
+ * @returns The lean row, `(K, V) -> V`; undefined where the record files neither a nested nor an entries field
+ */
+function leanRowOf(rec: RecordDef): { toIR(): unknown } | undefined {
+  const indexes = Object.values(rec.indexes);
+  const nested = indexes.find((other) => other.nested !== undefined)?.nested;
+  if (nested !== undefined) return nested.lean;
+  const fields = indexes.flatMap((other) => (other.entries === undefined ? [] : [other.entries]));
+  if (fields.length <= 1) return fields[0]?.lean;
+  let lean = ENTRIES_LEAN.get(rec);
+  if (lean === undefined) {
+    const { keyType, valueType } = dictEntry(rec.type, `record '${rec.name}'`);
+    // With no location captured, so its bytes are the declaration's alone, wherever it is first read.
+    const emptied = fields.map((entries) => entries.field).sort();
+    lean = withLocationCapture(false, () => emptiedRow(keyType, valueType, emptied));
+    ENTRIES_LEAN.set(rec, lean);
+  }
+  return lean;
 }
 
 /** An index's keys for a row: `(K, V) → Set<IK>` — its `keys` function, or its `key` function's one key. */
@@ -148,7 +182,8 @@ function indexProjection(index: RecordIndexDef, keyType: EastType, valueType: Ea
  * Null (#1039). Two rows, in one piece or two, contribute to one key: the
  * build's output names the merge that sums them ({@link summaryMergeProgram}).
  * A nested series index's emits each row's entries, each with its own value
- * (#1434).
+ * (#1434), and an entries index's each key its field holds, with the key's
+ * value (#1521).
  *
  * @param recordType - the record's state type, `Dict<K, V>`
  * @param def - the index declaration
@@ -170,8 +205,9 @@ export function indexBuildProgram(recordType: EastType, def: RecordIndexDef) {
     }));
   }
   const emitType = FunctionType([indexEntryKeyType(keyType, def.keyType), def.valueType], NullType);
-  if (def.nested !== undefined) {
-    // A nested series index's row gives its entries with their values (#1434), each under the row's key.
+  if (def.nested !== undefined || def.entries !== undefined) {
+    // A nested series index's row gives its entries with their values (#1434), and an entries index's its field's
+    // (#1521), each under the row's key.
     const entries = functionAt(def.keyFn, [keyType, valueType], DictType(def.keyType, def.valueType));
     return locationFree(() => East.function([pieceType, emitType], NullType, ($, piece, emit) => {
       const entriesOf = $.const(entries);
@@ -503,8 +539,9 @@ function rowChanges(types: DictWrite) {
  * index they are the row's `add`s: under each key it moves, what it took away
  * and gave, summed, and none where they cancel (#1039). A nested series index
  * is maintained by the row's patch where one is given and says what it touched
- * (#1434), and by the two rows whole otherwise; every other index compares the
- * rows' entries whole.
+ * (#1434), and by the two rows whole otherwise; an entries index compares the
+ * two rows' entries key by key (#1521); every other index compares the rows'
+ * entries whole.
  *
  * A write's program runs it on each row the write touches, and a binding
  * carries it, so a page previews a drafted row's Save with the function the
@@ -525,10 +562,11 @@ export function indexMaintenance(rec: RecordDef, index: RecordIndexDef): IndexMa
 /** An index's maintenance for one row ({@link indexMaintenance}): `(K, Option<V>, Option<V>, Option<RowPatch>) → Dict<EntryKey, Op>`. */
 export type IndexMaintenance = FunctionExpr<[EastType, EastType, EastType, EastType], EastType>;
 
-/** {@link indexMaintenance} for an index of entries — a nested series index or any other but a summary — at a Dict record's types. */
+/** {@link indexMaintenance} for an index of entries — a nested series index, an entries index or any other but a summary — at a Dict record's types. */
 function entriesMaintenance(index: RecordIndexDef, keyType: EastType, valueType: EastType, rowPatchType: EastType) {
-  return index.nested !== undefined ? nestedMaintenance(index, index.nested.byPatch, keyType, valueType, rowPatchType)
-    : entryMaintenance(index, keyType, valueType, rowPatchType);
+  if (index.nested !== undefined) return rowEntriesMaintenance(index, index.nested.byPatch, keyType, valueType, rowPatchType);
+  if (index.entries !== undefined) return rowEntriesMaintenance(index, undefined, keyType, valueType, rowPatchType);
+  return entryMaintenance(index, keyType, valueType, rowPatchType);
 }
 
 /** What {@link indexMaintenance} gives for an index, by entry: its collection's patch ops, or a summary's `add`. */
@@ -592,20 +630,24 @@ function entryMaintenance(index: RecordIndexDef, keyType: EastType, valueType: E
 }
 
 /**
- * A nested series index's maintenance for one row ({@link indexMaintenance},
- * #1434): its entries before and after compared by key — one gone a delete,
- * one come an insert, one whose value changed an update. By the row's patch
- * where one is given: only the entries of what it touched, before and after,
- * are compared — unless a replace on the way leaves the row to be compared
- * whole, as a row inserted or deleted is. Both give the same ops. The entries'
- * keys hold the row's own key, so no two rows share one.
+ * The maintenance for one row ({@link indexMaintenance}) of an index whose row
+ * gives its entries with their values — a nested series index's (#1434) or an
+ * entries index's (#1521): its entries before and after compared by key — one
+ * gone a delete, one come an insert, one whose value changed an update. A
+ * nested series index's by the row's patch where one is given (`byPatchFn`):
+ * only the entries of what it touched, before and after, are compared —
+ * unless a replace on the way leaves the row to be compared whole, as a row
+ * inserted or deleted is. Both give the same ops. An entries index's are the
+ * two rows' whole. The entries are filed under the row's own key, so no two
+ * rows share one.
  */
-function nestedMaintenance(index: RecordIndexDef, byPatchFn: IndexFunction, keyType: EastType, valueType: EastType, rowPatchType: EastType) {
+function rowEntriesMaintenance(
+  index: RecordIndexDef, byPatchFn: IndexFunction | undefined, keyType: EastType, valueType: EastType, rowPatchType: EastType,
+) {
   const opsType = maintenanceOpsType(index, keyType);
   const entriesType = DictType(index.keyType, index.valueType);
   const changedType = StructType({ before: entriesType, after: entriesType });
   const entries = functionAt(index.keyFn, [keyType, valueType], entriesType);
-  const byPatch = functionAt(byPatchFn, [keyType, valueType, valueType, rowPatchType], NestedPatchedType(entriesType));
   const values = East.patchesFor(index.valueType);
   // A row's entries; none for no row.
   const entriesOf = East.function([keyType, OptionType(valueType)], entriesType, ($, key, row) => {
@@ -618,24 +660,32 @@ function nestedMaintenance(index: RecordIndexDef, byPatchFn: IndexFunction, keyT
     });
     return new Map();
   });
-  // A row's entries before and after: by its patch where one is given and can say what it touched; whole otherwise.
-  const changedOf = East.function([keyType, OptionType(valueType), OptionType(valueType), OptionType(rowPatchType)], changedType,
-    ($, key, held, next, patch) => {
-      const of = $.const(entriesOf);
-      const patched = $.const(byPatch);
-      $.match(patch, {
-        some: ($, rowPatch) => {
-          $.match(patched(key, held.unwrap(), next.unwrap(), rowPatch), {
-            changed: ($, both) => {
-              $.return(both);
-            },
-            whole: () => {},
-          });
-        },
-        none: () => {},
+  // A row's entries before and after: by its patch where the index reads one, it is given and it can say what it
+  // touched; whole otherwise.
+  const byPatch = byPatchFn === undefined ? undefined : functionAt(byPatchFn, [keyType, valueType, valueType, rowPatchType], NestedPatchedType(entriesType));
+  const changedOf = byPatch === undefined
+    ? East.function([keyType, OptionType(valueType), OptionType(valueType), OptionType(rowPatchType)], changedType,
+      ($, key, held, next, _patch) => {
+        const of = $.const(entriesOf);
+        return { before: of(key, held), after: of(key, next) };
+      })
+    : East.function([keyType, OptionType(valueType), OptionType(valueType), OptionType(rowPatchType)], changedType,
+      ($, key, held, next, patch) => {
+        const of = $.const(entriesOf);
+        const patched = $.const(byPatch);
+        $.match(patch, {
+          some: ($, rowPatch) => {
+            $.match(patched(key, held.unwrap(), next.unwrap(), rowPatch), {
+              changed: ($, both) => {
+                $.return(both);
+              },
+              whole: () => {},
+            });
+          },
+          none: () => {},
+        });
+        return { before: of(key, held), after: of(key, next) };
       });
-      return { before: of(key, held), after: of(key, next) };
-    });
   return East.function([keyType, OptionType(valueType), OptionType(valueType), OptionType(rowPatchType)], opsType, ($, key, held, next, patch) => {
     const changedFn = $.const(changedOf);
     const diff = $.const(values.diff);

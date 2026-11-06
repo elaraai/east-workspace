@@ -8,9 +8,12 @@
  * that carry its library's cards onto its canvas and save to the e3 the page
  * runs: opening an example at rest, sizing its box, opening its library and
  * a tab of it, picking a card up and carrying it, what the drag's ghost says,
- * where a transition's line runs, and leaving the page for another e3 page
- * and coming back, its e3 kept in memory, so the flowchart mounts afresh over
- * what its record holds. Every box is the page's own, in client px.
+ * dragging a state's card — by its middle, or by its key's letters — and the
+ * lane a card stands in, where a transition's
+ * line lies, and leaving the page for another e3 page and coming back, its e3
+ * kept in memory, so the flowchart mounts afresh over what its record holds;
+ * and what is wrong with a phone's window of lanes. Every box is the page's
+ * own, in client px, at whatever zoom the canvas is drawn at (#1519).
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
@@ -21,6 +24,16 @@ export const FLOWCHARTS = "e3/flowchart/flowchart";
 
 /** The library's open width (`Flowchart Builder Spec.md` §8). */
 export const PANE = 272;
+
+/**
+ * The desktop window a card is carried in, larger than the project's 1280 ×
+ * 800: wide enough that the page's entry holds a 900px frame whole — a frame
+ * wider than its entry scrolls it, and a card resting in the 48px along the
+ * entry's edge would scroll the page under it — and tall enough that the
+ * depot's 640px box, centred under the page's header, stands clear of the 48px
+ * at the window's top and foot (`sizeTo`).
+ */
+export const CARRY_WINDOW = { width: 1600, height: 900 } as const;
 
 /** A box, in client px. */
 export interface Box {
@@ -35,7 +48,7 @@ export interface Box {
  * flowchart's root: the box its frame fills.
  *
  * @param page - The page
- * @param name - The example's name (`flowchartLibrary`)
+ * @param name - The example's name (`flowchartDepot`)
  * @param theme - The theme to open it in
  * @returns The example's entry and the flowchart's root
  */
@@ -168,6 +181,40 @@ export async function boxOf(locator: Locator): Promise<Box> {
 }
 
 /**
+ * A box's middle.
+ *
+ * @param box - The box, in client px
+ * @returns Its middle, in client px
+ */
+export function middleOf(box: Box): { x: number; y: number } {
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+/**
+ * Scroll the canvas so a point of it stands in the middle of what main shows —
+ * across it, and down it as well where asked — as the viewer's scrollbars
+ * bring it there, the canvas stopping at its ends; and wait for the page to be
+ * at rest. The depot's cards draw their details, so its lanes and rows reach
+ * past main at every frame these specs size: what a card is carried to is brought
+ * into view first, clear of the 48px along main's edges where a card carried
+ * there scrolls the canvas.
+ *
+ * @param page - The page
+ * @param root - The flowchart's root
+ * @param at - The point, in client px, as the canvas is scrolled now
+ * @param down - Whether it is brought to main's middle down as well as across
+ */
+export async function centreInMain(page: Page, root: Locator, at: { x: number; y: number }, down = false): Promise<void> {
+    await root.evaluate((el, [p, d]) => {
+        const scroll = el.querySelector<HTMLElement>("[data-flowchart-scroll]")!;
+        const view = scroll.getBoundingClientRect();
+        scroll.scrollLeft += p.x - (view.left + scroll.clientLeft + scroll.clientWidth / 2);
+        if (d) scroll.scrollTop += p.y - (view.top + scroll.clientTop + scroll.clientHeight / 2);
+    }, [at, down] as const);
+    await settled(page);
+}
+
+/**
  * Press a card and carry it past the drag threshold — the drag is in flight.
  *
  * @param page - The page
@@ -190,17 +237,105 @@ export async function pickUp(page: Page, card: Locator): Promise<{ x: number; y:
 
 /**
  * Carry the picked-up card to a point of the canvas — once main holds it, no
- * pane and nothing of the page over it — and let it rest there.
+ * pane and nothing of the page over it — and let it rest there. A point given
+ * as its read is read again once the card rests, and the card carried on to
+ * where it stands then: a card carried in from a pinned pane crosses the 48px
+ * along main's start, where the canvas scrolls under it while it can, so what
+ * it is carried to moves on the way. Resting in main clear of its edges, the
+ * card scrolls the canvas no further: read again, the point holds still.
  *
  * @param page - The page
  * @param root - The flowchart's root
- * @param at - The point, in client px
+ * @param at - The point, in client px, or its read
  * @param steps - The moves the mouse makes on its way
  */
-export async function carryTo(page: Page, root: Locator, at: { x: number; y: number }, steps = 8): Promise<void> {
-    await expect.poll(() => root.evaluate((el, p) => el.querySelector("[data-frame-slot='main']")!.contains(document.elementFromPoint(p.x, p.y)), at),
-        `main holds (${Math.round(at.x)}, ${Math.round(at.y)})`).toBe(true);
-    await page.mouse.move(at.x, at.y, { steps });
+export async function carryTo(page: Page, root: Locator, at: { x: number; y: number } | (() => Promise<{ x: number; y: number }>), steps = 8): Promise<void> {
+    const carry = async (p: { x: number; y: number }): Promise<void> => {
+        await expect.poll(() => root.evaluate((el, q) => el.querySelector("[data-frame-slot='main']")!.contains(document.elementFromPoint(q.x, q.y)), p),
+            `main holds (${Math.round(p.x)}, ${Math.round(p.y)})`).toBe(true);
+        await page.mouse.move(p.x, p.y, { steps });
+    };
+    if (typeof at !== "function") return carry(at);
+    const first = await at();
+    await carry(first);
+    await settled(page);
+    const then = await at();
+    if (then.x === first.x && then.y === first.y) return;
+    await carry(then);
+    await settled(page);
+    expect(await at(), "what the card is carried to holds still once it rests").toEqual(then);
+}
+
+/**
+ * The middle of a state's key as its card draws it: its letters, not the room
+ * around them.
+ *
+ * @param card - The state's card
+ * @param key - The state's key
+ * @returns The point, in client px
+ */
+function keyLettersOf(card: Locator, key: string): Promise<{ x: number; y: number }> {
+    return card.evaluate((el, k) => {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        for (let text = walker.nextNode(); text !== null; text = walker.nextNode()) {
+            if (text.textContent?.trim() !== k) continue;
+            const range = document.createRange();
+            range.selectNodeContents(text);
+            const r = range.getBoundingClientRect();
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        }
+        throw new Error(`${k}'s card draws no letters of its key`);
+    }, key);
+}
+
+/**
+ * Drag a state's card by the mouse to a point of the canvas, past the move's
+ * threshold. The card is hovered first — locator actionability brings it into
+ * the page's view and waits for a stable hit target, as `pickUp` does: a pane
+ * collapsing, or an earlier drop, can leave it below the window, where raw
+ * coordinates reach nothing — then held down, at its middle or on its key's
+ * letters, and carried past the threshold: the move is in flight, the card
+ * faded where it stands. The point is read after — what reads it may scroll
+ * the canvas under the carried card first — then carried to once main holds it
+ * (`carryTo`).
+ *
+ * @param page - The page
+ * @param root - The flowchart's root
+ * @param key - The state's key
+ * @param to - Reads the point it is carried to, in client px
+ * @param grip - Where the card is held: its middle, or its key's letters, the words its head draws
+ */
+export async function dragState(page: Page, root: Locator, key: string, to: () => Promise<{ x: number; y: number }>, grip: "middle" | "key" = "middle"): Promise<void> {
+    const card = root.locator(`[data-flowchart-node="${key}"]`);
+    await card.hover();
+    const from = grip === "middle" ? middleOf(await boxOf(card)) : await keyLettersOf(card, key);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x + 12, from.y + 12, { steps: 3 });
+    await expect(card).toHaveCSS("opacity", "0.3");
+    await carryTo(page, root, await to(), 10);
+    await page.mouse.up();
+    await settled(page);
+}
+
+/**
+ * Which lane's band a state's card stands in, by its middle.
+ *
+ * @param root - The flowchart's root
+ * @param key - The state's key
+ * @returns The band's key, or `null`
+ */
+export function laneOf(root: Locator, key: string): Promise<string | null> {
+    return root.evaluate((el, k) => {
+        const card = el.querySelector(`[data-flowchart-node="${k}"]`)!.getBoundingClientRect();
+        const x = card.left + card.width / 2;
+        const y = card.top + card.height / 2;
+        const band = [...el.querySelectorAll("[data-flowchart-band]")].find((b) => {
+            const r = b.getBoundingClientRect();
+            return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+        });
+        return band?.getAttribute("data-flowchart-band") ?? null;
+    }, key);
 }
 
 /**
@@ -217,17 +352,63 @@ export async function captionOf(page: Page): Promise<{ text: string; refused: bo
 }
 
 /**
- * A point halfway along a transition's line, in client px.
+ * A point halfway along a transition's line, in client px: the line's own
+ * point, in the drawing's px, scaled as the zoom draws the drawing (R42).
  *
  * @param root - The flowchart's root
- * @param key - The transition's key, as the canvas draws it (`CH*→LDD#2`)
+ * @param key - The transition's key in its record (`l9`)
  * @returns The point
  */
 export function midLine(root: Locator, key: string): Promise<{ x: number; y: number }> {
     return root.evaluate((el, k) => {
         const path = el.querySelector<SVGPathElement>(`[data-flowchart-link="${k}"]`)!;
-        const svg = path.ownerSVGElement!.getBoundingClientRect();
+        const owner = path.ownerSVGElement!;
+        const svg = owner.getBoundingClientRect();
+        const scale = svg.width / owner.width.baseVal.value;
         const at = path.getPointAtLength(path.getTotalLength() / 2);
-        return { x: svg.left + at.x, y: svg.top + at.y };
+        return { x: svg.left + at.x * scale, y: svg.top + at.y * scale };
     }, key);
+}
+
+/**
+ * What is wrong with a phone's window of lanes, resting on a lane, where the
+ * details draw on the cards (R40, D24): each card it shows not whole, off the
+ * middle of what it shows — its scrollbar left out — or not that lane's; and
+ * any label drawn on a card anywhere on the canvas. Each fault, in words.
+ *
+ * @param frame - The flowchart's builder frame
+ * @param lane - The lane the window rests on, from the first
+ * @returns The faults; none for a window at rest on its lane's card
+ */
+export function laneWindowFaults(frame: Locator, lane: number): Promise<string[]> {
+    return frame.evaluate((el, at) => {
+        const faults: string[] = [];
+        // What the window shows across: the scroll's box, its scrollbar left out.
+        const scroll = el.querySelector<HTMLElement>("[data-flowchart-scroll]")!;
+        const left = scroll.getBoundingClientRect().left + scroll.clientLeft;
+        const right = left + scroll.clientWidth;
+        const middle = (left + right) / 2;
+        // A lane's header stands in its middle, as its cards do.
+        const headBox = el.querySelectorAll("[data-flowchart-lane]")[at]?.getBoundingClientRect();
+        if (headBox === undefined) faults.push(`no lane ${at}`);
+        const cards = [...el.querySelectorAll<HTMLElement>("[data-flowchart-node]")]
+            .map((card) => ({ key: card.getAttribute("data-flowchart-node")!, box: card.getBoundingClientRect() }));
+        const shown = cards.filter(({ box }) => box.right > left && box.left < right);
+        if (shown.length === 0) faults.push("no card in the window");
+        for (const { key, box } of shown) {
+            const centre = (box.left + box.right) / 2;
+            if (box.left < left - 0.5 || box.right > right + 0.5) faults.push(`${key} cut: ${box.left}–${box.right} in ${left}–${right}`);
+            if (Math.abs(centre - middle) > 1) faults.push(`${key} off the window's middle by ${centre - middle}px`);
+            if (headBox !== undefined && Math.abs((headBox.left + headBox.right) / 2 - centre) > 1) faults.push(`${key} not lane ${at}'s`);
+        }
+        const labels = [...el.querySelectorAll("[data-flowchart-label] > rect")]
+            .map((label) => ({ key: label.parentElement!.getAttribute("data-flowchart-label")!, box: label.getBoundingClientRect() }));
+        for (const label of labels) {
+            for (const card of cards) {
+                const on = label.box.left < card.box.right && label.box.right > card.box.left && label.box.top < card.box.bottom && label.box.bottom > card.box.top;
+                if (on) faults.push(`${label.key}'s label on ${card.key}`);
+            }
+        }
+        return faults;
+    }, lane);
 }

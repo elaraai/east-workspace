@@ -20,13 +20,16 @@
  * one to the byte.
  */
 
-import type { DateTimeType, DictType, EastType, Expr, FloatType, FunctionType, IntegerType, OptionType, SetType, StructType, VariantType } from '@elaraai/east';
-import { NullType } from '@elaraai/east';
+import type {
+  DateTimeType, DictType, EastType, Expr, FloatType, FunctionExpr, FunctionType, IntegerType, OptionType, SetType, StructType, VariantType,
+} from '@elaraai/east';
+import { East, NullType, printType } from '@elaraai/east';
 import type { NestedEntryKeyType, RecordLevelType, RecordNestedTotalsType } from '@elaraai/e3-types';
+import { entriesRowsName } from '@elaraai/e3-types';
 import type { RecordDef, RecordIndexDef } from './types.js';
 import type { PlacesOf, SeriesCollections } from './record-nested.js';
 import type { RecordTile } from './record-tiles.js';
-import { indexFunctions, indexedEntry } from './record-guards.js';
+import { indexFunctions, indexRunner, indexedEntry } from './record-guards.js';
 import type { IndexConstructor, IndexFunction } from './record-guards.js';
 import { checkLeading, fieldKeyOf } from './record-keys.js';
 import type { FunctionRunner } from './runner.js';
@@ -316,6 +319,100 @@ export function plainDefinition(
     multi,
     keyType: indexKeyType,
     valueType: projectionType ?? NullType,
+    runner,
+  };
+}
+
+/**
+ * What an entries index's definition carries (#1521): the Dict field it files,
+ * as written, which a binding reads; the row with that field emptied; and its
+ * lean rows beside it.
+ *
+ * @typeParam F - The field, as written
+ */
+export interface EntriesOf<F extends string = string> {
+  /** The Dict field of the record's rows it files, entry by entry. */
+  readonly field: F;
+  /** The row with the field emptied, `(K, V) -> V`. */
+  readonly lean: { toIR(): unknown };
+  /** Its lean rows: the record's rows by key, the field emptied — an index of the record's beside it, named by e3-types' `entriesRowsName`. */
+  readonly rows: RecordIndexDef;
+}
+
+/**
+ * A row with some of its Dict fields emptied, `(K, V) -> V`, every other field
+ * as the row holds it: the lean row an entries index's reader draws a row with,
+ * without the entries it reads apart (#1521).
+ *
+ * @param keyType - The record's key type
+ * @param rowType - The record's row type: a struct, or a recursive type whose node is one
+ * @param fields - The Dict fields emptied
+ * @returns The function
+ * @throws {Error} When the row is not a struct
+ */
+export function emptiedRow(keyType: EastType, rowType: EastType, fields: readonly string[]): FunctionExpr<[EastType, EastType], EastType> {
+  const node = rowType.type === 'Recursive' ? rowType.node : rowType;
+  if (node.type !== 'Struct') throw new Error(`a row emptied of its Dict fields is a struct, not ${printType(rowType)}`);
+  // A field at a time, each step emptying one more field of the row the step before it gives.
+  return fields.reduce<FunctionExpr<[EastType, EastType], EastType>>(
+    (before, field) => East.function([keyType, rowType], rowType, ($, key, row) => {
+      const earlier = $.const(before);
+      const held = $.let(earlier(key, row));
+      return East.withField(held, field, new Map());
+    }),
+    East.function([keyType, rowType], rowType, (_$, _key, row) => row),
+  );
+}
+
+/**
+ * Builds an entries index's definition (#1521): one entry for each key a row's
+ * Dict field holds, under that key and then the row's, carrying the key's
+ * value — its key function the row's entries, `(K, V) -> Dict<IK, P>`, the
+ * field as the row holds it — and its lean rows beside it: the record's rows
+ * by key, the field emptied, under e3-types' `entriesRowsName`.
+ *
+ * @param constructor - The declaration, as a refusal names it
+ * @param name - The index
+ * @param rec - Its record
+ * @param field - The Dict field of the record's rows it files, by name
+ * @param config - Its runner selection
+ * @returns The definition
+ * @throws {Error} When the record's rows are not structs, or the field is not one of their Dict fields, naming the
+ *   ones that are; or on any guard every index applies
+ */
+export function entriesDefinition(
+  constructor: IndexConstructor, name: string, rec: RecordDef, field: unknown, config: { runner?: FunctionRunner } | undefined,
+): RecordIndexDef {
+  const { keyType, valueType } = indexedEntry(constructor, name, rec);
+  const runner = indexRunner(config);
+  const node = valueType.type === 'Recursive' ? valueType.node : valueType;
+  if (node.type !== 'Struct') {
+    throw new Error(`${constructor} '${name}' files a Dict field of the record's rows — '${rec.name}' holds rows of ${printType(valueType)}, which have no fields`);
+  }
+  const fields = node.fields as Readonly<Record<string, EastType>>;
+  const fitting = Object.entries(fields).filter(([, type]) => type.type === 'Dict').map(([dict]) => `'${dict}'`);
+  const fits = fitting.length === 0 ? 'the rows have no Dict field to file' : `it files a Dict field of the rows: ${fitting.join(', ')}`;
+  if (typeof field !== 'string') throw new Error(`${constructor} '${name}' takes the field it files by its name — ${fits}`);
+  const held = fields[field];
+  if (held === undefined) throw new Error(`${constructor} '${name}' files '${field}', which is no field of the rows — ${fits}`);
+  if (held.type !== 'Dict') throw new Error(`${constructor} '${name}' files '${field}', of type ${printType(held)}, which is not a Dict — ${fits}`);
+  const entriesType: EastType = held;
+  // The row's entries: its field's Dict, as the row holds it.
+  const keyFn = East.function([keyType, valueType], entriesType, (_$, _key, row) => East.field(row, field, entriesType));
+  const lean = emptiedRow(keyType, valueType, [field]);
+  // Its lean rows: each row under its own key, the field emptied, so a reader reads the rows without the entries.
+  const rows = plainDefinition(constructor, entriesRowsName(name), rec,
+    { key: East.function([keyType, valueType], keyType, (_$, key) => key), value: lean }, config);
+  return {
+    kind: 'recordIndex',
+    name,
+    record: rec,
+    on: undefined,
+    entries: { field, lean, rows },
+    keyFn,
+    multi: true,
+    keyType: held.key,
+    valueType: held.value,
     runner,
   };
 }

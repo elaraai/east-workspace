@@ -1716,6 +1716,21 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         }
     }
 
+    /**
+     * A Retry of a dataset, following its current state: what failed asked
+     * again now ({@link rearmFailed}), and the content it holds looked up
+     * again — what `refresh` with no target and {@link askAgain} both ask.
+     *
+     * @param workspace - The workspace the Retry was asked in: another one since installed asks nothing
+     * @param path - The dataset's path
+     */
+    private retryNow(workspace: string, path: TreePath): void {
+        if (this.workspace !== workspace) return;
+        const snapshot = this.snapshotOf(workspace, path);
+        this.rearmFailed(snapshot);
+        this.find(workspace, path, snapshot);
+    }
+
     /** What a read of a channel answers: its value once loaded, `none` while
      *  in flight, or its failure, thrown as a {@link PagedReadError}. */
     private answer<T>(entry: PageEntry, value: T | undefined): option<T> {
@@ -2288,6 +2303,24 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     revisionOf(source: PagedSource): option<string> {
         const revision = this.revisionFor(this.resolveWorkspace(), source.path);
         return typeof revision === "string" ? some(revision) : none;
+    }
+
+    /**
+     * Ask again what failed of a source (#1510): the Retry of a reader that
+     * holds the source alone, not the pinned handle whose `refresh` asks it —
+     * a read by key's ({@link rowsAll}) among what it asks again. What failed
+     * of its dataset for a reason a retry can fix is asked again at once, not
+     * after the retry gap a read alone waits, and the content it holds is
+     * looked up again, as `refresh` asks them. Deferred, as `refresh` is: a
+     * Retry asked while a view renders never re-fires that render from
+     * inside it. With no paging service installed there is nothing to ask.
+     *
+     * @param source - The source
+     */
+    askAgain(source: PagedSource): void {
+        const workspace = this.workspace;
+        if (workspace === null) return;
+        queueMicrotask(() => this.retryNow(workspace, source.path));
     }
 
     /**
@@ -2864,11 +2897,9 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     // re-fire that render from inside it.
                     queueMicrotask(() => {
                         if (this.workspace !== workspace) return;
-                        const snapshot = this.snapshotOf(workspace, path);
-                        if (target.type === "some") { this.moveTo(workspace, path, snapshot, target.value); return; }
+                        if (target.type === "some") { this.moveTo(workspace, path, this.snapshotOf(workspace, path), target.value); return; }
                         // Following the current state is a Retry too: what failed is asked again now.
-                        this.rearmFailed(snapshot);
-                        this.find(workspace, path, snapshot);
+                        this.retryNow(workspace, path);
                     });
                     return null;
                 }),

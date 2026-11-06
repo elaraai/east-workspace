@@ -138,16 +138,18 @@ test.describe("A phone's hand test", () => {
     });
 
     test("a state Find picks in a phone's last lane opens on whole lanes, the lane before it uncut", async ({ page }) => {
-        const frame = await open(page, "e3/flowchart/flowchart/flowchartFlowsMobile");
+        // The depot's editing example, whose cards draw no details: a phone's window shows two lanes.
+        const frame = await open(page, "e3/flowchart/flowchart/flowchartDepotEditing");
         await frame.locator("[data-toolbar-item='seek'] [data-key-search='icon']").first().tap();
         const view = page.locator("[data-key-search-phone]");
         await view.getByRole("textbox").fill("LDD");
         await view.locator("[data-key-search-row]").first().tap();
         await settled(page);
-        await expect(frame.locator("[data-flowchart-lane-pager] [data-slot='pagerReadout']")).toHaveText("Lanes 2–3 of 3");
+        // Loaded stands in Dispatch, the last of the depot's five lanes: the window opens on the last two.
+        await expect(frame.locator("[data-flowchart-lane-pager] [data-slot='pagerReadout']")).toHaveText("Lanes 4–5 of 5");
         const scroll = frame.locator("[data-flowchart-scroll]");
         const [left, width] = await scroll.evaluate((el) => [el.scrollLeft, el.clientWidth]);
-        expect(left).toBe(Math.floor(width! / 2));
+        expect(left).toBe(3 * Math.floor(width! / 2));
         const [node, box] = await Promise.all([frame.locator("[data-flowchart-node='LDD']").boundingBox(), scroll.boundingBox()]);
         expect(node!.x + node!.width).toBeLessThanOrEqual(box!.x + box!.width);
     });

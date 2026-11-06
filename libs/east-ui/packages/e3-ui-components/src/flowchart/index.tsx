@@ -4,583 +4,491 @@
  */
 
 /**
- * `EastChakraFlowchart` — the Flowchart (#1243–#1250, `Flowchart Builder
- * Spec.md` §7, §7.1, §8, §9.4–§9.9): the one flowchart, laid out in
- * `BuilderFrame` wherever it is used. There is no other flowchart: no canvas
- * without the frame, and no toolbar but its one.
+ * `EastChakraFlowchart` — the Flowchart (#1500–#1505, `Flowchart Records
+ * Spec.md`): one flowchart over the app's records, laid out in `BuilderFrame`
+ * wherever it is used. There is no other flowchart: no canvas without the
+ * frame, and no toolbar but its one.
  *
  * It registers itself against the `Flowchart` extension (`Flowchart.Component`)
- * as the module loads. Its payload carries where the flows come from — a
- * record of flows by name, or the host's flows or flow — and the canvas's
- * options: the flowchart reads the flows (a record's where it renders, and
- * again when it moves), opens one, and the frame places its parts in its
- * regions, over one shared state — the open flow's model, its session, the
+ * as the module loads. Its payload carries four records of the app's — its
+ * states and transitions, each read through its source of the rail, and its
+ * lanes and decisions, small records read whole — and the canvas's options.
+ * Every word it says is its message table's, made from its nouns — each
+ * kind's own `name`, and the app's words for a transition's kinds (#1516). The
+ * frame places its parts in its regions, over one shared state — the rows
+ * read with the drafts in place, the model drawn from them, the editing, the
  * orientation and what is selected:
  *
- * - **the open flow**, over many flows (FB12, `open-flow.ts`): the one the
- *   viewer opened last, kept in the UI store under the flowchart's `name`,
- *   while the flowchart holds it — in its flows, as a new flow, or as one
- *   whose drafts are on their way to Save; else `flow`; else the first by
- *   name; else none, and main says so in the shared empty state. While `flow`
- *   names a flow the flowchart doesn't hold, and the viewer has opened none in
- *   its place, a banner above main names it and the flow shown (FB42). A flow
- *   renamed (#1250) stays open under its name until its Save is acknowledged,
- *   then opens under its new one;
- * - **its session** (FB14, FB15, FB17–FB24, `session.ts`): one editing session
- *   per flow, so each flow keeps its drafts while another is open — over a
- *   record, and over the host's flows or flow given `onApply`; over neither,
- *   or read only, the flowchart edits nothing. Every gesture on the canvas,
- *   and every edit the inspector makes, is one transaction of the open flow's
- *   session (`edits.ts`); its history item ends the toolbar — ⌘Z undoing and
- *   ⇧⌘Z or ⌘Y redoing from anywhere in the frame but a field being typed into,
- *   each key going no further than the Flowchart (`takeKey`, #1398), and the
- *   canvas hearing its Esc as the key leaves the frame — and its banners sit
- *   under it. Save sends the open flow's drafts as one
- *   commit: the payload's `apply`, through the record's patch mutation or the
- *   host's `onApply`;
- * - **what is selected** (#1250, `selection.ts`): the frame's, per open flow
- *   — a state, a transition, a decision, a lane by its header, or several
- *   states — as the open flow holds it: the canvas marks it, the inspector
- *   shows it, a card's ⏎ drops on it (FB34), and the history item's issue
- *   selects what it names;
- * - **LR · TD** (FB43, `orientation.ts`): the viewer's, kept in the UI store
- *   under the flowchart's `name`; the payload's `orientation` until they pick;
- * - **the toolbar** — the flowchart's items (`useFlowchartToolbarItems`,
- *   `toolbar.tsx`) on the frame's one folding row, in §7.1's order: find
- *   state, LR · TD and the freshness chip, and at the row's end the rail over
- *   its `Slice.bindRecords` (#1346) and, where it edits, the history item.
- *   The canvas draws no eyebrow;
- * - **main** — the canvas (`canvas.tsx`), filling main and scrolling both
- *   ways inside it; a flow its drafts delete says so there, in the shared
- *   empty state;
- * - **the footer** — today's counts (`footer.tsx`): over many flows the open
- *   flow's name first — the one its drafts give it; where it edits, the
- *   changes waiting on Save; over a record its last save; and why a card's ⏎
- *   or an inspector's edit was refused;
- * - **the panes** — the library in the start pane when the payload's
- *   `library` lists a tab (`library.tsx`, #1248), and the inspector in the
- *   end pane (`inspector.tsx`, #1250), on by default — none for
- *   `inspector={false}`. The library's tabs are the ones `library` lists, in
- *   its order, each with its count: the Flows tab (`flows.tsx`), which lists
- *   every flow by name and starts new ones, and the state and transition
- *   templates and the author's tabs, each a `Library` of its own rows' cards.
- *   The inspector's tabs are Details — what is selected, through its form —
- *   and Issues — the open flow's (`issues.ts`), each selecting what it names.
- *   The panes' open tab and collapsed state persist under the flowchart's
- *   `name` (`flowchartKeys(name).frame`);
- * - **the narrowing** (#1346): one `Slice.bindRecords`, the payload's `slice`
- *   and each source's narrowed keys (`narrowed`). Over a record its `flows`
- *   source pages, the Flows tab lists what the rail narrows the record to,
- *   counts it (`Flows 40 of 2,048`), says so with the rail's Clear filters
- *   when the rail leaves it none, and finds a flow within it by its own
- *   search; the open flow is read by its name whatever the narrowing, keeps
- *   its drafts, and a Save that takes flows out of the narrowing says so in
- *   the footer. Each other source is followed (`FollowSources`, one component
- *   a source): the templates list or the author's tab that names it shows
- *   the cards it shows, by their keys, and a source whose narrowing could not
- *   be read says so in a banner, with Retry;
- * - **the drops** (#1249, `use-drop.ts`): the library's cards land on the
- *   canvas, the flowchart's drop target — a state template on a lane, a
- *   transition template on a transition, an author's card on what its drop's
- *   type names — each one `drop` transaction of the open flow's session, a
- *   state it adds selected; ⏎ on a card, and on a touch screen a tap on the
- *   selected card, drops it on the canvas's selection, and where that is
- *   refused the footer says why.
+ * - **the reads** (`read.ts`): every kind read page by page until done, the
+ *   states and transitions through their sources of the rail; as the rail
+ *   moves, a kind is read again and what the canvas drew stands in, retained —
+ *   readable and selectable, no record taking an edit until the new rows land;
+ *   and a read that fails is said once on the canvas, in a box at its top-left
+ *   with Retry, as the footer's loading line says it (R5). Under `narrowed:
+ *   "dim"` every row is read and what the rail leaves out is drawn dimmed, its
+ *   keys the source's shown keys (`FollowSources`);
+ * - **the details** (`details.ts`): a state's and a transition's details read
+ *   as their kind is — whole, or by the keys of the rows drawn, every key in
+ *   one request — in a reader of their own, counted into the flowchart's bins;
+ *   what no bin holds, and the bins the app binds refused, listed in Issues;
+ * - **the editing** (`editing.ts`): one history over a session per record that
+ *   writes; every gesture on the canvas, every drop and every edit the
+ *   inspector makes is one step of it (`edits.ts`). Its history item ends the
+ *   toolbar — ⌘Z undoing and ⇧⌘Z or ⌘Y redoing from anywhere in the frame but
+ *   a field being typed into, each key going no further than the Flowchart
+ *   (`takeKey`) — and each session's banners sit under it;
+ * - **the toolbar** (`toolbar.tsx`): Find — ⌘F or Ctrl+F from anywhere in the
+ *   frame — which finds a state the rail hides too, and picks it by clearing
+ *   just the choices hiding it (the shared hidden pick, `HideSources`), LR · TD,
+ *   the zoom — Zoom out, Zoom in and Fit, through the canvas's handle, the
+ *   canvas telling it where the zoom stands (R42) — and the freshness chip, and
+ *   at the row's end the rail;
+ * - **the library** (`library.tsx`), the start pane: the Steps, Transitions
+ *   and Lanes tabs and the author's own, their cards dropped onto the canvas
+ *   (`use-drop.ts`);
+ * - **the inspector** (`inspector.tsx`), the end pane: what is selected, and
+ *   the flowchart's issues — each one selecting what it names, an unsaved
+ *   change the rail hides by the same hidden pick;
+ * - **the footer** (`footer.tsx`): the counts, the changes waiting on Save,
+ *   the last save, each Save's notice, a refused gesture's words, and the
+ *   loading line — `Loading states…`, `Updating states…`, or a failed read
+ *   with Retry — shown on the frame's one reveal clock (`LoadingReveal`).
  *
- * The flowchart fills the box it is given and draws no border: a host gives it
- * a box of its own height.
+ * Below 480px of main, measured by the canvas's element, nothing drags (R17):
+ * the library's cards are not dragged — a card's ⏎ drops it — and the canvas
+ * neither moves a state nor connects one, by touch or by mouse; the inspector
+ * carries a state's lane and a transition's ends.
  *
  * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { StringType, compareFor, equalFor, equivalentFor, none, type EastType, type PatchPath, type ValueTypeOf } from "@elaraai/east";
-import type { RecordSliceBindType, RecordSlicesChromeType } from "@elaraai/east-ui/internal";
+import { ArrayType, StringType, equalFor, equivalentFor, type PatchPath } from "@elaraai/east";
+import { EditingBatchReadinessType } from "@elaraai/east-ui/internal";
 import { Flowchart, flowchartKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView,
-    BuilderFrame,
-    EmptyStateView,
-    SessionBanners,
-    getSomeorUndefined,
-    historyShortcut,
-    historyToolbarItem,
-    implementUIComponent,
-    takeKey,
-    typedInto,
-    useConflictsOpener,
-    useDataStable,
-    useFormatters,
-    useTrackedEvaluation,
-    type EditIssue,
-    type HistoryAction,
+    BannerView, BuilderFrame, SessionBanners, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
+    implementUIComponent, takeKey, typedInto, useContainerBelow, useDataStable, useFormatters, type EditIssue, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { awaitTracked, narrowedCount } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, loadingLineText, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { pagedLoadingLine } from "../shared/loading.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
+import type { SourceHiding } from "../shared/schedule/hidden.js";
+import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
+import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords } from "../shared/schedule/visibility.js";
-import { buildModel, type FlowchartCanvasValue, type FlowchartFlowValue, type FlowchartValue } from "./model.js";
-import { FlowchartCanvasView, type FlowchartCanvasEdit, type FlowchartCanvasHandle, type FlowchartReveal } from "./canvas.js";
-import * as flowEdits from "./edits.js";
-import { useFindState } from "./find.js";
-import { FlowchartFooter, useLastSave } from "./footer.js";
-import { FlowsCountReader, FlowsTab, PagedFlowsTab, NoFlows, type FlowCard, type FlowsCount, type NewFlowProps } from "./flows.js";
-import { inspectorPane, type FlowchartInspectorEdit } from "./inspector.js";
-import { conflictRowName, conflictStateKey, conflictTarget, conflictValueName, flowIssues, issueTarget, saveIssues } from "./issues.js";
-import { useFlowchartLibrary } from "./library.js";
-import { flowchartMessagesOf, type FlowchartRefusedWord, type FlowchartWords } from "./messages.js";
-import { missingFlow, openFlowName, useOpenedFlow } from "./open-flow.js";
-import { useViewerOrientation } from "./orientation.js";
-import { selectionHeld, type FlowchartSelection } from "./selection.js";
+import { NARROW_WIDTH } from "../shared/schedule/window.js";
+import { kindPlural } from "../shared/schedule/words.js";
+import type { ZoomRange } from "../shared/schedule/zoom.js";
+import { FlowchartCanvasView, type FlowchartCanvasEdit, type FlowchartCanvasFailure, type FlowchartCanvasHandle, type FlowchartReveal } from "./canvas.js";
+import { FlowchartDetailsReader, NO_DETAILS, askDetailsAgain, detailsKindsOf, flowchartDetailsModel, useDrawnKeys, type FlowchartDetailsData } from "./details.js";
+import { draftedRows, type FlowchartDimmed } from "./drafted.js";
+import type { FlowchartDropContext } from "./drop.js";
+import { kindOf, useFlowchartEditing, type FlowchartKeyCheckWords } from "./editing.js";
 import {
-    ONE_FLOW, draftedEntry, newFlows, recordFlowDelete, recordFlowEdit, recordFlowRename, recordNewFlow, useFlowSession, useKeptSessions,
-    type FlowApply, type FlowRow,
-} from "./session.js";
+    EDIT_ORIGIN, addLane, addState, connect, deleteDecision, deleteLane, deleteLink, deleteStates, moveStates, renameLane, renameState,
+    type FlowchartGesture, type FlowchartHolding, type GestureEdits,
+} from "./edits.js";
+import { useFlowchartFind, type FindableState, type FoundState } from "./find.js";
+import { FlowchartFooter, useLastSaves, type FlowchartNotice } from "./footer.js";
+import { flowchartInspectorPane } from "./inspector.js";
+import { conflictValueName, flowchartIssues, selectionOf, sessionIssues, type FlowchartIssueArgs, type FlowchartKeyFields } from "./issues.js";
+import { useFlowchartLibrary } from "./library.js";
+import { DEFAULT_FLOWCHART_NOUNS, flowchartMessagesOf, type FlowchartNouns, type FlowchartWords } from "./messages.js";
+import { buildModel, type FlowchartValue } from "./model.js";
+import { useViewerOrientation } from "./orientation.js";
+import { FLOWCHART_SORTS, FlowchartDataReader, INITIAL_FLOWCHART_DATA, SOURCE_SORTS, type FlowchartData, type FlowchartSort } from "./read.js";
+import { selectionHeld, type FlowchartSelection } from "./selection.js";
 import { followedSources, sourceNouns } from "./sources.js";
-import { readFlowWindow, type FlowchartPagedRecord } from "./window.js";
 import { useFlowchartToolbarItems } from "./toolbar.js";
 import { useFlowchartDrop } from "./use-drop.js";
 
+export type { FlowchartValue } from "./model.js";
+
 type Styles = Record<string, SystemStyleObject>;
 
-/** The memo's comparison: a changed callback re-renders. */
 const payloadEqual = equivalentFor(Flowchart.Types.Payload);
-/** The model's gate: only a change of the flow's data rebuilds it. */
-const flowEqual = equalFor(Flowchart.Types.Flow);
-/** Flows by name, in East's order. */
-const nameOrder = compareFor(StringType);
-const nameEqual = equalFor(StringType);
-const vocabularyEqual = equalFor(Flowchart.Types.Payload.fields.vocabulary);
+const stringEqual = equalFor(StringType);
+const readinessesEqual = equalFor(ArrayType(EditingBatchReadinessType));
 
-/** No state holds a conflict. */
-const NO_STATES: ReadonlySet<string> = new Set();
-
-export type { FlowchartValue, FlowchartCanvasValue, FlowchartFlowValue };
+/** Where the zoom stands until the canvas is measured (R42): at the cards' own size, which is Fit — both ends. */
+const OPENS_ZOOMED: ZoomRange = { atFit: true, atLimit: true };
 
 /** Props of {@link EastChakraFlowchart}. */
 export interface EastChakraFlowchartProps {
     /** The payload, decoded. */
-    value: FlowchartValue;
-    /** The structural storage key. */
-    storageKey: string;
+    readonly value: FlowchartValue;
+    /** The structural storage key: the editing's sessions are kept under it and the Flowchart's `name`. */
+    readonly storageKey: string;
 }
 
-/** The flows by name, decoded. */
-type FlowsValue = ValueTypeOf<typeof Flowchart.Types.Flows>;
-
-/** The flows a payload's source holds: many by name, or one. */
-type FlowsHeld =
-    | { readonly many: true; readonly flows: FlowsValue; readonly loading?: boolean; readonly pendingName?: string | undefined }
-    | { readonly many: false; readonly flow: FlowchartFlowValue };
-
-/** The rail, decoded: one over the flowchart's `Slice.bindRecords` (#1346). */
-type FlowchartChrome = ValueTypeOf<typeof RecordSlicesChromeType>;
-
-/** A source's part of the rail, decoded. */
-type FlowchartPart = ValueTypeOf<typeof RecordSliceBindType>;
-
-/** A flow with nothing in it: the canvas while a flow is not yet there to draw. */
-const NO_FLOW: FlowchartFlowValue = { description: none, lanes: [], states: [], links: [], triggers: [] };
-
-/** A flow being started — by "+ New flow", or duplicated (#1250) — opened at once, recorded once its session has read its base. */
-interface NewFlowDraft {
-    /** Its name. */
-    readonly name: string;
-    /** What it starts as: one lane, or the flow it copies. */
-    readonly flow: FlowchartFlowValue;
-    /** Its transaction's name in the history. */
-    readonly label: string;
+/** A session's kind as the Flowchart names its kinds: `undefined` for none of them. */
+function sortOf(kind: string): FlowchartSort | undefined {
+    return FLOWCHART_SORTS.find((sort) => stringEqual(sort, kind));
 }
 
 /**
- * A new lane's label, by its number — `Lane 3` — in the flowchart's words.
+ * The nouns the Flowchart's words are made from (#1516): each kind's own
+ * `name` — its default where the Flowchart has no such kind — and the app's
+ * words for a transition's kinds, its `vocabulary`.
  *
- * @param words - The flowchart's words
- * @returns The label for a number
+ * @param value - The payload
+ * @returns The nouns, each as a heading writes it
  */
-const laneLabel = (words: FlowchartWords) => (n: number): string => words.m.newLane({ n, count: words.number(n) });
-
-/**
- * A new flow (FB14): one lane, nothing else — the lane "+ LANE" adds to a flow
- * with none, `lane-1`.
- *
- * @param words - The flowchart's words: the lane's label
- * @returns The flow
- */
-function emptyFlow(words: FlowchartWords): FlowchartFlowValue {
-    return flowEdits.addLane(NO_FLOW, laneLabel(words)).flow;
+function flowchartNouns(value: FlowchartValue): FlowchartNouns {
+    return {
+        state: value.states.name,
+        transition: kindOf(value, "transitions")?.name ?? DEFAULT_FLOWCHART_NOUNS.transition,
+        lane: kindOf(value, "lanes")?.name ?? DEFAULT_FLOWCHART_NOUNS.lane,
+        decision: kindOf(value, "decisions")?.name ?? DEFAULT_FLOWCHART_NOUNS.decision,
+        planned: value.vocabulary.planned,
+        observed: value.vocabulary.observed,
+    };
 }
 
 /**
- * The session's Save a payload's source carries (#1246, #1247): a record's,
- * or the host's `onApply` over its flows or flow; `undefined` over data the
- * host keeps read only.
+ * Renders the Flowchart: its records read, and its frame over them — see the
+ * module docs.
  *
- * @param source - The payload's source
- * @returns The Save
- */
-function saveOf(source: FlowchartValue["source"]): FlowApply | undefined {
-    switch (source.type) {
-        case "record":
-        case "paged": return source.value.apply;
-        case "data": return getSomeorUndefined(source.value.value.apply);
-    }
-}
-
-/**
- * The flows a source holds: a record's flows by name, read — a reactive read,
- * which the flowchart's tracked evaluation follows — or, paged through the
- * slice's `flows` source, its first flow and the open one; or the host's
- * flows or flow, as they came.
- *
- * @param source - The payload's source
- * @param selected - The open flow's name, if one is open
- * @param flows - The slice's `flows` source's part, over a paged record
- * @returns The flows by name, or the one flow
- */
-function flowsHeld(source: FlowchartValue["source"], selected: string | undefined, flows: FlowchartPart | undefined): FlowsHeld {
-    switch (source.type) {
-        case "record": return { many: true, flows: source.value.read() };
-        case "paged": return readFlowWindow(source.value, selected, flows);
-        case "data": return source.value.type === "flows"
-            ? { many: true, flows: source.value.value.value }
-            : { many: false, flow: source.value.value.value };
-    }
-}
-
-/**
- * Renders the flowchart: reads its flows from the payload's source, and lays
- * them out in its frame — see the module docs.
- *
- * @param props - The payload and its storage key
- * @returns The flowchart, in its frame
+ * @param props - The payload, and the storage key
+ * @returns The Flowchart
  */
 export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, storageKey }: EastChakraFlowchartProps) {
-    const styles = useSlotRecipe({ key: "flowchart" })();
-    const source = value.source;
-    const [opened] = useOpenedFlow(flowchartKeys(getSomeorUndefined(value.name)).flow);
-    const selected = opened ?? getSomeorUndefined(value.open);
-    // The rail (#1346), and its `flows` source's part: what pages the Flows tab over a record.
-    const chrome = getSomeorUndefined(value.slice);
-    const flowsPart = useMemo(() => sourcePart(chrome, "flows"), [chrome]);
-    // The flows, read where the flowchart renders, and again when they move.
-    const read = useCallback(() => flowsHeld(source, selected, flowsPart), [source, selected, flowsPart]);
-    const { result } = useTrackedEvaluation(read);
-    if (!result.ok) {
-        const message = result.error instanceof Error ? result.error.message : String(result.error);
-        // The frame stays: its main says why, in the canvas's place.
-        return (
-            <Box css={styles.root} data-flowchart-root="">
-                <BuilderFrame storageKey={flowchartKeys(getSomeorUndefined(value.name)).frame}>
-                    <BannerView status="error" title={`The flows could not be read: ${message}`} />
-                </BuilderFrame>
-            </Box>
-        );
-    }
-    return <FlowchartFollows value={value} held={result.value} storageKey={storageKey} chrome={chrome} flowsPart={flowsPart} />;
+    const [data, setData] = useState<FlowchartData>(INITIAL_FLOWCHART_DATA);
+    // A Retry reads every kind again: each source of the rail a kind is read through asked anew — its pages, a failed
+    // one among them, which it holds until then — as the Schematic's Retry asks its kind's, the details' paged reads
+    // asked again at once (R34), and the read's attempt moves.
+    const [attempt, setAttempt] = useState(0);
+    const slice = value.slice;
+    const readAgain = useCallback(() => {
+        const chrome = getSomeorUndefined(slice);
+        for (const sort of SOURCE_SORTS) sourcePart(chrome, sort)?.retry();
+        askDetailsAgain(detailsKindsOf(value));
+        setAttempt((n) => n + 1);
+    }, [slice, value]);
+    return (
+        <>
+            <FlowchartDataReader value={value} attempt={attempt} onData={setData} />
+            <FlowchartFollows value={value} data={data} attempt={attempt} readAgain={readAgain} storageKey={storageKey} />
+        </>
+    );
 }, (prev, next) => payloadEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
 
-/** Props of {@link FlowchartFrame}. */
-interface FlowchartFrameProps {
+/** Props of {@link FlowchartFollows}. */
+interface FlowchartFollowsProps {
     /** The payload, decoded. */
     readonly value: FlowchartValue;
-    /** The flows its source holds. */
-    readonly held: FlowsHeld;
+    /** What the reader has read. */
+    readonly data: FlowchartData;
+    /** The read's attempt: a Retry moves it, and the details are read again with the records. */
+    readonly attempt: number;
+    /** Reads every kind again: the loading line's Retry. */
+    readonly readAgain: () => void;
     /** The structural storage key. */
     readonly storageKey: string;
-    /** The rail (#1346); `undefined` with no slice. */
-    readonly chrome: FlowchartChrome | undefined;
-    /** The slice's `flows` source's part; `undefined` with no `flows` source. */
-    readonly flowsPart: FlowchartPart | undefined;
 }
 
 /**
- * The frame, once each source its library follows is read (#1346): what each
- * templates list and each author's tab shows of the source it names, and the
- * banners of the ones that could not be read — one component a source, so a
- * payload naming another set of sources keeps each one's hooks in order.
+ * The sources of the rail the Flowchart follows — each library tab's, and,
+ * under `narrowed: "dim"`, the states' and the transitions' — each counted in
+ * its noun; and the states and the transitions read through their sources,
+ * each one's hidden pick (`HideSources`), which Find and Issues pick by.
+ *
+ * @param props - The payload, what is read, its Retry and the storage key
+ * @returns The frame, once every source is read
  */
-function FlowchartFollows(props: FlowchartFrameProps) {
+function FlowchartFollows(props: FlowchartFollowsProps) {
     const { value } = props;
-    const { locale } = useFormatters();
+    const formatters = useFormatters();
+    // Its words, made from its nouns (#1516): each kind's own name, and the app's words for a transition's kinds.
+    const words = useMemo((): FlowchartWords => ({ ...formatters, m: flowchartMessagesOf(flowchartNouns(value)) }), [formatters, value]);
+    const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
     const sources = useMemo(() => followedSources(value), [value]);
-    const vocabulary = useDataStable(value.vocabulary, vocabularyEqual);
-    const m = useMemo(() => flowchartMessagesOf(vocabulary), [vocabulary]);
-    const nouns = useMemo(() => sourceNouns(value, m, locale), [value, m, locale]);
-    // What a source's failed narrowing says, in the flowchart's words.
-    const said = useCallback((name: string): KeyVisibilityWords => ({ changed: m.sourceChanged({ name }), failed: m.sourceFailed({ name }) }), [m]);
+    const nouns = useMemo(() => sourceNouns(value, words.m, words.locale), [value, words]);
+    // What a source's failed narrowing says, in the Flowchart's words.
+    const said = useCallback((name: string): KeyVisibilityWords => ({ changed: words.m.sourceChanged({ name }), failed: words.m.sourceFailed({ name }) }), [words]);
+    // The states and the transitions, each read through its source of the rail: each one's hidden pick.
+    const hidden = useMemo(() => SOURCE_SORTS.flatMap((sort): HiddenSource[] => {
+        const part = kindOf(value, sort) === undefined ? undefined : sourcePart(chrome, sort);
+        return part === undefined ? [] : [{ key: sort, part }];
+    }), [value, chrome]);
     return (
-        <FollowSources chrome={props.chrome} narrowed={value.narrowed} sources={sources} nouns={nouns} said={said}>
-            {(followed) => <FlowchartFrame {...props} followed={followed} nouns={nouns} />}
+        <FollowSources chrome={chrome} narrowed={value.shown} sources={sources} nouns={nouns} said={said}>
+            {(followed) => (
+                <HideSources name="Flowchart" sources={hidden}>
+                    {(picks) => <FlowchartFrame {...props} words={words} nouns={nouns} followed={followed} picks={picks} />}
+                </HideSources>
+            )}
         </FollowSources>
     );
 }
 
-/** The frame, its regions holding the flowchart's parts over one shared state. */
-function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, nouns }: FlowchartFrameProps & {
-    /** What each source the library follows shows. */
-    readonly followed: FollowedSources;
+/** Props of {@link FlowchartFrame}. */
+interface FlowchartFrameProps extends FlowchartFollowsProps {
+    /** The Flowchart's words, in the app's locale. */
+    readonly words: FlowchartWords;
     /** What the rail counts each source in, by its name. */
     readonly nouns: ReadonlyMap<string, string>;
-}) {
-    const styles = useSlotRecipe({ key: "flowchart" })() as Styles;
-    // The counts, the dates and the badges, in the app's locale (#850), and the flowchart's words.
-    const formatters = useFormatters();
-    const vocabulary = useDataStable(value.vocabulary, vocabularyEqual);
-    const words = useMemo((): FlowchartWords => ({ ...formatters, m: flowchartMessagesOf(vocabulary) }), [formatters, vocabulary]);
-    const canvas = value.canvas;
-    // Keyed on the name's text: each payload decodes its Option afresh, and the keys must hold while the name does.
-    const flowchartName = getSomeorUndefined(value.name);
-    const keys = useMemo(() => flowchartKeys(flowchartName), [flowchartName]);
+    /** What each source the Flowchart follows shows. */
+    readonly followed: FollowedSources;
+    /** Each source's hidden pick, by its kind. */
+    readonly picks: HiddenPicks;
+}
 
-    // ── The flows, and the one open (FB12) ──────────────────────────────
-    const flows = held.many ? held.flows : undefined;
-    // Cold load is the frame's until its first read has landed (#1398, CL5): after it, a read in flight — a flow opened,
-    // a narrowing, a new revision — covers nothing, the toolbar, the panes and Save live and main busy, and the flow it
-    // opens is drawn once it lands.
-    const reading = held.many && held.loading === true;
-    const [landed, setLanded] = useState(!reading);
-    useEffect(() => { if (!reading) setLanded(true); }, [reading]);
-    const paged: FlowchartPagedRecord | undefined = value.source.type === "paged" ? value.source.value : undefined;
-    // The session's Save, while the flowchart edits: a record's, or the host's onApply over `data`.
-    const apply = value.readOnly ? undefined : saveOf(value.source);
-    const [opened, openStored] = useOpenedFlow(keys.flow);
-    // A flow being started — "+ New flow", or a flow duplicated: open at once, recorded once its session has read its base.
-    const [creating, setCreating] = useState<NewFlowDraft | undefined>(undefined);
-    const kept = useKeptSessions(storageKey, keys.flow);
-    // The new flows the sessions hold, not yet saved, as their drafts stand: by their sessions' names.
-    const fresh = useMemo(() => (flows === undefined ? new Map<string, FlowRow>() : newFlows(kept.sessions, (n) => flows.has(n))),
-        // The sessions move under their version.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [flows, kept.sessions, kept.version]);
-    // Whether a flow's session holds drafts it has not seen through (#1250) — a delete's on its way to Save among them: only the open
-    // flow's session reads its Save back, so the flow stays open until the record reads back as the Save left it.
-    const drafting = useCallback((n: string): boolean => (kept.sessions.get(n)?.pending ?? 0) > 0,
-        // The sessions move under their version.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [kept.sessions, kept.version]);
-    // Whether the flowchart holds a flow of a name: in its flows, as a new flow — one its drafts rename among them — committed or
-    // not, or as one whose drafts are on their way to Save.
-    const holds = useCallback((n: string) => flows !== undefined
-        && (flows.has(n) || (held.many && held.pendingName === n) || fresh.has(n) || (creating !== undefined && nameEqual(creating.name, n)) || drafting(n)), [flows, fresh, creating, drafting, held]);
-    // A rename sent with Save (#1250): the flow it renames — the one open then, whether the viewer or `flow` opened it — and its new
-    // name, followed once the session that sent it has seen the commit through, none of its drafts left. A Save refused or in
-    // conflict drops it, and a Save sent again marks it again; a write with no answer keeps it, its drafts locked, for its Retry.
-    const [renaming, setRenaming] = useState<{ readonly from: string; readonly to: string } | undefined>(undefined);
-    const renamingSession = renaming === undefined ? undefined : kept.sessions.get(renaming.from);
-    const renamed = renaming !== undefined && renamingSession !== undefined && renamingSession.pending === 0 ? renaming.to : undefined;
-    const openedNow = renamed ?? opened;
-    useLayoutEffect(() => {
-        if (renamed === undefined) return;
-        openStored(renamed);
-        setRenaming(undefined);
-    }, [renamed, openStored]);
-    const renamingStatus = renamingSession?.status;
-    useEffect(() => {
-        if (renamingStatus === "conflict" || renamingStatus === "rejected") setRenaming(undefined);
-    }, [renamingStatus]);
-    const asked = getSomeorUndefined(value.open);
-    const openName = useMemo(() => (flows === undefined ? undefined
-        : openFlowName([...flows.keys(), ...fresh.keys()], holds, openedNow, asked)), [flows, fresh, holds, openedNow, asked]);
-    // Keep the initial choice by primary ID: filtering the list must not
-    // detach the open flow's session while a Save awaits confirmation.
-    useEffect(() => {
-        if (paged !== undefined && openName !== undefined && opened !== openName
-            && !(held.many && held.loading) && (asked === undefined || holds(asked) || opened !== undefined)) openStored(openName);
-    }, [paged, openName, opened, held, asked, holds, openStored]);
-    // `flow` names a flow the flowchart doesn't hold, and the viewer opened none in its place: the banner's (FB42).
-    const missing = missingFlow(holds, openedNow, asked);
-    const heldFlow = flows !== undefined && openName !== undefined ? flows.get(openName) : undefined;
+/** What the frame's gestures read as they are made, the latest render's: what is held, what is selected, and how a drop lands. */
+interface Latest {
+    readonly holding: FlowchartHolding;
+    readonly selection: FlowchartSelection | null;
+    readonly context: FlowchartDropContext;
+}
 
-    // ── The open flow's session (FB14, FB15) ────────────────────────────
-    // Its entry: the open flow's name over many flows; over the host's one flow, that flow (#1247).
-    const entry = held.many ? openName : ONE_FLOW;
-    const entryHeld = held.many ? heldFlow : held.flow;
-    // A flow as the source holds it, by name: the open flow's, and a rename's new name's (#1250).
-    const heldOf = useCallback((n: string): FlowchartFlowValue | undefined => (held.many ? held.flows.get(n) : nameEqual(n, ONE_FLOW) ? held.flow : undefined), [held]);
-    const flowSession = useFlowSession({ key: keys.flow, name: entry, heldOf, apply, storageKey, sessions: kept.sessions, words, paged, recordSlice: flowsPart });
-    const { session, original, available } = flowSession;
-    useEffect(() => {
-        if (creating === undefined || openName === undefined || !nameEqual(openName, creating.name) || !available || (held.many && held.loading)) return;
-        // A name another write took meanwhile is the record's: it opens as the record holds it.
-        if (heldFlow === undefined) recordNewFlow(session, creating.name, creating.flow, creating.label);
-        setCreating(undefined);
-    }, [creating, openName, heldFlow, available, session, held]);
-    // The open flow as its drafts stand, under the name they give it; with none, as its source holds it.
-    const pending = session.pending > 0;
-    const drafted = flowSession.drafted;
-    const shown: FlowRow | undefined = pending
-        ? (drafted ?? undefined)
-        : entry !== undefined && entryHeld !== undefined ? { name: entry, flow: entryHeld } : (drafted ?? undefined);
-    // Its drafts delete it (#1250): main and the inspector say so.
-    const deleted = pending && drafted === null;
-    // The open flow's states holding a conflict not yet chosen, by their keys as its drafts hold them: their nodes wear
-    // the warn ring. A conflict's steps run down the flow to its states and one state's place among them.
-    const conflicts = session.conflicts;
-    const shownFlow = shown?.flow;
-    const conflictedStates = useMemo((): ReadonlySet<string> => {
-        const points = entry === undefined ? undefined : conflicts.get(entry)?.points;
-        if (points === undefined || shownFlow === undefined) return NO_STATES;
-        const out = new Set<string>();
-        for (const point of points) {
-            const key = conflictStateKey(point.at, shownFlow);
-            if (key !== undefined) out.add(key);
-        }
-        return out;
-    }, [conflicts, entry, shownFlow]);
-    const flow = shown?.flow ?? NO_FLOW;
-    // Whether a flow is there to edit: one its source or its drafts hold — never a new flow before its session holds it, nor one its drafts delete.
-    const hasFlow = shown !== undefined;
-    // The name the footer and the inspector give the open flow: the one its drafts give it, over many flows.
-    const shownName = held.many ? (shown?.name ?? openName) : undefined;
-    // It edits while it has Save and a flow open: its history item, its banners and its keys.
-    const edits = apply !== undefined && entry !== undefined;
-    // The changes waiting on Save, the footer's (FB10): counted when the drafts move, never on a render that moves nothing — a rename one more.
-    const waiting = useMemo(() => {
-        if (!edits) return undefined;
-        if (!pending) return 0;
-        const rename = entryHeld !== undefined && entry !== undefined && drafted !== null && drafted !== undefined && !nameEqual(drafted.name, entry) ? 1 : 0;
-        return flowEdits.pendingChanges(entryHeld, drafted?.flow) + rename;
-    }, [edits, pending, entryHeld, entry, drafted]);
+/**
+ * The frame: the rows read with the drafts in place, the model drawn from
+ * them, and every part over them — see the module docs.
+ *
+ * @param props - The payload, what is read, the words, and the rail's sources and picks
+ * @returns The frame
+ */
+function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, nouns, followed, picks }: FlowchartFrameProps) {
+    const recipe = useSlotRecipe({ key: "flowchart" });
+    const styles = useMemo(() => recipe() as Styles, [recipe]);
+    const m = words.m;
+    const name = getSomeorUndefined(value.name);
+    const keys = useMemo(() => flowchartKeys(name), [name]);
+    const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
+    const kindName = useCallback((sort: FlowchartSort): string => kindOf(value, sort)?.name ?? sort, [value]);
 
-    // The open flow as its session holds it now — never a render's copy — and the name its drafts give it.
-    const currentEntry = useCallback((): FlowRow | undefined => {
-        if (entry === undefined) return undefined;
-        const now = draftedEntry(session, entry);
-        // A delete drafted: no flow to edit.
-        if (now === null) return undefined;
-        return now ?? (entryHeld === undefined ? undefined : { name: entry, flow: entryHeld });
-    }, [entry, session, entryHeld]);
-    // One edit, one transaction of the open flow's session, under the name its drafts give it.
-    const recordEdit = useCallback((next: FlowchartFlowValue, edit: flowEdits.FlowchartEdit, label?: string): boolean => {
-        const at = currentEntry();
-        return edits && at !== undefined && recordFlowEdit({ session, original }, at.name, next, flowEdits.EDIT_ORIGIN[edit], label ?? words.m.editLabel({ edit }));
-    }, [edits, currentEntry, session, original, words]);
+    // ── What stands in while a new narrowing is read ─────────────────────
+    // Under `dim`, a kind's shown keys resolving keeps the canvas's last rows; a failed one keeps them too.
+    const narrowingBusy = SOURCE_SORTS.some((sort) => {
+        const one = followed.get(sort);
+        return one !== undefined && one.shown.busy && one.error === undefined;
+    });
+    const stale = data.ready && (data.filtering || narrowingBusy);
+    const retained = stale || SOURCE_SORTS.some((sort) => followed.get(sort)?.error !== undefined);
 
-    // ── What is selected (#1250): the frame's, per open flow ────────────────
-    const [selected, setSelectedState] = useState<{ readonly flow: string | undefined; readonly selection: FlowchartSelection | null }>({ flow: undefined, selection: null });
-    const openNameRef = useRef(openName);
-    openNameRef.current = openName;
-    const setSelected = useCallback((selection: FlowchartSelection | null) => { setSelectedState({ flow: openNameRef.current, selection }); }, []);
-    // Each flow its own selection: another flow opened selects nothing.
-    const sameFlow = selected.flow === undefined || openName === undefined ? selected.flow === openName : nameEqual(selected.flow, openName);
-    // As the open flow holds it: what an Undo or a gesture took away is not selected.
-    const selection = useMemo(() => selectionHeld(sameFlow ? selected.selection : null, flow), [sameFlow, selected.selection, flow]);
-    const selectionRef = useRef(selection);
-    selectionRef.current = selection;
-    // What the frame asks the canvas to select and bring into view: a state find state picked, a drop added, a click in the inspector.
+    // ── The editing: one history over a session per record that writes ─
+    // Each kind read through its source that writes: its Save's notice counts what leaves the source's narrowing.
+    const recordSlices = useMemo(() => SOURCE_SORTS.flatMap((sort) => {
+        const part = kindOf(value, sort)?.editable === true ? sourcePart(chrome, sort) : undefined;
+        return part === undefined ? [] : [part];
+    }), [value, chrome]);
+    const keyWords = useMemo((): FlowchartKeyCheckWords => ({ held: m.keyHeld, checking: m.keyChecking }), [m]);
+    const editing = useFlowchartEditing(value, `${storageKey}.${name ?? "flowchart"}`, recordSlices, data.held, keyWords, retained);
+    const history = editing.history;
+    const sessions = editing.schedule.sessions;
+
+    // ── The rows, the drafts in place, and the model drawn from them ────
+    // Under `dim`, what the rail leaves out of a kind read through its source is drawn dimmed: the keys it shows.
+    const dimmed = useMemo((): FlowchartDimmed => {
+        if (value.narrowed.type !== "dim") return {};
+        const of = (sort: FlowchartSort) => {
+            const shown = followed.get(sort)?.shown.keys;
+            return shown?.type === "some" ? (key: string) => !shown.value.has(key) : undefined;
+        };
+        return { states: of("states"), transitions: of("transitions") };
+    }, [value.narrowed, followed]);
+    const drafted = useMemo(() => draftedRows(data.held, data.hiddenWith, editing.drafts, dimmed), [data.held, data.hiddenWith, editing.drafts, dimmed]);
+    const model = useMemo(() => buildModel(drafted.rows, words), [drafted.rows, words]);
+
+    // ── The details: read by the rows drawn, in a reader of their own, and counted into the flowchart's bins ──
+    const [details, setDetails] = useState<FlowchartDetailsData>(NO_DETAILS);
+    const detailsKinds = useMemo(() => detailsKindsOf(value), [value]);
+    const drawn = useDrawnKeys(model);
+    const detailsModel = useMemo(() => flowchartDetailsModel(detailsKinds, details, drawn, words), [detailsKinds, details, drawn, words]);
+
+    // ── What is selected, and where the canvas looks ──────────────────
+    const [selected, setSelected] = useState<FlowchartSelection | null>(null);
+    const selection = useMemo(() => selectionHeld(selected, model), [selected, model]);
     const [reveal, setReveal] = useState<FlowchartReveal | null>(null);
     const revealSelection = useCallback((next: FlowchartSelection | null, scroll = true) => {
         setSelected(next);
         if (next !== null) setReveal((was) => ({ selection: next, seq: (was?.seq ?? 0) + 1, scroll }));
-    }, [setSelected]);
-
-    // ── The gestures (FB17–FB20): each one transaction of the open flow's session ──
-    // They show wherever the flowchart edits, and record nothing while the
-    // session takes no gesture — a Save in flight, drafts out of date — as
-    // the history item's buttons are off then.
-    const canvasEdit = useMemo((): FlowchartCanvasEdit | undefined => {
-        if (!edits || entry === undefined || !hasFlow) return undefined;
-        // Each gesture reads the flow as the session holds it now — never a render's copy — and records the flow it leaves.
-        const now = (): FlowchartFlowValue => currentEntry()?.flow ?? NO_FLOW;
-        const record = (next: FlowchartFlowValue | undefined, edit: flowEdits.FlowchartEdit): void => {
-            if (next !== undefined) recordEdit(next, edit);
-        };
-        return {
-            addLane: () => record(flowEdits.addLane(now(), laneLabel(words)).flow, "addLane"),
-            renameLane: (key, label) => record(flowEdits.renameLane(now(), key, label), "renameLane"),
-            deleteLane: (key) => record(flowEdits.deleteLane(now(), key), "deleteLane"),
-            addState: (lane, key, label) => record(flowEdits.addState(now(), lane, key, label), "addState"),
-            editState: (key, next, label) => record(flowEdits.editState(now(), key, next, label), "editState"),
-            moveState: (key, lane) => record(flowEdits.moveState(now(), key, lane), "moveState"),
-            deleteState: (key) => record(flowEdits.deleteState(now(), key), "deleteState"),
-            deleteStates: (stateKeys) => record(flowEdits.deleteStates(now(), stateKeys), "deleteStates"),
-            connect: (from, to) => record(flowEdits.connect(now(), from, to).flow, "connect"),
-            deleteLink: (key) => record(flowEdits.deleteLink(now(), key), "deleteLink"),
-            deleteDecision: (key) => record(flowEdits.deleteDecision(now(), key), "deleteDecision"),
-        };
-    }, [edits, entry, hasFlow, currentEntry, recordEdit, words]);
-
-    // The open flow's model, the canvas's and the footer's — keyed on the
-    // flow's DATA (#809): a closure-only change keeps it.
-    const data = useDataStable(flow, flowEqual);
-    const model = useMemo(() => buildModel(data, words, words.m.inspectorChip({ state: "noRow" })), [data, words]);
-    // LR · TD (FB43): the viewer's, kept under the flowchart's name; the canvas's `orientation` until they pick.
-    const [orientation, setOrientation] = useViewerOrientation(keys.orientation, getSomeorUndefined(canvas.orientation)?.type ?? "LR");
-    // Find state over the open flow's states: a pick reveals the state on the canvas.
-    const onPick = useCallback((key: string) => { revealSelection({ kind: "state", key }); }, [revealSelection]);
-
-    // ── The drops (#1249, FB30–FB34): the library's cards, onto the canvas ──
-    // The open flow as its session holds it now — never a render's copy: what a drop plans over.
-    const currentFlow = useCallback((): FlowchartFlowValue | undefined => currentEntry()?.flow, [currentEntry]);
-    // A drop's flow, one `drop` transaction of the open flow's session.
-    const recordDrop = useCallback((next: FlowchartFlowValue, label: string): boolean => {
-        const at = currentEntry();
-        return edits && at !== undefined && recordFlowEdit({ session, original }, at.name, next, "drop", label);
-    }, [edits, currentEntry, session, original]);
-    // The state a drop added, selected (FB31) — scrolled into view for a card's ⏎.
-    const selectState = useCallback((key: string, scroll: boolean) => { revealSelection({ kind: "state", key }, scroll); }, [revealSelection]);
-    // Why a card's ⏎ or an inspector's edit was refused, the footer's line (FB34, #1250): until a drop lands, or another flow opens.
+    }, []);
+    // A gesture refused, a pick that could not clear the rail's choices: the footer's line says why.
     const [notice, setNotice] = useState<string | undefined>(undefined);
-    useEffect(() => { setNotice(undefined); }, [openName]);
+
+    // ── The gestures: each one step of the history ─────────────────────
+    const holding = useMemo((): FlowchartHolding => ({
+        model, rows: drafted.rows, hidden: drafted.hidden, waiting: drafted.waiting,
+        can: (sort) => editing.editable(sort) && editing.available(sort),
+        taken: (sort, key) => editing.taken(sort, key),
+        mintTransition: (minted) => editing.mintTransition(minted),
+        unqueues: editing.unqueues, wholeLaneOrders: editing.wholeLaneOrders,
+    }), [model, drafted, editing]);
+    const context = useMemo((): FlowchartDropContext => ({
+        model,
+        editable: (sort) => editing.editable(sort),
+        available: (sort) => editing.available(sort),
+        kindName: (sort) => kindName(sort).toLocaleLowerCase(words.locale),
+    }), [model, editing, kindName, words.locale]);
+    // The latest render's, as a gesture reads them when it is made: set once the render commits, never as it renders.
+    const latest = useRef<Latest>({ holding, selection, context });
+    useLayoutEffect(() => { latest.current = { holding, selection, context }; });
+    const record = editing.record;
+    const act = useCallback((gesture: FlowchartGesture, build: (holding: FlowchartHolding) => GestureEdits | undefined): GestureEdits | undefined => {
+        const made = build(latest.current.holding);
+        if (made === undefined) return undefined;
+        if (made.edits.length > 0 && !record(made.edits, EDIT_ORIGIN[gesture], m.editLabel({ gesture }))) return undefined;
+        setNotice(undefined);
+        return made;
+    }, [record, m]);
+    const edits = editing.edits;
+    const editable = editing.editable;
+    const number = words.number;
+    const canvasEdit = useMemo((): FlowchartCanvasEdit | undefined => {
+        if (!edits) return undefined;
+        const lanes = editable("lanes"), states = editable("states"), transitions = editable("transitions"), decisions = editable("decisions");
+        return {
+            addLane: lanes ? () => { act("addLane", (h) => addLane(h, (n) => m.newLane({ n, count: number(n) }))); } : undefined,
+            renameLane: lanes ? (key, label) => { act("renameLane", (h) => renameLane(h, key, label)); } : undefined,
+            deleteLane: lanes ? (key) => { act("deleteLane", (h) => deleteLane(h, key)); } : undefined,
+            addState: states ? (band, key, label) => {
+                const made = act("addState", (h) => addState(h, band, key, label));
+                if (made !== undefined) revealSelection({ kind: "state", key: made.key ?? key }, false);
+                return made !== undefined;
+            } : undefined,
+            stateKeyTaken: states ? (key) => editing.taken("states", key) : undefined,
+            renameState: states ? (key, label) => { act("renameState", (h) => renameState(h, key, label)); } : undefined,
+            moveStates: states ? (keys, band, at) => { act("moveStates", (h) => moveStates(h, keys, band, at)); } : undefined,
+            deleteStates: states ? (keys) => { act("deleteStates", (h) => deleteStates(h, keys)); } : undefined,
+            connect: transitions ? (from, to) => {
+                const made = act("connect", (h) => connect(h, from, to));
+                if (made?.key !== undefined) revealSelection({ kind: "link", key: made.key }, false);
+            } : undefined,
+            deleteLink: transitions ? (key) => { act("deleteLink", (h) => deleteLink(h, key)); } : undefined,
+            deleteDecision: decisions ? (key) => { act("deleteDecision", (h) => deleteDecision(h, key)); } : undefined,
+        };
+    }, [edits, editable, editing, act, m, number, revealSelection]);
+
+    // ── The narrow layout: below 480px of main, measured by the canvas's element, which fills it ──
+    const mainRef = useRef<HTMLDivElement | null>(null);
+    const onCanvasElement = useCallback((element: HTMLDivElement | null) => { mainRef.current = element; }, []);
+    const narrow = useContainerBelow(mainRef, NARROW_WIDTH);
+    // Before the first read settles — the frame's cold load — the canvas draws nothing, never the empty records' band
+    // row and its "+ LANE" (`read.ts`): it is given no gesture, so a flowchart with nothing read is blank. Below 480px of
+    // main nothing drags (R17): the canvas moves no state and connects none, whatever the pointer — the inspector
+    // carries a state's lane and a transition's ends.
+    const canvasEdits = useMemo((): FlowchartCanvasEdit | undefined => {
+        if (!data.ready || canvasEdit === undefined) return undefined;
+        return narrow ? { ...canvasEdit, moveStates: undefined, connect: undefined } : canvasEdit;
+    }, [data.ready, canvasEdit, narrow]);
+
+    // ── The drops: a library card onto the canvas, as one step of the history ──
     const drop = useFlowchartDrop({
-        library: value.library, keys, now: currentFlow, edits, available, record: recordDrop,
-        selection: () => selectionRef.current, select: selectState, notice: setNotice, words,
+        value, keys, words,
+        context: () => latest.current.context,
+        holding: () => latest.current.holding,
+        record: (made, label) => record(made, EDIT_ORIGIN.dropCard, label),
+        selection: () => latest.current.selection,
+        select: revealSelection,
+        notice: setNotice,
+        drags: !narrow,
     });
-    const findable = useMemo(() => data.states.map((s) => ({ key: s.key, label: getSomeorUndefined(s.label) })), [data]);
-    const find = useFindState(findable, openName ?? "", onPick, words.m.findNoMatches());
-    const freshnessValue = getSomeorUndefined(canvas.freshness);
+
+    // ── The hidden pick: Find's and Issues', clearing just the choices hiding a row, then selecting it once drawn ──
+    const pick = useHiddenPick<FlowchartSelection>({
+        onError: (said) => setNotice(said),
+        uncleared: m.hiddenUncleared(),
+        landing: {
+            drawn: (at) => !stale && selectionHeld(at, model) !== null,
+            selects: (at) => revealSelection(at),
+        },
+    });
+    const onFound = useCallback((found: FoundState) => {
+        setNotice(undefined);
+        const at: FlowchartSelection = { kind: "state", key: found.key };
+        pick.pick(found.hidden, at, () => { revealSelection(at); });
+    }, [pick, revealSelection]);
+    const goToWaiting = useCallback((at: FlowchartSelection, hidden: readonly SourceHiding[] | undefined) => {
+        pick.pick(hidden, at, () => { revealSelection(at); });
+    }, [pick, revealSelection]);
+
+    // ── Find: the states drawn, and those the rail hides through the states' source ──
+    const statesPart = useMemo(() => sourcePart(chrome, "states"), [chrome]);
+    const codec = useMemo(() => rowCodec(value.states.rowType), [value.states.rowType]);
+    const findable = useMemo(() => model.nodes.filter((node) => !node.ghost)
+        .map((node): FindableState => ({ key: node.key, label: node.label, dimmed: node.dimmed })), [model.nodes]);
+    const finder = useFlowchartFind({
+        part: statesPart, read: value.states.read, codec, drawn: findable, stored: data.held.states, pick: picks.get("states"),
+        dim: value.narrowed.type === "dim", words, onPick: onFound,
+    });
+    const find = useMemo(() => (finder === undefined ? undefined : pick.search(finder)), [finder, pick]);
+
+    // ── The history item, and a conflict's Go to ───────────────────────
+    // A row named as the canvas names it: a state by its key, a transition by its ends, a lane and a decision by their labels.
+    const rowName = useCallback((kind: string, key: string): string => {
+        switch (sortOf(kind)) {
+            case "transitions": {
+                const roles = drafted.rows.transitions.find((row) => stringEqual(row.key, key))?.roles;
+                return roles === undefined ? key : `${roles.from} → ${roles.to}`;
+            }
+            case "lanes": return model.lanes.find((lane) => stringEqual(lane.key, key))?.label ?? key;
+            case "decisions": return model.triggers.get(key)?.label ?? key;
+            default: return key;
+        }
+    }, [drafted.rows.transitions, model]);
+    const partOf = useCallback((issue: EditIssue) => {
+        const key = history.sourceOf(issue);
+        return key === undefined ? undefined : sessions.find((part) => stringEqual(part.key, key));
+    }, [history, sessions]);
+    const onIssue = useCallback((issue: EditIssue) => {
+        const sort = sortOf(partOf(issue)?.kind ?? "");
+        if (sort !== undefined) revealSelection(selectionOf(sort, issue.entry));
+    }, [partOf, revealSelection]);
+    const where = useCallback((issue: EditIssue) => {
+        const part = partOf(issue);
+        return part === undefined ? issue.entry : rowName(part.kind, issue.entry);
+    }, [partOf, rowName]);
+    // A conflict's value as the canvas names that row — a state's lane by the lane's label, a transition's ends by their
+    // states' and its decision by the decision's — never a key (#1503).
+    const transitionKind = getSomeorUndefined(value.transitions);
+    const keyFields = useMemo((): FlowchartKeyFields => ({
+        lane: getSomeorUndefined(value.states.laneField),
+        ends: transitionKind === undefined ? undefined : [transitionKind.fromField, transitionKind.toField],
+        decision: transitionKind === undefined ? undefined : getSomeorUndefined(transitionKind.decisionField),
+    }), [value.states, transitionKind]);
+    const conflictValue = useCallback((issue: EditIssue, path: PatchPath, held: unknown) => {
+        const sort = sortOf(partOf(issue)?.kind ?? "");
+        return sort === undefined ? undefined : conflictValueName(sort, path, held, keyFields, model);
+    }, [partOf, keyFields, model]);
+    // The history's acts: a field typed into lets go first, committing what it holds — the history's buttons take no
+    // focus from it. Anything else keeps the focus, a button of the canvas's or the canvas itself, so the next key — a
+    // Redo after an Undo — reaches the frame too, never the page.
+    const onAction = useCallback((action: HistoryAction) => {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && typedInto(active)) active.blur();
+        history.act(action);
+    }, [history]);
+    const historyItem = edits ? historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue, where, conflictValue, onAction }) : undefined;
+
+    // ── The toolbar ─────────────────────────────────────────────────────
+    const toolbarRef = useRef<HTMLDivElement>(null);
+    const [orientation, setOrientation] = useViewerOrientation(keys.orientation, getSomeorUndefined(value.canvas.orientation)?.type ?? "LR");
+    const freshnessValue = getSomeorUndefined(value.canvas.freshness);
     const freshness = useMemo(
         () => (freshnessValue === undefined ? undefined : { label: freshnessValue.label, date: getSomeorUndefined(freshnessValue.date) }),
         [freshnessValue]);
-
-    // ── The history item and the banners: the open flow's session (FB15) ──
-    const onAction = useCallback((action: HistoryAction) => {
-        switch (action) {
-            case "undo": session.undo(); return;
-            case "redo": session.redo(); return;
-            case "discard": session.discard(); return;
-            case "refresh": session.refresh(); return;
-            case "apply": {
-                // A rename sent with this Save is followed once its session has seen it through (#1250).
-                const at = currentEntry();
-                if (entry !== undefined && at !== undefined && !nameEqual(at.name, entry)) setRenaming({ from: entry, to: at.name });
-                void session.apply();
-                return;
-            }
-        }
-    }, [session, currentEntry, entry]);
-    // An issue on the open flow selects what it names (#1250) — a conflict's Go to, the row its path is in; another flow's
-    // opens it; one of the record's as a whole — or the host's one flow's — names none.
-    const onIssue = useCallback((issue: EditIssue, path?: PatchPath) => {
-        const at = currentEntry();
-        const ours = (at !== undefined && nameEqual(issue.entry, at.name)) || (entry !== undefined && nameEqual(issue.entry, entry));
-        if (ours) {
-            revealSelection(at === undefined ? null : issueTarget(issue, at.flow) ?? (path === undefined ? null : conflictTarget(path, at.flow)));
-            return;
-        }
-        if (held.many && !nameEqual(issue.entry, "")) openStored(issue.entry);
-    }, [currentEntry, entry, held.many, openStored, revealSelection]);
-    // A conflict in the open flow's row, named as the flow shows the row — `Inbound parcels / Scanned`, never its place —
-    // then any steps below it, in words.
-    const conflictItem = useCallback((issue: EditIssue, path: PatchPath, steps: readonly string[]) => {
-        const at = currentEntry();
-        if (at === undefined || !nameEqual(issue.entry, at.name)) return undefined;
-        const row = conflictRowName(path, at.flow);
-        return row === undefined ? undefined : [issue.entry, row, ...steps.slice(1)].join(" / ");
-    }, [currentEntry]);
-    // A conflict's value as the flow shows it: a step's lane by its label, a transition's ends by their steps' — never a key.
-    const conflictValue = useCallback((issue: EditIssue, path: PatchPath, value: unknown, type: EastType | undefined) => {
-        const at = currentEntry();
-        if (at === undefined || !nameEqual(issue.entry, at.name)) return undefined;
-        return conflictValueName(path, value, type, at.flow);
-    }, [currentEntry]);
-    const history = edits ? historyToolbarItem({ session, words, editing: false, onIssue, conflictItem, conflictValue, onAction, showError: false }) : undefined;
-    // The history keys from anywhere in the frame (FB21): never a field being typed into, which keeps its own undo; and
-    // the canvas's keys, Esc, as they leave the frame. Each key acted on goes no further than the Flowchart (#1398).
+    const railNouns = useMemo(() => Object.fromEntries(nouns), [nouns]);
+    // The zoom (R42): the toolbar's strip zooms the canvas through its handle, and the canvas tells it where the zoom
+    // stands — until it is measured, at the cards' own size and at Fit, both off.
     const canvasRef = useRef<FlowchartCanvasHandle>(null);
+    const [zoomRange, setZoomRange] = useState<ZoomRange>(OPENS_ZOOMED);
+    const zoomBy = useCallback((factor: number) => canvasRef.current?.zoomBy(factor), []);
+    const fit = useCallback(() => canvasRef.current?.fit(), []);
+    const items = useFlowchartToolbarItems({
+        styles, find, orientation, onOrientation: setOrientation, freshness, words, history: historyItem, chrome, nouns: railNouns,
+        zoom: zoomRange, onZoom: zoomBy, onFit: fit,
+    });
+    // ⌘F, or Ctrl+F, anywhere in the frame: Find; ⌘Z, ⇧⌘Z and ⌘Y the history's, but in a field typed into, whose own
+    // they are; and the canvas's keys. Each key acted on goes no further than the Flowchart.
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
         if (event.defaultPrevented) return;
+        if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f") {
+            if (focusKeySearch(toolbarRef.current)) takeKey(event);
+            return;
+        }
         const action = historyShortcut(event);
         if (action !== undefined && edits && !typedInto(event.target)) {
             takeKey(event);
@@ -589,211 +497,112 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
         }
         canvasRef.current?.key(event);
     }, [edits, onAction]);
-    // The rail (#1346): each source counted in its noun on the rail's summary.
-    const railNouns = useMemo(() => Object.fromEntries(nouns), [nouns]);
-    const items = useFlowchartToolbarItems({ styles, find, findLabel: words.m.findState(), orientation, onOrientation: setOrientation, freshness, words, history, chrome, nouns: railNouns });
-    const saved = useLastSave(value.source, words);
 
-    // ── The Flows tab (FB13, FB14) ──────────────────────────────────────
-    const cards = useMemo((): FlowCard[] => {
-        if (flows === undefined) return [];
-        const names = [...new Set([...flows.keys(), ...fresh.keys()])].sort(nameOrder);
-        return names.flatMap((n): FlowCard[] => {
-            const own = kept.sessions.get(n);
-            const drafts = own !== undefined && own.pending > 0;
-            const draft = drafts ? draftedEntry(own, n) : undefined;
-            const shownFlow = draft?.flow ?? flows.get(n) ?? fresh.get(n)?.flow;
-            return shownFlow === undefined ? [] : [{ name: n, label: draft?.name ?? n, flow: shownFlow, pending: drafts }];
-        });
-        // The sessions move under their version.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [flows, fresh, kept.sessions, kept.version]);
-    // Every name the flowchart holds, or a draft gives a flow: what a new flow, a rename and a copy may not take.
-    const taken = useMemo(() => new Set([
-        ...cards.map((c) => c.name), ...cards.map((c) => c.label),
-        ...kept.sessions.all().flatMap(([, own]) => [...own.entries].filter(([, row]) => row.draft !== undefined).map(([id]) => id)),
-        ...(creating === undefined ? [] : [creating.name]),
-    ]), [cards, creating, kept.sessions]);
-    const onCreate = useCallback(async (n: string): Promise<string | undefined> => {
-        if (paged !== undefined && (await awaitTracked(() => paged.entry(n))).type === "some") return words.m.flowNameTaken({ name: n });
-        setCreating({ name: n, flow: emptyFlow(words), label: words.m.newFlow() });
-        openStored(n);
-        return undefined;
-    }, [openStored, words, paged]);
-    const newFlow = useMemo((): NewFlowProps | undefined => (apply === undefined || flows === undefined ? undefined : { taken, onCreate }), [apply, flows, taken, onCreate]);
-    // The paged Flows tab's count (#1346): what the rail narrows the record to — `40 of 2,048` — read where it renders nothing.
-    const [flowsCount, setFlowsCount] = useState<FlowsCount | undefined>(undefined);
-    const flowsTab = useMemo(() => {
-        if (flows === undefined) return undefined;
-        if (paged === undefined) {
-            return {
-                count: cards.length, shown: cards.length,
-                body: <FlowsTab cards={cards} open={openName} onOpen={openStored} newFlow={newFlow}
-                    id={`${keys.library}:flows`} storageKey={`${keys.library}.flows`} styles={styles} words={words} />,
-            };
-        }
-        // A new flow not yet saved shows above the list, whatever the narrowing: it counts among what the tab shows.
-        const unsaved = cards.filter(c => fresh.has(c.name));
-        return {
-            count: flowsCount === undefined ? undefined
-                : narrowedCount(words, flowsCount.shown + unsaved.length, flowsCount.total + unsaved.length, flowsCount.narrowing),
-            shown: (flowsCount?.shown ?? 0) + unsaved.length,
-            body: <PagedFlowsTab source={paged} part={flowsPart} sessions={kept.sessions} fresh={unsaved}
-                open={openName} onOpen={openStored} newFlow={newFlow} id={`${keys.library}:flows`}
-                storageKey={`${keys.library}.flows`} styles={styles} words={words} />,
-        };
-    }, [flows, cards, openName, openStored, newFlow, keys.library, styles, words, paged, flowsPart, flowsCount, fresh, kept.sessions]);
-    // The library pane: the tabs `library` lists, each data tab a Library of its own rows' cards (#1248) the source it
-    // names shows (#1346), each card that drops taking its ⏎ (#1249).
-    const start = useFlowchartLibrary({ library: value.library, flows: flowsTab, keys, words, enter: drop.enter, followed });
-
-    // ── The inspector (#1250, FB35–FB38) ────────────────────────────────
-    const refuse = useCallback((why: FlowchartRefusedWord) => { setNotice(words.m.inspectorRefused(why)); }, [words]);
-    const inspectorEdit = useMemo((): FlowchartInspectorEdit | undefined => {
-        if (!edits || entry === undefined || !hasFlow) return undefined;
-        return {
-            now: () => currentEntry()?.flow,
-            record: (next, edit) => recordEdit(next, edit),
-            rename: (to) => {
-                const at = currentEntry();
-                if (at === undefined || !held.many) return false;
-                const name = to.trim();
-                if (nameEqual(name, "")) { refuse({ why: "emptyName" }); return false; }
-                if (nameEqual(name, at.name)) return false;
-                // A name the flowchart holds, but the open flow's own under the source.
-                if (taken.has(name) && !nameEqual(name, entry)) { refuse({ why: "nameTaken", name }); return false; }
-                const commit = () => {
-                    const current = currentEntry();
-                    if (openNameRef.current !== entry || current?.name !== at.name) return false;
-                    return recordFlowRename({ session, original }, at.name, name, current.flow, words.m.editLabel({ edit: "renameFlow" }));
-                };
-                if (paged === undefined || nameEqual(name, entry)) return commit();
-                return awaitTracked(() => paged.entry(name)).then(found => {
-                    if (found.type === "some") { refuse({ why: "nameTaken", name }); return false; }
-                    return commit();
-                }, error => { setNotice(error instanceof Error ? error.message : "Could not check the flow name"); return false; });
-            },
-            duplicate: () => {
-                const at = currentEntry();
-                if (at === undefined || !held.many) return;
-                const create = async () => {
-                    let n = 1;
-                    let name = words.m.flowCopy({ name: at.name, n });
-                    while (taken.has(name) || (paged !== undefined && (await awaitTracked(() => paged.entry(name))).type === "some")) {
-                        name = words.m.flowCopy({ name: at.name, n: ++n });
-                    }
-                    if (openNameRef.current !== entry) return;
-                    setCreating({ name, flow: at.flow, label: words.m.editLabel({ edit: "duplicateFlow" }) });
-                    openStored(name);
-                };
-                void create().catch(error => setNotice(error instanceof Error ? error.message : "Could not duplicate the flow"));
-            },
-            remove: () => {
-                const at = currentEntry();
-                if (at === undefined || !held.many) return;
-                if (recordFlowDelete({ session, original }, at.name, words.m.editLabel({ edit: "deleteFlow" }))) setSelected(null);
-            },
-            refuse,
-        };
-    }, [edits, entry, hasFlow, currentEntry, recordEdit, held.many, refuse, taken, session, original, words, openStored, setSelected, paged]);
-    // The open flow's issues, and its Save's conflict or refusal while it stands (FB37).
-    const status = session.status;
-    const sessionIssues = session.issues;
-    const issues = useMemo(() => [
-        ...(edits && (status === "conflict" || status === "rejected") ? saveIssues(sessionIssues, flow) : []),
-        ...flowIssues(flow),
-    ], [edits, status, sessionIssues, flow]);
-    const paneValue = getSomeorUndefined(value.inspector);
-    const end = paneValue === undefined ? undefined : inspectorPane({
-        pane: paneValue, flow: shown?.flow, held: entryHeld, model, name: shownName, heldName: entryHeld === undefined ? undefined : openName,
-        deleted, selection, reveal: revealSelection, issues, edit: inspectorEdit, available: edits && available,
-        record: value.source.type !== "data", saved, keys, words,
+    // ── The issues, and the panes ──────────────────────────────────────
+    const decisionsGiven = getSomeorUndefined(value.decisions) !== undefined;
+    const issueArgs = useMemo((): FlowchartIssueArgs => ({
+        model, transitions: drafted.rows.transitions, waiting: drafted.waiting, hiddenWith: data.hiddenWith, stored: data.held.states, decisions: decisionsGiven,
+        details: detailsModel.findings,
+    }), [model, drafted, data.hiddenWith, data.held.states, decisionsGiven, detailsModel.findings]);
+    const historyVersion = editing.version;
+    // Each session's readiness, held by what it says, as the Sheet holds its own: the history checks each session again
+    // as what its checks read lands — the key check's answer from e3 (D3) — and that moves no version of it.
+    const readiness = useDataStable(sessions.map((part) => part.session.readiness), readinessesEqual);
+    const issues = useMemo(() => [...sessionIssues(sessions, issueArgs, kindName), ...flowchartIssues(issueArgs)],
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version and their readiness say they moved
+        [sessions, issueArgs, kindName, historyVersion, readiness]);
+    // The states a Save's conflict names: the canvas marks them.
+    const conflicted = useMemo(() => {
+        const out = new Set<string>();
+        for (const part of sessions) if (sortOf(part.kind) === "states") for (const key of part.session.conflicts.keys()) out.add(key);
+        return out;
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
+    }, [sessions, historyVersion]);
+    const saves = useLastSaves(value, words);
+    const start = useFlowchartLibrary({ value, keys, words, enter: drop.enter, followed, narrow });
+    const end = flowchartInspectorPane({
+        value, model, rows: drafted.rows, held: data.held, selection, editing, act, refuse: setNotice, reveal: revealSelection,
+        issues, picks, goToWaiting, saves, details: detailsModel, storageKey: keys.frame, words,
     });
 
-    // Another flow's conflicts wait in its own session, which the history item does not act on: a banner each, naming the
-    // flow, whose Choose opens it, then its conflicts as the history item holds its session.
-    const [chooseIn, setChooseIn] = useState<string | undefined>(undefined);
-    const openConflicts = useConflictsOpener(session);
-    useEffect(() => {
-        if (chooseIn === undefined || entry === undefined || !nameEqual(chooseIn, entry) || openConflicts === undefined) return;
-        setChooseIn(undefined);
-        openConflicts();
-    }, [chooseIn, entry, openConflicts]);
-    const otherFlows = edits && held.many ? kept.sessions.all().filter(([n]) => entry === undefined || !nameEqual(n, entry)) : [];
-
-    // The banners: the open flow's session's, then each other flow's conflicts; each source the library follows whose
-    // narrowing could not be read, with Retry (#1346); then a `flow` the flowchart doesn't hold, as the Sheet names an entry
-    // its record doesn't (FB42).
-    const failed = [...followed.values()].filter((source) => source.error !== undefined);
-    const banners = !edits && missing === undefined && failed.length === 0 ? undefined : (
+    // ── The banners: each session's, and each source the rail could not read ──
+    const followedFailures = [...followed.values()].filter((source) => source.error !== undefined);
+    const banners = sessions.length === 0 && followedFailures.length === 0 ? undefined : (
         <>
-            {edits && <SessionBanners session={session} words={words} onAction={onAction} />}
-            {otherFlows.map(([n, other]) => (
-                <SessionBanners key={n} session={other} words={words} onAction={onAction} name={n} conflictsOnly
-                    onChoose={() => { setChooseIn(n); openStored(n); }} />
-            ))}
-            {failed.map((source) => (
+            {sessions.map((part) => {
+                const sort = sortOf(part.kind);
+                return (
+                    <SessionBanners key={part.key} session={part.session} words={words} name={sort === undefined ? part.kind : kindName(sort)}
+                        where={(issue) => rowName(part.kind, issue.entry)} onAction={(action) => history.actOn(part.key, action)} />
+                );
+            })}
+            {followedFailures.map((source) => (
                 <Box key={source.name} data-flowchart-banner="source">
-                    <BannerView status="error" title={words.m.sourceUnavailable({ name: source.name })} description={source.error}
-                        actions={<Button size="xs" variant="outline" onClick={source.retry}>{words.m.retry()}</Button>} />
+                    <BannerView status="error" title={m.sourceUnavailable({ name: source.name })} description={source.error}
+                        actions={<Button size="xs" variant="outline" onClick={source.retry}>{m.retry()}</Button>} />
                 </Box>
             ))}
-            {missing !== undefined && (
-                <Box data-flowchart-banner="missing">
-                    <BannerView status="neutral" title={words.m.flowMissing({ name: missing, shown: openName })} />
-                </Box>
-            )}
         </>
     );
 
-    // Main: the open flow's canvas — or, over many flows with none open, the
-    // shared empty state; a flow its drafts delete, saying so (#1250).
-    const main = held.many && openName === undefined
-        ? <NoFlows newFlow={newFlow} styles={styles} words={words} />
-        : deleted
-            ? (
-                <Box css={styles.noFlows} data-flowchart-deleted="">
-                    <EmptyStateView icon={{ prefix: "fas", name: "trash-can" }}
-                        title={words.m.flowDeleted({ part: "title", name: shownName ?? openName ?? "" })}
-                        description={words.m.flowDeleted({ part: "hint", name: shownName ?? openName ?? "" })} />
-                </Box>
-            )
-            : <FlowchartCanvasView ref={canvasRef} canvas={canvas} model={model} orientation={orientation} reveal={reveal} conflicted={conflictedStates}
-                edit={canvasEdit} drop={drop.canvas} selection={selection} onSelect={setSelected} words={words} storageKey={storageKey} />;
+    // ── The footer: each Save's notice, and the loading line ────────────
+    const locale = words.locale;
+    const notices = useMemo(() => SOURCE_SORTS.flatMap((sort): FlowchartNotice[] => {
+        const kind = kindOf(value, sort);
+        const part = kind?.editable === true ? sourcePart(chrome, sort) : undefined;
+        if (kind === undefined || part === undefined) return [];
+        const one = kind.name.toLocaleLowerCase(locale);
+        return [{ sort, slice: part, singular: one, plural: kindPlural(one) }];
+    }), [value, chrome, locale]);
+    // What the line says: a failed read first, with Retry — the rows', then the details' — then the read in flight — a
+    // kind's first, or its new narrowing's, then the details' (R34).
+    const line = useMemo((): LoadingLineValue | undefined => {
+        const noun = (sort: FlowchartSort) => m.kindNoun({ sort, n: 2 });
+        const detailsOf = [["states", detailsModel.states], ["transitions", detailsModel.transitions]] as const;
+        if (data.error !== undefined) return pagedLoadingLine({ kind: "failed", from: undefined, to: undefined, reason: data.error }, noun("states"), m, number, readAgain);
+        for (const [sort, reason] of data.failures) return pagedLoadingLine({ kind: "failed", from: undefined, to: undefined, reason }, noun(sort), m, number, readAgain);
+        for (const [sort, kind] of detailsOf) {
+            if (kind?.error !== undefined) return pagedLoadingLine({ kind: "failed", from: undefined, to: undefined, reason: kind.error }, m.detailsNoun({ sort }), m, number, readAgain);
+        }
+        if (data.reading !== undefined) {
+            return pagedLoadingLine(data.reading.filtering ? { kind: "filtering" } : { kind: "loading", from: undefined, to: undefined }, noun(data.reading.sort), m, number, readAgain);
+        }
+        if (narrowingBusy) return pagedLoadingLine({ kind: "filtering" }, noun("states"), m, number, readAgain);
+        for (const [sort, kind] of detailsOf) {
+            if (kind?.reading === true) return pagedLoadingLine({ kind: "loading", from: undefined, to: undefined }, m.detailsNoun({ sort }), m, number, readAgain);
+        }
+        return undefined;
+    }, [data.error, data.failures, data.reading, narrowingBusy, detailsModel.states, detailsModel.transitions, m, number, readAgain]);
+    // A failed read, said once on the canvas at its top-left as the line says it, with the line's Retry (R5).
+    const failure = useMemo((): FlowchartCanvasFailure | undefined =>
+        (line?.kind === "failed" ? { message: loadingLineText(line.text), retry: line.onRetry } : undefined), [line]);
 
     return (
-        <Box css={styles.root} data-flowchart-root="">
-            {paged !== undefined && flowsPart !== undefined && <FlowsCountReader part={flowsPart} onCount={setFlowsCount} />}
-            {paged !== undefined && kept.sessions.all().filter(([name, own]) => name !== entry && own.pending > 0).map(([name]) => (
-                <PendingFlowSession key={name} name={name} flowKey={keys.flow} paged={paged} apply={apply}
-                    storageKey={storageKey} sessions={kept.sessions} words={words} recordSlice={flowsPart} />
-            ))}
-            <BuilderFrame
-                storageKey={keys.frame}
-                loading={reading && !landed}
-                busy={reading && landed}
-                toolbar={items}
-                banners={banners}
-                start={start}
-                end={end}
-                footer={
-                    <FlowchartFooter styles={styles} name={shownName} links={flow.links.length} recordSlice={paged === undefined ? undefined : flowsPart}
-                        counts={model.counts} pending={waiting} saved={saved?.when} message={notice} words={words} />
-                }
-                onKeyDown={onKeyDown}
-            >
-                {main}
-            </BuilderFrame>
+        <Box css={styles.root} data-flowchart-root="" data-flowchart-layout={narrow ? "narrow" : "wide"}>
+            <FlowchartDetailsReader kinds={detailsKinds} drawn={drawn} attempt={attempt} onDetails={setDetails} />
+            {/* The frame's one reveal clock: the footer's line shows a read in flight after 150 ms, held 300 ms once shown. */}
+            <LoadingReveal waiting={line?.kind === "loading"}>
+                <BuilderFrame
+                    storageKey={keys.frame}
+                    loading={!data.ready && data.error === undefined}
+                    busy={data.loading || narrowingBusy}
+                    toolbar={items}
+                    toolbarRef={toolbarRef}
+                    banners={banners}
+                    start={start}
+                    end={end}
+                    footer={<FlowchartFooter styles={styles} counts={model.counts} pending={edits ? history.pending : undefined} saved={saves.newest?.when}
+                        message={notice} words={words} notices={notices} line={line} />}
+                    onKeyDown={onKeyDown}
+                >
+                    <FlowchartCanvasView ref={canvasRef} canvas={value.canvas} model={model} details={detailsModel} orientation={orientation} reveal={reveal} conflicted={conflicted}
+                        edit={canvasEdits} drop={drop.canvas} selection={selection} onSelect={setSelected} words={words} storageKey={storageKey}
+                        onElement={onCanvasElement} failure={failure} onZoomRange={setZoomRange} />
+                </BuilderFrame>
+            </LoadingReveal>
         </Box>
     );
 }
-
-/** Keep offscreen drafts and in-flight Save confirmations attached to the shared session. */
-function PendingFlowSession({ name, flowKey, ...options }: Omit<Parameters<typeof useFlowSession>[0], "key" | "heldOf"> & { flowKey: string }) {
-    useFlowSession({ ...options, name, key: flowKey, heldOf: noHeldFlow });
-    return null;
-}
-const noHeldFlow = () => undefined;
 
 // =============================================================================
 // Side-effect — register the renderer for the Flowchart extension on module load.

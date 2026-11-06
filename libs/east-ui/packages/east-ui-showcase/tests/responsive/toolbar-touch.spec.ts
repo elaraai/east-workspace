@@ -34,12 +34,11 @@
  * as a desktop does, and a Tab from there closes it. And in the rail's
  * sectioned editor the cohort's chip and the breakdown's are each one 44px
  * target (#1253), every chip there keeping its own width. And the
- * Flowchart's frame (#1245): over the host's tables, which no rail narrows
- * (#1346), on the phone LR · TD's segment turning the canvas and find state's
- * view picking a state — and on the wide screen its row unfolded, a query in
- * find state stepped through its matches and cleared; over a record of flows
- * (#1246) its row ending with the history item;
- * and over a record its `flows` source narrows (#1346), the rail and its
+ * Flowchart's frame (#1245, #1506): over its records bound editable, which no
+ * rail narrows (#1346), on the phone LR · TD's segment turning the canvas and
+ * find state's view picking a state — and on the wide screen its row
+ * unfolded, a query in find state stepped through its matches and cleared;
+ * and over the records its rail's sources narrow (#1346), the rail and its
  * summary in the row. And the Schematic's frame (#1387): on the phone the
  * rail's icon and the View, and on the wide screen its tools, every one named,
  * its zoom and Fit and its Find's box.
@@ -246,11 +245,9 @@ const TOOLBARS: ReadonlyArray<{ name: string; hash: string; phone?: readonly Ges
         }],
     },
     { name: "sheetBatches", hash: "e3/sheet/sheet/sheetBatches" },
-    // Over a record of flows, the history item ends the Flowchart's row (#1246).
-    { name: "flowchartFlows", hash: "e3/flowchart/flowchart/flowchartFlows" },
-    // Over a record its `flows` source narrows, the rail and its summary fold first, and on the phone LR · TD and find
+    // Over the records its rail's sources narrow, the rail and its summary fold first, and on the phone LR · TD and find
     // state bundle into the key search's popover (#1346).
-    { name: "flowchartRecordIndexes", hash: "e3/flowchart/flowchart/flowchartRecordIndexes" },
+    { name: "flowchartDepot", hash: "e3/flowchart/flowchart/flowchartDepot" },
     // The Schematic's tools, its zoom and Fit and its Find, after its rail (#1387): on the phone the rail's icon and the
     // View; on the wide screen every tool named, edge to edge.
     { name: "schematicDataCentre", hash: "e3/schematic/schematic/schematicDataCentre" },
@@ -507,7 +504,7 @@ const findByTouch: Gesture = {
         await inRow(entry, "[data-toolbar-item='seek'] [data-key-search='icon']").tap();
         const view = page.locator("[data-key-search-phone]");
         await expect(view.getByRole("textbox")).toBeFocused();
-        await view.getByRole("textbox").fill("dsp");
+        await view.getByRole("textbox").fill("DSP");
         await view.locator("[data-key-search-row]", { hasText: "DSP" }).tap();
         await expect(entry.locator("[data-flowchart-node='DSP']")).toHaveAttribute("data-selected", "true");
         await expect(view).toHaveCount(0);
@@ -560,8 +557,8 @@ const CHIPS: ReadonlyArray<{ name: string; hash: string; chips: readonly string[
         wide: [],
     },
     {
-        // Over the host's tables, which no rail narrows (#1346), the phone's row folds no chip.
-        name: "flowchartDepot", hash: "e3/flowchart/flowchart/flowchartDepot",
+        // Over its records bound editable, which no rail narrows (#1346), the phone's row folds no chip.
+        name: "flowchartDepotEditing", hash: "e3/flowchart/flowchart/flowchartDepotEditing",
         chips: [],
         phone: [orientationByTouch, findByTouch],
         wide: [findStepped],

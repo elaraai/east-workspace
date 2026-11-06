@@ -33,7 +33,7 @@ const RECIPES = [
 
 test('what the Flowchart exports is read whole — its IR\'s names and its renderer\'s', () => {
     for (const name of ['Flowchart', 'FlowchartPayloadType', 'FlowchartCanvasType', 'FlowchartComponent', 'FlowchartTag', 'FlowchartTypes',
-        'FlowchartCanvasOptions', 'FlowchartFlowType', 'FlowchartFlowsType', 'FlowchartStateType', 'FlowchartLinkType',
+        'FlowchartCanvasOptions', 'FlowchartStateEntryType', 'FlowchartTransitionEntryType', 'FlowchartLaneEntryType', 'FlowchartDecisionEntryType',
         'EastChakraFlowchart', 'EastChakraFlowchartProps', 'FlowchartValue']) {
         assert.ok(FLOWCHART_NAMES.has(name), `the Flowchart's ${name} is read`);
     }

@@ -53,7 +53,7 @@ const AREAS: readonly { readonly name: string; readonly routes: readonly string[
     { name: "Roster", routes: ["e3/roster/roster/rosterWarehouse", "e3/roster/optimise/rosterOptimise"] },
     { name: "Calendar", routes: ["e3/calendar/calendar/calendarOperations", "e3/calendar/optimise/calendarOptimise"] },
     { name: "Allocation", routes: ["e3/allocation/allocation/allocationKilnYard", "e3/allocation/optimise/allocationOptimise"] },
-    { name: "Flowchart", routes: ["e3/flowchart/flowchart/flowchartFlows"] },
+    { name: "Flowchart", routes: ["e3/flowchart/flowchart/flowchartDepot"] },
     { name: "Studio", routes: ["e3/studio/studio/studioBuilder"] },
     { name: "Query", routes: ["e3/query/query/queryBuilder"] },
     { name: "Schematic", routes: ["e3/schematic/schematic/schematicDataCentre"] },

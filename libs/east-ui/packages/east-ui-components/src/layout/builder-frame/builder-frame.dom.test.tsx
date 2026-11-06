@@ -644,6 +644,36 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
         expect(firstRow()).toEqual(["name"]);
     });
 
+    test("The rail's button and Search Records, placed by their phone order, stand at the first row's end, the slack before them — unless view tabs take it, or the builder's own items end the row (FR2)", () => {
+        const turn: ToolbarItem = { key: "turn", forms: [<button type="button">LR</button>] };
+        const rail: ToolbarItem = { key: "rail", forms: [<span>CHIPS</span>], phone: { form: <button type="button">RAIL</button>, order: 1 } };
+        const count: ToolbarItem = { key: "count", side: "end", forms: [<span>3 ROWS</span>], phone: { form: <span>3 ROWS</span>, shrink: true } };
+        const search: ToolbarItem = { key: "search", forms: [<input aria-label="FIND" />], phone: { form: <button type="button">SEARCH</button>, order: 2 } };
+        /** The first row's items, by key, the one the row's slack stands before (`data-toolbar-end`) marked. */
+        const firstRow = () => [...slot("toolbar").querySelectorAll("[data-toolbar-item]")]
+            .map((el) => `${el.hasAttribute("data-toolbar-end") ? "| " : ""}${el.getAttribute("data-toolbar-item")}`);
+        // No rail: Search Records at the row's end, after the builder's own item; on a wider frame, the row as listed.
+        mount({ toolbar: [search, turn] });
+        frameAt(390);
+        expect(firstRow()).toEqual(["turn", "| search"]);
+        frameAt(1440);
+        expect(firstRow()).toEqual(["search", "turn"]);
+        cleanup();
+        // The count gives way before the rail's button, which leads the row's end, Search Records after it.
+        mount({ toolbar: [turn, rail, count, search] });
+        frameAt(390);
+        expect(firstRow()).toEqual(["turn", "count", "| rail", "search"]);
+        cleanup();
+        // View tabs that grow take the slack; an end item of the builder's own keeps the row's end.
+        mount({ toolbar: [{ key: "tabs", forms: [<span>TABS</span>], phone: { form: <span>TABS</span>, grow: true } }, turn, search] });
+        frameAt(390);
+        expect(firstRow()).toEqual(["tabs", "turn", "search"]);
+        cleanup();
+        mount({ toolbar: [turn, search, { key: "publish", side: "end", forms: [<button type="button">PUBLISH</button>] }] });
+        frameAt(390);
+        expect(firstRow()).toEqual(["turn", "search", "| publish"]);
+    });
+
     test("a pane that never collapses and an { element } pane stay pinned at their sides on a phone, with no strip tab", () => {
         mount({ start: library({ collapsible: false }), end: { element: <aside>OWN PANE</aside> } });
         frameAt(390);

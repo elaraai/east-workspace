@@ -6,44 +6,33 @@
  *
  * No DOM is under test: the flowchart's modules load east-ui-components'
  * entry, which needs one as it loads.
+ */
+
+/**
+ * The Flowchart's selection (#1502, #1504): a state shift-clicked into it and
+ * out, and the selection as the canvas draws the records — what it names that
+ * the canvas no longer draws as itself goes.
  *
- * What the flowchart has selected (#1250, `Flowchart Builder Spec.md` §5.3,
- * FB36), pure, over real East values: a state shift-clicked into a selection
- * of several and out of it; the states a selection holds; two selections
- * compared; and the selection as the open flow holds it — what an Undo or a
- * gesture took away no longer selected, an unresolved transition's end
- * still a state the canvas draws, and the same object kept while all it names
- * stands.
+ * @packageDocumentation
  */
 
 import { describe, expect, test } from "vitest";
-import { none, type ValueTypeOf } from "@elaraai/east";
-import { Flowchart } from "@elaraai/e3-ui/internal";
-import * as edits from "./edits.js";
+import { ALL_LANE_KEY, NO_LANE_KEY } from "./model.js";
+import { decisionRow, laneRow, modelOf, rowsOf, stateRow, transitionRow } from "./rows.test-utils.js";
 import { selectedStates, selectionEqual, selectionHeld, toggleState, type FlowchartSelection } from "./selection.js";
 
-type Flow = ValueTypeOf<typeof Flowchart.Types.Flow>;
-
-/** The sort flow: two lanes, three states, a decision on IND → CH*, a keyless CH* → SRD, and SRD → GONE, unresolved. */
-const SORT: Flow = Flowchart.value({
-    lanes: [{ key: "induct", label: "Induct" }, { key: "sort", label: "Sort" }],
-    states: [
-        { key: "IND", label: "Inducting", lane: "induct" },
-        { key: "CH*", label: "Sort chutes", lane: "sort" },
-        { key: "SRD", label: "Sorted", lane: "sort" },
-    ],
-    links: [
-        { key: "IND→CH*", from: "IND", to: "CH*", trigger: "route" },
-        { from: "CH*", to: "SRD" },
-        { from: "SRD", to: "GONE" },
-    ],
-    triggers: [{ key: "route", label: "route" }],
+/** The sort lanes: three states, a decision on IND → CH*, CH* → SRD, and SRD → GONE, unresolved. */
+const SORT = rowsOf({
+    lanes: [laneRow("induct", "Induct", 1), laneRow("sort", "Sort", 2)],
+    states: [stateRow("IND", "Inducting", { lane: "induct" }), stateRow("CH*", "Sort chutes", { lane: "sort" }), stateRow("SRD", "Sorted", { lane: "sort" })],
+    transitions: [transitionRow("t1", "IND", "CH*", { decision: "route" }), transitionRow("t2", "CH*", "SRD"), transitionRow("t3", "SRD", "GONE")],
+    decisions: [decisionRow("route", "route")],
 });
 
-describe("a state shift-clicked (#1250)", () => {
+describe("a state shift-clicked", () => {
     test("goes into the selection — after nothing, or anything but states, it alone; after one or several, beside them — and out of it again", () => {
         expect(toggleState(null, "IND")).toEqual({ kind: "state", key: "IND" });
-        expect(toggleState({ kind: "link", key: "IND→CH*" }, "IND")).toEqual({ kind: "state", key: "IND" });
+        expect(toggleState({ kind: "link", key: "t1" }, "IND")).toEqual({ kind: "state", key: "IND" });
         expect(toggleState({ kind: "lane", key: "sort" }, "IND")).toEqual({ kind: "state", key: "IND" });
         const two = toggleState({ kind: "state", key: "IND" }, "CH*");
         expect(two).toEqual({ kind: "states", keys: ["IND", "CH*"] });
@@ -73,30 +62,54 @@ describe("a state shift-clicked (#1250)", () => {
     });
 });
 
-describe("the selection as the open flow holds it (#1250)", () => {
-    test("is the same object while all it names stands: a state, an unresolved end, a transition by the key it goes by, a decision, a lane, several states", () => {
+describe("the selection as the canvas draws the records", () => {
+    test("is the same object while all it names is drawn: a state, an unresolved end, a transition by its key, a decision, a lane, several states", () => {
+        const model = modelOf(SORT);
         const cases: FlowchartSelection[] = [
             { kind: "state", key: "CH*" },
             { kind: "state", key: "GONE" },
-            { kind: "link", key: "CH*→SRD#1" },
-            { kind: "link", key: "IND→CH*" },
+            { kind: "link", key: "t2" },
+            { kind: "link", key: "t1" },
             { kind: "trigger", key: "route" },
             { kind: "lane", key: "sort" },
             { kind: "states", keys: ["IND", "SRD"] },
         ];
-        for (const selection of cases) expect(selectionHeld(selection, SORT)).toBe(selection);
-        expect(selectionHeld(null, SORT)).toBeNull();
+        for (const selection of cases) expect(selectionHeld(selection, model)).toBe(selection);
+        expect(selectionHeld(null, model)).toBeNull();
     });
 
-    test("what the flow no longer has is not selected: a state deleted, a transition, a decision, a lane — and several states keep those left", () => {
-        const deleted = edits.deleteState(SORT, "CH*");
+    test("what the records no longer hold is not selected: a state deleted with its transitions, a decision, a lane — and several states keep those left", () => {
+        const deleted = modelOf({
+            ...SORT,
+            states: SORT.states.filter((row) => row.key !== "CH*"),
+            transitions: SORT.transitions.filter((row) => row.key === "t3"),
+        });
         expect(selectionHeld({ kind: "state", key: "CH*" }, deleted)).toBeNull();
-        expect(selectionHeld({ kind: "link", key: "IND→CH*" }, deleted)).toBeNull();
-        expect(selectionHeld({ kind: "trigger", key: "route" }, edits.deleteDecision(SORT, "route"))).toBeNull();
-        expect(selectionHeld({ kind: "lane", key: "sort" }, { ...SORT, lanes: [SORT.lanes[0]!] })).toBeNull();
+        expect(selectionHeld({ kind: "link", key: "t1" }, deleted)).toBeNull();
         expect(selectionHeld({ kind: "states", keys: ["IND", "CH*", "SRD"] }, deleted)).toEqual({ kind: "states", keys: ["IND", "SRD"] });
         expect(selectionHeld({ kind: "states", keys: ["IND", "CH*"] }, deleted)).toEqual({ kind: "state", key: "IND" });
-        const bare: Flow = { description: none, lanes: [], states: [], links: [], triggers: [] };
-        expect(selectionHeld({ kind: "states", keys: ["IND", "CH*"] }, bare)).toBeNull();
+        expect(selectionHeld({ kind: "trigger", key: "route" }, modelOf({ ...SORT, decisions: [] }))).toBeNull();
+        expect(selectionHeld({ kind: "lane", key: "sort" }, modelOf({ ...SORT, lanes: [SORT.lanes![0]!] }))).toBeNull();
+        expect(selectionHeld({ kind: "states", keys: ["IND", "CH*"] }, modelOf(rowsOf({})))).toBeNull();
+    });
+
+    test("what the narrowing draws as context is selected by no path: a state, a transition, several states keeping those drawn as themselves", () => {
+        const dimmed = modelOf({
+            ...SORT,
+            states: SORT.states.map((row) => (row.key === "SRD" ? stateRow("SRD", "Sorted", { lane: "sort", dimmed: true }) : row)),
+            transitions: SORT.transitions.map((row) => (row.key === "t2" ? transitionRow("t2", "CH*", "SRD", { dimmed: true }) : row)),
+        });
+        expect(selectionHeld({ kind: "state", key: "SRD" }, dimmed)).toBeNull();
+        expect(selectionHeld({ kind: "link", key: "t2" }, dimmed)).toBeNull();
+        expect(selectionHeld({ kind: "states", keys: ["IND", "SRD"] }, dimmed)).toEqual({ kind: "state", key: "IND" });
+    });
+
+    test("only a lane of the app's is selected: never No lane, nor the one band of a Flowchart given no lanes", () => {
+        const noLane = modelOf({ ...SORT, states: [...SORT.states, stateRow("LOOSE", "Loose")] });
+        expect(noLane.lanes.some((lane) => lane.key === NO_LANE_KEY)).toBe(true);
+        expect(selectionHeld({ kind: "lane", key: NO_LANE_KEY }, noLane)).toBeNull();
+        const bare = modelOf({ ...SORT, lanes: undefined });
+        expect(bare.lanes.map((lane) => lane.key)).toEqual([ALL_LANE_KEY]);
+        expect(selectionHeld({ kind: "lane", key: ALL_LANE_KEY }, bare)).toBeNull();
     });
 });

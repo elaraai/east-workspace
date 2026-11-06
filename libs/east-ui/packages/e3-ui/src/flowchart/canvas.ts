@@ -5,15 +5,15 @@
 
 /**
  * The flowchart's canvas (#1244, `Flowchart Builder Spec.md` §5.2): what it
- * draws with besides its flow — orientation, the freshness chip, the legend
+ * draws with besides its kinds — orientation, the freshness chip, the legend
  * and the minimap, the selection callbacks and the connect veto. The payload
  * carries one whole, as its `canvas`. The flowchart fills the box it is given
  * (#1245): it takes no height of its own. Its gestures are its editing
  * session's (#1247): it takes no callback for an edit. It has no hover cards
  * (#1250): the inspector shows what is selected. It draws at one rhythm, the
- * spec's 116×40 cards in their lanes (#1251): it takes no density. A flow
- * built from the host's tables is never narrowed (#1346): the flowchart's one
- * narrowing is its `slice` over records, the payload's, never the canvas's.
+ * spec's cards in their lanes (#1251): it takes no density. Its one narrowing
+ * is its `slice` over the app's records (#1500), the payload's, never the
+ * canvas's.
  *
  * @packageDocumentation
  */
@@ -40,7 +40,8 @@ import { FlowchartOrientationType, FlowchartFreshnessType } from "./types.js";
 /**
  * The flowchart on a phone: a frame 560 px wide or narrower shows a window of
  * its lanes across its width, which its pager steps through. Above 560 px it
- * does nothing.
+ * does nothing. Where the details draw on the cards the window shows one lane,
+ * at least its own width, each step bringing the lane's card to its middle.
  *
  * @property lanes - How many lanes the window shows at once, 1 to 3; `none` shows 2
  */
@@ -49,7 +50,7 @@ export const FlowchartNarrowType = StructType({ lanes: OptionType(IntegerType) }
 export type FlowchartNarrowType = typeof FlowchartNarrowType;
 
 /**
- * East type for the flowchart's canvas — what it draws its flow with: the
+ * East type for the flowchart's canvas — what it draws its kinds with: the
  * payload's `canvas`.
  *
  * @remarks
@@ -94,8 +95,8 @@ export type FlowchartCanvasType = typeof FlowchartCanvasType;
 export type FlowchartOrientationLiteral = "LR" | "TD";
 
 /**
- * The freshness chip's input: the toolbar's chip naming the evidence the flow
- * was drawn from.
+ * The freshness chip's input: the toolbar's chip naming the evidence the
+ * flowchart was drawn from.
  */
 export interface FlowchartFreshnessInput {
     /** Chip label ("evidence-2026.06"). */
@@ -109,7 +110,7 @@ export interface FlowchartFreshnessInput {
 // ============================================================================
 
 /**
- * The canvas's options — what every `<Flowchart>` takes beside its flows.
+ * The canvas's options — what every `<Flowchart>` takes beside its kinds.
  *
  * @remarks
  * The host is told of the selection (`onSelectState`, `onSelectLink`,
@@ -118,11 +119,11 @@ export interface FlowchartFreshnessInput {
  * (#1247): "+ LANE", a lane's header double-clicked into its rename and its
  * ×, the "+ STATE" ghost, a state double-clicked into its editor or dragged
  * across lanes, a handle dragged to connect, and Del on the selection — each
- * one transaction of its editing session, which Save commits through the
- * record's patch mutation, or the host's `onApply` over `data`. The selection
- * — a state, a transition, a decision, a lane by its header (#1250), or
- * several states — and the pointer-highlight grammar are built in, and the
- * inspector shows what is selected: the flowchart takes no hover card.
+ * one transaction of its editing session, which Save writes through each
+ * record's own patch door (#1500). The selection — a state, a transition, a
+ * decision, a lane by its header (#1250), or several states — and the
+ * pointer-highlight grammar are built in, and the inspector shows what is
+ * selected: the flowchart takes no hover card.
  */
 export interface FlowchartCanvasOptions {
     /** Initial orientation — "LR" (default) | "TD"; the toolbar's LR · TD segment toggles it (view state, never a chip). */
@@ -146,7 +147,7 @@ export interface FlowchartCanvasOptions {
     /** Optional connection validator — `(from, to)` BEFORE the draft snaps; false forbids the pair. A throwing validator logs and ALLOWS (fail-open). */
     canConnect?: SubtypeExprOrValue<FunctionType<[StringType, StringType], BooleanType>>;
 
-    /** On a phone: how many lanes the window shows at once, 1 to 3 (default 2), its pager stepping through them. */
+    /** On a phone: how many lanes the window shows at once, 1 to 3 (default 2), its pager stepping through them — one where the details draw on the cards, each step bringing its card to the window's middle. */
     narrow?: { lanes?: 1 | 2 | 3 };
 }
 

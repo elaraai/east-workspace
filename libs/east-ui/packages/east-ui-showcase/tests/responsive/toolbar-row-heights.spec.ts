@@ -33,7 +33,7 @@ const BUILDERS: readonly (readonly [name: string, hash: string])[] = [
     ["Roster", "e3/roster/roster/rosterWarehouse"],
     ["Calendar", "e3/calendar/calendar/calendarOperations"],
     ["Allocation", "e3/allocation/allocation/allocationKilnYard"],
-    ["Flowchart", "e3/flowchart/flowchart/flowchartFlows"],
+    ["Flowchart", "e3/flowchart/flowchart/flowchartDepot"],
     ["Studio", "e3/studio/studio/studioBuilder"],
     ["Query", "e3/query/query/queryBuilder"],
     ["Schematic", "e3/schematic/schematic/schematicDataCentre"],

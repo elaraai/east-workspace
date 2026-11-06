@@ -8,9 +8,8 @@
  * orientation the viewer picked, held in the UI store under the flowchart's
  * name (`flowchartKeys(name).orientation`) as an East
  * `Flowchart.Types.Orientation`, so a remount keeps it and two flowcharts of
- * one name turn together, as the open flow is kept (`open-flow.ts`). Until
- * the viewer picks, the flowchart shows the payload's `orientation`, LR when
- * it gives none.
+ * one name turn together. Until the viewer picks, the flowchart shows the
+ * payload's `orientation`, LR when it gives none.
  *
  * @packageDocumentation
  */

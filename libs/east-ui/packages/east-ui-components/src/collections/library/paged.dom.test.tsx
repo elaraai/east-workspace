@@ -238,9 +238,9 @@ function flowsPart(): Bind & { countWhere: ReturnType<typeof vi.fn<Bind["countWh
     const config = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(RecordSliceConfigType)({
         fields: [field("name", "Name", []), field("lane", "Lane", ["intake", "review"]), field("kind", "Kind", ["inbound", "returns"])],
         indexes: [
-            { name: "name", fields: ["name"], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none },
-            { name: "lane_name", fields: ["lane", "name"], sets: new Set<string>(), structured: true, interval: none, area: none, series: none, summary: none },
-            { name: "kind", fields: ["kind"], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none },
+            { name: "name", fields: ["name"], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none, entries: false },
+            { name: "lane_name", fields: ["lane", "name"], sets: new Set<string>(), structured: true, interval: none, area: none, series: none, summary: none, entries: false },
+            { name: "kind", fields: ["kind"], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none, entries: false },
         ],
         range: none, search: ["name"], presets: [],
     }));

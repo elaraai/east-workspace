@@ -4,248 +4,187 @@
  */
 
 /**
- * The Flowchart's indexed flows on the real in-page e3 (#1246, #1346): one
- * rail over the record's `flows` source, the Flows tab paging what it narrows
- * the record to. One cold workspace per device runs the whole query, edit and
- * paging lifecycle; and at every width, in both themes, the Flows tab — or the
- * collapsed pane's badge — counts what the rail shows (`Flows 683 of 2,048`),
- * its count in the type its whole count has, the rail folding first and the
- * row whole, and the tab's own search finds a flow by its name within the
- * narrowing, the rail and the count as they were.
+ * The Flowchart's narrow layout over the records (#1505, `Flowchart Records
+ * Spec.md` R17), on the depot's states and transitions bound editable, its
+ * lanes read whole and its states' details on their cards
+ * (`flowchartDepotPhone`), held by the e3 inside the page. Below 480px of main
+ * nothing drags — the canvas takes no drop, shows no handle to connect, and a
+ * state carried by the mouse stays where it was — and the inspector carries the
+ * gestures: Find state selects a state, the inspector shows its form, a lane
+ * chosen there draws the state in that lane's band, and Save, reachable with
+ * the state selected, writes the move to the states' record; mounted afresh,
+ * the flowchart draws the state in its new lane. On a phone 390 and 360px
+ * wide, and in a 294px parent.
+ *
+ * Every measurement is polled until it holds, on a page at rest; nothing reads
+ * a screenshot.
+ *
+ * Locally: `make test-responsive` (libs/east-ui), or
+ * `pnpm exec playwright test responsive/flowchart-records`.
  */
-import { expect, test, type Locator, type Page } from "playwright/test";
-import { toolbarFaults } from "./builder-frame";
-import { openFlowchart } from "./flowchart-page";
-import { recordField } from "./record-slice";
+
+import { expect, type Locator, type Page } from "playwright/test";
+import { test } from "./kept-page";
+import { leaveBuilder, sizeBuilder, visitBuilder } from "./builder-page";
+import { FLOWCHARTS, openFlowchart } from "./flowchart-page";
 import { settled } from "./settle";
+import { LAYOUT_THEMES } from "./themes";
 
-/** Open one pane, including the shared overlay layout on phones. */
-async function pane(root: Locator, name: "Library" | "Inspector") {
-    // A phone's Filters view lies over the tabs: closed first.
-    const page = root.page();
-    for (let i = 0; i < 3 && await page.getByRole("dialog").count() > 0; i++) { await page.keyboard.press("Escape"); await settled(page); }
-    const tab = root.locator(`[data-pane-tab='${name === "Library" ? "start" : "end"}']`);
-    if (await tab.isVisible()) {
-        // One view at a time, over the tabs: the other pane's closed first.
-        if (await root.locator(`[data-pane-tab='${name === "Library" ? "end" : "start"}']`).getAttribute("aria-selected") === "true") { await page.keyboard.press("Escape"); await settled(page); }
-        if (await tab.getAttribute("aria-selected") !== "true") await tab.click();
-        return;
-    }
-    const other = root.getByRole("button", { name: `Collapse ${name === "Library" ? "Inspector" : "Library"}`, exact: true });
-    if (await other.isVisible()) await other.click();
-    const expand = root.getByRole("button", { name: `Expand ${name}`, exact: true });
-    if (await expand.isVisible()) await expand.click();
-}
+/** The depot's flowchart in a phone's frame, its states and transitions bound editable and its details on the cards. */
+const ROUTE = `${FLOWCHARTS}/flowchartDepotPhone`;
 
-async function search(page: Page, root: Locator, prefix: string) {
-    const editor = await recordField(page, root, "description");
-    const input = editor.getByPlaceholder("Search flows…");
-    await input.fill(prefix);
-    await page.getByRole("option", { name: new RegExp(`All starting with “${prefix}”`) }).click();
-    await page.keyboard.press("Escape");
-    await page.keyboard.press("Escape");
-    await settled(page);
-}
+/** The builder's frame, in its example's entry. */
+const FRAME = "[data-builder-frame]";
 
-// One cold workspace per device, then the whole query/edit/paging lifecycle.
-// Covers the real e3 index and mutation doors, not an in-memory filtered list.
-test("Flowchart indexed records page, search and retain drafts @narrow", async ({ page }) => {
-    const errors: string[] = [];
-    page.on("pageerror", error => errors.push(error.message));
-    const { root } = await openFlowchart(page, "flowchartRecordIndexes");
-    const save = root.locator("[data-slot='history'] button").last();
-    // The frame's toolbar: the Flows tab's search has a row of its own.
-    const toolbar = root.locator("[data-frame-slot='toolbar'] [data-toolbar]");
-    await expect.poll(() => toolbar.evaluate(el => {
-        const box = el.getBoundingClientRect();
-        return [...el.querySelectorAll("button")].every(button => {
-            const rect = button.getBoundingClientRect();
-            return rect.left >= box.left && rect.right <= box.right;
-        });
-    })).toBe(true);
-    const view = root.getByRole("button", { name: "View", exact: true });
-    if (await view.isVisible()) {
-        await view.click();
-        const stateSearch = page.getByPlaceholder("Find state");
-        await stateSearch.click();
-        await expect(page.getByRole("option", { name: "ARV · Arrived", exact: true })).toBeVisible();
-        await page.getByRole("option", { name: "ARV · Arrived", exact: true }).click();
-        await expect(root.locator('[data-flowchart-node="ARV"]')).toHaveAttribute("data-selected", "true");
-        await page.getByRole("radio", { name: "TD", exact: true }).click();
-        await page.getByRole("radio", { name: "LR", exact: true }).click();
-        await page.keyboard.press("Escape");
-    }
-    // The 44px collapsed rail uses the shared compact formatter and keeps
-    // its exact count. Long localized values are contained by the recipe.
-    const phone = await root.locator("[data-builder-frame][data-phone]").count() > 0;
-    if (!phone) {
-    await pane(root, "Library");
-    await root.getByRole("button", { name: "Collapse Library", exact: true }).click();
-    const badge = root.locator("[data-frame-slot='start'] [data-dock-badge]");
-    await expect(badge).toHaveAttribute("title", "2,048");
-    await expect(badge.locator("[aria-hidden]")).toHaveText("2K");
-    await expect.poll(() => badge.evaluate(el => {
-        const box = el.getBoundingClientRect();
-        const rail = el.closest("[data-collapsed]")!.getBoundingClientRect();
-        return box.left >= rail.left && box.right <= rail.right && getComputedStyle(el).textOverflow === "ellipsis";
-    })).toBe(true);
-    }
-
-    const list = root.locator("[data-library-paged]");
-    const cards = list.locator("[data-library-item]");
-    await pane(root, "Library");
-    await expect(cards.first()).toBeVisible();
-    expect(await cards.count()).toBeLessThan(50);
-    await expect.poll(() => cards.evaluateAll(elements => elements.slice(0, -1).every((el, i) =>
-        el.getBoundingClientRect().bottom <= elements[i + 1]!.getBoundingClientRect().top))).toBe(true);
-    const scroll = list.locator("[data-virtual-rows]");
-    await expect(scroll).toHaveCount(1);
-    await scroll.evaluate(el => { el.scrollTop = 40000; });
-    await expect.poll(() => cards.first().getAttribute("data-library-item")).not.toBe("FLOW-10000");
-    await expect(cards.first()).not.toHaveAttribute("data-library-item", "");
-    expect(await cards.count()).toBeLessThan(50);
-
-    if (phone) await page.keyboard.press("Escape");
-    // A computed integer uses the shared range editor. Editing the graph
-    // changes the maintained key in the same Save as its primary record.
-    const count = await recordField(page, root, "stateCount");
-    await count.getByRole("textbox", { name: "State count from", exact: true }).fill("4");
-    await count.getByRole("textbox", { name: "State count until", exact: true }).fill("5");
-    await count.getByRole("button", { name: "Apply", exact: true }).click();
-    // Out of the editor, then its Filters view on a phone.
-    for (let i = 0; i < 3 && await page.getByRole("dialog").count() > 0; i++) { await page.keyboard.press("Escape"); await settled(page); }
-    await pane(root, "Library");
-    await expect(cards.first()).toHaveAttribute("data-library-item", "FLOW-10001");
-    await cards.first().click();
-    if (phone) await page.keyboard.press("Escape");
-    for (const name of ["Library", "Inspector"]) {
-        const close = root.getByRole("button", { name: `Collapse ${name}`, exact: true });
-        if (await close.isVisible()) await close.click();
-    }
-    await expect(root.locator("[data-flowchart-node]")).toHaveCount(4);
-    await root.locator('[data-flowchart-node="CHK"]').click();
-    await page.keyboard.press("Delete");
-    await expect(root.locator("[data-flowchart-node]")).toHaveCount(3);
-    await save.click();
-    await expect(save).toBeDisabled();
-    await expect(root.locator("[data-record-save-notice]")).toHaveText("1 flow left this view");
-    await expect(root.locator("[data-flowchart-flow]")).toHaveText("FLOW-10001");
-
-    // Nested values use exact membership. Selecting an incompatible path
-    // replaces the earlier range explicitly, rather than scanning rows.
-    const lane = await recordField(page, root, "lane");
-    await lane.getByPlaceholder("Search lane…").fill("rev");
-    await expect(page.getByRole("option", { name: /^review/ })).toContainText("1,536");
-    await page.getByRole("option", { name: /^review/ }).click();
-    await page.keyboard.press("Escape");
-    await page.keyboard.press("Escape");
-    await pane(root, "Library");
-    await expect(cards.first()).toHaveAttribute("data-library-item", "FLOW-10001");
-    const owner = await recordField(page, root, "decisionOwner");
-    await owner.getByPlaceholder("Search decision owner…").fill("customs");
-    await page.getByRole("option", { name: /^customs-desk/ }).click();
-    await page.keyboard.press("Escape");
-    await page.keyboard.press("Escape");
-    await pane(root, "Library");
-    await expect(cards.first()).toHaveAttribute("data-library-item", "FLOW-10004");
-
-    await search(page, root, "Inbound");
-    await pane(root, "Library");
-    await expect(cards.first()).toHaveAttribute("data-library-item", "FLOW-10000");
-    await cards.first().click();
-    await pane(root, "Inspector");
-    const description = root.getByRole("textbox", { name: /^Description(?: description)?$/ });
-    await expect(description).toHaveValue("Inbound parcels");
-    await description.fill("Returns");
-    await description.press("Tab");
-    await expect(save).toBeEnabled();
-    // Save stands in the toolbar's second row, under a phone's pane view.
-    if (phone) { await page.keyboard.press("Escape"); await settled(page); }
-    await save.click();
-    await expect(save).toBeDisabled();
-    await expect(root.locator("[data-record-save-notice]")).toHaveText("1 flow left this view");
-    await expect(root.locator("[data-flowchart-flow]")).toHaveText("FLOW-10000");
-    await pane(root, "Inspector");
-    await expect(description).toHaveValue("Returns");
-
-    await search(page, root, "Returns");
-    await pane(root, "Library");
-    await expect(cards.first()).toHaveAttribute("data-library-item", "FLOW-10000");
-    await cards.first().click();
-    await pane(root, "Inspector");
-    await description.fill("Draft kept through paging");
-    await description.press("Tab");
-    await expect(save).toBeEnabled();
-    await pane(root, "Library");
-    await cards.nth(1).click();
-    await expect(root.locator("[data-flowchart-flow]")).not.toHaveText("FLOW-10000");
-    await cards.first().click();
-    await pane(root, "Inspector");
-    await expect(description).toHaveValue("Draft kept through paging");
-    await expect(save).toBeEnabled();
-    expect(errors).toEqual([]);
-    expect(await root.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
-});
-
-/** Sets the width of the flowchart's box, and waits for the page at rest. */
-async function widthTo(page: Page, root: Locator, width: number) {
-    await root.evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
-    await settled(page);
-}
-
-/** Chooses one description through the rail's field editor: the flows of that description, exactly. */
-async function chooseDescription(page: Page, root: Locator, description: string) {
-    const editor = await recordField(page, root, "description");
-    await editor.getByPlaceholder("Search flows…").fill(description.split(" ")[0]!);
-    await page.getByRole("option", { name: new RegExp(`^${description}`) }).click();
-    await page.keyboard.press("Escape");
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog")).toHaveCount(0);
-    await settled(page);
-}
-
-for (const theme of ["light", "dark"] as const) {
-    test(`the Flows tab counts what the rail's flows source shows — \`Flows 683 of 2,048\`, in the type its whole count has — at every width and in a 294px frame, or, the pane on its rail, its badge; the rail folds first, and the tab's own search finds within the narrowing (${theme}) @desktop`, async ({ page }) => {
-        await page.setViewportSize({ width: 2160, height: 1200 });
-        const { root } = await openFlowchart(page, "flowchartRecordIndexes", theme);
-        await widthTo(page, root, 1920);
-        await pane(root, "Library");
-        const start = root.locator("[data-frame-slot='start']");
-        const tab = start.locator("[role='tab']");
-        const cards = start.locator("[data-library-paged] [data-library-item]");
-        const keys = () => cards.evaluateAll((els) => els.map((el) => el.getAttribute("data-library-item")));
-        const countType = () => start.locator("[role='tab'] [data-tab-count]").evaluate((count) => {
-            const s = getComputedStyle(count);
-            return [s.fontFamily, s.fontSize, s.fontWeight, s.letterSpacing, s.color, s.fontVariantNumeric].join(" ");
-        });
-        await expect(tab).toHaveText(["Flows 2,048"]);
-        const whole = await countType();
-        // The inbound flows, every third: the rail's flows source narrows the Flows tab, which pages and counts them.
-        await chooseDescription(page, root, "Inbound parcels");
-        await pane(root, "Library");
-        await expect(tab).toHaveText(["Flows 683 of 2,048"]);
-        await expect.poll(async () => (await keys()).slice(0, 3)).toEqual(["FLOW-10000", "FLOW-10003", "FLOW-10006"]);
-        expect(await countType(), "the narrowed count in the whole count's type").toBe(whole);
-        // The tab's own search, by name, within the narrowing: the inbound flows of FLOW-10500 to FLOW-10509, the rail and the count as they were.
-        const box = start.getByRole("textbox", { name: "Search flows by name" });
-        await expect(box).toHaveAttribute("placeholder", "Search 683 flows by name…");
-        await box.fill("FLOW-1050");
-        await expect.poll(keys).toEqual(["FLOW-10501", "FLOW-10504", "FLOW-10507"]);
-        await expect(start.locator("[data-library-search-hidden]")).toHaveText("680 hidden by filter · Show all");
-        await expect(tab).toHaveText(["Flows 683 of 2,048"]);
-        await box.fill("");
-        await expect.poll(async () => (await keys())[0]).toBe("FLOW-10000");
-        // At every width the Flows tab says what it shows — or, the pane on its 44px rail, its badge counts it — the rail folding first, the row whole.
-        for (const width of [1920, 1440, 1024, 768]) {
-            await widthTo(page, root, width);
-            const read = await start.evaluate((el) => (el.hasAttribute("data-collapsed")
-                ? { collapsed: true, said: el.querySelector("[data-dock-badge]")?.getAttribute("title") ?? null }
-                : { collapsed: false, said: el.querySelector("[role='tab']")?.textContent ?? null }));
-            expect(read.said, `${width}px, ${read.collapsed ? "collapsed" : "open"}`).toBe(read.collapsed ? "683" : "Flows 683 of 2,048");
-            expect(await toolbarFaults(root), `${width}px`).toEqual([]);
-            const ladder = await root.locator("[data-frame-slot='toolbar'] [data-toolbar]").getAttribute("data-toolbar-ladder");
-            expect(ladder, `${width}px: the rail and its summary fold first`).toMatch(/^(record-slices>\d+ )+record-summary>1 /);
+/**
+ * The band a state is drawn in: the lane whose band holds its middle.
+ *
+ * @param root - The flowchart's root
+ * @param key - The state's key
+ * @returns The lane's key, or `null` while the state is not drawn
+ */
+function bandOf(root: Locator, key: string): Promise<string | null> {
+    return root.evaluate((el, k) => {
+        const node = el.querySelector(`[data-flowchart-node="${k}"]`);
+        if (node === null) return null;
+        const n = node.getBoundingClientRect();
+        const x = n.left + n.width / 2, y = n.top + n.height / 2;
+        for (const band of el.querySelectorAll("[data-flowchart-band]")) {
+            const b = band.getBoundingClientRect();
+            if (x >= b.left && x <= b.right && y >= b.top && y <= b.bottom) return band.getAttribute("data-flowchart-band");
         }
-        expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
-    });
+        return null;
+    }, key);
 }
+
+/**
+ * Carries a state's card by the mouse onto another's: pressed on its body, under
+ * its head, moved there in steps onto the other's body, and let go — what a
+ * move on the canvas is made of, where one is offered.
+ *
+ * @param page - The page
+ * @param from - The card carried
+ * @param onto - The card it is let go on
+ */
+async function carry(page: Page, from: Locator, onto: Locator): Promise<void> {
+    const a = await from.boundingBox(), b = await onto.boundingBox();
+    if (a === null || b === null) throw new Error("both cards are drawn");
+    await page.mouse.move(a.x + a.width / 2, a.y + 60);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width / 2, b.y + 60, { steps: 10 });
+    await page.mouse.up();
+    await settled(page);
+}
+
+/**
+ * Closes what lies over the frame — the View's popover, a pane's view — each
+ * Esc taking one layer.
+ *
+ * @param page - The page
+ * @param root - The flowchart's root
+ */
+async function closeLayers(page: Page, root: Locator): Promise<void> {
+    const open = async () => await page.getByRole("dialog").count() + await root.locator("[data-frame-drawer][data-open]").count();
+    for (let i = 0; i < 3 && await open() > 0; i++) {
+        await page.keyboard.press("Escape");
+        await settled(page);
+    }
+    expect(await open(), "nothing lies over the frame").toBe(0);
+}
+
+/**
+ * R17 on the frame as it stands: nothing drags, a state carried by the mouse
+ * moving nowhere; Find state selects Scanned;
+ * the inspector shows its form, and the Induct lane chosen there draws it in
+ * Induct's band; Save, reachable with the state selected, writes the move; and
+ * the flowchart, mounted afresh, draws Scanned in Induct.
+ *
+ * @param page - The page
+ * @param root - The flowchart's root
+ */
+async function findMoveAndSave(page: Page, root: Locator): Promise<void> {
+    const main = root.locator(`${FRAME} [data-frame-slot='main']`);
+    expect(await main.evaluate((el) => el.getBoundingClientRect().width), "main is narrow").toBeLessThan(480);
+    // Below 480px of main nothing drags: the canvas takes no drop, and its states show no handle to connect.
+    await expect(main.locator("[data-drag-cell]")).toHaveCount(0);
+    await expect(root.locator("[data-flowchart-handle]")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+    await expect.poll(() => bandOf(root, "SCN")).toBe("intake");
+    // Nor is a state moved: Scanned carried by the mouse onto Arrived, above it in Intake, stays after it, nothing to save.
+    const save = root.locator("[data-slot='history'] button").last();
+    const arrived = root.locator("[data-flowchart-node='ARV']");
+    await carry(page, root.locator("[data-flowchart-node='SCN']"), arrived);
+    await expect(save).toBeDisabled();
+    expect(await root.evaluate((el) => {
+        const top = (key: string) => el.querySelector(`[data-flowchart-node="${key}"]`)!.getBoundingClientRect().top;
+        return top("ARV") < top("SCN");
+    }), "Scanned stays after Arrived").toBe(true);
+
+    // Find state, folded to its icon in the toolbar: its search view lists the match, and the pick selects the state.
+    // A touch is a tap; the page's other flowcharts keep their own boxes, so every locator starts at this one.
+    const touch = await page.evaluate(() => matchMedia("(pointer: coarse)").matches);
+    const press = (target: Locator) => (touch ? target.tap() : target.click());
+    await press(root.locator("[data-toolbar-item='seek'] [data-key-search='icon']"));
+    const search = page.locator("[data-key-search-phone]");
+    await search.getByRole("textbox").fill("SCN");
+    const match = search.locator("[data-key-search-row]").filter({ hasText: "SCN" });
+    await expect(match).toHaveCount(1);
+    await press(match);
+    await settled(page);
+    await closeLayers(page, root);
+    const scanned = root.locator("[data-flowchart-node='SCN']");
+    await expect(scanned).toHaveAttribute("data-selected", "true");
+
+    // Its form, in the inspector's view from the strip along the frame's foot.
+    await root.locator("[data-pane-tab='end']").click();
+    await settled(page);
+    const form = root.locator("[data-flowchart-inspector='state']");
+    await expect(form.locator("[data-field='label'] input")).toHaveValue("Scanned");
+    const lane = form.locator("[data-field='lane']");
+    await expect(lane).toContainText("Intake");
+    // A lane chosen there: the state drawn in its band, one change.
+    await lane.locator("[data-part='trigger']").click();
+    await page.getByRole("option", { name: "Induct", exact: true }).click();
+    await settled(page);
+    await expect.poll(() => bandOf(root, "SCN")).toBe("induct");
+    await expect(lane).toContainText("Induct");
+
+    // Save, the state still selected: in the toolbar's second row, uncovered once the view is closed.
+    await closeLayers(page, root);
+    await expect(scanned).toHaveAttribute("data-selected", "true");
+    await save.scrollIntoViewIfNeeded();
+    await expect(save).toBeEnabled();
+    expect(await save.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return hit !== null && el.contains(hit);
+    }), "Save is uncovered").toBe(true);
+    await save.click();
+    await expect(save).toBeDisabled();
+
+    // Mounted afresh over what the states' record holds: Scanned in Induct.
+    await leaveBuilder(page);
+    const entry = await visitBuilder(page, ROUTE, FRAME, undefined);
+    await expect.poll(() => bandOf(entry.locator("[data-flowchart-root]").first(), "SCN")).toBe("induct");
+}
+
+test.describe("The Flowchart's narrow layout over the records (#1505)", () => {
+    for (const theme of LAYOUT_THEMES) {
+        test(`on a phone: nothing drags; Find state selects a state, the inspector shows its form, a lane chosen there draws it in that lane, and Save — reachable with the state selected — writes the move, which a remount draws (${theme})`, {
+            tag: ["@mobile", "@narrow"],
+        }, async ({ page }) => {
+            const { root } = await openFlowchart(page, "flowchartDepotPhone", theme);
+            await findMoveAndSave(page, root);
+        });
+
+        test(`in a 294px parent: nothing drags; Find state selects a state, the inspector shows its form, a lane chosen there draws it in that lane, and Save — reachable with the state selected — writes the move, which a remount draws (${theme})`, {
+            tag: "@desktop",
+        }, async ({ page }) => {
+            await page.setViewportSize({ width: 1440, height: 900 });
+            const { entry, root } = await openFlowchart(page, "flowchartDepotPhone", theme);
+            await sizeBuilder(page, entry, FRAME, 294);
+            expect(await entry.locator(FRAME).first().evaluate((el) => Math.round(el.getBoundingClientRect().width))).toBe(294);
+            await findMoveAndSave(page, root);
+        });
+    }
+});

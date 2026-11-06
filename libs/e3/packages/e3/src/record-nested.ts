@@ -207,6 +207,14 @@ export type SeriesCollections<V, Self = V> = {
 /** A field's Dict's value type: an item, a value, or a child row. */
 export type ChildOf<V, F> = F extends keyof StructFields<V> ? (StructFields<V>[F] extends DictType<EastType, infer I> ? I : never) : never;
 
+/** A field's Dict's key type: what an entries index files each of its entries under (#1521). */
+export type DictKeyOf<V, F> =
+  F extends keyof StructFields<V> ? (StructFields<V>[F] extends DictType<infer K extends EastType, EastType> ? K : never) : never;
+
+/** A field's Dict's value type: what each of an entries index's entries carries (#1521). */
+export type DictValueOf<V, F> =
+  F extends keyof StructFields<V> ? (StructFields<V>[F] extends DictType<EastType, infer P extends EastType> ? P : never) : never;
+
 /**
  * The item types a declaration files, as a variant nesting as it nests: an
  * items or a values collection its item type, a child rows' collection a

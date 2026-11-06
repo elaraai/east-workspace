@@ -13,7 +13,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import e3, { type PackageDef } from '@elaraai/e3';
+import e3, { type IndexDraft, type PackageDef } from '@elaraai/e3';
 import {
   ArrayType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, RecursiveType, SetType, StringType, StructType, OptionType,
   East, variant, some, none,
@@ -687,6 +687,109 @@ export async function createNestedSeriesPackageZip(
     }),
   });
   const pkg = e3.package(name, version, machines, halls, assemblies);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/** What one service's parcels did at a parcel depot's station (#1521): how many came through, and how many still wait. */
+export const StationServiceType = StructType({ parcels: IntegerType, waiting: IntegerType });
+/** A depot's station: where it stands, its parcels, and each service's own, by the service's name. */
+export const StationType = StructType({ site: StringType, parcels: IntegerType, byService: DictType(StringType, StationServiceType) });
+/** The entries fixture's stations. */
+export const StationsType = DictType(StringType, StationType);
+/** The services the entries fixture's stations hold, each by its place. */
+export const STATION_SERVICES = ['Economy', 'International', 'Priority', 'Standard'] as const;
+
+/** The versions of the entries fixture: its record before its entries index, and with it. */
+export type EntriesFixtureVersion = '1.0.0' | '2.0.0';
+
+/**
+ * Create a version of a package whose record files a Dict field entry by
+ * entry (#1521).
+ *
+ * Creates a package with Record "stations" (empty) and its writes:
+ * - `seed` (reduce, rows): `rows` stations keyed `s-<i>`, at `North` for an
+ *   even `i` and `South` for an odd one, with `i` parcels; station `i` holds
+ *   each service of {@link STATION_SERVICES} but the one whose place is `i`
+ *   mod 5 — every service when that is 4 — with `i` plus its place parcels and
+ *   `i` mod 3 waiting, and none at all when `i` mod 7 is 6
+ * - `set_service` (edit, station, service, parcels): the station's service
+ *   set to those parcels, none waiting
+ * - `clear` (reduce, station): the station's services all gone, its other
+ *   fields kept
+ * - `patch`
+ *
+ * And by version:
+ * - `1.0.0`: no index
+ * - `2.0.0`: the entries index "by_service" over `byService`, and with it its
+ *   lean rows "by_service_rows"; beside it "by_site", which carries each
+ *   station with its services emptied
+ *
+ * A workspace holding 1.0.0's rows that deploys 2.0.0 builds every index over
+ * them: the rebuild a maintained index is held to.
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - The version to create
+ * @returns Path to the created zip file
+ */
+export async function createEntriesRecordPackageZip(
+  tempDir: string,
+  name: string,
+  version: EntriesFixtureVersion
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const ServicesType = DictType(StringType, StationServiceType);
+  const seed = East.function([StationsType, IntegerType], StationsType, ($, _state, rows) => {
+    const out = $.let(new Map(), StationsType);
+    const services = $.const([...STATION_SERVICES], ArrayType(StringType));
+    $.for(East.Array.range(0n, rows), ($, i) => {
+      const held = $.let(new Map(), ServicesType);
+      $.if(East.notEqual(i.remainder(7n), 6n), ($) => {
+        $.for(services, ($, service, place) => {
+          $.if(East.notEqual(i.remainder(5n), place), ($) => {
+            $(held.insert(service, { parcels: i.add(place), waiting: i.remainder(3n) }));
+          });
+        });
+      });
+      const site = $.let('North');
+      $.if(East.equal(i.remainder(2n), 1n), ($) => {
+        $.assign(site, 'South');
+      });
+      $(out.insert(East.str`s-${i}`, { site, parcels: i, byService: held }));
+    });
+    return out;
+  });
+  const setService = East.function([StationsType, StringType, StringType, IntegerType, e3.mutation.editType(StationsType)], NullType,
+    ($, state, key, service, parcels, edit) => {
+      const row = $.let(state.get(key));
+      const held = $.let(row.byService.copy());
+      $(held.insertOrUpdate(service, { parcels, waiting: 0n }));
+      $(edit.set(key, { site: row.site, parcels: row.parcels, byService: held }));
+    });
+  const clear = East.function([StationsType, StringType], StationsType, ($, state, key) => {
+    const next = $.let(state.copy());
+    const row = $.let(next.get(key));
+    $(next.insertOrUpdate(key, { site: row.site, parcels: row.parcels, byService: new Map() }));
+    return next;
+  });
+
+  const stations = e3.record('stations', StationsType, {
+    initial: new Map(),
+    // 1.0.0 declares none: a workspace holding its rows that deploys 2.0.0 builds them all.
+    indexes: (index): Readonly<Record<string, IndexDraft>> => (version === '1.0.0' ? {} : {
+      by_service: index.entries('byService'),
+      by_site: index.on(['site']),
+    }),
+    mutations: (mutation) => ({
+      seed: mutation.reduce(seed), set_service: mutation.edit(setService), clear: mutation.reduce(clear), patch: mutation.patch(),
+    }),
+  });
+  const pkg = e3.package(name, version, stations);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

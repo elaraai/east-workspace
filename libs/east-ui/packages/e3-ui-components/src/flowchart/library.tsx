@@ -4,103 +4,104 @@
  */
 
 /**
- * The library pane (#1246, #1248, `Flowchart Builder Spec.md` decisions 5–8,
- * §7, §8, §9.7, FB13, FB25–FB29): the flowchart's start pane, its tabs the
- * ones the author's `library` lists, in that order, each with its count after
- * its name and a search. A flowchart whose `library` lists no tab has no pane.
+ * The library pane (#1501, `Flowchart Records Spec.md` R14, D5, D8): the
+ * Flowchart's start pane, its tabs the ones `library` lists, in that order,
+ * each with its count after its name and a search. A Flowchart whose
+ * `library` lists no tab has no pane.
  *
- * - **Flows** (`Flowchart.library.flows()`) — every flow by name, a click
- *   opening one (`flows.tsx`, #1246).
- * - **The state templates** (`Flowchart.library.states(rows, …)`) and **the
- *   transition templates** (`Flowchart.library.transitions(rows, …)`) — one
- *   card per row of the tab's own rows, as the Sheet's author tabs' (SB60):
- *   each its label and its meta under it, with the tab's icon, grouped by its
- *   `group` and searched by its key, label and meta. Each card is a drag
- *   source; a click selects it, and a click on the selected card lets it go
- *   (FB26). A template tab its author leaves unnamed is named in the
- *   flowchart's words.
- * - **An author's tab** (`Flowchart.library.tab(rows, …)`) — its cards as the
- *   templates' are, each a drag source when the tab declares a `drop` (FB27).
- * - An empty tab says so in the shared empty state (FB28): the Flows tab `No
- *   flows`, a template tab `No templates`, an author's tab `Nothing in
- *   <name>`; a search that hides every card, the `Library`'s own `No matches`.
- *   Collapsed, the pane is a rail with the first tab's count (FB25) — of the
- *   cards it shows.
- * - **The narrowing** (#1346): each templates list follows the source of the
- *   flowchart's `Slice.bindRecords` it names, and an author's tab the source
- *   it names, by its cards' keys — the shared `sourceTab`: the tab shows the
- *   cards its source shows, counts them (`2 of 5`), says so when the rail
- *   leaves it none, with Clear filters for that source alone, and while its
- *   source resolves holds its cards retained (#1398, CL8): readable and
- *   selectable, aria-disabled, taking no drag, ⏎ or tap that drops. A tab
- *   that names none lists its rows
- *   whole. The Flows tab's count is the frame's: what the rail narrows the
- *   record to (`flows.tsx`).
+ * - **Steps** (`Flowchart.library.states()`), **Transitions**
+ *   (`Flowchart.library.transitions()`) and **Lanes**
+ *   (`Flowchart.library.lanes()`) — each its kind's cards, as the kind carries
+ *   them (`Flowchart.templates` on the kind): one card per card row, its name,
+ *   with the tab's icon or else its kind's, grouped by its `group` and
+ *   searched by its name. A tab its author leaves unnamed is named in the
+ *   Flowchart's words.
+ * - **An author's tab** (`Flowchart.library.tab(rows, …)`) — its cards, each
+ *   its label and the line under it, grouped by its `group` and searched by
+ *   its key, label and line.
+ * - An empty tab says so in the shared empty state; a search that hides
+ *   every card, the `Library`'s own `No matches`. Collapsed, the pane is a
+ *   rail with the first tab's count — of the cards it shows.
+ * - **The narrowing**: a kind's tab follows the source its cards name, an
+ *   author's tab the source it names, by its cards' keys — the shared
+ *   `sourceTab`: the tab shows the cards its source shows, counts them (`2 of
+ *   5`), says so when the rail leaves it none, with the rail's Clear for that
+ *   source alone, and while its source resolves holds its cards retained
+ *   (#1398, CL8): readable and selectable, aria-disabled, taking no drag, ⏎ or
+ *   tap that drops. A tab that follows none lists its cards whole.
  *
- * Each data tab's cards are a `Library`'s, drawn by the shared parts — every
- * icon Font Awesome's solid set, every style the `library` recipe's — and
- * drag from the library `${flowchartKeys(name).library}:<the tab's key>`
+ * Each tab's cards are a `Library`'s, drawn by the shared parts — every icon
+ * Font Awesome's solid set, every style the `library` recipe's — and drag
+ * from the library `${flowchartKeys(name).library}:<the tab's key>`
  * ({@link flowchartLibraryId}), each card keyed by its row's key: the canvas
- * takes them dropped (#1249, `use-drop.ts`). A card that drops takes ⏎ too —
- * the card, dropped on the canvas's selection — and on a touch screen a tap
- * on the selected card does the same, so no edit needs a precise drag (FB34);
- * the tap leaves it selected, for the next.
+ * takes them dropped (`use-drop.ts`). A kind's cards always drag; an author's
+ * when its tab's patch names a kind. A card that drops takes ⏎ too — the
+ * card, dropped on the canvas's selection — and on a touch screen, or below
+ * 480px of main, a tap on the selected card does the same, so no edit needs a
+ * precise drag; the tap leaves it selected, for the next. Below 480px of main
+ * no card drags. A click selects a card, and a click on the selected card lets
+ * it go.
  *
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { StringType, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
-import type { Flowchart, flowchartKeys } from "@elaraai/e3-ui/internal";
+import { StringType, equalFor, none, some } from "@elaraai/east";
+import type { flowchartKeys } from "@elaraai/e3-ui/internal";
 import {
-    EastChakraLibrary, getSomeorUndefined, useCoarsePointer, type BuilderFrameDock, type LibraryItemValue, type LibraryValue,
+    EastChakraLibrary, getSomeorUndefined, useCoarsePointer, type BuilderFrameDock, type LibraryEmpty, type LibraryNarrowing, type LibraryValue,
 } from "@elaraai/east-ui-components";
 import type { FollowedSources } from "../shared/schedule/follow-sources.js";
+import { scheduleLibrary, scheduleLibraryCard } from "../shared/schedule/library.js";
 import { sourceTab, type SourceShown, type SourceTab } from "../shared/schedule/source-tab.js";
-import type { FlowchartMessages, FlowchartWords } from "./messages.js";
+import type { FlowchartLibraryTabWord, FlowchartMessages, FlowchartWords } from "./messages.js";
 import type { FlowchartValue } from "./model.js";
 
-/** The names a flowchart keeps its viewer's state under. */
+type Styles = Record<string, SystemStyleObject>;
+
+/** The names a Flowchart keeps its viewer's state under. */
 type FlowchartKeys = ReturnType<typeof flowchartKeys>;
 /** One tab the payload lists, decoded. */
-type FlowchartTabValue = FlowchartValue["library"][number];
-/** A tab that reads rows of its own, decoded: the state templates, the transition templates, or an author's. */
-export type FlowchartDataTabValue = Exclude<FlowchartTabValue, { type: "flows" }>;
-/** What a card shows, decoded, whatever it sets. */
-type FlowchartCardValue = ValueTypeOf<typeof Flowchart.Types.Card>;
+export type FlowchartTabValue = FlowchartValue["library"][number];
+/** The kinds whose cards a tab of their own lists. */
+export type FlowchartCardKind = "states" | "transitions" | "lanes";
+/** What a kind whose cards a tab lists carries of them: its icon, its cards, and the source they follow. */
+type CardKindValue = Pick<FlowchartValue["states"], "icon" | "templates" | "templatesSource">;
 
 const stringEqual = equalFor(StringType);
 
-/** What a tab that names no source shows: its cards whole. */
-const WHOLE: SourceShown = { keys: none, busy: false, ready: true, clear: undefined };
-
-/** The library open: the design system's 272px (§8). */
+/** The library open: the design system's 272px. */
 const LIBRARY_SIZE = "272px";
 
-/** A tab's cards fill the pane and scroll there, every card mounted. */
-const FILL = some({ height: some("fill"), maxHeight: none, virtualization: some(false), columns: none, mediaPlacement: none, mediaSize: none });
+/** What a tab that follows no source shows: its cards whole. */
+const WHOLE: SourceShown = { keys: none, busy: false, ready: true, clear: undefined };
+
+/** A card as the pane lists it, whatever its tab: its key, its name, the line under it, its group, and what its search reads. */
+interface PaneCard {
+    readonly key: string;
+    readonly label: string;
+    readonly meta: string | undefined;
+    readonly group: string | undefined;
+    readonly search: string;
+}
 
 /**
- * A data tab's key among the pane's tabs — and, after the flowchart's library
- * id, its cards' library's: `states`, `transitions`, or `tab:<its name>`.
+ * A tab's key among the pane's tabs — and, after the Flowchart's library id,
+ * its cards' library's: `states`, `transitions`, `lanes`, or `tab:<its name>`.
  *
  * @param tab - The tab
  * @returns Its key
  */
-export function flowchartTabKey(tab: FlowchartDataTabValue): string {
-    switch (tab.type) {
-        case "states": return "states";
-        case "transitions": return "transitions";
-        case "tab": return `tab:${tab.value.name}`;
-    }
+export function flowchartTabKey(tab: FlowchartTabValue): string {
+    return tab.type === "tab" ? `tab:${tab.value.name}` : tab.type;
 }
 
 /**
  * The library a tab's cards drag from — the libraries the canvas takes drops
- * from (#1249).
+ * from.
  *
- * @param keys - The flowchart's keys
+ * @param keys - The Flowchart's keys
  * @param tabKey - The tab's key ({@link flowchartTabKey})
  * @returns The library's id
  */
@@ -109,119 +110,126 @@ export function flowchartLibraryId(keys: FlowchartKeys, tabKey: string): string 
 }
 
 /**
- * A data tab's name: an author's tab's own; a template tab's its author's, or
- * the flowchart's words for it.
+ * A kind whose cards a tab lists, as the payload carries it.
+ *
+ * @param value - The payload
+ * @param kind - The kind
+ * @returns Its icon, its cards and their source; `undefined` for a kind the Flowchart is not given
+ */
+export function cardKindOf(value: FlowchartValue, kind: FlowchartCardKind): CardKindValue | undefined {
+    switch (kind) {
+        case "states": return value.states;
+        case "transitions": return getSomeorUndefined(value.transitions);
+        case "lanes": return getSomeorUndefined(value.lanes);
+    }
+}
+
+/**
+ * The source of the rail a tab follows: a kind's tab its cards', an author's
+ * tab its own — each when it names one.
+ *
+ * @param value - The payload
+ * @param tab - The tab
+ * @returns The source's name; `undefined` for a tab that follows none
+ */
+export function flowchartTabSource(value: FlowchartValue, tab: FlowchartTabValue): string | undefined {
+    if (tab.type === "tab") return getSomeorUndefined(tab.value.source);
+    const kind = cardKindOf(value, tab.type);
+    return kind === undefined ? undefined : getSomeorUndefined(kind.templatesSource);
+}
+
+/**
+ * A tab's name: an author's tab's own; a kind's tab its author's, or the
+ * Flowchart's words for it — `Steps`, `Transitions`, `Lanes`.
  *
  * @param tab - The tab
- * @param m - The flowchart's messages
+ * @param m - The Flowchart's messages
  * @returns The name its tab shows
  */
-function nameOf(tab: FlowchartDataTabValue, m: FlowchartMessages): string {
-    switch (tab.type) {
-        case "states":
-        case "transitions": return getSomeorUndefined(tab.value.name) ?? m.libraryTab({ tab: tab.type });
-        case "tab": return tab.value.name;
-    }
+export function flowchartTabName(tab: FlowchartTabValue, m: FlowchartMessages): string {
+    return tab.type === "tab" ? tab.value.name : getSomeorUndefined(tab.value.name) ?? m.libraryTab({ tab: tab.type });
 }
 
-/**
- * The source of the rail a data tab follows (#1346): a templates list's,
- * which it always names, or an author's tab's, when it names one.
- *
- * @param tab - The tab
- * @returns The source's name; `undefined` for a tab that names none
- */
-export function flowchartTabSource(tab: FlowchartDataTabValue): string | undefined {
-    switch (tab.type) {
-        case "states":
-        case "transitions": return tab.value.source;
-        case "tab": return getSomeorUndefined(tab.value.source);
+/** A tab's cards as the pane lists them, its icon, and whether its cards drag: a kind's always, an author's when its patch names a kind. */
+function tabCards(value: FlowchartValue, tab: FlowchartTabValue): { readonly cards: readonly PaneCard[]; readonly icon: string | undefined; readonly drops: boolean } {
+    if (tab.type === "tab") {
+        return {
+            cards: tab.value.cards.map((card): PaneCard => {
+                const meta = getSomeorUndefined(card.meta);
+                return {
+                    key: card.key, label: card.label, meta, group: getSomeorUndefined(card.group),
+                    search: [card.key, card.label, meta ?? ""].filter((text) => text !== "").join(" · "),
+                };
+            }),
+            icon: getSomeorUndefined(tab.value.icon),
+            drops: tab.value.drop.type === "some",
+        };
     }
-}
-
-/**
- * A data tab's cards, as the wire carries them, and whether they drag: a
- * template's always, an author's when its tab declares a `drop` — its cards
- * landing somewhere.
- *
- * @param tab - The tab
- * @returns Its cards, whether they drag, and its icon
- */
-function cardsOf(tab: FlowchartDataTabValue): { readonly cards: readonly FlowchartCardValue[]; readonly drags: boolean; readonly icon: string | undefined } {
-    const icon = getSomeorUndefined(tab.value.icon);
-    switch (tab.type) {
-        case "states":
-        case "transitions": return { cards: tab.value.cards, drags: true, icon };
-        case "tab": return { cards: tab.value.lands.value, drags: tab.value.lands.type !== "none", icon };
-    }
-}
-
-/**
- * A card as the Library draws it: its label, its meta under it and the tab's
- * icon — no media, byline, action, facets or secondary facts — searched by its
- * key, label and meta, and grouped by its group.
- *
- * @param card - The card
- * @param icon - The tab's icon, a Font Awesome solid name
- * @param drags - Whether it is a drag source
- * @param placed - Whether it is the card the tab's click selected
- * @returns The Library's item
- */
-function cardItem(card: FlowchartCardValue, icon: string | undefined, drags: boolean, placed: boolean): LibraryItemValue {
-    const meta = getSomeorUndefined(card.meta);
-    const group = getSomeorUndefined(card.group);
+    const kind = cardKindOf(value, tab.type);
     return {
-        key: card.key,
-        label: card.label,
-        sublabel: meta === undefined ? none : some(meta),
-        icon: icon === undefined ? none : some(icon),
-        status: none,
-        trailing: none,
-        draggable: drags,
-        filtered: false,
-        placed,
-        media: none,
-        avatar: none,
-        byline: none,
-        action: none,
-        search: some([card.key, card.label, meta ?? ""].filter((text) => text !== "").join(" · ")),
-        groups: group === undefined ? new Map() : new Map([["group", group]]),
-        facets: new Map(),
-        dims: new Map(),
+        cards: (kind?.templates ?? []).map((card): PaneCard => ({ key: card.key, label: card.name, meta: undefined, group: getSomeorUndefined(card.group), search: card.name })),
+        icon: getSomeorUndefined(tab.value.icon) ?? (kind === undefined || kind.icon === "" ? undefined : kind.icon),
+        drops: true,
     };
+}
+
+/** One tab, as the pane builds it: its word, key, name, icon, whether its cards drop, and what its source shows of them. */
+interface PaneTab {
+    readonly word: FlowchartLibraryTabWord;
+    readonly tabKey: string;
+    readonly name: string;
+    readonly icon: string | undefined;
+    readonly drops: boolean;
+    /** Whether any of its cards has a group: its Group by. */
+    readonly grouped: boolean;
+    readonly follow: SourceTab<PaneCard>;
+}
+
+/** A tab's narrowing in the Flowchart's words: the shared narrowing, its empty state said by its message table. */
+function narrowingOf(narrowing: LibraryNarrowing | undefined, tab: FlowchartLibraryTabWord, name: string, m: FlowchartMessages): LibraryNarrowing | undefined {
+    return narrowing === undefined ? undefined
+        : { ...narrowing, empty: { title: m.libraryNarrowed({ tab, name }), description: m.libraryNarrowedHint({ tab, name }) } };
 }
 
 /** Props of {@link useFlowchartLibrary}. */
 export interface FlowchartLibraryProps {
-    /** The tabs the payload lists, in order. */
-    readonly library: FlowchartValue["library"];
-    /** The Flows tab's body, its count — `40 of 2,048` while the rail narrows it (#1346) — and how many flows it shows; `undefined` over one flow, which lists no flows. */
-    readonly flows: { readonly body: ReactNode; readonly count: number | string | undefined; readonly shown: number } | undefined;
-    /** The names the flowchart keeps its viewer's state under. */
+    /** The payload: its library's tabs, and its kinds and their cards. */
+    readonly value: FlowchartValue;
+    /** The names the Flowchart keeps its viewer's state under. */
     readonly keys: FlowchartKeys;
-    /** The flowchart's words. */
+    /** The Flowchart's words. */
     readonly words: FlowchartWords;
-    /** A card's ⏎ (#1249, FB34): the card, by its library and its key, dropped on the canvas's selection. */
+    /** A card's ⏎: the card, by its library and its key, dropped on the canvas's selection. */
     readonly enter?: ((library: string, key: string) => void) | undefined;
-    /** What each source the library's tabs follow shows (#1346), by the source's name. */
+    /** What each source the library's tabs follow shows, by the source's name. */
     readonly followed: FollowedSources;
+    /** Whether main is below 480px: no card drags, and a tap on the selected card is its ⏎, whatever the pointer. */
+    readonly narrow?: boolean | undefined;
 }
 
 /**
  * The library pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - The tabs listed, the Flows tab's body, the flowchart's keys, its words, and a card's ⏎
+ * @param props - The payload, the Flowchart's keys, its words, a card's ⏎, the followed sources and whether main is narrow
  * @returns The pane — its tabs the ones `library` lists, each with its count; 272px wide; its collapsed state kept per viewer — or `undefined`, no pane, when `library` lists none
  */
-export function useFlowchartLibrary({ library, flows, keys, words, enter, followed }: FlowchartLibraryProps): BuilderFrameDock | undefined {
+export function useFlowchartLibrary({ value, keys, words, enter, followed, narrow = false }: FlowchartLibraryProps): BuilderFrameDock | undefined {
     const m = words.m;
-    // A tab over a source's body: it fills the tab, busy and taking no gesture while its source resolves.
-    const styles = useSlotRecipe({ key: "flowchart" })() as Record<string, SystemStyleObject>;
-    // A touch screen: a tap on the selected card drops it on the canvas's selection (FB34).
+    const library = value.library;
+    // The recipe's styles, resolved once a recipe: the frame renders it again as each read lands.
+    const recipe = useSlotRecipe({ key: "flowchart" });
+    const styles = useMemo(() => recipe() as Styles, [recipe]);
+    // A touch screen, or a main too narrow to drag on: a tap on the selected card drops it, as its ⏎ does.
     const coarse = useCoarsePointer();
-    // The card each data tab's click selected, by the tab's key (FB26): a click on another moves it, a click on it lets it go.
+    const tapDrops = coarse || narrow;
+
+    // The card each tab's click selected, by the tab's key: a click on another moves it, a click on it lets it go.
     const [picked, setPicked] = useState<ReadonlyMap<string, string>>(() => new Map());
-    const onCard = useCallback((tabKey: string, key: string) => {
+    const isPicked = useCallback((tabKey: string, key: string) => {
+        const chosen = picked.get(tabKey);
+        return chosen !== undefined && stringEqual(chosen, key);
+    }, [picked]);
+    const pick = useCallback((tabKey: string, key: string) => {
         setPicked((was) => {
             const next = new Map(was);
             const chosen = was.get(tabKey);
@@ -230,86 +238,77 @@ export function useFlowchartLibrary({ library, flows, keys, words, enter, follow
             return next;
         });
     }, []);
-    // Each card that drops takes ⏎: the card, dropped on the canvas's selection (#1249) — one function per tab, held still.
-    const enters = useMemo(() => new Map(library.flatMap((tab): [string, (key: string) => void][] => {
-        if (tab.type === "flows" || enter === undefined || !cardsOf(tab).drags) return [];
-        const id = flowchartLibraryId(keys, flowchartTabKey(tab));
-        return [[flowchartTabKey(tab), (key: string) => enter(id, key)]];
-    })), [library, keys, enter]);
-    // Each data tab over the source it follows (#1346), by its cards' keys: the cards it shows, its count, its narrowed and its
-    // own empty states, and its pane's attributes; a tab that names none, its cards whole.
-    const follows = useMemo(() => new Map(library.flatMap((tab): [string, SourceTab<FlowchartCardValue>][] => {
-        if (tab.type === "flows") return [];
-        const source = flowchartTabSource(tab);
+
+    // Each tab over the source it follows, by its cards' keys: the cards it shows, its count, its narrowed and its own
+    // empty states, and its pane's attributes; a tab that follows none, its cards whole.
+    const tabs = useMemo(() => library.map((tab): PaneTab => {
+        const { cards, icon, drops } = tabCards(value, tab);
+        const name = flowchartTabName(tab, m);
+        const source = flowchartTabSource(value, tab);
         const shown = source === undefined ? WHOLE : followed.get(source)?.shown ?? WHOLE;
-        const noun = nameOf(tab, m).toLocaleLowerCase(words.locale);
-        return [[flowchartTabKey(tab), sourceTab({ cards: cardsOf(tab).cards, keyOf: (card) => card.key, shown, noun, words })]];
-    })), [library, followed, m, words]);
-    // Each data tab's Library: its own rows' cards the rail shows, as its tab reads them.
-    const libraries = useMemo(() => new Map(library.flatMap((tab): [string, LibraryValue][] => {
-        if (tab.type === "flows") return [];
-        const tabKey = flowchartTabKey(tab);
-        const { drags, icon } = cardsOf(tab);
-        const follow = follows.get(tabKey);
-        const cards = follow?.cards ?? cardsOf(tab).cards;
-        const chosen = picked.get(tabKey);
-        // A tab its source reads again holds its cards retained (#1398, CL8): a tap selects, and drops nothing.
-        const onEnter = follow?.pane["aria-disabled"] === true ? undefined : enters.get(tabKey);
-        return [[tabKey, {
-            id: flowchartLibraryId(keys, tabKey),
-            hint: none,
-            items: cards.map((card) => cardItem(card, icon, drags, chosen !== undefined && stringEqual(chosen, card.key))),
-            groupOptions: cardsOf(tab).cards.some((card) => card.group.type === "some") ? [{ key: "group", label: m.libraryGroupBy() }] : [],
-            groupSummaries: new Map(),
-            dimOptions: [],
-            defaultDimensions: [],
-            filterOptions: [],
-            searchable: true,
-            noun: some({ singular: m.libraryNoun({ tab: tab.type, n: 1 }), plural: m.libraryNoun({ tab: tab.type, n: 2 }) }),
-            addLabel: none,
-            onAdd: none,
-            // On a touch screen a tap on the selected card is its ⏎, and leaves it selected (FB34); else a click selects or lets go.
-            onCardClick: some((key: string) => {
-                if (coarse && onEnter !== undefined && chosen !== undefined && stringEqual(chosen, key)) onEnter(key);
-                else onCard(tabKey, key);
-                return null;
-            }),
-            slice: none,
-            style: FILL,
-            variant: none,
-            layout: none,
-            toolbar: true,
-        }]];
-    })), [library, follows, picked, keys, m, onCard, enters, coarse]);
+        return {
+            word: tab.type, tabKey: flowchartTabKey(tab), name, icon, drops, grouped: cards.some((card) => card.group !== undefined),
+            follow: sourceTab({ cards, keyOf: (card) => card.key, shown, noun: tab.type === "tab" ? name.toLocaleLowerCase(words.locale) : m.libraryNoun({ tab: tab.type, n: 2 }), words }),
+        };
+    }), [library, value, followed, m, words]);
+
+    // Each tab whose cards drop takes ⏎ on a card: the card, dropped on the canvas's selection — one function per tab, held still.
+    const enters = useMemo(() => new Map(tabs.flatMap((tab): [string, (key: string) => void][] => {
+        if (enter === undefined || !tab.drops) return [];
+        const id = flowchartLibraryId(keys, tab.tabKey);
+        return [[tab.tabKey, (key: string) => enter(id, key)]];
+    })), [tabs, keys, enter]);
+    // A tab its source reads again holds its cards retained (#1398, CL8): a tap on one selects it, and drops nothing.
+    const held = useMemo(() => new Set(tabs.flatMap((tab) => (tab.follow.pane["aria-disabled"] === true ? [tab.tabKey] : []))), [tabs]);
+    // A click on a card selects it, or lets the selected one go; on a touch screen, or below 480px of main, a tap on the
+    // selected card is its ⏎ — never in a tab held while its source reads again.
+    const onCard = useCallback((tabKey: string, key: string) => {
+        const onEnter = held.has(tabKey) ? undefined : enters.get(tabKey);
+        if (tapDrops && onEnter !== undefined && isPicked(tabKey, key)) onEnter(key);
+        else pick(tabKey, key);
+    }, [held, enters, tapDrops, isPicked, pick]);
+    const groupBy = useMemo(() => [{ key: "group", label: m.libraryGroupBy() }], [m]);
+
+    // Each tab's Library: the cards its source shows, each a drag source where its tab drops and main is wide enough.
+    const libraries = useMemo(() => new Map(tabs.map((tab): [string, LibraryValue] => [tab.tabKey, scheduleLibrary({
+        id: flowchartLibraryId(keys, tab.tabKey),
+        items: tab.follow.cards.map((card) => scheduleLibraryCard({
+            key: card.key, label: card.label, sublabel: card.meta === undefined ? none : some(card.meta), icon: tab.icon === undefined ? none : some(tab.icon),
+            status: none, trailing: none,
+            draggable: tab.drops && !narrow, filtered: false, placed: isPicked(tab.tabKey, card.key),
+            search: some(card.search),
+            groups: card.group === undefined ? new Map() : new Map([["group", card.group]]),
+        })),
+        groupOptions: tab.grouped ? groupBy : [],
+        noun: some({ singular: m.libraryNoun({ tab: tab.word, n: 1 }), plural: m.libraryNoun({ tab: tab.word, n: 2 }) }),
+        onCardClick: some((key: string) => { onCard(tab.tabKey, key); return null; }),
+    }, true)])), [tabs, keys, narrow, isPicked, groupBy, m, onCard]);
 
     return useMemo((): BuilderFrameDock | undefined => {
-        // No tab listed: no pane (FB29).
-        if (library.length === 0) return undefined;
-        const tabs = library.map((tab) => {
-            if (tab.type === "flows") return { key: "flows", label: m.flowsTab(), count: flows?.count, shown: flows?.shown ?? 0, body: flows?.body ?? null };
-            const tabKey = flowchartTabKey(tab);
-            const value = libraries.get(tabKey)!;
-            const follow = follows.get(tabKey)!;
-            const name = nameOf(tab, m);
+        // No tab listed: no pane.
+        if (tabs.length === 0) return undefined;
+        const panes = tabs.map((tab) => {
+            const cards = libraries.get(tab.tabKey)!;
+            const empty: LibraryEmpty | undefined = tab.follow.empty === undefined ? undefined
+                : { title: m.libraryEmpty({ tab: tab.word, name: tab.name }), description: m.libraryEmptyHint({ tab: tab.word, name: tab.name }) };
             return {
-                key: tabKey,
-                label: name,
-                count: follow.count,
-                shown: follow.cards.length,
+                key: tab.tabKey,
+                label: tab.name,
+                count: tab.follow.count,
+                shown: cards.items.length,
                 body: (
-                    // Its source's cards, counted, and while its source narrows what it says when that leaves it none (#1346).
-                    <Box css={styles.pane} data-flowchart-library={tabKey} {...follow.pane}>
-                        <EastChakraLibrary value={value} storageKey={`${keys.library}.${tabKey}`} onCardEnter={enters.get(tabKey)}
-                            empty={follow.empty === undefined ? undefined : { title: m.libraryEmpty({ tab: tab.type, name }), description: m.libraryEmptyHint({ tab: tab.type, name }) }}
-                            narrowing={follow.narrowing} />
+                    // Its source's cards, counted, and while its source narrows what it says when that leaves it none.
+                    <Box css={styles.pane} data-flowchart-library={tab.tabKey} {...tab.follow.pane}>
+                        <EastChakraLibrary value={cards} storageKey={`${keys.library}.${tab.tabKey}`} onCardEnter={enters.get(tab.tabKey)} empty={empty}
+                            narrowing={narrowingOf(tab.follow.narrowing, tab.word, tab.name.toLocaleLowerCase(words.locale), m)} />
                     </Box>
                 ),
             };
         });
-        // Collapsed, the rail counts the cards the first tab shows (FB25).
+        // Collapsed, the rail counts the cards the first tab shows.
         return {
-            label: m.libraryPane(), icon: "layer-group", badge: tabs[0]!.shown, size: LIBRARY_SIZE, persist: "local",
-            tabs: tabs.map(({ shown: _shown, ...tab }) => tab),
+            label: m.libraryPane(), icon: "layer-group", badge: panes[0]!.shown, size: LIBRARY_SIZE, persist: "local",
+            tabs: panes.map(({ shown: _shown, ...pane }) => pane),
         };
-    }, [library, flows, libraries, follows, enters, keys, m, styles.pane]);
+    }, [tabs, libraries, enters, keys, m, words.locale, styles.pane]);
 }

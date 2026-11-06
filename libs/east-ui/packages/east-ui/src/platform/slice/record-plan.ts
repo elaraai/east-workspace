@@ -36,6 +36,31 @@ export function recordIndexGenerated(index: Index): boolean {
     return index.interval.type === "some" || index.area.type === "some" || index.series.type === "some" || index.summary.type === "some";
 }
 
+/**
+ * The fields an entries index offers (#1522): each a Dict field of the rows,
+ * whose picked keys weigh a reader's rows — the picked entries are what it
+ * draws of each row — and never narrow them.
+ * @param indexes - Available paths.
+ * @returns The entries fields.
+ */
+export function recordEntriesFields(indexes: readonly Index[]): ReadonlySet<string> {
+    return new Set(indexes.flatMap(index => index.entries ? index.fields : []));
+}
+
+/**
+ * A narrowing without its entries fields' picks (#1522): the choices that
+ * narrow the rows, which one index answers. An entries field's picks stand
+ * beside them, weighing what a reader draws of each row.
+ * @param indexes - Available paths.
+ * @param where - The narrowing.
+ * @returns Its choices of the fields that narrow, the same map where it picks no entries.
+ */
+export function recordPathWhere(indexes: readonly Index[], where: ReadonlyMap<string, Choice>): ReadonlyMap<string, Choice> {
+    const weighing = recordEntriesFields(indexes);
+    if (![...where.keys()].some(field => weighing.has(field))) return where;
+    return new Map([...where].filter(([field]) => !weighing.has(field)));
+}
+
 /** Bound the fan-out of a multi-choice path; never replace it with a row scan. */
 export const MAX_RECORD_SLICE_RUNS = 64;
 
@@ -55,14 +80,16 @@ export interface RecordSlicePlan {
  * read through it chooses each of them exactly, an interval's start after
  * them. A series or a summary index answers none (#1039): the one files a row
  * past a year under each year it touches (#1433), and the other's entries name
- * no row; a reader reads their cells (`record-series.ts`).
+ * no row; a reader reads their cells (`record-series.ts`). Nor does an entries
+ * index (#1522), whose picks weigh the rows rather than narrow them: a
+ * narrowing is matched without them ({@link recordPathWhere}).
  * @param index - Available field path.
- * @param where - Current narrowing.
+ * @param where - Current narrowing, without its entries fields' picks.
  * @param area - A read by area's clause, beside the narrowing.
  * @returns Whether it is a supported path.
  */
 export function recordPathMatches(index: Index, where: ReadonlyMap<string, Choice>, area?: Area): boolean {
-    if (index.series.type === "some" || index.summary.type === "some") return false;
+    if (index.series.type === "some" || index.summary.type === "some" || index.entries) return false;
     for (const field of index.sets) {
         const choice = where.get(field);
         if (choice?.type !== "values" || choice.value.length !== 1) return false;
@@ -88,11 +115,12 @@ export function recordPathMatches(index: Index, where: ReadonlyMap<string, Choic
 /**
  * Pick a supported path without executing or parsing its ranges.
  * @param indexes - Available paths.
- * @param where - Current narrowing.
+ * @param narrowing - Current narrowing; its entries fields' picks weigh, and no path reads them (#1522).
  * @param area - A read by area's clause, beside the narrowing.
  * @returns The path, or `undefined` when none answers it.
  */
-export function recordPlanIndex(indexes: readonly Index[], where: ReadonlyMap<string, Choice>, area?: Area): Index | undefined {
+export function recordPlanIndex(indexes: readonly Index[], narrowing: ReadonlyMap<string, Choice>, area?: Area): Index | undefined {
+    const where = recordPathWhere(indexes, narrowing);
     const overlaps = new Set(indexes.flatMap(index => index.interval.type === "some" && where.get(index.interval.value.from)?.type === "range" ? [index.interval.value.from] : []));
     return indexes.find(index => recordPathMatches(index, where, area) && (overlaps.size === 0
         || index.interval.type === "some" && overlaps.has(index.interval.value.from)));
@@ -131,9 +159,11 @@ function areaRefusal(indexes: readonly Index[], where: ReadonlyMap<string, Choic
  * {@link areaQueries} a combination of their values, or the unplaced clause, the
  * rows with no place. A generated index's searches of its key's own fields
  * name its leading values as one `on` literal (#1432), through its printer.
+ * An entries field's picks weigh the rows a reader draws and narrow none of
+ * them (#1522): the plan reads the narrowing without them.
  *
  * @param indexes - Available paths.
- * @param where - Field choices, in any authored order.
+ * @param narrowing - Field choices, in any authored order: an entries field's picks among them weigh, and no search reads them.
  * @param defaultIndex - Unfiltered source containing every primary row once.
  * @param area - A read by area's clause, beside the narrowing; none for any other read.
  * @param printOn - Each generated index's `on` printer, by its name.
@@ -142,8 +172,9 @@ function areaRefusal(indexes: readonly Index[], where: ReadonlyMap<string, Choic
  *   read by area has no area index to read it, naming the one to declare; when
  *   the window is malformed; or when a generated index is read with no printer.
  */
-export function planRecordSlice(indexes: readonly Index[], where: ReadonlyMap<string, Choice>, defaultIndex: string,
+export function planRecordSlice(indexes: readonly Index[], narrowing: ReadonlyMap<string, Choice>, defaultIndex: string,
     area?: Area, printOn?: RecordOnPrinters): RecordSlicePlan | null {
+    const where = recordPathWhere(indexes, narrowing);
     const onOf = (index: Index) => {
         if (printOn === undefined) throw new Error(`Reading '${index.name}' names its leading values as one on, and no printer was given for it`);
         return printOn(index.name);
@@ -223,7 +254,8 @@ const SAMPLES: Readonly<Record<"values" | "range" | "prefix", Choice>> = {
  * `null` where no index takes that kind of choice on the field at all,
  * whatever else is chosen: a prefix of a field only an interval index leads,
  * whose leading fields take exact values alone, is one no field chosen first
- * makes possible.
+ * makes possible. An entries field's picks need nothing chosen first, and it
+ * takes exact values alone (#1522).
  *
  * @param indexes - Available field paths.
  * @param current - Current narrowing.
@@ -234,6 +266,7 @@ const SAMPLES: Readonly<Record<"values" | "range" | "prefix", Choice>> = {
  */
 export function recordChoiceNeeds(indexes: readonly Index[], current: ReadonlyMap<string, Choice>, field: string,
     kind: Choice["type"], offered: ReadonlySet<string>): string[] | null {
+    if (recordEntriesFields(indexes).has(field)) return kind === "values" ? [] : null;
     let best: string[] | null = null;
     for (const index of indexes) {
         const fields = recordIndexFields(index);
@@ -259,7 +292,9 @@ export function recordChoiceNeeds(indexes: readonly Index[], current: ReadonlyMa
  * Keep the largest supported leading path after a choice changes. A new field
  * that cannot follow replaces incompatible clauses; a trailing field with no
  * chosen prerequisites remains unavailable. Chrome uses the same result to
- * explain replacements before applying them.
+ * explain replacements before applying them. An entries field's picks stand
+ * beside every other choice (#1522): a pick of it replaces none, and a choice
+ * of another field keeps them.
  * @param indexes - Available field paths.
  * @param current - Current narrowing.
  * @param field - Field being changed or cleared.
@@ -267,7 +302,15 @@ export function recordChoiceNeeds(indexes: readonly Index[], current: ReadonlyMa
  * @returns Supported next narrowing, or null when prerequisites are missing.
  */
 export function recordChoiceWhere(indexes: readonly Index[], current: ReadonlyMap<string, Choice>, field: string, choice: Choice | undefined): Map<string, Choice> | null {
-    const requested = new Map(current);
+    const weighing = recordEntriesFields(indexes);
+    if (weighing.has(field)) {
+        if (choice !== undefined && choice.type !== "values") return null;
+        const next = new Map(current);
+        if (choice === undefined) next.delete(field);
+        else next.set(field, choice);
+        return next;
+    }
+    const requested = new Map(recordPathWhere(indexes, current));
     if (choice === undefined) requested.delete(field);
     else requested.set(field, choice);
     let best: Map<string, Choice> | null = choice === undefined ? new Map() : null;
@@ -282,5 +325,7 @@ export function recordChoiceWhere(indexes: readonly Index[], current: ReadonlyMa
         if (choice !== undefined && !candidate.has(field)) continue;
         if (recordPathMatches(index, candidate) && (best === null || candidate.size > best.size)) best = candidate;
     }
+    // The entries fields' picks stand beside whatever path the narrowing keeps.
+    if (best !== null) for (const [name, picked] of current) if (weighing.has(name)) best.set(name, picked);
     return best;
 }

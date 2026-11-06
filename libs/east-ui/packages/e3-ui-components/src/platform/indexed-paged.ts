@@ -13,7 +13,7 @@ import type { PlatformFunction } from "@elaraai/east/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import { IndexedEntryType, type RecordSliceEntryKey } from "@elaraai/east-ui/internal";
 import { bindIndexedPagedPlatformFn, DataIndexedPrimitives, NestedPartType } from "@elaraai/e3-ui/internal";
-import { NestedSpanKeyType, RecordSummaryTotalsType, TreePathType, indexWindowType, nestedSpanName, type TreePath } from "@elaraai/e3-types";
+import { NestedSpanKeyType, RecordSummaryTotalsType, TreePathType, entriesRowsName, indexWindowType, nestedSpanName, type TreePath } from "@elaraai/e3-types";
 import type { RecordSliceBatches } from "@elaraai/east-ui-components/platform";
 import { datasetPathToString } from "./dataset-store.js";
 import type { PagedRuntime } from "./paged-runtime.js";
@@ -84,6 +84,24 @@ function nestedWindow(name: string): Error {
     return new Error(`Data.bindPaged: '${name}' is a nested series index, whose entries are items, totals and subtotals: a reader reads its cells`);
 }
 
+/** The refusal of a page of an entries index (#1522), or of its lean rows: a reader reads them by their keys' runs. */
+function entriesWindow(name: string): Error {
+    return new Error(`Data.bindPaged: '${name}' files a Dict field of the rows entry by entry, beside its lean rows: a reader reads the ` +
+        "picked keys' runs of it, and the rows by key (recordSliceRunEntries)");
+}
+
+/** An entries index a binding lists (#1522), as a reader reads it: the Dict field it files, the Dict's key and value types, and its lean rows' index. */
+export interface IndexedEntries {
+    /** The Dict field of the rows it files, entry by entry: what the rail names. */
+    readonly field: string;
+    /** The Dict's key type: each entry's key, the index's own. */
+    readonly key: EastType;
+    /** The Dict's value type: what each entry carries. */
+    readonly value: EastType;
+    /** Its lean rows' index, the record's rows by key with the field emptied (e3-types' `entriesRowsName`). */
+    readonly rows: string;
+}
+
 /**
  * The batched reads of each handle an indexed runtime built, by the handle
  * itself (#1351): a record Slice bound over the handle finds the runtime that
@@ -121,6 +139,12 @@ export interface IndexedBindingRead {
     readonly row: EastType;
     /** The listed nested series index: its name, and its entries' type, `{ ik, value }`; none where the binding lists none. */
     readonly nested: { readonly index: string; readonly entry: StructType<{ ik: EastType; value: EastType }> } | undefined;
+    /** Each listed entries index, by its name (#1522); empty where the binding lists none. */
+    readonly entries: ReadonlyMap<string, IndexedEntries>;
+    /** The record's identity, as a record Slice bound over the binding names it (`sourceId`): what tells two records' bindings apart (#1522). */
+    readonly recordId: string;
+    /** Asks every read of the record that failed again, at once — a Retry's, as a source of the rail asks (#1522). */
+    askAgain(): void;
 }
 
 /** The bindings the runtimes here built, by their ids: the latest built under an id, which every one built under it reads alike. */
@@ -153,11 +177,14 @@ export class IndexedPagedRuntime {
     private entryPrinters = new WeakMap<Schema, Map<string, (ik: string, key: unknown) => string>>();
     // Each membership read's entry keys, printed, by the entries asked and the index (#1349): made once.
     private printedEntries = new WeakMap<readonly RecordSliceEntryKey[], Map<string, readonly string[]>>();
+    // Each schema's entries indexes, by their names (#1522): read once from its metadata.
+    private entriesBySchema = new WeakMap<Schema, ReadonlyMap<string, IndexedEntries>>();
 
-    constructor(private readonly paged: Pick<PagedRuntime, "buildHandle" | "sourceOf" | "seekAll" | "runsAll" | "placeAll" | "withinAll" | "rowsAll" | "joinAll">) {}
+    constructor(private readonly paged: Pick<PagedRuntime, "buildHandle" | "sourceOf" | "seekAll" | "runsAll" | "placeAll" | "withinAll" | "rowsAll" | "joinAll" | "askAgain">) {}
 
     clear(): void {
         this.handles.clear(); this.windows = new WeakMap(); this.sources = new WeakMap(); this.entryPrinters = new WeakMap(); this.printedEntries = new WeakMap();
+        this.entriesBySchema = new WeakMap();
     }
 
     /**
@@ -245,10 +272,36 @@ export class IndexedPagedRuntime {
         return fields?.type === "Struct" ? fields.fields as Record<string, EastType> : undefined;
     }
 
-    /** An index's kind, its metadata's one case (#1432): `plain`, `interval`, `area`, `series` or `summary`. */
+    /** An index's kind, its metadata's one case (#1432): `plain`, `interval`, `area`, `series`, `summary` or `entries` (#1522). */
     private kind(schema: Schema, name: string): string | undefined {
         const kind = this.metadataOf(schema, name)?.kind;
         return kind?.type === "Variant" ? Object.keys(kind.cases)[0] : undefined;
+    }
+
+    /**
+     * Each entries index a binding lists (#1522), by its name: the Dict field
+     * it files — its metadata's one field — the Dict's key and value types,
+     * from the row's own field, and its lean rows' index.
+     */
+    private entriesIndexes(schema: Schema): ReadonlyMap<string, IndexedEntries> {
+        const known = this.entriesBySchema.get(schema);
+        if (known !== undefined) return known;
+        const listed = new Map<string, IndexedEntries>();
+        this.entriesBySchema.set(schema, listed);
+        const types = schema.args[3];
+        for (const name of types.type === "Struct" ? Object.keys(types.fields) : []) {
+            if (this.kind(schema, name) !== "entries") continue;
+            const field = Object.keys(this.fields(schema, name) ?? {})[0];
+            const held = field === undefined ? undefined : schema.row.fields[field];
+            if (field === undefined || held?.type !== "Dict") throw new Error(`Data.bindPaged: the entries index '${name}' names no Dict field of the rows`);
+            listed.set(name, { field, key: held.key, value: held.value, rows: entriesRowsName(name) });
+        }
+        return listed;
+    }
+
+    /** The entries index whose lean rows an index is (#1522); `undefined` for any other. */
+    private entriesRowsOf(schema: Schema, name: string): IndexedEntries | undefined {
+        return [...this.entriesIndexes(schema).values()].find(entries => entries.rows === name);
     }
 
     /** Whether an index is a summary index (#1039): its entries totals, naming no row. */
@@ -261,17 +314,23 @@ export class IndexedPagedRuntime {
      * index (#1039), whose entries hold the whole row as their projection, so
      * it is read without a join; and beside a nested series index, every index
      * but a summary, whose entries hold the lean row (#1435) — the binding
-     * lists none with a value of its own there.
+     * lists none with a value of its own there; and beside an entries index,
+     * every index but a summary and an entries index, whose entries hold the
+     * row with the fields filed entry by entry emptied (#1522).
      */
     private carriesRow(schema: Schema, nested: Nested, name: string): boolean {
         const kind = this.kind(schema, name);
-        return kind === "area" || kind === "series" || (nested.type === "some" && kind !== undefined && kind !== "summary");
+        return kind === "area" || kind === "series" || (nested.type === "some" && kind !== undefined && kind !== "summary")
+            || (kind !== undefined && kind !== "summary" && kind !== "entries" && this.entriesIndexes(schema).size > 0);
     }
 
     private source(schema: Schema, path: TreePath, metadata: Metadata, nested: Nested, joined: boolean, name: string): Handle {
         const inNested = isNested(nested, name);
         const span = isSpan(nested, name);
-        if (name !== "primary" && !inNested && !span && !Object.hasOwn(metadata, name)) throw new Error(`Index '${name}' was not declared on this binding`);
+        // An entries index carries its own entries, and its lean rows carry the rows: neither is joined (#1522).
+        const entries = name === "primary" ? undefined : this.entriesIndexes(schema).get(name);
+        const leanRows = name === "primary" || entries !== undefined ? undefined : this.entriesRowsOf(schema, name);
+        if (name !== "primary" && !inNested && !span && leanRows === undefined && !Object.hasOwn(metadata, name)) throw new Error(`Index '${name}' was not declared on this binding`);
         let built = this.sources.get(schema);
         if (built === undefined) { built = new Map(); this.sources.set(schema, built); }
         // An index that carries its rows is read without a join, whatever the binding's (D29); a summary index's
@@ -279,7 +338,7 @@ export class IndexedPagedRuntime {
         // are its rows' items (#1435).
         const rows = name !== "primary" && !span && this.carriesRow(schema, nested, name);
         const summary = name !== "primary" && (span || this.isSummary(schema, name));
-        const join = name !== "primary" && joined && !rows && !summary && !inNested;
+        const join = name !== "primary" && joined && !rows && !summary && !inNested && entries === undefined && leanRows === undefined;
         const sourceKey = `${datasetPathToString(path)}\u0000${name}\u0000${join ? "+join" : ""}`;
         const cached = built.get(sourceKey);
         if (cached !== undefined) return cached;
@@ -288,7 +347,9 @@ export class IndexedPagedRuntime {
             : span ? indexWindowType(NullType, NestedSpanKeyType, RecordSummaryTotalsType, row)
                 : summary ? indexWindowType(NullType, schema.keys[name]!, RecordSummaryTotalsType, row)
                     : inNested ? indexWindowType(key, schema.keys[name]!, nestedValue, row)
-                        : indexWindowType(key, schema.keys[name]!, rows ? row : projection, row);
+                        : entries !== undefined ? indexWindowType(key, entries.key, entries.value, row)
+                            : leanRows !== undefined ? indexWindowType(key, key, row, row)
+                                : indexWindowType(key, schema.keys[name]!, rows ? row : projection, row);
         const handle = this.paged.buildHandle(toEastTypeValue(type), path,
             { index: name === "primary" ? null : name, join }, "pinned") as unknown as Handle;
         built.set(sourceKey, handle);
@@ -301,7 +362,9 @@ export class IndexedPagedRuntime {
      *  projection as its row, and the binding's projection as its value: the
      *  row itself, or Null beside indexes that carry nothing (D29). A summary
      *  index's entry gives its totals as its value, and names no row (#1039);
-     *  a nested series index's its item, totals or subtotal (#1435). */
+     *  a nested series index's its item, totals or subtotal (#1435); an
+     *  entries index's the Dict's value, and its lean rows' the lean row as
+     *  both (#1522). */
     private entriesOf(schema: Schema, nested: Nested, name: string, window: unknown): unknown[] {
         let mapped = this.windows.get(window as object);
         if (mapped === undefined) { mapped = new Map(); this.windows.set(window as object, mapped); }
@@ -309,7 +372,9 @@ export class IndexedPagedRuntime {
         if (rows === undefined) {
             if (name === "primary") {
                 rows = [...window as Map<unknown, unknown>].map(([key, row]) => ({ ik: variant("primary", key), key, value: none, row: some(row) }));
-            } else if (this.isSummary(schema, name) || isNested(nested, name) || isSpan(nested, name)) {
+            } else if (this.entriesRowsOf(schema, name) !== undefined) {
+                rows = (window as Entry[]).map(entry => ({ ik: variant(name, entry.ik), key: entry.key, value: some(entry.value), row: some(entry.value) }));
+            } else if (this.isSummary(schema, name) || isNested(nested, name) || isSpan(nested, name) || this.kind(schema, name) === "entries") {
                 rows = (window as Entry[]).map(entry => ({ ik: variant(name, entry.ik), key: entry.key, value: some(entry.value), row: none }));
             } else if (this.carriesRow(schema, nested, name)) {
                 const whole = isTypeEqual(schema.args[2], schema.row);
@@ -408,6 +473,7 @@ export class IndexedPagedRuntime {
                         throw new Error(`Data.bindPaged: '${name}' is a summary index, whose entries name no row: a reader reads its cells (recordSliceCellEntries)`);
                     }
                     if (isNested(nested, name)) throw nestedWindow(name);
+                    if (name !== "primary" && (this.kind(schema, name) === "entries" || this.entriesRowsOf(schema, name) !== undefined)) throw entriesWindow(name);
                     const result = this.source(schema, path, metadata, nested, joined, name).page(offset, limit);
                     if (result.type === "none") return none;
                     return some(this.entriesOf(schema, nested, name, result.value));
@@ -500,6 +566,13 @@ export class IndexedPagedRuntime {
                 bindingsById.set(id, {
                     handle, batches, key: args[0], row: args[1],
                     nested: nestedName === undefined || ik === undefined ? undefined : { index: nestedName, entry: StructType({ ik, value: args[6] }) },
+                    entries: this.entriesIndexes(schema),
+                    recordId,
+                    // A Retry asks again of the record's path, every source of it alike: its own rows' source names it.
+                    askAgain: () => {
+                        const source = this.paged.sourceOf(this.source(schema, path, metadata, nested, joined, "primary").id);
+                        if (source !== undefined) this.paged.askAgain(source);
+                    },
                 });
                 return handle;
             };

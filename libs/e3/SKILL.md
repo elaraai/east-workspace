@@ -1,6 +1,6 @@
 ---
 name: e3
-description: "East Execution Engine (e3): durable, content-addressed dataflow for East programs. Use when (1) authoring a package with @elaraai/e3 — e3.input, e3.task, e3.streamTask with e3.output and e3.partition (bounded memory, work split over an input), e3.customTask, e3.function, e3.package, e3.export, East.importFunction; (2) records — audited state written only through mutations (e3.record with mutation.reduce/edit/patch), their indexes (index.on/key/keys, interval, area, series, summary, nested) and migrations (migration.value/rows/rekey); (3) the e3 CLI — repo, package, workspace, dataset, task, dataflow run, run, call, mutate, seed, history, watch, convert, auth, and the cores and memory a run may use; (4) driving e3 from code (@elaraai/e3-api-client, @elaraai/e3-core, e3-api-server); (5) caching, reactive re-runs and garbage collection; (6) delegating task bodies to a rack (e3 rack); (7) e3 in a browser with @elaraai/e3-web. UI tasks are e3-ui's ui()."
+description: "East Execution Engine (e3): durable, content-addressed dataflow for East programs. Use when (1) authoring a package with @elaraai/e3 — e3.input, e3.task, e3.streamTask with e3.output and e3.partition (bounded memory, work split over an input), e3.customTask, e3.function, e3.package, e3.export, East.importFunction; (2) records — audited state written only through mutations (e3.record with mutation.reduce/edit/patch), their indexes (index.on/key/keys, interval, area, series, summary, nested, entries) and migrations (migration.value/rows/rekey); (3) the e3 CLI — repo, package, workspace, dataset, task, dataflow run, run, call, mutate, seed, history, watch, convert, auth, and the cores and memory a run may use; (4) driving e3 from code (@elaraai/e3-api-client, @elaraai/e3-core, e3-api-server); (5) caching, reactive re-runs and garbage collection; (6) delegating task bodies to a rack (e3 rack); (7) e3 in a browser with @elaraai/e3-web. UI tasks are e3-ui's ui()."
 ---
 
 # East Execution Engine (e3)
@@ -75,8 +75,9 @@ What do you need?
 │   │   ├─ An order to page in   → indexes: (index) => ({ name: index.on([...fields]) | index.key(fn) | index.keys(fn) }) (reference/record-indexes.md)
 │   │   ├─ Read by a time window or a 2D window → index.interval | index.area
 │   │   ├─ Read a block of keys over time tiles, or their totals → index.series | index.summary
-│   │   └─ Read what rows nest (jobs, a value a day, child rows, trees) a tile at a time, with totals and subtotals
-│   │       → index.nested({ collections, tile, summary? })
+│   │   ├─ Read what rows nest (jobs, a value a day, child rows, trees) a tile at a time, with totals and subtotals
+│   │   │   → index.nested({ collections, tile, summary? })
+│   │   └─ Read a few keys of a Dict field across every row (each row's figures by category) → index.entries(field)
 │   ├─ A record's type changes   → migrations: (migration) => [migration.value | rows | rekey(name, fn), …], in order (reference/record-migrations.md)
 │   ├─ A UI task                 → ui(name, [inputs], fn) from @elaraai/e3-ui (the e3-ui skill)
 │   ├─ A function written in python or another node package → East.importFunction(pkg, name, FunctionType) in the body
@@ -476,7 +477,7 @@ cheap. A view reads every field of the rows it shows, so keep a bulky payload it
 does not display in a second record keyed the same way.
 
 A record's indexes (`index.on` / `key` / `keys`, `interval`, `area`,
-`series`, `summary`, `nested`) are in
+`series`, `summary`, `nested`, `entries`) are in
 [reference/record-indexes.md](reference/record-indexes.md), and its migrations
 in [reference/record-migrations.md](reference/record-migrations.md).
 
@@ -504,7 +505,7 @@ Read the one a task needs; each holds its subject whole.
 
 | File | Holds |
 |---|---|
-| [reference/record-indexes.md](reference/record-indexes.md) | Secondary indexes, interval and area indexes, series and summary indexes, nested series indexes |
+| [reference/record-indexes.md](reference/record-indexes.md) | Secondary indexes, interval and area indexes, series and summary indexes, nested series indexes, entries indexes |
 | [reference/record-migrations.md](reference/record-migrations.md) | `migration.value` / `rows` / `rekey`, and how a record's type changes |
 | [reference/cli.md](reference/cli.md) | Every `e3` command: repositories, packages, workspaces, datasets, tasks, runs, calls, records, watch, convert, auth, gc |
 | [reference/from-code.md](reference/from-code.md) | `@elaraai/e3-api-client`, `@elaraai/e3-core`, `e3-api-server` |

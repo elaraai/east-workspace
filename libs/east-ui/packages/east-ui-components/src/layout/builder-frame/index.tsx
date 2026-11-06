@@ -535,10 +535,16 @@ export function BuilderFrame(props: BuilderFrameProps) {
         const moved = new Set(secondKeys === "" ? [] : secondKeys.split("\u0000"));
         const items = toolbar.filter((it): it is ToolbarItem => !!it && !moved.has(it.key));
         const phoned = items.map((it): ToolbarItem => it.phone === undefined ? it
-            // One cluster, in the phone forms' order: the views, the count, Filters, Search Records.
+            // In the phone forms' order: the views, the count, the rail's button, Search Records.
             : { key: it.key, forms: [it.phone.form], keep: it.keep, held: it.held, version: PHONE_FORM, grow: it.phone.grow, shrink: it.phone.shrink });
         const order = (it: ToolbarItem) => it.phone?.order ?? 0;
-        return phoned.map((it, i) => ({ it, at: order(items[i]!), i })).sort((a, b) => a.at - b.at || a.i - b.i).map(({ it }) => it);
+        const row = phoned.map((it, i) => ({ it, at: order(items[i]!), i })).sort((a, b) => a.at - b.at || a.i - b.i);
+        // The controls placed by their order, the rail's button and Search Records, stand at the row's end with the
+        // slack before them, as they do after the count line: where no view tabs take the slack and none of the
+        // builder's own items ends the row, the first of them that does not give way leads the row's end cluster, and
+        // those after it follow.
+        const lead = row.some(({ it }) => it.grow === true || it.side === "end") ? -1 : row.findIndex(({ it, at }) => at > 0 && it.shrink !== true);
+        return row.map(({ it }, k) => (lead >= 0 && k >= lead ? { ...it, side: "end" as const } : it));
     }, [toolbar, secondKeys, phone]);
     const secondRow = toolbar === undefined ? [] : toolbar.filter(inSecondRow).map((it) => ({ key: it.key, node: it.secondRow }));
     // The row's status slot: where a phone's footer's loading line draws itself.

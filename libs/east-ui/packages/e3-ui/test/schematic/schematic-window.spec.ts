@@ -44,10 +44,10 @@ const indexType = ArrayType(RecordSliceIndexType);
 const rackBox = { x: "x", y: "y", width: some("w"), height: some("h"), centre: true, cell: 2 ** -7, optional: false };
 // An area index's fields are its leading fields alone, its key's `on` (#1432).
 const indexes = decodeBeast2For(indexType)(encodeBeast2For(indexType)([
-    { name: "racks_by_model", fields: ["model"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none },
-    { name: "racks_by_area", fields: [], sets: new Set(), structured: true, interval: none, area: some(rackBox), series: none, summary: none },
-    { name: "racks_by_hall_area", fields: ["hall"], sets: new Set(), structured: true, interval: none, area: some(rackBox), series: none, summary: none },
-    { name: "racks_by_tag_area", fields: ["tags"], sets: new Set(["tags"]), structured: true, interval: none, area: some(rackBox), series: none, summary: none },
+    { name: "racks_by_model", fields: ["model"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none, entries: false },
+    { name: "racks_by_area", fields: [], sets: new Set(), structured: true, interval: none, area: some(rackBox), series: none, summary: none, entries: false },
+    { name: "racks_by_hall_area", fields: ["hall"], sets: new Set(), structured: true, interval: none, area: some(rackBox), series: none, summary: none, entries: false },
+    { name: "racks_by_tag_area", fields: ["tags"], sets: new Set(["tags"]), structured: true, interval: none, area: some(rackBox), series: none, summary: none, entries: false },
 ]));
 /** The `on` printers of the area index led by no field and of the one led by a hall, as the binding's index key types give them. */
 const UNLED = recordOnPrinter(StructType({}));
