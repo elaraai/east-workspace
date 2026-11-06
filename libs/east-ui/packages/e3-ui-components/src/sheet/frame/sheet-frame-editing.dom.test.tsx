@@ -24,6 +24,7 @@ import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { Record, Sheet } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { patchRecord } from "../../e3-web.test-utils.js";
+import { offering } from "../../shared/schedule/keys.test-utils.js";
 import { act, sheetHarness, settle, slot } from "./harness.test-utils.js";
 import { conflictCards, reloadPage } from "../../e3-web-mount.test-utils.js";
 
@@ -147,7 +148,8 @@ test("each gesture is one transaction — typing, a paste across rows, an insert
     fireEvent.mouseDown(cells(container, "task")[2]!, { button: 0 });
     await act(async () => { fireEvent.paste(card(container), { clipboardData: { getData: () => "CNC routing, oak\nSpray finish, matt" } }); });
     await settle();
-    // A new job, typed on the blank tail: its minted key sorts after the record's.
+    // A new job, typed on the blank tail, under a key minted where a UUID is — offered here, so it sorts after the record's.
+    offering(["J-0005"]);
     await typeInto(slot(container, "main")!.querySelector('[data-slot="row"][data-blank] [data-key="task"]')!, "Sanding");
     // J-0002 picked by its number and deleted.
     fireEvent.mouseDown(cells(container, "task")[1]!.closest('[data-slot="row"]')!.querySelector('[data-slot="gutter"]')!, { button: 0 });
@@ -437,6 +439,8 @@ test("auto mode sends each ready gesture as it lands, through the same protocol;
 test("a reload keeps the drafts in this tab: the task typed and the job added are drawn as they were, still to save, and Save saves them", async () => {
     const first = await h.mount(ex.sheetBasic);
     await typeInto(cells(first.container, "task")[0]!, "Panel cutting, maple");
+    // The job added, under a key minted where a UUID is — offered here, so it sorts after the four.
+    offering(["J-0005"]);
     await typeInto(slot(first.container, "main")!.querySelector('[data-slot="row"][data-blank] [data-key="task"]')!, "Sanding");
     expect(drafted(first.container)).toBe(2);
     reloadPage();
