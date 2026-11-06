@@ -119,7 +119,7 @@ export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value }: 
     const search = (
         <Box css={styles.search} data-slot="pickSearch">
             <Box as="span" css={[frame.searchPill, styles.searchPill]}>
-                <FontAwesomeIcon icon={faMagnifyingGlass} style={{ fontSize: "10px" }} />
+                <FontAwesomeIcon icon={faMagnifyingGlass} />
                 <chakra.input
                     css={styles.searchInput}
                     value={query}
@@ -130,7 +130,7 @@ export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value }: 
                 {q !== "" && (
                     <chakra.button type="button" css={frame.searchClear}
                         aria-label="Clear search" onClick={() => setQuery("")}>
-                        <FontAwesomeIcon icon={faXmark} style={{ fontSize: "10px" }} />
+                        <FontAwesomeIcon icon={faXmark} />
                     </chakra.button>
                 )}
             </Box>

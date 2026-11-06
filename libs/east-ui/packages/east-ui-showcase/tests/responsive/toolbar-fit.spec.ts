@@ -173,8 +173,9 @@ function eyeInRowFaults(entry: Locator): Promise<string[]> {
 /**
  * The eye in a phone's frame: no button of it in the first row and no entry of it in the View, a button in the second
  * row before Issues, the history and Save in that row taking the pointer; named as the eye was; a run from it — its
- * call held on its way to e3, so the run stays out while the checks look — the loading line at the row's start saying
- * so and the eye its Stop; and Stop from it, the run over, the eye named for the period again, and nothing recorded.
+ * call held on its way to e3, so the run stays out while the checks look — the footer's loading line, laid over main's
+ * foot, saying so and the eye its Stop; and Stop from it, the run over, the eye named for the period again, and nothing
+ * recorded.
  *
  * @param page - The page
  * @param entry - The example's entry
@@ -209,8 +210,8 @@ async function checkPhoneEye(page: Page, entry: Locator, named: string, at: stri
     expect(before, `${at}: the eye before Issues`).toBe(true);
     const hold = await holdE3(page, { kinds: ["call"] });
     await eye.click();
-    const line = second.locator("[data-footer-line]");
-    await expect(line, `${at}: the row's line says the run`).toHaveAttribute("data-loading-line", "busy");
+    const line = frame.locator("[data-frame-slot='footer'] [data-footer-line]");
+    await expect(line, `${at}: the footer's line says the run`).toHaveAttribute("data-loading-line", "busy");
     await expect(line.locator("[data-line-text]"), at).toHaveText(/^Optimising /);
     await expect(eye, `${at}: the eye is the run's Stop`).toHaveAccessibleName("Stop optimising");
     await eye.click();
@@ -286,8 +287,8 @@ async function checkViewEye(page: Page, entry: Locator, named: string, at: strin
     expect([rest.inside, rest.mark], `${at}: the entry whole in the View, its mark 14px`).toEqual([true, [14, 14]]);
     const hold = await holdE3(page, { kinds: ["call"] });
     await eye.click();
-    // The loading line: a phone's is the second row's start, else the footer's.
-    const line = frame.locator("[data-frame-slot='sessionRow'] [data-footer-line], [data-frame-slot='footer'] [data-footer-line]").first();
+    // The loading line: the footer's at every width, a phone's laid over main's foot.
+    const line = frame.locator("[data-frame-slot='footer'] [data-footer-line]").first();
     await expect(line, `${at}: the loading line says the run`).toHaveAttribute("data-loading-line", "busy");
     await expect(line.locator("[data-line-text]"), at).toHaveText(/^Optimising /);
     await expect(eye, `${at}: the entry is the run's Stop`).toHaveText("Stop optimising");
@@ -325,7 +326,7 @@ async function checkNarrowEye(page: Page, entry: Locator, named: string, at: str
     await expect(button, at).toHaveAccessibleName(named);
     const hold = await holdE3(page, { kinds: ["call"] });
     await button.click();
-    const line = frame.locator("[data-frame-slot='sessionRow'] [data-footer-line], [data-frame-slot='footer'] [data-footer-line]").first();
+    const line = frame.locator("[data-frame-slot='footer'] [data-footer-line]").first();
     await expect(line, `${at}: the loading line says the run`).toHaveAttribute("data-loading-line", "busy");
     await expect(button, `${at}: the eye is the run's Stop`).toHaveAccessibleName("Stop optimising");
     await button.click();

@@ -9,7 +9,7 @@
  * Plan as they scroll, the Calendar, the Roster and the Allocation as they
  * step, the Schematic as the rail narrows its racks — on the real in-page e3, its
  * reads held and failed through the showcase's e3 fault hook (`e3-faults.ts`),
- * with the frame 1440, 768 and 600px wide (a phone's has no footer, its line in the second row), as
+ * with the frame 1440, 768 and 600px wide (a phone's footer is laid over main's foot, its own test below), as
  * `builder-footer-line.spec.ts` measures the rail at rest:
  *
  * - While a read is held, the line says what is read, one line in its own slot
@@ -339,27 +339,32 @@ for (const theme of LAYOUT_THEMES) {
     }
 }
 
-test("in a phone's frame a failed read's Retry stands in the toolbar's second row, a 44px tap target by its halo, and a tap on it reads again @mobile", async ({ page }) => {
+test("in a phone's frame a failed read says so in the band laid over main's foot, main as tall as before the read, its Retry a 44px tap target by its halo, and a tap on it reads again (ruled 7 Nov 2026) @mobile", async ({ page }) => {
     await installE3Faults(page);
     await page.setViewportSize(PAGE);
     const reader = READERS[0]!;
     const entry = await visitBuilder(page, reader.route, reader.root, "light");
     await sizeBuilder(page, entry, reader.root, 390);
+    const main = entry.locator("[data-builder-frame] [data-frame-slot='main']").first();
+    const rest = await main.evaluate((el) => el.getBoundingClientRect().height);
     const fault = await failE3(page, { kinds: [...RECORD_READS] }, FAILURE);
     await reader.read(page, entry, 1);
-    const retry = entry.locator("[data-builder-frame] [data-frame-slot='sessionRow'] [data-line-retry]:visible").first();
-    await expect(retry).toBeVisible();
-    await retry.scrollIntoViewIfNeeded();
-    const missed = await retry.evaluate((el) => {
-        const r = el.getBoundingClientRect();
-        const x = r.left + r.width / 2, y = r.top + r.height / 2;
-        return [[x, y - 20], [x, y + 20], [x - 21, y], [x + 21, y]].flatMap(([px, py]) => {
-            const hit = document.elementFromPoint(px!, py!);
-            return hit !== null && el.contains(hit) ? [] : [`a tap at ${Math.round(px! - x)},${Math.round(py! - y)} lands on ${hit?.tagName ?? "nothing"}`];
-        });
+    const line = entry.locator(`${reader.rail} > [data-footer-line]`).first();
+    await expect(line).toHaveAttribute("data-failed", "");
+    // Laid over main's foot: main keeps its height, the band ending where main does, and no second row drawn for it.
+    const at = await line.evaluate((el) => {
+        const main = el.closest("[data-builder-frame]")!.querySelector("[data-frame-slot='main']")!.getBoundingClientRect();
+        const band = el.parentElement!.getBoundingClientRect();
+        return { main: main.height, foot: band.bottom - main.bottom, top: band.top - main.top };
     });
-    expect(missed).toEqual([]);
+    expect(at.main, "main's height").toBeCloseTo(rest, 0);
+    expect([Math.abs(at.foot) < 1, at.top > 0]).toEqual([true, true]);
+    await expect(entry.locator("[data-frame-slot='sessionRow'] [data-footer-line]")).toHaveCount(0);
+    const retry = line.locator("[data-line-retry]");
+    await retry.scrollIntoViewIfNeeded();
+    expect(await missedTaps(retry)).toEqual([]);
     await releaseE3(page, fault);
     await retry.tap();
-    await expect(retry).toBeHidden({ timeout: 30_000 });
+    await expect(line).toHaveAttribute("data-idle", "", { timeout: 30_000 });
+    expect(await main.evaluate((el) => el.getBoundingClientRect().height), "main's height once the read lands").toBeCloseTo(rest, 0);
 });

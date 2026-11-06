@@ -552,8 +552,8 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
         expect([...slot("toolbar").querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"))).toEqual(["name", "optimise", "history"]);
         frameAt(560);
         expect(frame().hasAttribute("data-phone")).toBe(true);
-        // No status given: the footer stays, its loading line has no other home. Each pane is a view over the whole
-        // builder, at the frame's root, and the overlay slot over every region.
+        // The footer keeps its place: a phone's lays only what speaks over main's foot (its CSS). Each pane is a view over
+        // the whole builder, at the frame's root, and the overlay slot over every region.
         expect([regions(), across()]).toEqual([["toolbar", "sessionRow", "sessionBand", "body", "bottomPanel", "paneStrip", "footer", "start", "end", "overlay"], ["main"]]);
         expect([...slot("toolbar").querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"))).toEqual(["name"]);
         expect(slot("sessionRow").textContent).toBe("EYE ROWHISTORY ROW");
@@ -561,23 +561,32 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
         expect([regions(), frame().hasAttribute("data-phone")]).toEqual([["toolbar", "body", "footer"], false]);
     });
 
-    test("the footer's loading line is the second row's start on a phone, in its short form, leaving a marker the frame hides the footer by; on a wider frame it is the footer's", () => {
+    test("the footer's loading line stays the footer's on a phone, in the form its fit gives it, and the second row holds the items' own alone (ruled 7 Nov 2026)", () => {
         const line: LoadingLineValue = { kind: "failed", text: "Couldn't read rows 1–40", short: "Couldn't read", onRetry: () => undefined };
         mount({ toolbar: phoneItems, start: library(), footer: <div><span>LEGEND</span><LoadingLine value={line} shown form="full" /></div> });
         frameAt(1440);
-        expect([slot("footer").querySelector("[data-footer-line]")?.getAttribute("data-form"), slot("footer").querySelector("[data-footer-line-moved]")]).toEqual(["full", null]);
+        expect(slot("footer").querySelector("[data-footer-line]")?.getAttribute("data-form")).toBe("full");
         frameAt(390);
-        const status = slot("sessionRow").querySelector("[data-session-status]")!;
-        expect([status.querySelector("[data-footer-line]")?.getAttribute("data-form"), slot("sessionRow").firstElementChild]).toEqual(["short", status]);
-        expect([slot("footer").querySelector("[data-footer-line]"), slot("footer").querySelector("[data-footer-line-moved]") !== null, slot("footer").textContent]).toEqual([null, true, "LEGEND"]);
+        expect([slot("footer").querySelector("[data-footer-line]")?.getAttribute("data-form"), slot("sessionRow").querySelector("[data-footer-line]"), slot("sessionRow").textContent])
+            .toEqual(["full", null, "EYE ROWHISTORY ROW"]);
         frameAt(1440);
         expect([slot("footer").querySelector("[data-footer-line]") !== null, regions()]).toEqual([true, ["toolbar", "body", "footer"]]);
     });
 
-    test("a footer with no loading line stays a phone's, and the row is drawn for the footer's line even with no item of its own", () => {
-        mount({ footer: <div>STATUS</div> });
+    test("a builder with no item of the second row's draws no second row on a phone: a read never adds one over main, its line the footer's", () => {
+        const line: LoadingLineValue = { kind: "loading", text: "Loading rows 41–80", short: "Loading…" };
+        mount({ footer: <div><LoadingLine value={line} shown form="full" /></div> });
         frameAt(390);
-        expect([regions(), slot("footer").querySelector("[data-footer-line-moved]")]).toEqual([["sessionRow", "sessionBand", "body", "bottomPanel", "footer", "overlay"], null]);
+        expect([regions(), slot("footer").querySelector("[data-footer-line]")?.textContent]).toEqual([["body", "bottomPanel", "footer", "overlay"], expect.stringContaining("Loading rows 41–80")]);
+    });
+
+    test("a phone's footer that speaks is laid over main's foot, with no height of its own in the flow, so main never resizes for it; one with a pane's view open says over the view only what a gesture there was refused for", () => {
+        // jsdom lays nothing out: the recipe says it, and the showcase's phone specs measure it.
+        const footer = (system.getSlotRecipe("builderFrame") as { base: { footer: Record<string, Record<string, Record<string, unknown>>> } }).base.footer;
+        const speaks = footer["[data-phone] > &"]!["&:has([data-footer-line], [data-footer-live])"]!;
+        expect([speaks.height, speaks.justifyContent, speaks.position]).toEqual(["0", "flex-end", "relative"]);
+        const overView = footer["[data-phone]:has(> [data-frame-drawer][data-open]) > &"]!["&:has([data-footer-live]:not([data-footer-ambient]))"]!;
+        expect([overView.position, overView["& [data-footer-line], & [data-footer-ambient]"]]).toEqual(["absolute", { display: "none" }]);
     });
 
     test("each described pane is a tab of the strip — its icon, its label and its detail or badge — and opens as a drawer from it; again, it closes, the focus back on the tab", async () => {

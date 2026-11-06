@@ -472,11 +472,12 @@ export const schematicSlotRecipe = defineSlotRecipe({
         },
         /* Map-style ruler at the canvas's bottom-right — a bare bottom bracket
          * with quarter ticks and the distance floating above it; a text halo
-         * keeps it legible (the Mapbox convention). */
+         * keeps it legible (the Mapbox convention). In a phone's frame it stands
+         * clear of the footer's band laid over main's foot, as the minimap does. */
         scaleBar: {
             position: "absolute",
             right: "{spacing.3}",
-            bottom: "{spacing.2}",
+            bottom: "calc({spacing.2} + var(--builder-foot-inset, 0px))",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -510,7 +511,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
         minimap: {
             position: "absolute",
             left: "{spacing.2}",
-            bottom: "{spacing.2}",
+            bottom: "calc({spacing.2} + var(--builder-foot-inset, 0px))",
             background: "bg.surface",
             borderWidth: "1px",
             borderColor: "border.strong",

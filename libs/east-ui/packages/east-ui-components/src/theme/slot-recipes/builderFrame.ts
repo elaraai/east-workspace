@@ -40,8 +40,12 @@
  *   - A phone's frame (`data-phone`, 560px or narrower; `Mobile Builder
  *     Frame Spec.md`, the designer's `WorkOrdersPhone` measures): the session
  *     row, the toolbar's second row — 56px, its 44px controls 6px clear of
- *     either rule, padded 0 12 0 16 and 4px apart, the status (the loading
- *     line) leading it; the pane strip on the bottom edge — 44px over a
+ *     either rule, padded 0 12 0 16 and 4px apart; the footer, laid over
+ *     main's foot while it says something — its loading line, a live notice —
+ *     with no height of its own in the flow, so main never resizes for it
+ *     (ruled 7 Nov 2026), and what main draws at its foot standing clear of
+ *     its band by main's `--builder-foot-inset`, which the frame measures;
+ *     the pane strip on the bottom edge — 44px over a
  *     `--rule`, one equal tab a pane split by a rule inset 10px top and
  *     bottom, its icon 14, its label the mono caps, whole, its meta mono
  *     `fg.subtle`, whole or not at all, the open one in ink over a 2px underline; a pane open — a
@@ -72,7 +76,7 @@ const TOGGLE_MOTION = {
 export const builderFrameSlotRecipe = defineSlotRecipe({
     className: "elara-builder-frame",
     slots: ["root", "toolbar", "banners", "body", "pane", "sheet", "probe", "main", "scrim", "footer", "loading", "loadingBar", "loadingBody", "loadingRow", "loadingLine", "loadingCell", "loadingFooter",
-        "sessionRow", "sessionStatus", "paneStrip", "paneTab", "paneTabIcon", "paneTabLabel", "paneTabMeta", "paneTabMark", "drawer", "bottomPanel", "sessionBand", "overlay"],
+        "sessionRow", "paneStrip", "paneTab", "paneTabIcon", "paneTabLabel", "paneTabMeta", "paneTabMark", "drawer", "bottomPanel", "sessionBand", "overlay"],
     base: {
         loading: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "bg.surface", overflow: "hidden" },
         loadingBar: { gap: "{spacing.4}", "& > :last-child": { marginInlineStart: "auto" } },
@@ -197,28 +201,49 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             display: "flex",
             flexDirection: "column",
             minWidth: "0",
-            /* A phone's footer whose loading line the session row took (FR1, R5) shows only what is live, a band over the
-             * pane tabs while something is, and nothing else of its rail: no legend, no count, no hint. */
+            /* A phone's footer that speaks — its loading line, while a read is out or failed, and what is live: a Save's
+             * notice, a refused gesture's words (ruled 7 Nov 2026, revising R5) — is laid over main's foot: in the flow under
+             * main but with no height of its own, what it says standing up over main's last rows, so main never resizes as
+             * it comes and goes. A read-only builder drew a second row for the line alone, and a Schematic refitted its
+             * drawing on every read. Its rail shows nothing of its legend, its counts or its hints, and no band while it says
+             * nothing. A footer with neither, a status line, keeps its place in the flow. */
             "[data-phone] > &": {
-                "&:has([data-footer-line-moved]):not(:has([data-footer-live]))": { display: "none" },
-                "&:has([data-footer-line-moved]) > *": { height: "auto", minHeight: "28px", flexWrap: "wrap" },
-                "&:has([data-footer-line-moved]) > * > :not([data-footer-live]):not(:has([data-footer-live]))": { display: "none" },
-                "&:has([data-footer-line-moved]) [data-footer-live]": { minWidth: "0", whiteSpace: "normal" },
+                "&:has([data-footer-line], [data-footer-live])": {
+                    position: "relative",
+                    height: "0",
+                    justifyContent: "flex-end",
+                    zIndex: "1",
+                    "& > *": { flex: "none" },
+                    /* The rail the line stands in: as tall as what it shows, wrapping, and nothing else of it. */
+                    "& > :has(> [data-footer-line])": { height: "auto", minHeight: "28px", flexWrap: "wrap" },
+                    "& > :has(> [data-footer-line]) > :not([data-footer-line]):not([data-footer-live]):not(:has([data-footer-live]))": { display: "none" },
+                    /* The line has the band to itself: at its start, and as wide as its words take, the fit giving it the band's width. */
+                    "& [data-footer-line]": { marginInlineStart: "0", maxWidth: "100%" },
+                    /* A line given to the footer with no rail of its own, as the query builder's: the rail's band, its paper and rule. */
+                    "& > [data-footer-line]": {
+                        minHeight: "28px", paddingX: "{spacing.3}",
+                        background: "bg.panel", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
+                    },
+                    "& [data-footer-live]": { minWidth: "0", whiteSpace: "normal" },
+                    /* Saying nothing, no band to see or touch — but its live region kept, so the line is heard as it starts to speak. */
+                    "&:not(:has([data-footer-line]:not([data-idle]))):not(:has([data-footer-live]))": { opacity: "0", pointerEvents: "none" },
+                },
             },
-            /* A pane's view lies over the band: what a gesture in it was refused for stays in sight, over the view's foot. */
+            /* A pane's view lies over main and the band: what a gesture in it was refused for stays in sight, over the view's
+             * foot — all but what only describes the main the view covers, which the view covers too: the loading line, and
+             * what is `data-footer-ambient`. */
             "[data-phone]:has(> [data-frame-drawer][data-open]) > &": {
-                /* All but what only describes the main the view covers (`data-footer-ambient`), which the view covers too. */
                 "&:has([data-footer-live]:not([data-footer-ambient]))": {
                     position: "absolute",
                     insetInline: "0",
                     bottom: "0",
                     /* Above the view (`drawer`, on the overlay layer), under what a view's own controls open. */
                     zIndex: "modal",
-                    background: "bg.surface",
+                    "& [data-footer-line], & [data-footer-ambient]": { display: "none" },
                 },
             },
         },
-        /* A phone's second row of the toolbar: the status, the drafts' count, then the eye and the history. */
+        /* A phone's second row of the toolbar: the drafts' count, then the eye and the history. */
         sessionRow: {
             flex: "none",
             display: "flex",
@@ -232,25 +257,12 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             borderBottomStyle: "solid",
             borderBottomColor: "border.subtle",
             overflow: "clip",
-            /* A row of no item of its own whose footer's line is idle: none. */
-            "&:has(> [data-session-status]:only-child):not(:has([data-footer-line]:not([data-idle])))": { display: "none" },
         },
         /* Under the row, where its items ask something (FR8): nothing while nothing asks. */
         sessionBand: { flex: "none", "&:empty": { display: "none" } },
-        sessionStatus: {
-            /* As tall as the row, so its clip spares a Retry's halo. */
-            order: -2, flex: "1 1 auto", alignSelf: "stretch", minWidth: "0", display: "flex", alignItems: "center", overflow: "hidden", containerType: "inline-size", containerName: "session-status",
-            /* At the row's start (R5), never where the footer's rail would push it. */
-            "& [data-footer-line]": { marginInlineStart: "0" },
-            /* Its words whole or gone, the dot holding the row, never `Loadi`; a failure's keep their own fit, Retry's halo unclipped (ST39). */
-            "& [data-footer-line]:not([data-failed])": { flexWrap: "wrap", alignContent: "flex-start", maxWidth: "100%", maxHeight: "1.5em", overflow: "hidden" },
-            "&:not(:has([data-footer-line]:not([data-idle])))": { display: "none" },
-            /* Retry's 44 target stays clear of the button beside it: its halo is its own (R5). */
-            "&:has([data-line-retry])": { paddingInlineEnd: "{spacing.2}" },
-        },
         /* A phone's panes: one tab each along the frame's bottom edge, over the safe area. */
         paneStrip: {
-            /* Under a live footer's band, on the frame's bottom edge. */
+            /* On the frame's bottom edge, under the bottom panel and a footer in the flow. */
             order: 1,
             flex: "none",
             display: "flex",
@@ -333,6 +345,8 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
         bottomPanel: {
             flex: "none", display: "flex", flexDirection: "column", minHeight: "0", maxHeight: "min(420px, 70%)",
             "&:empty": { display: "none" },
+            /* Main's, under a footer laid over main's foot: the band stands over main, never over the panel's actions. */
+            "[data-phone]:has(> [data-frame-slot=footer] :is([data-footer-line], [data-footer-live])) > &": { order: 1 },
         },
         /* A phone's view over the whole builder, a toolbar item's (FR7): over every region, taking the pointer only where
          * a view draws itself. */

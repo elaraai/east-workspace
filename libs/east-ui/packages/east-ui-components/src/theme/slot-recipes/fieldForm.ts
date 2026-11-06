@@ -99,6 +99,8 @@ export const fieldFormSlotRecipe = defineSlotRecipe({
         },
         side: {
             display: "flex",
+            /* A phone's Clear: a touch target of its own beside the touch-sized line, its icon the second row's (FR6). */
+            "[data-phone] &": { _coarse: { "& [data-field-clear]": { width: "44px", height: "44px", fontSize: "16px" } } },
         },
         /* A checklist's items, each its checkbox and its remove. */
         items: {

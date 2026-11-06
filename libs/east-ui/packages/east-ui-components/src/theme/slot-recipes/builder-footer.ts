@@ -211,14 +211,10 @@ export const builderFooterLineSlotRecipe = defineSlotRecipe({
             flex: "none",
             "[data-failed] > &": { color: "fg.danger" },
             "[data-form=full] > &, [data-form=dot] > &": { display: "none" },
-            /* In a phone's session row too narrow for its words, a failure keeps its dot and Retry, whole (ST39, R5). */
-            "@container session-status (max-width: 150px)": { "[data-failed] > &": { display: "none" } },
         },
         sep: {
             flex: "none",
             "[data-form=dot] > &": { display: "none" },
-            /* In a phone's session row too narrow for its words, a failure keeps its dot and Retry, whole (ST39, R5). */
-            "@container session-status (max-width: 150px)": { "[data-failed] > &": { display: "none" } },
         },
         // The seconds a run has been out, in the full form alone: tabular, padded by the line's words so they never shift.
         aside: {
@@ -229,8 +225,6 @@ export const builderFooterLineSlotRecipe = defineSlotRecipe({
         // On a touch screen Retry keeps its size, and its 44px tap target is its halo — never a taller rail.
         retry: {
             ...coarseHitArea({ position: true, foot: RETRY_FOOT }),
-            // In a phone's session row, which has room for it either way, the halo stands centred on it.
-            "[data-session-status] &": { _coarse: { _before: { bottom: "auto", top: "50%", transform: "translate(-50%, -50%)" } } },
             flex: "none",
             padding: "0",
             borderWidth: "0",

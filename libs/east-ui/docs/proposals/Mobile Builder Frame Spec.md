@@ -115,8 +115,8 @@ The design draws this as a centred `<Dialog>` over a veil. **East has no dialogs
 - **Bottom container:** a builder that has one (the Sheet's action bar and editors) hands it to the frame; others give none.
 - **Pane strip:** every builder's start and end panes become the strip's two tabs, by their labels and icons.
 - **The Elara eye** (`OptimiseButton`): ruled to sit immediately before the history item and never leave the toolbar. It moves with the history into the session row, before Issues (§9, R4), so it stays in the toolbar.
-- **The footer's loading line** (#1398, CL3): the one place a builder says what it reads, live under the cold-load cover. With the footer gone it needs a home (§9, R5).
-- **The footer's live notices** (ruled 3 Nov 2026): a Save's notice, a refused gesture's words, a density, where Find's pick landed, each until something moves it, so none is a toast. The footer's place keeps them: a band over the pane strip while one stands (`data-footer-live`), nothing of its legend or its counts, and no band at all otherwise.
+- **The footer's loading line** (#1398, CL3): the one place a builder says what it reads, live under the cold-load cover. With the footer's rail gone it needs a home (§9, R5): laid over main's foot, with the notices below (revised 7 Nov 2026).
+- **The footer's live notices** (ruled 3 Nov 2026): a Save's notice, a refused gesture's words, a density, where Find's pick landed, each until something moves it, so none is a toast. The footer's place keeps them: a band laid over main's foot while one stands (`data-footer-live`), taking no room so main never resizes (revised 7 Nov 2026), nothing of its legend or its counts, and no band at all otherwise.
 
 ## 8 · Accessibility and motion
 
@@ -134,7 +134,7 @@ Every recommendation below is adopted. R3, R6 with R1–R2 were put to the user 
 | R2 | Does Discard confirm at all? | Yes | Discard acts at once; Undo cannot bring it back | Confirm on a phone only, where a mis-tap is likely |
 | R3 | Scope of the frame changes (FR1, FR4–FR6) | Drawn on the Sheet | One frame for every builder | Every builder at ≤560 px, so the phone frame is one thing |
 | R4 | Where the Elara eye goes | Not drawn | Before the history item, never out of the toolbar | Into the session row, before Issues, a 44 px square like its neighbours — from a 312 px frame up (padding 16 + 12, six 44 px buttons, five 4 px gaps); below that it stays in the first row and folds there as before, into the View where the floor needs its room (ruled 3 Nov 2026) |
-| R5 | Where the loading line goes with no footer | Not drawn | The footer's one live line (CL3) | Into the session row's summary slot while a read is in flight, the change count otherwise |
+| R5 | Where the loading line goes with no footer | Not drawn | The footer's one live line (CL3) | Into the session row's summary slot while a read is in flight, the change count otherwise. **Revised 7 Nov 2026:** laid over main's foot in every builder, with the live notices, taking no room. A builder with no second row of its own (read-only, so no history) drew one for the line alone, so main shrank and grew back on every read and a Schematic refitted its drawing each time. The second row keeps its change count |
 | R6 | Where the history goes | A session bar on the bottom edge | Ruled 26 Oct 2026: history and Save never leave the toolbar at a phone's width | The toolbar's second row, always shown, its 44 px buttons in a 56 px row: the 26 Oct ruling stands, and the bottom edge is left to the action bar and the pane strip (ruled 3 Nov 2026, revising the first answer of the same day) |
 
 ## 10 · Not in this proposal

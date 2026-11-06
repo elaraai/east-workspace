@@ -59,15 +59,19 @@
  * ruled 3 Nov 2026) — stacks its regions and gives main the frame's whole
  * width:
  *
- * - the toolbar's second row, always shown, 56px over its 44px buttons: the
- *   items that draw one (`ToolbarItem.secondRow` — the history, and the Elara
- *   eye before it, from a frame of `secondRowFrom` up) leave the first row for
- *   it, and the footer's loading line takes its start while
- *   it shows, in the place the history counts its drafts otherwise
- *   ({@link SessionRowSlot}); a footer whose line it so takes is not shown,
- *   mounted still (FR1, FR6, R5) — one with no loading line, the query
- *   builder's status line, stays, and under the cold-load cover the line
- *   stays in its live footer;
+ * - the toolbar's second row, 56px over its 44px buttons, for the items that
+ *   draw one (`ToolbarItem.secondRow` — the history, and the Elara eye before
+ *   it, from a frame of `secondRowFrom` up), which leave the first row for it
+ *   (FR1, FR6); a builder with none draws no second row;
+ * - the footer, laid over main's foot while its loading line or a live notice
+ *   shows, and nothing else of its rail: in the flow under main with no height
+ *   of its own, so main never resizes as a read or a notice comes and goes —
+ *   a Schematic never refits its drawing for one (ruled 7 Nov 2026, revising
+ *   R5, whose line in the second row drew a row a read-only builder had only
+ *   while a read was out). How far up main it reaches is main's
+ *   `--builder-foot-inset`, which what main draws at its foot — a Schematic's
+ *   scale and minimap — stands clear of. A footer with no loading line, the
+ *   query builder's status line, stays in the flow;
  * - no pane at either side: a described pane that collapses is a tab of the pane strip on the
  *   frame's bottom edge — its icon, its label, and its detail or its badge —
  *   and opens as a view over the whole builder, edge to edge, sliding in from
@@ -98,7 +102,7 @@ import { Box, chakra, Skeleton, type SystemStyleObject } from "@chakra-ui/react"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { useFormatters } from "../../format/index.js";
-import { FrameSessionBand, SessionRowSlot } from "./session-row.js";
+import { FrameSessionBand } from "./session-row.js";
 import { useViewEscape } from "./view-escape.js";
 import { FrameOverlaySlot } from "./overlay-slot.js";
 import { FrameDrawer } from "./drawer-context.js";
@@ -113,7 +117,7 @@ import {
     MIN_MAIN, NARROW_FRAME, paneWidths, placePanes, type PaneMode, type PanePlacement, type PanePlacements, type PaneWeight, type PaneWidths,
 } from "./place.js";
 
-export { FrameSessionBand, SessionRowSlot } from "./session-row.js";
+export { FrameSessionBand } from "./session-row.js";
 
 /** A phone form's `version`: back on a wider row, what the toolbar measured of it says nothing of the item's own forms. */
 const PHONE_FORM = "phone";
@@ -547,8 +551,6 @@ export function BuilderFrame(props: BuilderFrameProps) {
         return row.map(({ it }, k) => (lead >= 0 && k >= lead ? { ...it, side: "end" as const } : it));
     }, [toolbar, secondKeys, phone]);
     const secondRow = toolbar === undefined ? [] : toolbar.filter(inSecondRow).map((it) => ({ key: it.key, node: it.secondRow }));
-    // The row's status slot: where a phone's footer's loading line draws itself.
-    const [statusSlot, setStatusSlot] = useState<HTMLElement | null>(null);
     // The slot a toolbar item's full-height view draws itself in, over every region: the rail's Filters view (FR7).
     const [overlaySlot, setOverlaySlot] = useState<HTMLElement | null>(null);
     // The bottom panel's slots, where main's popovers and an open pane's draw (FR9): main's, and each pane's own.
@@ -558,7 +560,31 @@ export function BuilderFrame(props: BuilderFrameProps) {
     // The band under the second row, where its items ask something (FR8).
     const [sessionBand, setSessionBand] = useState<HTMLElement | null>(null);
     const panelOf = (slot: HTMLElement | null) => (phone && phonePanel === true && !covered ? slot : null);
-    const sessionRow = phone && (secondRow.length > 0 || given(footer));
+    const sessionRow = phone && secondRow.length > 0;
+    // How far up main's foot a phone's footer laid over it reaches (`--builder-foot-inset`), for what main draws at its
+    // foot — a Schematic's scale and minimap — to stand clear of it. Its band is measured whether it speaks or not, so
+    // what stands clear of it stays put as a read or a notice comes and goes; a footer in the flow takes its own room.
+    const [footInset, setFootInset] = useState(0);
+    const footHangs = phone && given(footer);
+    useLayoutEffect(() => {
+        const el = footerRef.current;
+        if (!footHangs || el === null) { setFootInset(0); return undefined; }
+        const read = () => setFootInset(el.getBoundingClientRect().height > MOVED_PX ? 0
+            : [...el.children].reduce((band, child) => band + (child as HTMLElement).offsetHeight, 0));
+        if (typeof ResizeObserver === "undefined" || typeof MutationObserver === "undefined") { read(); return undefined; }
+        const ro = new ResizeObserver(read);
+        // What the footer holds comes and goes with its host's state: each part of it watched as it does.
+        const watch = () => {
+            ro.disconnect();
+            ro.observe(el);
+            for (const child of el.children) ro.observe(child);
+            read();
+        };
+        watch();
+        const mo = new MutationObserver(watch);
+        mo.observe(el, { childList: true });
+        return () => { ro.disconnect(); mo.disconnect(); };
+    }, [footHangs]);
     /** Whether a side's pane is a drawer: a described pane that collapses, on a phone — one that never does stays pinned. */
     const drawn = (side: Side) => phone && dockOf(side) !== undefined && dockOf(side)?.collapsible !== false;
 
@@ -808,10 +834,9 @@ export function BuilderFrame(props: BuilderFrameProps) {
                     </FrameOverlaySlot.Provider>
                 </Box>
             )}
-            {/* A phone's second row: the frame's status, then each item's own, in item order (FR6). */}
+            {/* A phone's second row: each item's own, in item order (FR6). */}
             {sessionRow && (
                 <Box css={styles.sessionRow} data-frame-slot="sessionRow" inert={covered} aria-hidden={covered ? true : undefined}>
-                    <Box ref={setStatusSlot} css={styles.sessionStatus} data-session-status="" />
                     <FrameSessionBand.Provider value={!covered ? sessionBand : null}>
                         <FrameBottomPanel.Provider value={!covered ? mainPanel : null}>
                             {secondRow.map(({ key, node }) => <Fragment key={key}>{node}</Fragment>)}
@@ -824,7 +849,8 @@ export function BuilderFrame(props: BuilderFrameProps) {
             <Box css={styles.body} data-frame-slot="body" inert={covered} aria-hidden={covered ? true : undefined}>
                 {start !== undefined && !drawn("start") && pane("start", start)}
                 {/* The region a read after cold load is in flight for (#1398, CL12): nothing covered, main busy. */}
-                <Box css={styles.main} data-frame-slot="main" aria-busy={busy === undefined ? undefined : busy && !covered}>
+                <Box css={styles.main} data-frame-slot="main" aria-busy={busy === undefined ? undefined : busy && !covered}
+                    style={footInset > 0 ? { "--builder-foot-inset": `${footInset}px` } as CSSProperties : undefined}>
                     <FrameOverlaySlot.Provider value={phoneViews === true && !covered ? overlaySlot : null}>
                         <FrameBottomPanel.Provider value={panelOf(mainPanel)}>{children}</FrameBottomPanel.Provider>
                     </FrameOverlaySlot.Provider>
@@ -842,8 +868,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
             {given(footer) && (
                 <Box ref={footerRef} css={styles.footer} data-frame-slot="footer" data-frame-live={footerLive ? "" : undefined}
                     inert={covered && !footerLive} aria-hidden={covered && !footerLive ? true : undefined}>
-                    {/* Under the cold-load cover the line stays in the live footer, the row covered with the rest. */}
-                    <SessionRowSlot.Provider value={sessionRow && !covered ? statusSlot : null}>{footer}</SessionRowSlot.Provider>
+                    {footer}
                 </Box>
             )}
             {/* A phone's panes: each a view over the whole builder, edge to edge, as the Filters view is (ruled 3 Nov 2026,
