@@ -43,7 +43,7 @@ import {
     type ExprType,
 } from '@elaraai/east';
 
-import { DiffBindingType, type BoundValue } from '../bind/data.js';
+import { DataBindingType, type BoundValue } from '../bind/data.js';
 import {
     DecisionType,
     DecisionConstraintType,
@@ -128,8 +128,8 @@ export type JudgementsType = typeof JudgementsType;
 export function decisionHandleType<C extends EastType = DecisionConstraintType>(constraint?: C) {
     const c = (constraint ?? DecisionConstraintType) as C;
     return StructType({
-        decisions: ArrayType(DiffBindingType),
-        judgements: DiffBindingType,
+        decisions: ArrayType(DataBindingType),
+        judgements: DataBindingType,
         queue: FunctionType([], ArrayType(DecisionType)),
         selected: FunctionType([], OptionType(StringType)),
         select: FunctionType([StringType], NullType),
@@ -169,8 +169,8 @@ export type DecisionHandleLike = Pick<DecisionHandle, 'decisions' | 'judgements'
  * @property judgements - The judgements binding descriptor
  */
 export const DecisionHandleRefType = StructType({
-    decisions: ArrayType(DiffBindingType),
-    judgements: DiffBindingType,
+    decisions: ArrayType(DataBindingType),
+    judgements: DataBindingType,
 });
 /** Type alias for {@link DecisionHandleRefType}. */
 export type DecisionHandleRefType = typeof DecisionHandleRefType;
@@ -188,7 +188,7 @@ export type DecisionHandleRefType = typeof DecisionHandleRefType;
 export const decisionBindPlatformFn = East.genericPlatform(
     "decision_bind",
     ["C"],
-    [ArrayType(DiffBindingType), DiffBindingType],
+    [ArrayType(DataBindingType), DataBindingType],
     decisionHandleType("C" as never),
     { optional: true },
 );
@@ -212,18 +212,18 @@ export const decisionBindPlatformFn = East.genericPlatform(
 // types depend on it, exactly like the handle type); the rest are concrete.
 // Implemented by `DecisionBindPlatform` in `@elaraai/e3-ui-components`.
 // ----------------------------------------------------------------------------
-const decision_queue           = East.platform("decision_queue", [ArrayType(DiffBindingType)], ArrayType(DecisionType), { optional: true });
+const decision_queue           = East.platform("decision_queue", [ArrayType(DataBindingType)], ArrayType(DecisionType), { optional: true });
 const decision_selected        = East.platform("decision_selected", [StringType], OptionType(StringType), { optional: true });
 const decision_select          = East.platform("decision_select", [StringType, StringType], NullType, { optional: true });
 const decision_clear_selection = East.platform("decision_clear_selection", [StringType], NullType, { optional: true });
-const decision_decision        = East.platform("decision_decision", [ArrayType(DiffBindingType), StringType], OptionType(DecisionType), { optional: true });
-const decision_update          = East.platform("decision_update", [ArrayType(DiffBindingType), DecisionType], NullType, { optional: true });
-const decision_judgement       = East.genericPlatform("decision_judgement", ["C"], [DiffBindingType, StringType], judgementInputType("C" as never), { optional: true });
-const decision_answer          = East.platform("decision_answer", [DiffBindingType, StringType, StringType, AnswerType], NullType, { optional: true });
-const decision_add_knowledge   = East.platform("decision_add_knowledge", [DiffBindingType, StringType, StringType], NullType, { optional: true });
-const decision_inject          = East.genericPlatform("decision_inject", ["C"], [DiffBindingType, StringType, "C"], NullType, { optional: true });
-const decision_resolve         = East.platform("decision_resolve", [ArrayType(DiffBindingType), DiffBindingType, StringType, StringType, VerdictType], NullType, { optional: true });
-const decision_commit_state    = East.platform("decision_commit_state", [ArrayType(DiffBindingType), DiffBindingType, StringType], CommitStateType, { optional: true });
+const decision_decision        = East.platform("decision_decision", [ArrayType(DataBindingType), StringType], OptionType(DecisionType), { optional: true });
+const decision_update          = East.platform("decision_update", [ArrayType(DataBindingType), DecisionType], NullType, { optional: true });
+const decision_judgement       = East.genericPlatform("decision_judgement", ["C"], [DataBindingType, StringType], judgementInputType("C" as never), { optional: true });
+const decision_answer          = East.platform("decision_answer", [DataBindingType, StringType, StringType, AnswerType], NullType, { optional: true });
+const decision_add_knowledge   = East.platform("decision_add_knowledge", [DataBindingType, StringType, StringType], NullType, { optional: true });
+const decision_inject          = East.genericPlatform("decision_inject", ["C"], [DataBindingType, StringType, "C"], NullType, { optional: true });
+const decision_resolve         = East.platform("decision_resolve", [ArrayType(DataBindingType), DataBindingType, StringType, StringType, VerdictType], NullType, { optional: true });
+const decision_commit_state    = East.platform("decision_commit_state", [ArrayType(DataBindingType), DataBindingType, StringType], CommitStateType, { optional: true });
 
 /**
  * Low-level platform primitives that back {@link decisionBind}'s handle methods.

@@ -63,8 +63,9 @@ export type DataBindModeType = typeof DataBindModeType;
 export type DataBindModeLiteral = "staged" | "direct";
 
 /**
- * Descriptor for a single binding: where it reads, where it writes, and its
- * mode.
+ * The descriptor of a {@link Data.bind} binding: where it reads, where it
+ * writes, and its mode, as plain data — the data binding's counterpart of
+ * `FuncBindingType`.
  *
  * Every {@link Data.bind} call exposes this descriptor as its `binding`
  * field, so a component that commits through the binding (the Ontology
@@ -78,13 +79,13 @@ export type DataBindModeLiteral = "staged" | "direct";
  *   the source on commit (or to the staging buffer in staged mode).
  * @property mode - The binding's operating mode — see {@link DataBindModeType}.
  */
-export const DiffBindingType = StructType({
+export const DataBindingType = StructType({
     source: TreePathType,
     patch:  OptionType(TreePathType),
     mode:   DataBindModeType,
 });
-/** Type alias for {@link DiffBindingType}. */
-export type DiffBindingType = typeof DiffBindingType;
+/** Type alias for {@link DataBindingType}. */
+export type DataBindingType = typeof DataBindingType;
 
 // ============================================================================
 // Bind handle — return type of `Data.bind`.
@@ -116,7 +117,7 @@ export type DiffBindingType = typeof DiffBindingType;
  * @property status - Per-dataset freshness signal — see
  *   {@link DatasetStatusType}.
  * @property binding - Descriptor for this binding: its source and patch
- *   paths and its mode.
+ *   paths and its mode — see {@link DataBindingType}.
  */
 export const DataBindHandleType = <T extends EastType | string>(t: T) => StructType({
     read:          FunctionType([], t),
@@ -129,7 +130,7 @@ export const DataBindHandleType = <T extends EastType | string>(t: T) => StructT
     discard:       FunctionType([], NullType),
     has:           FunctionType([], BooleanType),
     status:        FunctionType([], DatasetStatusType),
-    binding:       DiffBindingType,
+    binding:       DataBindingType,
 });
 
 /**
@@ -137,7 +138,7 @@ export const DataBindHandleType = <T extends EastType | string>(t: T) => StructT
  * — i.e. the return of `Data.bind(dataset)` for a `DatasetDef<T>`.
  *
  * @remarks
- * Unlike the bare `binding` field (a {@link DiffBindingType} descriptor that is
+ * Unlike the bare `binding` field (a {@link DataBindingType} descriptor that is
  * type-erased at the IR level — `{ source, patch, mode }` paths only), this
  * carries `T` **structurally**, in the signatures of its `read` / `write` /
  * `source` fields. Because the type information lives in the East type — not a
@@ -177,7 +178,7 @@ export const bindPlatformFn = East.genericPlatform(
         discard:       FunctionType([], NullType),
         has:           FunctionType([], BooleanType),
         status:        FunctionType([], DatasetStatusType),
-        binding:       DiffBindingType,
+        binding:       DataBindingType,
     }),
     { optional: true },
 );
@@ -290,7 +291,7 @@ export interface DataBindOptions {
  * on `commit` instead).
  *
  * The `binding` field surfaces this binding's descriptor as a
- * {@link DiffBindingType} value: its source and patch paths and its mode.
+ * {@link DataBindingType} value: its source and patch paths and its mode.
  *
  * Use inside `Reactive.Root` so `read` / `pending` / `status` re-fire
  * on every dataset or staging-buffer change.

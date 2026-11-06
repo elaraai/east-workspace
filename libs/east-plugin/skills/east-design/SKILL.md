@@ -130,7 +130,7 @@ For each capability the answers surface, record (a) the skill to load and (b) th
 | Capability | Skill | `search_east_examples` query |
 |---|---|---|
 | Model the business / its decisions as a graph | east-ontology | `Ontology process kpi decision objective` |
-| Decision surface — commit a choice with provenance | e3-ui | `Ontology Diff Data.bind commit` |
+| Decision surface — commit a choice with provenance | e3-ui | `DecisionQueue apply reject decision` |
 | Read/write local files, list a directory | east-node-std | `FileSystem readFile writeFile readDirectory` |
 | HTTP fetch / REST | east-node-std | `Fetch http get post json` |
 | Crypto / hashing / uuid | east-node-std | `Crypto hash uuid` |

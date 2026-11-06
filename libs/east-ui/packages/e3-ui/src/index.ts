@@ -55,7 +55,7 @@ export {
     Data,
     DataBindModeType,
     type DataBindModeLiteral,
-    DiffBindingType,
+    DataBindingType,
     type BoundValue,
     DataBindHandleType,
     type DataBindOptions,

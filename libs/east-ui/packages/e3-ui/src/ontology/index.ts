@@ -43,7 +43,7 @@ import {
 } from '@elaraai/east';
 import { EastUI, DensityType, type DensityLiteral, type UIComponentType } from '@elaraai/east-ui';
 
-import { DiffBindingType, type BoundValue } from '../bind/data.js';
+import { DataBindingType, type BoundValue } from '../bind/data.js';
 import { viewsProp, type ViewsProp } from '../utils/views.js';
 
 // ============================================================================
@@ -287,8 +287,8 @@ export type OntologyViewLiteral = 'graph' | 'table';
 // Re-export the binding descriptor — the opaque carrier the editor commits through.
 // ============================================================================
 
-/** Re-exported from {@link Data}; see {@link DiffBindingType}. */
-export { DiffBindingType } from '../bind/data.js';
+/** Re-exported from {@link Data}; see {@link DataBindingType}. */
+export { DataBindingType } from '../bind/data.js';
 
 // ============================================================================
 // Ontology payload — IR shape consumed by the renderer.
@@ -319,7 +319,7 @@ export { DiffBindingType } from '../bind/data.js';
  *   {@link OntologyStyleType}.
  */
 export const OntologyPayloadType = StructType({
-    binding:      DiffBindingType,
+    binding:      DataBindingType,
     readonly:     OptionType(BooleanType),
     hideMiniMap:  OptionType(BooleanType),
     hideSearch:   OptionType(BooleanType),
@@ -420,13 +420,13 @@ export const Ontology = {
      *
      * @example
      * ```ts
-     * import { East, variant } from '@elaraai/east';
+     * import { East, none, variant } from '@elaraai/east';
      * import { Reactive, UIComponentType } from '@elaraai/east-ui';
      * import { Data, Ontology, OntologyType } from '@elaraai/e3-ui';
      * import * as e3 from '@elaraai/e3';
      *
      * const ontologyInput = e3.input('supply_chain', OntologyType, variant('value', {
-     *   nodes: [], links: [], metadata: { type: 'none', value: null },
+     *   nodes: [], links: [], metadata: none,
      * }));
      *
      * const editor = East.function([], UIComponentType, (_$) =>

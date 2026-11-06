@@ -1163,7 +1163,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
      * (in `@elaraai/east-ui-components`); the renderer dispatcher resolves
      * `kind` against the registry.
      *
-     * @property kind - Component identifier ("Diff", future "AuditLog", etc.).
+     * @property kind - Component identifier (e3-ui's "Ontology", "Plan", etc.).
      * @property payload - Beast2-encoded value of the component's declared schema.
      */
     Extension: StructType({

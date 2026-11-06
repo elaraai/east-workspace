@@ -651,3 +651,10 @@ Each wire changed under this rule, with the kind it is.
   the new type. A UI task's output is not stored state, and the details are
   the app's own records, read only, so no repository upgrade step ships with
   it.
+- **The binding a `Data.bind` handle carries is named `DataBindingType`
+  (#1447, #1449)** — package-borne, and no wire changes. The binding — its
+  source, its patch and its mode — is the same East type under its new name,
+  the data binding's counterpart of `FuncBindingType`, so the `data_bind`
+  platform function, the IR that calls it and every payload that carries one
+  keep their forms. A UI task's output is not stored state, so no repository
+  upgrade step ships with it.
