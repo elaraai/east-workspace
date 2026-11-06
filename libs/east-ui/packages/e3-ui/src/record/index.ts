@@ -33,7 +33,6 @@ export {
     RecordTag,
     RecordComponent,
     RecordPayloadType,
-    RecordBandsType,
     createRecordPayload,
     type RecordTagType,
     type RecordColumnSpec,
@@ -168,8 +167,8 @@ const RECORD_MEMBERS = {
  *   `Record.Types.Change` field the app's own processes write, and an age
  *   column counts from it to the browser's clock. The Record never writes it.
  * - **Column groups** run over adjacent columns under one label, and the
- *   inspector's sections follow them; `groupBy` bands the rows by a column's
- *   value, in the column's order.
+ *   inspector's sections follow them. A Record draws no group rows: the rail
+ *   filters by a field, over the record's index on it.
  * - **Add** drafts an empty record, every field empty unless `newRow` sets it;
  *   **Delete** drafts the ticked rows' removal. Apply waits for every issue —
  *   a new row's empty required field, and each refusal of `ready`.

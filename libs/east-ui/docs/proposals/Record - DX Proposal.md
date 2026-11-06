@@ -21,7 +21,6 @@ References: the Sheet's authoring layer in e3-ui (`packages/e3-ui/src/sheet/` �
         updated:    Record.column.audit(Skills, { header: "Last updated", mode: "blame" }),
     }}
     columnGroups={[{ label: "Core", columnKeys: ["intake"] }]}
-    groupBy="role"
     inspector
     onApply={Record.onApply(people, { keyed: true })}
 />
@@ -29,7 +28,7 @@ References: the Sheet's authoring layer in e3-ui (`packages/e3-ui/src/sheet/` �
 
 Why this shape:
 
-- **It is the Sheet's root in the Table's anatomy.** The rows, the columns' bridge, the drafts, readiness, the strip, the inspector's forms and `Record.onApply` are the Sheet's, unchanged. The Record contributes the grid's anatomy (DS Row card: 36/32/28, pad 0 12, first and last 20, the 46 select column), the column-group row, row bands, the new cell kinds and the toolbar's Add and Delete.
+- **It is the Sheet's root in the Table's anatomy.** The rows, the columns' bridge, the drafts, readiness, the strip, the inspector's forms and `Record.onApply` are the Sheet's, unchanged. The Record contributes the grid's anatomy (DS Row card: 36/32/28, pad 0 12, first and last 20, the 46 select column), the column-group row, the new cell kinds and the toolbar's Add and Delete.
 - **One namespace.** `Record` already carries `Record.bind` and `Record.onApply`; the tag, `Record.column.*`, `Record.register.*`, `Record.field`, `Record.patch` and `Record.Types` join it, as `Sheet` is its tag and its namespace.
 - **A cycle's states are a register.** A register is declared once and named by every column over it, as `enum` and `reference` name theirs. Its members' order is the cycle's order, their labels its chips, their `meta` its names, their `tone` its colours, and a member's label or alias typed in a cell sets it, which is how the digits work.
 - **The journal is the row's own fields** (ruled 6 November 2026). `Record.Types.Change` is a type a solution adds to its record, `{ at, by, verb }`. The `audit` column draws it and `age` counts from it. The Record only reads it and never writes it, and it needs no signed-in identity and no e3 change.
@@ -39,7 +38,7 @@ Why this shape:
 
 An interface and a renderer, as every e3-ui component is (CLAUDE.md, *never build a UI component from East UI components*). The factory computes one payload and returns it through its `EastUI.component("Record", RecordPayloadType)` carrier. The `Record` renderer in `@elaraai/e3-ui-components` builds the frame in the browser with east-ui-components' `BuilderFrame`: one toolbar, the grid in main with the Sheet's strip docked under it, the footer, and the inspector pane. It draws no outer border, so the host frames it.
 
-The payload holds the Sheet's root (`SheetRootType`), built by the very code `<Sheet>` builds it with (`createSheetBuild`, the bridge, `recordRows`, the slice's sources), beside what only a Record has: its title and noun, its column groups (the Table's `TableColumnGroupType`), its row bands and its inspector pane (the Sheet's forms).
+The payload holds the Sheet's root (`SheetRootType`), built by the very code `<Sheet>` builds it with (`createSheetBuild`, the bridge, `recordRows`, the slice's sources), beside what only a Record has: its title and noun, its column groups (the Table's `TableColumnGroupType`) and its inspector pane (the Sheet's forms).
 
 **Its rows**, as the Sheet takes them:
 
@@ -59,7 +58,6 @@ A sketch: proposed names, not code that compiles today.
 | `onApply` | `Record.onApply(record, { keyed: true })` | With `slice`: the Apply that commits each batch through the record's patch door |
 | `columns` | `{ field: Record.column.*(R, …) }` | The columns, in order, keyed by the row's fields. An `age` column alone is keyed by a name of its own (§2.4) |
 | `columnGroups` | `[{ label, columnKeys }]` | The Table's column-group row: each group a run of adjacent columns under one label; `""` draws no label and no rule. The inspector's sections follow them |
-| `groupBy` | a column's key | Bands the rows by that column's value, under the Roster's collapsible band, in the column's own order (its register's members, a toggle's off then on); rows with no value lead, unbanded |
 | `registers` | `{ name: Record.register.members(…) }` | The registers the `reference`, `enum`, `set`, `person` and `cycle` columns name. A member is typed by its label, its key or an alias, and kept by its key (§2.8) |
 | `title` | `string` | The toolbar's lead: the title, then the count of the record's rows |
 | `noun` | `{ singular, plural }` | What a row is called: `18 people`, `Added a person`, `No people match the search`, `Person · new` |
@@ -188,14 +186,14 @@ So the payload never holds a clock's reading, and the count is East's (`duration
 
 A column is keyed by the field it sits on, the `<Table columns>` idiom, so a typo or a kind on the wrong field type is a type error. `age` is the one exception: it shows no field, so it is keyed by a name of its own that no field has, as the designer's `days_since` is. The `columns` prop is typed as a mapped type over its own keys. A row field's key must hold a column over that field, and any other key must hold an `age` column.
 
-### 2.5 Row bands: `groupBy`
+### 2.5 No group rows
 
-`groupBy="role"` bands the rows by the `role` column's cell. Bands follow the column's own order: a `reference`, `enum`, `person` or `cycle` column's register members, a toggle's off then on, or otherwise the values in East's order. A row with no value leads, unbanded; a new row is one until its value is set. Each band folds, kept per viewer under the Record's `name`. Over `slice`, the rows source must read in the band column's order, through the record's index on its field (`index.on(["role"])`) (§7, decision 4).
+A Record draws its rows in the record's order, under no group rows. A viewer narrows to one group through the rail: a field the rail filters by, read through the record's index on it, as Example 2's rail filters by role over `record_skills_by_role`. Its rows page as every narrowing's do (§7, decision 4).
 
 ### 2.6 What the compiler and the build catch
 
 - A column on a field it cannot sit on; a non-field key holding anything but `age`; `age` under a field's key.
-- At build: a register a column names that `registers` does not declare; `columnGroups` naming a key that is not a column, or a group whose columns are not adjacent, or a column in two groups; `groupBy` naming no column, or an `age` or `audit` column; `title` given twice; `onApply` beside `record`; `record`, `window` and `slice`'s `rows` together; an action column without the Sheet's machine (as the Sheet checks it).
+- At build: a register a column names that `registers` does not declare; `columnGroups` naming a key that is not a column, or a group whose columns are not adjacent, or a column in two groups; `title` given twice; `onApply` beside `record`; `record`, `window` and `slice`'s `rows` together; an action column without the Sheet's machine (as the Sheet checks it).
 - At build, with Add on: a record keyed by anything but a String, with no `newKey`; and a required field no person can set in this Record, with no `newRow` (§2.7). Both are the Sheet's own checks, in its words.
 - The Sheet refuses the Record's kinds at build in this epic (§7, decision 3).
 
@@ -364,7 +362,7 @@ A click on B. Ellis's Forklift steps it `0 → 1` as one draft: the cell tints, 
 
 ### Example 2 — the designer's 1a: a skills matrix
 
-Ten cycle columns on the heat ramp under three column groups. Rows are banded by role, the rail searches names and roles, the age warns past 90 days, and the audit is in blame mode.
+Ten cycle columns on the heat ramp under three column groups. The rail searches names and roles and filters by role, the age warns past 90 days, and the audit is in blame mode.
 
 ```tsx
 /** @jsxImportSource @elaraai/east-ui */
@@ -394,7 +392,7 @@ export const recordSkills = e3.record("record_skills", DictType(StringType, Skil
             reports: "1", auditing: "1", training: "1", planning: "1", updated: some({ at: new Date("2026-11-03T16:20:00Z"), by: "M. Hale", verb: "changed" }) }],
     ]),
     indexes: (index) => ({
-        // What the rail searches and filters by, and the bands' order.
+        // What the rail searches and filters by.
         record_skills_by_name: index.on(["name"]),
         record_skills_by_role: index.on(["role"]),
     }),
@@ -450,7 +448,6 @@ const skills = East.function([], UIComponentType, (_$) => (
                         { label: "Tools", columnKeys: ["scanner", "console", "reports"] },
                         { label: "Advanced", columnKeys: ["auditing", "training", "planning"] },
                     ]}
-                    groupBy="role"
                     inspector
                     onApply={Record.onApply(people, { keyed: true })}
                     name="skills"
@@ -468,7 +465,7 @@ Walking the mock with this declaration, on 5 November 2026:
 | A. Morgan | Scanner `1 → 2` and Reports `0 → 1`, tinted; Last updated `● PENDING 2 changes` | Two drafts; the audit counts the row's drafts (AU4) |
 | H. Kim | Days since `● 118` in warn | 118 ≥ `stale` 90 |
 | any row | Days since `48`, Last updated `2026-09-18 confirmed · M. Hale` | `blame` mode over the row's `updated` |
-| Contractor band | `▾ Contractor · 1 person` | `groupBy="role"`, in the `roles` register's order |
+| The rail | Role · Contractor: C. Patel alone, the footer's `1 of 5 people` | The rail's Role filter, read through `record_skills_by_role`; no group rows (§2.5) |
 | Header | `HANDOVER TO NE…`, the whole label in its tooltip | One line; ellipsis (HD3) |
 | Footer | `5 of 5 people · 1 stale · no update in 90 days · 0 Not trained · 1 Supervised · 2 Competent` | The shown rows, the age's stale count, the cycles' shared register (FT2) |
 
@@ -538,7 +535,6 @@ const preferences = East.function([], UIComponentType, (_$) => (
                         { label: "Weekends", columnKeys: ["sat", "sun"] },
                         { label: "", columnKeys: ["overtime"] },
                     ]}
-                    groupBy="role"
                     inspector
                     name="preferences"
                 />
@@ -672,9 +668,8 @@ Values are East tokens and sizes are px at 1×. Each requirement has an id for t
 | HD1 | Group row | 24 tall. Each group spans its columns: label mono `--fs-label-xs` 600, 0.14em, caps, line 18, `--ink-4`, centred, one line; a 1px `--rule-strong` under its columns, inset 6 at each end. An unlabelled group draws neither |
 | HD2 | Header row | The row's height. Labels mono `--fs-label-sm` 600, 0.1em, caps, line 14, `--ink-4`, aligned as the cells are |
 | HD3 | Long labels | One line, an ellipsis; the whole label in its tooltip and in the inspector's field |
-| HD4 | No sorting | Headers sort nothing; order is the record's, or the bands' |
+| HD4 | No sorting | Headers sort nothing; order is the record's |
 | SL1 | Select column | 46 wide, pad left 20: a checkbox 14, radius 3, `--rule-strong` edge on `--paper`; ticked `--brand-d` fill and edge, `fa-check` 9 `--paper`. The header's ticks every row shown (`Select all shown`); some ticked draws `fa-minus` `--ink-4`; all ticked, ticked (`Deselect all`) |
-| BD1 | Band | The Roster's collapsible band (`schedule-group`): min 38, `--paper-2`, a `--rule` under, sticky content pad 7 16 gap 8: chevron 10 `--ink-3` (down open, right folded), the value in DM Sans `--fs-title-xs` 700, then mono `--fs-label-sm` tnum `--ink-3` `N people`. A click folds it; folds are kept per viewer |
 | EM1 | Nothing shown | Centred, pad 32 20, gap 8: `×` mono `--fs-num` `--rule-strong`; `No people match the search` DM Sans `--fs-title-xs` 700; `Clear the search →` `--fs-body-sm` 500 `--brand-d` after a `☐` mono `--ink-4`, which clears the rail's search |
 
 ### States
@@ -783,7 +778,6 @@ RecordPayloadType = {
     title:        Option<String>,
     noun:         Option<Sheet.Types.Noun>,
     columnGroups: Array<Table.Types.ColumnGroup>,         // the Table's own
-    bands:        Option<{ column: String }>,             // groupBy
     inspector:    Option<Sheet.Types.InspectorPane>,      // the Sheet's forms
     history:      Option<() => Option<Array<RecordCommitInfo>>>,
     missing:      Option<String>,
@@ -830,12 +824,10 @@ Record.Types.Change = { at: DateTime, by: String, verb: String }
 | The Sheet's inspector and forms | e3-ui-components `sheet/frame/inspector.tsx`, e3-ui `sheet/fields.ts` | IN1–IN9 |
 | `FieldForm`, `RadioGroup` | east-ui-components `forms/field-form`, `forms/radio-group` | IN5 (gains the one-line layout) |
 | The Table's column groups, the DS Row card | east-ui `TableColumnGroupType`; `app_design_system/guidelines/cards/parts-row.html` | HD1, GR1–GR2, SL1 |
-| The Roster's band | east-ui-components `theme/slot-recipes/schedule-group.ts` | BD1 |
 | The avatar, checkbox, Status parts | east-ui-components `avatar`, `checkbox`, `status` recipes | C1–C3, C6 |
 | The Sheet's action column | e3-ui `sheet/actions.ts`, e3-ui-components `sheet/actions/` | `Record.column.action` |
-| Index-ordered windows | e3-ui `utils/ordered-source.ts` | §2.5 bands over a paged source |
 
-The renderer is a new `record/` in e3-ui-components: the Sheet's provider over the payload's `sheet`, laid out in `BuilderFrame` with the Record's own toolbar, footer and inspector. The Sheet's machine (the ring and its keys, a cell's commit, pick and paste, the paging, the lens, the session and the inspector's reads) stays in its one hook, and its grid takes its rows, its header, its gutter and its bands from the host, so the same grid draws the Record's in the Table's anatomy (§7, decision 8). A gesture that belongs to a kind (a click that steps a cycle, Space on a toggle) is the shared machine's, by the kind, and a member typed by its label is the shared grammar's, for every register kind (§2.8). Nothing is copied.
+The renderer is a new `record/` in e3-ui-components: the Sheet's provider over the payload's `sheet`, laid out in `BuilderFrame` with the Record's own toolbar, footer and inspector. The Sheet's machine (the ring and its keys, a cell's commit, pick and paste, the paging, the lens, the session and the inspector's reads) stays in its one hook, and its grid takes its rows, its header and its gutter from the host, so the same grid draws the Record's in the Table's anatomy (§7, decision 8). A gesture that belongs to a kind (a click that steps a cycle, Space on a toggle) is the shared machine's, by the kind, and a member typed by its label is the shared grammar's, for every register kind (§2.8). Nothing is copied.
 
 ## 7. Decisions
 
@@ -844,11 +836,11 @@ Ruled 6 November 2026:
 1. **The journal is row fields, display only.** `Record.Types.Change` is a type a solution adds to its record; the Record reads it and never writes it; no signed-in identity and no e3 change.
 2. **Time since takes the browser's clock** (§2.3), through an East function the renderer calls with it.
 3. **The new kinds are shared, and the Sheet refuses them.** They join the Sheet's column vocabulary (one wire, one bridge, one cell part per kind); the Sheet refuses them at build in this epic, and a later change can admit them to its grid.
-4. **Bands over the rail's rows, in this epic.** The rail's `rows` source reads in the record's key order; banding needs it read in the band column's index order, so the rows source gains an order (over the index-ordered windows, `OrderedRowSource`), as its own sub-issue.
+4. **No group rows** (ruled 6 November 2026). A Record draws no group rows. Grouping a paged record would read each group in its field's index order, and e3 places a search's or a filter's rows only in the record's key order, so a group could not keep them. A viewer filters by the group's field through the rail instead, over the record's index on it, and a filter pages its rows as every narrowing does (§2.5).
 5. **The inspector is Details and Issues.** No History tab: e3 keeps history record-wide, and the journal is one field.
 6. **A column's field is editable wherever its column is.** `editable: false` makes it read only on every row; there is no "new rows only".
 7. **Nothing holds Apply unseen** (#1527). The Record is one of the builders #1527 covers. Every refusal holding Apply, a new row's empty required field or the app's `ready` refusal, is listed and reachable (AD3, IN3, IN9). Every new row the Record makes, by Add or Duplicate, takes `newRow`'s values (AD2, IN7).
-8. **The Record's grid is the Sheet's, through its host** (ruled 6 November 2026). The Sheet's machine is one hook whose grid reads its state where it builds it. Rather than lift that state into hooks for a second grid, the host hands the grid the Record's rows, header, gutter and bands, and the kinds' own gestures live in the shared input by kind.
+8. **The Record's grid is the Sheet's, through its host** (ruled 6 November 2026). The Sheet's machine is one hook whose grid reads its state where it builds it. Rather than lift that state into hooks for a second grid, the host hands the grid the Record's rows, header and gutter, and the kinds' own gestures live in the shared input by kind.
 9. **A new record's key is the app's** (ruled 6 November 2026). `newKey` gives it, and it is the Sheet's own option, typed over the rows' key and given the keys taken, in place of its `newRowId`. Without it a String key is a UUID, as every e3-ui builder mints one, the Sheet's included, and any other key needs `newKey` (§2.7).
 10. **No draft the Record can't apply** (ruled 6 November 2026). A required field no person can set comes from the app. The build refuses one with no `newRow`, and an Add whose `newRow` leaves it empty drafts nothing. The check belongs to the Sheet's root, so the Sheet takes it too, for every entry: a row or a line from `newRow`, a group from `newGroup` (§2.7). The editing declaration carries each such field with its label, the inspector form's, so the status line names it whether or not the sheet has an inspector (§5).
 
@@ -873,6 +865,7 @@ Each as **mock** · **proposed** · **consequence**.
 11. **A phone.** The page draws no phone. *Proposed:* the BuilderFrame's phone frame, with the grid paging its columns as the Sheet's `narrow` does, the title column pinned.
 12. **Sources.** *Mock:* a static list. *Proposed:* a Record reads an e3 record (`record`, `window`, or the rail's `rows` source); a read-only Record needs no patch mutation.
 13. **A new record's key.** *Mock:* a new person is `NEW-n` while it is a draft, and Apply keys it `P-0607`. *Proposed:* the key is `newKey`'s, given at Add; without it, a UUID (decision 9). *Consequence:* a draft carries its key from Add; the inspector's head still marks it `NEW`.
+14. **Row bands.** *Mock:* 1a and 1b band their rows by role, each band folding. *Proposed (ruled):* no group rows; the rail filters by role (§2.5, decision 4). *Consequence:* every role shows in its column, and a viewer narrows to one through the rail's Role filter.
 
 ## 9. Work breakdown
 
@@ -880,13 +873,12 @@ One epic, one branch (off #1481's, PR against `main`), one PR. The sub-issues:
 
 1. **Spec and DX.** `Record Cells.dc.html` and this proposal in `docs/proposals/`.
 2. **The shared kinds** (e3-ui `sheet/`). `SheetColumnKindType` gains `title`, `person`, `boolean`, `toggle`, `cycle`, `age` and `audit`, and `quantity` gains `unit`. Builders, `describeColumn`, the projection and rule cells, `elapsed`, `Record.Types.Change`, and the Sheet's refusal (§7, decision 3). Each in its spec and its examples.
-3. **`<Record>` authoring** (e3-ui `record/`). The tag merged into the `Record` namespace (`bind`, `onApply`, `column`, `register`, `field`, `patch`, `Types`), the payload and carrier, the props' checks (§2.6), the `columns` mapped type (§2.4), column groups and bands. Examples 1–5 in `test/record/record.examples.tsx` wired into their spec, the e3-ui SKILL's Record section and the plugin index.
-4. **The grid** (e3-ui-components `record/`). FR1, GR, HD, SL, BD, EM and ST over the Sheet's grid through its host (§7, decision 8), P and K.
+3. **`<Record>` authoring** (e3-ui `record/`). The tag merged into the `Record` namespace (`bind`, `onApply`, `column`, `register`, `field`, `patch`, `Types`), the payload and carrier, the props' checks (§2.6), the `columns` mapped type (§2.4) and column groups. Examples 1–5 in `test/record/record.examples.tsx` wired into their spec, the e3-ui SKILL's Record section and the plugin index.
+4. **The grid** (e3-ui-components `record/`). FR1, GR, HD, SL, EM and ST over the Sheet's grid through its host (§7, decision 8), P and K.
 5. **The cells.** C1–C11, the age cell's clock (§2.3), the chips' and marks' recipes.
 6. **The toolbar and footer.** The title, the status line, Add and Delete (AD1–AD7), the history bar with Issues, FT1–FT2.
 7. **The inspector.** IN1–IN9 over the Sheet's inspector, FieldForm's one-line layout (east-ui-components) and sections by column group.
-8. **Bands over the rail's rows** (§7, decision 4). The rows source read in an index's order.
-9. **#1527, with the Record among its builders** (§7, decision 7). Its sub-issues #1525 (the refusals listed and reachable) and #1526 (a new row's own fields from the app) each name the Record. For the Record that means AD3, IN3 and IN9 over the app's `ready`, and Add and Duplicate over `newRow`. It also covers a new entry's key from the Sheet's `newKey`, in place of its `newRowId`, and the build's refusal of a required field no one can set, for rows, lines and groups, with the runtime check beside it in the shared creation path (§2.7, decisions 9 and 10).
-10. **The showcase and the visual contract.** A Record page with Examples 1–5, and the responsive suite's invariants for GR, HD, SL, BD, ST, C, FT and IN, measured in the page in both themes and at the three densities. Each example is verified on e3-web through Apply and a remount.
+8. **#1527, with the Record among its builders** (§7, decision 7). Its sub-issues #1525 (the refusals listed and reachable) and #1526 (a new row's own fields from the app) each name the Record. For the Record that means AD3, IN3 and IN9 over the app's `ready`, and Add and Duplicate over `newRow`. It also covers a new entry's key from the Sheet's `newKey`, in place of its `newRowId`, and the build's refusal of a required field no one can set, for rows, lines and groups, with the runtime check beside it in the shared creation path (§2.7, decisions 9 and 10).
+9. **The showcase and the visual contract.** A Record page with Examples 1–5, and the responsive suite's invariants for GR, HD, SL, ST, C, FT and IN, measured in the page in both themes and at the three densities. Each example is verified on e3-web through Apply and a remount.
 
 **Verification:** `make build`, `make test` and `make lint` across e3-ui, e3-ui-components and east-ui-components; the examples' specs; the renderer's DOM tests (pointer, keyboard, drafts, Add, Delete, Issues, Apply, undo); the responsive suite in both themes; the plugin index regenerated.

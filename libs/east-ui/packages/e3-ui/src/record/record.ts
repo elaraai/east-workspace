@@ -22,8 +22,8 @@
  *
  * The Record is an interface. Its payload holds the Sheet's root — the grid,
  * the rows and the session, built by the very code `<Sheet>` builds it with —
- * beside what only a Record has: its title and noun, its column groups, its
- * bands and its inspector's forms. The `Record` renderer in
+ * beside what only a Record has: its title and noun, its column groups and
+ * its inspector's forms. The `Record` renderer in
  * `@elaraai/e3-ui-components` draws it.
  *
  * @packageDocumentation
@@ -43,7 +43,7 @@ import {
 } from "@elaraai/east";
 import { Table, type UIElement } from "@elaraai/east-ui";
 import { EastUI, type FieldHints, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
-import { SheetRootType, SheetNounType, type SheetColumnKindLiteral } from "../sheet/types.js";
+import { SheetRootType, SheetNounType } from "../sheet/types.js";
 import {
     createSheetPayload, SheetInspectorPaneType, SheetHistoryType,
     type SheetCommon, type SheetRecordHandle,
@@ -62,25 +62,12 @@ type SheetPayloadParts = ExprType<StructType<{
 // ============================================================================
 
 /**
- * The rows' bands on the wire: the column whose value bands them.
- *
- * @property column - The column's key
- */
-export const RecordBandsType = StructType({
-    column: StringType,
-});
-
-/** Type representing {@link RecordBandsType}. */
-export type RecordBandsType = typeof RecordBandsType;
-
-/**
  * The `Record` renderer's payload: the Record's interface.
  *
  * @property sheet - The Sheet's root — the grid, the rows, the narrowing's chrome and the session, its columns the Record's
  * @property title - The toolbar's lead, before the count of the record's rows
  * @property noun - What a row is called (`person`, `people`); `none`, the renderer's own word
  * @property columnGroups - The column-group row: each group a run of adjacent columns under one label, `""` drawing none — the Table's own type
- * @property bands - The column the rows band by, in its order; `none`, no bands
  * @property inspector - The inspector pane: the selected row's every field, and the batch's issues; `none`, no pane
  * @property history - Over `record`, its commits; `none` over the rail's rows
  * @property missing - The entry's key while the record does not hold it — never, for a Record over the record's own entries
@@ -91,7 +78,6 @@ export const RecordPayloadType = StructType({
     title: OptionType(StringType),
     noun: OptionType(SheetNounType),
     columnGroups: ArrayType(Table.Types.ColumnGroup),
-    bands: OptionType(RecordBandsType),
     inspector: OptionType(SheetInspectorPaneType),
     history: OptionType(SheetHistoryType),
     missing: OptionType(StringType),
@@ -171,8 +157,6 @@ export interface RecordCommon<R extends StructTypeOf, C> {
     noun?: RecordNounInput;
     /** The column-group row: each group a run of adjacent columns under one label, `""` drawing none. The inspector's sections follow them. */
     columnGroups?: RecordColumnGroupInput<Extract<keyof C, string>>[];
-    /** Bands the rows by this column's value, in the column's order: its register's members, a toggle's off then on, otherwise East's order; a row with no value leads, unbanded. */
-    groupBy?: Extract<keyof C, string>;
     /** The inspector pane: Details, the selected row's every field, and the batch's Issues; given the author's own Details for one row, those. */
     inspector?: SheetCommon<R>["inspector"];
     /** Hints for the inspector's form, by the row's field — `Record.field.*`. */
@@ -191,14 +175,13 @@ type RecordAnyProps = {
     title?: string;
     noun?: RecordNounInput;
     columnGroups?: readonly RecordColumnGroupInput<string>[];
-    groupBy?: string;
 } & Record<string, unknown>;
 
 /** The Sheet's props a Record has no use for, each with what the Record does instead. */
 const NOT_A_RECORD_PROP: Readonly<Record<string, string>> = {
     data: "a Record reads an e3 record — pass `record`, or the `rows` source of `slice`",
     entry: "a Record's rows are the record's own entries",
-    group: "a Record bands its rows with `groupBy`",
+    group: "a Record draws no group rows — filter by the field through `slice`'s rail, over the record's index on it",
     templates: "a Record adds an empty record with Add",
     library: "a Record has no library pane",
     optimise: "a Record has no optimiser",
@@ -218,9 +201,6 @@ const NOT_A_RECORD_PROP: Readonly<Record<string, string>> = {
     onPatch: "a Record commits through the record",
 };
 
-/** The kinds a Record cannot band by: a count and a change hold no value to share. */
-const UNBANDED: ReadonlySet<SheetColumnKindLiteral> = new Set<SheetColumnKindLiteral>(["age", "audit"]);
-
 /**
  * Creates the Record's payload alone — what `<Record>` returns through the
  * `Record` carrier — for the tests and the renderer's fixtures, which read it
@@ -228,11 +208,11 @@ const UNBANDED: ReadonlySet<SheetColumnKindLiteral> = new Set<SheetColumnKindLit
  *
  * @param props - The Record's props, as `<Record>` takes them
  * @returns An East expression of {@link RecordPayloadType}
- * @throws Error naming the prop and the remedy: a Sheet's prop a Record has no use for; a column group naming a key that is not a column, holding no columns, or columns that are not adjacent, and a column in two groups; `groupBy` naming no column, or an age or audit column; and everything the Sheet's root refuses of the rows, the columns and the registers
+ * @throws Error naming the prop and the remedy: a Sheet's prop a Record has no use for; a column group naming a key that is not a column, holding no columns, or columns that are not adjacent, and a column in two groups; and everything the Sheet's root refuses of the rows, the columns and the registers
  * @internal
  */
 export function createRecordPayload(props: { columns: unknown } & { [prop: string]: unknown }): ExprType<RecordPayloadType> {
-    const { title, noun, columnGroups, groupBy, ...sheet } = props as RecordAnyProps;
+    const { title, noun, columnGroups, ...sheet } = props as RecordAnyProps;
     for (const [prop, instead] of Object.entries(NOT_A_RECORD_PROP)) {
         if (prop in sheet) throw new Error(`Record: takes no \`${prop}\` — ${instead}`);
     }
@@ -256,14 +236,6 @@ export function createRecordPayload(props: { columns: unknown } & { [prop: strin
             throw new Error(`Record: column ${name} holds ${group.columnKeys.join(", ")} — a group is a run of adjacent columns, named in column order`);
         }
     }
-    // The bands: a column's value, never a count or a change.
-    const banded = groupBy === undefined ? undefined : columns.find(([key]) => key === groupBy)?.[1];
-    if (groupBy !== undefined && banded === undefined) {
-        throw new Error(`Record: \`groupBy\` names "${groupBy}", which is not a column (${keys.join(", ")})`);
-    }
-    if (banded !== undefined && UNBANDED.has(banded.kind)) {
-        throw new Error(`Record: \`groupBy\` names "${groupBy}", an ${banded.kind} column — rows band by a value they share, which a count or a change is not`);
-    }
     let built: SheetPayloadParts;
     try {
         // A Record draws its own rows alone: Add drafts a new one, and no blank row invites it.
@@ -276,7 +248,6 @@ export function createRecordPayload(props: { columns: unknown } & { [prop: strin
         title: title === undefined ? none : some(title),
         noun: noun === undefined ? none : some({ singular: noun.singular, plural: noun.plural }),
         columnGroups: (columnGroups ?? []).map((group) => ({ label: group.label, columnKeys: [...group.columnKeys] })),
-        bands: groupBy === undefined ? none : some({ column: groupBy }),
     };
     return Expr.block(($) => {
         const payload = $.const(built);
