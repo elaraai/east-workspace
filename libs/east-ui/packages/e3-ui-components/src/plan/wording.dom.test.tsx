@@ -50,6 +50,7 @@ describe("a Plan's words", () => {
             dueThisWeek: some("This week's jobs"), noDate: some("Undated"), confirmed: some("locked"), proposed: some("suggested"), inProgress: some("on press"),
         });
         expect(m.inspectorUnassigned()).toBe("Unplaced");
+        expect([m.inspectorFact({ fact: "resource" }), m.inspectorFact({ fact: "group" }), m.inspectorFact({ fact: "start" })]).toEqual(["Press", "Hall", "Start"]);
         expect(m.backlogLine({ duration: "6 h", resource: undefined, due: undefined })).toBe("6 h · Unplaced");
         expect(m.libraryTab({ tab: "events" })).toBe("Job cards");
         expect(m.libraryEmpty({ tab: "backlog", name: "" })).toBe("Waiting clear");

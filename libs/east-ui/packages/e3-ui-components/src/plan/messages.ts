@@ -874,7 +874,9 @@ export function planMessagesIn(parent: PlanMessages, v: PlanVocabulary): PlanMes
         backToGroups: () => (groups === undefined ? parent.backToGroups() : `← ${groups.other}`),
         moreGroups: (p) => (groups === undefined ? parent.moreGroups(p)
             : `${p.count} more ${lowerWord(plural(p.n, groups.one, groups.other))}${p.members !== undefined ? ` · ${p.members}` : ""}`),
-        inspectorFact: ({ fact }) => (fact === "group" && groups !== undefined ? groups.one : parent.inspectorFact({ fact })),
+        // An event's resource is one of the rows: `Press`, as a group is a `Hall` (review of #1481, finding 5).
+        inspectorFact: ({ fact }) => (fact === "group" && groups !== undefined ? groups.one
+            : fact === "resource" && rows !== undefined ? rows.one : parent.inspectorFact({ fact })),
         hiddenRows: (p) => {
             const noun = p.what === "group" ? groups : rows;
             return noun === undefined ? parent.hiddenRows(p) : `${p.count} hidden ${lowerWord(plural(p.n, noun.one, noun.other))}`;
