@@ -213,6 +213,8 @@ describe("<Record> refuses", () => {
     test("a Sheet's prop it has no use for", () => {
         assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, group: {} }), /Record: takes no `group` — a Record draws no group rows/);
         assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, templates: [] }), /Record: takes no `templates`/);
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, narrow: { pin: "forklift" } }),
+            /Record: takes no `narrow` — a Record pins its title column on a phone/);
     });
 
     test("a column group naming no column, holding none, out of order, or overlapping another", () => {
@@ -232,7 +234,7 @@ describe("<Record> refuses", () => {
         assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns }), /^Error: Record: column "forklift" names register "levels", which `registers` does not declare/);
     });
 
-    test("builds a payload with its title, noun and column groups, as the renderer decodes them", () => {
+    test("builds a payload with its title, noun and column groups, and its title column the one a phone pins, as the renderer decodes them", () => {
         // Over a window, the payload is built without reading the record.
         const payload = East.compile(East.function([], RecordPayloadType, () => Record.Payload({
             record: Record.bind(ex.recordCrew), window: Data.bindPaged(ex.recordCrew), columns, registers, title: "Crew", noun: { singular: "crew member", plural: "crew members" },
@@ -243,6 +245,14 @@ describe("<Record> refuses", () => {
         assert.ok(equalFor(field.noun)(payload.noun, some({ singular: "crew member", plural: "crew members" })));
         assert.ok(equalFor(field.columnGroups)(payload.columnGroups, [{ label: "Skills", columnKeys: ["inducted", "forklift"] }]));
         assert.ok(equalFor(field.name)(payload.name, none));
+        const narrowEqual = equalFor(field.sheet.fields.narrow);
+        assert.ok(narrowEqual(payload.sheet.narrow, some({ pin: some("name"), columns: none })));
+        // With no title column, a phone pins none: every column pages. No column sets a name, so this Record adds no one.
+        const untitled = East.compile(East.function([], RecordPayloadType, () => Record.Payload({
+            record: Record.bind(ex.recordCrew), window: Data.bindPaged(ex.recordCrew), columns: { inducted: columns.inducted, forklift: columns.forklift }, registers,
+            edits: { insertRows: false },
+        })), refusingPlatform)();
+        assert.ok(narrowEqual(untitled.sheet.narrow, none));
     });
 });
 

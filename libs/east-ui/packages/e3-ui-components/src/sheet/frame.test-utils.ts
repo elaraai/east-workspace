@@ -84,9 +84,10 @@ export function boundFrame(height: number): () => void {
 
 /**
  * The frame scrolls when it is asked to, as a browser's does: `scrollTo`,
- * which jsdom lacks, writes a bounded rows frame's `scrollTop` and sends its
- * scroll event — what a jump to a sought row, or a keyboard move past the
- * rows in view, asks of it. Any other element's `scrollTo` is what it was.
+ * which jsdom lacks, writes a bounded rows frame's `scrollTop` and its
+ * `scrollLeft` and sends its scroll event — what a jump to a sought row, a
+ * keyboard move past the rows in view, or a phone's pager paging the columns
+ * asks of it. Any other element's `scrollTo` is what it was.
  *
  * @returns The restore
  */
@@ -102,8 +103,12 @@ export function frameScrolls(): () => void {
                 return;
             }
             const top = options?.top;
-            if (top === undefined || top === this.scrollTop) return;
-            this.scrollTop = top;
+            const left = options?.left;
+            const down = top !== undefined && top !== this.scrollTop;
+            const across = left !== undefined && left !== this.scrollLeft;
+            if (!down && !across) return;
+            if (down) this.scrollTop = top;
+            if (across) this.scrollLeft = left;
             this.dispatchEvent(new Event("scroll"));
         },
     });

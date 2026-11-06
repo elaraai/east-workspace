@@ -613,7 +613,9 @@ export interface SheetHost {
      * the Sheet's one machine, session and lens. Such a grid opens with no ring, which a press or the first move key
      * places; its cycles, toggles and booleans step in place, and a title opens through `onOpen`; its strip shows the
      * cell under the pointer, and the ring's once the pointer leaves; and it has no gutter — no row numbers, seams,
-     * insertion strip or padding under the rows. Absent, the Sheet draws its own.
+     * insertion strip or padding under the rows. On a phone's frame it is the Sheet's (#1536): its lead goes as the
+     * gutter does, the column the sheet's `narrow.pin` names is held at the left, and the pager pages the rest — its
+     * rows and its header told so ({@link SheetHostLayout}). Absent, the Sheet draws its own.
      */
     grid?: SheetGridHost | undefined;
 }
@@ -651,8 +653,10 @@ export interface SheetHostRowProps {
     registers: SheetRegisterIndex;
     /** The driver column's key: a quantity's unit is its driver member's. */
     driverColumn: string | undefined;
-    /** The rows' tracks: the host's lead, where it has one, then each column's. */
+    /** The rows' tracks: the host's lead, where it is laid out, then each column's. */
     gridTemplate: string;
+    /** How the grid lays the row out: its lead's track, and a phone's frame. */
+    layout: SheetHostLayout;
     /** Its height, px, the rule included. */
     rowPx: number;
     /** The grid's id: a cell's id is `{idPrefix}-{r}-{c}`, what the grid names as its active cell. */
@@ -684,12 +688,28 @@ export interface SheetHostRowProps {
 export interface SheetHostHeaderProps {
     /** The columns the grid draws. */
     columns: readonly SheetColumnMeta[];
-    /** The rows' tracks: the host's lead, where it has one, then each column's. */
+    /** The rows' tracks: the host's lead, where it is laid out, then each column's. */
     gridTemplate: string;
+    /** How the grid lays the header out: its lead's track, and a phone's frame. */
+    layout: SheetHostLayout;
     /** A row's height, px: the header row's. */
     rowPx: number;
     /** The rows shown, by id: the resident rows, in order. */
     rowIds: readonly string[];
+}
+
+/**
+ * How the grid lays a host's rows and header out (#1536): whether its lead has a track, and a phone's frame
+ * (`Mobile Sheet Spec.md`) — its columns a window the pager pages, any column the sheet's `narrow.pin` names held at
+ * the left. One object while it holds, so no row's memo sees it change.
+ */
+export interface SheetHostLayout {
+    /** Whether the lead track is laid out: the host's lead, where it has one — never on a phone's frame, as the gutter is not (R5). */
+    lead: boolean;
+    /** A phone's frame: the columns a window of slots, which the pager pages (SH1). */
+    phone: boolean;
+    /** The width of the column a phone's frame holds at the left, px — the first column; `0` with none (SH4). */
+    pinPx: number;
 }
 
 /** What a host shows when the narrowing leaves no row to show ({@link SheetGridHost.Empty}, #1531). */
@@ -835,10 +855,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const [viewPx, setViewPx] = useState<number | undefined>(undefined);
     const [framePx, setFramePx] = useState<number | undefined>(undefined);
     // A phone's frame (`Mobile Sheet Spec.md`): 560 wide or less — a frame not laid out yet (0 wide) is none. The
-    // columns are a window the pager pages (SH1), no gutter (R5); the column the sheet's `narrow.pin` names, where it names
-    // one the grid draws, leads the row pinned at the left (SH4) — none by default (ruled 3 Nov 2026). A host's grid is
-    // never one (#1531): it keeps its lead and its columns at every width, its rows scrolling sideways under the lead.
-    const phoneFrame = hostGrid === undefined && framePx !== undefined && framePx > 0 && framePx <= 560;
+    // columns are a window the pager pages (SH1), no gutter (R5) — and a host's grid no lead (#1536); the column the
+    // sheet's `narrow.pin` names, where it names one the grid draws, leads the row pinned at the left (SH4) — none by
+    // default (ruled 3 Nov 2026).
+    const phoneFrame = framePx !== undefined && framePx > 0 && framePx <= 560;
     const narrow = useMemo(() => getSomeorUndefined(value.narrow), [value.narrow]);
     const pinKey = narrow === undefined ? undefined : getSomeorUndefined(narrow.pin);
     const columns = useMemo(() => {
@@ -852,9 +872,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // Whether a phone's frame pins a column: the one `narrow.pin` names, led into first place above.
     const pinned = phoneFrame && pinKey !== undefined && columns.list[0] !== undefined && stringEqual(columns.list[0].key, pinKey);
     const pinPx = pinned ? PHONE_PIN_PX : 0;
-    // A phone's Row column (SH2, R5): the row numbers as a column of the window, off until the jump menu's `Row number`.
+    // A phone's Row column (SH2, R5): the row numbers as a column of the window, off until the jump menu's `Row number` —
+    // never a host's grid's, which has no row numbers (#1531).
     const [rowNumbersOn, setRowNumbers] = useState(false);
-    const rowNumbers = phoneFrame && rowNumbersOn;
+    const rowNumbers = phoneFrame && hostGrid === undefined && rowNumbersOn;
     const registers = useMemo(() => indexRegisters(value.registers), [value.registers]);
     const driver = useMemo(() => getSomeorUndefined(value.driver), [value.driver]);
     const driverColumn = driver?.column;
@@ -879,8 +900,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // placeholders stood.
     const densityRow = useDensityHeights(size).row;
     // A phone's rows (SH5): 44 on a coarse pointer, 32 on a fine one, whatever the density — the rule included. A host's
-    // grid, its own pitch (#1531).
-    const rowPx = devicePixels(phoneFrame ? (coarse ? 44 : 32) : Math.max(hostGrid?.rowPx ?? densityRow, coarse ? 45 : 0));
+    // grid, its own pitch at every width (#1531).
+    const rowPx = devicePixels(phoneFrame && hostGrid === undefined ? (coarse ? 44 : 32) : Math.max(hostGrid?.rowPx ?? densityRow, coarse ? 45 : 0));
     const bandPx = devicePixels(phoneFrame ? PHONE_BAND_PX : Math.max(groupBandPx(size), coarse ? 46 : 42));
     // A sub row's least height; a wrapping detail grows it, and the rows are measured.
     const subRowPx = devicePixels(30);
@@ -919,7 +940,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // A frame too narrow for the touch gutter beside the first column folds it: one row-actions button holds each row's actions (#1215).
     const folded = hostGrid === undefined && gutterFolds(framePx, coarse, fullGutterPx, columns.list[0]?.width);
     // A phone's frame has no gutter (R5): its rows are picked by their pinned cell, and their actions are the Inspector's.
-    // A host's grid has none either (#1531): its lead stands there — a Record's select column — where it has one.
+    // A host's grid has none either (#1531): its lead stands there — a Record's select column — where it has one, and on
+    // a phone's frame goes as the gutter does (#1536).
     const gutterPx = phoneFrame ? 0 : hostGrid !== undefined ? hostGrid.leadPx : folded ? least.folded : fullGutterPx;
     // A phone's window (SH1.4): the frame's width less any pinned column, shared by the columns in view — as many as
     // the sheet's `narrow.columns` says, else two.
@@ -943,6 +965,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         // A host's grid with no lead has no lead track (#1531).
         return hostGrid !== undefined && gutterPx === 0 ? tracks.join(" ") : `${gutterPx}px ${tracks.join(" ")}`;
     }, [gutterPx, columns, phoneFrame, slotPx, pinned, rowNumbers, hostGrid]);
+    // How a host's rows and header are laid out (#1536): its lead's track, a phone's frame and its pinned column — one
+    // object while they hold, so no row's memo sees it change.
+    const hostLayout = useMemo((): SheetHostLayout => ({ lead: gutterPx > 0, phone: phoneFrame, pinPx }), [gutterPx, phoneFrame, pinPx]);
     // The columns a phone's pager pages: every one but a pinned one; and what it pages, the Row column before them while it shows.
     const pagedColumns = useMemo(() => (pinned ? columns.list.slice(1) : columns.list), [columns, pinned]);
     const pagerColumns = useMemo((): readonly SheetPagerColumn[] => {
@@ -4273,8 +4298,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 <SheetRunRow styles={hostGrid?.runStyles ?? styles} band={item.kind === "band" ? item.band : undefined} failure={item.kind === "failed" ? item.failure : undefined}
                     loading={item.kind === "band" && runLoading(item.band)} gridTemplate={gridTemplate} columns={columns} rowPx={rowPx}
                     bandPx={group !== undefined ? bandPx : undefined} dense={size === "sm"} noun={rowsNoun} onRetry={retryRead} ariaRowIndex={ariaRowIndex}
-                    // A host's grid (#1531): its lead's shape in the lead track, where it has one.
-                    lead={hostGrid === undefined ? undefined : hostGrid.leadPx > 0 ? hostGrid.leadRun : null} />
+                    // A host's grid (#1531): its lead's shape in the lead track, where it is laid out.
+                    lead={hostGrid === undefined ? undefined : hostLayout.lead ? hostGrid.leadRun : null} />
             );
         }
         if (item.kind === "subRow") {
@@ -4382,6 +4407,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                         registers={registers}
                         driverColumn={driverColumn}
                         gridTemplate={gridTemplate}
+                        layout={hostLayout}
                         rowPx={rowPx}
                         idPrefix={gridId}
                         ariaRowIndex={ariaRowIndex}
@@ -4459,7 +4485,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             />
             </SheetRowBoundary>
         );
-    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.ringless, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows, marks, rowActions, hostGrid, changesOf, canEdit, editingState.available]);
+    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.ringless, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows, marks, rowActions, hostGrid, hostLayout, changesOf, canEdit, editingState.available]);
 
     // ── The inspector's reads and gestures (#1188) ────────────────────────
     // Nothing here reads the source until the inspector pane asks for a
@@ -5212,7 +5238,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         <Box ref={headerRef} position="relative">
             {HostHeader !== undefined
                 // A host's header (#1531): its column cells are `headerCell`s, as the Sheet's, which a key's reveal reads.
-                ? <HostHeader columns={columns.list} gridTemplate={gridTemplate} rowPx={rowPx} rowIds={rows.map((row) => row.id)} />
+                ? <HostHeader columns={columns.list} gridTemplate={gridTemplate} layout={hostLayout} rowPx={rowPx} rowIds={rows.map((row) => row.id)} />
                 : <SheetHeader styles={styles} columns={columns.list} gridTemplate={gridTemplate} picked={wr !== null} foldAll={foldAll} rowNumbers={rowNumbers}
                     selected={phoneFrame && ui.selEnd === null && (ringItem?.kind === "real" || ringItem?.kind === "group") ? ringCol : undefined} />}
             {stickyItem !== undefined && stickyItem.kind === "group" && group !== undefined && stickyAt !== undefined && (
@@ -5313,9 +5339,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // insertion layer — the insertion strip, and the strip docked under them.
     const grid = (
         <>
-            {/* A phone's column pager over the grid (SH1): the window of columns beside any pinned one. */}
+            {/* A phone's column pager over the grid (SH1): the window of columns beside any pinned one — its `Row number` the Sheet's own. */}
             {phoneFrame && pagedColumns.length > phoneColumns && (
-                <SheetPager styles={styles} frame={viewport?.frame ?? null} columns={pagerColumns} slotPx={slotPx} inView={phoneColumns} rowNumbers={rowNumbers} onRowNumbers={setRowNumbers} />
+                <SheetPager styles={styles} frame={viewport?.frame ?? null} columns={pagerColumns} slotPx={slotPx} inView={phoneColumns} rowNumbers={rowNumbers}
+                    onRowNumbers={hostGrid === undefined ? setRowNumbers : undefined} />
             )}
             <Box
                 ref={cardRef}

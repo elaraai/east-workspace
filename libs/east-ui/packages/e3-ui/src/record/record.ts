@@ -21,10 +21,10 @@
  *   committed through `onApply` (`Record.onApply(record, { keyed: true })`).
  *
  * The Record is an interface. Its payload holds the Sheet's root — the grid,
- * the rows and the session, built by the very code `<Sheet>` builds it with —
- * beside what only a Record has: its title and noun, its column groups and
- * its inspector's forms. The `Record` renderer in
- * `@elaraai/e3-ui-components` draws it.
+ * the rows and the session, built by the very code `<Sheet>` builds it with,
+ * its title column the one a phone pins at the left — beside what only a
+ * Record has: its title and noun, its column groups and its inspector's
+ * forms. The `Record` renderer in `@elaraai/e3-ui-components` draws it.
  *
  * @packageDocumentation
  */
@@ -64,7 +64,7 @@ type SheetPayloadParts = ExprType<StructType<{
 /**
  * The `Record` renderer's payload: the Record's interface.
  *
- * @property sheet - The Sheet's root — the grid, the rows, the narrowing's chrome and the session, its columns the Record's
+ * @property sheet - The Sheet's root — the grid, the rows, the narrowing's chrome and the session, its columns the Record's, its title column the one a phone pins (`narrow.pin`)
  * @property title - The toolbar's lead, before the count of the record's rows
  * @property noun - What a row is called (`person`, `people`); `none`, the renderer's own word
  * @property columnGroups - The column-group row: each group a run of adjacent columns under one label, `""` drawing none — the Table's own type
@@ -192,7 +192,7 @@ const NOT_A_RECORD_PROP: Readonly<Record<string, string>> = {
     driver: "a Record has no driver",
     footer: "a Record's footer counts its rows",
     style: "a Record has no gutter",
-    narrow: "a Record draws its own phone frame",
+    narrow: "a Record pins its title column on a phone",
     blanks: "a Record has no blank rows",
     groupFields: "a Record has no groups",
     newGroup: "a Record has no groups",
@@ -236,10 +236,12 @@ export function createRecordPayload(props: { columns: unknown } & { [prop: strin
             throw new Error(`Record: column ${name} holds ${group.columnKeys.join(", ")} — a group is a run of adjacent columns, named in column order`);
         }
     }
+    // On a phone the title column is pinned at the left, the Sheet's pager stepping through the rest: a row is picked by its title.
+    const titleKey = columns.find(([, col]) => col.kind === "title")?.[0];
     let built: SheetPayloadParts;
     try {
         // A Record draws its own rows alone: Add drafts a new one, and no blank row invites it.
-        built = createSheetPayload({ ...sheet, blanks: 0 }, { recordKinds: true }) as unknown as SheetPayloadParts;
+        built = createSheetPayload({ ...sheet, blanks: 0, ...(titleKey !== undefined && { narrow: { pin: titleKey } }) }, { recordKinds: true }) as unknown as SheetPayloadParts;
     } catch (e) {
         throw new Error(`Record: ${(e as Error).message.replace(/^Sheet: /, "")}`);
     }
