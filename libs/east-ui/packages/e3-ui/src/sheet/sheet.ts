@@ -520,8 +520,9 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             });
         }
         const rows = recordRows(record, { entry, window });
-        // Read only by the author's word, or while the record does not hold the entry.
-        const readOnly = rows.options.readOnly === undefined ? sheet.readOnly
+        // Read only by the author's word, or while the record does not hold the entry. The author's `true` stays itself,
+        // so the build knows the sheet adds no rows (#1536).
+        const readOnly = rows.options.readOnly === undefined || sheet.readOnly === true ? sheet.readOnly
             : sheet.readOnly === undefined ? rows.options.readOnly
                 : East.value(sheet.readOnly as SubtypeExprOrValue<BooleanType>, BooleanType).or(() => rows.options.readOnly!);
         const built = createSheetBuild(rows.data, columns, {
