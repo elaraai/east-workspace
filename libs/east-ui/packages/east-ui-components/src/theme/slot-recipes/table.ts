@@ -39,7 +39,7 @@ export const tableSlotRecipe = defineSlotRecipe({
         "columnHeaderContent", "columnHeaderLabel", "columnControls",
         "columnControl", "columnSortIndex", "columnResizer",
         "footer", "caption", "scrollArea", "treeIndent", "treeToggle",
-        "phoneGroup", "phonePager", "phonePagerBand", "phonePagerRange", "phonePagerStep", "phoneColumns", "phoneColumn", "phoneColumnMark", "phoneColumnText", "phoneColumnName", "phoneColumnKind", "phoneColumnCheck", "phoneHeaderSort", "phoneAbsent", "phoneBar",
+        "phoneGroupRow", "phoneGroup", "phonePager", "phonePagerBand", "phonePagerRange", "phonePagerStep", "phoneColumns", "phoneColumn", "phoneColumnMark", "phoneColumnText", "phoneColumnName", "phoneColumnKind", "phoneColumnCheck", "phoneHeaderSort", "phoneAbsent", "phoneBar",
         "phoneView", "phoneViewHead", "phoneViewBack", "phoneViewTitle", "phoneViewContext", "phoneViewFoot",
     ],
     base: {
@@ -66,7 +66,9 @@ export const tableSlotRecipe = defineSlotRecipe({
             borderBottomColor: "border.strong",
             textAlign: "left",
             whiteSpace: "nowrap",
+            /* A phone's: 32 tall, its label's sort button centred in it (QP12). */
             "[data-table-phone] &": {
+                display: "flex", alignItems: "center", height: "32px",
                 paddingY: "0", paddingX: "0", background: "bg.canvas", overflow: "visible",
             },
         },
@@ -266,8 +268,12 @@ export const tableSlotRecipe = defineSlotRecipe({
         phoneViewContext: { flex: "1", minWidth: "0", fontFamily: "mono", fontSize: "label.md", color: "fg.subtle" },
         phoneViewFoot: { "&::first-letter": { textTransform: "uppercase" }, flex: "none", paddingTop: "12px", paddingX: "16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))", fontFamily: "mono", fontSize: "label.md", lineHeight: "1.4", color: "fg.subtle", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle" },
         /* The header's label, its whole height the tap that sorts. */
-        /* A column group's head over the columns of it in view: its words whole, wrapping at spaces. */
+        /* The row of a phone's column groups: one line of heads across the table. */
+        phoneGroupRow: { display: "flex", width: "100%" },
+        /* A column group's head over the columns of it in view: its words whole, wrapping at spaces; its width the
+           columns' it heads, given inline, and the review's spacer (`data-table-phone-fill`) the rest of the row. */
         phoneGroup: {
+            flex: "none", "&[data-table-phone-fill]": { flex: "1 0 auto" },
             minHeight: "28px", display: "flex", alignItems: "center", justifyContent: "center", paddingY: "4px", paddingX: "8px", boxSizing: "border-box", textAlign: "center",
             fontFamily: "mono", fontSize: "label.xs", fontWeight: "600", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: "1.3", whiteSpace: "normal",
             background: "bg.canvas", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",

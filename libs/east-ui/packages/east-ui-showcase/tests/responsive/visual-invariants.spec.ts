@@ -722,7 +722,7 @@ test.describe("Visual invariants — the Table, on touch", () => {
 
     // A Table's phone form, automatic at 560px of its own width (ruled 4 Nov 2026): no sideways scroll, no pin or resize,
     // every word whole, a pager over columns off-screen, and whatever it holds still working.
-    for (const name of ["tableBasic", "tableRichColumns", "tableTree", "tablePaginated", "tableExpandable"]) {
+    for (const name of ["tableBasic", "tableRichColumns", "tableTree", "tablePaginated", "tableExpandable", "tableGroupedColumns", "tableReview"]) {
         test(`${name}: at a phone's width the columns page rather than scroll, each word whole, a header's tap sorting`, async ({ page }) => {
             const entry = await openTable(page, name);
             const table = entry.locator("[data-table-phone]");
@@ -733,6 +733,22 @@ test.describe("Visual invariants — the Table, on touch", () => {
                 const box = root.getBoundingClientRect();
                 const scroller = root.parentElement!;
                 if (scroller.scrollWidth - scroller.clientWidth > 1) out.push(`scrolls sideways by ${scroller.scrollWidth - scroller.clientWidth}`);
+                // The column heads' row, 32 tall, each head its label's sort button centred in it; a group row's heads
+                // one line over them, edge to edge across the table (review of #1481, finding 12: the recipe's, not inline).
+                for (const head of root.querySelectorAll<HTMLElement>("thead tr:not([data-table-phone-groups]) th")) {
+                    const h = head.getBoundingClientRect();
+                    if (Math.abs(h.height - 32) > 0.5) out.push(`"${head.textContent}" head ${h.height}px tall`);
+                    const sort = head.querySelector("button");
+                    if (sort !== null && Math.abs(sort.getBoundingClientRect().top + sort.getBoundingClientRect().height / 2 - (h.top + h.height / 2)) > 0.5) out.push(`"${head.textContent}" sort off its head's centre`);
+                }
+                const groups = root.querySelector<HTMLElement>("[data-table-phone-groups]");
+                if (groups !== null) {
+                    const g = groups.getBoundingClientRect();
+                    const cells = [...groups.children].map((c) => c.getBoundingClientRect());
+                    if (cells.some((c) => Math.abs(c.top - g.top) > 0.5)) out.push("a group head off the group row's line");
+                    const heads = [...root.querySelectorAll("thead tr:not([data-table-phone-groups]) th")].map((th) => th.getBoundingClientRect());
+                    if (Math.abs(cells[0]!.left - heads[0]!.left) > 0.5 || Math.abs(cells.at(-1)!.right - heads.at(-1)!.right) > 0.5) out.push(`group heads ${cells[0]!.left}–${cells.at(-1)!.right} over column heads ${heads[0]!.left}–${heads.at(-1)!.right}`);
+                }
                 for (const cell of root.querySelectorAll("th, td")) {
                     const b = cell.getBoundingClientRect();
                     if (b.left < box.left - 0.5 || b.right > box.right + 0.5) out.push(`"${cell.textContent}" leaves the table`);

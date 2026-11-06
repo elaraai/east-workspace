@@ -972,8 +972,11 @@ const TableCore = function TableCore({
         const taken = (getSomeorUndefined(value.expandedContent) !== undefined ? 32 : 0)
             + (getSomeorUndefined(value.selection) !== undefined ? 40 : 0)
             + (getSomeorUndefined(value.review) !== undefined ? PHONE_DECISION : 0);
-        // Its client width: what a classic scrollbar leaves, on a page that draws one.
-        const room = tableContainerRef.current?.clientWidth ?? containerWidth;
+        // Its client width: what a classic scrollbar leaves, on a page that draws one — less the table's own edges, an
+        // `outline` table's rule either side, which its columns stand inside.
+        const table = tableContainerRef.current?.querySelector<HTMLElement>(":scope > table");
+        const edges = table == null ? 0 : (look => (Number.parseFloat(look.borderLeftWidth) || 0) + (Number.parseFloat(look.borderRightWidth) || 0))(getComputedStyle(table));
+        const room = (tableContainerRef.current?.clientWidth ?? containerWidth) - edges;
         const natural = (key: string) => Math.max(phoneNaturals.get(key) ?? 0, phoneWords[key] ?? 0);
         return fitPhoneColumns(room - taken, phonePin === undefined ? 0 : natural(phonePin),
             phoneOthers.map(c => natural(c.key)), phoneFirst);
@@ -1415,11 +1418,11 @@ const TableCore = function TableCore({
                             if (runs.every(run => run.label === undefined)) return null;
                             const stands = (getSomeorUndefined(value.expandedContent) !== undefined ? 32 : 0) + (selectionMode !== undefined ? 40 : 0);
                             return (
-                                <ChakraTable.Row key="column-groups" data-table-phone-groups="" style={{ display: "flex", width: "100%" }}>
-                                    {stands > 0 && <ChakraTable.ColumnHeader css={tableCustomSlots.phoneGroup} bg={headerBackground} aria-hidden style={{ width: `${stands}px`, flex: "none", borderColor }} />}
+                                <ChakraTable.Row key="column-groups" css={tableCustomSlots.phoneGroupRow} data-table-phone-groups="">
+                                    {stands > 0 && <ChakraTable.ColumnHeader css={tableCustomSlots.phoneGroup} bg={headerBackground} aria-hidden style={{ width: `${stands}px`, borderColor }} />}
                                     {runs.map(run => <ChakraTable.ColumnHeader key={run.key} css={tableCustomSlots.phoneGroup} bg={headerBackground} color={headerColor} data-table-phone-group={run.label === undefined ? undefined : ""}
-                                        style={{ width: `${run.width}px`, flex: "none", borderColor }}>{run.label}</ChakraTable.ColumnHeader>)}
-                                    {hasReview && <ChakraTable.ColumnHeader css={tableCustomSlots.phoneGroup} bg={headerBackground} aria-hidden style={{ flex: "1 0 auto", borderColor }} />}
+                                        style={{ width: `${run.width}px`, borderColor }}>{run.label}</ChakraTable.ColumnHeader>)}
+                                    {hasReview && <ChakraTable.ColumnHeader css={tableCustomSlots.phoneGroup} bg={headerBackground} aria-hidden data-table-phone-fill="" style={{ borderColor }} />}
                                 </ChakraTable.Row>
                             );
                         }
@@ -1573,7 +1576,7 @@ const TableCore = function TableCore({
                                         <ChakraTable.ColumnHeader key={header.id} css={tableSlotStyles.columnHeader} bg={headerBackground} color={headerColor}
                                             data-pinned={header.id === phonePin ? "" : undefined} data-last={header.id === phoneLastInView ? "" : undefined}
                                             aria-sort={isSorted ? (sortDirection === "asc" ? "ascending" : "descending") : undefined}
-                                            style={{ display: "flex", alignItems: "center", height: "32px", borderColor, ...phonePlace(header.id) }}>
+                                            style={{ borderColor, ...phonePlace(header.id) }}>
                                             <chakra.button type="button" css={tableCustomSlots.phoneHeaderSort} disabled={!canSort}
                                                 data-align={header.column.columnDef.meta?.numeric ? "end" : undefined}
                                                 onClick={() => header.column.toggleSorting(undefined, false)}>
