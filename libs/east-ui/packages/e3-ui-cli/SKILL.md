@@ -307,7 +307,7 @@ e3-ui shots src --out .shots --html     # + standalone HTML pairs
 
 # Data-bound e3-ui example (Data.bind / Record.bind) — the sweep SKIPS these as
 # workspace-bound; render from a deployed repo (or, in the east monorepo, the
-# seeded harness: make e3-ui-examples-html-decision/queue):
+# seeded harness: make e3-ui-examples-html-decision/decision):
 e3-ui shot --from-task main.queue --repo ./.repos -o queue.png
 
 # CI / server bootstrap (one-time, cache shared across runs)

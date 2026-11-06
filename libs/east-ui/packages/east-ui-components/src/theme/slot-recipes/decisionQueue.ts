@@ -10,10 +10,17 @@
  * entries are each builder's own recipes at the crop's sizes; this recipe never restyles them. The parts set data
  * attributes and geometry only.
  *
- *   - title / count / late: the toolbar's `Decisions`, its count chip — `count` is every count chip the queue draws,
- *     a section's and the Routine band's too, and settles from the tint to its paper as the count changes
- *     (`data-settle`, the queue keying it again at each change) — and the past-due words.
- *   - list: main's list, on `--paper-2`.
+ *   - root / main: the queue's root, a column filling its host, and the frame's main — a bounded column the list fills
+ *     and scrolls in. While a narrowing is read the cases it showed stand in, retained (`data-decision-stale` on main,
+ *     #1398 CL5): the cards', the receipts', the sections' and the Routine band's words in the third ink, every edge
+ *     its own.
+ *   - heading / title / count / late: the toolbar's first item, `Decisions` and its count chip on one line; the
+ *     count chip — `count` is every count chip the queue draws, a section's and the Routine band's too, and settles
+ *     from the tint to its paper as the count changes (`data-settle`, the queue keying it again at each change) — and
+ *     the past-due words.
+ *   - list, empty, emptyLines, emptyLine, emptyIcon: main's list, on `--paper-2`; and the box the shared empty state
+ *     stands in once a read finds nothing, at the list's top, its two lines each led by its icon.
+ *   - footer: the shared footer rail (`builder-footer.ts`), which holds the shared loading line alone.
  *   - section, sectionLabel, sectionRule, sectionTotal: a section's head, a row of the list: 12 from the list's top
  *     (`data-first`) and 16 below the row above (the section's 4 under its cards and the next one's 12 above its head),
  *     20 tall; its label in its tone (`data-tone="overdue"`), its count chip, the rule filling the row, its total.
@@ -31,7 +38,12 @@
  *     the rows below rise with no jump; its dot and verdict in the verdict's tone (`data-verdict`).
  *   - routine and its parts: the Routine band at the list's end.
  *   - chevron: Why's and the Routine band's, turned 90° while open (`data-open`).
- *   - link: Open in…, Add a note, Reset all.
+ *   - note: the note's box and the override's — the shared textarea and input — `--brand-tint` while it holds text
+ *     (`data-filled`).
+ *   - link: Add a note, Reset all.
+ *
+ * On a coarse pointer each bare button — Why's toggle, the Routine band's, a link, a receipt's Undo — is a 44px tap
+ * target by its halo (`coarseHitArea`), its size kept.
  *   - preview, previewIcon, previewShared, previewGuess: a preview's frame (`role="img"`, dashed while stale —
  *     `data-stale`) and the marks on the `elara` tokens over the attributes a builder's own entries carry in it, the
  *     words Optimise's landing reads (#1409): a proposed entry (`data-op="add|chg"`) the steady highlight Optimise's
@@ -50,7 +62,9 @@
  */
 
 import { defineSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 import { ELARA_STEADY, ELARA_STEADY_INSET } from "../elara-marks.js";
+import { builderFooter } from "./builder-footer.js";
 
 /** A label in the mono caps the queue's eyebrows, section heads and part labels share. */
 const CAPS = {
@@ -71,7 +85,7 @@ const ONE_LINE = {
 /** A figure in running text — a title's, the change's, Why's: mono, the text's own weight unless given. */
 const FIGURES = { "& [data-figure]": { fontFamily: "mono" } } satisfies SystemStyleObject;
 
-/** A bare button the queue draws in its own words — Why's toggle, the Routine band's, a link, Undo. */
+/** A bare button the queue draws in its own words — Why's toggle, the Routine band's, a link, Undo — 44px to a coarse pointer by its halo. */
 const BARE = {
     appearance: "none",
     margin: "0",
@@ -81,7 +95,11 @@ const BARE = {
     cursor: "pointer",
     outline: "none",
     _focusVisible: { boxShadow: "{shadows.focus}" },
+    ...coarseHitArea({ position: true }),
 } satisfies SystemStyleObject;
+
+/** What a part kept on screen while a narrowing is read wears (#1398, CL5): its words in the third ink, its edges its own. */
+const RETAINED = { "[data-decision-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } } satisfies SystemStyleObject;
 
 /** The 6% wash of a tone a call box stands on. */
 const wash = (tone: string) => `color-mix(in oklch, {colors.${tone}} 6%, transparent)`;
@@ -138,8 +156,9 @@ const MARKS = {
 export const decisionQueueSlotRecipe = defineSlotRecipe({
     className: "elara-decision-queue",
     slots: [
-        "title", "count", "late",
-        "list",
+        "root", "main",
+        "heading", "title", "count", "late",
+        "list", "empty", "emptyLines", "emptyLine", "emptyIcon", "footer",
         "section", "sectionLabel", "sectionRule", "sectionTotal",
         "cardRow", "card", "head",
         "eyebrow", "eyebrowIcon", "eyebrowText", "due",
@@ -152,7 +171,7 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
         "figures", "figure", "figureLabel", "figureValue", "figureSub",
         "call", "callIcon", "callBody", "callWord", "callQuestion", "callHelp", "callText",
         "why", "chevron", "toggleLabel", "whyModel", "whyText",
-        "link",
+        "note", "link",
         "actions", "actionRow",
         "panel", "panelHead", "panelTitle", "panelMeta", "overrideKinds",
         "receipt", "receiptDot", "receiptVerdict", "receiptTitle", "receiptUndo",
@@ -161,7 +180,33 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
         "preview", "previewIcon", "previewShared", "previewGuess",
     ],
     base: {
+        // The queue (§7): a column filling its host, the frame's main a bounded column the list fills.
+        root: {
+            height: "100%",
+            minHeight: "0",
+            minWidth: "0",
+            display: "flex",
+            flexDirection: "column",
+            background: "bg.surface",
+            color: "fg",
+        },
+        main: {
+            flex: "1",
+            minHeight: "0",
+            minWidth: "0",
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+            background: "bg.canvas",
+            outline: "none",
+        },
         // The toolbar (§8): the frame's 44px row holds them.
+        heading: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            minWidth: "0",
+        },
         title: {
             ...CAPS,
             ...ONE_LINE,
@@ -194,12 +239,51 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             color: "fg.danger",
             whiteSpace: "nowrap",
         },
+        // Main's list: the shared rows filling main, which scroll in it.
         list: {
-            height: "100%",
             minHeight: "0",
             background: "bg.canvas",
             scrollbarWidth: "thin",
         },
+        // Nothing waiting (§8): the shared empty state at the list's top, its two lines each led by its icon.
+        empty: {
+            flex: "1",
+            minHeight: "0",
+            display: "grid",
+            justifyItems: "center",
+            alignContent: "start",
+            background: "bg.canvas",
+            overflow: "auto",
+        },
+        emptyLines: {
+            margin: "0",
+            paddingTop: "12px",
+            paddingInline: "0",
+            paddingBottom: "0",
+            listStyle: "none",
+            display: "grid",
+            gap: "8px",
+            textAlign: "left",
+        },
+        emptyLine: {
+            display: "flex",
+            gap: "8px",
+            fontSize: "body",
+            lineHeight: "20px",
+            color: "fg.strong",
+        },
+        emptyIcon: {
+            "--fa-width": "auto",
+            flex: "none",
+            width: "14px",
+            height: "20px",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "12px",
+            color: "fg.subtle",
+        },
+        footer: builderFooter,
         section: {
             display: "flex",
             alignItems: "center",
@@ -209,6 +293,7 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             paddingInline: "12px",
             paddingTop: "16px",
             "&[data-first]": { paddingTop: "12px" },
+            ...RETAINED,
         },
         sectionLabel: {
             ...CAPS,
@@ -241,6 +326,7 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
             overflow: "clip",
             "&[data-open]": { borderColor: "fg" },
+            ...RETAINED,
         },
         head: {
             position: "sticky",
@@ -548,6 +634,8 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             display: "grid",
             gap: "4px",
+            // The answers: the shared radio group's row, wrapping where the card is narrow.
+            "& [role=radiogroup] > div": { flexWrap: "wrap", rowGap: "4px" },
         },
         callWord: {
             ...CAPS,
@@ -620,6 +708,12 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             textWrap: "pretty",
             "& [data-figure]": { fontFamily: "mono", fontWeight: "medium" },
         },
+        // The note (§8): the shared textarea — or the override's shared input — `--brand-tint` while it holds text.
+        note: {
+            display: "grid",
+            minWidth: "0",
+            "&[data-filled] :is(textarea, input)": { background: "brandTint" },
+        },
         link: {
             ...BARE,
             borderRadius: "sm",
@@ -677,10 +771,13 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             fontSize: "label.xs",
             color: "fg.subtle",
         },
+        // The reasons: the shared radio group's column, laid in two.
         overrideKinds: {
-            display: "grid",
-            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-            columnGap: "8px",
+            "& [role=radiogroup] > div": {
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                columnGap: "8px",
+            },
         },
         // The receipt (§8): what a verdict leaves where its card stood.
         receipt: {
@@ -703,6 +800,7 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             animation: "decision-receipt-in {durations.normal} {easings.out} both",
             "&[data-leaving]": { animation: "decision-receipt-out {durations.normal} {easings.out} forwards" },
             _motionReduce: { animation: "none", "&[data-leaving]": { animation: "none" } },
+            ...RETAINED,
         },
         receiptDot: {
             flex: "none",
@@ -712,7 +810,7 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             background: "fg.subtle",
             "&[data-verdict=applied]": { background: "status.pos" },
             "&[data-verdict=overridden]": { background: "status.warn" },
-            "&[data-verdict=handoff]": { background: "status.info" },
+            "&[data-verdict=handedOff]": { background: "status.info" },
         },
         receiptVerdict: {
             ...CAPS,
@@ -722,7 +820,7 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             color: "fg.muted",
             "&[data-verdict=applied]": { color: "fg.success" },
             "&[data-verdict=overridden]": { color: "fg.warning" },
-            "&[data-verdict=handoff]": { color: "fg.info" },
+            "&[data-verdict=handedOff]": { color: "fg.info" },
         },
         receiptTitle: {
             ...ONE_LINE,
@@ -749,6 +847,7 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             padding: "12px",
             paddingTop: "16px",
             "&[data-first]": { paddingTop: "12px" },
+            ...RETAINED,
         },
         routineHead: {
             display: "flex",
@@ -822,16 +921,22 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             color: "fg",
             whiteSpace: "nowrap",
         },
-        // A preview (§8, P2–P22): its frame, and the marks on the builder's own entries in it.
+        // A preview (§8, P2–P22): its frame at its target's crop height (`data-kind`), and the marks on the builder's own
+        // entries in it.
         preview: {
             position: "relative",
             boxSizing: "border-box",
+            height: "112px",
             borderWidth: "1px",
             borderStyle: "solid",
             borderColor: "border.subtle",
             borderRadius: "sm",
             background: "bg.surface",
             overflow: "hidden",
+            "&[data-kind=roster]": { height: "120px" },
+            "&[data-kind=allocation], &[data-kind=zones]": { height: "104px" },
+            "&[data-kind=record]": { height: "108px" },
+            "&[data-kind=projection]": { height: "96px" },
             "&[data-stale]": { borderStyle: "dashed", borderColor: "border.strong" },
             ...MARKS,
         },

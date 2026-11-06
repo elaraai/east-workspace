@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useState, useEffect } from "react";
+import { memo, useCallback, useMemo, useState, useEffect } from "react";
 import { RadioGroup as ChakraRadioGroup, HStack, VStack } from "@chakra-ui/react";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { RadioGroup } from "@elaraai/east-ui/internal";
@@ -11,10 +11,15 @@ import { getSomeorUndefined } from "../../utils";
 
 const radioGroupEqual = equivalentFor(RadioGroup.Types.Root);
 
+/** A RadioGroup, decoded: east-ui's `RadioGroup.Types.Root`. */
 export type RadioGroupValue = ValueTypeOf<typeof RadioGroup.Types.Root>;
 
+/** Props of {@link EastChakraRadioGroup}. */
 export interface EastChakraRadioGroupProps {
+    /** The group: its items, the one chosen, its style and what a choice calls. */
     value: RadioGroupValue;
+    /** The id of the element that names the group — a question over it, a panel's title — for a host that draws its own label. */
+    labelledBy?: string | undefined;
 }
 
 /**
@@ -22,8 +27,11 @@ export interface EastChakraRadioGroupProps {
  * primitive. The IR `value` is the currently-selected item value
  * (empty string when nothing selected). Selection updates fire the
  * East-side `onChange` with the new value.
+ *
+ * @param props - The group, and the id of what names it ({@link EastChakraRadioGroupProps})
+ * @returns The group
  */
-export const EastChakraRadioGroup = memo(function EastChakraRadioGroup({ value }: EastChakraRadioGroupProps) {
+export const EastChakraRadioGroup = memo(function EastChakraRadioGroup({ value, labelledBy }: EastChakraRadioGroupProps) {
     const style = getSomeorUndefined(value.style);
     const colorPalette = style ? getSomeorUndefined(style.colorPalette)?.type : undefined;
     const size = style ? getSomeorUndefined(style.size)?.type : undefined;
@@ -33,7 +41,7 @@ export const EastChakraRadioGroup = memo(function EastChakraRadioGroup({ value }
     const fillColor = style ? getSomeorUndefined(style.fillColor) : undefined;
     const borderColor = style ? getSomeorUndefined(style.borderColor) : undefined;
 
-    const onChangeFn = getSomeorUndefined(value.onChange);
+    const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
     const groupDisabled = getSomeorUndefined(value.disabled);
     const required = getSomeorUndefined(value.required);
     const name = getSomeorUndefined(value.name);
@@ -59,6 +67,7 @@ export const EastChakraRadioGroup = memo(function EastChakraRadioGroup({ value }
             required={required}
             name={name}
             orientation={orientation}
+            aria-labelledby={labelledBy}
         >
             <Stack gap="3" align={orientation === "vertical" ? "start" : undefined}>
                 {value.items.map((item) => {
@@ -90,4 +99,4 @@ export const EastChakraRadioGroup = memo(function EastChakraRadioGroup({ value }
             </Stack>
         </ChakraRadioGroup.Root>
     );
-}, (prev, next) => radioGroupEqual(prev.value, next.value));
+}, (prev, next) => radioGroupEqual(prev.value, next.value) && prev.labelledBy === next.labelledBy);
