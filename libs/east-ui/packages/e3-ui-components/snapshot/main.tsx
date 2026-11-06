@@ -8,7 +8,7 @@
  * `e3-ui/test/*.examples.ts` via `import.meta.glob`, then hands rendering
  * to the shared {@link mountSnapshot} harness with a `prepare` step that
  * seeds an in-memory reactive-dataset cache from each example's `e3.input`
- * defaults (so `Data.bind(...)` reads resolve offline).
+ * initial values (so `Data.bind(...)` reads resolve offline).
  *
  * @packageDocumentation
  */
@@ -27,7 +27,11 @@ import type { TreePath } from '@elaraai/e3-types';
 // `@elaraai/e3-types` (TreePath) rather than the full `@elaraai/e3` SDK — whose
 // real def-types (DatasetDef/FunctionDef/RecordDef/MutationDef) additionally carry
 // a `Runner` the snapshot never inspects.
-type DatasetDef = { kind: 'dataset'; path: TreePath; type: EastType; default?: unknown };
+type DatasetDef = {
+    kind: 'dataset'; path: TreePath; type: EastType; default?: unknown;
+    /** `e3.input`'s initial value: `value` inline, or a `file` on the deploying machine. */
+    source?: { type: 'value'; value: unknown } | { type: 'file'; value: string };
+};
 type FunctionDef = { kind: 'function'; name: string; inputs: readonly DatasetDef[]; argTypes: readonly EastType[]; outputType: EastType; body: unknown };
 type RecordDef = { recordKind: 'record'; name: string; type: EastType; default?: unknown };
 type MutationDef = { kind: 'mutation'; name: string; argTypes: readonly EastType[]; body: unknown; record: { name: string } };
@@ -47,11 +51,21 @@ import { mountSnapshot } from '../../../scripts/snapshot-app.tsx';
 
 const WORKSPACE = 'snapshot';
 
-/** An export is a seedable input iff it's a `DatasetDef` with a default. */
-function isSeedableInput(x: unknown): x is DatasetDef & { default: NonNullable<DatasetDef['default']> } {
+/**
+ * A dataset's initial value, as the package carries it: an `e3.input`'s
+ * `value` source, or a record's `default`. A `file` source's bytes are on the
+ * deploying machine, so it has none here, and neither has an unassigned input.
+ */
+function initialOf(dataset: DatasetDef): { value: unknown } | undefined {
+    if (dataset.source?.type === 'value') return { value: dataset.source.value };
+    return dataset.default !== undefined ? { value: dataset.default } : undefined;
+}
+
+/** An export is a seedable input iff it's a `DatasetDef` with an initial value. */
+function isSeedableInput(x: unknown): x is DatasetDef {
     return typeof x === 'object' && x !== null
         && (x as DatasetDef).kind === 'dataset'
-        && (x as DatasetDef).default !== undefined;
+        && initialOf(x as DatasetDef) !== undefined;
 }
 
 /** An export is a seedable function iff it's an `e3.function` def. */
@@ -78,12 +92,12 @@ function seedFunctions(mod: Record<string, unknown>): InMemoryFunctionDef[] {
             compile?: (p: never[]) => (...a: unknown[]) => unknown;
             compileAsync?: (p: never[]) => (...a: unknown[]) => Promise<unknown>;
         };
-        const unseeded = value.inputs.find(input => input.default === undefined);
-        if (unseeded !== undefined) {
+        const initials = value.inputs.map(initialOf);
+        if (initials.some(initial => initial === undefined)) {
             console.warn(`[snapshot] function "${value.name}" reads an input with no initial value, and is left out`);
             continue;
         }
-        const seeded = value.inputs.map(input => input.default);
+        const seeded = initials.map(initial => initial!.value);
         try {
             const compiled = typeof body.compile === 'function' ? body.compile([]) : body.compileAsync!([]);
             const fn = (...args: unknown[]) => compiled(...seeded, ...args);
@@ -143,7 +157,7 @@ async function seedCache(mod: Record<string, unknown>): Promise<void> {
     const inputPaths: TreePath[] = [];
     for (const value of Object.values(mod)) {
         if (!isSeedableInput(value)) continue;
-        seed.set(datasetCacheKey(WORKSPACE, value.path), encodeBeast2For(value.type)(value.default as never));
+        seed.set(datasetCacheKey(WORKSPACE, value.path), encodeBeast2For(value.type)(initialOf(value)!.value as never));
         inputPaths.push(value.path);
     }
 
