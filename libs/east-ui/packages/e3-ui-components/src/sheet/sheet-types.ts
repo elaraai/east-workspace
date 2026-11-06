@@ -166,6 +166,11 @@ export type SheetNotice =
     | { id: "keyTaken"; key: string }
     /** The app's `newKey` threw (#1536): why — the gesture drafted nothing. */
     | { id: "keyFailed"; reason: string }
+    /**
+     * A new entry the app's `newRow` or `newGroup` left a required field of empty, one no person can set (#1536): what
+     * it would have been, the host's word for a group, and the field as the sheet labels it — the gesture drafted nothing.
+     */
+    | { id: "cantAdd"; what: "row" | "line" | "group"; noun: string | undefined; label: string }
     | { id: "text"; text: string };
 
 /** All ephemeral UI state — one object, one reducer. */

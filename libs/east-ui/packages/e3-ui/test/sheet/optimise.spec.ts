@@ -46,10 +46,13 @@ function refusal(build: ($: BlockBuilder<NullType>) => unknown): string {
     }
 }
 
-/** A sheet over the work orders' record, with the props given beside its rows and columns. */
+/**
+ * A sheet over the work orders' record, with the props given beside its rows and columns. It adds no orders: a new
+ * one's status and quantity, which no column shows, would have nothing to set them.
+ */
 function overRecord($: BlockBuilder<NullType>, change: Readonly<Record<string, unknown>> = {}): unknown {
     const orders = $.let(Record.bind(ex.optimiseWorkOrders));
-    return Sheet.Payload({ record: orders, columns: COLUMNS, ...change } as never);
+    return Sheet.Payload({ record: orders, columns: COLUMNS, edits: { insertRows: false }, ...change } as never);
 }
 /** A sheet over the orders as an array, identified by their reference, with the props given beside them. */
 function overData($: BlockBuilder<NullType>, change: Readonly<Record<string, unknown>> = {}): unknown {

@@ -463,6 +463,8 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
         throw new Error("Sheet: `views` is a bind handle — State.bind keeps them per viewer, Data.bind shares them — and the sheet writes every change to them through it; it takes no `onViewsChange`");
     }
     const viewOptions = views === undefined ? {} : viewsOf(views);
+    // The inspector's hints, which the root reads for what its form lets a person set on a new entry (#1536).
+    const forms = inspector === undefined ? {} : { inspector: { fields, groupFields } };
     // The `rows` source's rows are the sheet's (#1345): paged from it, its record's keys their ids.
     const pagesRows = sources.names.includes("rows");
     if (pagesRows) {
@@ -502,7 +504,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             // The rows source's record, every row in its own order (#1349) — the renderer draws the source's narrowing
             // over them as the lens — and its record's identity, which names the session over them.
             const part = bound.parts["rows"] as unknown as RecordRowsPart;
-            const built = createSheetBuild(recordRowsOf(part), columns, { ...sheet, ...viewOptions }, { sourceId: part.sourceId, slice: sources.chrome, hold, ...recordKinds });
+            const built = createSheetBuild(recordRowsOf(part), columns, { ...sheet, ...viewOptions }, { sourceId: part.sourceId, slice: sources.chrome, hold, ...recordKinds, ...forms });
             return payloadOf(built, {
                 ...parts, id: sheet.id as string | undefined,
                 history: East.value(none, OptionType(SheetHistoryType)),
@@ -510,7 +512,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             });
         }
         if (record === undefined) {
-            const built = createSheetBuild(data, columns, { ...sheet, ...viewOptions }, { slice: sources.chrome, hold, ...recordKinds });
+            const built = createSheetBuild(data, columns, { ...sheet, ...viewOptions }, { slice: sources.chrome, hold, ...recordKinds, ...forms });
             return payloadOf(built, {
                 ...parts, id: sheet.id as string | undefined,
                 history: East.value(none, OptionType(SheetHistoryType)),
@@ -527,7 +529,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             ...rows.options,
             ...viewOptions,
             ...(readOnly === undefined ? {} : { readOnly }),
-        }, { ...rows.internal, slice: sources.chrome, hold, ...recordKinds });
+        }, { ...rows.internal, slice: sources.chrome, hold, ...recordKinds, ...forms });
         const history = (record as { history: ExprType<SheetHistoryType> }).history;
         return payloadOf(built, {
             ...parts, id: rows.options.id,

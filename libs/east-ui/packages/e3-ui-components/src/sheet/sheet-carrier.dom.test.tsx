@@ -131,7 +131,8 @@ const EDITED = East.compile(East.function([], UIComponentType, (_$) =>
         const tick = $.let(State.bind([IntegerType], TICK_KEY, 0n));
         $(tick.read());
         const data = $.const(State.bind([Jobs], JOBS_KEY, JOBS));
-        return Sheet({ data, columns: { qty: Sheet.column.integer(Job, { header: "Qty" }) }, id: "id", onUpdate: data.write });
+        // No column sets a job's task (#1536): the sheet edits the jobs, and adds none.
+        return Sheet({ data, columns: { qty: Sheet.column.integer(Job, { header: "Qty" }) }, id: "id", onUpdate: data.write, edits: { insertRows: false } });
     })),
 ), getRegisteredPlatformImplementations());
 

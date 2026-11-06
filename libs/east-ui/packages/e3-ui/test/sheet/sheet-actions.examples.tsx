@@ -143,6 +143,8 @@ export const sheetActionsWorkOrders = example({
                     <Sheet
                         slice={{ slice }}
                         name="sheetActionsWorkOrders"
+                        // The orders and their steps come from planning: this sheet takes their actions, and adds neither.
+                        edits={{ insertRows: false, insertGroups: false }}
                         group={Sheet.group(WorkOrder, "steps", {
                             title: "name", sub: o => o.id, noun: { singular: "order", plural: "orders" },
                             // The order's status on its band, under the Action column; the actions write it.
@@ -270,6 +272,8 @@ export const sheetActionsTickets = example({
                     <Sheet
                         record={tickets}
                         name="sheetActionsTickets"
+                        // The tickets come from the maintenance log: this sheet takes their actions, and adds none.
+                        edits={{ insertRows: false }}
                         registers={{ crews: Sheet.register.members(crewList, { kind: "crew", key: (_c, k) => k, label: c => c.name }) }}
                         columns={{
                             title: Sheet.column.text(Ticket, { header: "Ticket", width: "220px" }),
@@ -373,6 +377,8 @@ export const sheetActionsPhone = example({
                     <Sheet
                         slice={{ slice }}
                         name="sheetActionsPhone"
+                        // The orders and their steps come from planning: this sheet takes their actions, and adds neither.
+                        edits={{ insertRows: false, insertGroups: false }}
                         group={Sheet.group(WorkOrder, "steps", {
                             title: "name", sub: o => o.id, noun: { singular: "order", plural: "orders" },
                             // The order's status on its band, under the Action column; the actions write it, and a status card sets it.
@@ -479,6 +485,8 @@ export const sheetActionsPinned = example({
                     <Sheet
                         record={tickets}
                         name="sheetActionsPinned"
+                        // The tickets come from the maintenance log: this sheet adds none.
+                        edits={{ insertRows: false }}
                         narrow={{ pin: "title", columns: 1 }}
                         registers={{ crews: Sheet.register.members(crewList, { kind: "crew", key: (_c, k) => k, label: c => c.name }) }}
                         columns={{

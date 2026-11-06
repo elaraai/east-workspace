@@ -298,6 +298,8 @@ export const recordEveryKind = example({
                         record={records}
                         title="Operators"
                         noun={{ singular: "operator", plural: "operators" }}
+                        // The operators and their badges come from the Gatehouse: this Record edits them, and adds none.
+                        edits={{ insertRows: false }}
                         registers={{
                             statuses:     Record.register.members(statuses, { kind: "status", key: s => s.key, label: s => s.label, tone: s => some(s.tone) }),
                             roles:        Record.register.members(roles, { kind: "role", key: r => r, label: r => r }),

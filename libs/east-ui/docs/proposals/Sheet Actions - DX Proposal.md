@@ -305,6 +305,8 @@ const sheet = East.function([], UIComponentType, (_$) => (
             <Box height="560px">
                 <Sheet
                     slice={{ slice }}
+                    // The orders and their steps come from planning: this sheet takes their actions, and adds neither.
+                    edits={{ insertRows: false, insertGroups: false }}
                     group={Sheet.group(WorkOrder, "steps", {
                         title: "name", sub: o => o.id, noun: { singular: "order", plural: "orders" },
                         // The order's status on its band, under the Action column; the actions write it.
@@ -391,6 +393,8 @@ Walking the mock with this declaration:
 
 Taking **Complete** on WO-1042 step 20 at 14:02: its `updates` writes Good 24 (it was empty, so Plan) and Done 14:02 on the step, and `in_progress` on the order (step 30 is not finished). The strip previewed it as `Sets Good 24 · Done 14:02`. Step 30 now offers Start in the same frame (T2). ⌘Z takes all of it back. **Alert…** with High chosen previews `Sets WO-1042 On hold` in the form's foot (F8); ⏎ with What changed empty refuses (F9).
 
+A step's name, read only here, and an order's status, which only the actions write, are planning's: no person can set them on a new step or order. The build would refuse Add with no `newRow` and `newGroup` to give them, so this sheet adds neither (`edits`).
+
 ### Example 3 — a flat sheet: a date form and a register menu
 
 Maintenance tickets. A ticket is acknowledged, deferred until a date, handed over to another crew, or closed. Deferring moves the ticket's due date; handing over moves its crew.
@@ -416,6 +420,8 @@ const sheet = East.function([], UIComponentType, (_$) => (
             <Box height="420px">
                 <Sheet
                     record={tickets}
+                    // The tickets come from the maintenance log: this sheet takes their actions, and adds none.
+                    edits={{ insertRows: false }}
                     registers={{ crews: Sheet.register.members(crews.read(), { kind: "crew", key: (_c, k) => k, label: c => c.name }) }}
                     columns={{
                         title:  Sheet.column.text(Ticket, { header: "Ticket", width: "220px" }),
@@ -447,7 +453,7 @@ const sheet = East.function([], UIComponentType, (_$) => (
 ));
 ```
 
-**Defer…** opens a form with the date field `Until`, at tomorrow (F10); its foot reads `Sets Due 04 Nov 26`. **Hand over ▾** opens a menu titled `Hand over · crews` listing the crews by label. With `applyMode="auto"` each action saves as it is taken, its dot pulsing until the save lands (T5).
+**Defer…** opens a form with the date field `Until`, at tomorrow (F10); its foot reads `Sets Due 04 Nov 26`. **Hand over ▾** opens a menu titled `Hand over · crews` listing the crews by label. With `applyMode="auto"` each action saves as it is taken, its dot pulsing until the save lands (T5). The crew is set only by Hand over, so a new ticket would have none, and the sheet adds no tickets.
 
 ### Example 4 — read only
 

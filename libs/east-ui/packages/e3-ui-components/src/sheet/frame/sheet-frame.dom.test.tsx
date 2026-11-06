@@ -42,7 +42,9 @@ const jobsPayload = East.function([], SheetPayloadType, ($) => {
 });
 const missingWeek = East.function([], SheetPayloadType, ($) => {
     const plans = $.let(Record.bind(ex.sheetWeekPlans, ["patch"]));
-    return Sheet.Payload({ record: plans, entry: { key: "2026-W50", rows: "rows", id: "id" }, columns: { task: Sheet.column.text(ex.WeekRow, { header: "Task" }) } });
+    // No column sets a row's site (#1536): the sheet adds no rows.
+    return Sheet.Payload({ record: plans, entry: { key: "2026-W50", rows: "rows", id: "id" }, columns: { task: Sheet.column.text(ex.WeekRow, { header: "Task" }) },
+        edits: { insertRows: false } });
 });
 
 /** The jobs as e3 holds them now. */

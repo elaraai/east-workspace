@@ -16,6 +16,7 @@ import { useSheetEditing } from "./use-editing.js";
 import type { SheetCellValue, SheetEditValue, SheetRootValue, SheetRowValue } from "./values.js";
 
 afterEach(cleanup);
+// No column sets a row's `hidden` (#1536): the sheets over it edit their rows, and add none.
 const Row = StructType({ id: StringType, qty: IntegerType, hidden: ArrayType(StringType) });
 const Rows = ArrayType(Row);
 const rows = [{ id: "a", qty: 1n, hidden: ["keep"] }, { id: "b", qty: 2n, hidden: [] }];
@@ -39,7 +40,7 @@ const ROWS_REFRESH = East.function([OptionType(StringType)], NullType, () => nul
 const PINNED_ROWS = { id: "delete-source", page: ROWS_PAGE, total: ROWS_TOTAL, seek: none, revision: ROWS_REVISION, refresh: ROWS_REFRESH };
 const renderView = East.function([], Sheet.Types.Root, ($) => {
     const data = $.const(State.bind([ArrayType(Row)], "sheet-live-test", rows));
-    return Sheet.Root(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write });
+    return Sheet.Root(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write, edits: { insertRows: false } });
 }).toIR().compile(StateImpl);
 function view(): SheetRootValue {
     return renderView();
@@ -120,7 +121,8 @@ test("a child edit after applied reorder preserves the new first child's hidden 
     const Group = StructType({ id: StringType, name: StringType, rows: ArrayType(Child) });
     const renderGroup = East.function([], Sheet.Types.Root, ($) => {
         const data = $.const(State.bind([ArrayType(Group)], "sheet-child-echo", [{ id: "g", name: "Group", rows: [{ qty: 1n, hidden: "alpha" }, { qty: 1n, hidden: "beta" }] }]));
-        return Sheet.Root(data, { qty: Sheet.column.integer(Child) }, { id: "id", group: Sheet.group(Group, "rows", { title: "name" }), onUpdate: data.write });
+        // No column sets a line's `hidden`: the sheet adds no lines.
+        return Sheet.Root(data, { qty: Sheet.column.integer(Child) }, { id: "id", group: Sheet.group(Group, "rows", { title: "name" }), onUpdate: data.write, edits: { insertRows: false } });
     }).toIR().compile(StateImpl);
     const groupView = () => renderGroup();
     const initial = groupView();
@@ -151,7 +153,7 @@ test("paged deletion retires only once read past the revision it was drafted at,
     let loaded = true;
     const compile = East.function([], Sheet.Types.Root, ($) => {
         const source = $.const(PINNED_ROWS, Paged.Types.PinnedSource(Rows));
-        return Sheet.Root(source, { qty: Sheet.column.integer(Row) }, { id: "id", onApply: East.function([Sheet.Types.ChangeSet(Row)], Sheet.Types.ApplyResult, () => variant("conflict", [])) });
+        return Sheet.Root(source, { qty: Sheet.column.integer(Row) }, { id: "id", onApply: East.function([Sheet.Types.ChangeSet(Row)], Sheet.Types.ApplyResult, () => variant("conflict", [])), edits: { insertRows: false } });
     }).toIR().compile([]);
     const root = compile();
     if (root.rows.type !== "pinned") throw new Error("Expected a pinned Sheet");

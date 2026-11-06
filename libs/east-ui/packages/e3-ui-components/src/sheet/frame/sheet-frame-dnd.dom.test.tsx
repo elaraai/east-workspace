@@ -19,7 +19,7 @@
 
 import { test, expect } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
-import { East, StringType, equalFor, none, some } from "@elaraai/east";
+import { East, StringType, equalFor, none, some, variant } from "@elaraai/east";
 import { Data, Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { announced, layOut, pointAt, stubScrollIntoView } from "@elaraai/east-ui-components/testing";
@@ -51,6 +51,10 @@ const weekSheet = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
             name: (t) => t.name, values: (t) => Sheet.patch(ex.WeekRow, { task: t.task, start: none, qty: some(24.0) }), source: "rowTemplates",
         }),
         library: [Sheet.library.rows()],
+        // What no column sets, a new row takes from the app, as the week's example gives it (#1536).
+        newRow: East.function([Sheet.Types.NewRow], Sheet.Types.Patch(ex.WeekRow), () => Sheet.patch(ex.WeekRow, {
+            setups: none, site: "", status: "PLANNED", code: "", level: variant("day", null), started: none, machines: { from: [], to: [] },
+        })),
     });
 }))) };
 
@@ -87,6 +91,8 @@ const batchesMovingWithin = East.function([], SheetPayloadType, ($) => {
         group: Sheet.group(ex.Batch, "steps", { title: "name", noun: { singular: "batch", plural: "batches" } }),
         columns: { task: Sheet.column.text(ex.BatchStep, { header: "Step" }), qty: Sheet.column.quantity(ex.BatchStep, { header: "Qty" }) },
         library: [Sheet.library.rows()],
+        // A new step's parts and bookings, which no column sets, are the app's, as the batches' example gives them (#1536).
+        newRow: East.function([Sheet.Types.NewRow], Sheet.Types.Patch(ex.BatchStep), () => Sheet.patch(ex.BatchStep, { qty: none, parts: [], bookings: [] })),
         edits: { moveRows: "within" },
     });
 });

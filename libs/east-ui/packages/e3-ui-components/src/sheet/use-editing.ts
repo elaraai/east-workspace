@@ -20,7 +20,7 @@ import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useEditSession } from "@elaraai/east-ui-components";
 import { normalizeDraft, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
 import { authorReadiness } from "./readiness.js";
-import { prepareCreation } from "./creation.js";
+import { SheetRefused, prepareCreation, unsetField } from "./creation.js";
 import type { EntryVersion, EntryUpdate, Origin, Placement, SheetTransactions } from "./transactions.js";
 import type { SheetEditValue, SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
@@ -75,7 +75,9 @@ export interface SheetEditingResult {
      * entry), and the seeds its new entries take, into one transaction.
      * Answers whether the session recorded it. A gesture that names itself — an action taken (#1477), `Mark Done` —
      * gives its `label`; else the label is the origin's. A gesture that `joins` the last one — recorded with the same
-     * key — is one step with it (a phone's cell editor, `Mobile Sheet Spec.md` SH10.1).
+     * key — is one step with it (a phone's cell editor, `Mobile Sheet Spec.md` SH10.1). A gesture with a new entry, or
+     * a new line, the app left a field of empty that no person can set (#1536) throws {@link SheetRefused}, and nothing
+     * is drafted.
      */
     record: (events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds, label?: string, joins?: string) => boolean;
     /**
@@ -112,9 +114,10 @@ export interface SheetEditingResult {
  * @param retained - Displayed rows stand in while a key's far jump is read (#1398, CL10): the source's own rows, which
  *   the session still holds, but they take no gesture until the jump's rows replace them
  * @param mint - On a sheet with loose rows between its groups (#846), mints a new line's id field — the field a loose row is identified by
+ * @param noun - The host's word for a group: what a refused new group is called (#1536)
  * @returns The session, its layer and gesture recorder, the drafts, and whether editing is available
  */
-export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string, recordSlice?: ValueTypeOf<RecordSliceBindType>, replacing = false, retained = false): SheetEditingResult {
+export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string, recordSlice?: ValueTypeOf<RecordSliceBindType>, replacing = false, retained = false, noun?: string): SheetEditingResult {
     const currentRows = replacing ? NO_ROWS : rows;
     const currentPositions = replacing ? NO_POSITIONS : positions;
     const editing = useMemo(() => recordSlice === undefined ? declared : { ...declared, sourceId: recordSlice.sourceId }, [declared, recordSlice]);
@@ -180,11 +183,17 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             if (current.draft === undefined) continue;
             updates.set(id, { id, before, after: edit(current) });
         }
+        // A new entry, or a new line, the app left a field of empty — one no person can set — is never drafted (#1536):
+        // the whole gesture is refused, and the footer names the field.
+        for (const { before, after } of updates.values()) {
+            const unset = unsetField(before, after, editing, draftType);
+            if (unset !== undefined) throw new SheetRefused({ id: "cantAdd", ...unset, noun });
+        }
         const gestureOrigin = originOverride ?? origin;
         const label = named !== undefined ? named : gestureOrigin === "insert" ? "Insert row" : gestureOrigin === "drop" ? "Drop" : gestureOrigin === "move" ? "Move"
             : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : events.length === 0 ? "Edit fields" : "Edit cells";
         return session.record([...updates.values()], gestureOrigin, label, joins);
-    }, [session, observed, original, codecs, editing, draftType, mint, replacing, retained]);
+    }, [session, observed, original, codecs, editing, draftType, mint, replacing, retained, noun]);
     const recordVersions = useCallback((updates: readonly EntryUpdate[], origin: Origin, label: string): boolean => {
         if (replacing || updates.length === 0 || !observed || !session.writable) return false;
         session.observeBase(observed.base);

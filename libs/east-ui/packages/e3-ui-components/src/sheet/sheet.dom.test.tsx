@@ -814,6 +814,8 @@ const heldProgram = East.function([HeldSource], SheetPayloadType, ($, held) => {
             status: Sheet.column.text(JobType, { header: "Status", fill: [codeAbove] }),
         },
         id: "id", blanks: 2, ready: { row: codeAboveKept },
+        // A job's code is the ERP's, and no column sets it (#1536): a new job takes it from the app, blank until the ERP gives one.
+        newRow: East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, { code: "" })),
         onApply: East.function([Sheet.Types.ChangeSet(JobType)], Sheet.Types.ApplyResult, () => variant("conflict", [])),
     });
 });
