@@ -651,3 +651,19 @@ Each wire changed under this rule, with the kind it is.
   the new type. A UI task's output is not stored state, and the details are
   the app's own records, read only, so no repository upgrade step ships with
   it.
+- **e3-ui's `Sheet` takes a system of records' column kinds, and a new entry's
+  key from the app** — package-borne. `Sheet.Types.ColumnKind` gains `title`,
+  `person`, `boolean`, `toggle`, `cycle`, `age` and `audit`, the kinds e3-ui's
+  `<Record>` builds its grid from and `<Sheet>` refuses at build, and its
+  `quantity` arm gains `unit`, after `uom`: one unit for every row. A variant
+  encodes its case by its index among its cases, which are sorted by name, so
+  every case after `action` moves down. The root (`Sheet.Types.Root`) trades
+  `newRowId`, which took nothing and returned a key's text, for `newKey`, an
+  East function from the keys taken, each as its text, to a new one
+  (`Option<Function([Set<String>], String)>`); with none, the renderer mints a
+  UUID. A UI value encoded under either type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. A UI task's output is not stored state, so no
+  repository upgrade step ships with it. The `Record` extension and
+  `Record.Types.Change`, the last change a row's field holds for an audit
+  column, are new: no earlier release wrote either, so no form of them moves.

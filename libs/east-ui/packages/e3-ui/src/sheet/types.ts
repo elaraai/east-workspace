@@ -41,6 +41,7 @@ import {
     IntegerType,
     NullType,
     OptionType,
+    SetType,
     StringType,
     StructType,
     VariantType,
@@ -1229,7 +1230,7 @@ export type SheetNarrowType = typeof SheetNarrowType;
  * @property onViewsChange - Views changed (snapshot, rename, reorder, close)
  * @property onSelect - The ring moved
  * @property selection - Controlled selection when `some`
- * @property newRowId - Overrides the renderer's id minting for inserted rows
+ * @property newKey - A new entry's key from the keys taken, each as its text — the app's `newKey`, a key that is no String read and printed by the factory; `none`, a UUID the renderer mints
  * @property group - The group declaration (#740); `none` on a flat sheet
  * @property readOnly - The whole sheet is read-only
  * @property blanks - Padding rows below the last real one (default 18)
@@ -1251,7 +1252,7 @@ export const SheetRootType = StructType({
     onViewsChange: OptionType(FunctionType([ArrayType(SheetRecordViewType)], NullType)),
     onSelect:      OptionType(FunctionType([SheetSelectionType], NullType)),
     selection:     OptionType(SheetSelectionType),
-    newRowId:      OptionType(FunctionType([], StringType)),
+    newKey:        OptionType(FunctionType([SetType(StringType)], StringType)),
     group:         OptionType(SheetGroupType),
     readOnly:      OptionType(BooleanType),
     blanks:        OptionType(IntegerType),

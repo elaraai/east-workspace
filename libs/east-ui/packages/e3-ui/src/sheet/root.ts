@@ -30,6 +30,7 @@ import {
     IntegerType,
     NullType,
     OptionType,
+    SetType,
     StringType,
     StructType,
     isTypeEqual,
@@ -180,6 +181,7 @@ export interface SheetReadyInput<R extends StructType, G extends EastType = neve
  * narrowing, its views and its name.
  *
  * @typeParam R - The host's row type
+ * @typeParam K - The rows' key type: a record's own, else `String` — the keys `newKey` takes and gives
  * @property id - The `String` field that identifies a row of `data` (required on a positional source; a keyed paged source's key is its id)
  * @property owned - Rows the upstream system owns: no copilot, stamped columns read-only — an accessor
  * @property driver - The driver declaration (`Sheet.driver`)
@@ -189,7 +191,7 @@ export interface SheetReadyInput<R extends StructType, G extends EastType = neve
  * @property onUpdate - The whole collection with the edit applied (inline arm only)
  * @property onSelect - The ring moved
  * @property selection - Controlled selection (§3.14)
- * @property newRowId - Overrides the renderer's id minting for inserted rows
+ * @property newKey - A new row's key, the app's: given the keys taken, one that is not
  * @property group - Never on a flat sheet — grouped rows take {@link SheetGroupedOptions}
  * @property subRows - Read-only sub rows under each row, from its array fields (`Sheet.subRows`, #844)
  * @property readOnly - The whole sheet is read-only
@@ -199,7 +201,7 @@ export interface SheetReadyInput<R extends StructType, G extends EastType = neve
  * @property style - The gutter width
  * @property narrow - On a phone: any column it pins at the left, and how many it shows at once ({@link SheetNarrowInput})
  */
-export interface SheetOptions<R extends StructType> {
+export interface SheetOptions<R extends StructType, K extends EastType = StringType> {
     /** Structural capabilities; defaults depend on grouping and source ordering. */
     edits?: SheetEditsInput;
     /** The `String` field that identifies a row. */
@@ -231,8 +233,11 @@ export interface SheetOptions<R extends StructType> {
     ready?: SheetReadyInput<R>;
     /** Explicit defaults for new rows, including required fields without columns. */
     newRow?: SubtypeExprOrValue<FunctionType<[typeof SheetNewRowType], SheetPatchOf<R>>>;
-    /** Overrides the renderer's id minting for inserted rows. */
-    newRowId?: SubtypeExprOrValue<FunctionType<[], StringType>>;
+    /**
+     * A new row's key, in the app's own scheme: given the keys taken — every key the sheet has read, and every one its
+     * batch has drafted — one that is not. Without it a String key is a UUID; any other key needs it.
+     */
+    newKey?: SubtypeExprOrValue<FunctionType<[SetType<K>], K>>;
     /** Never on a flat sheet — grouped rows take {@link SheetGroupedOptions}. */
     group?: never;
     /** Read-only sub rows under each row, from its array fields. */
@@ -278,7 +283,7 @@ export interface SheetNarrowInput<K extends string = string> {
 }
 
 /** A secondary-index view edits by original primary identity. */
-export interface SheetIndexedOptions<K extends EastType, R extends StructType> extends Omit<SheetOptions<R>, "onApply"> {
+export interface SheetIndexedOptions<K extends EastType, R extends StructType> extends Omit<SheetOptions<R, K>, "onApply"> {
     /** Checked keyed batch, usually Record.onApply(record, { keyed: true }). */
     onApply?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R, K>>], typeof SheetApplyResultType>>
         | SubtypeExprOrValue<AsyncFunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R, K>>], typeof SheetApplyResultType>>;
@@ -292,12 +297,14 @@ export interface SheetIndexedOptions<K extends EastType, R extends StructType> e
  *
  * @typeParam P - The group's row type
  * @typeParam F - The lines field
+ * @typeParam K - The groups' key type: a record's own, else `String` — the keys `newKey` takes and gives
  * @property group - The group declaration (`Sheet.group`)
  * @property suggest - The row-proposal declaration, over the LINE type
  * @property onUpdate - The whole collection of groups with the edit applied (inline arm only)
  * @property subRows - Read-only sub rows under each LINE, declared over the line type (#844)
  */
-export interface SheetGroupedOptions<P extends StructType, F extends SheetLinesField<P>> extends Omit<SheetOptions<P>, "group" | "suggest" | "onPatch" | "newRow" | "ready" | "subRows" | "narrow"> {
+export interface SheetGroupedOptions<P extends StructType, F extends SheetLinesField<P>, K extends EastType = StringType>
+    extends Omit<SheetOptions<P, K>, "group" | "suggest" | "onPatch" | "newRow" | "ready" | "subRows" | "narrow"> {
     /** On a phone: any line column it pins at the left, and how many it shows at once. */
     narrow?: SheetNarrowInput<SheetFieldKey<SheetLineOf<P, F>>>;
     /** Additional row and group requirements over complete field drafts. */
@@ -782,13 +789,34 @@ function buildSheet(
     }
     const keyed = collectionTag === "Dict" && (resolved.kind === "paged" || keyOrdered);
     const keyType = keyed ? resolved.keyType : undefined;
-    // A new row's key is minted as text, which only a String key is (#1182).
-    if (keyType !== undefined && keyType.type !== "String" && opts.newRowId === undefined && opts.edits?.insertRows !== false) {
+    // Whether the sheet adds entries of a kind: it writes somewhere, the author has not made it read only, and its edits
+    // insert them.
+    const writes = opts.onApply !== undefined || opts.onUpdate !== undefined || internal.applyKeyed !== undefined;
+    const adds = (what: "insertRows" | "insertGroups"): boolean => writes && opts.readOnly !== true && opts.edits?.[what] !== false;
+    // A new entry — a row, or a group, never a group's line, keyed within it — takes the source's key: the app's, from
+    // `newKey`, or a UUID the renderer mints, which only a String key is (#1182, #1536).
+    const entry = groupDecl === undefined ? "row" : "group";
+    if (keyType !== undefined && keyType.type !== "String" && opts.newKey === undefined && (groupDecl === undefined ? adds("insertRows") : adds("insertGroups"))) {
         throw new Error(
-            `Sheet: the rows are keyed by ${printType(keyType)}, and a new row's key is minted only for a String key — ` +
-            "pass `newRowId`, an East function returning a new row's key as its `.east` text, or `edits={{ insertRows: false }}`",
+            `Sheet: the ${entry}s are keyed by ${printType(keyType)}, and a new ${entry}'s key is minted only for a String key — ` +
+            `pass \`newKey\`, an East function from the keys taken to a new one, or \`edits={{ ${groupDecl === undefined ? "insertRows" : "insertGroups"}: false }}\``,
         );
     }
+    // The app's `newKey` on the wire: over the keys' text, as the rows' ids are — a String key's function as it is, any
+    // other key's read from its text and printed back, as `Record.onApply` reads an id.
+    const newKey = opts.newKey === undefined ? undefined : (() => {
+        const key = keyType ?? StringType;
+        const fn = East.value(opts.newKey as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
+        const type = Expr.type(fn as Expr<EastType>) as EastType;
+        if (type.type !== "Function" || type.inputs.length !== 1 || !isTypeEqual(type.inputs[0]!, SetType(key)) || !isTypeEqual(type.output, key)) {
+            throw new Error(`Sheet: \`newKey\` takes the keys taken and gives a new one — an East function from ${printType(SetType(key))} to ${printType(key)}`);
+        }
+        if (key.type === "String") return fn as ExprType<FunctionType<[SetType<StringType>], StringType>>;
+        return East.function([SetType(StringType)], StringType, ($, taken) => {
+            const mint = $.const(fn as ExprType<FunctionType<[SetType<EastType>], EastType>>);
+            return East.print(mint(taken.toSet((_$, id) => id.parse(key))));
+        });
+    })();
     const fields = groupType.fields as Record<string, EastType>;
     const idField = opts.id as string | undefined;
     if (!keyed && idField === undefined) {
@@ -1057,7 +1085,7 @@ function buildSheet(
             ? some(East.value(opts.onSelect, FunctionType([SheetSelectionType], NullType)))
             : none,
         selection:     opts.selection !== undefined ? East.value(opts.selection, OptionType(SheetSelectionType)) : East.value(none, OptionType(SheetSelectionType)),
-        newRowId:      opts.newRowId !== undefined ? some(East.value(opts.newRowId, FunctionType([], StringType))) : none,
+        newKey:        newKey !== undefined ? some(newKey) : none,
         group:         groupValue,
         readOnly:      opts.readOnly !== undefined ? some(opts.readOnly) : none,
         blanks:        opts.blanks !== undefined ? some(typeof opts.blanks === "number" ? BigInt(opts.blanks) : opts.blanks) : none,

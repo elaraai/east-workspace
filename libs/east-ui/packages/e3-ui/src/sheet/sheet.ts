@@ -712,7 +712,7 @@ export function SheetTag<K extends EastType, P extends StructType, F extends She
         window?: unknown;
         group: SheetGroupValue<P, F>;
         columns: SheetColumnSpec<SheetLineOf<P, F>>;
-    } & SheetCommon<SheetLineOf<P, F>, P> & Omit<SheetGroupedOptions<P, F>, SheetRecordOwned | "group">,
+    } & SheetCommon<SheetLineOf<P, F>, P> & Omit<SheetGroupedOptions<P, F, K>, SheetRecordOwned | "group">,
 ): UIElement;
 /**
  * `<Sheet record={jobs} columns={{ … }} />` — the record's entries are the
@@ -724,7 +724,7 @@ export function SheetTag<K extends EastType, R extends StructType>(
         record: SheetRecordHandle<K, R>;
         window?: unknown;
         columns: SheetColumnSpec<R>;
-    } & SheetCommon<R> & Omit<SheetOptions<R>, SheetRecordOwned>,
+    } & SheetCommon<R> & Omit<SheetOptions<R, K>, SheetRecordOwned>,
 ): UIElement;
 /**
  * `<Sheet data={entries} id="id" group={Sheet.group(P, "lines", …)} columns={{ … }} />`
@@ -790,7 +790,7 @@ export function SheetTag<K extends EastType, P extends StructType, F extends She
         slice: RecordSlicesChromeOptions;
         group: SheetGroupValue<P, F>;
         columns: SheetColumnSpec<SheetLineOf<P, F>>;
-    } & SheetCommon<SheetLineOf<P, F>, P> & Omit<SheetGroupedOptions<P, F>, "group" | "onApply"> & Pick<SheetIndexedOptions<K, P>, "onApply">,
+    } & SheetCommon<SheetLineOf<P, F>, P> & Omit<SheetGroupedOptions<P, F, K>, "group" | "onApply"> & Pick<SheetIndexedOptions<K, P>, "onApply">,
 ): UIElement;
 /**
  * `<Sheet slice={{ slice }} columns={{ … }} onApply={Record.onApply(record, { keyed: true })} />`

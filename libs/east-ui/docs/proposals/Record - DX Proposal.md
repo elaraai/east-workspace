@@ -66,7 +66,7 @@ A sketch: proposed names, not code that compiles today.
 | `inspector` | `true` | The inspector pane: Details (the selected row's every field) and Issues |
 | `fields` | `{ field: Record.field.* }` | Hints for the inspector's form, the Sheet's `fields` |
 | `newRow` | `East.function([Record.Types.NewRow], Record.Types.Patch(R), …)` | A new row's values, the Sheet's `newRow`: a field it sets starts set, and a field it leaves `none` starts empty (§4, AD2). A required field no person can set comes from it (§2.7) |
-| `newKey` | `East.function([SetType(K)], K, …)` | A new record's key (`K`, the record's key type), in the app's own scheme: given the keys taken, it returns one that is not. Without it, a String key is a UUID, as every e3-ui builder mints one, and any other key needs it (§2.7) |
+| `newKey` | `East.function([SetType(K)], K, …)` | A new record's key (`K`, the record's key type), in the app's own scheme: given the keys taken, it returns one that is not. It is the Sheet's own `newKey`, which replaces its `newRowId`. Without it, a String key is a UUID, as every e3-ui builder mints one, and any other key needs it (§2.7) |
 | `edits` | `{ insertRows?, removeRows? }` | Add and Delete, and the select column with them; both on by default, off on a read-only Record |
 | `owned` | `(row) => Boolean` | Rows an upstream system owns: read only, as the Sheet's |
 | `readOnly` | `boolean` | The whole Record read only: no Add, Delete, select column, hover or editor |
@@ -196,14 +196,14 @@ A column is keyed by the field it sits on, the `<Table columns>` idiom, so a typ
 
 - A column on a field it cannot sit on; a non-field key holding anything but `age`; `age` under a field's key.
 - At build: a register a column names that `registers` does not declare; `columnGroups` naming a key that is not a column, or a group whose columns are not adjacent, or a column in two groups; `groupBy` naming no column, or an `age` or `audit` column; `title` given twice; `onApply` beside `record`; `record`, `window` and `slice`'s `rows` together; an action column without the Sheet's machine (as the Sheet checks it).
-- At build, with Add on: a record keyed by anything but a String, with no `newKey`; and a required field no person can set in this Record, with no `newRow` (§2.7).
+- At build, with Add on: a record keyed by anything but a String, with no `newKey`; and a required field no person can set in this Record, with no `newRow` (§2.7). Both are the Sheet's own checks, in its words.
 - The Sheet refuses the Record's kinds at build in this epic (§7, decision 3).
 
 ### 2.7 A new record: its key, and the fields no one can set
 
 A new record needs two things a person may have no way to give: its key, and any required field the Record shows read only or not at all. Both come from the app, and the Record never drafts a row that can't be applied.
 
-**Its key.** `newKey` is an East function from the keys taken to a new one. The keys taken are every key the Record holds, as far as it has read them, and every key the batch has drafted. It is called once per new row, at Add and at Duplicate. Without it, a String-keyed record's new entry is keyed by a UUID (`crypto.randomUUID()`, retried until it is free), as the Roster's, the Allocation's, the Plan's, the Flowchart's and the Schematic's are. A record keyed by anything else needs `newKey`, and the build says so: `Record: the record is keyed by .Integer, and a new person's key is the app's — pass newKey, or turn Add off (edits={{ insertRows: false }})`. A key `newKey` returns that is already taken drafts nothing, and the status line says `The new key 7 is taken`. A key the record holds unread (on a window, or the rail's rows) is refused at Apply by the patch door's compare-and-swap, as a conflict naming the row, and is never written over.
+**Its key.** `newKey` is an East function from the keys taken to a new one, over the record's key type. It is the Sheet's own option, and the Record passes it on: the Sheet's `newRowId`, which took nothing and returned a key's `.east` text, becomes `newKey`, typed over its rows' key (a record's `K`, else `String`) and given the keys taken. The keys taken are every key the Record holds, as far as it has read them, and every key the batch has drafted, the gesture's own among them. It is called once per new entry, at Add, at Duplicate and at a paste that adds rows; a group's lines keep their own keys within it. Without it, a String-keyed record's new entry is keyed by a UUID, retried until it is free, as the Roster's, the Allocation's, the Plan's, the Flowchart's and the Schematic's are, and the Sheet's `sheet-…` ids become UUIDs too. A page served over plain HTTP has no `crypto.randomUUID`, so there the shared minting (`mintKey`) draws the UUID from `crypto.getRandomValues`, and the Sheet adds rows on such a page as it does today. A record keyed by anything else needs `newKey`, and the build says so, in the Sheet's words: `Record: the rows are keyed by .Integer, and a new row's key is minted only for a String key — pass newKey, an East function from the keys taken to a new one, or edits={{ insertRows: false }}`. A key `newKey` returns that is already taken drafts nothing, and the status line says `The new key 7 is taken`. A key the record holds unread (on a window, or the rail's rows) is refused at Apply by the patch door's compare-and-swap, as a conflict naming the row, and is never written over.
 
 ```tsx
 // A crew record keyed by number: the lowest free number from the count up.
@@ -226,10 +226,10 @@ newKey={East.function([SetType(IntegerType)], IntegerType, ($, taken) => {
 
 Such a field can come only from `newRow`:
 
-- With Add on and no `newRow`, the build refuses the first of them, naming it and the remedies: `Record: a new person's "updated" is required, and nothing in this Record sets it — give it in newRow, make it an Option, or turn Add off (edits={{ insertRows: false }})`.
+- With Add on and no `newRow`, the build refuses the first of them, naming it and the remedies: `Record: a new row's "updated" is required, and no column or form sets it — give it in newRow, make it an Option, or edits={{ insertRows: false }}`.
 - With a `newRow` that leaves one of them empty, Add drafts nothing, and the status line says `Can't add a person — the app gives no Last updated`. Duplicate takes the source row's own values, so it has them.
 
-The check belongs to the Sheet's root, so `<Sheet>` takes it too. It refuses only what already makes a draft no one can apply.
+The check belongs to the Sheet's root, so `<Sheet>` takes it too, for every entry it adds: a row, or a line under a group, takes such a field from `newRow`, and a group from `newGroup`, which `edits={{ insertGroups: false }}` turns off. It refuses only what already makes a draft no one can apply.
 
 ### 2.8 Registers: typed by what they show, kept by their keys
 
@@ -771,7 +771,7 @@ The strip is the Sheet's: 32 tall, pad 0 16, `--paper-2`, a `--rule` over it. Th
 
 ## 5. Wire
 
-Additive. Older payloads decode unchanged: a Sheet declares none of the new kinds.
+Package-borne, as every UI payload's change is (WIRE_MIGRATION): the Sheet's column kinds gain cases, its root trades `newRowId` for `newKey`, and its editing gains `unsettable`, so a UI value encoded under either type does not decode under the other. Packages are re-exported and each UI task's output is computed again; a UI task's output is not stored state, so no repository upgrade step ships.
 
 ```text
 RecordPayloadType = {
@@ -784,7 +784,6 @@ RecordPayloadType = {
     history:      Option<() => Option<Array<RecordCommitInfo>>>,
     missing:      Option<String>,
     name:         Option<String>,
-    newKey:       Option<Function([Set<String>], String)>,   // newKey, over the keys' text
 }
 EastUI.component("Record", RecordPayloadType)
 
@@ -798,12 +797,17 @@ Sheet.Types.ColumnKind gains
                elapsed: Function([DateTime, DateTime], Integer) }   // (since, now) → whole units
     audit:   { mode: Variant{ date, blame }, absent: Option<String>, by: String, verb: String }   // the rule cells
 Sheet.Types.ColumnKind.quantity gains  unit: Option<String>        // a constant unit, beside the driver's uom
+Sheet.Types.Root trades  newRowId: Option<Function([], String)>   for
+    newKey:     Option<Function([Set<String>], String)>   // a new entry's key from the keys taken, over the keys' text
+Sheet.Types.Editing gains
+    unsettable: { row: Array<String>, group: Array<String> }   // a new row's (or line's) and a new group's required fields only the app gives
 Record.Types.Change = { at: DateTime, by: String, verb: String }
 ```
 
 - **The cells.** A title, person or cycle cell is the `String` arm; a boolean or toggle cell is `Boolean`. An age cell is its `since` as `DateTime`, or `Null`. An audit cell is its Change's `at` as `DateTime`, or `Null`, with `by` and `verb` projected into unrendered rule cells (`$by:updated`, `$verb:updated`), as a date's `actual` is. No new cell arm.
 - **The clock.** `elapsed` is compiled by the factory from `unit` (`since.durationMilliseconds(now)` over the unit's milliseconds, rounded down) and called by the renderer with the browser's clock (§2.3). Nothing else on the wire reads a clock.
-- **A new record's key.** `newKey` crosses as text, as the rows' ids do: a String key is itself, and any other key is its `.east` printing. The factory wraps the author's typed function in East, reading each taken key back with `parse` (as `Record.onApply` reads an id) and printing the key it returns. The renderer gives the Sheet's machine the minting: `newKey` with the keys taken, or else a UUID.
+- **A new entry's key.** The Sheet's `newKey` crosses as text, as the rows' ids do: a String key is itself, and any other key is its `.east` printing. The Sheet's factory wraps the author's typed function in East, reading each taken key back with `parse` (as `Record.onApply` reads an id) and printing the key it returns; a String key's function crosses as it is. The Sheet's machine mints every new entry through it, with the keys taken, or else through `mintKey`.
+- **The fields only the app gives.** `unsettable` names, for a new row or line and for a new group, each required field no editable column and no form of the inspector sets (§2.7). The build has refused it already when `newRow` or `newGroup` is absent; the shared creation path reads it to draft nothing when the app's values leave one empty.
 - **Column groups** are the Table's `TableColumnGroupType`. The inspector's sections read them.
 - **No e3 wire changes.** This is a UI task's payload, rebuilt when the package is.
 
@@ -840,8 +844,8 @@ Ruled 6 November 2026:
 6. **A column's field is editable wherever its column is.** `editable: false` makes it read only on every row; there is no "new rows only".
 7. **Nothing holds Apply unseen** (#1527). The Record is one of the builders #1527 covers. Every refusal holding Apply, a new row's empty required field or the app's `ready` refusal, is listed and reachable (AD3, IN3, IN9). Every new row the Record makes, by Add or Duplicate, takes `newRow`'s values (AD2, IN7).
 8. **The Record's grid is the Sheet's, through its host** (ruled 6 November 2026). The Sheet's machine is one hook whose grid reads its state where it builds it. Rather than lift that state into hooks for a second grid, the host hands the grid the Record's rows, header, gutter and bands, and the kinds' own gestures live in the shared input by kind.
-9. **A new record's key is the app's** (ruled 6 November 2026). `newKey` gives it. Without it a String key is a UUID, as every e3-ui builder mints one, and any other key needs `newKey` (§2.7).
-10. **No draft the Record can't apply** (ruled 6 November 2026). A required field no person can set comes from `newRow`. The build refuses one with no `newRow`, and an Add whose `newRow` leaves it empty drafts nothing. The check belongs to the Sheet's root, so the Sheet takes it too (§2.7).
+9. **A new record's key is the app's** (ruled 6 November 2026). `newKey` gives it, and it is the Sheet's own option, typed over the rows' key and given the keys taken, in place of its `newRowId`. Without it a String key is a UUID, as every e3-ui builder mints one, the Sheet's included, and any other key needs `newKey` (§2.7).
+10. **No draft the Record can't apply** (ruled 6 November 2026). A required field no person can set comes from the app. The build refuses one with no `newRow`, and an Add whose `newRow` leaves it empty drafts nothing. The check belongs to the Sheet's root, so the Sheet takes it too, for every entry: a row or a line from `newRow`, a group from `newGroup` (§2.7).
 
 Open, for review:
 
@@ -877,7 +881,7 @@ One epic, one branch (off #1481's, PR against `main`), one PR. The sub-issues:
 6. **The toolbar and footer.** The title, the status line, Add and Delete (AD1–AD7), the history bar with Issues, FT1–FT2.
 7. **The inspector.** IN1–IN9 over the Sheet's inspector, FieldForm's one-line layout (east-ui-components) and sections by column group.
 8. **Bands over the rail's rows** (§7, decision 4). The rows source read in an index's order.
-9. **#1527, with the Record among its builders** (§7, decision 7). Its sub-issues #1525 (the refusals listed and reachable) and #1526 (a new row's own fields from the app) each name the Record. For the Record that means AD3, IN3 and IN9 over the app's `ready`, and Add and Duplicate over `newRow`. It also covers a new record's key from `newKey`, and the build's refusal of a required field no one can set, with Add's runtime check beside it (§2.7, decisions 9 and 10).
+9. **#1527, with the Record among its builders** (§7, decision 7). Its sub-issues #1525 (the refusals listed and reachable) and #1526 (a new row's own fields from the app) each name the Record. For the Record that means AD3, IN3 and IN9 over the app's `ready`, and Add and Duplicate over `newRow`. It also covers a new entry's key from the Sheet's `newKey`, in place of its `newRowId`, and the build's refusal of a required field no one can set, for rows, lines and groups, with the runtime check beside it in the shared creation path (§2.7, decisions 9 and 10).
 10. **The showcase and the visual contract.** A Record page with Examples 1–5, and the responsive suite's invariants for GR, HD, SL, BD, ST, C, FT and IN, measured in the page in both themes and at the three densities. Each example is verified on e3-web through Apply and a remount.
 
 **Verification:** `make build`, `make test` and `make lint` across e3-ui, e3-ui-components and east-ui-components; the examples' specs; the renderer's DOM tests (pointer, keyboard, drafts, Add, Delete, Issues, Apply, undo); the responsive suite in both themes; the plugin index regenerated.

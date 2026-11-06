@@ -93,7 +93,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { StringType, StructType, equalFor, fromEastTypeValue, none, parseFor, printFor, some, variant, type EastType, type PatchPath, type ValueTypeOf, type option } from "@elaraai/east";
+import { SortedSet, StringType, StructType, compareFor, equalFor, fromEastTypeValue, isVariant, none, parseFor, printFor, some, variant, type EastType, type PatchPath, type ValueTypeOf, type option } from "@elaraai/east";
 import { Sheet, SheetBatchReadinessType, SheetDraftFieldType } from "@elaraai/e3-ui/internal";
 import {
     focusKeySearch, getSomeorUndefined, optimiseMessages, useCoarsePointer, useLanding, useLandingStyles, useSlicesReactivity, useDataStable, usePersistedState, useDragLayerOptional,
@@ -118,6 +118,7 @@ import { useRecordViewCounts } from "./use-record-view-counts.js";
 import { NOT_PERSISTED, persistedOf, sameAnchor, sameFolds, type SheetAnchor, type SheetPersisted } from "./persisted.js";
 import { useSheetSeek, type SheetSeekNarrowing } from "./use-seek.js";
 import { askHiding, hiddenLine, hiddenOf, useHidden, useRelist } from "../shared/schedule/hidden.js";
+import { mintKey } from "../shared/schedule/records.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { useOptimise, type OptimiseCounts } from "../shared/func/use-optimise.js";
@@ -150,6 +151,7 @@ import {
     type SheetDropContext, type SheetDropHost, type SheetDropMark, type SheetDropPlan, type SheetDropRow, type SheetDropSource, type SheetRowDrop,
 } from "./drop.js";
 import { normalizeDraft } from "./draft-values.js";
+import { SheetRefused } from "./creation.js";
 import { noticeText, useSheetWords, type SheetWords } from "./words.js";
 import { runSuggest, SuggestMemo, LATENCY_MS, type FillColumn } from "./suggest.js";
 import { InFlight, trackWork } from "./suggest-async.js";
@@ -218,6 +220,7 @@ const cellEqual = equalFor(Sheet.Types.Cell);
 const readinessEqual = equalFor(SheetBatchReadinessType);
 const issueEqual = equalFor(EditingIssueType);
 const printString = printFor(StringType);
+const compareString = compareFor(StringType);
 /** A live source's rows under one narrowing, named apart (#1354): the source and its narrowing, as East prints them. */
 const printNarrowedSource = printFor(StructType({ source: StringType, narrowing: StringType }));
 
@@ -301,14 +304,6 @@ function blankRow(id: string, columns: readonly SheetColumnMeta[]): SheetRowValu
 }
 
 let mintCounter = 0;
-/** A renderer-minted row id — unique per session, never a source id. */
-function mintId(taken: (id: string) => boolean): string {
-    for (;;) {
-        const id = `sheet-${Date.now().toString(36)}-${(mintCounter++).toString(36)}`;
-        if (!taken(id)) return id;
-    }
-}
-
 /** A renderer-minted line key (#740) — never a source index, unique within the group. */
 function mintLineKey(group: SheetRowValue): string {
     for (;;) {
@@ -843,7 +838,26 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // Callbacks — taken from the latest value on every render.
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
     const onViewsChangeFn = useMemo(() => getSomeorUndefined(value.onViewsChange), [value.onViewsChange]);
-    const newRowIdFn = useMemo(() => getSomeorUndefined(value.newRowId), [value.newRowId]);
+    // A new entry's key (#1536): the app's `newKey`'s, given every key taken, each as its text — else a UUID, as every
+    // builder mints one. A key the app gives that is taken, or a `newKey` that throws, refuses the gesture.
+    const newKeyFn = useMemo(() => getSomeorUndefined(value.newKey), [value.newKey]);
+    // Every key the sheet has minted, taken from then on: a gesture's own before the session holds them.
+    const minted = useRef(new Set<string>());
+    const mintAmong = useCallback((taken: Set<string>): string => {
+        let key: string;
+        if (newKeyFn === undefined) key = mintKey((k) => taken.has(k));
+        else {
+            try {
+                key = newKeyFn(new SortedSet(taken, compareString));
+            } catch (error) {
+                throw new SheetRefused({ id: "keyFailed", reason: error instanceof Error ? error.message : String(error) });
+            }
+            if (taken.has(key)) throw new SheetRefused({ id: "keyTaken", key });
+        }
+        taken.add(key);
+        minted.current.add(key);
+        return key;
+    }, [newKeyFn]);
     // The controlled selection follows the host's DATA: a closure-only change
     // must not snap the ring back to it.
     const selection = useMemo(() => getSomeorUndefined(data.selection), [data.selection]);
@@ -991,8 +1005,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // The rows shown are not the narrowing's yet — another narrowing's stand in, or nothing is read: they take no
     // gesture (#1345). A new revision's rows reading under the last ones still do.
     const standingIn = lensDrawn ? lens.replacing || lensStandsIn : paging.replacing || pagesStandIn || (lensWanted && !lensReady);
-    // A new line beside loose rows (#846) takes a minted id: the field a loose row is identified by.
-    const mintLineId = useCallback(() => newRowIdFn?.() ?? mintId((id) => sourceRows.some((row) => row.id === id)), [newRowIdFn, sourceRows]);
+    // Every key a new one's must not be (#1536), read as one is minted: so it reaches the session made below.
+    const takenRef = useRef<() => Set<string>>(() => new Set());
+    // A new line beside loose rows (#846) takes a minted id: the field a loose row is identified by, a key of the same rows.
+    const mintLineId = useCallback(() => mintAmong(takenRef.current()), [mintAmong]);
     // The rows a key's far jump holds stand in, retained, until its rows replace them (#1398, CL10): the source's own
     // rows still, which the session holds, but they take no gesture.
     const keyHeld = !lensDrawn && paging.held;
@@ -1024,6 +1040,25 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const readiness = useDataStable(session.readiness, readinessEqual);
     const draftType = useMemo(() => fromEastTypeValue(value.editing.draftType), [value.editing.draftType]);
     const childField = getSomeorUndefined(value.editing.children);
+    // Every key a new one's must not be (#1536): each the sheet has read; each its batch has drafted, a removed entry's
+    // among them, which the record holds until Apply; and each it has minted. Beside loose rows, each drafted line's id
+    // too, a key of the same rows.
+    const lineIdField = loose ? getSomeorUndefined(value.editing.idField) : undefined;
+    const takenKeys = useCallback((): Set<string> => {
+        const taken = new Set(minted.current);
+        for (const row of sourceRows) taken.add(row.id);
+        for (const [id, entry] of session.entries) {
+            taken.add(id);
+            const draft = entry.draft;
+            if (lineIdField === undefined || childField === undefined || !isVariant(draft) || draft.type !== "group") continue;
+            for (const line of (draft.value as Record<string, unknown>)[childField] as readonly Record<string, unknown>[]) {
+                const held = line[lineIdField];
+                if (isVariant(held) && held.type === "value") taken.add(held.value as string);
+            }
+        }
+        return taken;
+    }, [sourceRows, session, lineIdField, childField]);
+    takenRef.current = takenKeys;
     const draftVersion = editingState.version;
     const recordGesture = editingState.record;
     const drafts = editingState.drafts;
@@ -1469,6 +1504,15 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // ── Writes — the local layer, then the host ───────────────────────────
     const gestureEvents = useRef<SheetEditValue[]>([]);
     const emitEdit = useCallback((edit: SheetEditValue) => { gestureEvents.current.push(edit); }, []);
+    /** A gesture that failed: one the sheet refuses says why in the footer, in its words (#1536); anything else is logged, and says its own. */
+    const failed = useCallback((error: unknown) => {
+        if (error instanceof SheetRefused) {
+            dispatchStore({ t: "patch", patch: { msg: error.notice } });
+            return;
+        }
+        console.error("Sheet transaction failure", error);
+        dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } });
+    }, []);
     /**
      * Write cells: a real row's commits land in the layer's edits (one
      * `commit` event per changed cell, each carrying the row AFTER it); a
@@ -1476,9 +1520,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
      * do the k-th rows past a loose row (#846), each placed after the one
      * before. Returns the row-space index the FIRST inserted row landed on, so
      * the ring can follow a blank row that just became real, and the ids of
-     * the rows written, in order.
+     * the rows written, in order. A new row whose key is refused (#1536)
+     * refuses the whole write: nothing is written, the footer says why, and
+     * `refused` says so.
      */
-    const writeCells = useCallback((writes: readonly CellWrite[], source: EditSource): { firstInserted: number | undefined; ids: string[] } => {
+    const writeCells = useCallback((writes: readonly CellWrite[], source: EditSource): { firstInserted: number | undefined; ids: string[]; refused?: boolean } => {
         if (!canEdit || !editingState.available) return { firstInserted: undefined, ids: [] };
         // Writes group by row, and by the extra new line they land on past a group's blank line.
         const byRow = new Map<string, { r: number; extra: number; list: CellWrite[] }>();
@@ -1501,12 +1547,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         let firstInserted: number | undefined;
         let inserted = 0;
         const src = variant(source, null);
-        // The ids a minted one must avoid — one set per write, grown as rows
-        // append, never a scan of the rows per new row (#859).
-        const takenIds = new Set<string>();
+        // The keys a new row's must not be (#1536) — one set per write, grown as
+        // its rows are minted, never a scan of the rows per new row (#859).
+        const takenIds = takenKeys();
         for (const x of rowsNow) takenIds.add(x.id);
         for (const x of appended) takenIds.add(x.id);
-        const taken = (id: string) => takenIds.has(id);
         // The last new loose row placed after each loose row (#846): the next lands after it.
         const chained = new Map<string, string>();
         // A group's latest row through the layer (#740), and how a rewritten group lands back in it.
@@ -1517,119 +1562,126 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             else edits.set(g.id, g);
         };
         const entries = [...byRow.values()].sort((a, b) => a.r - b.r || a.extra - b.extra);
-        for (const { r, extra, list } of entries) {
-            const it = rowAt(r);
-            if (group !== undefined && it !== undefined) {
-                // A line: its cells change inside its group; each changed cell commits the group after it.
-                if (it.kind === "real" && it.group !== undefined) {
-                    const lg = it.group;
-                    let g = currentGroup(lg.row);
-                    const line = g.lines.find((l) => l.key === lg.key);
-                    const cells = new Map(line?.cells ?? it.row.cells);
-                    let changed = false;
+        try {
+            for (const { r, extra, list } of entries) {
+                const it = rowAt(r);
+                if (group !== undefined && it !== undefined) {
+                    // A line: its cells change inside its group; each changed cell commits the group after it.
+                    if (it.kind === "real" && it.group !== undefined) {
+                        const lg = it.group;
+                        let g = currentGroup(lg.row);
+                        const line = g.lines.find((l) => l.key === lg.key);
+                        const cells = new Map(line?.cells ?? it.row.cells);
+                        let changed = false;
+                        for (const w of list) {
+                            const meta = metaOf(w);
+                            if (meta === undefined) continue;
+                            if (cellEqual(cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
+                            cells.set(meta.key, w.cell);
+                            changed = true;
+                            g = withLine(g, lg.key, new Map(cells));
+                            events.push(variant("lineCommit", { rowId: g.id, offset: BigInt(it.position), line: lineAddress(lg.index), key: meta.key, row: g, source: src }));
+                        }
+                        if (changed) setGroup(g);
+                        ids.push(it.row.id);
+                        continue;
+                    }
+                    // A group's blank line (or the k-th line past it): one line inserted at the end of the group.
+                    if (it.kind === "blank" && it.group !== undefined) {
+                        if (!canInsertRows) continue;
+                        const g0 = currentGroup(it.group.row);
+                        const cells = new Map<string, SheetCellValue>(allColumns.list.map((c) => [c.key, NULL_CELL]));
+                        for (const w of list) {
+                            const meta = metaOf(w);
+                            if (meta !== undefined) cells.set(meta.key, w.cell);
+                        }
+                        if (allColumns.list.every((c) => cellIsBlank(cells.get(c.key)))) continue;
+                        const key = mintLineKey(g0);
+                        const index = g0.lines.length;
+                        const last = g0.lines[index - 1];
+                        const g: SheetRowValue = { ...g0, lines: [...g0.lines, { key, cells, subRows: [] }] };
+                        events.push(variant("lineInsert", {
+                            rowId: g.id, offset: BigInt(it.position),
+                            after: last !== undefined ? some(lineAddress(index - 1)) : none,
+                            line: lineAddress(index), row: g, source: src,
+                        }));
+                        setGroup(g);
+                        ids.push(lineId(g.id, key));
+                        if (firstInserted === undefined) firstInserted = r + extra;
+                        continue;
+                    }
+                    // Past a loose row (#846) — a paste's rows beyond the run, a
+                    // proposal under it: the k-th new loose row, after the one before.
+                    if (it.kind === "real" && it.loose !== undefined && extra > 0) {
+                        if (!canInsertRows) continue;
+                        let row = blankRow("", allColumns.list);
+                        for (const w of list) {
+                            const meta = metaOf(w);
+                            if (meta !== undefined) row = withCell(row, meta.key, w.cell);
+                        }
+                        if (allColumns.list.every((c) => cellIsBlank(row.cells.get(c.key)))) continue;
+                        row = { ...row, id: mintAmong(takenIds) };
+                        const after = chained.get(it.row.id) ?? it.row.id;
+                        appended.push(row);
+                        events.push(variant("insert", { afterRowId: some(after), row, source: src }));
+                        chained.set(it.row.id, row.id);
+                        ids.push(row.id);
+                        if (firstInserted === undefined) firstInserted = r + extra;
+                        continue;
+                    }
+                    // A band cell: the group's own field commits.
+                    if (it.kind === "group") {
+                        const g0 = currentGroup(it.row);
+                        let g = g0;
+                        for (const w of list) {
+                            const meta = w.key !== undefined ? group.cells.get(w.key) : metaAt(r, w.c);
+                            if (meta === undefined || (!meta.editable && w.force !== true)) continue;
+                            if (cellEqual(g.cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
+                            const cells = new Map(g.cells);
+                            cells.set(meta.key, w.cell);
+                            g = { ...g, cells };
+                            events.push(variant("commit", { rowId: g.id, offset: BigInt(it.position), key: meta.key, row: g, source: src }));
+                        }
+                        if (!Object.is(g, g0)) setGroup(g);
+                        ids.push(g.id);
+                        continue;
+                    }
+                }
+                if (it !== undefined && it.kind === "real") {
+                    let row = edits.get(it.row.id) ?? it.row;
                     for (const w of list) {
                         const meta = metaOf(w);
                         if (meta === undefined) continue;
-                        if (cellEqual(cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
-                        cells.set(meta.key, w.cell);
-                        changed = true;
-                        g = withLine(g, lg.key, new Map(cells));
-                        events.push(variant("lineCommit", { rowId: g.id, offset: BigInt(it.position), line: lineAddress(lg.index), key: meta.key, row: g, source: src }));
+                        if (cellEqual(row.cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
+                        row = withCell(row, meta.key, w.cell);
+                        events.push(variant("commit", { rowId: row.id, offset: BigInt(it.position), key: meta.key, row, source: src }));
                     }
-                    if (changed) setGroup(g);
-                    ids.push(it.row.id);
-                    continue;
-                }
-                // A group's blank line (or the k-th line past it): one line inserted at the end of the group.
-                if (it.kind === "blank" && it.group !== undefined) {
-                    if (!canInsertRows) continue;
-                    const g0 = currentGroup(it.group.row);
-                    const cells = new Map<string, SheetCellValue>(allColumns.list.map((c) => [c.key, NULL_CELL]));
-                    for (const w of list) {
-                        const meta = metaOf(w);
-                        if (meta !== undefined) cells.set(meta.key, w.cell);
-                    }
-                    if (allColumns.list.every((c) => cellIsBlank(cells.get(c.key)))) continue;
-                    const key = mintLineKey(g0);
-                    const index = g0.lines.length;
-                    const last = g0.lines[index - 1];
-                    const g: SheetRowValue = { ...g0, lines: [...g0.lines, { key, cells, subRows: [] }] };
-                    events.push(variant("lineInsert", {
-                        rowId: g.id, offset: BigInt(it.position),
-                        after: last !== undefined ? some(lineAddress(index - 1)) : none,
-                        line: lineAddress(index), row: g, source: src,
-                    }));
-                    setGroup(g);
-                    ids.push(lineId(g.id, key));
-                    if (firstInserted === undefined) firstInserted = r + extra;
-                    continue;
-                }
-                // Past a loose row (#846) — a paste's rows beyond the run, a
-                // proposal under it: the k-th new loose row, after the one before.
-                if (it.kind === "real" && it.loose !== undefined && extra > 0) {
-                    if (!canInsertRows) continue;
-                    let row = blankRow(newRowIdFn !== undefined ? newRowIdFn() : mintId(taken), allColumns.list);
-                    for (const w of list) {
-                        const meta = metaOf(w);
-                        if (meta !== undefined) row = withCell(row, meta.key, w.cell);
-                    }
-                    if (allColumns.list.every((c) => cellIsBlank(row.cells.get(c.key)))) continue;
-                    const after = chained.get(it.row.id) ?? it.row.id;
-                    appended.push(row);
-                    takenIds.add(row.id);
-                    events.push(variant("insert", { afterRowId: some(after), row, source: src }));
-                    chained.set(it.row.id, row.id);
+                    if (!Object.is(row, it.row)) edits.set(row.id, row);
                     ids.push(row.id);
-                    if (firstInserted === undefined) firstInserted = r + extra;
                     continue;
                 }
-                // A band cell: the group's own field commits.
-                if (it.kind === "group") {
-                    const g0 = currentGroup(it.row);
-                    let g = g0;
-                    for (const w of list) {
-                        const meta = w.key !== undefined ? group.cells.get(w.key) : metaAt(r, w.c);
-                        if (meta === undefined || (!meta.editable && w.force !== true)) continue;
-                        if (cellEqual(g.cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
-                        const cells = new Map(g.cells);
-                        cells.set(meta.key, w.cell);
-                        g = { ...g, cells };
-                        events.push(variant("commit", { rowId: g.id, offset: BigInt(it.position), key: meta.key, row: g, source: src }));
-                    }
-                    if (!Object.is(g, g0)) setGroup(g);
-                    ids.push(g.id);
-                    continue;
-                }
-            }
-            if (it !== undefined && it.kind === "real") {
-                let row = edits.get(it.row.id) ?? it.row;
+                if (it !== undefined && !isRowSpace(it)) continue;
+                if (group !== undefined || !canInsertRows) continue;
+                // A blank row (or a row past the padding): one inserted row, keyed once it holds a value.
+                let row = blankRow("", allColumns.list);
                 for (const w of list) {
                     const meta = metaOf(w);
-                    if (meta === undefined) continue;
-                    if (cellEqual(row.cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
-                    row = withCell(row, meta.key, w.cell);
-                    events.push(variant("commit", { rowId: row.id, offset: BigInt(it.position), key: meta.key, row, source: src }));
+                    if (meta !== undefined) row = withCell(row, meta.key, w.cell);
                 }
-                if (!Object.is(row, it.row)) edits.set(row.id, row);
+                if (allColumns.list.every((c) => cellIsBlank(row.cells.get(c.key)))) continue;
+                row = { ...row, id: mintAmong(takenIds) };
+                appended.push(row);
+                events.push(variant("insert", { afterRowId: lastId !== undefined ? some(lastId) : none, row, source: src }));
+                lastId = row.id;
                 ids.push(row.id);
-                continue;
+                if (firstInserted === undefined) firstInserted = rowsNow.length + inserted;
+                inserted += 1;
             }
-            if (it !== undefined && !isRowSpace(it)) continue;
-            if (group !== undefined || !canInsertRows) continue;
-            // A blank row (or a row past the padding): one inserted row.
-            let row = blankRow(newRowIdFn !== undefined ? newRowIdFn() : mintId(taken), allColumns.list);
-            for (const w of list) {
-                const meta = metaOf(w);
-                if (meta !== undefined) row = withCell(row, meta.key, w.cell);
-            }
-            if (allColumns.list.every((c) => cellIsBlank(row.cells.get(c.key)))) continue;
-            appended.push(row);
-            takenIds.add(row.id);
-            events.push(variant("insert", { afterRowId: lastId !== undefined ? some(lastId) : none, row, source: src }));
-            lastId = row.id;
-            ids.push(row.id);
-            if (firstInserted === undefined) firstInserted = rowsNow.length + inserted;
-            inserted += 1;
+        } catch (error) {
+            // A new row's key refused (#1536): nothing is written — the layer, the rows and the events are this write's own until it ends.
+            if (!(error instanceof SheetRefused)) throw error;
+            failed(error);
+            return { firstInserted: undefined, ids: [], refused: true };
         }
         if (events.length === 0) return { firstInserted: undefined, ids };
         const next: LocalLayer = { edits, appended, removed: base.removed, placements: base.placements };
@@ -1637,7 +1689,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         setLayer(() => next);
         for (const e of events) emitEdit(e);
         return { firstInserted, ids };
-    }, [sourceRows, rowAt, columns, allColumns, group, metaAt, newRowIdFn, setLayer, emitEdit, canEdit, canInsertRows, keyOrder, editingState.available]);
+    }, [sourceRows, rowAt, columns, allColumns, group, metaAt, takenKeys, mintAmong, failed, setLayer, emitEdit, canEdit, canInsertRows, keyOrder, editingState.available]);
     /**
      * Delete whole rows. On a grouped sheet (#740, G7) lines in the range
      * leave their groups (`lineRemove`) and loose rows in it leave the sheet
@@ -1873,7 +1925,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         /** The writes so far as one gesture: one step of the history. */
         const recordSoFar = () => {
             try { recordGesture(gestureEvents.current); }
-            catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
+            catch (error) { failed(error); }
             finally { gestureEvents.current = []; }
         };
         /** After a write: the ring follows an insert, a blank anchor's suggestions follow the new id, the copilot re-runs. */
@@ -2007,7 +2059,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                         }
                         writes.push({ r, c: p.c, cell });
                     }
-                    if (writes.length > 0) writeCells(writes, "pasted");
+                    // A paste whose new rows' keys are refused writes nothing, and the footer says why (#1536).
+                    if (writes.length > 0 && writeCells(writes, "pasted").refused === true) break;
                     const wide = Math.max(1, laid.width);
                     dispatchStore({ t: "patch", patch: {
                         selEnd: { r: eff.r + matrix.length - 1, c: Math.min(colCount - 1, eff.c + wide - 1) },
@@ -2125,7 +2178,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             }
         }
         recordSoFar();
-    }, [recordGesture, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo]);
+    }, [recordGesture, failed, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo]);
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
         if (store.fxSeq === drainedFx.current) return;
@@ -2216,16 +2269,22 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
      */
     const executeInsertion = useCallback((request: InsertRequest, from?: SheetInsertFrom): boolean => {
         if (!canEdit || !editingState.available || (request.kind === "row" ? !canInsertRows : !canInsertGroups)) return false;
-        const gesture = insertionGesture(request, rows, (i) => runLayout.positions[i] ?? endPosition, group !== undefined, keyed,
-            () => newRowIdFn?.() ?? mintId(id => rows.some(row => row.id === id)), mintLineKey, loose);
-        if (gesture === undefined) return false;
-        const recorded = recordGesture([gesture.event], gesture.placement === undefined ? undefined : new Map([[gesture.id, gesture.placement]]), from?.origin ?? "insert", undefined, from?.seeds);
-        if (!recorded) return false;
-        pendingInsertFocus.current = { id: gesture.id, ...(gesture.child === undefined ? {} : { child: gesture.child }), edit: from === undefined };
+        // A new entry whose key is refused, or a gesture the session cannot take, inserts nothing: the footer says why (#1536).
+        try {
+            const gesture = insertionGesture(request, rows, (i) => runLayout.positions[i] ?? endPosition, group !== undefined, keyed,
+                () => mintAmong(takenKeys()), mintLineKey, loose);
+            if (gesture === undefined) return false;
+            const recorded = recordGesture([gesture.event], gesture.placement === undefined ? undefined : new Map([[gesture.id, gesture.placement]]), from?.origin ?? "insert", undefined, from?.seeds);
+            if (!recorded) return false;
+            pendingInsertFocus.current = { id: gesture.id, ...(gesture.child === undefined ? {} : { child: gesture.child }), edit: from === undefined };
+        } catch (error) {
+            failed(error);
+            return false;
+        }
         // A drop is announced by the drag layer: the footer says nothing more.
         dispatchStore({ t: "patch", patch: { sugg: null, selEnd: null, ...(from !== undefined ? {} : { msg: request.kind === "group" ? { id: "newGroup", noun: declaredNoun?.singular } : { id: "newRow" } }) } });
         return true;
-    }, [canEdit, editingState.available, canInsertRows, canInsertGroups, rows, runLayout, endPosition, group, loose, declaredNoun, keyed, newRowIdFn, recordGesture]);
+    }, [canEdit, editingState.available, canInsertRows, canInsertGroups, rows, runLayout, endPosition, group, loose, declaredNoun, keyed, takenKeys, mintAmong, failed, recordGesture]);
     /** An insertion — once an open editor has committed. */
     const insertWhenClosed = useCallback((request: InsertRequest, from?: SheetInsertFrom): boolean => {
         if (uiRef.current.edit === null) return executeInsertion(request, from);
@@ -3753,8 +3812,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             writeCells(writes, "typed");
             recorded = recordGesture(gestureEvents.current, undefined, "action", edits, undefined, c.label);
         } catch (error) {
-            console.error("Sheet transaction failure", error);
-            dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } });
+            failed(error);
         } finally {
             gestureEvents.current = [];
         }
@@ -4342,7 +4400,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         }
         if (cellWrites.length > 0) writeCells(cellWrites, "typed");
         try { recordGesture(gestureEvents.current, undefined, "typed", draftEdits, undefined, undefined, joins); }
-        catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
+        catch (error) { failed(error); }
         finally { gestureEvents.current = []; }
         // The copilot asks again for a row whose trigger column changed, as typing in it does.
         if (copilotOn) {
@@ -4352,7 +4410,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 if (id !== undefined) requestRun(id, 0);
             }
         }
-    }, [canEdit, editingState.available, rowAt, group, allColumns, parseCtxFor, structOf, draftType, childField, writeCells, recordGesture, copilotOn, triggers, idAt, requestRun]);
+    }, [canEdit, editingState.available, rowAt, group, allColumns, parseCtxFor, structOf, draftType, childField, writeCells, recordGesture, failed, copilotOn, triggers, idAt, requestRun]);
     const editInSheet = useCallback((r: number, key: string): boolean => {
         const c = columns.list.findIndex((col) => stringEqual(col.key, key));
         if (c < 0 || rowAt(r) === undefined) return false;
@@ -4367,67 +4425,69 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const events: SheetEditValue[] = [];
         const draftEdits = new Map<string, DraftEdit>();
         const typed = variant("typed", null);
-        const taken = new Set(rows.map((row) => row.id));
-        const mintEntry = () => { const id = newRowIdFn?.() ?? mintId((x) => taken.has(x)); taken.add(id); return id; };
         // A copy's draft: the source's, with its own identity where the struct carries one.
         const withIdentity = (draft: Record<string, unknown>, id: string): Record<string, unknown> =>
             (idField !== undefined && idField in draft ? { ...draft, [idField]: variant("value", id) } : draft);
         // A group as the layer has it now: lines inserted earlier in this gesture included.
         const groupsNow = new Map<string, SheetRowValue>();
         const groupOf = (g: SheetRowValue) => groupsNow.get(g.id) ?? layerRef.current.edits.get(g.id) ?? layerRef.current.appended.find((x) => x.id === g.id) ?? g;
-        for (const r of rs) {
-            const it = rowAt(r);
-            if (it === undefined || (it.kind !== "real" && it.kind !== "group")) continue;
-            const lg = it.kind === "real" ? it.group : undefined;
-            if (lg !== undefined) {
-                // A line: its copy just after it in its group.
-                if (!canInsertRows) continue;
-                const g0 = groupOf(lg.row);
-                const index = g0.lines.findIndex((line) => stringEqual(line.key, lg.key));
-                const source = structOf(versionOf(lg.row.id), lg.key);
-                if (index < 0 || source === undefined) continue;
-                const key = mintLineKey(g0);
-                const line = g0.lines[index]!;
-                const g: SheetRowValue = { ...g0, lines: [...g0.lines.slice(0, index + 1), { ...line, key }, ...g0.lines.slice(index + 1)] };
-                groupsNow.set(g.id, g);
-                events.push(variant("lineInsert", { rowId: g.id, offset: BigInt(it.position), after: some(lineAddress(index)), line: lineAddress(index + 1), row: g, source: typed }));
-                const prior = draftEdits.get(g.id);
-                const copy = loose ? withIdentity(source.draft, mintLineId()) : source.draft;
-                draftEdits.set(g.id, (version) => {
-                    const before = prior === undefined ? version : prior(version);
-                    const looseDraft = draftType.type === "Variant";
-                    const outer = (looseDraft ? (before.draft as ValueTypeOf<typeof draftType>).value : before.draft) as Record<string, unknown>;
-                    const at = before.wire?.lines.findIndex((l) => stringEqual(l.key, key)) ?? -1;
-                    if (at < 0) return before;
-                    const kids = [...(outer[childField!] as unknown[])];
-                    kids[at] = copy;
-                    const next = { ...outer, [childField!]: kids };
-                    return { ...before, draft: looseDraft ? variant("group", next) : next };
-                });
-                continue;
+        // A copy whose key is refused, or a gesture the session cannot take, duplicates nothing: the footer says why (#1536).
+        try {
+            for (const r of rs) {
+                const it = rowAt(r);
+                if (it === undefined || (it.kind !== "real" && it.kind !== "group")) continue;
+                const lg = it.kind === "real" ? it.group : undefined;
+                if (lg !== undefined) {
+                    // A line: its copy just after it in its group.
+                    if (!canInsertRows) continue;
+                    const g0 = groupOf(lg.row);
+                    const index = g0.lines.findIndex((line) => stringEqual(line.key, lg.key));
+                    const source = structOf(versionOf(lg.row.id), lg.key);
+                    if (index < 0 || source === undefined) continue;
+                    const key = mintLineKey(g0);
+                    const line = g0.lines[index]!;
+                    const g: SheetRowValue = { ...g0, lines: [...g0.lines.slice(0, index + 1), { ...line, key }, ...g0.lines.slice(index + 1)] };
+                    groupsNow.set(g.id, g);
+                    events.push(variant("lineInsert", { rowId: g.id, offset: BigInt(it.position), after: some(lineAddress(index)), line: lineAddress(index + 1), row: g, source: typed }));
+                    const prior = draftEdits.get(g.id);
+                    const copy = loose ? withIdentity(source.draft, mintLineId()) : source.draft;
+                    draftEdits.set(g.id, (version) => {
+                        const before = prior === undefined ? version : prior(version);
+                        const looseDraft = draftType.type === "Variant";
+                        const outer = (looseDraft ? (before.draft as ValueTypeOf<typeof draftType>).value : before.draft) as Record<string, unknown>;
+                        const at = before.wire?.lines.findIndex((l) => stringEqual(l.key, key)) ?? -1;
+                        if (at < 0) return before;
+                        const kids = [...(outer[childField!] as unknown[])];
+                        kids[at] = copy;
+                        const next = { ...outer, [childField!]: kids };
+                        return { ...before, draft: looseDraft ? variant("group", next) : next };
+                    });
+                    continue;
+                }
+                // A row, or a band's group with its lines: a new entry just after it, its draft the source's.
+                if (it.kind === "group" ? !canInsertGroups : !canInsertRows) continue;
+                const version = versionOf(it.row.id);
+                if (version?.draft === undefined) continue;
+                const id = mintAmong(takenKeys());
+                let copy: SheetRowValue = { ...it.row, id, owned: false, lines: [] };
+                for (const line of it.row.lines) copy = { ...copy, lines: [...copy.lines, { ...line, key: mintLineKey(copy) }] };
+                events.push(variant("insert", { afterRowId: some(it.row.id), row: copy, source: typed }));
+                const looseDraft = draftType.type === "Variant";
+                const arm = looseDraft ? (version.draft as ValueTypeOf<typeof draftType>).type as string : undefined;
+                const inner = (looseDraft ? (version.draft as ValueTypeOf<typeof draftType>).value : version.draft) as Record<string, unknown>;
+                let draft = withIdentity(inner, id);
+                if (childField !== undefined && it.kind === "group" && loose) {
+                    draft = { ...draft, [childField]: (draft[childField] as Record<string, unknown>[]).map((c) => withIdentity(c, mintLineId())) };
+                }
+                const final = looseDraft ? variant(arm!, draft) : draft;
+                draftEdits.set(id, (v) => ({ ...v, draft: final, wire: copy }));
             }
-            // A row, or a band's group with its lines: a new entry just after it, its draft the source's.
-            if (it.kind === "group" ? !canInsertGroups : !canInsertRows) continue;
-            const version = versionOf(it.row.id);
-            if (version?.draft === undefined) continue;
-            const id = mintEntry();
-            let copy: SheetRowValue = { ...it.row, id, owned: false, lines: [] };
-            for (const line of it.row.lines) copy = { ...copy, lines: [...copy.lines, { ...line, key: mintLineKey(copy) }] };
-            events.push(variant("insert", { afterRowId: some(it.row.id), row: copy, source: typed }));
-            const looseDraft = draftType.type === "Variant";
-            const arm = looseDraft ? (version.draft as ValueTypeOf<typeof draftType>).type as string : undefined;
-            const inner = (looseDraft ? (version.draft as ValueTypeOf<typeof draftType>).value : version.draft) as Record<string, unknown>;
-            let draft = withIdentity(inner, id);
-            if (childField !== undefined && it.kind === "group" && loose) {
-                draft = { ...draft, [childField]: (draft[childField] as Record<string, unknown>[]).map((c) => withIdentity(c, mintLineId())) };
-            }
-            const final = looseDraft ? variant(arm!, draft) : draft;
-            draftEdits.set(id, (v) => ({ ...v, draft: final, wire: copy }));
+            if (events.length === 0) return;
+            recordGesture(events, undefined, "insert", draftEdits);
+        } catch (error) {
+            failed(error);
         }
-        if (events.length === 0) return;
-        try { recordGesture(events, undefined, "insert", draftEdits); }
-        catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
-    }, [canEdit, editingState.available, value.editing.idField, rows, newRowIdFn, rowAt, canInsertRows, canInsertGroups, structOf, versionOf, loose, mintLineId, draftType, childField, recordGesture]);
+    }, [canEdit, editingState.available, value.editing.idField, takenKeys, mintAmong, failed, rowAt, canInsertRows, canInsertGroups, structOf, versionOf, loose, mintLineId, draftType, childField, recordGesture]);
     const addLine = useCallback((bandR: number) => {
         const it = rowAt(bandR);
         if (it === undefined || it.kind !== "group") return;
@@ -4443,10 +4503,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         setLayer(() => next);
         emitEdit(variant("remove", { rowIds: [it.row.id] }));
         try { recordGesture(gestureEvents.current); }
-        catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
+        catch (error) { failed(error); }
         finally { gestureEvents.current = []; }
         dispatchStore({ t: "patch", patch: { selEnd: null, msg: { id: "deleted", n: 1, what: "groups", noun: declaredNoun?.singular, nouns: declaredNoun?.plural, again: false } } });
-    }, [rowAt, canEdit, editingState.available, capabilities, setLayer, emitEdit, recordGesture, declaredNoun]);
+    }, [rowAt, canEdit, editingState.available, capabilities, setLayer, emitEdit, recordGesture, failed, declaredNoun]);
     // A column, or a band's cell, by its key at a row.
     const columnAt = useCallback((r: number, key: string): SheetColumnMeta | undefined => {
         const it = rowAt(r);
@@ -4659,11 +4719,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const recordEdits = useCallback((origin: Origin, edits: ReadonlyMap<string, DraftEdit>): boolean => {
         try { return recordGesture([], undefined, origin, edits); }
         catch (error) {
-            console.error("Sheet transaction failure", error);
-            dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } });
+            failed(error);
             return false;
         }
-    }, [recordGesture]);
+    }, [recordGesture, failed]);
     /**
      * Runs a drop's plan as one transaction (SB39, SB40, SB44, SB61), the row
      * it made, set or moved selected once the body holds it.
@@ -4686,8 +4745,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     writeCells([...plan.card.sets].map(([key, cell]) => ({ r: plan.r, c: -1, key, cell })), "typed");
                     recorded = recordGesture(gestureEvents.current, undefined, "drop");
                 } catch (error) {
-                    console.error("Sheet transaction failure", error);
-                    dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } });
+                    failed(error);
                 } finally {
                     gestureEvents.current = [];
                 }
@@ -4750,7 +4808,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 return recorded;
             }
         }
-    }, [insertWhenClosed, rowAt, writeCells, recordGesture, copilotOn, triggers, idAt, requestRun, recordEdits, versionOf, withLines, draftType, childField]);
+    }, [insertWhenClosed, rowAt, writeCells, recordGesture, failed, copilotOn, triggers, idAt, requestRun, recordEdits, versionOf, withLines, draftType, childField]);
     dropApi.current = dropHost === undefined ? undefined : {
         canDrop: (event) => {
             const read = readEvent(event);

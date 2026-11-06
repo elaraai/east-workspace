@@ -75,19 +75,29 @@ export function fieldChange(kind: Pick<ValueTypeOf<typeof ScheduleKindType>, "ke
 }
 
 /**
- * A new key, minted unique among the keys given (`crypto.randomUUID()`,
- * retried): a record read whole holds every key, and a key a record read a
- * window at a time holds unread is its Save's own conflict, never an
- * overwrite.
+ * A new key, minted unique among the keys given (a UUID, retried): a record
+ * read whole holds every key, and a key a record read a window at a time holds
+ * unread is its Save's own conflict, never an overwrite. The UUID is
+ * `crypto.randomUUID()`'s, else — a page served over plain HTTP has none — a
+ * version 4 UUID drawn from `crypto.getRandomValues`, which every page has.
  *
  * @param taken - Whether a key is held already
  * @returns The key
  */
 export function mintKey(taken: (key: string) => boolean): string {
     for (;;) {
-        const key = crypto.randomUUID();
+        const key = "randomUUID" in crypto ? crypto.randomUUID() : randomUUID();
         if (!taken(key)) return key;
     }
+}
+
+/** A version 4 UUID from the page's random bytes: its version and variant bits set, printed 8-4-4-4-12. */
+function randomUUID(): string {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+    bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /**

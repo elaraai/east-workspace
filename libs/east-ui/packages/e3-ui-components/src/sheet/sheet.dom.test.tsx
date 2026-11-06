@@ -416,7 +416,8 @@ describe("editing", () => {
         expect(cell(3, "task").hasAttribute("data-selected")).toBe(true);
         expect(edits).toHaveLength(1);
         const change = edits[0]!.draftChanges[0]!;
-        expect(change.id).toMatch(/^sheet-/);
+        // With no `newKey`, a new row's key is a UUID (#1536).
+        expect(change.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
         expect(change.place).toEqual(some(variant("ordered", variant("after", "j2"))));
         const inserted = draft(change.id, Sheet.Types.Draft(JobType));
         expect(inserted.task).toEqual(variant("value", "New job"));

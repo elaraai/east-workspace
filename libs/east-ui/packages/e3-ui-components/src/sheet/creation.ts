@@ -6,8 +6,25 @@
 /** Seed new entries and children at the single gesture boundary. @packageDocumentation */
 import { decodeBeast2For, equalFor, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, type SheetEditingType } from "@elaraai/e3-ui/internal";
+import type { SheetNotice } from "./sheet-types.js";
 import type { EntryVersion, Placement } from "./transactions.js";
 import type { SheetCellValue, SheetRowValue } from "./values.js";
+
+/**
+ * A gesture the sheet refuses, and why, in the footer's words (#1536): a new entry whose key the app's `newKey` gives
+ * taken already, or a `newKey` that throws. Thrown where the gesture is built, before anything is drafted, so the
+ * gesture drafts nothing; the sheet says the notice, and logs nothing.
+ */
+export class SheetRefused extends Error {
+    /** What the footer says. */
+    readonly notice: SheetNotice;
+
+    constructor(notice: SheetNotice) {
+        super(notice.id);
+        this.name = "SheetRefused";
+        this.notice = notice;
+    }
+}
 
 const decodeWire = decodeBeast2For(Sheet.Types.Row);
 const sameCell = equalFor(Sheet.Types.Cell);
