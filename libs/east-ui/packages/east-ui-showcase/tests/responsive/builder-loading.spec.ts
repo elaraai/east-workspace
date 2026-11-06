@@ -98,10 +98,15 @@ for (const { scope, name, main: mainSelector, narrows, cards, liveFooter, pitch 
                     await expect(region).toHaveAttribute('aria-hidden', 'true');
                 }
                 if (liveFooter) {
-                    // The footer is the one live region: seen, reachable, heard — its loading line the frame's only motion.
+                    // The footer is the one live region: seen, reachable, heard — its loading line the frame's only motion. A
+                    // phone's is laid over main's foot and shows nothing of its rail but the line and what is live: while it
+                    // says nothing it draws no band, its live region kept (ruled 7 Nov 2026).
                     await expect(footer).toHaveAttribute('data-frame-live', '');
                     await expect(footer).not.toHaveAttribute('inert', '');
-                    await expect(footer).toHaveCSS('opacity', '1');
+                    await expect.poll(() => footer.evaluate(el => {
+                        const silent = el.closest('[data-phone]') !== null && el.querySelector('[data-footer-line]:not([data-idle]), [data-footer-live]') === null;
+                        return getComputedStyle(el).opacity === (silent ? '0' : '1');
+                    }), 'the footer seen, unless a phone\'s says nothing').toBe(true);
                     await expect(footer).not.toHaveAttribute('aria-hidden', 'true');
                     await expect(footer.locator('[data-footer-line]')).toHaveAttribute('role', 'status');
                 }
