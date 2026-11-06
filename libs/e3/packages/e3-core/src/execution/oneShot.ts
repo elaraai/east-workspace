@@ -291,8 +291,11 @@ export function oneShotPlatformUse(request: OneShotRequest): string | null {
  * @remarks
  * A named function's inputs — the datasets it declares, which its caller does
  * not pass — are pinned the same way, before the arguments, and come first in
- * what the runner is handed and in what the result names. Each is read as
- * stored now: a call waits for no run in progress.
+ * what the runner is handed and in what the result names. Each is read as it
+ * is stored now, one after another, waiting for no run in progress: a call
+ * during a run may read one input before the run rewrites it and another
+ * after, and the result names the hash of each. An input with no value is
+ * refused in words that say why, by what it is (`unassignedInput`).
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -325,8 +328,7 @@ export async function pinCallArguments(
     return null;
   };
   for (const path of options.inputs ?? []) {
-    const refused = await pin(path, (refType) =>
-      `The function's input ${pathToString(path)} is not assigned (ref type: ${refType}): nothing has produced it since the last deploy, and nothing ran`);
+    const refused = await pin(path, (refType) => unassignedInput(path, refType));
     if (refused !== null) return refused;
   }
   for (const [i, arg] of args.entries()) {
@@ -338,6 +340,28 @@ export async function pinCallArguments(
     if (refused !== null) return refused;
   }
   return { args: pinned, inputs };
+}
+
+/**
+ * Why a function's input holds no value a call can read, as its refusal says
+ * it: an unassigned one by what it is — an input nothing has set, a task's
+ * output no run has produced, a record whose first state is not committed —
+ * and any other by its ref's type. A dataflow waits on each of these, so a
+ * task reading the same dataset would not run either.
+ *
+ * @param path - The input's path
+ * @param refType - The type of the ref it holds
+ * @returns The refusal's words
+ */
+function unassignedInput(path: TreePath, refType: string): string {
+  const at = `The function's input ${pathToString(path)} is not assigned (ref type: ${refType})`;
+  if (refType !== 'unassigned') return `${at}: it holds no stored value, and nothing ran`;
+  switch (path[0]?.value) {
+    case 'inputs': return `${at}: nothing has set it, and nothing ran`;
+    case 'tasks': return `${at}: no run has produced it since the last deploy, and nothing ran`;
+    case 'records': return `${at}: its first state is not yet committed, and nothing ran`;
+    default: return `${at}: nothing ran`;
+  }
 }
 
 /**

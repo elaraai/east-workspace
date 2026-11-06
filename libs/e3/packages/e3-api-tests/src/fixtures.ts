@@ -110,6 +110,12 @@ export async function createRolesPackageZip(
  *   is given a String: value + prices[sku]
  * - Function: "scaled" - reads "compute"'s output, which no run has produced
  *   once deployed, and is given an Integer: the output times it
+ * - Function: "applied" - reads "apply", which nothing has set, and is given
+ *   an Integer: apply(it)
+ * - Record: "tally" (Integer, initial 7), and Function "tallied", which reads
+ *   it and is given an Integer: tally + it
+ * - Function: "twice" - the spec form reading nothing, given an Integer: it
+ *   times 2
  *
  * @param tempDir - Directory to write the zip file
  * @param name - Package name
@@ -154,7 +160,21 @@ export async function createFunctionPackageZip(
     args: [IntegerType],
     output: IntegerType,
   }, ($, doubled, by) => doubled.multiply(by));
-  const pkg = e3.package(name, version, compute, add, slow, prices, apply, quote, scaled);
+  const applied = e3.function('applied', {
+    inputs: [apply],
+    args: [IntegerType],
+    output: IntegerType,
+  }, ($, apply, x) => apply(x));
+  // A record read as an input, beside an argument a caller may name as a
+  // dataset; and the spec form reading nothing, called as the other form is.
+  const tally = e3.record('tally', IntegerType, { initial: 7n });
+  const tallied = e3.function('tallied', {
+    inputs: [tally],
+    args: [IntegerType],
+    output: IntegerType,
+  }, ($, tally, x) => tally.add(x));
+  const twice = e3.function('twice', { inputs: [], args: [IntegerType], output: IntegerType }, ($, x) => x.multiply(2n));
+  const pkg = e3.package(name, version, compute, add, slow, prices, apply, quote, scaled, applied, tallied, twice);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

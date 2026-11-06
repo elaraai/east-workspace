@@ -11,7 +11,7 @@
  * API. It is e3's "stored procedure" / RPC method: not part of the dataflow
  * graph, and its result is returned inline to the caller — nothing durable
  * is written by a call. A function may declare inputs, as a stream task
- * does: datasets of the workspace a call reads, pinned when it launches,
+ * does: datasets of the workspace a call reads, each pinned at its hash,
  * beside the arguments its caller passes.
  */
 
@@ -31,11 +31,7 @@ import type {
 import { East, Expr } from '@elaraai/east';
 import type { DatasetDef, DataTreeDef, FunctionDef, PartitionDef, TaskDef } from './types.js';
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
-
-/** The expression a function's body receives for each input. */
-type InputExprs<T extends readonly DatasetDef[]> = {
-  [K in keyof T]: T[K] extends DatasetDef<infer U> ? ExprType<U> : never;
-};
+import { refusePartitioned, type InputExprs } from './task.js';
 
 /** The expression a function's body receives for each argument. */
 type ArgExprs<T extends readonly EastType[]> = {
@@ -57,8 +53,10 @@ export interface FunctionSpec<
 > {
   /** The datasets each call reads from the workspace it runs in, in the
    *  body's parameter order before the arguments: an input, a task's output
-   *  or a record of the package. Each is read as stored when the call
-   *  launches, pinned at its hash. */
+   *  or a record of the package. Each is read as it is stored as the call
+   *  starts, pinned at its hash: one after another, waiting for no run, so a
+   *  call during a run may read one before the run rewrites it and another
+   *  after. */
   readonly inputs: [...Inputs];
   /** The types of the arguments a caller passes, after the inputs. */
   readonly args: [...Args];
@@ -75,59 +73,53 @@ export interface FunctionSpec<
 }
 
 /**
- * Defines a named function stored in a package.
+ * Defines a named function that reads the workspace as well: the `inputs` it
+ * declares, as a stream task declares them, beside the `args` its caller
+ * passes.
  *
- * Two forms:
- * - `e3.function(name, fn, config?)` — the body is an ordinary East function
- *   (sync or async) whose signature IS the argument list. It reads nothing
- *   of the workspace.
- * - `e3.function(name, spec, fn)` — the function declares `inputs`, as a
- *   stream task does, and the `args` its caller passes. The body's
- *   parameters are the inputs, in `inputs` order, then the arguments, in
- *   `args` order. A call through a workspace reads each input as stored when
- *   it launches, pinned at its hash, and its result names each path and
- *   hash; the caller passes the arguments alone. The package route, which has
- *   no workspace, refuses such a function.
+ * The body's parameters are the inputs, in `inputs` order, then the
+ * arguments, in `args` order: the SDK builds the East function from their
+ * types, an async one with `async: true`. An input is what a task takes — an
+ * input, a task's output or a record of the package — and `e3.package`
+ * collects each with what it depends on. The function is still no node of
+ * the dataflow: nothing reruns when an input changes.
  *
- * Unlike a task, a function creates no dataset tree nodes and no command IR:
- * its body IR is stored directly as a content object, its signature lives on
- * the function object, and the executor builds the runner argv directly at
- * call time (which is what enables a request-time runner override). It is no
- * node of the dataflow: nothing reruns when an input changes.
+ * A call through a workspace reads each input as it is stored as the call
+ * starts, pinned at its hash, and its result names each path and hash. The
+ * inputs are read one after another, waiting for no run, so a call during a
+ * run may read one input before the run rewrites it and another after. The
+ * caller passes the arguments alone. An input not assigned — one nothing has
+ * set, a task's output no run has produced since the deploy — makes the call
+ * `invalid`, naming it, and nothing runs. The package route, which has no
+ * workspace, refuses such a function.
  *
  * @typeParam Name - Function name (literal type)
- * @typeParam Inputs - The datasets a call reads (the spec form)
+ * @typeParam Inputs - The datasets a call reads
  * @typeParam Args - The argument types a caller passes
  * @typeParam Output - Return type
  * @param name - Function name (unique within the package)
- * @param fn - The East function body (the first form). Pure compute — no
- *   dataset reads; may be async (platform calls / IO).
- * @param config - Optional runner selection (the first form). Only the known
- *   runtimes are allowed — including `custom` (symmetric with tasks; the
- *   command must speak the runner CLI convention, see {@link FunctionRunner}).
+ * @param spec - The inputs, the argument types and the return type, and the
+ *   runner, environment and `async` ({@link FunctionSpec})
+ * @param fn - The body: given the inputs, then the arguments, it returns the
+ *   result
  * @returns A FunctionDef to pass to `e3.package`
- * @throws {Error} When the name is empty or the runner unknown; and, in the
- *   spec form, when an input is marked with `e3.partition` (a call runs as
- *   one unit) or the runner is the `custom` runtime with inputs.
+ * @throws {Error} When the name is empty or the runner is not a known one, an
+ *   input is marked with `e3.partition` (a call runs as one unit), or the
+ *   runner is the `custom` runtime with inputs.
  *
  * @example
  * ```ts
- * const forecast = e3.function(
- *   'forecast',
- *   East.function([IntegerType, FloatType], FloatType, ($, periods, growthRate) => {
- *     ...
- *   }),
- *   { runner: { runtime: 'east-py', platforms: ['east-py-datascience'] } },
- * );
- *
  * const prices = e3.input('prices', DictType(StringType, FloatType));
+ *
  * const quote = e3.function('quote', {
  *   inputs: [prices],
  *   args: [ArrayType(OrderLineType)],
  *   output: FloatType,
- * }, ($, prices, lines) => lines.sum(line => prices.get(line.sku).multiply(line.quantity.toFloat())));
+ * }, ($, prices, lines) => lines.sum(($, line) => prices.get(line.sku).multiply(line.quantity.toFloat())));
  *
- * const pkg = e3.package('planning', '1.0.0', forecast, quote);
+ * // Called through a workspace, with the order alone:
+ * //   e3 call . -w dev quote '[(sku="bolt", quantity=4)]'
+ * const pkg = e3.package('planning', '1.0.0', quote);
  * ```
  */
 export function function_<
@@ -140,6 +132,45 @@ export function function_<
   spec: FunctionSpec<Inputs, Args, Output>,
   fn: ($: BlockBuilder<Output>, ...params: [...InputExprs<Inputs>, ...ArgExprs<Args>]) => SubtypeExprOrValue<NoInfer<Output>> | void,
 ): FunctionDef<Args, Output>;
+/**
+ * Defines a named function stored in a package.
+ *
+ * The body is an ordinary East function (sync or async); its signature IS
+ * the argument list — `argTypes` / `outputType` are inferred from the East
+ * function, so there is no separate type array to keep in sync. It reads
+ * nothing of the workspace: a function that does declares `inputs`, in the
+ * `(name, spec, fn)` form.
+ *
+ * Unlike a task, a function creates no dataset tree nodes and no command IR:
+ * its body IR is stored directly as a content object, its signature lives on
+ * the function object, and the executor builds the runner argv directly at
+ * call time (which is what enables a request-time runner override).
+ *
+ * @typeParam Name - Function name (literal type)
+ * @typeParam Args - The argument types: the East function's parameters
+ * @typeParam Output - Return type
+ * @param name - Function name (unique within the package)
+ * @param fn - The East function body. Pure compute — no dataset reads; may
+ *   be async (platform calls / IO).
+ * @param config - Optional runner selection. Only the known runtimes are
+ *   allowed — including `custom` (symmetric with tasks; the command must
+ *   speak the runner CLI convention, see {@link FunctionRunner}).
+ * @returns A FunctionDef to pass to `e3.package`
+ * @throws {Error} When the name is empty or the runner is not a known one.
+ *
+ * @example
+ * ```ts
+ * const forecast = e3.function(
+ *   'forecast',
+ *   East.function([IntegerType, FloatType], FloatType, ($, periods, growthRate) => {
+ *     ...
+ *   }),
+ *   { runner: { runtime: 'east-py', platforms: ['east-py-datascience'] } },
+ * );
+ *
+ * const pkg = e3.package('planning', '1.0.0', forecast);
+ * ```
+ */
 export function function_<Name extends string, Args extends EastType[], Output extends EastType>(
   name: Name,
   fn: FunctionExpr<Args, Output>
@@ -163,14 +194,7 @@ export function function_(
 
   const spec = second;
   const inputs = spec.inputs as readonly (DatasetDef | PartitionDef)[];
-  for (const input of inputs) {
-    if (input.kind === 'partition') {
-      throw new Error(
-        `e3.function '${name}': input '${input.dataset.name}' is marked with e3.partition, and a call runs as one unit — ` +
-        `pass the dataset itself`
-      );
-    }
-  }
+  refusePartitioned(`e3.function '${name}'`, inputs, 'and a call runs as one unit');
   const datasets = inputs as readonly DatasetDef[];
   if (datasets.length > 0 && spec.runner?.runtime === 'custom') {
     throw new Error(

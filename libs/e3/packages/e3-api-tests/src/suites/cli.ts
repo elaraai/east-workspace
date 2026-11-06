@@ -322,6 +322,30 @@ export function cliTests(
 
         await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
       });
+
+      it('calls a function with inputs through a workspace with its arguments alone, and is refused without -w, naming its inputs', async (t) => {
+        const { remoteUrl, workDir, env } = await withFunctionPackage(t);
+        const wsName = `call-cli-inputs-ws-${Date.now()}`;
+        for (const command of [['workspace', 'create', remoteUrl, wsName], ['workspace', 'deploy', remoteUrl, wsName, 'call-cli-pkg@1.0.0']]) {
+          const setup = await runE3Command(command, workDir, { env });
+          assert.strictEqual(setup.exitCode, 0, `${command[0]} ${command[1]} failed: ${setup.stderr}`);
+        }
+
+        // `quote` reads `value` (10) and `prices` (b 2) itself; the caller passes the sku
+        const result = await runE3Command(['call', remoteUrl, '-w', wsName, 'quote', '"b"'], workDir, { env });
+        assert.strictEqual(result.exitCode, 0, `Failed: ${result.stderr}`);
+        assert.match(result.stdout, /\b12\b/);
+
+        const counted = await runE3Command(['call', remoteUrl, '-w', wsName, 'quote', '10', '"b"'], workDir, { env });
+        assert.notStrictEqual(counted.exitCode, 0);
+        assert.match(counted.stderr, /Function 'quote' expects 1 argument\(s\), got 2/);
+
+        const refused = await runE3Command(['call', remoteUrl, 'call-cli-pkg.quote', '"b"'], workDir, { env });
+        assert.notStrictEqual(refused.exitCode, 0);
+        assert.match(refused.stderr, /Function 'quote' reads \.inputs\.value, \.inputs\.prices from the workspace it is called through: pass -w <ws>/);
+
+        await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
+      });
     });
 
     describe('mutate command', { concurrency: false }, () => {

@@ -295,9 +295,14 @@ const quote = e3.function('quote', {
 - **A call through a workspace** reads each input as stored when it launches,
   pinned at its hash, as a dataset argument is (`pinCallArguments`' `inputs`,
   pinned before the arguments), and the result's `inputs` names each path and
-  hash, the inputs first. It waits for no run in progress. An unassigned input
-  — a task's output not produced since the last deploy — is `invalid`, naming
-  its path, and nothing runs.
+  hash, the inputs first. It waits for no run in progress, and the inputs are
+  read one ref at a time, not as one snapshot: a call during a run may read one
+  input before the run rewrites it and another after, which a task never sees
+  (the dataflow checks version vectors). The hashes in `inputs` say which it
+  read. An input with no value is `invalid`, naming its path and why, and
+  nothing runs: an input nothing has set, a task's output no run has produced
+  since the deploy, a record whose first state is not committed — or a `null`
+  ref, which a task waits on too.
 - **The caller** passes the `args` alone: the arity counts them, and an
   argument may still be a dataset of the workspace (`@…` with `e3 call -w`).
   `e3 call` without `-w` refuses a function with inputs, naming them.
@@ -1161,10 +1166,15 @@ paths.
       inputs; the arity counts the arguments alone.
     - e3-api-tests `functionTests`, on every server: a call through a workspace
       computes over the inputs as stored and names each at the hash dataset
-      status reports, and an input written since is read at its new hash; an
-      unassigned input (a task's output) is `invalid`, naming it; the package
-      route refuses the function; describe lists the inputs and the argument
-      types.
+      status reports, and an input written since is read at its new hash; a
+      record is read as an input, and a dataset argument beside it is named
+      after it; an unassigned input — a task's output, an input nothing has set
+      — is `invalid`, naming it and why; the package route refuses the
+      function; describe lists the inputs and the argument types; the spec form
+      with no inputs is called through the package and a workspace alike.
+    - e3-api-tests `cliTests`, on every server: a remote `e3 call -w` passes the
+      arguments alone, counts them alone, and without `-w` is refused, naming
+      the inputs.
     - Integration `function-call.spec.ts`: `e3 call -w` passes the arguments
       alone, refuses a function with inputs without `-w`, and names an
       unassigned input.

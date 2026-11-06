@@ -35,6 +35,7 @@ import { export_ } from './export.js';
 import { input } from './input.js';
 import { partition, task } from './task.js';
 import type { IRBundle } from './types.js';
+import type { FunctionSpec } from './index.js';
 
 /**
  * Helper to read a zip file and return entries as a map of path -> buffer
@@ -161,6 +162,14 @@ describe('function_ with inputs', () => {
       output: IntegerType,
       runner: { runtime: 'custom', command: ['python3', 'my-runner.py'] },
     }, ($, stock) => stock.size()), /e3.function 'custom': the custom runtime takes no inputs/);
+  });
+
+  it('takes a spec named through the package entry, apart from the call', () => {
+    const spec: FunctionSpec<[typeof stock], [IntegerType], IntegerType> = { inputs: [stock], args: [IntegerType], output: IntegerType };
+    const held = function_('held', spec, ($, stock, extra) => stock.size().add(extra));
+    assert.deepStrictEqual(held.inputs, [stock]);
+    assert.strictEqual(held.argTypes.length, 1);
+    assert.strictEqual((held.body as IRBundle).compile([])(new Map([['a', 4n]]), 2n), 3n);
   });
 
   it('is collected by e3.package with its inputs and what they depend on', () => {
