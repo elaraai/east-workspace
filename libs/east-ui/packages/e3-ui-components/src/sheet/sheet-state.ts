@@ -49,6 +49,9 @@
  * - **Whole rows selected + ⌫ deletes the records**; ⌫ on cells clears them
  *   (never a stamped column — the component skips those); ⌫ on the armed
  *   fill or the selected proposal rejects it and remembers.
+ * - **Cells that step in place (#1531)** — a Record's cycle, toggle and
+ *   boolean: a press, Space or ⏎ takes the next state (⇧ the one before),
+ *   ⌫ a cycle's first and a member's key sets it; none opens an editor.
  * - **Grouped rows (#740)**: arrows land on a band like a row; Space or the
  *   chevron folds it; the summary gutter selects its children. Insertion
  *   uses explicit controls. A lens over a grouped sheet narrows its groups,
@@ -82,7 +85,7 @@ export { withBuffer } from "./sheet-link-state.js";
 
 /** The register kinds — where ⌥ cycles candidates and Tab takes the ghost. */
 function isRegisterKind(kind: SheetKind): boolean {
-    return kind === "lookup" || kind === "reference" || kind === "enum";
+    return kind === "lookup" || kind === "reference" || kind === "enum" || kind === "person";
 }
 
 /**
@@ -109,7 +112,8 @@ function stepColumn(r: number, c: number, dir: 1 | -1, ctx: SheetMachineCtx): nu
 /** Open the editor on a cell — `seed` is a printable key that starts a fresh edit. */
 function startEdit(s: SheetUiState, r: number, c: number, seed: string | undefined, ctx: SheetMachineCtx): Transition {
     if (r < 0 || r >= ctx.rowCount || c < 0 || c >= ctx.colCount) return { state: s, effects: [] };
-    if (!ctx.editableAt(r, c)) return { state: s, effects: [] };
+    // A cell that steps in place never opens an editor (#1531).
+    if (!ctx.editableAt(r, c) || ctx.stepAt?.(r, c, 1) !== undefined) return { state: s, effects: [] };
     const effects: SheetEffect[] = [];
     const moved = moveTo(s, { r, c }, ctx, effects);
     const linkCtx = ctx.linkAt?.(r, c);
@@ -324,6 +328,16 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
     if (rowKind === "row" && e.key === " " && !e.meta && !e.alt && ctx.lineSubRowsAt?.(s.sel.r) !== undefined) {
         return toggleSubRows(s, s.sel.r, e.shift, ctx);
     }
+    // A cell that steps in place (#1531): Space or ⏎ takes its next state (⇧ the one before), ⌫ a cycle's first, and a
+    // key that names a member sets it — none opens an editor, and a read-only cell takes none of them.
+    const stepAt = ctx.stepAt;
+    if (stepAt !== undefined && s.selEnd === null && !e.meta && !e.alt && stepAt(s.sel.r, s.sel.c, 1) !== undefined) {
+        const { r, c } = s.sel;
+        const write = (cell: SheetCellValue | undefined): Transition => ({ state: s, effects: ctx.editableAt(r, c) && cell !== undefined ? [{ t: "write", r, c, cell, text: "" }] : [] });
+        if (e.key === " " || e.key === "Enter") return write(stepAt(r, c, e.shift ? -1 : 1));
+        if (e.key === "Backspace" || e.key === "Delete") return write(stepAt(r, c, "first"));
+        if (e.key.length === 1) return write(ctx.keyAt?.(r, c, e.key));
+    }
     const dropPick = (t: Transition): Transition => (t.state.gsel === null ? t : { ...t, state: { ...t.state, gsel: null } });
     const move = (dr: number, dc: number): Transition => {
         const base = e.shift && s.selEnd !== null ? s.selEnd : s.sel;
@@ -483,11 +497,14 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             // A click commits an open editor in place first.
             const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
             const effects = closed.effects;
-            if (e.shift) {
+            // A cell that steps in place (#1531): the press takes its next state, ⇧ the one before — never a range.
+            const stepped = ctx.stepAt?.(e.r, e.c, e.shift ? -1 : 1);
+            if (e.shift && stepped === undefined) {
                 return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: e.c }, ctx), gsel: null }, effects };
             }
             const moved = moveTo(closed.state, { r: e.r, c: e.c }, ctx, effects, false);
             effects.push({ t: "focus.sheet" });
+            if (stepped !== undefined && ctx.editableAt(e.r, e.c)) effects.push({ t: "write", r: e.r, c: e.c, cell: stepped, text: "" });
             return { state: moved.gsel === null ? moved : { ...moved, gsel: null }, effects };
         }
         case "cell.dbl":
@@ -497,6 +514,8 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             if (s.hover !== null && s.hover.r === e.r && s.hover.c === e.c) return { state: s, effects: [] };
             return { state: { ...s, hover: { r: e.r, c: e.c } }, effects: [] };
         }
+        case "cell.leave":
+            return { state: s.hover === null ? s : { ...s, hover: null }, effects: [] };
         case "row.pick": {
             const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
             const effects = closed.effects;

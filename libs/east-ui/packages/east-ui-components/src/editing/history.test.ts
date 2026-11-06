@@ -113,7 +113,7 @@ test("the step Redo would replay is known by its origin (#1409): a run of the op
     expect(history.record([rename("jobs", "Spring catalogue, A4", "Spring catalogue, A5"), rename("stops", "Plate change", "Plate change, press A1")], "optimise", "Elara run #1")).toBe(true);
     expect(history.redoOrigin).toBeUndefined();
     history.undo();
-    expect([history.redoOrigin, sessions.jobs.nextRedo, sessions.stops.nextRedo]).toEqual(["optimise", { origin: "optimise", label: "Elara run #1" }, { origin: "optimise", label: "Elara run #1" }]);
+    expect([history.redoOrigin, sessions.jobs.nextRedo, sessions.stops.nextRedo]).toEqual(["optimise", { origin: "optimise", label: "Elara run #1", entries: 1 }, { origin: "optimise", label: "Elara run #1", entries: 1 }]);
     history.undo();
     expect([history.redoOrigin, sessions.jobs.nextRedo?.label]).toEqual(["typed", "Edit job"]);
     history.redo();

@@ -263,26 +263,27 @@ export function createRecordPayload(props: { columns: unknown } & { [prop: strin
         throw new Error(`Record: \`groupBy\` names "${groupBy}", which is not a column (${keys.join(", ")})`);
     }
     if (banded !== undefined && UNBANDED.has(banded.kind)) {
-        throw new Error(`Record: \`groupBy\` names "${groupBy}", an ${banded.kind} column — rows band by a value they share: a reference, enum, person, cycle, toggle or text column`);
+        throw new Error(`Record: \`groupBy\` names "${groupBy}", an ${banded.kind} column — rows band by a value they share, which a count or a change is not`);
     }
     let built: SheetPayloadParts;
     try {
-        built = createSheetPayload(sheet, { recordKinds: true }) as unknown as SheetPayloadParts;
+        // A Record draws its own rows alone: Add drafts a new one, and no blank row invites it.
+        built = createSheetPayload({ ...sheet, blanks: 0 }, { recordKinds: true }) as unknown as SheetPayloadParts;
     } catch (e) {
         throw new Error(`Record: ${(e as Error).message.replace(/^Sheet: /, "")}`);
     }
+    // What only a Record has, as the payload holds it.
+    const own = {
+        title: title === undefined ? none : some(title),
+        noun: noun === undefined ? none : some({ singular: noun.singular, plural: noun.plural }),
+        columnGroups: (columnGroups ?? []).map((group) => ({ label: group.label, columnKeys: [...group.columnKeys] })),
+        bands: groupBy === undefined ? none : some({ column: groupBy }),
+    };
     return Expr.block(($) => {
         const payload = $.const(built);
-        return East.value({
-            sheet: payload.sheet,
-            title: title === undefined ? none : some(title),
-            noun: noun === undefined ? none : some({ singular: noun.singular, plural: noun.plural }),
-            columnGroups: (columnGroups ?? []).map((group) => ({ label: group.label, columnKeys: [...group.columnKeys] })),
-            bands: groupBy === undefined ? none : some({ column: groupBy }),
-            inspector: payload.inspector,
-            history: payload.history,
-            missing: payload.missing,
-            name: payload.name,
+        return $.const({
+            sheet: payload.sheet, ...own,
+            inspector: payload.inspector, history: payload.history, missing: payload.missing, name: payload.name,
         }, RecordPayloadType);
     }) as ExprType<RecordPayloadType>;
 }

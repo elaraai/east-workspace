@@ -548,14 +548,14 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
         case "age": {
             const unit = (cfg as { unit?: SheetAgeUnitLiteral }).unit ?? "days";
             const span = unit === "hours" ? 3_600_000n : unit === "weeks" ? 604_800_000n : 86_400_000n;
-            // Whole units from the moment to the browser's clock, the renderer's to call; a moment ahead of it is none yet.
+            // Whole units from the moment to the browser's clock, the renderer's to call; a moment ahead of it counts 0.
             const elapsed = East.function([DateTimeType, DateTimeType], IntegerType, ($, since, now) => {
                 const ms = $.const(since.durationMilliseconds(now));
                 return ms.less(0n).ifElse(() => 0n, () => ms.divide(span));
             });
             return kindOf("age", {
                 unit:   variant(unit, null),
-                stale:  cfg.stale !== undefined ? some(cfg.stale) : none,
+                stale:  optionOf(cfg.stale, IntegerType),
                 absent: optionOf(cfg.absent, StringType),
                 elapsed,
             });

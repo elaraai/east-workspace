@@ -80,9 +80,9 @@ export function columnFrequency(rows: readonly SheetRowValue[], column: string):
 }
 
 /** A register's members, in declaration order — narrowed to the column's options rule when the host gives one. */
-function members(ctx: CandidateContext, meta: SheetColumnMeta): { key: string; aliases: readonly string[] }[] {
+function members(ctx: CandidateContext, meta: SheetColumnMeta): { key: string; label: string; aliases: readonly string[] }[] {
     if (meta.register === undefined) return [];
-    const all = (ctx.registers.byName.get(meta.register) ?? []).map((m) => ({ key: m.key, aliases: m.aliases }));
+    const all = (ctx.registers.byName.get(meta.register) ?? []).map((m) => ({ key: m.key, label: m.label, aliases: m.aliases }));
     const allowed = ctx.allowed?.(meta);
     return allowed === undefined ? all : all.filter((m) => allowed.has(m.key));
 }
@@ -97,12 +97,16 @@ function memberKeys(ctx: CandidateContext, meta: SheetColumnMeta): string[] {
  * member's score is its best over its spellings, an alias match ranking just
  * behind the same match on the key, ties by `freq`. A register's shorthand
  * (an abbreviation, a site's own word for a member) is an alias, not a
- * substring of the member's name.
+ * substring of the member's name. With `byLabel` — a Record's person or
+ * cycle, whose members are typed by the words they show — the label is a
+ * spelling as good as the key.
  */
-function scoreMembers(list: readonly { key: string; aliases: readonly string[] }[], query: string, freq?: ReadonlyMap<string, number>): string[] {
+function scoreMembers(list: readonly { key: string; label: string; aliases: readonly string[] }[], query: string, freq?: ReadonlyMap<string, number>, byLabel = false): string[] {
     return list
         .map((m) => {
             let s = scoreLabel(m.key, query);
+            const ls = byLabel ? scoreLabel(m.label, query) : -1;
+            if (ls >= 0 && (s < 0 || ls < s)) s = ls;
             for (const a of m.aliases) {
                 const as = scoreLabel(a, query);
                 if (as >= 0 && (s < 0 || as + 0.25 < s)) s = as + 0.25;
@@ -129,7 +133,7 @@ function stringAt(row: SheetRowValue | undefined, column: string): string {
  */
 export function entryCandidates(meta: SheetColumnMeta, ctx: CandidateContext): string[] {
     const keys = memberKeys(ctx, meta);
-    if (meta.kind === "enum" || meta.kind === "reference") return keys.slice(0, 8);
+    if (meta.kind === "enum" || meta.kind === "reference" || meta.kind === "person" || meta.kind === "cycle") return keys.slice(0, 8);
     if (meta.kind !== "lookup") return [];
     const score = new Map<string, number>();
     const prev = ctx.rowIndex > 0 ? ctx.rows[ctx.rowIndex - 1] : undefined;
@@ -159,6 +163,8 @@ export function candidateList(meta: SheetColumnMeta, text: string, ctx: Candidat
     switch (meta.kind) {
         case "lookup": return scoreMembers(list, t, columnFrequency(ctx.rows, meta.key));
         case "reference": return scoreMembers(list, t);
+        case "person":
+        case "cycle": return scoreMembers(list, t, undefined, true);
         case "enum": return scoreMembers(list, t.toUpperCase());
         default: return [];
     }

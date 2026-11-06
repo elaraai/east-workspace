@@ -135,6 +135,7 @@ import { facetTabsSlotRecipe } from "./slot-recipes/facetTabs.js";
 import { editableChipSlotRecipe } from "./slot-recipes/editableChip.js";
 import { planSlotRecipe } from "./slot-recipes/plan.js";
 import { sheetSlotRecipe } from "./slot-recipes/sheet.js";
+import { recordSlotRecipe } from "./slot-recipes/record.js";
 import { splitterSlotRecipe } from "./slot-recipes/splitter.js";
 import { configuratorSlotRecipe } from "./slot-recipes/configurator.js";
 import { matrixSlotRecipe } from "./slot-recipes/matrix.js";
@@ -294,6 +295,7 @@ const config = defineConfig({
             configurator:    configuratorSlotRecipe,
             plan:            planSlotRecipe,
             sheet:           sheetSlotRecipe,
+            record:          recordSlotRecipe,
             matrix:          matrixSlotRecipe,
             showMore:        showMoreSlotRecipe,
             status:          statusSlotRecipe,

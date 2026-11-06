@@ -193,6 +193,8 @@ export type SheetEvent =
     | { t: "cell.down"; r: number; c: number; shift: boolean }
     | { t: "cell.dbl"; r: number; c: number }
     | { t: "cell.enter"; r: number; c: number; dragging: boolean }
+    /** The pointer left the grid: no cell is hovered, and a strip that previews the hovered cell returns to the ring's (#1531). */
+    | { t: "cell.leave" }
     | { t: "row.pick"; r: number; shift: boolean }
     | { t: "key"; key: string; shift: boolean; meta: boolean; alt: boolean }
     | { t: "editor.change"; val: string }
@@ -342,6 +344,14 @@ export interface SheetMachineCtx {
     editableAt: (r: number, c: number) => boolean;
     /** The kind of the cell at a row and column — a band's cell under the column, else the column's. */
     kindAt: (r: number, c: number) => SheetKind;
+    /**
+     * A cell that steps in place rather than open an editor (#1531) — a cycle, a toggle, a boolean: its state after a
+     * step, the next (`1`), the one before (`-1`) or a cycle's first. `undefined` for any other cell, and absent on a
+     * sheet whose cells all edit.
+     */
+    stepAt?: ((r: number, c: number, step: 1 | -1 | "first") => SheetCellValue | undefined) | undefined;
+    /** The cell a key sets on a cell that steps in place (#1531): a cycle's member whose label, key or alias it is. */
+    keyAt?: ((r: number, c: number, key: string) => SheetCellValue | undefined) | undefined;
     /** Parse a buffer for a cell. */
     parse: (r: number, c: number, text: string) => ParseOutcome;
     /** The candidates for a buffer (the entry menu when empty). */

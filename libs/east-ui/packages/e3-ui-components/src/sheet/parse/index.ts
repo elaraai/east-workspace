@@ -17,8 +17,9 @@ import type { Formatters } from "@elaraai/east-ui-components";
 import { parseDate, formatWhenEdit, type WhenLevel } from "./date.js";
 import { parseQuantity, formatNumberBare } from "./quantity.js";
 import { candidateList, type CandidateContext } from "../candidates.js";
-import { cellText, memberLabel, printLinkText, type SheetColumnMeta } from "../model.js";
+import { cellText, memberLabel, printLinkText, resolveMember, type SheetColumnMeta } from "../model.js";
 import { parseLinkText, type LinkVocabulary } from "../link/grammar.js";
+import { booleanOf, cycleMember } from "../steps.js";
 import type { SheetCellValue, SheetContextValue, SheetLinkValue } from "../values.js";
 
 /** The outcome of parsing an editor buffer. */
@@ -62,6 +63,7 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
     switch (meta.kind) {
         case "text":
         case "stamped":
+        case "title":
             return trimmed === "" ? { kind: "blank" } : { kind: "cell", cell: cellOf("String", text) };
         case "date": {
             const d = parseDate(text, { today: ctx.today, base: ctx.baseDate });
@@ -95,6 +97,27 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
             const pick = exact ?? list[0];
             // Preserve an unmatched enum as invalid draft text.
             return pick === undefined ? { kind: "unrecognised" } : { kind: "cell", cell: cellOf("String", pick) };
+        }
+        case "person": {
+            // A Record's person: a member named by its key, an alias or the name it shows, else the best match — or no one;
+            // an unmatched name stays invalid draft text.
+            if (trimmed === "") return { kind: "blank" };
+            const named = resolveMember(ctx.registers, meta.register, trimmed)
+                ?? (ctx.registers.byName.get(meta.register ?? "") ?? []).find((m) => m.label.toLowerCase() === trimmed.toLowerCase());
+            const pick = named?.key ?? candidateList(meta, text, ctx)[0];
+            return pick === undefined ? { kind: "unrecognised" } : { kind: "cell", cell: cellOf("String", pick) };
+        }
+        case "cycle": {
+            // A member named by its label, its key or an alias.
+            if (trimmed === "") return { kind: "blank" };
+            const member = cycleMember(meta, trimmed, ctx.registers);
+            return member === undefined ? { kind: "unrecognised" } : { kind: "cell", cell: cellOf("String", member.key) };
+        }
+        case "toggle":
+        case "boolean": {
+            if (trimmed === "") return { kind: "blank" };
+            const on = booleanOf(meta, trimmed);
+            return on === undefined ? { kind: "unrecognised" } : { kind: "cell", cell: cellOf("Boolean", on) };
         }
         case "set":
         case "link": {
@@ -147,7 +170,7 @@ export function editText(cell: SheetCellValue | undefined, meta: SheetColumnMeta
         case "Integer": return String(cell.value);
         case "Invalid":
         case "String": return cell.value;
-        case "Boolean": return String(cell.value);
+        case "Boolean": return cellText(cell, meta, words);
         case "Link": return printLinkText(cell.value);
     }
     return cellText(cell, meta, words);
