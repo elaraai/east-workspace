@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1317,
+    "totalEntries": 1318,
     "totalFiles": 222,
     "packages": {
       "east": 584,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 308,
-      "e3-ui": 176,
+      "e3-ui": 177,
       "e3": 23,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -44097,7 +44097,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Reactive, Slice, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -44127,7 +44127,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Reactive, Slice, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -44155,7 +44155,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Reactive, Slice, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -44184,7 +44184,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Reactive, Slice, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -44209,7 +44209,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Reactive, Slice, StatusValueType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -44217,6 +44217,38 @@
         "tsx"
       ],
       "source": "// The skills matrix read only: the same cells with no hover, no select column and no Add or Delete; the rail still narrows and counts, and the inspector shows every field read only\n// inputs: []\nexport const Skills = StructType({\n    name: StringType, role: StringType,\n    intake: StringType, review: StringType, dispatch: StringType, handover: StringType,\n    scanner: StringType, console: StringType, reports: StringType,\n    auditing: StringType, training: StringType, planning: StringType,\n    updated: OptionType(Record.Types.Change),\n});\n\nexport const recordSkills = e3.record(\"record_skills\", DictType(StringType, Skills), {\n    initial: new Map([\n        [\"P-0401\", { name: \"A. Morgan\", role: \"Operator\", intake: \"2\", review: \"2\", dispatch: \"2\", handover: \"2\", scanner: \"1\", console: \"1\",\n            reports: \"0\", auditing: \"0\", training: \"0\", planning: \"0\", updated: some({ at: new Date(\"2026-09-18T09:12:00Z\"), by: \"M. Hale\", verb: \"confirmed\" }) }],\n        [\"P-0408\", { name: \"B. Ellis\", role: \"Operator\", intake: \"0\", review: \"0\", dispatch: \"0\", handover: \"0\", scanner: \"0\", console: \"0\",\n            reports: \"0\", auditing: \"2\", training: \"2\", planning: \"2\", updated: some({ at: new Date(\"2026-10-17T14:40:00Z\"), by: \"S. Park\", verb: \"changed\" }) }],\n        [\"P-0415\", { name: \"C. Patel\", role: \"Contractor\", intake: \"2\", review: \"1\", dispatch: \"1\", handover: \"1\", scanner: \"0\", console: \"0\",\n            reports: \"0\", auditing: \"0\", training: \"0\", planning: \"0\", updated: some({ at: new Date(\"2026-11-02T11:05:00Z\"), by: \"J. Ortiz\", verb: \"changed\" }) }],\n        [\"P-0450\", { name: \"H. Kim\", role: \"Operator\", intake: \"1\", review: \"0\", dispatch: \"1\", handover: \"0\", scanner: \"2\", console: \"2\",\n            reports: \"2\", auditing: \"0\", training: \"0\", planning: \"0\", updated: some({ at: new Date(\"2026-07-10T08:30:00Z\"), by: \"A. Rowe\", verb: \"changed\" }) }],\n        [\"P-0520\", { name: \"V. Lowe\", role: \"Team lead\", intake: \"2\", review: \"2\", dispatch: \"1\", handover: \"0\", scanner: \"0\", console: \"1\",\n            reports: \"1\", auditing: \"1\", training: \"1\", planning: \"1\", updated: some({ at: new Date(\"2026-11-03T16:20:00Z\"), by: \"M. Hale\", verb: \"changed\" }) }],\n    ]),\n    indexes: (index) => ({\n        // What the rail searches and filters by.\n        record_skills_by_name: index.on([\"name\"]),\n        record_skills_by_role: index.on([\"role\"]),\n    }),\n    mutations: (mutation) => ({\n        // The people's patch door — every Apply commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const slice = $.let(Slice.bindRecords(\"record.skills.readonly\", {\n                rows: {\n                    source: Data.bindPaged(recordSkills, { indexes: [\"record_skills_by_name\", \"record_skills_by_role\"] }),\n                    label: \"People\",\n                    fields: { name: { label: \"Name\" }, role: { label: \"Role\", hints: [\"Operator\", \"Contractor\", \"Team lead\"] } },\n                    search: [\"name\", \"role\"],\n                },\n            }));\n            const LevelType = StructType({ key: StringType, name: StringType });\n            const levels = $.let([\n                { key: \"0\", name: \"Not trained\" },\n                { key: \"1\", name: \"Supervised\" },\n                { key: \"2\", name: \"Competent\" },\n            ], ArrayType(LevelType));\n            const roles = $.let([\"Operator\", \"Contractor\", \"Team lead\"], ArrayType(StringType));\n            return (\n                <Box height=\"760px\">\n                    <Record\n                        slice={{ slice }}\n                        title=\"Skills matrix\"\n                        noun={{ singular: \"person\", plural: \"people\" }}\n                        registers={{\n                            levels: Record.register.members(levels, { kind: \"level\", key: l => l.key, label: l => l.key, meta: l => some(l.name) }),\n                            roles:  Record.register.members(roles, { kind: \"role\", key: r => r, label: r => r }),\n                        }}\n                        columns={{\n                            name:       Record.column.title(Skills, { header: \"Name\", width: \"156px\" }),\n                            role:       Record.column.reference(Skills, \"roles\", { header: \"Role\", width: \"136px\" }),\n                            intake:     Record.column.cycle(Skills, \"levels\", { header: \"Intake\", width: \"72px\", scale: true }),\n                            review:     Record.column.cycle(Skills, \"levels\", { header: \"Review\", width: \"72px\", scale: true }),\n                            dispatch:   Record.column.cycle(Skills, \"levels\", { header: \"Dispatch\", width: \"72px\", scale: true }),\n                            handover:   Record.column.cycle(Skills, \"levels\", { header: \"Handover to next shift\", width: \"72px\", scale: true }),\n                            scanner:    Record.column.cycle(Skills, \"levels\", { header: \"Scanner\", width: \"72px\", scale: true }),\n                            console:    Record.column.cycle(Skills, \"levels\", { header: \"Console\", width: \"72px\", scale: true }),\n                            reports:    Record.column.cycle(Skills, \"levels\", { header: \"Reports\", width: \"72px\", scale: true }),\n                            auditing:   Record.column.cycle(Skills, \"levels\", { header: \"Auditing\", width: \"72px\", scale: true }),\n                            training:   Record.column.cycle(Skills, \"levels\", { header: \"Training\", width: \"72px\", scale: true }),\n                            planning:   Record.column.cycle(Skills, \"levels\", { header: \"Planning\", width: \"72px\", scale: true }),\n                            days_since: Record.column.age(Skills, { header: \"Days since\", width: \"92px\", since: p => p.updated, stale: 90n, absent: \"not confirmed\" }),\n                            updated:    Record.column.audit(Skills, { header: \"Last updated\", width: \"264px\", mode: \"blame\" }),\n                        }}\n                        columnGroups={[\n                            { label: \"Core\", columnKeys: [\"intake\", \"review\", \"dispatch\", \"handover\"] },\n                            { label: \"Tools\", columnKeys: [\"scanner\", \"console\", \"reports\"] },\n                            { label: \"Advanced\", columnKeys: [\"auditing\", \"training\", \"planning\"] },\n                        ]}\n                        inspector\n                        readOnly\n                        name=\"skillsReadOnly\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:record.examples.tsx:recordLooks",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/record/record.examples.tsx",
+      "suite": "",
+      "test": "The Record's looks, as the designer's tweaks show them: a rota with a cell of every Record kind, each cycle and toggle as a chip and as a mark side by side, under a density control that steps its rows through comfortable, compact and condensed",
+      "keywords": [
+        "Record",
+        "density",
+        "compact",
+        "condensed",
+        "comfortable",
+        "look",
+        "chip",
+        "mark",
+        "pips",
+        "Record.column.person",
+        "Record.column.boolean",
+        "Configurator"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// The Record's looks, as the designer's tweaks show them: a rota with a cell of every Record kind, each cycle and toggle as a chip and as a mark side by side, under a density control that steps its rows through comfortable, compact and condensed\n// inputs: []\nexport const Rota = StructType({\n    name: StringType, supervisor: OptionType(StringType), inducted: BooleanType,\n    nights: BooleanType, weekends: BooleanType, forklift: StringType, scanner: StringType, days: StringType, evenings: StringType,\n    updated: OptionType(Record.Types.Change),\n});\n\nexport const recordRota = e3.record(\"record_rota\", DictType(StringType, Rota), {\n    initial: new Map([\n        [\"R-01\", { name: \"A. Morgan\", supervisor: some(\"S. Park\"), inducted: true, nights: false, weekends: true, forklift: \"2\", scanner: \"1\",\n            days: \"prefer\", evenings: \"can\", updated: some({ at: new Date(\"2026-09-18T09:12:00Z\"), by: \"M. Hale\", verb: \"confirmed\" }) }],\n        [\"R-02\", { name: \"B. Ellis\", supervisor: none, inducted: false, nights: true, weekends: false, forklift: \"0\", scanner: \"2\",\n            days: \"can\", evenings: \"cannot\", updated: none }],\n        [\"R-03\", { name: \"C. Patel\", supervisor: some(\"J. Ortiz\"), inducted: true, nights: true, weekends: true, forklift: \"1\", scanner: \"0\",\n            days: \"cannot\", evenings: \"prefer\", updated: some({ at: new Date(\"2026-05-13T09:41:00Z\"), by: \"S. Park\", verb: \"changed\" }) }],\n    ]),\n    mutations: (mutation) => ({\n        // The rota's patch door — every Apply commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const rota = $.let(Record.bind(recordRota));\n            // The density control: each segment a density, and the Record takes the one chosen.\n            const densities = $.const([variant(\"comfortable\", null), variant(\"compact\", null), variant(\"condensed\", null)], ArrayType(Style.Types.Density));\n            const densityBind = $.let(State.bind([StringType], \"record_looks_density\", \"comfortable\"));\n            const densityKey = $.let(densityBind.read());\n            const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));\n            const density = $.let(densities.filter((_$, d) => d.getTag().equal(densityKey)).get(0n));\n            const LevelType = StructType({ key: StringType, name: StringType });\n            const levels = $.let([\n                { key: \"0\", name: \"Not trained\" },\n                { key: \"1\", name: \"Supervised\" },\n                { key: \"2\", name: \"Competent\" },\n            ], ArrayType(LevelType));\n            const ChoiceType = StructType({ key: StringType, label: StringType, name: StringType, tone: StatusValueType });\n            const choices = $.let([\n                { key: \"can\",    label: \"can\",    name: \"Can work\",   tone: variant(\"neutral\", null) },\n                { key: \"prefer\", label: \"prefer\", name: \"Prefers\",    tone: variant(\"success\", null) },\n                { key: \"cannot\", label: \"can't\",  name: \"Can't work\", tone: variant(\"danger\", null) },\n            ], ArrayType(ChoiceType));\n            const supervisors = $.let([\"S. Park\", \"M. Hale\", \"J. Ortiz\"], ArrayType(StringType));\n            return (\n                <Configurator\n                    controls={[\n                        Configurator.Control(\"Density\", densityKey,\n                            <SegmentGroup value={densityKey} onChange={onDensity} size=\"sm\"\n                                items={densities.map((_$, d) => SegmentGroup.Item(d.getTag(), <Text>{d.getTag().upperCase()}</Text>))} />),\n                    ]}\n                    preview={\n                        <Box height=\"360px\" width=\"100%\">\n                            <Record\n                                record={rota}\n                                title=\"Rota\"\n                                noun={{ singular: \"person\", plural: \"people\" }}\n                                density={density}\n                                registers={{\n                                    levels:      Record.register.members(levels, { kind: \"level\", key: l => l.key, label: l => l.key, meta: l => some(l.name) }),\n                                    choices:     Record.register.members(choices, { kind: \"choice\", key: c => c.key, label: c => c.label, meta: c => some(c.name), tone: c => some(c.tone) }),\n                                    supervisors: Record.register.members(supervisors, { kind: \"person\", key: p => p, label: p => p }),\n                                }}\n                                columns={{\n                                    name:       Record.column.title(Rota, { header: \"Name\", width: \"176px\", avatar: true }),\n                                    supervisor: Record.column.person(Rota, \"supervisors\", { header: \"Supervisor\", width: \"152px\" }),\n                                    inducted:   Record.column.boolean(Rota, { header: \"Inducted\", width: \"80px\" }),\n                                    nights:     Record.column.toggle(Rota, { header: \"Nights\", width: \"80px\", on: \"yes\", off: \"no\" }),\n                                    weekends:   Record.column.toggle(Rota, { header: \"Weekends\", width: \"88px\", on: \"yes\", off: \"no\", look: \"mark\" }),\n                                    forklift:   Record.column.cycle(Rota, \"levels\", { header: \"Forklift\", width: \"72px\", scale: true }),\n                                    scanner:    Record.column.cycle(Rota, \"levels\", { header: \"Scanner\", width: \"72px\", scale: true, look: \"mark\" }),\n                                    days:       Record.column.cycle(Rota, \"choices\", { header: \"Days\", width: \"80px\" }),\n                                    evenings:   Record.column.cycle(Rota, \"choices\", { header: \"Evenings\", width: \"112px\", look: \"mark\" }),\n                                    days_since: Record.column.age(Rota, { header: \"Days since\", width: \"136px\", since: r => r.updated, stale: 90n, absent: \"not confirmed\" }),\n                                    updated:    Record.column.audit(Rota, { header: \"Last updated\", width: \"232px\", mode: \"blame\" }),\n                                }}\n                                columnGroups={[\n                                    { label: \"Shifts\", columnKeys: [\"nights\", \"weekends\"] },\n                                    { label: \"Skills\", columnKeys: [\"forklift\", \"scanner\"] },\n                                    { label: \"Preferences\", columnKeys: [\"days\", \"evenings\"] },\n                                ]}\n                                name=\"looks\"\n                            />\n                        </Box>\n                    }\n                />\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:domain.examples.ts:rosterCoverage",

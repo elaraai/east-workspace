@@ -12,10 +12,10 @@
  */
 
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType,
     example, none, some, variant,
 } from "@elaraai/east";
-import { Box, Reactive, Slice, StatusValueType, UIComponentType } from "@elaraai/east-ui";
+import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from "@elaraai/east-ui";
 import { Data, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -392,6 +392,103 @@ export const recordSkillsReadOnly = example({
                         name="skillsReadOnly"
                     />
                 </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// Example 6 — the looks: every Record kind, a chip and a mark, three densities
+// ============================================================================
+
+export const Rota = StructType({
+    name: StringType, supervisor: OptionType(StringType), inducted: BooleanType,
+    nights: BooleanType, weekends: BooleanType, forklift: StringType, scanner: StringType, days: StringType, evenings: StringType,
+    updated: OptionType(Record.Types.Change),
+});
+export const recordRota = e3.record("record_rota", DictType(StringType, Rota), {
+    initial: new Map([
+        ["R-01", { name: "A. Morgan", supervisor: some("S. Park"), inducted: true, nights: false, weekends: true, forklift: "2", scanner: "1",
+            days: "prefer", evenings: "can", updated: some({ at: new Date("2026-09-18T09:12:00Z"), by: "M. Hale", verb: "confirmed" }) }],
+        ["R-02", { name: "B. Ellis", supervisor: none, inducted: false, nights: true, weekends: false, forklift: "0", scanner: "2",
+            days: "can", evenings: "cannot", updated: none }],
+        ["R-03", { name: "C. Patel", supervisor: some("J. Ortiz"), inducted: true, nights: true, weekends: true, forklift: "1", scanner: "0",
+            days: "cannot", evenings: "prefer", updated: some({ at: new Date("2026-05-13T09:41:00Z"), by: "S. Park", verb: "changed" }) }],
+    ]),
+    mutations: (mutation) => ({
+        // The rota's patch door — every Apply commits through it.
+        patch: mutation.patch(),
+    }),
+});
+
+export const recordLooks = example({
+    keywords: ["Record", "density", "compact", "condensed", "comfortable", "look", "chip", "mark", "pips", "Record.column.person", "Record.column.boolean", "Configurator"],
+    description: "The Record's looks, as the designer's tweaks show them: a rota with a cell of every Record kind, each cycle and toggle as a chip and as a mark side by side, under a density control that steps its rows through comfortable, compact and condensed",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const rota = $.let(Record.bind(recordRota));
+            // The density control: each segment a density, and the Record takes the one chosen.
+            const densities = $.const([variant("comfortable", null), variant("compact", null), variant("condensed", null)], ArrayType(Style.Types.Density));
+            const densityBind = $.let(State.bind([StringType], "record_looks_density", "comfortable"));
+            const densityKey = $.let(densityBind.read());
+            const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
+            const density = $.let(densities.filter((_$, d) => d.getTag().equal(densityKey)).get(0n));
+            const LevelType = StructType({ key: StringType, name: StringType });
+            const levels = $.let([
+                { key: "0", name: "Not trained" },
+                { key: "1", name: "Supervised" },
+                { key: "2", name: "Competent" },
+            ], ArrayType(LevelType));
+            const ChoiceType = StructType({ key: StringType, label: StringType, name: StringType, tone: StatusValueType });
+            const choices = $.let([
+                { key: "can",    label: "can",    name: "Can work",   tone: variant("neutral", null) },
+                { key: "prefer", label: "prefer", name: "Prefers",    tone: variant("success", null) },
+                { key: "cannot", label: "can't",  name: "Can't work", tone: variant("danger", null) },
+            ], ArrayType(ChoiceType));
+            const supervisors = $.let(["S. Park", "M. Hale", "J. Ortiz"], ArrayType(StringType));
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Density", densityKey,
+                            <SegmentGroup value={densityKey} onChange={onDensity} size="sm"
+                                items={densities.map((_$, d) => SegmentGroup.Item(d.getTag(), <Text>{d.getTag().upperCase()}</Text>))} />),
+                    ]}
+                    preview={
+                        <Box height="360px" width="100%">
+                            <Record
+                                record={rota}
+                                title="Rota"
+                                noun={{ singular: "person", plural: "people" }}
+                                density={density}
+                                registers={{
+                                    levels:      Record.register.members(levels, { kind: "level", key: l => l.key, label: l => l.key, meta: l => some(l.name) }),
+                                    choices:     Record.register.members(choices, { kind: "choice", key: c => c.key, label: c => c.label, meta: c => some(c.name), tone: c => some(c.tone) }),
+                                    supervisors: Record.register.members(supervisors, { kind: "person", key: p => p, label: p => p }),
+                                }}
+                                columns={{
+                                    name:       Record.column.title(Rota, { header: "Name", width: "176px", avatar: true }),
+                                    supervisor: Record.column.person(Rota, "supervisors", { header: "Supervisor", width: "152px" }),
+                                    inducted:   Record.column.boolean(Rota, { header: "Inducted", width: "80px" }),
+                                    nights:     Record.column.toggle(Rota, { header: "Nights", width: "80px", on: "yes", off: "no" }),
+                                    weekends:   Record.column.toggle(Rota, { header: "Weekends", width: "88px", on: "yes", off: "no", look: "mark" }),
+                                    forklift:   Record.column.cycle(Rota, "levels", { header: "Forklift", width: "72px", scale: true }),
+                                    scanner:    Record.column.cycle(Rota, "levels", { header: "Scanner", width: "72px", scale: true, look: "mark" }),
+                                    days:       Record.column.cycle(Rota, "choices", { header: "Days", width: "80px" }),
+                                    evenings:   Record.column.cycle(Rota, "choices", { header: "Evenings", width: "112px", look: "mark" }),
+                                    days_since: Record.column.age(Rota, { header: "Days since", width: "136px", since: r => r.updated, stale: 90n, absent: "not confirmed" }),
+                                    updated:    Record.column.audit(Rota, { header: "Last updated", width: "232px", mode: "blame" }),
+                                }}
+                                columnGroups={[
+                                    { label: "Shifts", columnKeys: ["nights", "weekends"] },
+                                    { label: "Skills", columnKeys: ["forklift", "scanner"] },
+                                    { label: "Preferences", columnKeys: ["days", "evenings"] },
+                                ]}
+                                name="looks"
+                            />
+                        </Box>
+                    }
+                />
             );
         }}</Reactive>
     )),

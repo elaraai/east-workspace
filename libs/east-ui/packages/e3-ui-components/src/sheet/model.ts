@@ -428,6 +428,18 @@ export function driverKeyOf(row: SheetRowValue | undefined, driverColumn: string
     return cell.value === "" ? undefined : cell.value;
 }
 
+/**
+ * The unit a quantity cell prints after its value: its row's driver member's,
+ * else the one unit the column gives every row.
+ *
+ * @param meta - The column
+ * @param driverKey - The row's driver member key, if it names one
+ * @returns The unit, or `undefined` for a column with none
+ */
+export function unitOf(meta: SheetColumnMeta, driverKey: string | undefined): string | undefined {
+    return (driverKey !== undefined ? meta.uom?.get(driverKey) : undefined) ?? meta.unit;
+}
+
 // ── Cells ─────────────────────────────────────────────────────────────────
 
 /** The blank cell. */

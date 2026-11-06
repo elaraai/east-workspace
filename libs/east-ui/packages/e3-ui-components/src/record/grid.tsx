@@ -9,13 +9,15 @@
  * its host (decision 8): the Sheet's one machine, session, lens and paging
  * under it, and here what a row, the header and the empty state look like.
  *
- * - **A row** — its select column's box, then a cell for each column, each
- *   cell's content the Sheet's for its kind. The ring's row and a ticked row
- *   are selected; a row holding drafts takes the draft wash; the ring's cell
- *   is active; a cell its drafts changed is tinted until Apply; a new row's
- *   empty cell a person must fill is washed and says so on hover; a cycle, a
- *   toggle or a boolean a person may step lights under the pointer; an owned
- *   row, and every row of a read-only Record, takes no hover.
+ * - **A row** — its select column's box, then a cell for each column: a
+ *   Record kind's its own (`cells.tsx`, C1–C10), counting an age to the
+ *   Record's clock, and a Sheet kind's the Sheet's (C11). The ring's row and
+ *   a ticked row are selected; a row holding drafts takes the draft wash;
+ *   the ring's cell is active; a cell its drafts changed is tinted until
+ *   Apply; a new row's empty cell a person must fill is washed and says so on
+ *   hover; a cycle, a toggle or a boolean a person may step lights under the
+ *   pointer; an owned row, and every row of a read-only Record, takes no
+ *   hover.
  * - **The header** — the column groups' row, each group's label over a rule
  *   under its columns, the columns before the first group and an unlabelled
  *   group drawing neither, then the header row, the select column's box
@@ -38,7 +40,7 @@ import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordPayloadType } from "@elaraai/e3-ui/internal";
 import type { SlotStyles } from "@elaraai/east-ui-components/internal";
 import type { SheetHostEmptyProps, SheetHostHeaderProps, SheetHostRowProps } from "../sheet/index.js";
-import { cellIsBlank, driverKeyOf, resolveMember, type SheetColumnIndex, type SheetColumnMeta } from "../sheet/model.js";
+import { cellIsBlank, driverKeyOf, resolveMember, unitOf, type SheetColumnIndex, type SheetColumnMeta } from "../sheet/model.js";
 import { SheetCellContent } from "../sheet/cells/Cell.js";
 import { cellDetail } from "../sheet/detail.js";
 import { namesMember } from "../sheet/Rows.js";
@@ -47,6 +49,8 @@ import { ActionCellSlot } from "../sheet/actions/ActionCell.js";
 import { actionColumnOf } from "../sheet/actions/model.js";
 import { useSheetWords } from "../sheet/words.js";
 import type { SheetRowValue } from "../sheet/values.js";
+import { chipWidths, recordCell } from "./cells.js";
+import { useRecordNow } from "./clock.js";
 import { recordMessages as m } from "./messages.js";
 import type { RecordTicks } from "./ticks.js";
 
@@ -99,6 +103,9 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
     const { styles: sheetStyles, r, row, columns, registers, gridTemplate, rowPx, idPrefix, selC, range, editor, draft, changes, writable } = props;
     const { styles, ticks, lead } = useRecordGrid();
     const words = useSheetWords();
+    // The clock, read once for the row's every age; the row draws again as it moves.
+    const now = useRecordNow();
+    const chips = useMemo(() => chipWidths(columns, registers), [columns, registers]);
     const id = row?.id;
     const ticked = useSyncExternalStore(ticks.subscribe, () => id !== undefined && ticks.has(id));
     // An owned row, and a Record no gesture may change, takes no hover and steps nothing (ST9).
@@ -151,6 +158,9 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
                 // An action cell (#1475): its state, its summary and the controls of what it offers, over the Sheet's host.
                 const action = meta.kind === "action" && props.actions !== undefined && row !== undefined ? actionColumnOf(meta) : undefined;
                 const summary = action !== undefined ? row?.cells.get(action.summary) : undefined;
+                // A Record kind's cell, and what it says on hover; a Sheet kind's is the Sheet's (C11).
+                const view = row === undefined || required ? undefined
+                    : recordCell({ styles, meta, row, cell, registers, changes, now, words, chip: chips.get(meta.key) });
                 return (
                     <Box
                         key={meta.key}
@@ -167,7 +177,7 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
                         data-align={alignOf(meta)}
                         data-still={still ? "" : undefined}
                         // A required cell's one issue is that it is empty: it says so in the Record's words.
-                        title={required ? m.required({ header: meta.header }) : issue ?? detail?.title}
+                        title={required ? m.required({ header: meta.header }) : issue ?? view?.title ?? detail?.title}
                         aria-invalid={issue !== undefined ? true : undefined}
                         role="gridcell"
                         id={`${idPrefix}-${r}-${c}`}
@@ -180,13 +190,13 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
                         {required ? null : action !== undefined && props.actions !== undefined ? (
                             <ActionCellSlot host={props.actions} r={r} columnKey={meta.key} column={action} cell={cell}
                                 summary={summary?.type === "String" ? summary.value : ""} selected={selC === c} />
-                        ) : (
+                        ) : view !== undefined ? view.content : (
                             <SheetCellContent
                                 styles={sheetStyles}
                                 meta={meta}
                                 cell={cell}
                                 rowBlank={row === undefined}
-                                unit={meta.kind === "quantity" && driverKey !== undefined ? meta.uom?.get(driverKey) : undefined}
+                                unit={unitOf(meta, driverKey)}
                                 member={member}
                                 ghost={undefined}
                                 link={meta.kind === "link" ? props.linkCtx(row, meta) : undefined}

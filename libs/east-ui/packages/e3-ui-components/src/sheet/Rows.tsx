@@ -29,7 +29,7 @@ import {
 } from "@elaraai/east-ui-components";
 import { EastErrorBoundary, FrameMenuLayer, UnloadedRun, loadingLineText, type PlaceholderKind, type RunCell, type SlotStyles } from "@elaraai/east-ui-components/internal";
 import {
-    BAND_MIN_PX, TITLE_KEY, cellIsBlank, cellText, driverKeyOf, resolveMember,
+    BAND_MIN_PX, TITLE_KEY, cellIsBlank, cellText, driverKeyOf, resolveMember, unitOf,
     type LineGroup, type SheetBand, type SheetColumnIndex, type SheetColumnMeta, type SheetGroupIndex, type SheetKind, type SheetRegisterIndex, type SheetWindowFailure,
 } from "./model.js";
 import { SheetCellContent, type LinkCellContext } from "./cells/Cell.js";
@@ -495,7 +495,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                 const editing = editor?.c === c;
                 const selected = selC === c && !editing;
                 const inRange = range !== undefined && c >= range.c0 && c <= range.c1;
-                const unit = meta.kind === "quantity" && driverKey !== undefined ? meta.uom?.get(driverKey) : undefined;
+                const unit = unitOf(meta, driverKey);
                 const member = namesMember(meta) && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
                 const fill = !editing && cellIsBlank(cell) ? fills?.get(meta.key) : undefined;
                 const isTarget = !editing && nextTargetC === c && fill !== undefined;
@@ -550,7 +550,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                             meta={meta}
                             cell={cell}
                             rowBlank={rowBlank && fill === undefined}
-                            unit={unit ?? (fill !== undefined && meta.kind === "quantity" && driverKey !== undefined ? meta.uom?.get(driverKey) : undefined)}
+                            unit={unit}
                             member={member}
                             ghost={fill?.cell}
                             link={meta.kind === "link" ? linkCtx(row, meta) : undefined}
@@ -751,7 +751,7 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
             </Box>
             {columns.list.map((colMeta, c) => {
                 const cell = cells.get(colMeta.key);
-                const unit = colMeta.kind === "quantity" && driverKey !== undefined ? colMeta.uom?.get(driverKey) : undefined;
+                const unit = unitOf(colMeta, driverKey);
                 const member = namesMember(colMeta) && cell?.type === "String" ? resolveMember(registers, colMeta.register, cell.value) : undefined;
                 const when = colMeta.kind === "date" && colMeta.level !== undefined ? { level: colMeta.level(cells) } : undefined;
                 return (
@@ -1168,7 +1168,7 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                             title={provenance === undefined ? bandTitle : `${provenance} · ${bandTitle}`}
                         >
                             {inRange && <Box css={styles.rangeWash} data-slot="rangeWash" />}
-                            <SheetCellContent styles={styles} meta={meta} cell={cell} rowBlank={false} unit={undefined} member={member} ghost={undefined} link={undefined} marked={op !== undefined} />
+                            <SheetCellContent styles={styles} meta={meta} cell={cell} rowBlank={false} unit={unitOf(meta, undefined)} member={member} ghost={undefined} link={undefined} marked={op !== undefined} />
                             {selected && <Box css={styles.ring} data-slot="ring" />}
                             {editing && editor.node}
                         </Box>

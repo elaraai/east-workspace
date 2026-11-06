@@ -107,7 +107,7 @@ import { EditingIssueType, RecordSliceWhereType } from "@elaraai/east-ui/interna
 import {
     BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NEW_LINE_KEY, NULL_CELL, TITLE_KEY,
     blankIdOf, bodyIndexOfId, buildBody, buildLensBody, cellIsBlank, cellText, countNoun, densityOf, drawnPx, driverKeyOf, groupBandPx, indexColumns, indexGroup, indexRegisters, isLooseRow, isRowSpace, itemPx,
-    latencyOf, layoutLensRun, layoutRun, lineAddress, lineId, lineRowsOf, parseWidth, resolveMember as resolveRegisterMember, rowIsBlank, segmentOf, stickyRows, withLine, withProposals, withoutLines,
+    latencyOf, layoutLensRun, layoutRun, lineAddress, lineId, lineRowsOf, parseWidth, resolveMember as resolveRegisterMember, rowIsBlank, segmentOf, stickyRows, unitOf, withLine, withProposals, withoutLines,
     type LineGroup, type SheetBodyItem, type SheetColumnIndex, type SheetColumnMeta, type SheetGeometry, type SheetRegisterIndex,
 } from "./model.js";
 import { SHEET_PAGE_SIZE, useSheetPaging, type SheetViewport } from "./paging.js";
@@ -174,7 +174,7 @@ import { SheetEditor, isComboboxKind, type EditorFocusRequest, type EditorOption
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripModel, type StripSuggestInput } from "./Strip.js";
 import type { SheetFooterProps, SheetLoadingLine } from "./Footer.js";
 import { useSheetEditing, type DraftEdit, type LocalLayer, type SheetSeeds } from "./use-editing.js";
-import { draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
+import { draftChanges, draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
 import { useSheetToolbarItemsFor, type SheetToolbarTabs } from "./Toolbar.js";
 import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLineValue, SheetLinkValue, SheetMemberValue, SheetNarrowing, SheetNounValue, SheetProposerValue, SheetRegisterMemberValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetSubRowValue, SheetSavedView } from "./values.js";
 
@@ -618,12 +618,19 @@ export interface SheetHost {
     grid?: SheetGridHost | undefined;
 }
 
-/** What a row's drafts changed against what the record holds (#1531): whether it is new, and the columns whose cells differ. */
+/**
+ * What a row's drafts changed against what the record holds (#1531): whether it is new, the columns whose cells
+ * differ, the cells the record holds, and how many fields the drafts change.
+ */
 export interface SheetRowChanges {
     /** A new row, never applied. */
     added: boolean;
     /** The columns, by key, whose cells differ from what the record holds — none on a new row. */
     dirty: ReadonlySet<string>;
+    /** The cells the record holds for the row: what a changed cell was — none on a new row. */
+    held: ReadonlyMap<string, SheetCellValue> | undefined;
+    /** How many of the row's fields its drafts change, a field no column shows among them — none on a new row. */
+    fields: number;
 }
 
 /**
@@ -1193,26 +1200,28 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [session, draftType, childField, readiness, draftVersion, words]);
     // What a row's drafts changed against what the record holds (#1531), for a host's rows: derived once per session
     // change and per rows, so between changes a row keeps it by identity and its memo holds.
+    const fieldChanges = useMemo(() => draftChanges(draftType), [draftType]);
     const changesOf = useMemo(() => {
         const byId = new Map<string, SheetRowChanges | null>();
         return (id: string, row: SheetRowValue): SheetRowChanges | undefined => {
-            const held = byId.get(id);
-            if (held !== undefined) return held ?? undefined;
+            const known = byId.get(id);
+            if (known !== undefined) return known ?? undefined;
             const began = session.originals.get(id);
+            const draft = session.entries.get(id)?.draft;
             let found: SheetRowChanges | null = null;
-            if (began !== undefined && session.entries.get(id)?.draft !== undefined) {
-                if (began.draft === undefined) found = { added: true, dirty: NOTHING };
+            if (began !== undefined && draft !== undefined) {
+                if (began.draft === undefined) found = { added: true, dirty: NOTHING, held: undefined, fields: 0 };
                 else {
                     const dirty = new Set<string>();
                     for (const [key, cell] of row.cells) if (!cellEqual(began.wire?.cells.get(key) ?? NULL_CELL, cell)) dirty.add(key);
-                    found = { added: false, dirty };
+                    found = { added: false, dirty, held: began.wire?.cells, fields: fieldChanges(began.draft, draft) };
                 }
             }
             byId.set(id, found);
             return found ?? undefined;
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session; the rows, what a change is read against.
-    }, [session, draftVersion, sourceRows, layer]);
+    }, [session, draftVersion, sourceRows, layer, fieldChanges]);
     // Temporary writes within one reducer effect batch; the transaction session
     // publishes the completed gesture and owns the rendered layer thereafter.
     const layerRef = useRef(layer);
@@ -3367,7 +3376,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         return buildStrip({
             edit, meta: editMeta, candidates: pctx, words, today,
             baseDate: pctx.baseDate,
-            unit: driverKey !== undefined ? editMeta.uom?.get(driverKey) : undefined,
+            unit: unitOf(editMeta, driverKey),
             customPreview,
             link,
             whenLevel: editWhenLevel,
@@ -4716,7 +4725,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const meta = columnAt(r, key);
         const it = rowAt(r);
         const driverKey = driverKeyOf(it !== undefined && it.kind === "real" ? it.row : undefined, driverColumn);
-        return meta?.kind === "quantity" && driverKey !== undefined ? meta.uom?.get(driverKey) : undefined;
+        return meta === undefined ? undefined : unitOf(meta, driverKey);
     }, [columnAt, rowAt, driverColumn]);
     const inspectLevelAt = useCallback((r: number, key: string) => {
         const meta = columnAt(r, key);
