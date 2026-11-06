@@ -169,6 +169,14 @@ function phoneFaults(entry: Locator, name: string): Promise<string[]> {
                 }
             }
         }
+        // The count line never goes blank while it has room for its first figures (review of #1481, finding 4): a
+        // line short of room drops a noun before its figures, so it says `368 of 630` rather than nothing.
+        for (const box of frame.querySelectorAll<HTMLElement>("[data-toolbar-count]")) {
+            const first = box.querySelector<HTMLElement>("[data-count-figures], [role=status] > span");
+            if (first === null) continue;
+            const b = box.getBoundingClientRect(), t = first.getBoundingClientRect();
+            if (b.width >= t.width && (t.top >= b.bottom - 0.5 || t.bottom <= b.top + 0.5)) faults.push(`the count line blank in ${round(b.width)}px: "${box.textContent}"`);
+        }
         // The first row's controls reach its end, past the count's slack.
         const row = slot("toolbar")?.querySelector("[data-toolbar]");
         const last = row === null || row === undefined ? undefined : [...row.querySelectorAll("button")].filter((b) => b.getBoundingClientRect().width > 0).at(-1);

@@ -25,8 +25,10 @@
  *     `--rule-strong` on `--r-sm`, mono 10.5/600 at 0.1em in caps, `--ink-4`.
  *   - count: the count line, 8 clear of what is before it and 4 of what is
  *     after, whose own padding keeps it clear, mono 10.5 tabular in `--ink-3`, its number 600 in `--ink`. A row
- *     short of room drops it, or over several sources those that do not fit,
- *     each whole: it never cuts one, nor the views or the buttons around it.
+ *     short of room drops what does not fit, each whole — a count's noun before
+ *     its figures (`368 of 630`), a later source before an earlier — and drops
+ *     the line only where not even the first figures fit: it never cuts a word,
+ *     nor the views or the buttons around it.
  *
  * @packageDocumentation
  */
@@ -155,7 +157,8 @@ export const toolbarPhoneSlotRecipe = defineSlotRecipe({
         count: {
             ...wholeOrNone("44px"),
             minWidth: "0",
-            columnGap: "{spacing.3}",
+            /* A word's space between a count's figures and its noun; a source's start takes the rest of the dot's gap. */
+            columnGap: "{spacing.1.5}",
             /* Margins, not padding: what clips the line clips at its padding's edge, so words ran through the padding. */
             marginInlineStart: "{spacing.2}",
             marginInlineEnd: "{spacing.1}",
@@ -167,10 +170,13 @@ export const toolbarPhoneSlotRecipe = defineSlotRecipe({
             "& b": { fontWeight: "600", color: "fg" },
             /* A record rail's summary in it: the line's mono and ink, its shown number 600 in ink (`2 of 7 lines`). */
             "& [data-record-slices-summary], & [role=status]": { font: "inherit", color: "inherit", letterSpacing: "inherit" },
-            /* Its sources are the line's items, each shown whole or not at all; the gap says what the dot between them did. */
-            "& [data-record-slices-summary]": { display: "contents" },
+            /* Each count's figures and its noun are the line's items, each shown whole or not at all: a line short of
+               room drops a noun before its figures, so it says `368 of 630` rather than nothing (review of #1481,
+               finding 4). The gap before a source's figures says what the dot between sources did. */
+            "& [data-record-slices-summary], & [data-record-slice-source], & [role=status]": { display: "contents" },
             "& [data-record-slices-summary] > [aria-hidden]": { display: "none" },
-            "& [role=status] > span:first-of-type": { fontWeight: "600", color: "fg" },
+            "& [aria-hidden] + [data-record-slice-source] [data-count-figures]": { marginInlineStart: "{spacing.1.5}" },
+            "& [role=status] > span:first-of-type:not([data-count-figures]), & [data-count-figures] > span:first-of-type": { fontWeight: "600", color: "fg" },
         },
     },
 });

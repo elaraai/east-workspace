@@ -18,7 +18,8 @@
  *     may shrink to nothing — a phone's view tabs, which scroll inside it.
  *   - Item: one that gives way (`data-toolbar-shrink`, a phone's count line)
  *     does so before one that grows does, and what follows it stands at the
- *     row's end.
+ *     row's end. Weighed (`data-toolbar-weighing`), its content lies on one
+ *     line, so the toolbar counts it whole.
  *   - Gap: `md` 10px (the Plan's band), `lg` 12px, `none` with no padding
  *     either — a phone's row, whose items carry their own (`Mobile Builder
  *     Frame Spec.md` FR2).
@@ -54,6 +55,8 @@ export const toolbarSlotRecipe = defineSlotRecipe({
             /* Gives way before anything else does, the row's slack past it: what follows stands at the row's end. */
             "&[data-toolbar-shrink]": { flex: "0 1000 auto", minWidth: "0", overflow: "hidden" },
             "&[data-toolbar-shrink] + [data-toolbar-item]": { marginInlineStart: "auto" },
+            /* Weighed whole: its content on one line, however much of it the row has let show (`weigh`). */
+            "&[data-toolbar-weighing] > *": { width: "max-content", flexWrap: "nowrap" },
         },
     },
     variants: {

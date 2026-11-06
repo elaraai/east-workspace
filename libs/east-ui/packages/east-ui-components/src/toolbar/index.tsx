@@ -186,9 +186,18 @@ function isEmptyForm(form: ReactNode): boolean {
     return form === null || form === undefined || form === false;
 }
 
-/** The width an item counts for in the row. One that gives way counts whole, whatever it has given: the row folds the rest first, and cuts it only where they cannot. */
+/**
+ * The width an item counts for in the row. One that gives way counts whole, whatever it has given: the row folds the
+ * rest first, and cuts it only where they cannot. Its whole is its content laid on one line (`data-toolbar-weighing`,
+ * the recipe's), as a line that wraps its parts away — a phone's count, its noun before its figures — is narrower
+ * than its whole once it has given way.
+ */
 function weigh(el: HTMLElement): number {
-    return el.hasAttribute("data-toolbar-shrink") ? Math.max(el.scrollWidth, el.firstElementChild?.scrollWidth ?? 0) : el.getBoundingClientRect().width;
+    if (!el.hasAttribute("data-toolbar-shrink")) return el.getBoundingClientRect().width;
+    el.setAttribute("data-toolbar-weighing", "");
+    const whole = Math.max(el.scrollWidth, el.firstElementChild?.scrollWidth ?? 0);
+    el.removeAttribute("data-toolbar-weighing");
+    return whole;
 }
 
 /** An item's per-step ranks. */

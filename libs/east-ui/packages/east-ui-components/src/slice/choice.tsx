@@ -116,6 +116,7 @@ export function SliceCountSummary({ count, total, noun, children }: {
     const words = useFormatters();
     const show = (n: bigint | undefined) => n === undefined ? <Skeleton as="span" css={styles.choicePending} aria-label="Count loading" /> : words.number(n);
     return <Box as="span" css={styles.choiceCount} role="status" aria-busy={count === undefined || total === undefined}>
-        <Box as="span">{show(count)}</Box>{" "}<Box as="span">of {show(total)}</Box>{" "}<Box as="span">{noun}</Box>{children}
+        {/* Its figures and its noun, apart: a phone's count line shows the figures where the noun has no room. */}
+        <Box as="span" data-count-figures=""><Box as="span">{show(count)}</Box>{" "}<Box as="span">of {show(total)}</Box></Box>{" "}<Box as="span">{noun}</Box>{children}
     </Box>;
 }
