@@ -29,7 +29,6 @@
  *     mark look's pips and dots; an age mono 13/500, warn past its threshold
  *     with a dot; an audit's date mono 13/500 and its who in `fg.muted`, or
  *     PENDING in `brandPressed`.
- *   - Bands: the Roster's collapsible band (`schedule-group.ts`).
  *   - Strip: 32 tall on `bg.canvas`, its label mono 10/600 at 0.14em in
  *     `brand.solid`, its text 12.5 in `fg.strong`, its keys mono 10.5. Over a
  *     Sheet kind the Sheet's strip draws its chips in this frame.
@@ -44,7 +43,6 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
-import { scheduleGroupBase } from "./schedule-group.js";
 
 /** A chip's or a legend chip's look: the first member, a scale step, a toggle's on, or a valence's wash, edge and text step. */
 const LOOKS = {
@@ -105,7 +103,6 @@ export const recordSlotRecipe = defineSlotRecipe({
         "row", "cell", "tick", "titleCell", "avatar", "nobody", "personLabel", "text",
         "chip", "pips", "pip", "mark", "markDot", "markWord", "box",
         "age", "staleDot", "absent", "auditDate", "auditMeta", "pending", "pendingDot", "pendingMeta",
-        "section", "sectionContent", "sectionLabel", "sectionMeta",
         "empty", "emptyMark", "emptyTitle", "emptyClear", "emptyBox", "emptyLink",
         "strip", "stripLabel", "stripText", "stripKeys",
         "footer", "footerCount", "footerNote", "footerSpacer", "legend", "legendItem", "legendChip", "legendName",
@@ -251,12 +248,6 @@ export const recordSlotRecipe = defineSlotRecipe({
         },
         pendingDot: { width: "8px", height: "8px", flex: "none", borderRadius: "full", background: "brandMark" },
         pendingMeta: { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body.sm", color: "brandPressed" },
-
-        /* A band: the Roster's collapsible band, its chevron in `fg.muted`. */
-        section: { ...scheduleGroupBase.group, boxSizing: "border-box", height: "100%", cursor: "pointer", "&:focus-visible": { outline: "none", boxShadow: "{shadows.focusInset}" } },
-        sectionContent: { ...scheduleGroupBase.groupContent, color: "fg.muted" },
-        sectionLabel: { ...scheduleGroupBase.groupLabel, color: "fg" },
-        sectionMeta: scheduleGroupBase.groupMeta,
 
         /* Nothing shown: the search matches no row. */
         empty: { display: "grid", justifyItems: "center", gap: "8px", textAlign: "center", paddingBlock: "32px", paddingInline: "20px" },

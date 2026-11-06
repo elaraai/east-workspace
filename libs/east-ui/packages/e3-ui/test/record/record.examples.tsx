@@ -94,7 +94,7 @@ export const recordSkills = e3.record("record_skills", DictType(StringType, Skil
             reports: "1", auditing: "1", training: "1", planning: "1", updated: some({ at: new Date("2026-11-03T16:20:00Z"), by: "M. Hale", verb: "changed" }) }],
     ]),
     indexes: (index) => ({
-        // What the rail searches and filters by, and the bands' order.
+        // What the rail searches and filters by.
         record_skills_by_name: index.on(["name"]),
         record_skills_by_role: index.on(["role"]),
     }),
@@ -105,8 +105,8 @@ export const recordSkills = e3.record("record_skills", DictType(StringType, Skil
 });
 
 export const recordSkillsMatrix = example({
-    keywords: ["Record", "skills matrix", "Record.column.cycle", "scale", "columnGroups", "groupBy", "Record.column.age", "Record.column.audit", "Record.Types.Change", "stale", "slice"],
-    description: "The designer's skills matrix: ten cycle columns on the heat ramp under three column groups, rows banded by role, the rail searching names and roles, the age warning past 90 days and the last change in blame mode",
+    keywords: ["Record", "skills matrix", "Record.column.cycle", "scale", "columnGroups", "Record.column.age", "Record.column.audit", "Record.Types.Change", "stale", "slice"],
+    description: "The designer's skills matrix: ten cycle columns on the heat ramp under three column groups, the rail searching names and roles and filtering by role, the age warning past 90 days and the last change in blame mode",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const people = $.let(Record.bind(recordSkills));
@@ -156,7 +156,6 @@ export const recordSkillsMatrix = example({
                             { label: "Tools", columnKeys: ["scanner", "console", "reports"] },
                             { label: "Advanced", columnKeys: ["auditing", "training", "planning"] },
                         ]}
-                        groupBy="role"
                         inspector
                         onApply={Record.onApply(people, { keyed: true })}
                         name="skills"
@@ -233,7 +232,6 @@ export const recordShiftPreferences = example({
                             { label: "Weekends", columnKeys: ["sat", "sun"] },
                             { label: "", columnKeys: ["overtime"] },
                         ]}
-                        groupBy="role"
                         inspector
                         name="preferences"
                     />
@@ -389,7 +387,6 @@ export const recordSkillsReadOnly = example({
                             { label: "Tools", columnKeys: ["scanner", "console", "reports"] },
                             { label: "Advanced", columnKeys: ["auditing", "training", "planning"] },
                         ]}
-                        groupBy="role"
                         inspector
                         readOnly
                         name="skillsReadOnly"

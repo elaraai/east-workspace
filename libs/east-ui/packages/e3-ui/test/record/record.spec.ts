@@ -210,7 +210,7 @@ describe("<Record> refuses", () => {
     const registers = { levels: Record.register.members(East.value(["0", "1"], ArrayType(StringType)), { kind: "level", key: l => l, label: l => l }) };
 
     test("a Sheet's prop it has no use for", () => {
-        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, group: {} }), /Record: takes no `group` — a Record bands its rows with `groupBy`/);
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, group: {} }), /Record: takes no `group` — a Record draws no group rows/);
         assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, templates: [] }), /Record: takes no `templates`/);
     });
 
@@ -227,27 +227,20 @@ describe("<Record> refuses", () => {
             /column "name" is in group "A" and group "B"/);
     });
 
-    test("groupBy naming no column, or one with no value to share", () => {
-        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, groupBy: "role" }), /`groupBy` names "role", which is not a column/);
-        const aged = { ...columns, days: Record.column.age(ex.Skills, { since: p => p.updated }) };
-        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns: aged, registers, groupBy: "days" }), /an age column/);
-    });
-
     test("the Sheet root's refusals, in the Record's words", () => {
         assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns }), /^Error: Record: column "forklift" names register "levels", which `registers` does not declare/);
     });
 
-    test("builds a payload with its title, noun, groups and bands, as the renderer decodes them", () => {
+    test("builds a payload with its title, noun and column groups, as the renderer decodes them", () => {
         // Over a window, the payload is built without reading the record.
         const payload = East.compile(East.function([], RecordPayloadType, () => Record.Payload({
             record: Record.bind(ex.recordCrew), window: Data.bindPaged(ex.recordCrew), columns, registers, title: "Crew", noun: { singular: "crew member", plural: "crew members" },
-            columnGroups: [{ label: "Skills", columnKeys: ["inducted", "forklift"] }], groupBy: "forklift",
+            columnGroups: [{ label: "Skills", columnKeys: ["inducted", "forklift"] }],
         })), refusingPlatform)();
         const field = RecordPayloadType.fields;
         assert.ok(equalFor(field.title)(payload.title, some("Crew")));
         assert.ok(equalFor(field.noun)(payload.noun, some({ singular: "crew member", plural: "crew members" })));
         assert.ok(equalFor(field.columnGroups)(payload.columnGroups, [{ label: "Skills", columnKeys: ["inducted", "forklift"] }]));
-        assert.ok(equalFor(field.bands)(payload.bands, some({ column: "forklift" })));
         assert.ok(equalFor(field.name)(payload.name, none));
     });
 });

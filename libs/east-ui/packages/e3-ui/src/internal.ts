@@ -72,7 +72,6 @@ export {
     RecordTag,
     RecordComponent,
     RecordPayloadType,
-    RecordBandsType,
     createRecordPayload,
     type RecordNamespace,
     type RecordInternalNamespace,
