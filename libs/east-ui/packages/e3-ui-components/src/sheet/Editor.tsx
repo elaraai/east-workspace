@@ -22,7 +22,8 @@
  *   mono input with the inline ghost drawn in a mirror behind the caret, a
  *   `→ replacement` preview and a `k/n` badge — because their candidates
  *   live in the docked strip, never in a popover (B§9);
- * - an **enum** column mounts the common combobox the way a
+ * - an **enum** column — and a Record's **person** column, the menu of its
+ *   register's people — mounts the common combobox the way a
  *   date column mounts the common date field: the Chakra combobox parts
  *   over the machine's own buffer and candidates (`options`, best first),
  *   the list open while the editor is, the armed candidate highlighted, a
@@ -152,12 +153,12 @@ const INTEGER_FORMAT: Intl.NumberFormatOptions = { useGrouping: false, maximumFr
 /** The window after a hop in which a blur is the OLD input going away, not the planner leaving. */
 const HOP_GRACE_MS = 300;
 
-/** The register kinds — the typed buffer with the ghost mirror (B§3.1); an enum column mounts the combobox instead. */
+/** The register kinds — the typed buffer with the ghost mirror (B§3.1); an enum or a person column mounts the combobox instead. */
 function isRegisterKind(kind: SheetKind): boolean {
-    return kind === "lookup" || kind === "reference" || kind === "enum";
+    return kind === "lookup" || kind === "reference" || kind === "enum" || kind === "person";
 }
 function isComboboxKind(kind: SheetKind): boolean {
-    return kind === "enum";
+    return kind === "enum" || kind === "person";
 }
 
 /** The keys a field hands the machine — the rest are the field's own. */

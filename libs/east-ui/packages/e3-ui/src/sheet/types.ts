@@ -124,11 +124,11 @@ export type SheetActionCellType = typeof SheetActionCellType;
  *
  * @property Invalid - Unparseable draft text, retained verbatim until corrected
  * @property Null - The blank cell
- * @property Boolean - A boolean value
+ * @property Boolean - A boolean value (a Record's `boolean` / `toggle` column's cell)
  * @property Integer - An integer value
  * @property Float - A float value (a `quantity` column's cell)
- * @property String - A string value (text · lookup · reference · enum · stamped)
- * @property DateTime - A UTC-midnight date (a `date` column's cell)
+ * @property String - A string value (text · lookup · reference · enum · stamped; a Record's title · person · cycle)
+ * @property DateTime - A UTC-midnight date (a `date` column's cell); the moment an `age` counts from, or an `audit`'s change was made
  * @property Link - A typed link (a `set` / `link` column's cell)
  * @property Action - An action column's case (#1474): its name, and its value encoded (beast2, at the case's type)
  */

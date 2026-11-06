@@ -670,13 +670,23 @@ export class EditSession<W> {
      */
     get depth(): { readonly undo: number; readonly redo: number } { return { undo: this.cursor, redo: this.history.length - this.cursor }; }
     /**
-     * The transaction Redo would replay next (#1409): its origin and its
-     * label — what a host that lands a step again by its origin reads, as a
-     * run of the app's optimiser is replayed without its banner.
+     * The transaction Redo would replay next (#1409): its origin, its label
+     * and how many entries it changed — what a host that lands a step again
+     * by its origin reads, as a run of the app's optimiser is replayed
+     * without its banner.
      */
-    get nextRedo(): { readonly origin: Origin; readonly label: string } | undefined {
+    get nextRedo(): { readonly origin: Origin; readonly label: string; readonly entries: number } | undefined {
         const step = this.history[this.cursor];
-        return step === undefined ? undefined : { origin: step.origin, label: step.label };
+        return step === undefined ? undefined : { origin: step.origin, label: step.label, entries: step.after.size };
+    }
+    /**
+     * The transaction Undo would take back next: its origin, its label and
+     * how many entries it changed — what a host words a step by before it is
+     * taken back, as a Record says `Restored 2 people` of a removal.
+     */
+    get nextUndo(): { readonly origin: Origin; readonly label: string; readonly entries: number } | undefined {
+        const step = this.history[this.cursor - 1];
+        return step === undefined ? undefined : { origin: step.origin, label: step.label, entries: step.after.size };
     }
     /**
      * Forget the transactions Redo would replay (#1194): in a history over

@@ -734,6 +734,22 @@ export type SheetBodyItem =
         count: number;
     }
     | { kind: "band"; band: SheetBand }
+    /**
+     * A Record's band over the rows that share a value (#1531): full width, outside the row space like a sub row —
+     * the ring never lands on it. Folded, its rows are not in the body.
+     */
+    | {
+        kind: "section";
+        /** Its value, as the band column's cell prints it: what it folds under. */
+        key: string;
+        /** What it reads: the value in words. */
+        label: string;
+        /** How many of the rows drawn share it. */
+        count: number;
+        folded: boolean;
+        /** The position of its first row. */
+        position: number;
+    }
     /** A resident window whose read failed (#853): its band, where its rows would be, with the reason and a Retry. */
     | { kind: "failed"; failure: SheetWindowFailure }
     | {
@@ -923,7 +939,7 @@ export interface SheetGeometry {
  */
 export function itemPx(item: SheetBodyItem, g: SheetGeometry): number {
     switch (item.kind) {
-        case "group": return g.bandPx;
+        case "group": case "section": return g.bandPx;
         case "subRow": return g.subRowPx;
         case "failed": return Math.max(BAND_MIN_PX, item.failure.px);
         case "band": return Math.max(BAND_MIN_PX, item.band.px);
@@ -983,7 +999,56 @@ export function withProposals(
     return out.concat(body.slice(at + 1));
 }
 
-/** Whether a body item occupies the ROW space (paged bands, sub rows and proposals do not; group summaries do). */
+/**
+ * The body with a Record's bands spliced in (#1530): a band over each run of
+ * real rows that share a value, its count the run's length. A row with no
+ * value stands under no band. A folded band's rows leave the body; the band
+ * stays.
+ *
+ * @param body - The body items, its real rows in the order they are drawn
+ * @param sectionOf - A row's band — its value's key and words — or `undefined` for a row under none
+ * @param folded - The keys of the folded bands
+ * @returns The body with its bands
+ */
+export function withSections(
+    body: readonly SheetBodyItem[],
+    sectionOf: (row: SheetRowValue) => { key: string; label: string } | undefined,
+    folded: ReadonlySet<string>,
+): SheetBodyItem[] {
+    const of = body.map((it) => (it.kind === "real" ? sectionOf(it.row) : undefined));
+    // Each run's length, by the body index of its first row.
+    const runs = new Map<number, number>();
+    let start = -1;
+    let key: string | undefined;
+    body.forEach((it, i) => {
+        if (it.kind !== "real") return;
+        const at = of[i]?.key;
+        if (at !== undefined && start >= 0 && key === at) {
+            runs.set(start, runs.get(start)! + 1);
+            return;
+        }
+        key = at;
+        start = at === undefined ? -1 : i;
+        if (at !== undefined) runs.set(i, 1);
+    });
+    const out: SheetBodyItem[] = [];
+    let shut = false;
+    body.forEach((it, i) => {
+        const count = runs.get(i);
+        const section = of[i];
+        if (it.kind === "real") {
+            if (count !== undefined && section !== undefined) {
+                shut = folded.has(section.key);
+                out.push({ kind: "section", key: section.key, label: section.label, count, folded: shut, position: it.position });
+            } else if (section === undefined) shut = false;
+            if (shut) return;
+        }
+        out.push(it);
+    });
+    return out;
+}
+
+/** Whether a body item occupies the ROW space (paged bands, sub rows, a Record's bands and proposals do not; group summaries do). */
 export function isRowSpace(item: SheetBodyItem): boolean {
     return item.kind === "real" || item.kind === "blank" || item.kind === "group";
 }
