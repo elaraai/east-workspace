@@ -34,7 +34,6 @@
  * - `Schedule` — the event and resource kinds the Calendar and Plan's builder
  *   share (`Schedule.events`, `Schedule.resources`), and what a builder
  *   publishes (`Schedule.periods`).
- * - `<Diff>` — review pending changes for any combination of bindings.
  * - `<Ontology>` — graph editor over an `OntologyType`-bound dataset.
  * - `Data.bind` — workspace-scoped reactive dataset binding.
  * - `Func.bind` — workspace-scoped named-function (RPC) call binding.
@@ -42,11 +41,11 @@
  *
  * east-ui tags (`<VStack>`, `<Text>`, …) are imported from `@elaraai/east-ui`
  * — this package does not re-export them. The underlying factories
- * (`Diff.Root(…)`) live under `@elaraai/e3-ui/internal` for renderers and tests.
+ * (`Ontology.Root(…)`) live under `@elaraai/e3-ui/internal` for renderers and tests.
  *
  * @remarks
  * `ui()` pulls in `@elaraai/e3` (Node-only). Browser bundles that only need
- * `Data` / `<Diff>` / `<Ontology>` / types should import from
+ * `Data` / `<Ontology>` / types should import from
  * `@elaraai/e3-ui/internal`, which is e3-free.
  *
  * @packageDocumentation
@@ -237,14 +236,6 @@ export {
 // The handle a Calendar's, a Plan's or a Sheet's `optimise` takes (#1409): any `Func.bind` handle, checked at build.
 export { type OptimiseHandle } from './utils/optimise.js';
 
-// e3 `<Diff>` tag + its types
-export { Diff } from './runtime/diff.js';
-export {
-    DiffPayloadType,
-    DiffStyleType,
-    type DiffOptions,
-} from './diff/index.js';
-
 // e3 `<Ontology>` tag + its types
 export { Ontology } from './runtime/ontology.js';
 export {
@@ -261,18 +252,6 @@ export {
     OntologyViewType,
     type OntologyViewLiteral,
 } from './ontology/index.js';
-
-// e3 `<Experiment>` tag + its payload/options. The render-contract value types
-// (Config / Result / DoseResponse / Journal …) are intentionally NOT public
-// named exports — reach them via `Experiment.Types.Config`, `.Result`, … (like
-// `Table.Types.*`), since users only touch them to type the bound `experiment`
-// function / seed result datasets.
-export { Experiment } from './runtime/experiment.js';
-export {
-    ExperimentPayloadType,
-    type ExperimentOptions,
-    type ExperimentTabLiteral,
-} from './experiment/index.js';
 
 // Decision platform types + factory
 export { Decision } from './decision/index.js';

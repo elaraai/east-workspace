@@ -4,10 +4,10 @@
  */
 
 /**
- * Internal exports — the `Plan` / `Sheet` / `Flowchart` / `Schematic` / `Diff` /
+ * Internal exports — the `Plan` / `Sheet` / `Flowchart` / `Schematic` /
  * `Ontology` **factories** (`Plan.Payload(…)`, `Sheet.Payload(…)`,
- * `Flowchart.Payload(…)`, `Schematic.Payload(…)`, `Diff.Root(…)`,
- * `Diff.Component`) plus `Data`, the manifest type and derivation, and types.
+ * `Flowchart.Payload(…)`, `Schematic.Payload(…)`, `Ontology.Root(…)`,
+ * `Ontology.Component`) plus `Data`, the manifest type and derivation, and types.
  *
  * @remarks
  * The public `@elaraai/e3-ui` entry exports JSX **tags** (and `ui()`, which
@@ -677,13 +677,6 @@ export {
     type ScheduleOptimiseRecordsOf, type ScheduleOptimiseRecordsType, type ScheduleOptimiseRequestType, type ScheduleOptimiseResultType, type ScheduleOptimiseRows,
 } from './schedule/optimise.js';
 export {
-    Diff,
-    DiffComponent,
-    DiffPayloadType,
-    DiffStyleType,
-    type DiffOptions,
-} from './diff/index.js';
-export {
     Ontology,
     OntologyComponent,
     OntologyPayloadType,
@@ -699,9 +692,6 @@ export {
     OntologyViewType,
     type OntologyViewLiteral,
 } from './ontology/index.js';
-// Experiment factory + component carrier for renderers/tests. The value types
-// ride on `Experiment.Types`, so they are not re-exported individually here.
-export { Experiment, ExperimentComponent } from './experiment/index.js';
 export { Decision } from './decision/index.js';
 export {
     DecisionType,

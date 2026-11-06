@@ -173,14 +173,6 @@ test.describe("A component's views", () => {
         await expect(entry.locator(".react-flow")).toHaveCount(0);
     });
 
-    test("Experiment: one tab left takes the tabs away and draws it", async ({ page, isMobile }) => {
-        const entry = await open(page, "e3/experiment/experiment/experimentViews", isMobile);
-        await expect(entry.getByRole("tab", { name: "Can we trust it?" })).toBeVisible({ timeout: 30_000 });
-        await toggle(page, entry, "Can we trust it?");
-        await expect(entry.getByRole("tab")).toHaveCount(0);
-        await expect(entry.getByText("Before trusting the answer we tried to break it", { exact: false })).toBeVisible({ timeout: 30_000 });
-    });
-
     test("Query: Visual alone takes Visual · jq away, Tree alone takes Table · Tree away", async ({ page, isMobile }) => {
         const entry = await open(page, "e3/query/query/queryBuilderViews", isMobile);
         await expect(entry.locator("[data-query-result-view]")).toHaveCount(1, { timeout: 30_000 });

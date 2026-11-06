@@ -11,8 +11,8 @@
  * the value of a single {@link Data.bind} binding whose source dataset is
  * typed as {@link OntologyType}. Mutations (add / delete / reconnect /
  * update node) write the whole next-ontology back through `binding.write`,
- * so the same staged-buffer + commit / discard / merge machinery that
- * powers `Diff` is reused unchanged.
+ * so it commits, discards and merges through the binding's own staged
+ * buffer.
  *
  * Declared via the `EastUI.component` extension API — the React renderer
  * lives in `@elaraai/e3-ui-components` and is wired via
@@ -282,7 +282,7 @@ export type OntologyViewType = typeof OntologyViewType;
 export type OntologyViewLiteral = 'graph' | 'table';
 
 // ============================================================================
-// Re-export the binding descriptor — same opaque carrier the Diff card uses.
+// Re-export the binding descriptor — the opaque carrier the editor commits through.
 // ============================================================================
 
 /** Re-exported from {@link Data}; see {@link DiffBindingType}. */
@@ -398,8 +398,8 @@ export interface OntologyOptions {
 
 /**
  * The Ontology component namespace. Surfaces a graph editor over an
- * `OntologyType`-bound dataset, with the same staged-buffer + merge-aware
- * commit pipeline that powers {@link Diff}.
+ * `OntologyType`-bound dataset, committing through the binding's staged
+ * buffer and its merge-aware commit.
  *
  * @remarks
  * Use `Ontology.Root({ value: view })` to render the editor.

@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "Builds interactive decision surfaces as e3 UI tasks (ui()) authored in east-ui JSX and bound to workspace data: Data.bind and Data.bindPaged for datasets, Record.bind for records and their mutations, Func.bind for e3.function calls, staged edits reviewed with the Diff tag. Provides the planning builders Plan, Sheet, Calendar, Roster, Allocation, Flowchart and Schematic, plus Ontology, Experiment, the Decide loop (Decision.bind, DecisionQueue, DecisionJournal), the Studio page builder, saved jq queries (Query.Builder), and rendering deployed surfaces in a React app (E3Provider). Use when a UI reads or writes e3 workspace data or runs as an e3 task; components with no e3 data are east-ui's."
+description: "Builds interactive decision surfaces as e3 UI tasks (ui()) authored in east-ui JSX and bound to workspace data: Data.bind and Data.bindPaged for datasets, Record.bind for records and their mutations, Func.bind for e3.function calls, staged edits applied or discarded together. Provides the planning builders Plan, Sheet, Calendar, Roster, Allocation, Flowchart and Schematic, plus Ontology, the Decide loop (Decision.bind, DecisionQueue, DecisionJournal), the Studio page builder, saved jq queries (Query.Builder), and rendering deployed surfaces in a React app (E3Provider). Use when a UI reads or writes e3 workspace data or runs as an e3 task; components with no e3 data are east-ui's."
 ---
 
 # e3-ui — e3 + UI bridge
@@ -8,13 +8,12 @@ description: "Builds interactive decision surfaces as e3 UI tasks (ui()) authore
 `@elaraai/e3-ui` connects **east-ui** JSX tags to **e3** workspaces. A decision
 surface is an e3 **UI task** whose reads and writes of workspace data are
 recorded in a manifest derived from its IR, so the engine knows what the UI
-depends on and re-renders it when that data changes. With staged writes,
-`<Diff>` review and commit / discard, a view is where a user commits a decision
-with its evidence.
+depends on and re-renders it when that data changes. With staged writes and
+commit / discard, a view is where a user commits a decision with its evidence.
 
 Everything comes from one import, `@elaraai/e3-ui`: the `ui()` task factory, the
 bindings (`Data`, `Record`, `Func`, `Decision`, `Slice.bindRecords`), the e3
-tags (`<Diff>`, `<Ontology>`, `<Experiment>`, `<Plan>`, `<Sheet>`, `<Calendar>`,
+tags (`<Ontology>`, `<Plan>`, `<Sheet>`, `<Calendar>`,
 `<Roster>`, `<Allocation>`, `<Flowchart>`, `<Schematic>`, `<DecisionQueue>`,
 `<DecisionJournal>`) and the `Studio` and `Query` components. Base tags
 (`<VStack>`, `<Text>`, `<Stat>`, …) come from `@elaraai/east-ui`.
@@ -93,8 +92,8 @@ Task → What do you need?
     │   ├─ Write a value           → .write(v)
     │   ├─ Write + kick dataflow   → .writeAndStart(v)
     │   ├─ Current status (variant) → .status()  (e.g. .status().hasTag('stale'))
-    │   ├─ The binding handle       → .binding   (pass to <Diff bindings={[…]} />)
-    │   └─ Staged mode             → { mode: 'staged' } + .commit() / .discard()
+    │   ├─ The binding handle       → .binding   (its source and patch paths, and its mode)
+    │   └─ Staged mode             → { mode: 'staged' } + .commit() / .discard(), .pending() while a change waits
     │
     ├─ Read a collection too large to hold whole — Data.bindPaged(dataset, options?)
     │   ├─ One window              → .page(offset, limit)  (none = in flight; some([]) = exhausted; a failure throws)
@@ -121,11 +120,8 @@ Task → What do you need?
     │   ├─ Spinner boolean          → .pending()
     │   └─ Stop waiting             → .cancel() (client-side; server still finishes)
     │
-    ├─ Review pending (staged) changes
-    │   └─ <Diff bindings={[a.binding, b.binding, …]} />
-    │
     ├─ Edit a graph / ontology dataset
-    │   └─ <Ontology binding={view.binding} />   (OntologyType: NodeType / LinkType)
+    │   └─ <Ontology value={view} />   (OntologyType: NodeType / LinkType)
     │
     ├─ Offer components for operators to arrange on pages (Studio)
     │   ├─ Declare one — self-contained, like a ui() body   → Studio.component(key, meta, fn)
@@ -253,9 +249,6 @@ Task → What do you need?
     │   ├─ The bindings' adapters              → <ReactiveDatasetProvider> inside it
     │   ├─ A deployed ui() task, by name       → <UITaskPreview task="…" />
     │   └─ e3 running in the page, no server   → apiUrl and fetch from e3-web's createWebE3
-    │
-    └─ Let a user ask "did X change Y?" against a dataset and trust the answer
-        └─ <Experiment data configs experiment? design? journal? columns subject />  (generic over the row; runs e3.functions)
 ```
 
 ## Bindings
@@ -277,7 +270,7 @@ A reactive binding to an `e3.input` or a task's output. `read()` tracks the
 dependency, so `<Reactive>` re-renders when it changes. Modes:
 - `'direct'` (default): each `write()` mutates the dataset.
 - `'staged'`: `write()` accumulates a patch; `commit()` applies it, `discard()`
-  drops it, and `<Diff bindings={[b.binding]} />` reviews it.
+  drops it, and `pending()` says whether a change waits.
 
 A record a builder reads whole beside its pages (a templates list, the
 resources a check reads) binds with `Data.bind`, which the manifest preloads.
@@ -373,7 +366,7 @@ and `<Schematic>` share one contract:
   answer lands as one undoable step.
 - **Which views an instance offers**: a component that switches between views
   takes `views` — the Roster's, Calendar's and Allocation's layouts, the
-  Ontology's display modes, the Experiment's result tabs and `<Query.Builder>`'s
+  Ontology's display modes and `<Query.Builder>`'s
   Visual · jq (and `resultViews`, Table · Tree). Literal tags (`views={["people"]}`),
   variants of its `Types`, or an expression of an array of them, so a page's state
   can choose them as it runs. Left out, or empty as the page runs, every view; one
@@ -402,16 +395,9 @@ start and end are `Option<DateTime>` when it can wait in the backlog.
 
 ## Other surfaces
 
-- **`<Diff bindings={[…]} />`** reviews pending changes of any staged bindings.
-- **`<Ontology binding={view.binding} />`** edits a typed node / link graph
-  (`OntologyType`); stack a `<Diff>` beside it. The **east-ontology** skill
+- **`<Ontology value={view} />`** edits a typed node / link graph
+  (`OntologyType`), committing through the binding. The **east-ontology** skill
   builds the graph.
-- **`<Experiment>`** answers "did X change Y?" over a bound dataset: `data` and
-  `configs` (the questions, `Experiment.Types.Configuration`) via `Data.bind`,
-  `experiment` (an estimator `(rows, config) → result`) and `design` via
-  `Func.bind`, a `journal` that Commit appends to, and `columns` / `subject`
-  whose labels every sentence speaks. The words are derived from the numbers;
-  nothing is authored.
 - **The Decide loop.** Reasoning tasks emit `Array<Decision.Types.Decision>`
   (`Decision.make` / `option` / `reference` / `judgement`).
   `Decision.bind([Contract]?, { decisions: [views…], judgements })` unions them
@@ -467,10 +453,9 @@ in; dates print in UTC.
         <VStack gap="3">
             <Slider value={value} min={0} max={100} onChange={t.write} />
             <HStack gap="2">
-                <Button variant="outline" onClick={discard}>Discard</Button>
-                <Button variant="solid" onClick={commit}>Apply</Button>
+                <Button variant="outline" onClick={discard} disabled={t.pending().not()}>Discard</Button>
+                <Button variant="solid" onClick={commit} disabled={t.pending().not()}>Apply</Button>
             </HStack>
-            <Diff bindings={[t.binding]} />
         </VStack>
     );
 }}</Reactive>
