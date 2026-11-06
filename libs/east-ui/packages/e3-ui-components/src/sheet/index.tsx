@@ -3802,6 +3802,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const c = columns.list.findIndex((col) => col.key === key);
         if (c >= 0) { ringGesture(); dispatch({ t: "select.move", r, c }); }
     };
+    /**
+     * A press on a cell's control takes no focus of its own (K1), so the grid takes it: ⏎ then takes the next case, and
+     * ⌘Z undoes the one taken — from a page whose focus was never in the grid too (review of #1481, finding 1). An
+     * overlay the press opens moves the focus into itself, and gives it back to the grid as it closes (K6).
+     */
+    const focusOnPress = () => { cardRef.current?.focus({ preventScroll: true }); };
     const closeOverlay = () => {
         setActionOverlay(undefined);
         // What the overlay's items previewed goes with it, taken or not (P9; F2 of the hand retest).
@@ -3842,6 +3848,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             const rs = actionRows(r, key);
             if (rs.length > 1) { if (!rangeOffer(rs, key).some((o) => o.name === c.name)) return; }
             else ringOn(r, key);
+            focusOnPress();
             if (c.kind === "button") takeAction(rs, key, c, null);
             else if (c.kind === "form") openForm(r, key, c, anchor, "next", rs);
             else setActionOverlay({ kind: "menu", r, rs, key, part: "next", anchor, cases: [c], head: words.m.actionMenuHead(actionHead(r, key)) });
@@ -3849,6 +3856,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         more: (r, key, anchor) => {
             const rs = actionRows(r, key);
             if (rs.length === 1) ringOn(r, key);
+            focusOnPress();
             const a = actionAt(r, key);
             if (a === undefined) return;
             const offer = offerOf(a.column, a.cell, wireContextFor(r));

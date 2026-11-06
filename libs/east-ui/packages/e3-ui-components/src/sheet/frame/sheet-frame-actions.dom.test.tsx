@@ -85,6 +85,23 @@ test("a button is taken at once as one transaction: the cell redraws in its new 
     expect(jobs.get("J-0003")!.state).toEqual(some(variant("started", null)));
 });
 
+test("a press on an action's button puts the keyboard in the grid, though it was never there: ⌘Z undoes it, and ⏎ takes the next case (review of #1481, finding 1)", async () => {
+    const { container } = await h.mount(ex.sheetActionsBasic);
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.activeElement).toBe(document.body);
+    await press(nextOf(cellOf(container, "J-0002", "state"))!);
+    expect(stateOf(cellOf(container, "J-0002", "state"))).toBe("finished");
+    expect(document.activeElement).toBe(card(container));
+    fireEvent.keyDown(document.activeElement!, { key: "z", ctrlKey: true });
+    await settle();
+    expect(stateOf(cellOf(container, "J-0002", "state"))).toBe("started");
+    await press(nextOf(cellOf(container, "J-0003", "state"))!);
+    expect(stateOf(cellOf(container, "J-0003", "state"))).toBe("started");
+    fireEvent.keyDown(document.activeElement!, { key: "Enter" });
+    await settle();
+    expect(stateOf(cellOf(container, "J-0003", "state"))).toBe("finished");
+});
+
 test("⏎ with the ring on an action cell takes its first case; typing, a paste and ⌫ never change it (K2, T7)", async () => {
     const { container } = await h.mount(ex.sheetActionsBasic);
     const cell = cellOf(container, "J-0002", "state");
