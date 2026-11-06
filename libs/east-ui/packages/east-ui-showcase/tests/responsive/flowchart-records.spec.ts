@@ -8,7 +8,8 @@
  * Spec.md` R17), on the depot's states and transitions bound editable, its
  * lanes read whole and its states' details on their cards
  * (`flowchartDepotPhone`), held by the e3 inside the page. Below 480px of main
- * nothing drags — the canvas takes no drop — and the inspector carries the
+ * nothing drags — the canvas takes no drop, shows no handle to connect, and a
+ * state carried by the mouse stays where it was — and the inspector carries the
  * gestures: Find state selects a state, the inspector shows its form, a lane
  * chosen there draws the state in that lane's band, and Save, reachable with
  * the state selected, writes the move to the states' record; mounted afresh,
@@ -57,6 +58,25 @@ function bandOf(root: Locator, key: string): Promise<string | null> {
 }
 
 /**
+ * Carries a state's card by the mouse onto another's: pressed on its body, under
+ * its head, moved there in steps onto the other's body, and let go — what a
+ * move on the canvas is made of, where one is offered.
+ *
+ * @param page - The page
+ * @param from - The card carried
+ * @param onto - The card it is let go on
+ */
+async function carry(page: Page, from: Locator, onto: Locator): Promise<void> {
+    const a = await from.boundingBox(), b = await onto.boundingBox();
+    if (a === null || b === null) throw new Error("both cards are drawn");
+    await page.mouse.move(a.x + a.width / 2, a.y + 60);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width / 2, b.y + 60, { steps: 10 });
+    await page.mouse.up();
+    await settled(page);
+}
+
+/**
  * Closes what lies over the frame — the View's popover, a pane's view — each
  * Esc taking one layer.
  *
@@ -73,7 +93,8 @@ async function closeLayers(page: Page, root: Locator): Promise<void> {
 }
 
 /**
- * R17 on the frame as it stands: nothing drags; Find state selects Scanned;
+ * R17 on the frame as it stands: nothing drags, a state carried by the mouse
+ * moving nowhere; Find state selects Scanned;
  * the inspector shows its form, and the Induct lane chosen there draws it in
  * Induct's band; Save, reachable with the state selected, writes the move; and
  * the flowchart, mounted afresh, draws Scanned in Induct.
@@ -84,10 +105,20 @@ async function closeLayers(page: Page, root: Locator): Promise<void> {
 async function findMoveAndSave(page: Page, root: Locator): Promise<void> {
     const main = root.locator(`${FRAME} [data-frame-slot='main']`);
     expect(await main.evaluate((el) => el.getBoundingClientRect().width), "main is narrow").toBeLessThan(480);
-    // Below 480px of main nothing drags: the canvas takes no drop.
+    // Below 480px of main nothing drags: the canvas takes no drop, and its states show no handle to connect.
     await expect(main.locator("[data-drag-cell]")).toHaveCount(0);
+    await expect(root.locator("[data-flowchart-handle]")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
     await expect.poll(() => bandOf(root, "SCN")).toBe("intake");
+    // Nor is a state moved: Scanned carried by the mouse onto Arrived, above it in Intake, stays after it, nothing to save.
+    const save = root.locator("[data-slot='history'] button").last();
+    const arrived = root.locator("[data-flowchart-node='ARV']");
+    await carry(page, root.locator("[data-flowchart-node='SCN']"), arrived);
+    await expect(save).toBeDisabled();
+    expect(await root.evaluate((el) => {
+        const top = (key: string) => el.querySelector(`[data-flowchart-node="${key}"]`)!.getBoundingClientRect().top;
+        return top("ARV") < top("SCN");
+    }), "Scanned stays after Arrived").toBe(true);
 
     // Find state, folded to its icon in the toolbar: its search view lists the match, and the pick selects the state.
     // A touch is a tap; the page's other flowcharts keep their own boxes, so every locator starts at this one.
@@ -121,7 +152,6 @@ async function findMoveAndSave(page: Page, root: Locator): Promise<void> {
     // Save, the state still selected: in the toolbar's second row, uncovered once the view is closed.
     await closeLayers(page, root);
     await expect(scanned).toHaveAttribute("data-selected", "true");
-    const save = root.locator("[data-slot='history'] button").last();
     await save.scrollIntoViewIfNeeded();
     await expect(save).toBeEnabled();
     expect(await save.evaluate((el) => {

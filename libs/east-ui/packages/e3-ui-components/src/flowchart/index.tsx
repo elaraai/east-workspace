@@ -54,8 +54,10 @@
  *   loading line — `Loading states…`, `Updating states…`, or a failed read
  *   with Retry — shown on the frame's one reveal clock (`LoadingReveal`).
  *
- * Below 480px of main, measured by the canvas's element, the library's cards
- * are not dragged: a card's ⏎ drops it.
+ * Below 480px of main, measured by the canvas's element, nothing drags (R17):
+ * the library's cards are not dragged — a card's ⏎ drops it — and the canvas
+ * neither moves a state nor connects one, by touch or by mouse; the inspector
+ * carries a state's lane and a transition's ends.
  *
  * @packageDocumentation
  */
@@ -359,14 +361,19 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
             deleteDecision: decisions ? (key) => { act("deleteDecision", (h) => deleteDecision(h, key)); } : undefined,
         };
     }, [edits, editable, editing, act, m, number, revealSelection]);
-    // Before the first read settles — the frame's cold load — the canvas draws nothing, never the empty records' band
-    // row and its "+ LANE" (`read.ts`): it is given no gesture, so a flowchart with nothing read is blank.
-    const canvasEdits = data.ready ? canvasEdit : undefined;
 
     // ── The narrow layout: below 480px of main, measured by the canvas's element, which fills it ──
     const mainRef = useRef<HTMLDivElement | null>(null);
     const onCanvasElement = useCallback((element: HTMLDivElement | null) => { mainRef.current = element; }, []);
     const narrow = useContainerBelow(mainRef, NARROW_WIDTH);
+    // Before the first read settles — the frame's cold load — the canvas draws nothing, never the empty records' band
+    // row and its "+ LANE" (`read.ts`): it is given no gesture, so a flowchart with nothing read is blank. Below 480px of
+    // main nothing drags (R17): the canvas moves no state and connects none, whatever the pointer — the inspector
+    // carries a state's lane and a transition's ends.
+    const canvasEdits = useMemo((): FlowchartCanvasEdit | undefined => {
+        if (!data.ready || canvasEdit === undefined) return undefined;
+        return narrow ? { ...canvasEdit, moveStates: undefined, connect: undefined } : canvasEdit;
+    }, [data.ready, canvasEdit, narrow]);
 
     // ── The drops: a library card onto the canvas, as one step of the history ──
     const drop = useFlowchartDrop({
