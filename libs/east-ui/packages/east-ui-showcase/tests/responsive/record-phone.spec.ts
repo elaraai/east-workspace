@@ -83,7 +83,7 @@ async function sideways(page: Page, grid: Locator): Promise<{ page: number; fram
 
 test.describe("The Record on a phone", () => {
     for (const name of EXAMPLES) {
-        test(`${name}: the title pinned at the left, no select column, the page never sideways — and, past its window, › steps a column under the title @mobile`, async ({ page }) => {
+        test(`${name}: the title pinned at the left, no select column, the page never sideways — and, past its window, the pager's next steps a column under the title @mobile`, async ({ page }) => {
             const grid = await openRecord(page, name);
             await expect(grid).toHaveAttribute("data-pin", "");
             const at = await layoutOf(grid);
