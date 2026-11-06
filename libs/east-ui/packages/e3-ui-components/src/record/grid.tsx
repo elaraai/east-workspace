@@ -58,12 +58,16 @@ import type { SheetRowValue } from "../sheet/values.js";
 import { chipWidths, recordCell } from "./cells.js";
 import { useRecordNow } from "./clock.js";
 import { recordMessages as m } from "./messages.js";
+import type { RecordNoun } from "./status.js";
 import type { RecordTicks } from "./ticks.js";
 
 /** The Record's column groups, decoded. */
 type RecordColumnGroups = ValueTypeOf<typeof RecordPayloadType>["columnGroups"];
 
-/** What the Record's grid parts read beside the Sheet's: the record recipe's styles, the ticks, the column groups and the rows' word. */
+/**
+ * What the Record's grid parts read beside the Sheet's: the record recipe's styles, the ticks, the column groups, the
+ * rows' word, the title and whether there is an inspector.
+ */
 export interface RecordGrid {
     /** The record recipe's slot styles, at the Record's density. */
     styles: SlotStyles;
@@ -71,8 +75,12 @@ export interface RecordGrid {
     ticks: RecordTicks;
     /** The column groups, in order. */
     groups: RecordColumnGroups;
-    /** The rows' word, plural — `people`: what the empty state says. */
-    nouns: string;
+    /** The rows' word, one and many — `person`, `people`: what the empty state and the strip say. */
+    noun: RecordNoun;
+    /** The Record's title: what the strip over nothing names (SP1). */
+    title: string | undefined;
+    /** Whether the Record has an inspector: where the strip sends a row's details (SP1, SP3). */
+    inspector: boolean;
 }
 
 const RecordGridContext = createContext<RecordGrid | undefined>(undefined);
@@ -80,8 +88,13 @@ const RecordGridContext = createContext<RecordGrid | undefined>(undefined);
 /** Provides what the Record's grid parts read beside the Sheet's. */
 export const RecordGridProvider = RecordGridContext.Provider;
 
-/** What the Record's grid parts read; a part outside a {@link RecordGridProvider} is a mistake of the frame's, and throws. */
-function useRecordGrid(): RecordGrid {
+/**
+ * Reads what the Record's grid parts read beside the Sheet's; a part outside a {@link RecordGridProvider} is a
+ * mistake of the frame's, and throws.
+ *
+ * @returns The Record's grid facts
+ */
+export function useRecordGrid(): RecordGrid {
     const grid = useContext(RecordGridContext);
     if (grid === undefined) throw new Error("A Record grid part is drawn outside a RecordGridProvider");
     return grid;
@@ -92,8 +105,14 @@ function alignOf(meta: SheetColumnMeta): "center" | "end" | undefined {
     return meta.kind === "cycle" || meta.kind === "toggle" || meta.kind === "boolean" ? "center" : meta.kind === "age" ? "end" : undefined;
 }
 
-/** A row as its box names it: its title, else its first text, else its key. */
-function nameOf(row: SheetRowValue, columns: SheetColumnIndex): string {
+/**
+ * A row as its box and the strip name it: its title, else its first text, else its key.
+ *
+ * @param row - The row
+ * @param columns - The columns drawn
+ * @returns The name
+ */
+export function nameOf(row: SheetRowValue, columns: SheetColumnIndex): string {
     const named = columns.list.find((meta) => meta.kind === "title") ?? columns.list.find((meta) => meta.kind === "text");
     const cell = named === undefined ? undefined : row.cells.get(named.key);
     return cell?.type === "String" && cell.value.trim().length > 0 ? cell.value : row.id;
@@ -318,11 +337,11 @@ export function RecordHeader({ columns, gridTemplate, layout, rowPx, rowIds }: S
 
 /** The empty state (EM1): the narrowing leaves no row to show — it says so, and clears the search, or the filters. */
 export function RecordEmpty({ query, onClear }: SheetHostEmptyProps) {
-    const { styles, nouns } = useRecordGrid();
+    const { styles, noun } = useRecordGrid();
     return (
         <Box css={styles.empty} data-slot="empty" role="status">
             <Box as="span" css={styles.emptyMark} aria-hidden="true">×</Box>
-            <Box as="span" css={styles.emptyTitle}>{m.emptyTitle({ nouns, query })}</Box>
+            <Box as="span" css={styles.emptyTitle}>{m.emptyTitle({ nouns: noun.plural, query })}</Box>
             <chakra.button type="button" css={styles.emptyClear} data-slot="emptyClear" onClick={onClear}>
                 <Box as="span" css={styles.emptyBox} aria-hidden="true">☐</Box>
                 <Box as="span" css={styles.emptyLink}>{m.emptyClear({ query })}</Box>

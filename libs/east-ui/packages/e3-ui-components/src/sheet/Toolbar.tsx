@@ -38,7 +38,10 @@
  * configuration is a function of its width, whatever width it came from.
  *
  * The items are a part of their own (SB4): `useSheetToolbarItemsFor` builds
- * them, and the Sheet's frame places them in its one toolbar (#1216).
+ * them, and the Sheet's frame places them in its one toolbar (#1216). A host
+ * that lays out a row of its own takes them as parts (`useSheetToolbarPartsFor`,
+ * #1533): the Record's row is its title, the rail, its status line, Add and
+ * Delete, and the history — no view tabs, count line, key search or badge.
  *
  * In a phone's frame (`Mobile Builder Frame Spec.md` FR2) the row is the
  * views, every tab inline and scrolling sideways, then the rail's summary as
@@ -109,14 +112,32 @@ export interface SheetToolbarProps {
     flash?: boolean | undefined;
 }
 
+/** The toolbar's items as parts (#1533), each with its forms and its fold ranks: `undefined` for one the sheet has no use for. */
+export interface SheetToolbarParts {
+    /** The view tabs, while the slice narrows the rows. */
+    tabs: ToolbarItem | undefined;
+    /** The lens's count line, while a narrowing narrows the rows. */
+    count: ToolbarItem | undefined;
+    /** The key search over a seekable source. */
+    seek: ToolbarItem | undefined;
+    /** The rail over the sheet's slice: its fields, its presets and its summary, in the rail's order. */
+    rail: readonly ToolbarItem[];
+    /** The paged scope badge, while rows are still to load and nothing narrows them. */
+    badge: ToolbarItem | undefined;
+    /** The Elara eye, immediately before the history item. */
+    optimise: ToolbarItem | undefined;
+    /** The editing session's history item, at the row's end. */
+    history: ToolbarItem | undefined;
+}
+
 /**
- * Builds the toolbar's items in the row's order, each with its forms and its
- * fold ranks: what the Sheet's frame places in its toolbar (SB4).
+ * Builds the toolbar's items as parts (#1533): what a host that lays out a
+ * row of its own takes some of.
  *
  * @param props - What the items show and drive.
- * @returns The items, a falsy entry for each the sheet has no use for.
+ * @returns The parts
  */
-export function useSheetToolbarItemsFor({ styles, chrome, nouns, count, partial, tabs, search, history, optimise, flash }: SheetToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
+export function useSheetToolbarPartsFor({ styles, chrome, nouns, count, partial, tabs, search, history, optimise, flash }: SheetToolbarProps): SheetToolbarParts {
     // The toolbar's own words (#861).
     const { m } = useSheetWords();
 
@@ -163,9 +184,9 @@ export function useSheetToolbarItemsFor({ styles, chrome, nouns, count, partial,
         phone: { form: tabs.render({ folded: 0, strip: "phone" }), grow: true },
     };
 
-    return [
-        tabsItem,
-        count !== "" && {
+    return {
+        tabs: tabsItem,
+        count: count === "" ? undefined : {
             key: "count",
             forms: [<Box as="span" css={styles.toolbarCount} data-slot="toolbarCount" data-opn={flash === true ? "" : undefined}>{count}</Box>, null],
             rank: SHEET_RANK.count,
@@ -173,9 +194,31 @@ export function useSheetToolbarItemsFor({ styles, chrome, nouns, count, partial,
             phone: { form: null },
         },
         seek,
-        ...rail,
-        partial && { key: "badge", side: "end", forms: [<Box as="span" css={styles.toolbarBadge} data-slot="toolbarBadge">{m.scopeBadge()}</Box>] },
+        rail,
+        badge: partial ? { key: "badge", side: "end", forms: [<Box as="span" css={styles.toolbarBadge} data-slot="toolbarBadge">{m.scopeBadge()}</Box>] } : undefined,
         optimise,
         history,
-    ];
+    };
+}
+
+/**
+ * The Sheet's row of its toolbar's parts, in order: the view tabs, the count
+ * line, the key search, the rail, the badge, the eye and the history.
+ *
+ * @param parts - The parts
+ * @returns The items, an `undefined` entry for each the sheet has no use for
+ */
+export function sheetToolbarRow(parts: SheetToolbarParts): ReadonlyArray<ToolbarItem | false | undefined> {
+    return [parts.tabs, parts.count, parts.seek, ...parts.rail, parts.badge, parts.optimise, parts.history];
+}
+
+/**
+ * Builds the toolbar's items in the row's order, each with its forms and its
+ * fold ranks: what the Sheet's frame places in its toolbar (SB4).
+ *
+ * @param props - What the items show and drive.
+ * @returns The items, a falsy entry for each the sheet has no use for.
+ */
+export function useSheetToolbarItemsFor(props: SheetToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
+    return sheetToolbarRow(useSheetToolbarPartsFor(props));
 }

@@ -91,13 +91,13 @@ function initialsOf(name: string): string {
 /**
  * A scale's member's look (C5): the first empty, the rest up the heat ramp
  * to its fourth step, evenly — of three members, the second's the second step
- * and the third's the fourth.
+ * and the third's the fourth. The footer's legend draws its chips so (FT2).
  *
  * @param at - The member's place in the register; `-1` for a key no member has
  * @param n - How many members the register has
  * @returns The look
  */
-function heatOf(at: number, n: number): string {
+export function heatOf(at: number, n: number): string {
     return at <= 0 || n < 2 ? "none" : `heat-${Math.max(1, Math.round((4 * at) / (n - 1)))}`;
 }
 
