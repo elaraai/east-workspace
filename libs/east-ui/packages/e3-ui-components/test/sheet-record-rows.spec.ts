@@ -147,11 +147,17 @@ describe("one entry's rows", () => {
         const w42 = (await h.read(ex.sheetWeekPlans)).get("2026-W42")!;
         return { w42, ...await h.bindRecord(ex.sheetWeekPlans, PlansHandle, { whole: true }) };
     }
-    /** The sheet over one week's rows, compiled against the runtime. */
+    /**
+     * The sheet over one week's rows, compiled against the runtime. It adds rows, and a new row's site, status, code,
+     * level and machines, which no column here sets, are the app's (#1536).
+     */
     function sheetOver(runtime: RecordRuntime): (handle: unknown, week: string) => Root {
         return East.compile(East.function([PlansHandle, StringType], Sheet.Types.Root, ($, record, week) => {
             const rows = recordRows(record, { entry: { key: week, rows: "rows", id: "id" } });
-            return createSheetRootWith(rows.data, COLUMNS, rows.options, rows.internal);
+            const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(WeekRow), () => Sheet.patch(WeekRow, {
+                site: "", status: "PLANNED", code: "", level: variant("day", null), machines: { from: [], to: [] },
+            })));
+            return createSheetRootWith(rows.data, COLUMNS, { ...rows.options, newRow }, rows.internal);
         }), runtime.buildPrimitives()) as unknown as (handle: unknown, week: string) => Root;
     }
     /** The week the record does not hold, as the frame's banner names it. */
