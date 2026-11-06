@@ -23,7 +23,7 @@
  */
 
 import { IMPORT_PLATFORM, decodeAsyncEastIR, decodeEastIR, literalValueOf, none, some, variant, walkIR, type IR, type ValueIR } from '@elaraai/east';
-import type { CallArg, ExecuteLimits, ExecuteResult, OneShotRequest, RunnerValue, TreePath } from '@elaraai/e3-types';
+import { pathToString, type CallArg, type ExecuteLimits, type ExecuteResult, type OneShotRequest, type RunnerValue, type TreePath } from '@elaraai/e3-types';
 import { PermissionDeniedError } from '../errors.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { workspaceGetDatasetHash } from '../trees.js';
@@ -288,37 +288,80 @@ export function oneShotPlatformUse(request: OneShotRequest): string | null {
  * with each dataset's path and hash, which the call's result names. A one-shot
  * and a named function call pin theirs alike.
  *
+ * @remarks
+ * A named function's inputs — the datasets it declares, which its caller does
+ * not pass — are pinned the same way, before the arguments, and come first in
+ * what the runner is handed and in what the result names. Each is read as it
+ * is stored now, one after another, waiting for no run in progress: a call
+ * during a run may read one input before the run rewrites it and another
+ * after, and the result names the hash of each. An input with no value is
+ * refused in words that say why, by what it is (`unassignedInput`).
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param workspace - The workspace whose datasets the call reads
  * @param args - The call's arguments
+ * @param options - `inputs`, the datasets the function reads before its
+ *   arguments (none by default)
  * @returns The arguments and what they read, or the `invalid` result an
- *   unassigned dataset answers
+ *   unassigned dataset answers, naming its path
  */
 export async function pinCallArguments(
   storage: StorageBackend,
   repo: string,
   workspace: string,
   args: readonly CallArg[],
+  options: { inputs?: readonly TreePath[] } = {},
 ): Promise<{ args: DetachedArg[]; inputs: ExecuteResult['inputs'] } | ExecuteResult> {
   const pinned: DetachedArg[] = [];
   const inputs: ExecuteResult['inputs'] = [];
+  // Objects are immutable, so a dataset pinned by its hash is a snapshot: no
+  // lock is needed, and the runner stages it as a task input is.
+  // The query builder reads a dataset argument's refusal by its words
+  // (`Dataset argument <i> is not assigned`), so those stay as they are; an
+  // input, which no caller named, is refused naming its path.
+  const pin = async (path: TreePath, refusal: (refType: string) => string): Promise<ExecuteResult | null> => {
+    const { refType, hash } = await workspaceGetDatasetHash(storage, repo, workspace, path);
+    if (refType !== 'value' || hash === null) return invalidExecuteResult(refusal(refType));
+    pinned.push({ dataset: hash });
+    inputs.push({ path, hash });
+    return null;
+  };
+  for (const path of options.inputs ?? []) {
+    const refused = await pin(path, (refType) => unassignedInput(path, refType));
+    if (refused !== null) return refused;
+  }
   for (const [i, arg] of args.entries()) {
     if (arg.type === 'value') {
       pinned.push(arg.value);
       continue;
     }
-    const path: TreePath = arg.value;
-    // Objects are immutable, so a dataset pinned by its hash is a snapshot:
-    // no lock is needed, and the runner stages it as a task input is.
-    const { refType, hash } = await workspaceGetDatasetHash(storage, repo, workspace, path);
-    if (refType !== 'value' || hash === null) {
-      return invalidExecuteResult(`Dataset argument ${i} is not assigned (ref type: ${refType})`);
-    }
-    pinned.push({ dataset: hash });
-    inputs.push({ path, hash });
+    const refused = await pin(arg.value, (refType) => `Dataset argument ${i} is not assigned (ref type: ${refType})`);
+    if (refused !== null) return refused;
   }
   return { args: pinned, inputs };
+}
+
+/**
+ * Why a function's input holds no value a call can read, as its refusal says
+ * it: an unassigned one by what it is — an input nothing has set, a task's
+ * output no run has produced, a record whose first state is not committed —
+ * and any other by its ref's type. A dataflow waits on each of these, so a
+ * task reading the same dataset would not run either.
+ *
+ * @param path - The input's path
+ * @param refType - The type of the ref it holds
+ * @returns The refusal's words
+ */
+function unassignedInput(path: TreePath, refType: string): string {
+  const at = `The function's input ${pathToString(path)} is not assigned (ref type: ${refType})`;
+  if (refType !== 'unassigned') return `${at}: it holds no stored value, and nothing ran`;
+  switch (path[0]?.value) {
+    case 'inputs': return `${at}: nothing has set it, and nothing ran`;
+    case 'tasks': return `${at}: no run has produced it since the last deploy, and nothing ran`;
+    case 'records': return `${at}: its first state is not yet committed, and nothing ran`;
+    default: return `${at}: nothing ran`;
+  }
 }
 
 /**

@@ -161,15 +161,15 @@ export async function loadExampleModules(): Promise<ExampleModule[]> {
 /** A tree, dataset or task the package collects, or a definition a module exports. */
 type Collected = DataTreeDef | ExampleDefinition;
 
-/** What a definition reaches: a dataset's or task's dependencies. */
+/** What a definition reaches: a dataset's, task's or function's dependencies —
+ *  a function's inputs and what they depend on. */
 function reachedFrom(item: Collected): Collected[] {
     switch (item.kind) {
         case "datatree":
         case "dataset":
         case "task":
-            return [...item.deps];
         case "function":
-            return [];
+            return [...item.deps];
     }
 }
 
@@ -249,7 +249,8 @@ export function examplesPackage(modules: readonly ExampleModule[]): PackageDef<R
     const ofKind = <K extends ExampleDefinition["kind"]>(kind: K) =>
         definitions.filter((definition): definition is Extract<ExampleDefinition, { kind: K }> => definition.kind === kind);
 
-    // What `e3.package` keys by name and never reaches through a dependency.
+    // What `e3.package` keys by name and never reaches through a dependency;
+    // a function's inputs it reaches, and the claims below hold them.
     claimOnce("function", ofKind("function"), (fn) => fn.name, owners);
 
     const pkg = e3.package(EXAMPLES_PACKAGE_NAME, e3UiVersion(), ...definitions);

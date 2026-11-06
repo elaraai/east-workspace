@@ -482,6 +482,36 @@
       "source": "const RowType = StructType({ id: StringType, at: IntegerType });\n\n// A producer has no inputs: it reads platform sources (paged APIs, database\n// cursors) and emits. Emission order is free — the runner sorts a Dict output\n// in runs of bounded size — and a key emitted twice folds with `merge`: here\n// the latest row wins.\nconst rows = e3.streamTask('ingest', {\n  inputs: [],\n  output: e3.output.dict(StringType, RowType, {\n    merge: ($, _id, a, b) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),\n  }),\n}, ($, emit) => { /* fetch pages, $(emit(row.id, row)) each */ });"
     },
     {
+      "id": "e3:static:function-inputs",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3.function",
+      "test": "A named function that reads the workspace: its inputs are read as stored at each call, and its caller passes the arguments alone",
+      "keywords": [
+        "e3",
+        "function",
+        "e3.function",
+        "named function",
+        "RPC",
+        "inputs",
+        "args",
+        "workspace",
+        "reads datasets",
+        "reference data",
+        "call",
+        "e3 call",
+        "Func.bind",
+        "pinned",
+        "hash"
+      ],
+      "imports": [
+        "import { ArrayType, DictType, East, FloatType, IntegerType, StringType, StructType, variant } from '@elaraai/east';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "const OrderLineType = StructType({ sku: StringType, quantity: IntegerType });\nconst QuoteType = StructType({ total: FloatType, short: ArrayType(StringType) });\n\nconst prices = e3.input('prices', DictType(StringType, FloatType), variant('value', new Map([['bolt', 0.25]])));\nconst stock = e3.input('stock', DictType(StringType, IntegerType), variant('value', new Map([['bolt', 500n]])));\n\n// `inputs` (an input, a task's output or a record) are read from the workspace\n// at each call, pinned at their hashes; `args` are what the caller passes. The\n// body takes the inputs, then the arguments. Nothing reruns when an input\n// changes: a function is no node of the dataflow.\nconst quote = e3.function('quote', {\n  inputs: [prices, stock],\n  args: [ArrayType(OrderLineType)],\n  output: QuoteType,\n}, ($, prices, stock, lines) => {\n  const total = $.let(0.0);\n  const short = $.let([], ArrayType(StringType));\n  $.for(lines, ($, line) => {\n    $.assign(total, total.add(prices.get(line.sku, () => 0.0).multiply(line.quantity.toFloat())));\n    $.if(East.less(stock.get(line.sku, () => 0n), line.quantity), ($) => { $(short.pushLast(line.sku)); });\n  });\n  return { total, short };\n});\n\nexport default e3.package('shop', '1.0.0', quote);   // collects prices and stock\n\n// Called through a workspace, with the order alone:\n//   e3 call . -w dev quote '[(sku=\"bolt\", quantity=120)]'\n// On a page: Func.bind(quote).call(order) — the page binds neither dataset."
+    },
+    {
       "id": "e3:static:web-e3",
       "skill": "e3",
       "package": "e3",

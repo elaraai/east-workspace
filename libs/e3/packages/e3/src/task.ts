@@ -178,14 +178,7 @@ export function task(
   config?: { runner?: Runner, environment?: EnvironmentDecl, role?: TaskRole },
 ): TaskDef {
   if (config?.environment) validateEnvironmentDecl(config.environment, name);
-  for (const input of inputs as readonly (DatasetDef | PartitionDef)[]) {
-    if (input.kind === 'partition') {
-      throw new Error(
-        `task '${name}': input '${input.dataset.name}' is marked with e3.partition, which only e3.streamTask takes — ` +
-        `pass the dataset itself`
-      );
-    }
-  }
+  refusePartitioned(`task '${name}'`, inputs as readonly (DatasetDef | PartitionDef)[], 'which only e3.streamTask takes');
 
   const taskTree = createTaskTree(name);
   const output = createOutputDataset(name, taskTree, Expr.type<FunctionType<EastType[], EastType> | AsyncFunctionType<EastType[], EastType>>(fn).output);
@@ -312,13 +305,38 @@ export function partition<T extends EastType>(dataset: DatasetDef<T>, config?: {
   return { kind: 'partition', dataset, by: [...(config?.by ?? [])] };
 }
 
-/** The expression a stream task's body receives for each input. */
-type InputExprs<T extends readonly (DatasetDef | PartitionDef)[]> = {
+/**
+ * The expression a body receives for each input: a stream task's, and an
+ * `e3.function`'s, which take their inputs alike.
+ *
+ * @typeParam T - The inputs, some marked with {@link partition}
+ * @internal
+ */
+export type InputExprs<T extends readonly (DatasetDef | PartitionDef)[]> = {
   [K in keyof T]:
     T[K] extends PartitionDef<infer U> ? ExprType<U> :
     T[K] extends DatasetDef<infer U> ? ExprType<U> :
     never;
 };
+
+/**
+ * Refuses an input marked with {@link partition} where the work runs as one
+ * unit: an `e3.task`'s, or an `e3.function`'s.
+ *
+ * @param owner - What is being defined, as its refusal names it: `task 'x'`
+ * @param inputs - Its inputs
+ * @param why - Why it takes no partitioned input, said after the mark
+ * @throws {Error} When an input is marked, naming the owner and the input
+ *   and saying to pass the dataset itself
+ * @internal
+ */
+export function refusePartitioned(owner: string, inputs: readonly (DatasetDef | PartitionDef)[], why: string): void {
+  for (const input of inputs) {
+    if (input.kind === 'partition') {
+      throw new Error(`${owner}: input '${input.dataset.name}' is marked with e3.partition, ${why} — pass the dataset itself`);
+    }
+  }
+}
 
 /**
  * The declaration half of {@link streamTask}; the body comes last as the `fn`

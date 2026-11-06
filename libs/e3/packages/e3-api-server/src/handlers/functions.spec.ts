@@ -61,24 +61,30 @@ async function decodeResponse<T extends EastType>(response: Response, type: T): 
 /** What a host's auth sets on a request's context, as the routes read it. */
 type IdentityEnv = { Variables: { identity?: Identity } };
 
-/** Seed a repo containing one function `double` (Integer -> Integer). */
+/** The input `scaled` reads. */
+const N_PATH = [variant('field', 'inputs'), variant('field', 'n')];
+
+/** Seed a repo containing a function `double` (Integer -> Integer), and
+ *  `scaled`, which reads `.inputs.n` and is given an Integer. */
 async function seedPackage(storage: InMemoryStorage): Promise<void> {
   await storage.repos.create(REPO);
 
   const bodyIrHash = await storage.objects.write(REPO, encodeInt(0n)); // stand-in IR blob
-  const fnObject = {
+  const fnObject = (inputs: typeof N_PATH[]) => ({
     bodyIr: bodyIrHash,
-    inputTypes: [toEastTypeValue(IntegerType)],
+    inputs,
+    argTypes: [toEastTypeValue(IntegerType)],
     outputType: toEastTypeValue(IntegerType),
     runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
     environment: none,
-  };
-  const fnHash = await storage.objects.write(REPO, encodeBeast2For(FunctionObjectType)(fnObject));
+  });
+  const fnHash = await storage.objects.write(REPO, encodeBeast2For(FunctionObjectType)(fnObject([])));
+  const scaledHash = await storage.objects.write(REPO, encodeBeast2For(FunctionObjectType)(fnObject([N_PATH])));
 
   const pkgObject = {
     tasks: new Map<string, string>(),
     data: { structure: variant('struct', new Map()), refs: new Map() },
-    functions: new Map([['double', fnHash]]),
+    functions: new Map([['double', fnHash], ['scaled', scaledHash]]),
     records: new Map<string, string>(),
     sources: new Map(),
   };
@@ -101,15 +107,41 @@ describe('function handlers', () => {
     await seedPackage(storage);
   });
 
-  it('listPackageFunctions surfaces the signature', async () => {
+  it('listPackageFunctions surfaces each signature, the inputs a call reads apart from its arguments', async () => {
     const response = await listPackageFunctions(storage, REPO, PKG, VERSION);
     const result = await decodeResponse(response, ArrayType(FunctionSignatureType));
     assert.ok(result.type === 'success');
-    assert.equal(result.value.length, 1);
-    const signature = result.value[0]!;
-    assert.equal(signature.name, 'double');
-    assert.equal(signature.inputTypes.length, 1);
-    assert.equal(signature.outputType.type, 'Integer');
+    assert.deepEqual(result.value.map((signature) => signature.name), ['double', 'scaled']);
+    const [double, scaled] = result.value;
+    assert.equal(double!.argTypes.length, 1);
+    assert.equal(double!.inputs.length, 0);
+    assert.equal(double!.outputType.type, 'Integer');
+    assert.deepEqual(scaled!.inputs, [N_PATH]);
+    assert.equal(scaled!.argTypes.length, 1);
+  });
+
+  it('answers a function with inputs through the package, which has no workspace to read them from, invalid without executing', async () => {
+    const response = await callFunctionSync(storage, REPO, runner, PKG, VERSION, 'scaled', callRequest([encodeInt(5n)]));
+    const result = await decodeResponse(response, ExecuteResultType);
+    assert.ok(result.type === 'success');
+    const { outcome } = result.value;
+    assert.ok(outcome.type === 'invalid');
+    assert.equal(
+      outcome.value.diagnostics[0]!.message,
+      '\'scaled\' reads .inputs.n from the workspace it is called through, and a call through the package has none: '
+      + 'call it through a workspace it is deployed to, at …/workspaces/<ws>/functions/scaled',
+    );
+    assert.equal(runner.getDetachedCalls().length, 0, 'nothing should have executed');
+  });
+
+  it('counts a function\'s arguments alone, never its inputs', async () => {
+    const response = await callFunctionSync(storage, REPO, runner, PKG, VERSION, 'scaled', callRequest([encodeInt(1n), encodeInt(5n)]));
+    const result = await decodeResponse(response, ExecuteResultType);
+    assert.ok(result.type === 'success');
+    const { outcome } = result.value;
+    assert.ok(outcome.type === 'invalid');
+    assert.equal(outcome.value.diagnostics[0]!.message, 'Expected 1 argument(s), got 2');
+    assert.equal(runner.getDetachedCalls().length, 0, 'nothing should have executed');
   });
 
   it('describePackageFunction returns task_not_found for unknown functions', async () => {

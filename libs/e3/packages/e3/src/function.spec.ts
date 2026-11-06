@@ -26,13 +26,16 @@ import {
   PackageDataType,
   FunctionObjectType,
   decodePackageObject,
+  pathToString,
 } from '@elaraai/e3-types';
 import { function_ } from './function.js';
 import { runnerToVariant } from './runner.js';
 import { package_ } from './package.js';
 import { export_ } from './export.js';
 import { input } from './input.js';
-import { task } from './task.js';
+import { partition, task } from './task.js';
+import type { IRBundle } from './types.js';
+import type { FunctionSpec } from './index.js';
 
 /**
  * Helper to read a zip file and return entries as a map of path -> buffer
@@ -75,7 +78,7 @@ function objectEntry(entries: Map<string, Buffer>, hash: string): Buffer | undef
 }
 
 describe('function_', () => {
-  it('infers inputTypes/outputType from the East function', () => {
+  it('infers argTypes/outputType from the East function, which reads no input', () => {
     const fn = function_(
       'forecast',
       East.function([IntegerType, FloatType], FloatType, ($, periods, rate) =>
@@ -85,9 +88,11 @@ describe('function_', () => {
 
     assert.strictEqual(fn.kind, 'function');
     assert.strictEqual(fn.name, 'forecast');
-    assert.deepStrictEqual(toEastTypeValue(fn.inputTypes[0]!), toEastTypeValue(IntegerType));
-    assert.deepStrictEqual(toEastTypeValue(fn.inputTypes[1]!), toEastTypeValue(FloatType));
+    assert.deepStrictEqual(toEastTypeValue(fn.argTypes[0]!), toEastTypeValue(IntegerType));
+    assert.deepStrictEqual(toEastTypeValue(fn.argTypes[1]!), toEastTypeValue(FloatType));
     assert.deepStrictEqual(toEastTypeValue(fn.outputType), toEastTypeValue(FloatType));
+    assert.strictEqual(fn.inputs.length, 0);
+    assert.strictEqual(fn.deps.size, 0);
     // Defaults to DEFAULT_RUNNER (east-node + east-node-std)
     assert.deepStrictEqual(runnerToVariant(fn.runner), variant('east_node', {
       platforms: ['@elaraai/east-node-std'],
@@ -109,6 +114,73 @@ describe('function_', () => {
       { runner: { runtime: 'custom', command: ['python3', 'my-runner.py'] } }
     );
     assert.equal(f.runner.runtime, 'custom');
+  });
+});
+
+describe('function_ with inputs', () => {
+  const prices = input('prices', DictType(StringType, FloatType), variant('value', new Map([['a', 2.5]])));
+  const stock = input('stock', DictType(StringType, IntegerType), variant('value', new Map([['a', 4n]])));
+
+  it('takes its inputs as the body\'s first parameters and its arguments after them', () => {
+    const quote = function_('quote', {
+      inputs: [prices, stock],
+      args: [StringType, IntegerType],
+      output: FloatType,
+    }, ($, prices, stock, sku, quantity) => {
+      const held = $.let(stock.get(sku));
+      return prices.get(sku).multiply(East.min(held, quantity).toFloat());
+    });
+
+    assert.deepStrictEqual(quote.inputs, [prices, stock]);
+    assert.deepStrictEqual(quote.argTypes.map((t) => toEastTypeValue(t)), [toEastTypeValue(StringType), toEastTypeValue(IntegerType)]);
+    assert.deepStrictEqual(toEastTypeValue(quote.outputType), toEastTypeValue(FloatType));
+    // The body is one East function over all of them, in that order
+    assert.strictEqual(quote.body.ir.type, 'Function');
+    const compiled = (quote.body as IRBundle).compile([]);
+    assert.strictEqual(compiled(new Map([['a', 2.5]]), new Map([['a', 4n]]), 'a', 3n), 7.5);
+    assert.strictEqual(quote.deps.has(prices), true);
+    assert.strictEqual(quote.deps.has(stock), true);
+  });
+
+  it('builds an async body when asked', () => {
+    const fn = function_('later', { inputs: [stock], args: [], output: IntegerType, async: true }, ($, stock) => stock.size());
+    assert.strictEqual(fn.body.ir.type, 'AsyncFunction');
+    assert.strictEqual(fn.argTypes.length, 0);
+  });
+
+  it('refuses an input marked with e3.partition, since a call runs as one unit', () => {
+    // The types take no partition: an untyped caller can still pass one
+    const untyped = function_ as unknown as (name: string, spec: object, fn: () => bigint) => unknown;
+    assert.throws(() => untyped('split', { inputs: [partition(stock)], args: [], output: IntegerType }, () => 0n),
+      /e3.function 'split': input 'stock' is marked with e3.partition, and a call runs as one unit — pass the dataset itself/);
+  });
+
+  it('refuses the custom runtime with inputs', () => {
+    assert.throws(() => function_('custom', {
+      inputs: [stock],
+      args: [],
+      output: IntegerType,
+      runner: { runtime: 'custom', command: ['python3', 'my-runner.py'] },
+    }, ($, stock) => stock.size()), /e3.function 'custom': the custom runtime takes no inputs/);
+  });
+
+  it('takes a spec named through the package entry, apart from the call', () => {
+    const spec: FunctionSpec<[typeof stock], [IntegerType], IntegerType> = { inputs: [stock], args: [IntegerType], output: IntegerType };
+    const held = function_('held', spec, ($, stock, extra) => stock.size().add(extra));
+    assert.deepStrictEqual(held.inputs, [stock]);
+    assert.strictEqual(held.argTypes.length, 1);
+    assert.strictEqual((held.body as IRBundle).compile([])(new Map([['a', 4n]]), 2n), 3n);
+  });
+
+  it('is collected by e3.package with its inputs and what they depend on', () => {
+    const value = task('value', [stock], East.function([DictType(StringType, IntegerType)], IntegerType, ($, stock) => stock.size()));
+    const fn = function_('read_value', { inputs: [value.output], args: [], output: IntegerType }, ($, value) => value);
+    const pkg = package_('fn-inputs', '1.0.0', fn);
+
+    assert.strictEqual(pkg.functions['read_value'], fn);
+    assert.ok(pkg.contents.includes(value), 'the task producing the input');
+    assert.ok(pkg.contents.includes(value.output), 'the input');
+    assert.ok(pkg.contents.includes(stock), 'the task\'s own input');
   });
 });
 
@@ -204,13 +276,36 @@ describe('export_ with functions', () => {
     const fnObject = decodeBeast2For(FunctionObjectType)(fnData);
     // Note: decoded type values lack toEastTypeValue's cache symbol, so
     // compare the structural fields rather than deep-equality on the object.
-    assert.strictEqual(fnObject.inputTypes.length, 1);
-    assert.strictEqual(fnObject.inputTypes[0]!.type, 'Integer');
+    assert.strictEqual(fnObject.argTypes.length, 1);
+    assert.strictEqual(fnObject.argTypes[0]!.type, 'Integer');
+    assert.strictEqual(fnObject.inputs.length, 0);
     assert.strictEqual(fnObject.outputType.type, 'Integer');
     assert.deepStrictEqual(fnObject.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }));
 
     // The body IR object itself is in the bundle
     assert.ok(objectEntry(entries, fnObject.bodyIr), 'bodyIr object missing from bundle');
+  });
+
+  it('writes a function\'s inputs as their paths, and its inputs into the package\'s data', async () => {
+    const greeting = input('greeting', StringType, variant('value', 'hello'));
+    const shout = task('shout', [greeting], East.function([StringType], StringType, ($, s) => s));
+    const echo = function_('echo', { inputs: [greeting, shout.output], args: [IntegerType], output: StringType },
+      ($, greeting, shouted, times) => East.str`${greeting} ${shouted} ${times}`);
+    const pkg = package_('fn-inputs-pkg', '1.0.0', echo);
+
+    const zipPath = path.join(tempDir, 'fn-inputs-pkg-1.0.0.zip');
+    await export_(pkg, zipPath);
+    const entries = await readZip(zipPath);
+    const pkgObject = decodeBeast2For(PackageObjectType)(objectEntry(entries, decodeBeast2For(StringType)(entries.get('packages/fn-inputs-pkg/1.0.0.beast2')!))!);
+
+    // The function brought its inputs, and the task producing one, with it
+    assert.ok(pkgObject.tasks.get('shout'), 'the task its input comes from');
+    assert.ok(pkgObject.data.refs.get('inputs/greeting'), 'its input');
+
+    const fnObject = decodeBeast2For(FunctionObjectType)(objectEntry(entries, pkgObject.functions.get('echo')!)!);
+    assert.deepStrictEqual(fnObject.inputs.map((p) => pathToString(p)), ['.inputs.greeting', '.tasks.shout.output']);
+    assert.deepStrictEqual(fnObject.argTypes.map((t) => t.type), ['Integer']);
+    assert.strictEqual(fnObject.outputType.type, 'String');
   });
 
   it('produces identical output for the same package (deterministic)', async () => {

@@ -22,7 +22,8 @@ import type {
  *
  * Automatically collects all dependencies from the provided items.
  * You only need to pass the "top-level" items - all inputs, intermediate
- * tasks, and datasets they depend on are included automatically.
+ * tasks, and datasets they depend on are included automatically, a
+ * function's inputs among them.
  *
  * Organizes items into a discoverable structure:
  * - `pkg.datasets.inputs.*` - Input datasets
@@ -77,8 +78,9 @@ export function package_(
   // Recursively collect all items and their transitive dependencies
   const all_items = new Set<PackageItem>();
   const visited = new Set<PackageItem>();
-  // Functions have no deps and never enter the data tree — collected by
-  // name, separately from all_items.
+  // Functions never enter the data tree — collected by name, separately
+  // from all_items — but their inputs and what those depend on do, as a
+  // task's do.
   const functions: Record<string, FunctionDef> = {};
   // Records are datasets, so they ride `all_items`, each whole with its parts;
   // an imported package's records arrive here as well.
@@ -106,6 +108,7 @@ export function package_(
       Object.assign(importedRecords, item.records);
     } else if (item.kind === "function") {
       functions[item.name] = item;
+      for (const dep of item.deps) collect(dep);
     } else {
       refusePart(name, item);
       collect(item);

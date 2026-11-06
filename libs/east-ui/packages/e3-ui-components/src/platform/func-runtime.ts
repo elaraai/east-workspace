@@ -313,11 +313,13 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
         }
         // East's type equality: a recursive type's wrapper ids are the server's
         // on one side and this process's on the other, and name the same type.
-        const inputsMatch = deployed.inputTypes.length === sig.inputs.length
-            && deployed.inputTypes.every((t, i) => isTypeValueEqual(t, sig.inputs[i]!));
+        // The handle takes the arguments alone; the inputs the function reads
+        // from the workspace are the server's to pass.
+        const argsMatch = deployed.argTypes.length === sig.inputs.length
+            && deployed.argTypes.every((t, i) => isTypeValueEqual(t, sig.inputs[i]!));
         const outputMatches = isTypeValueEqual(deployed.outputType, sig.output);
-        if (!inputsMatch || !outputMatches) {
-            const message = `signature mismatch for "${name}": bound (${sig.inputs.length} inputs) disagrees with the deployed package`;
+        if (!argsMatch || !outputMatches) {
+            const message = `signature mismatch for "${name}": bound (${sig.inputs.length} arguments) disagrees with the deployed package`;
             return {
                 kind: variant("invalid", { diagnostics: [message] }),
                 message,
@@ -561,8 +563,8 @@ export function createScopedFuncPlatform(functions: readonly string[]): Platform
 export interface InMemoryFunctionDef {
     /** Function name (what `Func.bind` is bound to). */
     name: string;
-    /** Positional parameter types. */
-    inputTypes: (EastType | EastTypeValue)[];
+    /** The argument types a caller passes. */
+    argTypes: (EastType | EastTypeValue)[];
     /** Return type. */
     outputType: EastType | EastTypeValue;
     /** The implementation — receives decoded args, returns the result
@@ -577,7 +579,7 @@ export interface InMemoryFunctionDef {
 export function createInMemoryFunctionApi(functions: InMemoryFunctionDef[]): FunctionApi {
     const defs = functions.map(def => ({
         name: def.name,
-        inputTypes: def.inputTypes.map(t => toEastTypeValue(t as EastType)),
+        argTypes: def.argTypes.map(t => toEastTypeValue(t as EastType)),
         outputType: toEastTypeValue(def.outputType as EastType),
         fn: def.fn,
     }));
@@ -585,7 +587,9 @@ export function createInMemoryFunctionApi(functions: InMemoryFunctionDef[]): Fun
         async list() {
             return defs.map(def => ({
                 name: def.name,
-                inputTypes: def.inputTypes,
+                // An offline function reads nothing of a workspace.
+                inputs: [],
+                argTypes: def.argTypes,
                 outputType: def.outputType,
                 runner: variant("east_node", { platforms: [], decode: variant("lazy", null) }),
             })) as unknown as FunctionSignature[];
@@ -593,7 +597,7 @@ export function createInMemoryFunctionApi(functions: InMemoryFunctionDef[]): Fun
         async call(_workspace, fnName, req) {
             const def = defs.find(d => d.name === fnName);
             if (!def) throw new Error(`no in-memory function "${fnName}"`);
-            const args = req.args.map((bytes, i) => decodeBeast2For(def.inputTypes[i]!)(bytes));
+            const args = req.args.map((bytes, i) => decodeBeast2For(def.argTypes[i]!)(bytes));
             const value = await def.fn(...args);
             return {
                 outcome: variant("success", { value: encodeBeast2For(def.outputType)(value) }),

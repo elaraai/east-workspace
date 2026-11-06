@@ -651,3 +651,23 @@ Each wire changed under this rule, with the kind it is.
   the new type. A UI task's output is not stored state, and the details are
   the app's own records, read only, so no repository upgrade step ships with
   it.
+- **e3's functions take inputs: a function object gains `inputs`, and its
+  `inputTypes` becomes `argTypes`, as a function's signature does (#1514)** —
+  package-borne, and the function routes' answer. `FunctionObjectType` gains
+  `inputs`, after `bodyIr`: the paths of the datasets a call reads from its
+  workspace, which a call passes the body before the caller's arguments; and
+  its `inputTypes` becomes `argTypes`, the arguments a caller passes alone. A
+  function object an earlier SDK exported does not decode under the new type:
+  a call, a list or a describe of its package's functions is refused, naming
+  the fix — re-export the package — and gc, which knows a function object by
+  its current shape, no longer walks it, so the body and the environment only
+  it names are swept: re-export a package with functions before a gc. Packages
+  are re-exported, so no repository upgrade step ships. The function routes'
+  signature (`FunctionSignatureType`, which list and describe answer) gains
+  `inputs` and trades `inputTypes` for `argTypes` alike: an answer of either
+  release does not decode as the other's, and a client refuses a server's
+  answer of the other release, naming both types, as it refuses any type it
+  does not read — so `e3 call`, e3-ui's `Func.bind` and the server they call
+  are of one release. A call's result names the inputs it read before its
+  dataset arguments, in `ExecuteResultType`'s `inputs`, whose type does not
+  change.

@@ -96,10 +96,30 @@ describe('task and function object decoders', () => {
     assert.throws(() => decodeFunctionObject(legacyBytes), /exported by an older e3 SDK — re-export it with the current one/);
   });
 
+  it('refuses function bytes from before a function had inputs, saying to re-export', () => {
+    const PreInputsFunctionObjectType = StructType({
+      bodyIr: StringType,
+      inputTypes: ArrayType(EastTypeType),
+      outputType: EastTypeType,
+      runner: RunnerType,
+      environment: OptionType(StringType),
+    });
+    const earlierBytes = encodeBeast2For(PreInputsFunctionObjectType)({
+      bodyIr: 'c'.repeat(64),
+      inputTypes: [toEastTypeValue(IntegerType)],
+      outputType: toEastTypeValue(IntegerType),
+      runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
+      environment: none,
+    });
+
+    assert.throws(() => decodeFunctionObject(earlierBytes), /exported by an older e3 SDK — re-export it with the current one/);
+  });
+
   it('round-trips a current function with an environment hash', () => {
     const fnObj: FunctionObject = {
       bodyIr: 'c'.repeat(64),
-      inputTypes: [],
+      inputs: [],
+      argTypes: [],
       outputType: toEastTypeValue(IntegerType),
       runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
       environment: some('d'.repeat(64)),

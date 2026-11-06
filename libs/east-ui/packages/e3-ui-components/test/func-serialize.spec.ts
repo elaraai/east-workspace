@@ -29,7 +29,8 @@ const ws = "test-workspace";
 function signature(name: string, inputs: EastType[], output: EastType): FunctionSignature {
     return {
         name,
-        inputTypes: inputs.map(t => toEastTypeValue(t)),
+        inputs: [],
+        argTypes: inputs.map(t => toEastTypeValue(t)),
         outputType: toEastTypeValue(output),
         runner: variant("east_node", { platforms: [], decode: variant("lazy", null) }),
     } as unknown as FunctionSignature;

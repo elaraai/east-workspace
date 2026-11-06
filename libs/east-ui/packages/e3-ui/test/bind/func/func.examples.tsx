@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example } from "@elaraai/east";
+import { ArrayType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, variant } from "@elaraai/east";
 import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Func } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -24,6 +24,29 @@ export const checkedForecastFn = e3.function("checked_forecast", East.function([
 export const TreeType = RecursiveType(self => StructType({ label: StringType, children: ArrayType(self) }));
 export const countTreeFn = e3.function("count_tree", East.function([TreeType], IntegerType, (_$, tree) => tree.unwrap().children.size().add(1n)));
 
+// A function that reads the workspace (#1514): its inputs — the price list and
+// the stock — are read as stored at each call, and its caller passes the order
+// alone. The page binds neither dataset.
+export const OrderLineType = StructType({ sku: StringType, quantity: IntegerType });
+export const QuoteType = StructType({ total: FloatType, short: ArrayType(StringType) });
+export const unitPrices = e3.input("unit_prices", DictType(StringType, FloatType), variant("value", new Map([["bolt", 0.25], ["nut", 0.1]])));
+export const stockOnHand = e3.input("stock_on_hand", DictType(StringType, IntegerType), variant("value", new Map([["bolt", 500n], ["nut", 40n]])));
+export const quoteFn = e3.function("quote", {
+    inputs: [unitPrices, stockOnHand],
+    args: [ArrayType(OrderLineType)],
+    output: QuoteType,
+}, ($, prices, stock, lines) => {
+    const total = $.let(0.0);
+    const short = $.let([], ArrayType(StringType));
+    $.for(lines, ($, line) => {
+        $.assign(total, total.add(prices.get(line.sku, () => 0.0).multiply(line.quantity.toFloat())));
+        $.if(East.less(stock.get(line.sku, () => 0n), line.quantity), $ => {
+            $(short.pushLast(line.sku));
+        });
+    });
+    return { total, short };
+});
+
 export const funcBindCall = example({
     keywords: ["Func", "bind", "call", "Reactive", "Button", "pending", "read", "RPC", "FunctionDef"],
     description: "Bind an e3.function def; a button launches it and a stat shows the result",
@@ -37,6 +60,27 @@ export const funcBindCall = example({
                 <VStack gap="3" align="stretch">
                     <Button onClick={run} loading={forecast.pending()}>Run forecast</Button>
                     <Stat label="Forecast" value={East.print(forecast.read())} />
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const funcBindInputs = example({
+    keywords: ["Func", "bind", "call", "inputs", "args", "e3.function", "workspace", "quote", "reads datasets"],
+    description: "Bind an e3.function that reads the workspace: its call takes the order alone, and each call reads the prices and stock as stored",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const quoting = $.let(Func.bind(quoteFn));
+            const draft = $.let([{ sku: "bolt", quantity: 120n }, { sku: "nut", quantity: 60n }], ArrayType(OrderLineType));
+            const run = $.const(East.function([], NullType, $ => {
+                $(quoting.call(draft));
+            }));
+            return (
+                <VStack gap="3" align="stretch">
+                    <Button onClick={run} loading={quoting.pending()}>Quote order</Button>
+                    <Stat label="Quote" value={East.print(quoting.read())} />
                 </VStack>
             );
         }}</Reactive>
