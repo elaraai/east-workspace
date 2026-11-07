@@ -42,21 +42,29 @@
  * any field at any depth (#1390); the shared editing session over the
  * record with its patch door; the record read by key; its history, its form,
  * its own inspector and the app's check. So the payload is one type whatever
- * the rows hold, and the renderer needs no row type. A kind's record is keyed
- * by String: its entities are named by their keys, and a link's ends hold
- * them.
+ * the rows hold, and the renderer needs no row type.
+ *
+ * A kind's record may be keyed by any type a Dict takes (#1549), and a role
+ * naming an item holds the key of the item slot it names: a link's end a
+ * field of that slot's key type — or a variant whose cases each hold the key
+ * of the slot they name — and a net's side a Set or an Array of it. Each is
+ * checked when the code compiles to be of a type a Dict may be keyed by, and
+ * `<Schematic>` checks each against its slot's key type. On the wire a key is
+ * its text, a String key as itself and any other as East prints it: a
+ * reference holds it so, and a write reads it back at the field's type,
+ * refusing a text no key prints as.
  *
  * @packageDocumentation
  */
 
 import {
     ArrayType, AsyncFunctionType, BlobType, DictType, East, Expr, FloatType, OptionType, PatchType, SetType, StringType, StructType,
-    defaultValue, isTypeEqual, none, printType, some, variant,
-    type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue, type VariantType,
+    defaultValue, isImmutableType, isTypeEqual, none, printType, some, toEastTypeValue, variant,
+    type EastType, type ExprType, type FunctionType, type ImmutableType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
 import { resolveRowSource, type FieldHints } from "@elaraai/east-ui/internal";
 import { RecordOutcomeType } from "../bind/record.js";
-import type { ScheduleResourceOf, ScheduleStatusCasesOf, ScheduleStatusField } from "../schedule/events.js";
+import type { ScheduleStatusCasesOf, ScheduleStatusField } from "../schedule/events.js";
 import { checkKeyField, fieldOf, keyFieldRef, keyFieldSlots, keyFieldValue, type FieldName, type FieldsOf, type KeyField } from "../schedule/fields.js";
 import { scheduleNewValues, type ScheduleNewValues } from "../schedule/values.js";
 import { checkEntries, optionOf, typeText } from "../schedule/window.js";
@@ -90,24 +98,31 @@ export type SchematicPlaceField<R extends StructType> = FieldsOf<R, FloatType | 
 /** An `Array` of `{ x, y }` Floats field (`Schematic.Types.Point`): a link's or a net's waypoints, the app's own points. */
 export type SchematicViaField<R extends StructType> = FieldsOf<R, ArrayType<SchematicPointType>>;
 
-/** A `Set<String>` or `Array<String>` field: a net's side, its items' keys. */
-export type SchematicMembersField<R extends StructType> = FieldsOf<R, SetType<StringType> | ArrayType<StringType>>;
+/**
+ * A Set or an Array field of items' keys: a net's side — each of the type its item slot is keyed by, which
+ * `<Schematic>` checks (#1549).
+ */
+export type SchematicMembersField<R extends StructType> = FieldsOf<R, SetType<ImmutableType> | ArrayType<ImmutableType>>;
 
 /** Whether a variant's cases are an Option's. */
 type IsOption<C> = "none" extends keyof C ? ("some" extends keyof C ? true : false) : false;
 
-/** Whether every case of a variant holds a String. */
-type StringCases<C> = [C[keyof C]] extends [StringType] ? true : false;
-
 /**
- * A field naming a link's end: a String holding a key of one item slot, or a
- * variant of String cases holding a key of the item slot its case names —
- * never an Option: a link has both its ends.
+ * A field naming a link's end (#1549): a field of a type a Dict may be keyed
+ * by, holding a key of one item slot, or a variant holding a key of the item
+ * slot its case names — never an Option: a link has both its ends.
  */
 export type SchematicEndField<R extends StructType> = {
-    [F in FieldName<R>]: R["fields"][F] extends StringType ? F
-        : R["fields"][F] extends VariantType<infer C> ? (IsOption<C> extends true ? never : StringCases<C> extends true ? F : never) : never
+    [F in FieldName<R>]: R["fields"][F] extends VariantType<infer C> ? (IsOption<C> extends true ? never : F)
+        : R["fields"][F] extends ImmutableType ? F : never
 }[FieldName<R>];
+
+/**
+ * What a link's end's `of` takes (#1549): the item slot its field holds keys of — or, for a variant field, a slot per
+ * case, each case holding a key of the slot it names. It decides the end's shape: a variant field naming one slot holds
+ * that slot's keys whole.
+ */
+export type SchematicEndOf<T> = T extends VariantType<infer C> ? string | { readonly [K in keyof C]: string } : string;
 
 /** The status a variant field shows: the field, and a Status per case. */
 export interface SchematicStatusConfig<R extends StructType, SF extends string> {
@@ -127,13 +142,15 @@ export type SchematicValuesOf<R extends StructType, Placed extends string> = Str
 /**
  * What a kind's record is, bound (§1, rule 4): `Record.bind`'s or
  * `Data.bind`'s handle, read whole, or `Data.bindPaged`'s, read by key — each
- * over a `Dict<String, R>`, its row type `R` inferred from the handle.
+ * over a `Dict<K, R>`, its row type `R` and its key type `K` — any type a Dict
+ * may be keyed by (#1549) — inferred from the handle.
  *
  * @typeParam R - The record's row type
+ * @typeParam K - The record's key type
  */
-export type SchematicRecord<R extends StructType> =
-    | { readonly read: (...args: never[]) => ExprType<DictType<StringType, R>>; readonly binding: unknown }
-    | { readonly page: (...args: never[]) => ExprType<OptionType<DictType<StringType, R>>>; readonly revision: unknown };
+export type SchematicRecord<R extends StructType, K extends EastType = StringType> =
+    | { readonly read: (...args: never[]) => ExprType<DictType<K, R>>; readonly binding: unknown }
+    | { readonly page: (...args: never[]) => ExprType<OptionType<DictType<K, R>>>; readonly revision: unknown };
 
 /** The binding forms, as the refusals name them. */
 const FORMS = "Record.bind(record), its record declaring patch: mutation.patch() to edit it, or Data.bind(record) or Data.bindPaged(record) to read it only";
@@ -146,8 +163,8 @@ const FORMS = "Record.bind(record), its record declaring patch: mutation.patch()
  * @param record - What the kind was given
  * @param where - The kind, as a refusal names it
  * @returns The binding
- * @throws {Error} Naming the forms to use: anything but a binding of a record of structs keyed by String, a paged read of
- *   an index's window or one naming no snapshot, and a `Record.bind` without its patch door
+ * @throws {Error} Naming the forms to use: anything but a binding of a record of structs, a paged read of an index's
+ *   window or one naming no snapshot, and a `Record.bind` without its patch door
  */
 function boundOf(record: unknown, where: string): KindBinding {
     const refuse = (why: string): never => { throw new Error(`${where}: \`record\` is the app's record, bound — ${FORMS}${why}`); };
@@ -174,13 +191,13 @@ function boundOf(record: unknown, where: string): KindBinding {
         if (read === undefined || read.type !== "Function" || read.inputs.length !== 0 || fields["binding"] === undefined) return refuse("");
         recordType = read.output as EastType;
     }
-    if (recordType.type !== "Dict" || !isTypeEqual(recordType.key as EastType, StringType) || (recordType.value as EastType).type !== "Struct") {
-        throw new Error(`${where}: a Schematic kind's record holds its entities by String key, each a struct — and this one holds ${typeText(recordType)}`);
+    if (recordType.type !== "Dict" || (recordType.value as EastType).type !== "Struct") {
+        throw new Error(`${where}: a Schematic kind's record holds its entities by key, each a struct — and this one holds ${typeText(recordType)}`);
     }
     const rowType = recordType.value as StructType;
     if (form === "paged") {
-        // A paged read of the record's own entries, at the snapshot every read of it is at.
-        checkEntries(record, StringType, rowType, `${where}: \`record\``);
+        // A paged read of the record's own entries, at the snapshot every read of it is at, keyed as the record is.
+        checkEntries(record, recordType.key as EastType, rowType, `${where}: \`record\``);
     }
     if (form === "record") {
         // The patch door: the record's mutation.patch(), the mutation named `patch` taking the record's patch.
@@ -245,7 +262,7 @@ function entriesOf(bound: KindBinding, entries: unknown, where: string): ExprTyp
         throw new Error(`${where}: \`entries\` reads an editable record by key — a kind bound ${bound.form === "data" ? "Data.bind" : "Data.bindPaged"} ` +
             `${bound.form === "data" ? "is read whole" : "reads by key through its own binding"}: leave \`entries\` out`);
     }
-    return checkEntries(entries, StringType, bound.rowType, `${where}: \`entries\``);
+    return checkEntries(entries, bound.keyType, bound.rowType, `${where}: \`entries\``);
 }
 
 // ============================================================================
@@ -319,16 +336,17 @@ export const SCHEMATIC_DEF: unique symbol = Symbol("Schematic.def");
  *
  * @typeParam R - The details record's row type
  * @typeParam SF - Its status field, when it gives one
+ * @typeParam K - The details record's key type: its kind's
  */
-export interface SchematicDetailsConfig<R extends StructType, SF extends string = never> {
+export interface SchematicDetailsConfig<R extends StructType, SF extends string = never, K extends EastType = StringType> {
     /** A variant field shown as the card's status, a Status per case. */
     status?: SchematicStatusConfig<R, SF>;
     /** The card's bar. */
-    meter?: Accessor<R, typeof SchematicMeterType>;
+    meter?: Accessor<R, typeof SchematicMeterType, K>;
     /** The card's figure. */
-    metric?: Accessor<R, OptionType<StringType>>;
+    metric?: Accessor<R, OptionType<StringType>, K>;
     /** The card's second line. */
-    sublabel?: Accessor<R, StringType>;
+    sublabel?: Accessor<R, StringType, K>;
     /** Hints for the inspector's form over the details row (`Fields`). */
     fields?: FieldHints<R["fields"]>;
     /** The details' own Details in the inspector, in place of their form. */
@@ -343,6 +361,8 @@ export interface SchematicDetails {
     readonly [SCHEMATIC_DEF]: "details";
     /** The card roles it gives: refused when its kind gives them too. */
     readonly roles: readonly string[];
+    /** The details record's key type: its kind's, which the kind checks (#1549). */
+    readonly keyType: EastType;
     /**
      * The details on the wire, beside their kind.
      *
@@ -363,16 +383,17 @@ export interface SchematicDetails {
  *
  * @typeParam R - The details record's row type
  * @typeParam SF - Its status field
- * @param record - The details record, bound as its kind is read: read whole beside a kind read whole —
- *   `Data.bind(record)`, or `Record.bind(record)`; by key beside a kind read through its source —
+ * @typeParam K - The details record's key type: its kind's, any a Dict may be keyed by (#1549)
+ * @param record - The details record, keyed as its kind is and bound as its kind is read: read whole beside a kind read
+ *   whole — `Data.bind(record)`, or `Record.bind(record)`; by key beside a kind read through its source —
  *   `Data.bindPaged(record)`, or `Record.bind(record)` with `entries`
  * @param config - Its card roles, its form, its own Details and its `entries`
  * @returns The details, for a kind's `details`
  * @throws {Error} Naming the role or the binding: a role naming a field the row lacks or of another type, an accessor
- *   returning another type, and a record that is no binding of a record of structs keyed by String
+ *   returning another type, and a record that is no binding of a record of structs
  */
-export function schematicDetails<R extends StructType, SF extends ScheduleStatusField<R> = never>(
-    record: SchematicRecord<R>, config: SchematicDetailsConfig<R, SF>,
+export function schematicDetails<R extends StructType, SF extends ScheduleStatusField<R> = never, K extends EastType = StringType>(
+    record: SchematicRecord<R, K>, config: SchematicDetailsConfig<R, SF, K>,
 ): SchematicDetails {
     const where = "Schematic.details";
     const bound = boundOf(record, where);
@@ -391,6 +412,7 @@ export function schematicDetails<R extends StructType, SF extends ScheduleStatus
     return {
         [SCHEMATIC_DEF]: "details",
         roles: CARD_ROLES.filter((role) => (config as Record<string, unknown>)[role] !== undefined),
+        keyType: bound.keyType,
         build(kind, throughSource) {
             const at = `${where} of ${kind}`;
             if (!throughSource) {
@@ -433,10 +455,23 @@ function isDetails(details: unknown): details is SchematicDetails {
     return typeof details === "object" && details !== null && SCHEMATIC_DEF in details && (details as SchematicDetails)[SCHEMATIC_DEF] === "details";
 }
 
-/** Checks a kind's details: `Schematic.details`', and no card role given in both places. */
-function detailsOf(details: unknown, given: readonly string[], where: string): SchematicDetails | undefined {
+/**
+ * Checks a kind's details: `Schematic.details`', keyed as the kind is (#1549), and no card role given in both places.
+ *
+ * @param details - What the kind's `details` holds
+ * @param given - The card roles the kind gives itself
+ * @param where - The kind, as a refusal names it
+ * @param keyType - The kind's key type, which its details' record is keyed by
+ * @returns The details; `undefined` for none
+ * @throws {Error} When they are not `Schematic.details`', their record is keyed by another type than the kind's, naming
+ *   both, or they give a card role the kind gives too
+ */
+function detailsOf(details: unknown, given: readonly string[], where: string, keyType: EastType): SchematicDetails | undefined {
     if (details === undefined) return undefined;
     if (!isDetails(details)) throw new Error(`${where}: \`details\` is Schematic.details(record, { status, meter, metric, sublabel }) over a record of the app's keyed as the kind is`);
+    if (!isTypeEqual(details.keyType, keyType)) {
+        throw new Error(`${where}: the details' record is keyed by ${typeText(details.keyType)}, and the kind's by ${typeText(keyType)} — key the details as the kind is`);
+    }
     const both = details.roles.filter((role) => given.includes(role));
     if (both.length > 0) {
         throw new Error(`${where}: \`${both[0]}\` is given here and by the kind's details — a card draws one; give it in one place`);
@@ -466,18 +501,20 @@ function templatesOf(templates: unknown, where: string): SchematicTemplates<Stru
  * @typeParam X - The `x` field
  * @typeParam Y - The `y` field
  * @typeParam SF - The status field, when it has one
+ * @typeParam K - The record's key type
  */
-export interface SchematicItemsConfig<R extends StructType, X extends string, Y extends string, SF extends string = never> extends RecordSide<R> {
+export interface SchematicItemsConfig<R extends StructType, X extends string, Y extends string, SF extends string = never, K extends EastType = StringType>
+    extends RecordSide<R, K> {
     /** The kind's name: in the library, the inspector and the rail. */
     name: string;
     /** Its Font Awesome solid icon, and its cards' — or an accessor giving each card's. */
-    icon: string | Accessor<R, StringType>;
+    icon: string | Accessor<R, StringType, K>;
     /** The Float field an item's centre's x is — or an Option of one, with `y` too, giving the kind a backlog. */
     x: X;
     /** The field its centre's y is: of `x`'s type. */
     y: Y;
     /** The String field, or an accessor, its card's name is. */
-    label: SchematicStringField<R> | Accessor<R, StringType>;
+    label: SchematicStringField<R> | Accessor<R, StringType, K>;
     /** The Float field its box's width is, about its centre: its card's width, and the bounds its footprint lies in. */
     width?: SchematicFloatField<R>;
     /** The Float field its box's height is. */
@@ -486,25 +523,25 @@ export interface SchematicItemsConfig<R extends StructType, X extends string, Y 
      * Its footprint, drawn about its centre: an accessor building it from the row's own fields with `Schematic.circle`,
      * `polygon`, `polyline` or `rect` — `(unit) => some(Schematic.circle(unit.radius))`. Needs `width` and `height`.
      */
-    footprint?: Accessor<R, OptionType<typeof SchematicGeometryType>>;
+    footprint?: Accessor<R, OptionType<typeof SchematicGeometryType>, K>;
     /** The String field naming the layer it is on. */
     layer?: SchematicStringField<R>;
     /** Its card's second line. */
-    sublabel?: Accessor<R, StringType>;
+    sublabel?: Accessor<R, StringType, K>;
     /** Its card's figure. */
-    metric?: Accessor<R, OptionType<StringType>>;
+    metric?: Accessor<R, OptionType<StringType>, K>;
     /** Its card's bar. */
-    meter?: Accessor<R, typeof SchematicMeterType>;
+    meter?: Accessor<R, typeof SchematicMeterType, K>;
     /** A variant field shown as its status, a Status per case. */
     status?: SchematicStatusConfig<R, SF>;
     /** An override of its status colour. */
-    tone?: Accessor<R, OptionType<typeof SchematicToneType>>;
+    tone?: Accessor<R, OptionType<typeof SchematicToneType>, K>;
     /** An override of its status colour: a theme colour token (`status.warn`, `heat.3`). */
-    color?: Accessor<R, OptionType<StringType>>;
+    color?: Accessor<R, OptionType<StringType>, K>;
     /** Its footprint's stroke. */
-    weight?: Accessor<R, OptionType<FloatType>>;
+    weight?: Accessor<R, OptionType<FloatType>, K>;
     /** Its footprint's fill. */
-    fillOpacity?: Accessor<R, OptionType<FloatType>>;
+    fillOpacity?: Accessor<R, OptionType<FloatType>, K>;
     /** Its details: a record keyed as this one is. */
     details?: SchematicDetails;
     /** Its templates: `Schematic.templates(rows, { name, values, source })`, each giving every field but `x` and `y`. */
@@ -521,6 +558,8 @@ interface KindDeclaration<D extends string, W extends EastType> {
     readonly [SCHEMATIC_DEF]: D;
     /** Its record's row type. */
     readonly rowType: StructType;
+    /** Its record's key type (#1549): what a link's end or a net's side naming its items is checked against. */
+    readonly keyType: EastType;
     /** Its name. */
     readonly name: string;
     /** Whether it has templates. */
@@ -554,19 +593,20 @@ export interface SchematicItems extends KindDeclaration<"items", typeof Schemati
  * @typeParam X - The `x` field
  * @typeParam Y - The `y` field
  * @typeParam SF - The status field, when it has one
+ * @typeParam K - The record's key type: any a Dict may be keyed by (#1549)
  * @param record - The app's record of items: `Record.bind(record), its record declaring patch: mutation.patch()` to edit it, or `Data.bind(record)`
  *   or `Data.bindPaged(record)` to read it only (§1, rule 4)
  * @param config - Its name and icon, the fields its roles are, its accessors, and its details, templates, form, Details and check
  * @returns The kind, for the Schematic's `items`, by slot
  * @throws {Error} Naming the role or the binding (SC1, SC33, SC35): a role naming a field the row lacks, or one of another
  *   type; `x` and `y` of different types; an accessor returning another type; a `footprint` naming a field rather than
- *   an accessor building the shape (D35), or without `width` and `height`; a status, a meter, a metric or a second line given both here and by its details; templates written in
+ *   an accessor building the shape (D35), or without `width` and `height`; a status, a meter, a metric or a second line
+ *   given both here and by its details; details keyed by another type than the kind, naming both; templates written in
  *   the code, or giving other fields than every field but `x` and `y`; and a record that is no binding of a record of
- *   structs keyed by String, a `Record.bind` without its patch door, or `entries` beside a read-only binding
+ *   structs, a `Record.bind` without its patch door, or `entries` beside a read-only binding
  */
-export function schematicItems<R extends StructType, X extends SchematicPlaceField<R>, Y extends SchematicPlaceField<R>, SF extends ScheduleStatusField<R> = never>(
-    record: SchematicRecord<R>, config: SchematicItemsConfig<R, X, Y, SF>,
-): SchematicItems {
+export function schematicItems<R extends StructType, X extends SchematicPlaceField<R>, Y extends SchematicPlaceField<R>, SF extends ScheduleStatusField<R> = never,
+    K extends EastType = StringType>(record: SchematicRecord<R, K>, config: SchematicItemsConfig<R, X, Y, SF, K>): SchematicItems {
     const where = `Schematic.items: "${config.name}"`;
     const bound = boundOf(record, where);
     const rowType = bound.rowType;
@@ -611,7 +651,7 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
     const colorOf = accessorRole(bound.keyType, rowType, where, "color", OptionType(StringType), "an Option of a String, a theme colour token", config.color);
     const weightOf = accessorRole(bound.keyType, rowType, where, "weight", OptionType(FloatType), "an Option of a Float", config.weight);
     const fillOf = accessorRole(bound.keyType, rowType, where, "fillOpacity", OptionType(FloatType), "an Option of a Float", config.fillOpacity);
-    const details = detailsOf(config.details, CARD_ROLES.filter((r) => (config as unknown as Record<string, unknown>)[r] !== undefined), where);
+    const details = detailsOf(config.details, CARD_ROLES.filter((r) => (config as unknown as Record<string, unknown>)[r] !== undefined), where, bound.keyType);
 
     // The templates: every field but the centre.
     const ValuesType = valuesTypeOf(rowType, [config.x, config.y]);
@@ -690,6 +730,7 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
     return {
         [SCHEMATIC_DEF]: "items",
         rowType,
+        keyType: bound.keyType,
         name: config.name,
         backlog,
         hasTemplates: templates !== undefined,
@@ -720,6 +761,8 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
                 create,
                 templates: templateRows,
                 templatesSource: templates?.source === undefined ? none : some(templates.source),
+                // Its record's key type: what each key's text is printed from and read back at (#1549).
+                keyType: toEastTypeValue(bound.keyType),
             } as never, SchematicItemKindType) as ExprType<typeof SchematicItemKindType>;
         },
     };
@@ -735,8 +778,9 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
  * edited through the inspector, when the kind is bound with its patch door.
  *
  * @typeParam R - The record's row type
+ * @typeParam K - The record's key type
  */
-export interface SchematicZonesConfig<R extends StructType> extends RecordSide<R> {
+export interface SchematicZonesConfig<R extends StructType, K extends EastType = StringType> extends RecordSide<R, K> {
     /** The kind's name. */
     name: string;
     /** Its Font Awesome solid icon. */
@@ -750,24 +794,24 @@ export interface SchematicZonesConfig<R extends StructType> extends RecordSide<R
     /** The Float field its box's height is. */
     height: SchematicFloatField<R>;
     /** The String field, or an accessor, the eyebrow on its boundary is. */
-    label: SchematicStringField<R> | Accessor<R, StringType>;
+    label: SchematicStringField<R> | Accessor<R, StringType, K>;
     /** Outline (the default) or hatch: a hatched zone is an annotation, holding no items and taking no tap. */
-    pattern?: Accessor<R, typeof SchematicZonePatternType>;
+    pattern?: Accessor<R, typeof SchematicZonePatternType, K>;
     /**
      * Its drawn shape, about its box's centre: an accessor building it from the row's own fields with `Schematic.circle`,
      * `polygon`, `polyline` or `rect` — `(area) => some(Schematic.polygon(area.corners))`.
      */
-    geometry?: Accessor<R, OptionType<typeof SchematicGeometryType>>;
+    geometry?: Accessor<R, OptionType<typeof SchematicGeometryType>, K>;
     /** The String field naming the layer it is on. */
     layer?: SchematicStringField<R>;
     /** An override of its pattern's tone. */
-    tone?: Accessor<R, OptionType<typeof SchematicToneType>>;
+    tone?: Accessor<R, OptionType<typeof SchematicToneType>, K>;
     /** An override of its pattern's tone: a theme colour token. */
-    color?: Accessor<R, OptionType<StringType>>;
+    color?: Accessor<R, OptionType<StringType>, K>;
     /** Its fill. */
-    fillOpacity?: Accessor<R, OptionType<FloatType>>;
+    fillOpacity?: Accessor<R, OptionType<FloatType>, K>;
     /** Its stroke. */
-    weight?: Accessor<R, OptionType<FloatType>>;
+    weight?: Accessor<R, OptionType<FloatType>, K>;
     /** Its details: a record keyed as this one is. */
     details?: SchematicDetails;
     /** Hints for the inspector's form over the fields no role writes. */
@@ -783,13 +827,14 @@ export type SchematicZones = KindDeclaration<"zones", typeof SchematicZoneKindTy
  * Declares a zone kind (§4.2).
  *
  * @typeParam R - The record's row type
+ * @typeParam K - The record's key type: any a Dict may be keyed by (#1549)
  * @param record - The app's record of zones, bound as §1, rule 4 says
  * @param config - Its name and icon, the fields its box and label are, its pattern and shape, and its details, form, Details and check
  * @returns The kind, for the Schematic's `zones`, by slot
  * @throws {Error} Naming the role or the binding, as `Schematic.items` does, and a `geometry` naming a field rather than an
  *   accessor building the shape (D35)
  */
-export function schematicZones<R extends StructType>(record: SchematicRecord<R>, config: SchematicZonesConfig<R>): SchematicZones {
+export function schematicZones<R extends StructType, K extends EastType = StringType>(record: SchematicRecord<R, K>, config: SchematicZonesConfig<R, K>): SchematicZones {
     const where = `Schematic.zones: "${config.name}"`;
     const bound = boundOf(record, where);
     const rowType = bound.rowType;
@@ -814,7 +859,7 @@ export function schematicZones<R extends StructType>(record: SchematicRecord<R>,
     const colorOf = accessorRole(bound.keyType, rowType, where, "color", OptionType(StringType), "an Option of a String, a theme colour token", config.color);
     const fillOf = accessorRole(bound.keyType, rowType, where, "fillOpacity", OptionType(FloatType), "an Option of a Float", config.fillOpacity);
     const weightOf = accessorRole(bound.keyType, rowType, where, "weight", OptionType(FloatType), "an Option of a Float", config.weight);
-    const details = detailsOf(config.details, [], where);
+    const details = detailsOf(config.details, [], where, bound.keyType);
     const outline = East.value(variant("outline", { tone: none }), SchematicZonePatternType);
 
     const rolesOf = East.function([rowType, bound.keyType], SchematicZoneType, ($, row, key) => East.value({
@@ -832,6 +877,7 @@ export function schematicZones<R extends StructType>(record: SchematicRecord<R>,
     return {
         [SCHEMATIC_DEF]: "zones",
         rowType,
+        keyType: bound.keyType,
         name: config.name,
         hasTemplates: false,
         templatesSource: undefined,
@@ -849,6 +895,8 @@ export function schematicZones<R extends StructType>(record: SchematicRecord<R>,
                 rowsOf: rowsReadOf(bound.keyType, rowType, rolesOf, SchematicZoneEntryType),
                 box: { x: xField, y: yField, width: some(widthField), height: some(heightField) },
                 read: readOf(bound.keyType, rowType, rolesOf, SchematicZoneType),
+                // Its record's key type (#1549).
+                keyType: toEastTypeValue(bound.keyType),
             } as never, SchematicZoneKindType) as ExprType<typeof SchematicZoneKindType>;
         },
     };
@@ -859,6 +907,21 @@ export function schematicZones<R extends StructType>(record: SchematicRecord<R>,
 // ============================================================================
 
 /**
+ * A role naming items by their keys (#1549): a link's end, or a net's side —
+ * its field, and for each item slot it holds keys of, the key it holds, which
+ * `<Schematic>` checks against that slot's key type.
+ */
+export interface SchematicKeyRole {
+    /** The field. */
+    readonly field: string;
+    /**
+     * Each item slot it holds keys of, in order: the slot, the key's type — the field's own, a case's, or a side's
+     * element — and the case holding it, for an end with a slot per case.
+     */
+    readonly slots: readonly { readonly slot: string; readonly key: EastType; readonly case: string | undefined }[];
+}
+
+/**
  * A link's end: the field holding the key of the item it joins, and the item
  * slot those keys are of — or, for a variant field, a slot per case.
  *
@@ -866,10 +929,10 @@ export function schematicZones<R extends StructType>(record: SchematicRecord<R>,
  * @typeParam F - The field
  */
 export interface SchematicEnd<R extends StructType, F extends string> {
-    /** The field: a String, or a variant of String cases. */
+    /** The field: one holding an item slot's key, or a variant holding one per case (#1549). */
     field: F;
-    /** The item slot its keys are of: one for a String field, or one per case. */
-    of: ScheduleResourceOf<R["fields"][F]>;
+    /** The item slot its keys are of — or, for a variant field, one per case. */
+    of: SchematicEndOf<R["fields"][F]>;
 }
 
 /**
@@ -878,8 +941,9 @@ export interface SchematicEnd<R extends StructType, F extends string> {
  * @typeParam R - The record's row type
  * @typeParam FF - The `from` field
  * @typeParam TF - The `to` field
+ * @typeParam K - The record's key type
  */
-export interface SchematicLinksConfig<R extends StructType, FF extends string, TF extends string> extends RecordSide<R> {
+export interface SchematicLinksConfig<R extends StructType, FF extends string, TF extends string, K extends EastType = StringType> extends RecordSide<R, K> {
     /** The kind's name: in the Connect tool's menu, the library and the inspector. */
     name: string;
     /** Its Font Awesome solid icon. */
@@ -891,13 +955,13 @@ export interface SchematicLinksConfig<R extends StructType, FF extends string, T
     /** The field its waypoints are: an `Array` of `{ x, y }` Floats, the app's own points. */
     via?: SchematicViaField<R>;
     /** Its caption, on a knockout at its path's middle (#1403). */
-    label?: Accessor<R, OptionType<StringType>>;
+    label?: Accessor<R, OptionType<StringType>, K>;
     /** The figure after its label. */
-    metric?: Accessor<R, OptionType<StringType>>;
+    metric?: Accessor<R, OptionType<StringType>, K>;
     /** Solid (the default) or dashed, its tone and its weight. */
-    style?: Accessor<R, typeof SchematicLinkStyleType>;
+    style?: Accessor<R, typeof SchematicLinkStyleType, K>;
     /** Orthogonal (the default) or direct. */
-    route?: Accessor<R, typeof SchematicRouteType>;
+    route?: Accessor<R, typeof SchematicRouteType, K>;
     /** The String field naming the layer it is on. */
     layer?: SchematicStringField<R>;
     /** Its details: a record keyed as this one is. */
@@ -918,8 +982,8 @@ export interface SchematicLinksConfig<R extends StructType, FF extends string, T
 
 /** A link kind, declared. */
 export interface SchematicLinks extends KindDeclaration<"links", typeof SchematicLinkKindType> {
-    /** The item slots each end holds keys of. */
-    readonly ends: { readonly from: readonly string[]; readonly to: readonly string[] };
+    /** Each end's field, and the item slots it holds keys of, each with the key it holds (#1549). */
+    readonly ends: { readonly from: SchematicKeyRole; readonly to: SchematicKeyRole };
 }
 
 /** A link's or a net's drawing roles: shared by both. */
@@ -965,16 +1029,17 @@ function edgeShown($: { const: (value: unknown) => unknown }, edge: EdgeRoles, r
  * @typeParam R - The record's row type
  * @typeParam FF - The `from` field
  * @typeParam TF - The `to` field
+ * @typeParam K - The record's key type: any a Dict may be keyed by (#1549)
  * @param record - The app's record of links, bound as §1, rule 4 says
  * @param config - Its name and icon, its ends, its drawing roles, and its details, templates, form, Details and check
  * @returns The kind, for the Schematic's `links`, by slot
- * @throws {Error} Naming the role or the binding, as `Schematic.items` does: an end of neither a String field nor a
- *   variant of String cases — an Option among them, a link having both its ends — or whose `of` names no item slot;
- *   `from` and `to` naming one field; and a `values` giving other fields than every field but its ends, or one of
- *   another type, naming it
+ * @throws {Error} Naming the role or the binding, as `Schematic.items` does: an end of a type no Dict is keyed by — an
+ *   Option among them, a link having both its ends — or whose `of` names no item slot, or for a variant field neither
+ *   one nor a slot per case; `from` and `to` naming one field; and a `values` giving other fields than every field but
+ *   its ends, or one of another type, naming it
  */
-export function schematicLinks<R extends StructType, FF extends SchematicEndField<R>, TF extends SchematicEndField<R>>(
-    record: SchematicRecord<R>, config: SchematicLinksConfig<R, FF, TF>,
+export function schematicLinks<R extends StructType, FF extends SchematicEndField<R>, TF extends SchematicEndField<R>, K extends EastType = StringType>(
+    record: SchematicRecord<R, K>, config: SchematicLinksConfig<R, FF, TF, K>,
 ): SchematicLinks {
     const where = `Schematic.links: "${config.name}"`;
     const bound = boundOf(record, where);
@@ -987,16 +1052,23 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
         if (given === undefined || typeof given.field !== "string") throw new Error(`${where}: \`${prop}\` is { field, of } — the field holding an item's key, and the item slot it holds keys of`);
         const checked = checkKeyField(given.field, typeOf(`${prop}.field`, given.field), given.of, { where, prop, noun: "item" });
         if (checked.optional) {
-            throw new Error(`${where}: a link has both its ends — \`${prop}.field\` names a String field or a variant of String cases, ` +
-                `and "${given.field}" holds ${typeText(fields[given.field]!)}`);
+            throw new Error(`${where}: a link has both its ends — \`${prop}.field\` names a field holding an item's key, or a variant holding one per case, ` +
+                `never an Option — and "${given.field}" holds ${typeText(fields[given.field]!)}`);
         }
         return checked;
     };
     const from = end("from", config.from as { field: string; of: unknown });
     const to = end("to", config.to as { field: string; of: unknown });
     if (from.field === to.field) throw new Error(`${where}: \`from\` and \`to\` both name "${from.field}" — a link's ends are two fields`);
+    // Each end as `<Schematic>` checks it against its slots' key types (#1549): the key it holds of each — the field's
+    // own, or its case's.
+    const roleOf = (checked: KeyField): SchematicKeyRole => ({
+        field: checked.field,
+        slots: checked.shape === "key" ? [{ slot: checked.of, key: checked.key, case: undefined }]
+            : checked.cases.map((c) => ({ slot: checked.of[c]!, key: checked.keys[c]!, case: c })),
+    });
     const edge = edgeRoles(bound.keyType, rowType, where, config as never);
-    const details = detailsOf(config.details, [], where);
+    const details = detailsOf(config.details, [], where, bound.keyType);
     const ValuesType = valuesTypeOf(rowType, [from.field, to.field]);
     const templates = templatesOf(config.templates, where);
     const templateRows = templates === undefined ? East.value([], ArrayType(SchematicTemplateType))
@@ -1053,8 +1125,9 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
     return {
         [SCHEMATIC_DEF]: "links",
         rowType,
+        keyType: bound.keyType,
         name: config.name,
-        ends: { from: keyFieldSlots(from), to: keyFieldSlots(to) },
+        ends: { from: roleOf(from), to: roleOf(to) },
         hasTemplates: templates !== undefined,
         templatesSource: templates?.source,
         build(slot, part, every = false) {
@@ -1074,6 +1147,8 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
                 create,
                 templates: templateRows,
                 templatesSource: templates?.source === undefined ? none : some(templates.source),
+                // Its record's key type (#1549).
+                keyType: toEastTypeValue(bound.keyType),
             } as never, SchematicLinkKindType) as ExprType<typeof SchematicLinkKindType>;
         },
     };
@@ -1084,13 +1159,13 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
 // ============================================================================
 
 /**
- * A net's side: the `Set<String>` or `Array<String>` field holding its items'
- * keys, and the item slot those keys are of.
+ * A net's side: the Set or Array field holding its items' keys, and the item
+ * slot those keys are of.
  *
  * @typeParam R - The record's row type
  */
 export interface SchematicSide<R extends StructType> {
-    /** The field: a Set or an Array of String keys. */
+    /** The field: a Set or an Array of its item slot's keys (#1549). */
     field: SchematicMembersField<R>;
     /** The item slot its keys are of. */
     of: string;
@@ -1103,8 +1178,9 @@ export interface SchematicSide<R extends StructType> {
  * @typeParam R - The record's row type
  * @typeParam SRC - The `sources` field
  * @typeParam DST - The `destinations` field
+ * @typeParam K - The record's key type
  */
-export interface SchematicNetsConfig<R extends StructType, SRC extends string, DST extends string> extends RecordSide<R> {
+export interface SchematicNetsConfig<R extends StructType, SRC extends string, DST extends string, K extends EastType = StringType> extends RecordSide<R, K> {
     /** The kind's name. */
     name: string;
     /** Its Font Awesome solid icon. */
@@ -1116,13 +1192,13 @@ export interface SchematicNetsConfig<R extends StructType, SRC extends string, D
     /** The field its trunk's waypoints are: an `Array` of `{ x, y }` Floats, the app's own points. */
     via?: SchematicViaField<R>;
     /** Its caption, on a knockout at its trunk's middle (#1403). */
-    label?: Accessor<R, OptionType<StringType>>;
+    label?: Accessor<R, OptionType<StringType>, K>;
     /** The figure after its label. */
-    metric?: Accessor<R, OptionType<StringType>>;
+    metric?: Accessor<R, OptionType<StringType>, K>;
     /** Solid (the default) or dashed, its tone and its weight. */
-    style?: Accessor<R, typeof SchematicLinkStyleType>;
+    style?: Accessor<R, typeof SchematicLinkStyleType, K>;
     /** Its trunk: orthogonal (the default) or direct. */
-    route?: Accessor<R, typeof SchematicRouteType>;
+    route?: Accessor<R, typeof SchematicRouteType, K>;
     /** The String field naming the layer it is on. */
     layer?: SchematicStringField<R>;
     /** Its details: a record keyed as this one is. */
@@ -1143,8 +1219,8 @@ export interface SchematicNetsConfig<R extends StructType, SRC extends string, D
 
 /** A net kind, declared. */
 export interface SchematicNets extends KindDeclaration<"nets", typeof SchematicNetKindType> {
-    /** The item slot each side holds keys of. */
-    readonly sides: { readonly sources: string; readonly destinations: string };
+    /** Each side's field, and the item slot it holds keys of, with the key it holds (#1549). */
+    readonly sides: { readonly sources: SchematicKeyRole; readonly destinations: SchematicKeyRole };
 }
 
 /**
@@ -1153,15 +1229,16 @@ export interface SchematicNets extends KindDeclaration<"nets", typeof SchematicN
  * @typeParam R - The record's row type
  * @typeParam SRC - The `sources` field
  * @typeParam DST - The `destinations` field
+ * @typeParam K - The record's key type: any a Dict may be keyed by (#1549)
  * @param record - The app's record of nets, bound as §1, rule 4 says
  * @param config - Its name and icon, its sides, its drawing roles, and its details, templates, form, Details and check
  * @returns The kind, for the Schematic's `nets`, by slot
- * @throws {Error} Naming the role or the binding, as `Schematic.items` does: a side of neither a Set nor an Array of
- *   String, whose `of` names no item slot; both sides naming one field; and a `values` giving other fields than every
- *   field but its sides, or one of another type, naming it
+ * @throws {Error} Naming the role or the binding, as `Schematic.items` does: a side of neither a Set nor an Array of a
+ *   type a Dict may be keyed by, whose `of` names no item slot; both sides naming one field; and a `values` giving
+ *   other fields than every field but its sides, or one of another type, naming it
  */
-export function schematicNets<R extends StructType, SRC extends SchematicMembersField<R>, DST extends SchematicMembersField<R>>(
-    record: SchematicRecord<R>, config: SchematicNetsConfig<R, SRC, DST>,
+export function schematicNets<R extends StructType, SRC extends SchematicMembersField<R>, DST extends SchematicMembersField<R>, K extends EastType = StringType>(
+    record: SchematicRecord<R, K>, config: SchematicNetsConfig<R, SRC, DST, K>,
 ): SchematicNets {
     const where = `Schematic.nets: "${config.name}"`;
     const bound = boundOf(record, where);
@@ -1171,33 +1248,35 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
     const entries = entriesOf(bound, config.entries, where);
     if (typeof config.icon !== "string") throw new Error(`${where}: \`icon\` is a Font Awesome solid icon's name`);
     const side = (prop: "sources" | "destinations", given: { field: string; of: string } | undefined) => {
-        if (given === undefined || typeof given.field !== "string") throw new Error(`${where}: \`${prop}\` is { field, of } — a Set or an Array of String field of items' keys, and the item slot they are keys of`);
+        if (given === undefined || typeof given.field !== "string") throw new Error(`${where}: \`${prop}\` is { field, of } — a Set or an Array field of items' keys, and the item slot they are keys of`);
         const type = typeOf(`${prop}.field`, given.field);
-        const set = isTypeEqual(type, SetType(StringType));
-        if (!set && !isTypeEqual(type, ArrayType(StringType))) {
-            throw new Error(`${where}: \`${prop}.field\` names a Set or an Array of String field, its items' keys — "${given.field}" holds ${typeText(type)}`);
+        // Its items' keys, each of a type a Dict may be keyed by: its slot's, which `<Schematic>` checks (#1549).
+        const key = type.type === "Set" ? type.key as EastType : type.type === "Array" ? type.value as EastType : undefined;
+        if (key === undefined || !isImmutableType(key)) {
+            throw new Error(`${where}: \`${prop}.field\` names a Set or an Array field of its items' keys, of a type a Dict may be keyed by — "${given.field}" holds ${typeText(type)}`);
         }
         if (typeof given.of !== "string" || given.of === "") throw new Error(`${where}: \`${prop}.of\` names the item slot "${given.field}" holds keys of`);
-        return { field: given.field, of: given.of, set };
+        return { field: given.field, of: given.of, set: type.type === "Set", key };
     };
     const sources = side("sources", config.sources);
     const destinations = side("destinations", config.destinations);
     if (sources.field === destinations.field) throw new Error(`${where}: \`sources\` and \`destinations\` both name "${sources.field}" — a net's sides are two fields`);
     const edge = edgeRoles(bound.keyType, rowType, where, config as never);
-    const details = detailsOf(config.details, [], where);
+    const details = detailsOf(config.details, [], where, bound.keyType);
     const ValuesType = valuesTypeOf(rowType, [sources.field, destinations.field]);
     const templates = templatesOf(config.templates, where);
     const templateRows = templates === undefined ? East.value([], ArrayType(SchematicTemplateType))
         : checkedSchematicTemplates(templates, ValuesType, `\`${sources.field}\` and \`${destinations.field}\``, where);
     const valuesOf = scheduleNewValues(SchematicSidesType, rowType, ValuesType, config.values, where);
 
-    // A side's members, as references to the items of its slot.
+    // A side's members, as references to the items of its slot: each key its text, a String key as itself and any other
+    // as East prints it (#1549).
     const membersOf = (s: typeof sources, row: unknown) => {
         const held = fieldOf(row, s.field);
-        const ref = (key: ExprType<StringType>) => East.value({ kind: s.of, key }, SchematicRefType);
+        const ref = (key: ExprType<EastType>) => East.value({ kind: s.of, key: s.key.type === "String" ? key : East.print(key) } as never, SchematicRefType);
         return s.set
-            ? (held as unknown as ExprType<SetType<StringType>>).toArray((_$, key) => ref(key))
-            : (held as unknown as ExprType<ArrayType<StringType>>).map((_$, key) => ref(key));
+            ? (held as unknown as ExprType<SetType<EastType>>).toArray((_$, key) => ref(key))
+            : (held as unknown as ExprType<ArrayType<EastType>>).map((_$, key) => ref(key));
     };
     const rolesOf = East.function([rowType, bound.keyType], SchematicNetType, ($, row, key) => East.value({
         sources: membersOf(sources, row),
@@ -1205,12 +1284,27 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
         ...edgeShown($, edge, row, key),
     } as never, SchematicNetType)) as unknown as ExprType<FunctionType<[EastType, EastType], EastType>>;
 
-    // A side's field value from its members; `none` when one is of another slot.
+    // A side's field value from its members; `none` when one is of another slot, or — keyed by another type than String —
+    // its key's text is no key's (#1549).
     const sideValue = (s: typeof sources) => East.function([ArrayType(SchematicRefType)], OptionType(fields[s.field]!), ($, refs) => {
+        const Held = OptionType(fields[s.field]!);
         const taken = $.let(true);
         $.for(refs, ($2, r) => { $2.if(r.kind.notEquals(s.of), ($3) => { $3.assign(taken, false); }); });
-        const value = s.set ? refs.toSet((_$2, r) => r.key) : refs.map((_$2, r) => r.key);
-        return taken.ifElse((_$2) => East.value(some(value) as never, OptionType(fields[s.field]!)), (_$2) => East.value(none, OptionType(fields[s.field]!)));
+        if (s.key.type === "String") {
+            const value = s.set ? refs.toSet((_$2, r) => r.key) : refs.map((_$2, r) => r.key);
+            return taken.ifElse((_$2) => East.value(some(value) as never, Held), (_$2) => East.value(none, Held));
+        }
+        // Each key read back from its text at the side's key type.
+        const result = $.let(East.value(none, Held), Held);
+        $.if(taken, ($2) => {
+            $2.try(($3) => {
+                const value = $3.const((s.set
+                    ? refs.toSet((_$4, r) => r.key.parse(s.key) as never)
+                    : refs.map((_$4, r) => r.key.parse(s.key) as never)) as unknown as ExprType<EastType>);
+                $3.assign(result, East.value(some(value) as never, Held));
+            }).catch((_$3) => {});
+        });
+        return result;
     });
     const sourcesValue = sideValue(sources);
     const destinationsValue = sideValue(destinations);
@@ -1250,8 +1344,13 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
     return {
         [SCHEMATIC_DEF]: "nets",
         rowType,
+        keyType: bound.keyType,
         name: config.name,
-        sides: { sources: sources.of, destinations: destinations.of },
+        // Each side as `<Schematic>` checks it against its slot's key type (#1549).
+        sides: {
+            sources: { field: sources.field, slots: [{ slot: sources.of, key: sources.key, case: undefined }] },
+            destinations: { field: destinations.field, slots: [{ slot: destinations.of, key: destinations.key, case: undefined }] },
+        },
         hasTemplates: templates !== undefined,
         templatesSource: templates?.source,
         build(slot, part, every = false) {
@@ -1271,6 +1370,8 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
                 create,
                 templates: templateRows,
                 templatesSource: templates?.source === undefined ? none : some(templates.source),
+                // Its record's key type (#1549).
+                keyType: toEastTypeValue(bound.keyType),
             } as never, SchematicNetKindType) as ExprType<typeof SchematicNetKindType>;
         },
     };

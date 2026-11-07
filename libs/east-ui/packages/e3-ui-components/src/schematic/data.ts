@@ -79,6 +79,7 @@ import {
     type CardRoles, type DetailsRoles, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type ItemRoles, type SchematicDrawn, type SchematicRef,
 } from "./canvas/drawn.js";
 import type { WorldBox } from "./canvas/model.js";
+import { kindKeys } from "./kind-rows.js";
 
 /** The Schematic's payload, decoded. */
 export type SchematicValue = ValueTypeOf<typeof Schematic.Types.Payload>;
@@ -632,7 +633,8 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
             try {
                 // Only an item is a link's end or a net's member: a zone kind has no far ends.
                 const paged = "paged" in kind ? getSomeorUndefined(kind.paged) : undefined;
-                const farRows = areaReader.farEnds(slot, paged, [...(far.get(slot) ?? [])].sort(compareString));
+                const keys = kindKeys(kind.keyType);
+                const farRows = areaReader.farEnds(slot, paged, keys, [...(far.get(slot) ?? [])].sort(compareString));
                 if (farRows === READING) { awaiting(slot, "area"); pending.add(slot); continue; }
                 const narrowed = areaReader.narrowed(kind, part, windowRead, farRows, dim);
                 if (narrowed === READING) { awaiting(slot, "area"); pending.add(slot); continue; }
@@ -645,7 +647,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
                 let details: Rows<DetailsRoles> | undefined;
                 let unread: CardRoles | undefined;
                 if (kind.details.type === "some") {
-                    const got = areaReader.detailsOf(slot, kind.details.value, part, windowRead);
+                    const got = areaReader.detailsOf(slot, kind.details.value, part, windowRead, keys);
                     if (got === READING) { unread = kind.details.value.roles; awaiting(slot, "details"); }
                     else if (got !== undefined) details = got as Rows<DetailsRoles>;
                 }

@@ -71,6 +71,11 @@
  * the links and nets that touch the window are read by key, a request a kind,
  * through the kind's own paged read — whether or not its source joins its rows.
  *
+ * Each row is held by its key's text, as a reference names it (#1549): a
+ * String key as itself, any other as East prints it. A text is read back at
+ * the record's key type where the record is read by key — a far end — or a
+ * row is asked of its narrowing.
+ *
  * # What it keeps
  *
  * Each kind's state across reads (`Slot`): its window, its plan and its cells,
@@ -116,6 +121,7 @@ import {
 import { defaultPagedRuntime, pagedSourceOf, type PagedRow } from "../platform/paged-runtime.js";
 import { SCHEMATIC_CARD_MAX_PX, type LodTier, type WorldBox } from "./canvas/model.js";
 import type { SchematicValue } from "./data.js";
+import { kindKeys, type KindKeys } from "./kind-rows.js";
 import { RowMaking, type StoredRows } from "./made-rows.js";
 
 /** An item kind or a zone kind: what reads by area. */
@@ -271,7 +277,7 @@ export function windowHolds(window: SchematicWindow, viewport: SchematicViewport
 // The reads
 // ============================================================================
 
-/** A kind's rows read by area: each row's decoded value, by its key. */
+/** A kind's rows read by area: each row's decoded value, by its key's text ({@link kindKeys}, #1549). */
 export type SchematicAreaRows = ReadonlyMap<string, unknown>;
 
 /** A density raster, as the canvas draws it (D25): its cells holding rows, each its corner and how many. */
@@ -679,20 +685,21 @@ export class SchematicAreaReader {
         }
         const found = this.foundOf(slot, part, planned, revision.value);
         if (found === READING) return READING;
+        const keys = kindKeys(kind.keyType);
         // The rows are read while the viewport holds no more than a window draws — by the cells' counts, else by the
         // density's finer one, which the footer says — and the cells no more than a window reads (D25).
         const capped = found.total > BigInt(SCHEMATIC_WINDOW_READ_ROWS);
         let read: SchematicWindowRead | Reading;
         if (!capped && cellsInView(planned.places, found.counts, viewport.box, extent) <= SCHEMATIC_WINDOW_ROWS) {
-            read = this.rows(slot, part, planned, revision.value);
+            read = this.rows(slot, part, planned, revision.value, keys);
         } else {
             slot.waiting = "counts";
             const raster = this.rasterOf(slot, part, planned, revision.value, dim);
             if (raster === READING) return READING;
             slot.waiting = "rows";
             read = !capped && densityInView(raster.density, viewport.box, extent).rows <= SCHEMATIC_WINDOW_ROWS
-                ? this.rows(slot, part, planned, revision.value)
-                : this.density(slot, part, planned, revision.value, raster);
+                ? this.rows(slot, part, planned, revision.value, keys)
+                : this.density(slot, part, planned, revision.value, raster, keys);
         }
         if (read === READING) return READING;
         slot.waiting = undefined;
@@ -765,11 +772,13 @@ export class SchematicAreaReader {
         return found;
     }
 
-    /** A window's rows: its cells' entries, those of the cells not held read in one read of their runs. */
-    private rows(slot: Slot, part: Part, planned: Planned, revision: string): SchematicWindowRead | Reading {
+    /** A window's rows, by their keys' text: its cells' entries, those of the cells not held read in one read of their runs. */
+    private rows(slot: Slot, part: Part, planned: Planned, revision: string, keys: KindKeys): SchematicWindowRead | Reading {
         const entries = this.entriesOf(slot, part, planned.plan.index.name, revision, planned.cells);
         if (entries === READING) return READING;
-        return { plan: planned.plan, revision, rows: rowsOfEntries(entries), density: undefined, at: { cells: planned.cells }, from: entries, window: planned.window };
+        return {
+            plan: planned.plan, revision, rows: rowsOfEntries(entries, keys), density: undefined, at: { cells: planned.cells }, from: entries, window: planned.window,
+        };
     }
 
     /**
@@ -820,7 +829,7 @@ export class SchematicAreaReader {
     }
 
     /** A window drawn as its density (D25): the coarser levels' rows read in one read of their runs while they are few. */
-    private density(slot: Slot, part: Part, planned: Planned, revision: string, raster: Rasterized): SchematicWindowRead | Reading {
+    private density(slot: Slot, part: Part, planned: Planned, revision: string, raster: Rasterized, keys: KindKeys): SchematicWindowRead | Reading {
         let entries = NO_ENTRIES;
         let runs = NO_RUNS;
         if (raster.few) {
@@ -830,7 +839,7 @@ export class SchematicAreaReader {
             runs = read.runs;
         }
         return {
-            plan: planned.plan, revision, rows: rowsOfEntries([entries]), density: raster.density, at: { runs }, from: [entries, raster.density],
+            plan: planned.plan, revision, rows: rowsOfEntries([entries], keys), density: raster.density, at: { runs }, from: [entries, raster.density],
             window: planned.window,
         };
     }
@@ -989,21 +998,29 @@ export class SchematicAreaReader {
      *
      * @param slot - The kind's slot
      * @param paged - The `id` of its paged read; `undefined` for a kind with none
-     * @param keys - The keys, in order
-     * @returns Each row the record holds, by key; {@link READING} while the read is in flight
+     * @param keys - The kind's keys: each text read back at the record's key type for the read, and each row read by its key's text (#1549)
+     * @param texts - The keys' text, as the links and nets name them, in order
+     * @returns Each row the record holds, by its key's text; {@link READING} while the read is in flight
      * @throws {Error} When the kind has no paged read, or it is bound on no page this runtime serves
      */
-    farEnds(slot: string, paged: string | undefined, keys: readonly string[]): SchematicAreaRows | Reading {
-        if (keys.length === 0) return NO_ROWS;
+    farEnds(slot: string, paged: string | undefined, keys: KindKeys, texts: readonly string[]): SchematicAreaRows | Reading {
+        if (texts.length === 0) return NO_ROWS;
         if (paged === undefined) throw new Error(`The kind "${slot}" read by area reads its far ends by key through its own paged read, and it has none`);
         const source = pagedSourceOf(paged);
         if (source === undefined) throw new Error(`The kind "${slot}"'s paged read '${paged}' is bound on no page this runtime serves`);
-        const read = defaultPagedRuntime.rowsAll(source, keys);
+        // A text no key prints as names no row the record holds: nothing is read for it.
+        const asked: unknown[] = [];
+        for (const text of texts) {
+            const key = keys.keyOf(text);
+            if (key !== undefined) asked.push(key);
+        }
+        if (asked.length === 0) return NO_ROWS;
+        const read = defaultPagedRuntime.rowsAll(source, asked);
         if (read.type !== "some") return READING;
         const state = this.slotOf(slot);
         if (state.far !== undefined && Object.is(state.far.read, read.value)) return state.far.rows;
         const rows = new Map<string, unknown>();
-        for (const row of read.value) if (row.row.type === "some") rows.set(row.key as string, row.row.value);
+        for (const row of read.value) if (row.row.type === "some") rows.set(keys.textOf(row.key), row.row.value);
         state.far = { read: read.value, rows };
         return rows;
     }
@@ -1027,19 +1044,19 @@ export class SchematicAreaReader {
         const slot = this.slotOf(kind.key);
         const last = slot.narrowed;
         if (last !== undefined && Object.is(last.read, read) && Object.is(last.far, far) && Object.is(last.where, where) && last.dim === dim) return last.result;
-        const result = this.narrow(slot, part, read, far, where, dim);
+        const result = this.narrow(slot, part, read, far, where, dim, kindKeys(kind.keyType));
         if (result !== READING) slot.narrowed = { read, far, where, dim, result };
         return result;
     }
 
     /** A kind's rows, its narrowing asked of them (see {@link SchematicAreaReader.narrowed}). */
-    private narrow(slot: Slot, part: Part, read: SchematicWindowRead, far: SchematicAreaRows, where: Where, dim: boolean): SchematicAreaRead | Reading {
+    private narrow(slot: Slot, part: Part, read: SchematicWindowRead, far: SchematicAreaRows, where: Where, dim: boolean, keys: KindKeys): SchematicAreaRead | Reading {
         const rows = far.size === 0 ? read.rows : new Map([...read.rows, ...far]);
         if (where.size === 0) return { rows, matched: undefined, from: [...read.from, far] };
         // Read by key, a far end is held to the whole narrowing; a window read through an index that serves it whole, to nothing.
         const residual = dim || read.plan.residual.length > 0;
         if (!residual && far.size === 0) return { rows, matched: new Set(rows.keys()), from: [...read.from, far] };
-        const held = this.answersOf(slot, part, read.revision, where, residual ? rows : far);
+        const held = this.answersOf(slot, part, read.revision, where, residual ? rows : far, keys);
         if (held === READING) return READING;
         if (dim) {
             const matched = new Set<string>();
@@ -1054,8 +1071,11 @@ export class SchematicAreaReader {
         return { rows: shown, matched: new Set(shown.keys()), from: [...read.from, far, held] };
     }
 
-    /** Which of some rows a narrowing holds: each answer kept at its revision and narrowing, the rows not yet answered asked in one request. */
-    private answersOf(slot: Slot, part: Part, revision: string, where: Where, rows: SchematicAreaRows): ReadonlyMap<string, boolean> | Reading {
+    /**
+     * Which of some rows a narrowing holds: each answer kept at its revision and narrowing, by its row's key's text, the
+     * rows not yet answered asked in one request — each by its key read back at the record's key type (#1549).
+     */
+    private answersOf(slot: Slot, part: Part, revision: string, where: Where, rows: SchematicAreaRows, keys: KindKeys): ReadonlyMap<string, boolean> | Reading {
         const text = printWhere(where);
         let kept = slot.answers;
         if (kept === undefined || !stringEqual(kept.revision, revision) || !stringEqual(kept.where, text)) {
@@ -1063,13 +1083,13 @@ export class SchematicAreaReader {
             slot.answers = kept;
         }
         const held = kept.held;
-        const asked = [...rows].filter(([key]) => !held.has(key)).map(([key, row]) => ({ key, row }));
+        const asked = [...rows].filter(([key]) => !held.has(key));
         if (asked.length === 0) return held;
-        const answer = recordSliceWithin(part, where, asked);
+        const answer = recordSliceWithin(part, where, asked.map(([key, row]) => ({ key: keys.keyOf(key), row })));
         if (answer.type !== "some") return READING;
         // A fresh map: what the rows are drawn from moved.
         const next = new Map(held.size + asked.length > MAX_KEPT_ANSWERS ? [...held].filter(([key]) => rows.has(key)) : held);
-        asked.forEach(({ key }, i) => next.set(key, answer.value[i] === true));
+        asked.forEach(([key], i) => next.set(key, answer.value[i] === true));
         kept.held = next;
         return next;
     }
@@ -1110,10 +1130,11 @@ export class SchematicAreaReader {
      * @param details - Its details
      * @param part - Its source of the slice: the area index its window was read through
      * @param read - Its window, as it was read
+     * @param keys - The kind's keys, which its details are keyed as: each details row by its key's text (#1549)
      * @returns Their details' rows, by key; `undefined` for details read whole or by no paged read; {@link READING} while the read is in flight, or rows are left to make
      * @throws {Error} When the details' paged read is bound on no page this runtime serves
      */
-    detailsOf(slot: string, details: Details, part: Part, read: SchematicWindowRead): StoredRows | Reading | undefined {
+    detailsOf(slot: string, details: Details, part: Part, read: SchematicWindowRead, keys: KindKeys): StoredRows | Reading | undefined {
         if (details.paged.type !== "some") return undefined;
         const dict = details.paged.value;
         const source = pagedSourceOf(dict);
@@ -1134,7 +1155,7 @@ export class SchematicAreaReader {
         if (last !== undefined && Object.is(last.details, details) && sameFrom(last.from, parts)) return last.rows;
         const present = new Map<string, unknown>();
         for (const joined of parts) {
-            for (const entry of joined) if (entry.row.type === "some") present.set(entry.key as string, entry.row.value);
+            for (const entry of joined) if (entry.row.type === "some") present.set(keys.textOf(entry.key), entry.row.value);
         }
         const made = this.making.make(details, present);
         if (made === undefined) return READING;
@@ -1175,13 +1196,13 @@ export class SchematicAreaReader {
     }
 }
 
-/** The rows some cells' entries hold, by key: each row once. */
-function rowsOfEntries(entries: readonly (readonly RecordSliceEntry[])[]): Map<string, unknown> {
+/** The rows some cells' entries hold, by their keys' text (#1549): each row once. */
+function rowsOfEntries(entries: readonly (readonly RecordSliceEntry[])[], keys: KindKeys): Map<string, unknown> {
     const rows = new Map<string, unknown>();
     for (const cell of entries) {
         for (const entry of cell) {
             const row = rowOf(entry);
-            if (row !== undefined) rows.set(entry.key as string, row);
+            if (row !== undefined) rows.set(keys.textOf(entry.key), row);
         }
     }
     return rows;

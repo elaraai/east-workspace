@@ -38,7 +38,7 @@ import {
 import { READING, type Reading } from "./area.js";
 import { drawnItem, type DrawnItem, type DrawnZone, type ItemRoles } from "./canvas/drawn.js";
 import type { SchematicValue } from "./data.js";
-import { entryRow, type KindRows } from "./kind-rows.js";
+import { entryRow, kindKeys, type KindRows } from "./kind-rows.js";
 
 /** A kind's source of the slice. */
 type Part = ValueTypeOf<RecordSliceBindType>;
@@ -135,6 +135,7 @@ export class SchematicIndexArea {
     private zones(kind: IndexAreaKind, revision: string, open: readonly DrawnZone[], from: unknown[], read: Set<string>, crowded: Set<string>):
         { readonly items: readonly DrawnItem[]; readonly more: number } | Reading {
         const where = kind.part.read().where;
+        const keys = kindKeys(kind.kind.keyType);
         const items: DrawnItem[] = [];
         const wanted = new Map<string, Set<string>>();
         for (const zone of open) {
@@ -155,14 +156,14 @@ export class SchematicIndexArea {
             let ids = wanted.get(index);
             if (ids === undefined) { ids = new Set(); wanted.set(index, ids); }
             for (const cell of cells) ids.add(cell.id);
-            // Each row once, as the cells hold it.
-            const rows = new Map<string, unknown>();
-            for (const cell of entries) for (const entry of cell) rows.set(entry.key as string, entryRow(entry));
-            const listed = [...rows].map(([key, row]) => ({ key, row }));
-            // The narrowing's choices the index doesn't lead, asked of the rows in one request (D28).
+            // Each row once, as the cells hold it, by its key's text (#1549).
+            const rows = new Map<string, { readonly key: unknown; readonly row: unknown }>();
+            for (const cell of entries) for (const entry of cell) rows.set(keys.textOf(entry.key), { key: entry.key, row: entryRow(entry) });
+            const listed = [...rows].map(([key, { row }]) => ({ key, row }));
+            // The narrowing's choices the index doesn't lead, asked of the rows in one request (D28), each by its key.
             let held: readonly boolean[] | undefined;
             if (plan.residual.length > 0 && listed.length > 0) {
-                const answer = recordSliceWithin(kind.part, where, listed);
+                const answer = recordSliceWithin(kind.part, where, [...rows.values()]);
                 if (answer.type !== "some") return READING;
                 held = answer.value;
             }
@@ -196,7 +197,8 @@ export class SchematicIndexArea {
         if (page.type !== "some") return READING;
         const entries = page.value as RecordSliceEntry[];
         from.push(count.value, ...entries);
-        const listed = entries.map((entry) => ({ key: entry.key as string, row: entryRow(entry) }));
+        const keys = kindKeys(kind.kind.keyType);
+        const listed = entries.map((entry) => ({ key: keys.textOf(entry.key), row: entryRow(entry) }));
         const made = this.rows.rowsOf(kind.kind, revision, listed);
         const items: DrawnItem[] = [];
         for (const { key } of listed) {

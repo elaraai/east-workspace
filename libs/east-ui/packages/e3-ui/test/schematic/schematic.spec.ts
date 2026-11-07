@@ -265,8 +265,8 @@ describe("each role is a field of the app's row, named and checked (SC1)", () =>
         assert.throws(() => zones({ templates: [] }), /zones take no templates/);
     });
 
-    hostTest("a link's ends are a String field or a variant of String cases — never an Option — and two fields; each `of` names an item slot", () => {
-        const Link = StructType({ a: StringType, b: OptionType(StringType), c: FloatType });
+    hostTest("a link's ends are fields of a type a Dict may be keyed by, or variants holding one per case — never an Option — and two fields; each `of` names an item slot", () => {
+        const Link = StructType({ a: StringType, b: OptionType(StringType), c: FloatType, d: ArrayType(StringType) });
         const linkRecord = recordHandle(DictType(StringType, Link), new Map(), "links");
         const links = (config: object) => built(($) => {
             const racks = $.let(racksRecord());
@@ -278,12 +278,17 @@ describe("each role is a field of the app's row, named and checked (SC1)", () =>
             });
         });
         assert.throws(() => links({}), /Schematic\.links: "Run": `from` and `to` both name "a" — a link's ends are two fields/);
-        assert.throws(() => links({ to: { field: "b", of: "racks" } }), /a link has both its ends — `to\.field` names a String field or a variant of String cases, and "b" holds an Option of \.String/);
-        assert.throws(() => links({ to: { field: "c", of: "racks" } }), /`to\.field` names a field holding a item's key — a String, a variant of String cases, or an Option of either — and "c" holds \.Float/);
+        assert.throws(() => links({ to: { field: "b", of: "racks" } }),
+            /a link has both its ends — `to\.field` names a field holding an item's key, or a variant holding one per case, never an Option — and "b" holds an Option of \.String/);
+        assert.throws(() => links({ to: { field: "d", of: "racks" } }),
+            /`to\.field` names a field holding an item's key — of a type a Dict may be keyed by, a variant holding one per case, or an Option of either — and "d" holds \.Array \.String/);
+        // A Float may key a Dict: the end is checked against its slot's key type where the Schematic is built (#1549).
+        assert.throws(() => links({ to: { field: "c", of: "racks" } }),
+            /Schematic: the link kind "runs"'s `to`, "c", holds \.Float — and the item kind "racks" is keyed by \.String: key "racks" by \.Float, or name a field holding \.String/);
         assert.throws(() => links({ to: { field: "a", of: "frames" }, from: { field: "a", of: "racks" } }), /two fields/);
     });
 
-    hostTest("a net's sides are Set or Array of String fields, two of them", () => {
+    hostTest("a net's sides are Set or Array fields of keys, two of them", () => {
         const Net = StructType({ s: SetType(StringType), d: ArrayType(StringType), n: StringType });
         const netRecord = recordHandle(DictType(StringType, Net), new Map(), "nets");
         const nets = (config: object) => built(($) => {
@@ -296,7 +301,8 @@ describe("each role is a field of the app's row, named and checked (SC1)", () =>
             });
         });
         assert.doesNotThrow(() => nets({}));
-        assert.throws(() => nets({ destinations: { field: "n", of: "racks" } }), /Schematic\.nets: "Feed": `destinations\.field` names a Set or an Array of String field, its items' keys — "n" holds \.String/);
+        assert.throws(() => nets({ destinations: { field: "n", of: "racks" } }),
+            /Schematic\.nets: "Feed": `destinations\.field` names a Set or an Array field of its items' keys, of a type a Dict may be keyed by — "n" holds \.String/);
         assert.throws(() => nets({ destinations: { field: "s", of: "racks" } }), /`sources` and `destinations` both name "s" — a net's sides are two fields/);
     });
 
@@ -413,9 +419,11 @@ describe("a kind's binding follows its read: every other form is refused, naming
             /`entries` reads the details by key beside a kind read through its source — this kind is read whole/);
     });
 
-    hostTest("a kind's record holds its entities by String key, each a struct", () => {
+    hostTest("a kind's record holds its entities by key, each a struct: keyed by any type a Dict may be keyed by (#1549)", () => {
         const byNumber = recordHandle(DictType(FloatType, Rack), new Map(), "racks");
-        assert.throws(() => whole(($) => $.let(byNumber())), /a Schematic kind's record holds its entities by String key, each a struct — and this one holds \.Dict/);
+        assert.doesNotThrow(() => whole(($) => $.let(byNumber())));
+        const names = recordHandle(DictType(StringType, StringType), new Map(), "racks");
+        assert.throws(() => whole(($) => $.let(names())), /a Schematic kind's record holds its entities by key, each a struct — and this one holds \.Dict/);
         assert.throws(() => whole(() => "racks"), /`record` is the app's record, bound — Record\.bind\(record\), its record declaring patch: mutation\.patch\(\) to edit it, or Data\.bind\(record\) or Data\.bindPaged\(record\) to read it only/);
     });
 });
@@ -928,6 +936,8 @@ describe("<Schematic>'s payload, through its carrier", () => {
             });
         });
         assert.deepEqual(payload.items.map((kind) => kind.key), ["racks", "network"]);
+        // Keyed by String, each kind says so: all a String-keyed Schematic's payload gains (#1549).
+        for (const kind of payload.items) assert.ok(isTypeEqual(fromEastTypeValue(kind.keyType), StringType));
         assert.deepEqual(payload.extent, { width: 28, height: 12 });
         assert.ok(equalFor(OptionType(StringType))(payload.scaleUnit, some("m")));
         assert.deepEqual([payload.zones.length, payload.links.length, payload.nets.length, payload.layers.length, payload.library.length], [0, 0, 0, 0, 0]);

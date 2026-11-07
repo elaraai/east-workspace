@@ -16,7 +16,7 @@
  */
 
 import {
-    ArrayType, BlobType, BooleanType, DictType, FloatType, FunctionType, NullType, OptionType, StringType, StructType, VariantType,
+    ArrayType, BlobType, BooleanType, DictType, EastTypeType, FloatType, FunctionType, NullType, OptionType, StringType, StructType, VariantType,
 } from "@elaraai/east";
 import { StatusTokenType } from "@elaraai/east-ui";
 import { KindSideFields } from "../utils/record-kind.js";
@@ -270,7 +270,7 @@ export type SchematicMeterType = typeof SchematicMeterType;
  * item slot, a fibre run in the `fibre` link slot.
  *
  * @property kind - The kind's slot name
- * @property key - The entity's key
+ * @property key - The entity's key, as its text: a String key as itself, any other as East prints it (#1549)
  */
 export const SchematicRefType = StructType({ kind: StringType, key: StringType });
 
@@ -706,6 +706,7 @@ const RowsOf = <E extends StructType>(entry: E) => FunctionType([], OptionType(D
  * @property create - A new row at a position, every other field from a template's values or its type's default; `none` as `write` refuses
  * @property templates - Its templates
  * @property templatesSource - The slice's source its templates list names
+ * @property keyType - Its record's key type (#1549): every key on the wire is its text, a String key as itself and any other as East prints it
  */
 export const SchematicItemKindType = StructType({
     ...KindFields,
@@ -720,6 +721,7 @@ export const SchematicItemKindType = StructType({
     create: FunctionType([OptionType(SchematicPointType), OptionType(BlobType)], OptionType(BlobType)),
     templates: ArrayType(SchematicTemplateType),
     templatesSource: OptionType(StringType),
+    keyType: EastTypeType,
 });
 
 /** Type representing an item kind. */
@@ -733,6 +735,7 @@ export type SchematicItemKindType = typeof SchematicItemKindType;
  * @property rowsOf - Its rows a reader read by area, as bytes, made its stored zones: a window's (#1393)
  * @property box - The fields its box is, at its corner: what an area index it is read by names (§11.4)
  * @property read - A drafted row's roles, from its bytes and its key
+ * @property keyType - Its record's key type (#1549), as an item kind's
  */
 export const SchematicZoneKindType = StructType({
     ...KindFields,
@@ -740,6 +743,7 @@ export const SchematicZoneKindType = StructType({
     rowsOf: RowsRead(SchematicZoneEntryType),
     box: SchematicBoxFieldsType,
     read: FunctionType([BlobType, StringType], SchematicZoneType),
+    keyType: EastTypeType,
 });
 
 /** Type representing a zone kind. */
@@ -755,6 +759,7 @@ export type SchematicZoneKindType = typeof SchematicZoneKindType;
  * @property create - A new link between two items, every other field from a template's values, the kind's `values` of its ends with none selected (#1526), or its type's default; `none` as `write` refuses
  * @property templates - Its templates, which retype a link they are dropped on
  * @property templatesSource - The slice's source its templates list names
+ * @property keyType - Its record's key type (#1549), as an item kind's
  */
 export const SchematicLinkKindType = StructType({
     ...KindFields,
@@ -765,6 +770,7 @@ export const SchematicLinkKindType = StructType({
     create: FunctionType([SchematicEndsType, OptionType(BlobType)], OptionType(BlobType)),
     templates: ArrayType(SchematicTemplateType),
     templatesSource: OptionType(StringType),
+    keyType: EastTypeType,
 });
 
 /** Type representing a link kind. */
@@ -780,6 +786,7 @@ export type SchematicLinkKindType = typeof SchematicLinkKindType;
  * @property create - A new net, every other field from a template's values, the kind's `values` of its sides with none selected (#1526), or its type's default; `none` as `write` refuses
  * @property templates - Its templates
  * @property templatesSource - The slice's source its templates list names
+ * @property keyType - Its record's key type (#1549), as an item kind's
  */
 export const SchematicNetKindType = StructType({
     ...KindFields,
@@ -790,6 +797,7 @@ export const SchematicNetKindType = StructType({
     create: FunctionType([SchematicSidesType, OptionType(BlobType)], OptionType(BlobType)),
     templates: ArrayType(SchematicTemplateType),
     templatesSource: OptionType(StringType),
+    keyType: EastTypeType,
 });
 
 /** Type representing a net kind. */
