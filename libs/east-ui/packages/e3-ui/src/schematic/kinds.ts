@@ -22,6 +22,10 @@
  *   an item's `x` and `y`, a Connect a link's `from` and `to`, a net's Shift
  *   session its `sources` and `destinations`, and every other field of the row
  *   reads back as it was.
+ * - **A new row's other fields** are a template's values; a link or a net
+ *   drawn with no template of its kind selected takes its kind's `values` of
+ *   its ends or its sides (#1526), held at build to every field but those, or
+ *   each field's default without them.
  * - **Geometry is drawn about its entity's anchor** (D22, SC35): a footprint
  *   needs the item's box, `width` and `height`, or it is refused.
  * - **How a kind is bound follows how it is read** (§1, rule 4; SC33):
@@ -54,6 +58,7 @@ import { resolveRowSource, type FieldHints } from "@elaraai/east-ui/internal";
 import { RecordOutcomeType } from "../bind/record.js";
 import type { ScheduleResourceOf, ScheduleStatusCasesOf, ScheduleStatusField } from "../schedule/events.js";
 import { checkKeyField, fieldOf, keyFieldRef, keyFieldSlots, keyFieldValue, type FieldName, type FieldsOf, type KeyField } from "../schedule/fields.js";
+import { scheduleNewValues, type ScheduleNewValues } from "../schedule/values.js";
 import { checkEntries, optionOf, typeText } from "../schedule/window.js";
 import {
     accessorRole, called, fieldTypeOf, kindSourceRows, kindWholeRows, readOf, recordSide, roleField, rowWith, rowsReadOf, storedRows, valuesTypeOf,
@@ -898,6 +903,12 @@ export interface SchematicLinksConfig<R extends StructType, FF extends string, T
     details?: SchematicDetails;
     /** Its templates, each giving every field but `from` and `to`: dropped on a link, one retypes it. */
     templates?: SchematicTemplates<SchematicValuesOf<R, FF | TF>>;
+    /**
+     * A link drawn with no template of the kind selected: its own fields — every field but `from` and `to`, as a
+     * template gives them — from its ends (`Schematic.Types.Ends`, #1526). Held at build to those fields, a field missing
+     * or extra refused, naming it. Omitted, each its type's default.
+     */
+    values?: (ends: ExprType<SchematicEndsType>) => ScheduleNewValues<R>;
     /** Hints for the inspector's form over the fields no role writes. */
     fields?: FieldHints<R["fields"]>;
     /** Its own Details in the inspector, in place of its form. */
@@ -957,8 +968,9 @@ function edgeShown($: { const: (value: unknown) => unknown }, edge: EdgeRoles, r
  * @param config - Its name and icon, its ends, its drawing roles, and its details, templates, form, Details and check
  * @returns The kind, for the Schematic's `links`, by slot
  * @throws {Error} Naming the role or the binding, as `Schematic.items` does: an end of neither a String field nor a
- *   variant of String cases — an Option among them, a link having both its ends — or whose `of` names no item slot,
- *   and `from` and `to` naming one field
+ *   variant of String cases — an Option among them, a link having both its ends — or whose `of` names no item slot;
+ *   `from` and `to` naming one field; and a `values` giving other fields than every field but its ends, or one of
+ *   another type, naming it
  */
 export function schematicLinks<R extends StructType, FF extends SchematicEndField<R>, TF extends SchematicEndField<R>>(
     record: SchematicRecord<R>, config: SchematicLinksConfig<R, FF, TF>,
@@ -988,6 +1000,7 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
     const templates = templatesOf(config.templates, where);
     const templateRows = templates === undefined ? East.value([], ArrayType(SchematicTemplateType))
         : checkedSchematicTemplates(templates, ValuesType, `\`${from.field}\` and \`${to.field}\``, where);
+    const valuesOf = scheduleNewValues(SchematicEndsType, rowType, ValuesType, config.values, where);
     const fromRef = keyFieldRef(from, rowType);
     const toRef = keyFieldRef(to, rowType);
     const fromValue = keyFieldValue(from, fields[from.field]!);
@@ -1024,11 +1037,14 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
         const row = $.const(bytes.decodeBeast(rowType, "v2"));
         return ended($ as never, row, ends) as never;
     });
+    // A new link between two items, every other field from a template's values — or, with none selected, the kind's
+    // `values` of its ends, or its type's default.
     const blank = East.value(defaultValue(ValuesType) as never, ValuesType) as ExprType<EastType>;
     const create = East.function([SchematicEndsType, OptionType(BlobType)], OptionType(BlobType), ($, ends, values) => {
+        const ownOf = valuesOf === undefined ? undefined : $.const(valuesOf);
         const given = $.const(values.match({
             some: (_$2, bytes) => bytes.decodeBeast(ValuesType, "v2") as ExprType<EastType>,
-            none: (_$2) => blank,
+            none: (_$2) => ownOf === undefined ? blank : ownOf(ends as never) as ExprType<EastType>,
         }) as ExprType<EastType>);
         return ended($ as never, given, ends) as never;
     });
@@ -1112,6 +1128,12 @@ export interface SchematicNetsConfig<R extends StructType, SRC extends string, D
     details?: SchematicDetails;
     /** Its templates, each giving every field but its sides. */
     templates?: SchematicTemplates<SchematicValuesOf<R, SRC | DST>>;
+    /**
+     * A net drawn with no template of the kind selected: its own fields — every field but its sides, as a template
+     * gives them — from its sides (`Schematic.Types.Sides`, #1526). Held at build to those fields, as a link kind's are.
+     * Omitted, each its type's default.
+     */
+    values?: (sides: ExprType<SchematicSidesType>) => ScheduleNewValues<R>;
     /** Hints for the inspector's form over the fields no role writes. */
     fields?: FieldHints<R["fields"]>;
     /** Its own Details in the inspector, in place of its form. */
@@ -1134,7 +1156,8 @@ export interface SchematicNets extends KindDeclaration<"nets", typeof SchematicN
  * @param config - Its name and icon, its sides, its drawing roles, and its details, templates, form, Details and check
  * @returns The kind, for the Schematic's `nets`, by slot
  * @throws {Error} Naming the role or the binding, as `Schematic.items` does: a side of neither a Set nor an Array of
- *   String, whose `of` names no item slot, and both sides naming one field
+ *   String, whose `of` names no item slot; both sides naming one field; and a `values` giving other fields than every
+ *   field but its sides, or one of another type, naming it
  */
 export function schematicNets<R extends StructType, SRC extends SchematicMembersField<R>, DST extends SchematicMembersField<R>>(
     record: SchematicRecord<R>, config: SchematicNetsConfig<R, SRC, DST>,
@@ -1165,6 +1188,7 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
     const templates = templatesOf(config.templates, where);
     const templateRows = templates === undefined ? East.value([], ArrayType(SchematicTemplateType))
         : checkedSchematicTemplates(templates, ValuesType, `\`${sources.field}\` and \`${destinations.field}\``, where);
+    const valuesOf = scheduleNewValues(SchematicSidesType, rowType, ValuesType, config.values, where);
 
     // A side's members, as references to the items of its slot.
     const membersOf = (s: typeof sources, row: unknown) => {
@@ -1210,11 +1234,14 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
         const row = $.const(bytes.decodeBeast(rowType, "v2"));
         return sided($ as never, row, sidesOf) as never;
     });
+    // A new net, every other field from a template's values — or, with none selected, the kind's `values` of its sides,
+    // or its type's default.
     const blank = East.value(defaultValue(ValuesType) as never, ValuesType) as ExprType<EastType>;
     const create = East.function([SchematicSidesType, OptionType(BlobType)], OptionType(BlobType), ($, sidesOf, values) => {
+        const ownOf = valuesOf === undefined ? undefined : $.const(valuesOf);
         const given = $.const(values.match({
             some: (_$2, bytes) => bytes.decodeBeast(ValuesType, "v2") as ExprType<EastType>,
-            none: (_$2) => blank,
+            none: (_$2) => ownOf === undefined ? blank : ownOf(sidesOf as never) as ExprType<EastType>,
         }) as ExprType<EastType>);
         return sided($ as never, given, sidesOf) as never;
     });

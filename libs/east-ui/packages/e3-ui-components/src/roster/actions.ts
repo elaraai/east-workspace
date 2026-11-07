@@ -202,11 +202,11 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
         const written = value.duty.write(row.bytes, roles);
         return written.type === "some" ? { roles, bytes: written.value } : "This duty cannot be moved there.";
     };
-    /** A new duty on a slot, its key minted. */
+    /** A new duty on a slot, its key minted: made by no pattern, its own fields the duty kind's `values` of it (#1526). */
     const created = (who: Who, slot: Slot, minted: Set<string>): { id: string; bytes: Uint8Array } | string => {
         const roles = times.newDuty(who, slot, start, positionFor(value, who), none, context);
         if (roles.type !== "some") return "Choose a configured shift.";
-        const bytes = value.duty.create(roles.value);
+        const bytes = value.duty.create({ ...roles.value, pattern: none });
         if (bytes.type !== "some") return who.type === "request" ? "This roster takes no agency requests." : "This roster takes no people.";
         const id = mintKey(takenDuty(minted));
         minted.add(id);
@@ -216,7 +216,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
     const dismissal = (dismissed: ReadonlySet<string>): ScheduleChange | undefined => {
         if (value.periods.type !== "some" || !value.periods.value.dismissible) return undefined;
         const held = state.period.bytes;
-        const row = value.periods.value.dismiss(held === undefined ? none : some(held), new Set(dismissed));
+        const row = value.periods.value.dismiss(start, held === undefined ? none : some(held), new Set(dismissed));
         return { kind: PERIODS, id: weekId, row };
     };
     /** Whether a week of the span takes a gesture now: editable, as the week above is told, by its own status. */
@@ -470,10 +470,11 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
                     for (const [extra] of current.slice(1)) { changes.push({ kind: duty, id: extra, remove: true }); removed.push(extra); }
                     continue;
                 }
-                // A new duty on the pattern's shift, at the shift's start for its hours, in the home group, at the person's position, with no activity.
+                // A new duty on the pattern's shift, at the shift's start for its hours, in the home group, at the person's position, with no
+                // activity: the pattern's, its own fields the duty kind's `values` of it (#1526).
                 const roles = times.newDuty(whoRef, slot, at, positionFor(value, whoRef), none, context);
                 if (roles.type !== "some") return "Choose a configured shift.";
-                const bytes = value.duty.create(roles.value);
+                const bytes = value.duty.create({ ...roles.value, pattern: some(pattern.key) });
                 if (bytes.type !== "some") return "This roster takes no people.";
                 const id = mintKey(takenDuty(minted));
                 minted.add(id);
@@ -520,5 +521,5 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
  */
 export function publishChange(value: RosterPayload, editing: RosterEditing, start: Date, stored: Uint8Array | undefined, at: Date): ScheduleChange | undefined {
     if (value.periods.type !== "some") return undefined;
-    return periodPublishChange(value.periods.value, editing.schedule, PERIODS, weekKey(start), stored, at);
+    return periodPublishChange(value.periods.value, editing.schedule, PERIODS, weekKey(start), start, stored, at);
 }

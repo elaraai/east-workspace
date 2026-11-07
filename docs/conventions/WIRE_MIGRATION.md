@@ -741,3 +741,18 @@ Each wire changed under this rule, with the kind it is.
   decode under the other: packages are re-exported, and the dataflow computes
   each UI task's output again under the new type. A UI task's output is not
   stored state, so no repository upgrade step ships with it.
+- **e3-ui's new rows take the app's `values` (#1526)** — package-borne. A new
+  row's fields no role maps are the app's East function of what the builder
+  decided of it, closed into its kind's `create` as their defaults were, so
+  the Allocation's bin kind, the Schematic's link and net kinds and the cover
+  targets keep their forms. Two kinds' functions change type: the Roster's
+  duty kind (`ScheduleRosterKindType`) takes a new duty in its `create`
+  (`Roster.Types.NewDuty`: its roles and the pattern that made it), where it
+  took the roles, and the periods (`SchedulePeriodsKindType`) take the
+  period's start before its row in `publish` and `dismiss`, which the
+  periods' `values` makes a new row from. They travel in the `Roster`'s and
+  the `Allocation`'s payloads, so a UI value encoded under either type does
+  not decode under the other: packages are re-exported, and the dataflow
+  computes each UI task's output again under the new type. A UI task's output
+  is not stored state, and a new row is the app's record's own, so no
+  repository upgrade step ships with it.

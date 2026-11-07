@@ -4,14 +4,15 @@
  * @vitest-environment jsdom
  *
  * The Roster's weeks on e3 itself: Copy previous week, drafts across weeks and
- * remounts, Discard, Publish, a failed or a racing Save, a lost Publish, the
- * windowed roster's reads, and proposals. The week is the page's own (#1398):
+ * remounts, Discard, Publish — of a week its record holds no row of too, the
+ * row the periods' `values` (#1526) — a failed or a racing Save, a lost
+ * Publish, the windowed roster's reads, and proposals. The week is the page's own (#1398):
  * another page keeping a view moves neither it nor the window it writes into
  * its source, and a reload opens on the view kept last.
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DateTimeType, East, FloatType, IntegerType, StringType, StructType, compareFor, decodeBeast2For, printFor, variant } from "@elaraai/east";
+import { DateTimeType, East, FloatType, IntegerType, StringType, StructType, compareFor, decodeBeast2For, printFor, some, variant } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { Schedule } from "@elaraai/e3-ui/internal";
 import { editingMessages, type UIStore } from "@elaraai/east-ui-components";
@@ -115,6 +116,14 @@ describe("Roster week lifecycle", () => {
         expect(container.querySelector("[data-roster-readonly]")).not.toBeNull();
         expect(container.querySelector("[data-roster-grip], [data-roster-chip-action]")).toBeNull();
         expect([await commits(ex.rosterDuties), await commits(ex.rosterWeeks)]).toEqual([["patch", ...deployed.duties], ["patch", ...deployed.weeks]]);
+    });
+    test("Publish of a week its record holds no row of writes one, its own fields the periods' `values` of it (#1526): the warehouse's approver", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        await weekKey(container, "]");
+        await press(within(container).getByRole("button", { name: "Copy previous week" }));
+        await press(history(container, "Publish"));
+        const week = (await h.read(ex.rosterWeeks)).get(NEXT)!;
+        expect([week.state.type, week.approver, week.dismissed.size]).toEqual(["issued", some("Ops"), 0]);
     });
     test("a failed Save retains the draft and explains the record failure", async () => {
         // The warehouse has locked its duties: their patch door refuses every change, naming why.
@@ -231,7 +240,7 @@ describe("Roster week lifecycle", () => {
         expect(sought("2028-02-27")).toBe(true);
     });
     test("desktop proposal actions retain identity through rejection, undo and acceptance", async () => {
-        // The warehouse's roster with no check of its own on a draft: an accepted proposal saves with no cost centre given.
+        // The warehouse's roster with no check of its own on a draft: an accepted proposal saves with the fields the app's `values` give it.
         const { container } = await h.mount(warehouseRoster());
         const proposal = () => container.querySelector<HTMLElement>('[data-roster-proposal="s317"]')!;
         await press(within(proposal()).getByRole("button", { name: "Reject proposal for N. Ochre" }));

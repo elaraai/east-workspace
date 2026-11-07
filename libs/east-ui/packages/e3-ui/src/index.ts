@@ -235,7 +235,7 @@ export {
     type ScheduleBacklog, type ScheduleEventKind, type ScheduleEventsBase, type ScheduleEventsConfig, type ScheduleInstantEventsConfig,
     type ScheduleInstantTemplate, type ScheduleOverlapsLiteral, type ScheduleParts, type SchedulePatchInput, type SchedulePatchOf,
     type SchedulePeriods, type SchedulePeriodsConfig, type ScheduleQuantity, type ScheduleRecordHandle, type ScheduleResourceKind,
-    type ScheduleResourcesConfig, type ScheduleTemplate,
+    type ScheduleResourcesConfig, type ScheduleTemplate, type ScheduleNewValues,
 } from './schedule/index.js';
 // The optimiser's request and answer over a Calendar's or a Plan's event kinds (#1409): the types `Calendar.Types` and
 // `Plan.Types` build them with, for an app that names them in its own code.

@@ -84,8 +84,8 @@
  * ({@link ScheduleAllocationKindType}): the Calendar's kind, its form over the
  * fields none of the builder's roles writes, with the stored rows of a
  * period, and the builder's roles read from a row and written into one —
- * every other field of the row as it was (B1), a new row's its type's
- * default.
+ * every other field of the row as it was (B1), a new row's the kind's
+ * `values` of what the builder decided of it (#1526), or its type's default.
  *
  * A record may be keyed by any type: an event is named by its key's text, a
  * String key as it is, any other key as East prints it.
@@ -109,11 +109,12 @@ import { SCHEDULE_DEF } from "./resources.js";
 import { SCHEDULE_EVENT_CAP, scheduleRecordCount, scheduleRecordWindow, type ScheduleKindPart } from "./record-window.js";
 import { scheduleRecordSession } from "./session.js";
 import { checkEntries, checkIndexWindow, optionOf, scheduleBacklogWindow, scheduleDayCount, scheduleDayWindow, typeText } from "./window.js";
+import { scheduleNewValues, type ScheduleNewValues } from "./values.js";
 import {
-    PlanEventItemType, PlanEventKindType, PlanEventReadType, ScheduleAllocationEntryType, ScheduleAllocationKindType, ScheduleAllocationRolesType,
-    ScheduleClockType, ScheduleDraftsType, ScheduleDurationType, ScheduleItemType, ScheduleKindType, ScheduleReadyEntryType, ScheduleResourceRefType,
-    ScheduleRosterEntryType, ScheduleRosterKindType, ScheduleRosterRolesType, ScheduleStatusCasesFor, ScheduleStatusType, ScheduleWriteType,
-    ScheduleTemplateType, ScheduleReadType, type ScheduleStatusCasesType,
+    PlanEventItemType, PlanEventKindType, PlanEventReadType, ScheduleAllocationEntryType, ScheduleAllocationKindType, ScheduleAllocationNewBinType,
+    ScheduleAllocationRolesType, ScheduleClockType, ScheduleDraftsType, ScheduleDurationType, ScheduleItemType, ScheduleKindType, ScheduleReadyEntryType,
+    ScheduleResourceRefType, ScheduleRosterEntryType, ScheduleRosterKindType, ScheduleRosterNewDutyType, ScheduleRosterRolesType, ScheduleStatusCasesFor,
+    ScheduleStatusType, ScheduleWriteType, ScheduleTemplateType, ScheduleReadType, type ScheduleStatusCasesType,
 } from "./types.js";
 
 // ============================================================================
@@ -418,6 +419,14 @@ export interface ScheduleEventsConfig<K extends EastType, R extends StructType, 
      * backlog is the rows the index holds (#1199).
      */
     backlogWindow?: unknown;
+    /**
+     * The Roster: a new duty's own fields — the row's fields no role maps — from
+     * what the Roster decided of it (`Roster.Types.NewDuty`): its roles, and the
+     * pattern whose day made it (#1526). The Roster writes its roles over what it
+     * returns; held at build to those fields, a field missing or extra refused,
+     * naming it. Omitted, each its type's default.
+     */
+    values?: (duty: ExprType<ScheduleRosterNewDutyType>) => ScheduleNewValues<R>;
 }
 
 /**
@@ -441,6 +450,14 @@ export interface ScheduleInstantEventsConfig<K extends EastType, R extends Struc
      * #1344); an instant has no duration, so the templates give none.
      */
     templates?: readonly ScheduleInstantTemplate<ScheduleValuesOf<R, A | F>>[] | ScheduleTemplates<ScheduleValuesOf<R, A | F>>;
+    /**
+     * The Allocation: a reservation's own fields — the row's fields no role
+     * maps — from what the Allocation decided of it (`Allocation.Types.NewBin`):
+     * every role but the arrival a reservation has none of (#1526). Held at build
+     * to those fields as the Roster's are. A bin booked from an arrival takes the
+     * arrival's `values` instead. Omitted, each its type's default.
+     */
+    values?: (bin: ExprType<ScheduleAllocationNewBinType>) => ScheduleNewValues<R>;
 }
 
 /**
@@ -490,8 +507,9 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
     readonly partsOf: string | undefined;
     /**
      * The fields of its row none of the Allocation's roles maps, a struct
-     * (#1371, B13): what an arrival's `values` gives a bin booked from it,
-     * each field its type's default without them. The Allocation holds its
+     * (#1371, B13): what an arrival's `values` gives a bin booked from it, and
+     * the kind's own `values` a reservation (#1526), each field its type's
+     * default without them. The Allocation holds its
      * arrivals' `values` to it at build, and `buildAllocation` carries it as
      * the kind's `values`.
      */
@@ -543,13 +561,15 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      * The kind on the wire as the Roster takes it, under its slot (#1367): the
      * Calendar's kind, its form over the fields none of the Roster's roles
      * writes, with the stored rows of a period and a duty's roles read from its
-     * row and written into it.
+     * row and written into it — a new duty's other fields the kind's `values`
+     * of it (#1526).
      *
      * @param slot - The builder's slot name for it
      * @param part - Its source of the builder's `Slice.bindRecords`, when the slice has one
      * @returns The kind, closed
      * @throws {Error} For an instant kind (`at`), times that are Options, a record keyed by anything but String, a kind
-     *   with no `shift`, `group` or `resource`, and two of the Roster's roles naming one field; and as `build` does
+     *   with no `shift`, `group` or `resource`, two of the Roster's roles naming one field, and a `values` giving other
+     *   fields than the ones no role maps, or one of another type, naming it; and as `build` does
      */
     buildRoster(slot: string, part?: ScheduleKindPart): ExprType<ScheduleRosterKindType>;
     /**
@@ -557,14 +577,15 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      * the Calendar's kind, its form over the fields none of the Allocation's
      * roles writes, with the stored rows of a period, a bin's roles read from
      * its row and written into it, and a new bin from its roles and an
-     * arrival's values.
+     * arrival's values — a reservation's, the kind's `values` of it (#1526).
      *
      * @param slot - The builder's slot name for it
      * @param part - Its source of the builder's `Slice.bindRecords`, when the slice has one
      * @returns The kind, closed
      * @throws {Error} For a span kind (`start` and `end`), a record keyed by anything but String, a kind with no
-     *   `resource`, `arrival`, `quantity`, `parts` or `hold`, a lane that is not a String key of one kind, and two of the
-     *   Allocation's roles naming one field; and as `build` does
+     *   `resource`, `arrival`, `quantity`, `parts` or `hold`, a lane that is not a String key of one kind, two of the
+     *   Allocation's roles naming one field, and a `values` giving other fields than the ones no role maps, or one of
+     *   another type, naming it; and as `build` does
      */
     buildAllocation(slot: string, part?: ScheduleKindPart): ExprType<ScheduleAllocationKindType>;
 }
@@ -601,6 +622,7 @@ interface AnyConfig {
     parts?: { field: string; of: string };
     hold?: string;
     kind?: string;
+    values?: unknown;
 }
 
 /** The Roster's roles, as a kind's options name them. */
@@ -1774,7 +1796,11 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 const group = groupField;
                 const who = resource.field;
                 const whoOf = resourceValue;
-                const parts = kindParts(once, slot, part, formOver([startField, endField, who, shift, group, positionField, activityField]));
+                const mapped = [startField, endField, who, shift, group, positionField, activityField];
+                const parts = kindParts(once, slot, part, formOver(mapped));
+                // A new duty's own fields, the ones no role maps (#1526): the kind's `values` of what the Roster decided of it.
+                const own = StructType(Object.fromEntries(Object.entries(fields).filter(([name]) => !mapped.includes(name))));
+                const valuesOf = scheduleNewValues(ScheduleRosterNewDutyType, rowType, own, config.values, where);
                 const Roles = ScheduleRosterRolesType;
                 // A row with the Roster's roles written from `roles`, the resource field from `value`, and every other field
                 // from `source`: the row as it was, or a new row's defaults. A kind with no `position` writes none.
@@ -1824,10 +1850,22 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     });
                     return result;
                 });
-                // A new duty: its roles written, and every other field its type's default.
+                // A new duty: its roles written, and every other field the kind's `values` of it — or, without them, its
+                // type's default.
                 const blank = East.value(defaultValue(rowType) as never, rowType) as ExprType<EastType>;
-                const create = East.function([Roles], OptionType(BlobType), ($, roles) => {
-                    const row = $.const(blank);
+                const create = East.function([ScheduleRosterNewDutyType], OptionType(BlobType), ($, duty) => {
+                    let row: ExprType<EastType>;
+                    if (valuesOf === undefined) {
+                        row = $.const(blank);
+                    } else {
+                        // The app's fields, and every field a role writes its default: a position the duty holds none of keeps it.
+                        const ownOf = $.const(valuesOf);
+                        const given = $.const(ownOf(duty as never));
+                        row = $.const(East.value(Object.fromEntries(Object.entries(fields).map(([f, type]) =>
+                            [f, Object.hasOwn(own.fields, f) ? fieldOf(given, f) : East.value(defaultValue(type) as never, type)])) as never, rowType) as ExprType<EastType>);
+                    }
+                    // Its roles, the pattern aside.
+                    const roles = duty as unknown as ExprType<typeof Roles>;
                     const resolve = $.const(whoOf);
                     const result = $.let(East.value(none, OptionType(BlobType)), OptionType(BlobType));
                     $.match(resolve(roles.resource), {
@@ -1871,7 +1909,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 const quantity = quantityField;
                 const shares = partsField;
                 const hold = holdField;
-                // The fields no role maps (`allocationValues`): what an arrival's values give a booked bin, a reservation's their type's default.
+                // The fields no role maps (`allocationValues`): what an arrival's values give a booked bin, and the kind's `values` a reservation.
                 const mapped = allocationMapped;
                 const ValuesType = allocationValues;
                 const parts = kindParts(once, slot, part, formOver([...mapped]));
@@ -1903,12 +1941,20 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     const row = $.const(bytes.decodeBeast(rowType, "v2"));
                     return East.Blob.encodeBeast(binRow(row, roles), "v2");
                 });
-                // A new bin: its roles written, and every other field the arrival's values' — or, with none, its type's default (B13).
+                // A reservation's own fields (#1526): the kind's `values` of what the Allocation decided of it, every role but
+                // the arrival.
+                const reservedOf = scheduleNewValues(ScheduleAllocationNewBinType, rowType, ValuesType, config.values, where);
+                // A new bin: its roles written, and every other field the arrival's values' — or, with none, a reservation's
+                // the kind's `values` of it, and a booked bin's, or a reservation's without them, its type's default (B13).
                 const blank = East.value(defaultValue(ValuesType) as never, ValuesType) as ExprType<EastType>;
                 const create = East.function([Roles, OptionType(BlobType)], BlobType, ($, roles, values) => {
+                    const ownOf = reservedOf === undefined ? undefined : $.const(reservedOf);
                     const given = $.const(values.match({
                         some: (_$2, bytes) => bytes.decodeBeast(ValuesType, "v2") as ExprType<EastType>,
-                        none: (_$2) => blank,
+                        none: (_$2) => ownOf === undefined ? blank : roles.arrival.match({
+                            none: (_$3) => ownOf({ at: roles.at, lane: roles.lane, quantity: roles.quantity, parts: roles.parts, hold: roles.hold, kind: roles.kind } as never),
+                            some: (_$3) => blank,
+                        }) as ExprType<EastType>,
                     }) as ExprType<EastType>);
                     return East.Blob.encodeBeast(binRow(given, roles), "v2");
                 });

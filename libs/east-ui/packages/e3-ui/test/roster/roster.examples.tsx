@@ -176,8 +176,8 @@ export const rosterContractFitBody = East.function([Roster.Types.FitRequest(Ware
 export const rosterContractFit = e3.function("roster_contract_fit", rosterContractFitBody);
 
 export const rosterWarehouse = example({
-    inputs: [], description: "The mock warehouse roster over its own records: its duties, the weeks of its rota, its cover targets and suggestions, 69 staff and an agency, its shift times, teams, positions and activities. One Slice.bindRecords rail over the week's duties, the staff and the activities; the warehouse's pay in its own codes and its check over the pay; Publish; a Positions tab; the inspector; and the warehouse's greedy fit on e3, which a Find fix asks who fits.",
-    keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Roster.shifts", "Roster.groups", "Roster.positions", "Roster.activities", "Roster.proposals", "pay", "check", "Slice", "Slice.bindRecords", "Data.bindPaged", "Func.bind", "e3.function", "fit", "Find", "BuilderFrame", "Save", "Publish", "FieldForm"],
+    inputs: [], description: "The mock warehouse roster over its own records: its duties, the weeks of its rota, its cover targets and suggestions, 69 staff and an agency, its shift times, teams, positions and activities. One Slice.bindRecords rail over the week's duties, the staff and the activities; the warehouse's pay in its own codes and its check over the pay; a new duty's own fields, a new target's basis and a new week's approver from the app's `values`; Publish; a Positions tab; the inspector; and the warehouse's greedy fit on e3, which a Find fix asks who fits.",
+    keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Roster.shifts", "Roster.groups", "Roster.positions", "Roster.activities", "Roster.proposals", "pay", "check", "values", "new row", "Roster.Types.NewDuty", "Roster.Types.NewTarget", "Slice", "Slice.bindRecords", "Data.bindPaged", "Func.bind", "e3.function", "fit", "Find", "BuilderFrame", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         // What the Roster writes: the duties, the weeks of the rota and the cover targets, each through its patch door.
         const rota = $.let(Record.bind(rosterDuties));
@@ -201,6 +201,8 @@ export const rosterWarehouse = example({
         const firms = $.let(Data.bind(rosterAgencies));
         const times = $.let(Data.bind(rosterShiftTimes));
         const teams = $.let(Data.bind(rosterTeams));
+        // Each team's cost centre: what a new duty of the team is booked to.
+        const centres = $.const(teams.read().map((_$2, team) => team.costCentre));
         const roles = $.let(Data.bind(rosterPositions));
         const ideas = $.let(Data.bind(rosterSuggestions));
         const rateRows = $.let(Data.bind(rosterPayRates));
@@ -263,7 +265,14 @@ export const rosterWarehouse = example({
                 hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
                 fields: { unpaidBreak: Schedule.field.number({ label: "Unpaid break", unit: "min", step: 15.0, min: 0.0 }),
                     costCentre: Schedule.field.text({ label: "Cost centre" }), note: Schedule.field.text({ label: "Note" }) },
-                // The app's check on a draft: Save waits until every duty has a cost centre.
+                // A new duty's own fields, the app's: half an hour's break on a shift over six hours, and its team's cost centre.
+                values: d => ({
+                    unpaidBreak: d.hours.greaterThan(6.0).ifElse(() => 30.0, () => 0.0),
+                    agreed: none,
+                    costCentre: centres.get(d.group, () => ""),
+                    note: "",
+                }),
+                // The app's check on a draft: Save waits while a duty has no cost centre — one a person cleared, or a team's with none.
                 ready: d => East.equal(d.costCentre, "").ifElse(
                     () => variant("invalid", [{ field: "costCentre", message: "Give the duty a cost centre" }]),
                     () => variant("ready", null)),
@@ -274,8 +283,11 @@ export const rosterWarehouse = example({
                     trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual }),
                 agencies: Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name }),
             }}
-            periods={Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed" })}
-            targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" })}
+            // A week's row the Roster makes, at its first Save or its Publish: Ops approves the warehouse's weeks.
+            periods={Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed",
+                values: _week => ({ approver: some("Ops") }) })}
+            // A target added here is the planner's own, where the forecast's rest on its run.
+            targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours", values: _t => ({ basis: "planner" }) })}
             shifts={Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order })}
             groups={Roster.groups(teams.read(), { label: t => t.label, order: t => t.order })}
             positions={Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order })}
@@ -396,8 +408,8 @@ export const rosterVocabulary = example({
 });
 
 export const rosterPeople = example({
-    inputs: [], description: "The People layout by week over the same records (#1406): a row per person under their group's band, a tile per duty in each day cell in the shift's colour token — its hours only where a duty's own times differ (tileTimes=\"different\") — the week's hours and a meter in the name cell, `+ Assign` on an off day opening a menu of the home group's shifts, and the warehouse's week patterns in a Patterns tab, each dropped on a person's week as one undo step; the agency's requests their own row.",
-    keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Roster.shifts", "color", "ColorToken", "Roster.patterns", "Roster.library.patterns", "tileTimes", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "people", "week", "Save", "Publish", "FieldForm"],
+    inputs: [], description: "The People layout by week over the same records (#1406): a row per person under their group's band, a tile per duty in each day cell in the shift's colour token — its hours only where a duty's own times differ (tileTimes=\"different\") — the week's hours and a meter in the name cell, `+ Assign` on an off day opening a menu of the home group's shifts, and the warehouse's week patterns in a Patterns tab, each dropped on a person's week as one undo step, a day it makes a duty of taking the app's `values` — the pattern named in its note; the agency's requests their own row.",
+    keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Roster.shifts", "color", "ColorToken", "Roster.patterns", "Roster.library.patterns", "tileTimes", "values", "Roster.Types.NewDuty", "pattern", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "people", "week", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const rota = $.let(Record.bind(rosterDuties));
         const entries = $.let(Data.bindPaged(rosterDuties));
@@ -419,10 +431,14 @@ export const rosterPeople = example({
         const firms = $.let(Data.bind(rosterAgencies));
         const times = $.let(Data.bind(rosterShiftTimes));
         const teams = $.let(Data.bind(rosterTeams));
+        // Each team's cost centre: what a new duty of the team is booked to.
+        const centres = $.const(teams.read().map((_$2, team) => team.costCentre));
         const roles = $.let(Data.bind(rosterPositions));
         const ideas = $.let(Data.bind(rosterSuggestions));
         // The warehouse's week patterns: the cards of the Patterns tab, each dropped on a person's week.
         const weekPatterns = $.let(Data.bind(rosterPatterns));
+        // The patterns by key: what a duty a pattern made is noted with.
+        const named = $.const(weekPatterns.read());
         return <Box width="100%" height="760px"><Roster id="rosterPeople" week={{ start: "sunday" }} slice={{ slice }} inspector
             view={{ layout: "people", period: "week", date: new Date("2028-03-09T00:00:00Z") }}
             tileTimes="different"
@@ -431,6 +447,14 @@ export const rosterPeople = example({
                 start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
                 shift: "shift", group: "team", position: "role", activity: "task",
                 hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
+                // A new duty's own fields, the app's: half an hour's break on a shift over six hours, its team's cost centre, and
+                // the name of the pattern that made it, where one did.
+                values: d => ({
+                    unpaidBreak: d.hours.greaterThan(6.0).ifElse(() => 30.0, () => 0.0),
+                    agreed: none,
+                    costCentre: centres.get(d.group, () => ""),
+                    note: d.pattern.match({ some: (_$2, key) => named.get(key).label, none: () => "" }),
+                }),
             }) }}
             resources={{
                 people: Schedule.resources(people.read(), { name: "People", icon: "user", label: p => p.name, group: p => p.team,

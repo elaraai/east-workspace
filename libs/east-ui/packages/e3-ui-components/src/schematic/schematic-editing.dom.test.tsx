@@ -9,9 +9,10 @@
  * writing each record through its patch door. Move moves the selection
  * rigidly, clamped to the extent, Esc or a lost pointer putting it back (SC8),
  * and writes each rack's centre alone (SC2); Connect records a run under a key
- * minted new, and a draft whose end no field holds goes danger in its words
- * (SC7, SC9); a Shift session grows into a trunk, absorbing the run it grew
- * from, as one step Undo takes back (SC9), and a trunk — grown so, or read from
+ * minted new, its other fields its kind's `values` (#1526), and a draft whose
+ * end no field holds goes danger in its words (SC7, SC9); a Shift session grows
+ * into a trunk, absorbing the run it grew from, as one step Undo takes back
+ * (SC9), and a trunk — grown so, or read from
  * its record — takes a tap on its bar, its junction and each leg wherever its
  * drawing has them; Retarget writes the end it moves,
  * though a tap on that end selects the item there, Extend adds a destination,
@@ -232,10 +233,11 @@ test("Connect records a fibre run under a key minted new; an end its field holds
     const saved = await h.read(ex.schematicFibre);
     const added = [...saved.keys()].filter((run) => !stored.has(run));
     expect(added).toHaveLength(1);
-    // Its key is minted new (`crypto.randomUUID()`), its ends written, every other field its type's default.
+    // Its key is minted new (`crypto.randomUUID()`), its ends written, every other field the kind's `values` of it (#1526): drawn
+    // with no template selected, a fibre run on the network layer.
     expect(added[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u);
     expect(fibreEqual(saved.get(added[0]!)!, {
-        ...defaultValue<typeof ex.DcFibre>(ex.DcFibre), from: variant("rack", "A05"), to: variant("frame", "MMR-1"),
+        from: variant("rack", "A05"), to: variant("frame", "MMR-1"), path: [], label: none, speed: none, cable: variant("fibre", null), system: "network",
     })).toBe(true);
 });
 
@@ -264,7 +266,8 @@ test("a Shift-drag grows the session into a fibre trunk, absorbing the run it gr
     expect(mutated()).toEqual(["schematic_trunks"]);
     const trunks = [...(await h.read(ex.schematicTrunks)).values()];
     expect(trunks).toHaveLength(1);
-    expect(equalFor(ex.DcTrunk)(trunks[0]!, { ...defaultValue<typeof ex.DcTrunk>(ex.DcTrunk), racks: ["A05", "A04"], frames: ["MMR-1"] })).toBe(true);
+    // Its sides as the session gathered them, its other fields the trunks kind's `values` (#1526): on the network layer.
+    expect(equalFor(ex.DcTrunk)(trunks[0]!, { ...defaultValue<typeof ex.DcTrunk>(ex.DcTrunk), racks: ["A05", "A04"], frames: ["MMR-1"], system: "network" })).toBe(true);
     expect(equalFor(ex.schematicFibre.type)(await h.read(ex.schematicFibre), runs)).toBe(true);
 });
 
@@ -318,7 +321,7 @@ test("a Shift-drag growing an open trunk is held to the veto in each pair it new
     await history(container, editingMessages.apply());
     const trunks = [...(await h.read(ex.schematicTrunks)).values()];
     expect(trunks).toHaveLength(1);
-    expect(equalFor(ex.DcTrunk)(trunks[0]!, { ...defaultValue<typeof ex.DcTrunk>(ex.DcTrunk), racks: ["A05", "A04"], frames: ["MMR-1", "ODF-1"] })).toBe(true);
+    expect(equalFor(ex.DcTrunk)(trunks[0]!, { ...defaultValue<typeof ex.DcTrunk>(ex.DcTrunk), racks: ["A05", "A04"], frames: ["MMR-1", "ODF-1"], system: "network" })).toBe(true);
 });
 
 test("an Extend of a selected trunk is held to the veto in each pair it newly joins: dragged from a frame it holds to the fibre frame, it joins its racks to it; onto the core, refused (SC10, D34)", async () => {
@@ -348,7 +351,7 @@ test("an Extend of a selected trunk is held to the veto in each pair it newly jo
     await history(container, editingMessages.apply());
     const trunks = [...(await h.read(ex.schematicTrunks)).values()];
     expect(trunks).toHaveLength(1);
-    expect(equalFor(ex.DcTrunk)(trunks[0]!, { ...defaultValue<typeof ex.DcTrunk>(ex.DcTrunk), racks: ["A05", "A04"], frames: ["MMR-1", "ODF-1"] })).toBe(true);
+    expect(equalFor(ex.DcTrunk)(trunks[0]!, { ...defaultValue<typeof ex.DcTrunk>(ex.DcTrunk), racks: ["A05", "A04"], frames: ["MMR-1", "ODF-1"], system: "network" })).toBe(true);
 });
 
 /** What the inspector's Details shows, and the item on a net's leg it shows, by its id. */

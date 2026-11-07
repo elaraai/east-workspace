@@ -17,7 +17,7 @@
  * at the view's centre, refused in the footer where the selection holds
  * nothing of its kind; on a touch screen a tap on the selected card doing
  * what ⏎ does; and Connect taking the selected fibre template's values
- * (§4.3).
+ * (§4.3), and with none selected its kind's `values` (#1526).
  *
  * jsdom lays nothing out: the canvas is given the box a page would give it,
  * 1080 × 540 px at the client origin, so a pointer's client point is the
@@ -27,7 +27,7 @@
 
 import { afterEach, expect, test } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
-import { ArrayType, East, defaultValue, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, East, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { announced, stubScrollIntoView } from "@elaraai/east-ui-components/testing";
@@ -409,7 +409,7 @@ test("on a touch screen a tap on the selected card does what ⏎ does, and leave
 // Connect takes the selected template's values (§4.3, SC9)
 // ============================================================================
 
-test("Connect records a run with the values of the fibre template the library has selected, and its type's defaults once it is let go (SC9)", async () => {
+test("Connect records a run with the values of the fibre template the library has selected, and its kind's `values` once it is let go (SC9, #1526)", async () => {
     const { container } = await open(ex.schematicDataCentre);
     const canvas = canvasOf(container);
     await openTab(container, "Templates");
@@ -427,7 +427,7 @@ test("Connect records a run with the values of the fibre template the library ha
     };
     const stored = await h.read(ex.schematicFibre);
     await drag([16.8, 2.9], [24.2, 2.9]);
-    // Let go of the template: the next run takes its type's defaults.
+    // Let go of the template: the next run takes its kind's `values` — a fibre run, on the network layer.
     await act(async () => { fireEvent.click(libraryCard(container, templateKey("fibre", "uplink"))); });
     await settle();
     await drag([13.2, 2.9], [24.2, 2.9]);
@@ -439,5 +439,7 @@ test("Connect records a run with the values of the fibre template the library ha
     expect(fibreEqual(byEnd("A05"), {
         from: variant("rack", "A05"), to: variant("frame", "MMR-1"), path: [], label: some("uplink"), speed: some("100G"), cable: variant("fibre", null), system: "network",
     })).toBe(true);
-    expect(fibreEqual(byEnd("A04"), { ...defaultValue<typeof ex.DcFibre>(ex.DcFibre), from: variant("rack", "A04"), to: variant("frame", "MMR-1") })).toBe(true);
+    expect(fibreEqual(byEnd("A04"), {
+        from: variant("rack", "A04"), to: variant("frame", "MMR-1"), path: [], label: none, speed: none, cable: variant("fibre", null), system: "network",
+    })).toBe(true);
 });

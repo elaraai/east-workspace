@@ -160,7 +160,10 @@ builder's types.
   - `write(row, roles)`: the row with every mapped field written from the
     roles and every other field as it was (B1), `none` for a resource of a
     kind the duty kind doesn't take;
-  - `create(roles)`: a new row, every unmapped field its type's default;
+  - `create(duty)`: a new row from what the Roster decided of it
+    (`Roster.Types.NewDuty`: its roles, and `pattern`, the key of the pattern
+    whose day made it), every unmapped field the kind's `values` of it (§5.5,
+    rule 5), or with none its type's default;
   - `roles`: whether `position` and `activity` are mapped; and `rowType`.
 
   It refuses an instant kind (`at`), `start`/`end` that are Options (a duty has
@@ -172,8 +175,8 @@ builder's types.
     bytes (`ScheduleAllocationEntryType`);
   - `read(row)` and `write(row, roles)`, as the Roster's;
   - `create(roles, values)`: a new bin, its unmapped fields an arrival's
-    `values` (bytes at the `values` type), or with none their type's default
-    (B13);
+    `values` (bytes at the `values` type); with none — a reservation — the bin
+    kind's `values` of it (§6.4), or their type's default (B13);
   - `lanes` (`resource.of`), `parts` (`parts.of`), `kinded`, `unit` (the
     `quantity` role's), `values` (the struct of the fields no role maps) and
     `rowType`.
@@ -228,6 +231,7 @@ periods={Schedule.periods(Record.bind(rotaWeeks, [rotaWeeksPatch]), {
     status: { field: "state", draft: "open", published: "issued" }, // the app's variant field, and which of its cases mean what
     dismissed: "dismissed",                                          // the Roster's: a Set<String> field, the proposals rejected
     entries,                                                         // optional: Data.bindPaged(record), read by key
+    values: (_week) => ({ approver: none }),                         // optional: a new row's own fields (rule 5)
 })}
 ```
 
@@ -246,9 +250,14 @@ periods={Schedule.periods(Record.bind(rotaWeeks, [rotaWeeksPatch]), {
    when the case holds one — and saves the period. A save that fails leaves the
    period a draft with its drafts kept, so a published period never sits over
    unsaved rows.
-5. **New rows.** A period row the builder creates holds the type's default
-   (`defaultValue`) in every field it doesn't map: its status the published
-   case when it publishes, else the draft case, holding its payload's default.
+5. **New rows.** A period row the builder creates holds the periods' `values`
+   of it in every field neither `status` nor `dismissed` maps: an East function
+   from `Schedule.Types.NewPeriod` (`start`, the period's first instant) to
+   those fields, checked at build as `Schedule.templates`' `values` are — a
+   field left out, one the builder writes itself or the row lacks, or one of
+   another type is refused, naming it. Without `values`, each holds its type's
+   default (`defaultValue`). Its status is the published case when it
+   publishes, else the draft case, holding its payload's default.
 6. **Without `periods`** there is no status chip and no Publish. Save works as
    ever.
 7. **Reads.** The periods are read by key through `entries` when given (the
@@ -260,9 +269,10 @@ periods={Schedule.periods(Record.bind(rotaWeeks, [rotaWeeksPatch]), {
 event kinds' session too); `rows(from, to)`, the periods starting in the span,
 by their start, as bytes; `status(row)` (`SchedulePeriodStatusType`: `draft`,
 `published { at: Option<DateTime> }`, or `other: String`, the case's name);
-`publish(row?, at)`; the Roster's `dismissible`, `dismissed(row)` and
-`dismiss(row?, keys)`; `history`; and `rowType`. `publish` and `dismiss` take
-the period's row, or none to make one (rule 5).
+`publish(start, row?, at)`; the Roster's `dismissible`, `dismissed(row)` and
+`dismiss(start, row?, keys)`; `history`; and `rowType`. `publish` and `dismiss`
+take the period's start and its row, or none to make one from the start
+(rule 5).
 
 Refused at build, naming the option: a record not bound with its patch
 mutation, not keyed by DateTime, or whose rows are not structs; an `every`
@@ -319,6 +329,7 @@ The duty kind (`Schedule.events`):
 | `hours` | `(row, key) => Float` | the hours the duty counts for coverage, skill hours, contract hours, rest and pay | optional: its length |
 | `title` | `String` | unused by the Roster | optional |
 | `fields`, `inspector`, `ready`, `entries` | as `Schedule.events` | the inspector's form over the other fields, the app's own form, its check on a draft, reads by key | optional |
+| `values` | `(Roster.Types.NewDuty) => { … }` | a new duty's fields no role maps (§5.5, rule 5) | optional: their type's default |
 
 People and agencies are `Schedule.resources` kinds under the slots `people` and
 `agencies` (§4.2): `label` (the name) and `group` (home group) required;
@@ -339,7 +350,7 @@ The records the Roster writes besides the duties:
 
 | Declaration | Roles |
 |---|---|
-| `Roster.targets(record, …)` | `day` (`DateTime`), `group`, `shift` (`String`), `positions` (`Integer`), `hours` (`Dict<String, Float>`, hours by activity), `inspector?`, `entries?`. A slot with no row has no target; a target edit on such a slot inserts one, keyed by a minted key. |
+| `Roster.targets(record, …)` | `day` (`DateTime`), `group`, `shift` (`String`), `positions` (`Integer`), `hours` (`Dict<String, Float>`, hours by activity), `inspector?`, `entries?`, `values?`. A slot with no row has no target; a target edit on such a slot inserts one, keyed by a minted key, its fields no role maps the targets' `values` of it (`Roster.Types.NewTarget`, the roles), checked at build as the duty kind's are, or with none their type's default. |
 | `Schedule.periods(record, …)` | §4.3, with the Roster's `dismissed?`: a `Set<String>` field, the proposals accepted or rejected that week. Without it, proposals offer Accept only. |
 
 ### 5.3 Types
@@ -399,7 +410,14 @@ Allocation's take `V` today:
 4. **Editing** a duty's times writes `start` and `end`. The inspector keeps a
    duty within 12 hours of its shift's start, and `end` after `start`.
 5. **A new duty** runs its slot's shift: from the shift's start, for the shift's
-   hours. Its unmapped fields hold their type's default.
+   hours. Its unmapped fields are the duty kind's `values` of it — an East
+   function from `Roster.Types.NewDuty` (the roles the Roster decided, and
+   `pattern`, the key of the pattern whose day made it) to those fields, checked
+   at build as `Schedule.templates`' `values` are: a field left out, one a role
+   maps or the row lacks, or one of another type is refused, naming it. The
+   Roster writes its roles over what it returns. Without `values`, they hold
+   their type's default. A duty assigned, dropped, a proposal accepted, a
+   request, a Find fix's and a pattern's day all make one so.
 6. **Hours.** A duty counts its length, or what `hours` gives. Coverage, skill
    hours, contract hours and the rest rule read them.
 7. **Costs** are the app's `pay`, summed by duty, slot, day, week and person,
@@ -565,6 +583,8 @@ export const rotaWarehouse = example({
         const firms = $.let(Data.bind(agencies));
         const times = $.let(Data.bind(shiftTimes));
         const groups = $.let(Data.bind(teams));
+        // Each team's cost centre: what a new duty of the team is booked to.
+        const centres = $.const(groups.read().map((_$2, team) => team.costCentre));
         const roles = $.let(Data.bind(positions));
         const ideas = $.let(Data.bind(suggestions));
         const fit = $.let(Func.bind(staffFit));
@@ -578,7 +598,12 @@ export const rotaWarehouse = example({
                 // The hours a duty counts: its length less its unpaid break.
                 hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
                 fields: { costCentre: Schedule.field.text({ label: "Cost centre" }), note: Schedule.field.text({ label: "Note" }) },
-                // The app's check on a draft: Save waits until every duty has a cost centre.
+                // A new duty's own fields: half an hour's break on a shift over six hours, and its team's cost centre.
+                values: d => ({
+                    unpaidBreak: d.hours.greaterThan(6.0).ifElse(() => 30.0, () => 0.0),
+                    agreed: none, costCentre: centres.get(d.group, () => ""), note: "",
+                }),
+                // The app's check on a draft: Save waits while a duty has no cost centre.
                 ready: d => East.equal(d.costCentre, "").ifElse(
                     () => variant("invalid", [{ field: "costCentre", message: "Give the duty a cost centre" }]),
                     () => variant("ready", null)),
@@ -714,7 +739,11 @@ writes the bin's roles — `arrival` its key, `quantity`, `kind` and `hold` from
 its accessors, `parts` empty, `at` and `resource` where it is booked — and
 `values`' struct into the row's other fields. `values` returns the row's fields
 that no role maps (`ScheduleValuesOf`); without it, those fields take their
-type's default. A reservation's unmapped fields take their type's default.
+type's default. A reservation's unmapped fields are the bin kind's own `values`
+of it — an East function from `Allocation.Types.NewBin` (the bin's roles less
+`arrival`) to those fields, checked at build as the Roster's duty kind's are —
+or with none their type's default. A bin booked from an arrival takes the
+arrival's `values`, never the kind's.
 
 ### 6.5 Examples
 
@@ -912,7 +941,7 @@ with Book, Reserve, Allocate, Unlink and Back to Arrivals in anchored popovers.
 | B10 | A duty's day, its times against its shift's and its hours follow §5.5; a move and back leaves its times as they were. | `e3-ui/src/roster/` | spec: overnight shift, early start, late finish, unpaid break, move and back |
 | B11 | Coverage, pay, checks and fits read every duty of the week, whatever the rail shows. | `roster/coverage.ts`, renderer | DOM with a narrowed rail |
 | B12 | The board's day holds the bins whose `at` falls in it; a batch's bins keep one minute apart. | `e3-ui/src/allocation/` | spec |
-| B13 | Booking an arrival writes the roles and `values`' fields; a reservation's unmapped fields take their type's default. | `schedule/events.ts`, allocation writes | spec |
+| B13 | Booking an arrival writes the roles and `values`' fields; a reservation's unmapped fields take the bin kind's `values` of it, or their type's default. | `schedule/events.ts`, allocation writes | spec |
 | B14 | Through its kind's source, a builder reads only its period's events, never the record whole. | `schedule/record-window.ts`, `schedule/events.ts` (`rows`), `schedule/periods.ts` | spec: a kind's `rows` and the periods' through paged reads in memory, searches and pages counted, no whole read; e3-web: bounded reads through the slice |
 | B15 | A new duty's, bin's or target's key is minted unique in its record, across every period. | renderer | DOM |
 | B16 | The fit's, the pay's and the check's requests carry each assignment's and bin's own row. | e3-ui types | spec over a decoded request |
@@ -983,7 +1012,7 @@ don't change.
 | the inspector's form over the app's fields | `FieldForm`, `Fields.specs`; a kind's own form through `rowInspector` |
 | a library card's drop | `Schedule.patch`, `schedule/library.ts` |
 | the fit's call, keys and answers | `e3-ui-components/src/shared/func/use-fit.ts` |
-| a new row's unmapped fields | East's `defaultValue` |
+| a new row's unmapped fields | the kind's `values`, reified and checked once (`e3-ui/src/schedule/values.ts`); East's `defaultValue` without them |
 
 ## 10. Wires
 

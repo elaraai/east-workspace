@@ -11,7 +11,8 @@
  * changed bin's row written through the bin kind's `write`, every field no
  * role maps as it was (B1); a bin gone removed; a new one's row the kind's
  * `create`, a booking's with its arrival's `values` or the fields' defaults, a
- * reservation's with the defaults (B13), under a key minted unique among every
+ * reservation's with the bin kind's `values` of it (#1526) or the defaults
+ * (B13), under a key minted unique among every
  * key the board holds (B15, `shared/schedule/records.ts`). The inspector's
  * form edits the row's own fields through the kind's `write` of a field, and
  * the kind's own form writes the row whole. Publish runs Save, then writes the
@@ -174,7 +175,7 @@ export interface AllocationCommands {
     replace(id: string, arrival: string): boolean;
     /** Books an arrival into a reservation (A38, A49): its bin takes the reservation's lane, time and resource, and the reservation goes. */
     fillWith(reservation: string, arrival: string): boolean;
-    /** Reserves a lane slot on a resource (A49): a bin with no arrival, no quantity and no hold, its row's other fields their defaults. */
+    /** Reserves a lane slot on a resource (A49): a bin with no arrival, no quantity and no hold, its row's other fields the bin kind's `values` of it, or their defaults. */
     reserve(lane: string, at: Date, resource: string): boolean;
     /** Books a committed bin the drafts removed again (A51), as the day holds it, into a lane slot: on a resource, or not linked yet. */
     restore(id: string, lane: string, at: Date, resource: string | undefined): boolean;
@@ -321,7 +322,7 @@ export function allocationCommands(state: AllocationState, select: (next: Select
             return done;
         },
         reserve(lane, at, resource) {
-            // A reservation's row: no arrival, no quantity, no hold, its other fields their defaults (B13).
+            // A reservation's row: no arrival, no quantity, no hold, its other fields the bin kind's `values` of it, or their defaults (B13, #1526).
             const made = created({ at, lane, arrival: none, quantity: 0, kind: none, hold: variant("days", 0), parts: new SortedMap<string, number>([[resource, 0]], compareString) },
                 none, new Set());
             if (made === undefined) return false;
@@ -430,5 +431,5 @@ export function allocationCommands(state: AllocationState, select: (next: Select
  */
 export function publishChange(value: AllocationValue, editing: AllocationEditing, day: Date, stored: Uint8Array | undefined, at: Date): ScheduleChange | undefined {
     if (value.periods.type !== "some") return undefined;
-    return periodPublishChange(value.periods.value, editing.schedule, PERIODS, dayKey(day), stored, at);
+    return periodPublishChange(value.periods.value, editing.schedule, PERIODS, dayKey(day), day, stored, at);
 }
