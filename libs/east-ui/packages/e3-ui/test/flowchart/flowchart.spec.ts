@@ -800,6 +800,11 @@ describe("<Flowchart>'s payload, through its carrier (R1)", () => {
         assert.equal(payload.canvas.orientation.value.type, "TD");
         assert.ok(equalFor(OptionType(BooleanType))(payload.canvas.legend, some(true)));
         assert.ok(narrowEqual(payload.canvas.narrow, some({ lanes: some(1n) })));
+        // Keyed by String, each kind says so: all a String-keyed Flowchart's payload gains (#1549).
+        if (payload.transitions.type !== "some" || payload.lanes.type !== "some" || payload.decisions.type !== "some") assert.fail("every kind crosses");
+        for (const keyType of [payload.states.keyType, payload.transitions.value.keyType, payload.lanes.value.keyType, payload.decisions.value.keyType]) {
+            assert.ok(isTypeEqual(fromEastTypeValue(keyType), StringType));
+        }
     });
 
     hostTest("the payload is one type whatever the rows hold: it crosses beast2 and back", () => {
