@@ -40,7 +40,8 @@
  * own Details, two racks, an area read only, a field changed, and a rack typed
  * off the floor, listed in Issues — and over the Record's joinery (#1549): a
  * painted piece's finish, its block under its choice and a block in that under
- * its gloss, a stain chosen in its place, and a bare piece's choice alone.
+ * its gloss, a stain chosen in its place, and a bare piece's choice alone, each
+ * piece's bench — a reference to a record keyed by number — by its name.
  * Pinned beside main on a desktop, overlaid on a phone — the joinery at both a
  * phone's widths too, its blocks' place being the measure; in both themes,
  * the joinery in one. No screenshot is read: boxes and computed
@@ -1030,7 +1031,7 @@ for (const phone of [false, true]) {
 }
 
 // ============================================================================
-// The Record's inspector: a variant's block (#1549)
+// The Record's inspector: a variant's block, and a reference by number (#1549)
 // ============================================================================
 
 const RECORDS = "e3/record/record";
@@ -1053,12 +1054,14 @@ const roomOf = (frame: Locator, id: string) => frame.locator(`[data-record] [dat
 for (const phone of [false, true]) {
     // On a phone at both its widths: the narrow project runs what is tagged `@narrow`.
     test.describe(`The Record's inspector form, a variant's block — ${phone ? "on a phone" : "pinned beside main"} (#1549)`, { tag: phone ? ["@mobile", "@narrow"] : "@desktop" }, () => {
-        test("the joinery: a painted piece's block under its choice and a block in it under its gloss; a stain chosen, its shade alone in the block; a bare piece, the choice alone", async ({ page }) => {
+        test("the joinery: a painted piece's block under its choice and a block in it under its gloss; a stain chosen, its shade alone in the block; a bare piece, the choice alone; each piece's bench by its name", async ({ page }) => {
             const { frame, pane } = await openJoinery(page, phone);
-            await test.step("the hall door, painted with a sheen: its colour, coats and gloss in the block under its finish, its sheen in the block under its gloss", async () => {
+            await test.step("the hall door, painted with a sheen: its colour, coats and gloss in the block under its finish, its sheen in the block under its gloss; its bench, number 2, by its name", async () => {
                 await select(page, frame, roomOf(frame, "J-101"), phone);
                 await expect(pane.locator("[data-field-block='finish'] > [data-field]")).toHaveCount(3);
                 await expect(pane.locator("[data-field-block='finish.paint.gloss'] > [data-field]")).toHaveCount(1);
+                // The bench's number as East prints it, the register's key for it: its choice shows the bench's name.
+                await expect(pane.locator("[data-field='bench'] [data-field-line] > [title='Assembly bench']")).toBeVisible();
                 await expect.poll(() => blockFaults(pane)).toEqual([]);
                 if (!phone) await expect.poll(() => formFaults(pane, false)).toEqual([]);
                 expect(await paneFaults(pane)).toEqual([]);
@@ -1075,10 +1078,11 @@ for (const phone of [false, true]) {
                 if (!phone) await expect.poll(() => formFaults(pane, false)).toEqual([]);
                 expect(await paneFaults(pane)).toEqual([]);
             });
-            await test.step("the window seat, bare: its choice alone, no block under it", async () => {
+            await test.step("the window seat, bare: its choice alone, no block under it; its bench, number 10, by its name", async () => {
                 await select(page, frame, roomOf(frame, "J-103"), phone);
                 await expect(pane.locator("[data-field='finish']")).toBeVisible();
                 await expect(pane.locator("[data-field-block]")).toHaveCount(0);
+                await expect(pane.locator("[data-field='bench'] [data-field-line] > [title='Finishing bench']")).toBeVisible();
                 if (!phone) await expect.poll(() => formFaults(pane, false)).toEqual([]);
                 expect(await paneFaults(pane)).toEqual([]);
             });

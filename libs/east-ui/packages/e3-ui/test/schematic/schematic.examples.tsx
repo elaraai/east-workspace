@@ -832,3 +832,89 @@ export const schematicConflicts = example({
     )),
     inputs: [],
 });
+
+// ----------------------------------------------------------------------------
+// The bakehouse: records keyed by number
+// ----------------------------------------------------------------------------
+
+/** An oven on the bakehouse floor, placed by its centre. */
+export const BakeryOven = StructType({ name: StringType, x: FloatType, y: FloatType, w: FloatType, h: FloatType });
+/** A duct between two ovens: each end an oven's number. */
+export const BakeryDuct = StructType({ from: IntegerType, to: IntegerType });
+/** What an oven template gives a new oven: every field of an oven but its centre, which the drop places. */
+export const BakeryOvenValues = StructType({ name: StringType, w: FloatType, h: FloatType });
+/** An oven template: its card's name and group, and the oven it creates. */
+export const BakeryOvenTemplate = StructType({ name: StringType, group: StringType, values: BakeryOvenValues });
+
+export const schematicBakeryOvens = e3.record("schematic_bakery_ovens", DictType(IntegerType, BakeryOven), {
+    initial: new Map([
+        [1n, { name: "Deck oven", x: 4, y: 3, w: 3, h: 2 }],
+        [2n, { name: "Convection oven", x: 12, y: 3, w: 3, h: 2 }],
+    ]),
+    mutations: (mutation) => ({
+        // The ovens' patch door: Save writes each oven through it, a new one under the number one past the largest.
+        patch: mutation.patch(),
+    }),
+});
+export const schematicBakeryDucts = e3.record("schematic_bakery_ducts", DictType(IntegerType, BakeryDuct), {
+    initial: new Map([[1n, { from: 1n, to: 2n }]]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+export const schematicBakeryOvenTemplates = e3.record("schematic_bakery_oven_templates", DictType(StringType, BakeryOvenTemplate), {
+    initial: new Map([
+        ["deck", { name: "Deck oven", group: "Ovens", values: { name: "Deck oven", w: 3, h: 2 } }],
+        ["rack", { name: "Rack oven", group: "Ovens", values: { name: "Rack oven", w: 2, h: 2 } }],
+    ]),
+    indexes: (index) => ({
+        schematic_bakery_oven_templates_by_group: index.on(["group"]),
+    }),
+});
+
+export const schematicBakehouse = example({
+    keywords: [
+        "Schematic", "Schematic.items", "Schematic.links", "Schematic.templates", "Record.bind", "records", "IntegerType", "Integer key", "key type",
+        "keyed by number", "new key", "one past the largest", "Connect", "drop", "templates", "inspector",
+    ],
+    description: "A bakehouse's ovens and the ducts between them, each record keyed by number: a duct's ends hold its ovens' numbers, checked against the ovens' key type when the Schematic is built; an oven dropped from the library is numbered one past the largest, and a duct drawn with Connect is numbered the same way; the inspector names each by its number",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const ovens = $.let(Record.bind(schematicBakeryOvens));
+            const ducts = $.let(Record.bind(schematicBakeryDucts));
+            const templates = $.let(Data.bind(schematicBakeryOvenTemplates));
+            // The oven templates by their group: the library's cards follow the rail.
+            const slice = $.let(Slice.bindRecords("ex.schematicBakehouse", {
+                ovenTemplates: {
+                    source: Data.bindPaged(schematicBakeryOvenTemplates, { indexes: ["schematic_bakery_oven_templates_by_group"] }),
+                    fields: { group: { label: "Group", hints: ["Ovens"] } },
+                },
+            }));
+            return (
+                <Box height="440px">
+                    <Schematic
+                        id="bakehouse"
+                        inspector
+                        extent={{ width: 20, height: 12 }}
+                        scaleUnit="m"
+                        slice={{ slice }}
+                        items={{
+                            ovens: Schematic.items(ovens, {
+                                name: "Oven", icon: "fire-burner", x: "x", y: "y", width: "w", height: "h", label: "name",
+                                templates: Schematic.templates(templates.read(), {
+                                    name: (t) => t.name, group: (t) => some(t.group), values: (t) => t.values, source: "ovenTemplates",
+                                }),
+                            }),
+                        }}
+                        links={{
+                            // Each end an Integer field, holding an oven's number: the ovens' key type.
+                            ducts: Schematic.links(ducts, { name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" } }),
+                        }}
+                        library={[Schematic.library.templates()]}
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});

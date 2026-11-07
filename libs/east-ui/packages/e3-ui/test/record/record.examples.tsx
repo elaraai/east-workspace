@@ -496,21 +496,28 @@ export const recordLooks = example({
 });
 
 // ============================================================================
-// Example 7 — a variant field: its cases a choice, and the case held a block
+// Example 7 — a variant field: its cases a choice, and the case held a block;
+// and a reference to a record keyed by number
 // ============================================================================
 
+/** A bench of the joinery's shop, keyed by its number. */
+export const Bench = StructType({ name: StringType });
+export const recordBenches = e3.record("record_benches", DictType(IntegerType, Bench), {
+    initial: new Map([[1n, { name: "Saw bench" }], [2n, { name: "Assembly bench" }], [10n, { name: "Finishing bench" }]]),
+});
 /** How a piece is finished: left bare, stained a shade, or painted a colour in coats, matt or with a sheen. */
 export const Finish = VariantType({
     bare: NullType,
     stain: StringType,
     paint: StructType({ colour: StringType, coats: IntegerType, gloss: VariantType({ matt: NullType, sheen: FloatType }) }),
 });
-export const Piece = StructType({ name: StringType, room: StringType, finish: Finish });
+/** A piece of joinery: the bench it is made at, by the bench's number, and how it is finished. */
+export const Piece = StructType({ name: StringType, room: StringType, bench: IntegerType, finish: Finish });
 export const recordPieces = e3.record("record_pieces", DictType(StringType, Piece), {
     initial: new Map([
-        ["J-101", { name: "Hall door", room: "Hall", finish: variant("paint", { colour: "Teal", coats: 2n, gloss: variant("sheen", 0.4) }) }],
-        ["J-102", { name: "Stair rail", room: "Stairs", finish: variant("stain", "Walnut") }],
-        ["J-103", { name: "Window seat", room: "Lounge", finish: variant("bare", null) }],
+        ["J-101", { name: "Hall door", room: "Hall", bench: 2n, finish: variant("paint", { colour: "Teal", coats: 2n, gloss: variant("sheen", 0.4) }) }],
+        ["J-102", { name: "Stair rail", room: "Stairs", bench: 1n, finish: variant("stain", "Walnut") }],
+        ["J-103", { name: "Window seat", room: "Lounge", bench: 10n, finish: variant("bare", null) }],
     ]),
     mutations: (mutation) => ({
         // The joinery's patch door — every Apply commits through it.
@@ -519,17 +526,24 @@ export const recordPieces = e3.record("record_pieces", DictType(StringType, Piec
 });
 
 export const recordFinishes = example({
-    keywords: ["Record", "Record.field.select", "cases", "variant", "block", "inspector", "Fields.select"],
-    description: "A variant field in a Record's inspector: a piece's finish chosen among its cases, and the fields of the case it holds in a block under the choice — a stain's shade, a paint's colour, coats and gloss, the gloss a choice of its own — each case hinted through the select's `cases`",
+    keywords: ["Record", "Record.field.select", "cases", "variant", "block", "inspector", "Fields.select", "Record.field.reference", "Fields.reference", "register", "IntegerType", "Integer key"],
+    description: "A Record's inspector over a piece of joinery: its finish, a variant, chosen among its cases, with the fields of the case it holds in a block under the choice — a stain's shade, a paint's colour, coats and gloss, the gloss a choice of its own — each case hinted through the select's `cases`; and its bench, a reference to a record keyed by number, the register keying each bench by its number as East prints it and the form reading the one chosen back as a number",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const pieces = $.let(Record.bind(recordPieces));
+            const benches = $.let(Data.bind(recordBenches));
             return (
                 <Box height="480px">
                     <Record
                         record={pieces}
                         title="Joinery"
                         noun={{ singular: "piece", plural: "pieces" }}
+                        registers={{
+                            // A register's members are keyed by text: each bench by its number as East prints it.
+                            benches: Record.register.members(benches.read().toArray((_$, bench, number) => ({ number, name: bench.name })), {
+                                kind: "bench", key: (b) => East.print(b.number), label: (b) => b.name,
+                            }),
+                        }}
                         columns={{
                             name: Record.column.title(Piece, { header: "Piece", width: "176px" }),
                             room: Record.column.text(Piece, { header: "Room", width: "136px" }),
@@ -542,6 +556,7 @@ export const recordFinishes = example({
                                     paint: { colour: Record.field.text({ help: "As the tin names it" }), coats: Record.field.number({ min: 1n, max: 4n }) },
                                 },
                             }),
+                            bench: Record.field.reference({ of: "benches", help: "Where it is made" }),
                         }}
                         inspector
                         name="finishes"

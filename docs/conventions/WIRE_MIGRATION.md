@@ -756,3 +756,20 @@ Each wire changed under this rule, with the kind it is.
   computes each UI task's output again under the new type. A UI task's output
   is not stored state, and a new row is the app's record's own, so no
   repository upgrade step ships with it.
+- **e3-ui's `Flowchart` and `Schematic` take records keyed by any key type
+  (#1549)** — package-borne. Each kind on the wire — `FlowchartStateKindType`,
+  `FlowchartTransitionKindType`, `FlowchartLaneKindType`,
+  `FlowchartDecisionKindType`, `SchematicItemKindType`,
+  `SchematicZoneKindType`, `SchematicLinkKindType` and
+  `SchematicNetKindType` — gains `keyType`, after its last field: its
+  record's key type. Each kind a gesture makes rows of — every one but the
+  decisions and the zones — gains `rowKey` before it: the kind's `key`, a new
+  row's key's text from its row's bytes, `none` without `key`. Keys travel as
+  their text, as before. A UI value encoded under either type does not decode
+  under the other: packages are re-exported, and the dataflow computes each UI
+  task's output again under the new type. A UI task's output is not stored
+  state, so no repository upgrade step ships with it. An application's records
+  keep their types: one keyed by String reads as it did, and re-keying one by
+  another type is that record's own migration (`migration.rekey`). The form's
+  specs keep their type (`FieldSpecType`): a variant whose cases hold data gets
+  the `select` editor and its cases' specs, where it got `readonly`.

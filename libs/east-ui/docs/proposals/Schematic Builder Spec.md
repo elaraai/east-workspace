@@ -182,6 +182,10 @@ type an application changes. east-ui's `Schematic` arm goes from
 | D51 | **Beside a kind read by area, the Backlog is one paged list.** The rows in hand first — those of the kinds read whole or complete, and the drafted rows with no position — then each kind read by area's, a page of 32 at a time through the area index its window reads through, by its unplaced clause (§11.4): the narrowing's choices that index leads read with it, so the tab counts `N of M` while they narrow it. A choice no area index leads is asked of each page's rows in one `within` (D28), and a row it leaves out draws as context, faded and never dragged, as does a stored row a draft has placed or deleted. A drop or a card's ⏎ places a row at once, the row its page read the gesture's original, and the row draws where it lands while its draft waits, though its window doesn't hold it. The list has no search box: no index answers a search beside the unplaced clause. | my call (#1393), building §8 |
 | D52 | **The Index reads a kind read by area itself.** An open zone's items are read by its box through the area index its window would read through — the box's cells counted, then their entries read while they hold no more than a window reads (20,000), each cell's kept while an open zone wants it — the rows whose centre the zone holds its items, the narrowing's choices the index doesn't lead asked of them (D28). A zone counts such items only once its box, or an enclosing zone's, is read, and opens to read it; one holding more says so under the tree. The search reads each such kind through its source's `search` fields, a prefix as a paged tab's search reads it, its first 50 matches listed under their zones and how many more said. Its items in no zone, and those with no position, are listed only by the search and the Backlog. | my call (#1393), building §8 |
 | D53 | **A window lands without a stutter.** The rows a kind read by area reads are made by its `rowsOf` each once — kept by key while a row reads again as it was, the same object or one East holds equal, so a window over rows another window made makes only the rows it adds — and a budget's worth a read (12 ms, a batch of 64 rows at least), the rest by the next read a task later, a frame drawing between. A kind whose rows are still being made keeps what was drawn of it, and the reader hands the frame what it read in a task of its own. Wheeled from Fit to 40× and back over the floor of 20,000 racks, no frame takes over 50 ms (§10.4, SC42). | my call (#1393), on the hand test of 23 Oct 2026 |
+| D54 | **Records keyed by any type** (#1549). Each kind's record, its details and its templates may be keyed by any type a Dict may be keyed by: an oven's number, a date, a struct of them. A link's end holds a key of the item slot it names, at that slot's key type — a variant end each case its own slot's — and a net's side a Set or an Array of its slot's keys. Each is checked as the code compiles to be of a type a Dict may be keyed by, and `<Schematic>` refuses a mismatch with its slot's key type, naming both kinds and both types. Keys travel as their text, a String as itself and any other as East prints it, and are ordered by their type, never their text. | asked for (#1549) |
+| D55 | **A new row's key** (#1549). A kind's `key: (row) => …` builds it from the row a drop or a Connect makes, held at build to the record's key type. Without one, a String key is minted unique, as before, and an Integer key is one past the largest; an item of any other type waits under a placeholder until its key is typed in the inspector, Save waiting, Issues pointing at its key field, and no link or net naming it until then. A link's or a net's key is never typed, so an editable link or net kind keyed by another type is refused at build without `key`; a key type the form can't edit adds nothing, its templates off, saying why. A key `key` builds follows its row: an edit that changes the fields it reads — a Retarget, Connect's Shift session, an end edited in the inspector — moves the row under the key they now build, through the re-key the Flowchart has, refused, naming the row that holds it, when another does. | Integer keys and `key` asked for (#1549); a built key following its row ruled 7 Nov 2026 |
+| D56 | **The rail's sources at any key type.** A source of the Schematic's slice may be over a record keyed by any type — a kind read through its source, its templates, a library tab with `source` — its shown keys travelling as their text. The Sheet, the Plan, the Calendar, the Roster and the Allocation keep their sources keyed by String. | ruled 7 Nov 2026 (#1549) |
+| D57 | **Find at the key type.** The box reads what is typed at the key type the item kinds share: `10` finds oven 10. Over kinds keyed by several types it reads at String, and a kind keyed otherwise reads the typed text at its own type — mixer `10B` by the start of its key. | ruled 7 Nov 2026 (#1549); the kinds of several key types my call |
 
 ## 4. The kinds
 
@@ -213,6 +217,7 @@ Options:
 - `entries`: `Data.bindPaged(record)`, the record's own entries, for an editable kind read through its source of the slice, and refused otherwise (§1, rule 4). It gives by-key reads for the inspector, for a gesture's original and for Save's confirmation, as Schedule's `entries` does. A kind bound with `Data.bindPaged` reads by key through that binding;
 - `details` (§4.5);
 - `templates` (§4.6);
+- `key`, a new item's key built from its row (§7, D55);
 - `fields`, the inspector form's hints over the fields no role writes (`Fields`);
 - `inspector`, the kind's own Details (`(row, update) => UIComponentType`, wrapped by `rowInspector`);
 - `ready`, the app's check on a drafted row, which holds Save, naming the item.
@@ -241,14 +246,14 @@ the inspector, when the kind is bound with its patch door.
 
 | Role | Type | Written by | Drives |
 |---|---|---|---|
-| `from`, `to` | `{ field, of }`: a `String` field holding a key of the item slot `of` names, or a variant field of String cases, `of` naming an item slot per case (Schedule's resource shapes) | Connect, Retarget | the link's ends |
+| `from`, `to` | `{ field, of }`: a field holding a key of the item slot `of` names, of that slot's key type — or a variant field, `of` naming an item slot per case, each case holding a key of its slot's type (Schedule's resource shapes, D54); never an Option | Connect, Retarget | the link's ends |
 | `via`? | an `Array` of `{ x: Float, y: Float }` (`Schematic.Types.Point`): the app's own points | the inspector | its waypoints |
 | `label`?, `metric`? | accessors | — | the caption on a knockout at the path's middle, from the label zoom |
 | `style`?, `route`? | accessors to `Schematic.Types.LinkStyle` and `Route` | — | solid or dashed, its tone and weight; orthogonal or direct |
 | `layer`? | `String` | the inspector | its layer |
 
 Options are `name`, `icon`, `entries`, `details`, `templates` (§4.6, which
-retype a link), `values`, `fields`, `inspector` and `ready`. A link Connect
+retype a link), `values`, `key` (§7, D55), `fields`, `inspector` and `ready`. A link Connect
 records writes `from` and `to`. Its other fields are the values of the link
 template selected when the drag began (§7), or, with none selected, what the
 kind's `values` gives of its ends: an East function from
@@ -262,7 +267,7 @@ naming it. Without `values`, each takes its type's default (East's
 
 | Role | Type | Written by | Drives |
 |---|---|---|---|
-| `sources`, `destinations` | `{ field, of }`: a `Set<String>` or `Array<String>` field of item keys, `of` as a link's | Connect's Shift session, a leg's Delete, Extend | the trunk's two sides |
+| `sources`, `destinations` | `{ field, of }`: a Set or an Array field of the keys of the item slot `of` names, of that slot's key type (D54) | Connect's Shift session, a leg's Delete, Extend | the trunk's two sides |
 | `via`?, `label`?, `metric`?, `style`?, `route`?, `layer`? | as a link's | | |
 
 Options are as a link's. A net's `values` hears its `Schematic.Types.Sides`,
@@ -271,7 +276,8 @@ but the two its sides name.
 
 ### 4.5 `Schematic.details(record, config)`
 
-A record of the app's, keyed as its kind is. It holds what the inspector shows
+A record of the app's, keyed as its kind is — a record keyed by another type is
+refused, naming both (D54). It holds what the inspector shows
 beside the row and what the cards on screen draw:
 
 - `status`?, `meter`?, `metric`?, `sublabel`? — as §4.1, over the details row;
@@ -293,11 +299,12 @@ with no details row shows none, and its card draws no meter.
 
 Templates are records (#1340, ruling 9), as Schedule's are:
 `Schematic.templates(templates.read(), { name, group?, icon?, values, source })`
-over a record bound with `Data.bind`.
+over a record bound with `Data.bind`, keyed by any type, each card's key its
+text (D54).
 
 - For an item kind, `values` returns the row's fields except `x` and `y`.
   Dropped on the canvas, a template adds an item at the drop point, its key
-  minted (§7).
+  as §7 makes it (D55).
 - For a link kind, `values` returns the row's fields except `from` and `to`.
   Dropped on a link, a template retypes it: it writes its values and never
   the link's ends.
@@ -312,7 +319,7 @@ its kinds' wire carries: `Geometry`, `Vertex`, `Point`, `Tone`, `ZonePattern`,
 `LinkStyle`, `Route`, `Status`, `StatusCases(V)`, `Meter` and `Patch(R)`. An
 app's records hold their own types, which its accessors map (D35). It adds:
 
-- `Ref`, `{ kind: String, key: String }`: an entity named by its slot and its key;
+- `Ref`, `{ kind: String, key: String }`: an entity named by its slot and its key, as its text — a String key as itself, any other as East prints it (D54);
 - `Box`, `{ minX, minY, maxX, maxY }` in world units;
 - `Candidate`, `{ kind: String, from: Ref, to: Ref }`: the link or net a Connect, a Retarget or an Extend would write, and its two items, as `canConnect` hears it (§5);
 - `Ends`, `{ from: Ref, to: Ref }`, and `Sides`, `{ sources: Array<Ref>, destinations: Array<Ref> }`: a new link's ends and a new net's sides, as its kind's `values` hears them (§4.3, §4.4).
@@ -339,14 +346,16 @@ subtracts the anchor once.
 Each kind is built under its slot into a closed struct, as
 `ScheduleKindType`/`ScheduleRosterKindType` are. Every row crosses as bytes:
 
-- `rows(where)`: the kind's stored rows a read holds, by key, each one's roles beside its bytes, read in one pass;
+- `rows(where)`: the kind's stored rows a read holds, by their keys' text, each one's roles beside its bytes, read in one pass;
 - `read(bytes, key)`: a drafted row's roles;
 - `write(bytes, roles)`: the row with its mapped fields written and every other field as it was;
 - `create(roles, values?)`: a new row, with its mapped fields written and every other field from a template's values, else the kind's `values` of its ends or sides, else its type's default;
 - `editing`: the shared session over the record (`scheduleRecordSession`), with its patch door;
 - `entries`: the record read by key;
 - `history`, `fields`, `inspector`, `ready`, `templates` and `templatesSource`;
-- the kind's `details`, closed the same way.
+- the kind's `details`, closed the same way;
+- `rowKey`, on the item, link and net kinds: the kind's `key`, a new row's key's text from its bytes, `none` without `key` (D55);
+- `keyType`, on every kind, its last field: its record's key type, which each key's text is printed from and read back at (D54).
 
 `Schematic.Types.Item`, `Zone`, `Link` and `Net` remain only as the roles a
 kind's `rows` gives the renderer.
@@ -384,7 +393,7 @@ The items, in order, on the frame's one folding row:
 1. **The rail** — `useRecordSlicesToolbarItems` over the slice. It folds first, then its summary (`SUMMARY_RANK`).
 2. **Tools**, one segment: Select (a tap selects; a drag on empty canvas pans), Zoom box, Marquee, Connect (shown while a link kind is editable), and Move (shown while an item kind is editable). Connect's menu chooses the link kind it draws, the first editable by default. Holding Space gives Select and holding Ctrl gives Zoom box, while the pointer is over the canvas.
 3. **Zoom** − / + and **Fit**.
-4. **Find** — `useKeySearchToolbarItem` over each item kind's record, by key (D37): a kind read through its source sought in its record's own order through e3, one read whole in its rows. A hit the rail's filters leave out is listed, marked `hidden` (`dimmed` under `narrowed="dim"`), as one on a hidden layer or with no position is. A pick flies to an item drawn as itself and selects it; to one the canvas doesn't show as itself it flies to where it stands, selects nothing, and the footer says why — `A07 is hidden by the filters`, with Clear filters, which shows it and selects it. A pick shows the item's key in the box and its place among the matches (`3 of 7`), and Next and Previous step on from it, each showing its match; the box asks its query again only as what its lines say moves — a record, a narrowing, the layers — never as the canvas reads a window, and keeps a match wherever the matches still hold it. ⌘F focuses it. In the row its box is 28px, as every builder's key search is there (D38).
+4. **Find** — `useKeySearchToolbarItem` over each item kind's record, by key (D37), at the key type (D57): a kind read through its source sought in its record's own order through e3, one read whole in its rows. A hit the rail's filters leave out is listed, marked `hidden` (`dimmed` under `narrowed="dim"`), as one on a hidden layer or with no position is. A pick flies to an item drawn as itself and selects it; to one the canvas doesn't show as itself it flies to where it stands, selects nothing, and the footer says why — `A07 is hidden by the filters`, with Clear filters, which shows it and selects it. A pick shows the item's key in the box and its place among the matches (`3 of 7`), and Next and Previous step on from it, each showing its match; the box asks its query again only as what its lines say moves — a record, a narrowing, the layers — never as the canvas reads a window, and keeps a match wherever the matches still hold it. ⌘F focuses it. In the row its box is 28px, as every builder's key search is there (D38).
 5. **Previous / next item**, while something is selected.
 6. **History** — `historyToolbarItem`, last (Undo · Redo · Discard · Save), while any kind edits.
 
@@ -480,14 +489,14 @@ whole and for the drawing's read — and the footer's line.
 | Gesture | Records | One step writes |
 |---|---|---|
 | Move (Move tool) | the item kinds | every selected item's `x`, `y` by the drag's delta, clamped to the extent; on release |
-| Connect (Connect tool) | a link kind | a new link, its `from` and `to`, its key minted, its other fields the selected template's or its kind's `values` (§4.3) |
+| Connect (Connect tool) | a link kind | a new link, its `from` and `to`, its key as Keys says, its other fields the selected template's or its kind's `values` (§4.3) |
 | Shift + Connect | a net kind | the session's net: its `sources` and `destinations`. The first Shift-extension turns the session's link into a net, deleting the link it absorbed |
 | Retarget (a selected link's end handle) | a link kind | the link's `from` or `to` |
 | Extend (Shift-drag from a member of a selected net) | a net kind | its `destinations` |
 | Del on a link | a link kind | the link deleted |
 | Del on a net leg, or on a net | a net kind | the leg's endpoint removed, or the net deleted. Removing a side's last member deletes the net |
 | Del on items | items, links, nets | the items deleted, with every link naming one and every net leg naming one (D7) |
-| Drop an item template | an item kind | a new item at the drop point, its key minted, its values the template's |
+| Drop an item template | an item kind | a new item at the drop point, its key as Keys says, its values the template's |
 | Drop an unplaced item | an item kind | its `x`, `y` |
 | Unplace (inspector) | an item kind | its `x`, `y` to `none` |
 | Drop a link template on a link | a link kind | its values; never `from`, `to` or its key |
@@ -502,8 +511,17 @@ whole and for the drawing's read — and the footer's line.
   (`Record.onApply(record, { keyed: true })`). A conflict or a refusal keeps
   that record's drafts and leaves the others' commits standing. An unknown
   outcome keeps the drafts and the request's identity for Retry.
-- **Keys.** A new item's, link's or net's key is minted unique among every key
-  the Schematic has read and drafted (`mintKey`, `crypto.randomUUID()`).
+- **Keys** (D55). A new item's, link's or net's key is its kind's `key` of the new
+  row, where it is given. Without one: keyed by String, it is minted unique
+  among every key the Schematic has read and drafted (`mintKey`,
+  `crypto.randomUUID()`); keyed by Integer, it is one past the largest the kind
+  holds — stored, drafted or made this session, and, read through its source,
+  its record's last; keyed by any other type, an item waits under a
+  placeholder until its key is typed in the inspector, Save waiting, Issues
+  pointing at its key field, and no link or net naming it. A gesture that
+  would make or move a row under a key the rows in hand hold is refused,
+  naming the row that holds it; a key the record holds that no read has
+  brought is a conflict at Save, never written over.
 - **Drafts outside the window** stay in their sessions; Save includes them, and
   a draft moved into the window shows (§10.4).
 - **Keys for history.** ⌘Z, ⇧⌘Z and ⌘Y work anywhere in the frame except a field
@@ -558,6 +576,7 @@ or a double-click on an entity, opens the selection in Details (D34).
 
 **Details** shows what is selected:
 - **An item** shows:
+  - its key field, while it waits under a placeholder, its key to be typed (D55);
   - its kind's form over the fields no role writes;
   - its details record's form;
   - its position (`x`, `y` and their Unplace);
@@ -580,6 +599,7 @@ tinted against the record. Read only, Details shows every field and edits none.
 - geometry outside its entity's box;
 - a colour naming no theme colour (D14);
 - the app's `ready` refusals;
+- a row whose key is still to be typed, at its key field (D55);
 - a Save's conflict or refusal.
 
 Below 480px of main, Details gains the actions the canvas doesn't take (D15):
@@ -604,8 +624,8 @@ nothing is recorded.
 
 `slice={{ slice: Slice.bindRecords(key, { … }) }}` takes:
 - a source named after each kind's slot that the rail narrows. Its source is
-  `Data.bindPaged(record, { indexes })` over the kind's record, its rows
-  joined;
+  `Data.bindPaged(record, { indexes })` over the kind's record, keyed by any
+  type (D56), its rows joined;
 - a source for each templates list and author's tab that names one.
 
 The tag checks the slice with `recordSources(slice, { builder: "Schematic",
@@ -1009,6 +1029,7 @@ records in the file, and each Schematic named by its `id`:
 | `schematicRecordIndexes` | 20,000 racks — each hall's first 20 rows, so neither the showcase nor a test deploys the 50,000 a full floor holds (ruled 23 Oct 2026); the budget run fills the floor through the patch doors — over the area index (`racks_by_area`, with `racks_by_hall_area` beside it, at a 1 cm cell), read from the index alone; the density layer at fit zoom, the footer saying how many racks it shades; the rail; and the racks' loads, bound with `Data.bindPaged` and read by the runs the window's cells are of the area index (D45), a cell's once, so a dot draws its rack's alarm; and the racks bound with their patch door, a move a draft wherever the window goes, Save writing it through the door. Its record is seeded by the pure generator that also runs as an e3 task, as `sheetRecordIndexes`' is |
 | `schematicRecordIndexesMobile` | the same in a phone-width container, with the inspector: nothing drags, so a rack found or tapped shows in Details, its `x` and `y` moving it, each a draft Save writes through the racks' patch door |
 | `schematicHandover` | no panes: the toolbar, the canvas and the footer, over one hall's racks bound with their patch door — Move and Del, each a step Save writes |
+| `schematicBakehouse` | records keyed by number (D54): a bakehouse's ovens and the ducts between them, a duct's ends the ovens' numbers; an oven dropped from its templates numbered one past the largest, and a duct Connect draws the same (D55) |
 
 ## 14. Behaviour
 
@@ -1020,7 +1041,7 @@ records in the file, and each Schematic named by its `id`:
 | SC4 | An item kind with Option `x`, `y` has a backlog: its unplaced rows never draw, are listed in the Backlog tab, are placed by a drop, and are cleared by Unplace. | `kinds.ts`, renderer | DOM; responsive |
 | SC5 | Del on items deletes them, every link naming one and every net leg naming one, in one step; Undo restores them; Save sends each record. | renderer `edits.ts` | DOM |
 | SC6 | Save sends each changed record's batch as its own request; a conflict on one keeps its drafts and leaves the others committed. | `editing/history.ts` | DOM: one refused write |
-| SC7 | A new item's, link's or net's key is minted unique among every key read and drafted. | renderer | DOM |
+| SC7 | A new item's, link's or net's key is its kind's `key` of the row; without one, minted unique among every key read and drafted for a String key, one past the largest for an Integer key, and typed in the inspector for an item of any other type, Save waiting; an editable link or net kind keyed otherwise is refused at build without `key`, and a key the rows in hand hold refuses the gesture, naming its holder (D55). | renderer; `kinds.ts`, `utils/record-kind.ts` | DOM (`schematic-keys.dom.test.tsx`); spec |
 | SC8 | Move moves the selection rigidly, clamped to the extent, as one step on release; Esc or a lost pointer puts it back. | renderer canvas | DOM; responsive drag |
 | SC9 | Connect records a link of the tool's kind, `from` and `to` written and its other fields from the selected template, else its kind's `values` of its ends, else defaulted; a net the same from its sides. A `values` with a field missing, extra or of another type is refused at build, naming it. Shift grows the session into a net. `canConnect` vetoes a pair: the draft goes danger, doesn't snap, and shows the veto's words. | renderer, `kinds.ts` (`values`) | DOM; responsive; spec |
 | SC10 | Retarget writes the end it moves; Extend adds a net destination; Del on a leg removes its endpoint, and on a side's last member deletes the net. | renderer | DOM |
@@ -1056,6 +1077,7 @@ records in the file, and each Schematic named by its `id`:
 | SC40 | A rail's chip counts its value's own rows under the other fields' choices, the chosen marked (D46); a field's editor opens inside the frame's sides while it fits between them, else inside the page, and flips above its trigger down the page as before (D50). Every builder's rail. | east-ui `runtime/record-slice.ts` (`values`), east-ui-components `overlays/popover/frame-bounds.ts` | spec; pure; responsive (`schematic-narrowing.spec.ts`, `allocation-narrowing.spec.ts`) |
 | SC41 | Beside a kind read by area, the Backlog pages its rows with no position through the area index's unplaced clause, counted `N of M`, a choice no area index leads drawn as context, and a drop places a row at once (D51); the Index reads an open zone's items by its box, counted once read, and finds through the sources' `search` fields (D52) — never the record read whole. | renderer `backlog-pages.ts`, `index-area.ts` | DOM on e3-web: request log (`schematic-area-library.dom.test.tsx`); pure (`index-tree.test.ts`) |
 | SC42 | Wheeled from Fit to 40× and back over the floor of 20,000 racks, no frame takes over 50 ms and the browser reports no long animation frame as its windows land: a row is made once, a budget's worth a read (D53). | renderer `made-rows.ts`, `data.ts`, `canvas/view.tsx` | pure (`made-rows.test.ts`); `E3_UI_PERF=1` (`schematic-perf.spec.ts`), never in CI |
+| SC43 | A kind's record, its details and its templates may be keyed by any type a Dict takes; a link's end and a net's side hold the key type of the slot they name — a variant end each case its slot's — refused at build on a mismatch, naming both kinds and both types; keys are ordered by their type, never their text, and Find reads at the key type (D54, D57). | `kinds.ts`, `payload.ts`; renderer `find.ts` | spec (`schematic.spec.ts`); DOM (`schematic-keys.dom.test.tsx`); pure (`find.test.ts`) |
 
 The area index's rules are §11.5's tests; the rows form's are §12's.
 
@@ -1129,6 +1151,13 @@ Entries for `docs/conventions/WIRE_MIGRATION.md`:
   so one an earlier build wrote does not read under the new type: a browser's
   kept rail starts from its slice's `initial`, and an app's saved Sheet views
   change type with it (D19).
+
+- **e3-ui's `Flowchart` and `Schematic` take records keyed by any key type
+  (#1549, package-borne).** Each kind gains `keyType` after its last field,
+  and each kind a gesture makes rows of — the items, the links and the nets —
+  `rowKey` before it. Keys travel as their text, as before. A UI task's output
+  is computed again under the new type, so no repository upgrade step ships
+  with it, and an app's records keep their types.
 
 #1351's `findKeys`, its rows form and its runs form are new routes beside `find`
 and `page`.

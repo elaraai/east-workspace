@@ -372,7 +372,12 @@ layout container given `density`. An explicit `density` on a component wins.
 - **Fields**: `Fields.specs(R, hints?, omit?)` turns a struct into an
   inspector's typed form, each field's editor from its East type, a hint
   (`Fields.number`, `Fields.select`, `Fields.reference`, …) adding what the
-  type cannot say.
+  type cannot say. A variant whose cases hold data is a choice, the fields of
+  the case it holds in a block under it, each case's value hinted through the
+  select's `cases` (`Fields.select({ cases: { sliced: Fields.number({ min: 1n }) } })`).
+  A reference holds a key of any type a Dict may be keyed by: the host's
+  choices are keyed by its text — a String as itself, any other as East
+  prints it — and the one chosen is read back at the field's type.
 - **Drag and drop**: a `<Library>` is a source; a target (`<Blend>`, e3-ui's
   builders) lists its `id` in `sources`. Every drag reduces to one
   `DragEventType` (`add`, `move`, `remove`, `resize`), and a target's
