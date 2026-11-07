@@ -12,9 +12,10 @@
  * is drawn or written: where a drag rests — the point under the pointer, at
  * the screen's resolution, or the entity of the card's kind under it — what
  * each drop does, every refusal in its words, what ⏎ on a card does, the
- * edits a drop writes and the item it selects, the caption, the
- * announcement's name, the history's label, the marks, and the cards the
- * canvas takes from each tab. The DOM test (`schematic-drop.dom.test`)
+ * edits a drop writes and the item it selects — under the key its kind makes,
+ * refused where it makes none (#1549) — the caption, the announcement's name,
+ * the history's label, the marks, and the cards the canvas takes from each
+ * tab. The DOM test (`schematic-drop.dom.test`)
  * carries them through the drag layer, on e3.
  */
 
@@ -30,6 +31,7 @@ import {
     planEnter, printDropAt, readDropAt, restsAt,
     type SchematicDropAt, type SchematicDropCard, type SchematicDropContext, type SchematicDropPlan, type SchematicDropPoint,
 } from "./drop.js";
+import type { SchematicNewKey } from "./editing.js";
 import type { SchematicEdit } from "./edits.js";
 import { schematicMessages, type SchematicMessages, type SchematicWords } from "./messages.js";
 
@@ -82,6 +84,7 @@ const CTX: SchematicDropContext = {
         ["trunks", { name: "Fibre trunk", writes: true }],
     ]),
     available: () => true,
+    untyped: () => undefined,
     nameOf: (at) => NAMES.get(entityId(at)),
     zoneAt: (p) => (p.x >= 0.6 && p.x <= 20.2 && p.y >= 0.6 && p.y <= 5.2 ? "Cage A" : undefined),
 };
@@ -102,11 +105,14 @@ function printed(edit: SchematicEdit): string {
     }
 }
 
-/** Keys minted in order: each kind's `<slot>-new-1`, … */
-function minter() {
+/** A new row's key as a kind keyed by String makes one, in order: each kind's `<slot>-new-1`, … */
+function keyer() {
     let n = 0;
-    return (slot: string) => `${slot}-new-${++n}`;
+    return (made: SchematicEdit): SchematicNewKey => ({ key: `${made.ref.kind}-new-${++n}` });
 }
+
+/** A drop's edits — none where it records nothing. */
+const editsOf = (made: ReturnType<typeof dropEdits>): readonly SchematicEdit[] => (made === undefined || "refused" in made ? [] : made.edits);
 
 // ============================================================================
 // Where a drag rests
@@ -150,20 +156,46 @@ describe("a template's item, or a backlog row, lands at the point (SC12, SC4)", 
     test("an item template adds an item of its kind there, its values the template's, the zone holding the point named; a backlog row is placed there", () => {
         const add = planDrop(R42, point(6.04, 2.91), CTX);
         expect(add).toEqual({ kind: "add", slot: "racks", at: { x: 6.04, y: 2.91, digits: 2n }, zone: "Cage A", values: R42_VALUES });
-        expect(dropEdits(add, minter()).map(printed)).toEqual([`item ${printRef(ref("racks", "racks-new-1"))} ${printAt(some({ x: 6.04, y: 2.91 }))} ${printValues(some(R42_VALUES))}`]);
+        expect(editsOf(dropEdits(add, keyer())).map(printed)).toEqual([`item ${printRef(ref("racks", "racks-new-1"))} ${printAt(some({ x: 6.04, y: 2.91 }))} ${printValues(some(R42_VALUES))}`]);
         const place = planDrop(PLACE_A06, point(6.0, 6.6), CTX);
         expect(place).toEqual({ kind: "place", ref: A06, at: { x: 6.0, y: 6.6, digits: 2n }, zone: undefined });
-        expect(dropEdits(place, minter()).map(printed)).toEqual([`place ${printRef(A06)} ${printAt(some({ x: 6.0, y: 6.6 }))}`]);
+        expect(editsOf(dropEdits(place, keyer())).map(printed)).toEqual([`place ${printRef(A06)} ${printAt(some({ x: 6.0, y: 6.6 }))}`]);
     });
 
     test("the item it brings onto the canvas is the one it minted, or the row it placed — the one it selects; none for a drop on an entity", () => {
         const add = planDrop(R42, point(6.04, 2.91), CTX);
-        const edits = dropEdits(add, minter());
+        const edits = editsOf(dropEdits(add, keyer()));
         expect(printRef(droppedItem(add, edits)!)).toBe(printRef(ref("racks", "racks-new-1")));
         const place = planDrop(PLACE_A06, point(6.0, 6.6), CTX);
-        expect(printRef(droppedItem(place, dropEdits(place, minter()))!)).toBe(printRef(A06));
+        expect(printRef(droppedItem(place, editsOf(dropEdits(place, keyer())))!)).toBe(printRef(A06));
         const retype = planDrop(UPLINK, on(U1), CTX);
-        expect(droppedItem(retype, dropEdits(retype, minter()))).toBeUndefined();
+        expect(droppedItem(retype, editsOf(dropEdits(retype, keyer())))).toBeUndefined();
+    });
+
+    test("its kind is asked of the item the drop makes, under no key yet, and the item takes the key it makes (#1549)", () => {
+        const asked: string[] = [];
+        const add = planDrop(R42, point(6.04, 2.91), CTX);
+        const made = dropEdits(add, (edit) => { asked.push(printed(edit)); return { key: "17" }; });
+        expect(asked).toEqual([`item ${printRef(ref("racks", ""))} ${printAt(some({ x: 6.04, y: 2.91 }))} ${printValues(some(R42_VALUES))}`]);
+        expect(editsOf(made).map(printed)).toEqual([`item ${printRef(ref("racks", "17"))} ${printAt(some({ x: 6.04, y: 2.91 }))} ${printValues(some(R42_VALUES))}`]);
+    });
+
+    test("a key the item builds that a rack holds refuses the drop, naming it; a largest key still read records nothing yet (#1549)", () => {
+        const add = planDrop(R42, point(6.04, 2.91), CTX);
+        expect(dropEdits(add, () => ({ taken: "A03" }))).toEqual({ refused: { refusal: "taken", ref: A03 } });
+        expect(dropEdits(add, () => undefined)).toBeUndefined();
+    });
+
+    test("a kind that adds no item — its keys of a type the form can't type, building none — refuses its templates wherever they rest, saying why; its backlog's rows still place (#1549)", () => {
+        const untyped: SchematicDropContext = { ...CTX, untyped: (slot) => (slot === "racks" ? "Blob" : undefined) };
+        const said = "Racks are keyed by Blob, which can't be typed — give the kind `key` to add them";
+        for (const where of [point(6.04, 2.91), NOWHERE]) {
+            const plan = planDrop(R42, where, untyped);
+            expect([plan.kind, dropCaption(plan, words, "m"), dropRefusal(plan, words)], atText(where)).toEqual(["refused", said, said]);
+        }
+        expect(dropRefusal(planEnter(R42, [], { x: 14, y: 7, digits: 2n }, untyped), words)).toBe(said);
+        expect(planDrop(PLACE_A06, point(6.0, 6.6), untyped).kind).toBe("place");
+        expect(planDrop(OWNER, on(A03), untyped).kind).toBe("set");
     });
 
     test("outside the drawing it is refused — the drawing's edges are in it — and so is a drag resting on no point", () => {
@@ -179,10 +211,10 @@ describe("a template's values, or an author's card's fields, land on an entity o
     test("a link template writes its values over the link it lands on — its ends and its key as they are; an author's card sets its fields on the rack", () => {
         const retype = planDrop(UPLINK, on(U1), CTX);
         expect(retype).toEqual({ kind: "retype", ref: U1, name: "A01 → ODF-1", values: UPLINK_VALUES });
-        expect(dropEdits(retype, minter()).map(printed)).toEqual([`retype ${printRef(U1)}`]);
+        expect(editsOf(dropEdits(retype, keyer())).map(printed)).toEqual([`retype ${printRef(U1)}`]);
         const set = planDrop(OWNER, on(A03), CTX);
         expect(set).toEqual({ kind: "set", refs: [A03], name: "A03", kindName: "Rack", sets: [OWNER_WRITE] });
-        expect(dropEdits(set, minter()).map(printed)).toEqual([`set ${printRef(A03)} owner`]);
+        expect(editsOf(dropEdits(set, keyer())).map(printed)).toEqual([`set ${printRef(A03)} owner`]);
     });
 
     test("anywhere but on an entity of its kind it is refused, naming the kind it lands on", () => {
@@ -250,7 +282,7 @@ describe("⏎ on a card drops it on the selection, or at the view's centre (SC13
         expect(planEnter(OWNER, [A02, ODF], centre, CTX)).toMatchObject({ kind: "set", refs: [A02], name: "A02" });
         const several = planEnter(OWNER, [A01, ODF, A02, A03], centre, CTX);
         expect(several).toEqual({ kind: "set", refs: [A01, A02, A03], name: undefined, kindName: "Rack", sets: [OWNER_WRITE] });
-        expect(dropEdits(several, minter()).map(printed)).toEqual([A01, A02, A03].map((at) => `set ${printRef(at)} owner`));
+        expect(editsOf(dropEdits(several, keyer())).map(printed)).toEqual([A01, A02, A03].map((at) => `set ${printRef(at)} owner`));
         // One of them no longer drawn: the rest.
         expect(planEnter(OWNER, [A01, ref("racks", "GONE")], centre, CTX)).toMatchObject({ kind: "set", refs: [A01], name: "A01" });
     });
@@ -339,6 +371,6 @@ describe("what the canvas takes dropped", () => {
 describe("a plan is what the frame records", () => {
     test("a refusal writes nothing", () => {
         const refused: SchematicDropPlan = planDrop(UPLINK, NOWHERE, CTX);
-        expect(dropEdits(refused, minter())).toEqual([]);
+        expect(dropEdits(refused, keyer())).toEqual({ edits: [] });
     });
 });

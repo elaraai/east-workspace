@@ -406,7 +406,7 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
         });
         if (kind.entries.type !== "some") return { editing, ready, prepare, wireType: EntryRefType, ranges, together };
         const seam = kind.entries.value;
-        const decodeRow = codecs[i]!.decodeRow;
+        const { decodeRow, keyOf } = codecs[i]!;
         const own = kind.read;
         // Where the builder's own reads hold an entry, at the revision every read of the record is pinned to: read with no
         // request, so a Save's confirmation judges every one of them at once.
@@ -423,6 +423,9 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
                 // Where the builder's own reads hold it; else by its key.
                 const held = heldRow?.(id);
                 if (held !== undefined) return held;
+                // A text no key prints as — a new row's placeholder, its key still to be typed (#1549) — names no row the
+                // record holds: never sought, so a source moving under it carries it over.
+                if (keyOf(id) === undefined) return some(none);
                 const read = seam.entry(id);
                 if (read.type !== "some") return none;
                 return read.value.type === "some" ? some(some(decodeRow(read.value.value))) : some(none);
@@ -508,6 +511,8 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
         const kind = part.kind;
         if (kind === undefined) {
             if (part.entries.type !== "some") return undefined;
+            // A text no key prints as names no row the record holds (#1549): a placeholder, never sought.
+            if (codec.keyOf(change.id) === undefined) return ABSENT;
             let row: option<option<Uint8Array>>;
             try {
                 row = part.entries.value.entry(change.id);

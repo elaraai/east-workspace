@@ -514,10 +514,12 @@ describe("the loading dock: bays keyed by when each opens, spots by their row an
                 status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
                 binding: { source: [variant("field", "inputs"), variant("field", "ropes")], patch: none, mode: variant("staged", null) },
             }, DataBindHandleType(Ropes));
-            const rackRows = $.const(new SortedMap<ValueTypeOf<typeof RackKey>, ValueTypeOf<typeof Rack>>([
+            // Keyed by two cases of a variant: the map's types are the record's, which neither case's key gives alone.
+            const racked = new SortedMap<ValueTypeOf<typeof RackKey>, ValueTypeOf<typeof Rack>>([
                 [variant("wall", 3n), { name: "Wall 3", x: 10, y: 2 }],
                 [variant("floor", "F1"), { name: "Floor F1", x: 12, y: 6 }],
-            ], compareFor(RackKey)), Racks);
+            ], compareFor(RackKey));
+            const rackRows = $.const(racked, Racks);
             const racks = $.let({
                 read: East.function([], Racks, (_$2) => rackRows),
                 write: East.function([Racks], NullType, (_$2) => null),
@@ -736,7 +738,7 @@ describe("a link's end and a net's side hold the keys of the item slot they name
             });
         }), "Schematic.items: \"Oven\": the details' record is keyed by .String, and the kind's by .Integer — key the details as the kind is");
         // Keyed as the ovens are, they build.
-        East.function([], UIComponentType, ($) => {
+        assert.doesNotThrow(() => East.function([], UIComponentType, ($) => {
             const ovens = $.let(Data.bind(lineOvens));
             const outputs = $.let(Data.bind(lineOutputs));
             return PublicSchematic({
@@ -745,7 +747,7 @@ describe("a link's end and a net's side hold the keys of the item slot they name
                     name: "Oven", icon: "fire-burner", x: "x", y: "y", label: "name", details: Schematic.details(outputs, { metric: (output) => some(East.str`${output.loaves}`) }),
                 }) },
             });
-        });
+        }));
     });
 });
 
@@ -782,44 +784,66 @@ describe("a new row's key: a kind's `key` builds it from its row (#1549)", () =>
     });
 
     test("a `key` building another type than the record's key is refused, naming both", () => {
-        refused(() => East.function([], UIComponentType, ($) => PublicSchematic({
-            extent: { width: 24, height: 12 },
-            items: { ovens: Schematic.items($.let(Data.bind(lineOvens)), { name: "Oven", icon: "fire-burner", x: "x", y: "y", label: "name", key: ((oven: ExprType<typeof Oven>) => oven.name) as never }) },
-        })), "Schematic.items: \"Oven\": `key` builds an item's key, of the record's key type .Integer — and this one builds .String");
+        refused(() => East.function([], UIComponentType, ($) => {
+            const ovens = $.let(Data.bind(lineOvens));
+            return PublicSchematic({
+                extent: { width: 24, height: 12 },
+                items: { ovens: Schematic.items(ovens, { name: "Oven", icon: "fire-burner", x: "x", y: "y", label: "name", key: ((oven: ExprType<typeof Oven>) => oven.name) as never }) },
+            });
+        }), "Schematic.items: \"Oven\": `key` builds an item's key, of the record's key type .Integer — and this one builds .String");
     });
 
     test("editable links and nets keyed by neither String nor Integer need `key`: nothing else keys what Connect makes", () => {
-        refused(() => East.function([], UIComponentType, ($) => PublicSchematic({
-            extent: { width: 24, height: 12 },
-            items: { ovens: Schematic.items($.let(Data.bind(lineOvens)), { name: "Oven", icon: "fire-burner", x: "x", y: "y", label: "name" }) },
-            links: { ducts: Schematic.links($.let(Record.bind(joinedDucts)), { name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" } }) },
-        })), `Schematic.links: "Duct": the links are keyed by ${printType(DuctKey)}, and Connect makes one with no key typed — give \`key\`, ` +
+        refused(() => East.function([], UIComponentType, ($) => {
+            const ovens = $.let(Data.bind(lineOvens));
+            const ducts = $.let(Record.bind(joinedDucts));
+            return PublicSchematic({
+                extent: { width: 24, height: 12 },
+                items: { ovens: Schematic.items(ovens, { name: "Oven", icon: "fire-burner", x: "x", y: "y", label: "name" }) },
+                links: { ducts: Schematic.links(ducts, { name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" } }) },
+            });
+        }), `Schematic.links: "Duct": the links are keyed by ${printType(DuctKey)}, and Connect makes one with no key typed — give \`key\`, ` +
             "building one's key from its row, or key them by String or Integer");
-        refused(() => East.function([], UIComponentType, ($) => PublicSchematic({
-            extent: { width: 24, height: 12 },
-            items: { ovens: Schematic.items($.let(Data.bind(lineOvens)), { name: "Oven", icon: "fire-burner", x: "x", y: "y", label: "name" }) },
-            nets: { feeds: Schematic.nets($.let(Record.bind(datedFeeds)), { name: "Feed", icon: "plug", sources: { field: "supply", of: "ovens" }, destinations: { field: "fed", of: "ovens" } }) },
-        })), `Schematic.nets: "Feed": the nets are keyed by ${printType(DateTimeType)}, and Connect's Shift session makes one with no key typed — ` +
+        refused(() => East.function([], UIComponentType, ($) => {
+            const ovens = $.let(Data.bind(lineOvens));
+            const feeds = $.let(Record.bind(datedFeeds));
+            return PublicSchematic({
+                extent: { width: 24, height: 12 },
+                items: { ovens: Schematic.items(ovens, { name: "Oven", icon: "fire-burner", x: "x", y: "y", label: "name" }) },
+                nets: { feeds: Schematic.nets(feeds, { name: "Feed", icon: "plug", sources: { field: "supply", of: "ovens" }, destinations: { field: "fed", of: "ovens" } }) },
+            });
+        }), `Schematic.nets: "Feed": the nets are keyed by ${printType(DateTimeType)}, and Connect's Shift session makes one with no key typed — ` +
             "give `key`, building one's key from its row, or key them by String or Integer");
         // Given `key`, they build; read only, they need none.
-        East.function([], UIComponentType, ($) => PublicSchematic({
-            extent: { width: 24, height: 12 },
-            items: { ovens: Schematic.items($.let(Data.bind(lineOvens)), { name: "Oven", icon: "fire-burner", x: "x", y: "y", label: "name" }) },
-            links: { ducts: Schematic.links($.let(Record.bind(joinedDucts)), {
-                name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" }, key: (duct) => ({ from: duct.from, to: duct.to }),
-            }) },
+        assert.doesNotThrow(() => East.function([], UIComponentType, ($) => {
+            const ovens = $.let(Data.bind(lineOvens));
+            const ducts = $.let(Record.bind(joinedDucts));
+            return PublicSchematic({
+                extent: { width: 24, height: 12 },
+                items: { ovens: Schematic.items(ovens, { name: "Oven", icon: "fire-burner", x: "x", y: "y", label: "name" }) },
+                links: { ducts: Schematic.links(ducts, {
+                    name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" }, key: (duct) => ({ from: duct.from, to: duct.to }),
+                }) },
+            });
         }));
-        East.function([], UIComponentType, ($) => PublicSchematic({
-            extent: { width: 24, height: 12 },
-            items: { ovens: Schematic.items($.let(Data.bind(lineOvens)), { name: "Oven", icon: "fire-burner", x: "x", y: "y", label: "name" }) },
-            links: { ducts: Schematic.links($.let(Data.bind(joinedDucts)), { name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" } }) },
+        assert.doesNotThrow(() => East.function([], UIComponentType, ($) => {
+            const ovens = $.let(Data.bind(lineOvens));
+            const ducts = $.let(Data.bind(joinedDucts));
+            return PublicSchematic({
+                extent: { width: 24, height: 12 },
+                items: { ovens: Schematic.items(ovens, { name: "Oven", icon: "fire-burner", x: "x", y: "y", label: "name" }) },
+                links: { ducts: Schematic.links(ducts, { name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" } }) },
+            });
         }));
     });
 
     test("editable items keyed by any type need no `key`: a new item's is typed in the inspector", () => {
-        East.function([], UIComponentType, ($) => PublicSchematic({
-            extent: { width: 16, height: 10 },
-            items: { spots: Schematic.items($.let(Record.bind(placedSpots)), { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name" }) },
+        assert.doesNotThrow(() => East.function([], UIComponentType, ($) => {
+            const spots = $.let(Record.bind(placedSpots));
+            return PublicSchematic({
+                extent: { width: 16, height: 10 },
+                items: { spots: Schematic.items(spots, { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name" }) },
+            });
         }));
     });
 });
@@ -830,7 +854,7 @@ describe("a new row's key: a kind's `key` builds it from its row (#1549)", () =>
 
 describe("the rail's sources may be over records keyed by any type, their shown keys their text (#1549)", () => {
     test("the ovens read through their source, their cards and a tab following theirs, each over a record keyed by number", () => {
-        East.function([], UIComponentType, ($) => {
+        assert.doesNotThrow(() => East.function([], UIComponentType, ($) => {
             const slice = $.let(Slice.bindRecords("schematic.keys.spec.rail", {
                 ovens: { source: Data.bindPaged(lineOvens, { indexes: ["schematic_keys_spec_ovens_by_name"] }) },
                 ovenCards: { source: Data.bindPaged(lineCards, { indexes: ["schematic_keys_spec_cards_by_name"] }), fields: { name: { label: "Name" } } },
@@ -849,6 +873,6 @@ describe("the rail's sources may be over records keyed by any type, their shown 
                     PublicSchematic.library.tab(cards.read(), { name: "Cards", label: (card, key) => East.str`${card.name} ${key}`, source: "ovenCards" }),
                 ],
             });
-        });
+        }));
     });
 });
