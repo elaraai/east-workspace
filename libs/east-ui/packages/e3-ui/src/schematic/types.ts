@@ -706,6 +706,8 @@ const RowsOf = <E extends StructType>(entry: E) => FunctionType([], OptionType(D
  * @property create - A new row at a position, every other field from a template's values or its type's default; `none` as `write` refuses
  * @property templates - Its templates
  * @property templatesSource - The slice's source its templates list names
+ * @property rowKey - A new item's key's text, from its row's bytes — the kind's `key` (#1549): what a drop makes one under, and
+ *   what an item moves to as an edit changes what it reads; `none` without `key`
  * @property keyType - Its record's key type (#1549): every key on the wire is its text, a String key as itself and any other as East prints it
  */
 export const SchematicItemKindType = StructType({
@@ -721,6 +723,7 @@ export const SchematicItemKindType = StructType({
     create: FunctionType([OptionType(SchematicPointType), OptionType(BlobType)], OptionType(BlobType)),
     templates: ArrayType(SchematicTemplateType),
     templatesSource: OptionType(StringType),
+    rowKey: OptionType(FunctionType([BlobType], StringType)),
     keyType: EastTypeType,
 });
 
@@ -759,6 +762,8 @@ export type SchematicZoneKindType = typeof SchematicZoneKindType;
  * @property create - A new link between two items, every other field from a template's values, the kind's `values` of its ends with none selected (#1526), or its type's default; `none` as `write` refuses
  * @property templates - Its templates, which retype a link they are dropped on
  * @property templatesSource - The slice's source its templates list names
+ * @property rowKey - A new link's key's text, from its row's bytes — the kind's `key` (#1549): what Connect makes one under,
+ *   and what a link moves to as a Retarget changes what it reads; `none` without `key`
  * @property keyType - Its record's key type (#1549), as an item kind's
  */
 export const SchematicLinkKindType = StructType({
@@ -770,6 +775,7 @@ export const SchematicLinkKindType = StructType({
     create: FunctionType([SchematicEndsType, OptionType(BlobType)], OptionType(BlobType)),
     templates: ArrayType(SchematicTemplateType),
     templatesSource: OptionType(StringType),
+    rowKey: OptionType(FunctionType([BlobType], StringType)),
     keyType: EastTypeType,
 });
 
@@ -786,6 +792,8 @@ export type SchematicLinkKindType = typeof SchematicLinkKindType;
  * @property create - A new net, every other field from a template's values, the kind's `values` of its sides with none selected (#1526), or its type's default; `none` as `write` refuses
  * @property templates - Its templates
  * @property templatesSource - The slice's source its templates list names
+ * @property rowKey - A new net's key's text, from its row's bytes — the kind's `key` (#1549): what Connect's Shift session makes
+ *   one under, and what a net moves to as an edit of its sides changes what it reads; `none` without `key`
  * @property keyType - Its record's key type (#1549), as an item kind's
  */
 export const SchematicNetKindType = StructType({
@@ -797,6 +805,7 @@ export const SchematicNetKindType = StructType({
     create: FunctionType([SchematicSidesType, OptionType(BlobType)], OptionType(BlobType)),
     templates: ArrayType(SchematicTemplateType),
     templatesSource: OptionType(StringType),
+    rowKey: OptionType(FunctionType([BlobType], StringType)),
     keyType: EastTypeType,
 });
 

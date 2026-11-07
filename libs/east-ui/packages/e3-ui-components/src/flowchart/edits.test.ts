@@ -21,21 +21,35 @@
  * transition connected, written, deleted and given a card's values; a decision
  * deleted, cleared from the transitions naming it; a new row's key moving the
  * rows that name it; and a kind read only taking no gesture of its own, and
- * left as it is where another's reaches it. Each edit is read as a line, its
- * writes printed through East.
+ * left as it is where another's reaches it. A new row's key is its kind's —
+ * made up, given, still being read, or refused as built under a key held or of
+ * a type the form can't type; a row under a placeholder takes no row into it or
+ * onto it until its key is typed; and a key built from a row follows the row,
+ * what names it following in turn, refused where another row holds it (#1549).
+ * Each edit is read as a line, its writes printed through East.
  *
  * @packageDocumentation
  */
 
 import { describe, expect, test } from "vitest";
-import { none, some } from "@elaraai/east";
+import { DateTimeType, StringType, StructType, equalFor, none, printFor, some, toEastTypeValue } from "@elaraai/east";
+import type { FlowchartEdit, FlowchartMove } from "./editing.js";
 import {
     EDIT_ORIGIN, addLane, addState, between, connect, deleteDecision, deleteLane, deleteLink, deleteStates, dropLane, dropState, dropTransition,
-    duplicateState, editLink, moveStates, numberedKey, rekey, renameLane, renameState, setRow, uniqueKey,
+    duplicateState, editLink, followBuiltKeys, moveStates, numberedKey, rekey, renameLane, renameState, setRow, uniqueKey,
 } from "./edits.js";
-import { ALL_LANE_KEY, NO_LANE_KEY } from "./model.js";
+import { kindKeys } from "../shared/schedule/kind-keys.js";
+import { ALL_LANE_KEY, NO_LANE_KEY, STRING_KIND_KEYS } from "./model.js";
 import type { FlowchartSort } from "./read.js";
-import { bytes, decisionRow, holdingOf, laneRow, lines, optionBytes, rowsOf, stateRow, transitionRow, transitionWrite, w } from "./rows.test-utils.js";
+import { bytes, decisionRow, holdingOf, laneRow, line, lines, optionBytes, rowsOf, stateRow, transitionRow, transitionWrite, w } from "./rows.test-utils.js";
+
+const keyEqual = equalFor(StringType);
+
+/** A transition's key built from its ends — as a kind's `key` builds a struct key — printed through East. */
+const moveKey = printFor(StructType({ from: StringType, to: StringType }));
+
+/** A DateTime key, printed through East: the key of a row keyed by DateTime. */
+const early = printFor(DateTimeType)(new Date("2026-11-07T06:00:00.000Z"));
 
 /** A card's values, as a drop hands them over. */
 const CARD = new Uint8Array([1, 2, 3]);
@@ -199,6 +213,164 @@ describe("a new row's key, and a row whole", () => {
 
     test("a row whole, as a kind's own Details hand it back", () => {
         expect(lines(setRow(H, "states", "SRD", CARD))?.edits).toEqual([`row states SRD ${bytes(CARD)}`]);
+    });
+});
+
+describe("a new row's key is its kind's (#1549)", () => {
+    test("keyed by String, the text the gesture makes up — + STATE given no key among them, state-<n> past the states' count", () => {
+        expect(lines(addState(H, "sort", undefined, "Scanned"))).toEqual({ edits: [`createState state-4 ${w.state("Scanned", "sort", 3)} ${optionBytes(none)}`], key: "state-4" });
+    });
+
+    test("each gesture adding a row asks its kind for the key, handing it the row it makes under none, and takes the key it gives — one past the largest, say", () => {
+        const asked: string[] = [];
+        const holding = holdingOf(SORT, { newKey: (sort, made) => { asked.push(`${sort}: ${line(made)}`); return { key: "7" }; } });
+        const ends = transitionWrite({ from: some("SRD"), to: some("IND"), decision: none });
+        expect([
+            addLane(holding, (n) => `Lane ${n}`), dropLane(holding, 3, CARD), addState(holding, "hold", undefined, "Held"), dropState(holding, "hold", 0, CARD),
+            duplicateState(holding, "CH*"), connect(holding, "SRD", "IND"),
+        ].map(lines)).toEqual([
+            { edits: [`createLane 7 ${w.lane("Lane 4", 4)} ${optionBytes(none)}`], key: "7" },
+            { edits: [`createLane 7 ${w.lane(undefined, 4)} ${optionBytes(some(CARD))}`], key: "7" },
+            { edits: [`createState 7 ${w.state("Held", "hold", 1)} ${optionBytes(none)}`], key: "7" },
+            { edits: [`createState 7 ${w.state(undefined, "hold", 1)} ${optionBytes(some(CARD))}`], key: "7" },
+            { edits: ["copy states 7 from CH* at 1.5"], key: "7" },
+            { edits: [`createTransition 7 ${ends} ${optionBytes(none)}`], key: "7" },
+        ]);
+        expect(asked).toEqual([
+            `lanes: createLane  ${w.lane("Lane 4", 4)} ${optionBytes(none)}`,
+            `lanes: createLane  ${w.lane(undefined, 4)} ${optionBytes(some(CARD))}`,
+            `states: createState  ${w.state("Held", "hold", 1)} ${optionBytes(none)}`,
+            `states: createState  ${w.state(undefined, "hold", 1)} ${optionBytes(some(CARD))}`,
+            "states: copy states  from CH* at 1.5",
+            `transitions: createTransition  ${ends} ${optionBytes(none)}`,
+        ]);
+    });
+
+    test("a key still being read — an Integer kind read through its source asking its record for its largest — records nothing yet; one built that a row holds, or a kind adding none, refuses the gesture, saying why, with no edits", () => {
+        const reading = holdingOf(SORT, { newKey: () => undefined });
+        expect([addLane(reading, (n) => `Lane ${n}`), dropState(reading, "hold", 0, CARD), connect(reading, "SRD", "IND")]).toEqual([undefined, undefined, undefined]);
+        const built = holdingOf(SORT, { newKey: () => ({ taken: moveKey({ from: "SRD", to: "IND" }) }) });
+        expect(connect(built, "SRD", "IND")).toEqual({ edits: [], refused: { refusal: "taken", sort: "transitions", key: moveKey({ from: "SRD", to: "IND" }) } });
+        const blobs = holdingOf(SORT, { newKey: () => ({ untyped: "Blob" }) });
+        expect(addLane(blobs, (n) => `Lane ${n}`)).toEqual({ edits: [], refused: { refusal: "untyped", sort: "lanes", type: "Blob" } });
+        expect(duplicateState(blobs, "SRD")).toEqual({ edits: [], refused: { refusal: "untyped", sort: "states", type: "Blob" } });
+    });
+});
+
+describe("a row under a placeholder, its key still to be typed (#1549)", () => {
+    test("a lane takes no state until its key is typed — + STATE, typed or not, a card dropped, a move — refused, naming it; a lane under a key takes them", () => {
+        const shifts = holdingOf(rowsOf({
+            lanes: [laneRow(early, "Early", 1), laneRow("lane-2", "Lane 2", 2)],
+            states: [stateRow("IND", "Inducting", { lane: early, order: 1 }), stateRow("SRD", "Sorted", { lane: early, order: 2 })],
+            keys: { ...STRING_KIND_KEYS, lanes: kindKeys(toEastTypeValue(DateTimeType)) },
+        }));
+        const refused = { edits: [], refused: { refusal: "placeholder", sort: "lanes", key: "lane-2" } };
+        expect([addState(shifts, "lane-2", undefined, "New"), addState(shifts, "lane-2", "NEW", "New"), dropState(shifts, "lane-2", 0, CARD), moveStates(shifts, ["SRD"], "lane-2")])
+            .toEqual([refused, refused, refused, refused]);
+        expect(lines(addState(shifts, early, undefined, "New"))).toEqual({ edits: [`createState state-3 ${w.state("New", early, 3)} ${optionBytes(none)}`], key: "state-3" });
+        expect(lines(moveStates(shifts, ["SRD"], early, 0))?.edits).toEqual([`writeState SRD ${w.state(undefined, early, 0)}`]);
+    });
+
+    test("a state takes no transition to or from it until its key is typed — Connect, an end the inspector writes — and is moved, duplicated and deleted as any other", () => {
+        const stamped = holdingOf(rowsOf({
+            states: [stateRow(early, "Early", { order: 1 }), stateRow("state-2", "New", { order: 2 })],
+            transitions: [transitionRow("t1", early, early)],
+            keys: { ...STRING_KIND_KEYS, states: kindKeys(toEastTypeValue(DateTimeType)) },
+        }));
+        const refused = { edits: [], refused: { refusal: "placeholder", sort: "states", key: "state-2" } };
+        expect([
+            connect(stamped, "state-2", early), connect(stamped, early, "state-2"),
+            editLink(stamped, "t1", { from: some("state-2"), to: none, decision: none }), editLink(stamped, "t1", { from: none, to: some("state-2"), decision: none }),
+        ]).toEqual([refused, refused, refused, refused]);
+        expect(lines(connect(stamped, early, early))?.key).toBe("t-new");
+        expect(lines(editLink(stamped, "t1", { from: none, to: none, decision: some(none) }))?.edits).toEqual([`writeTransition t1 ${transitionWrite({ from: none, to: none, decision: some(none) })}`]);
+        expect(lines(moveStates(stamped, ["state-2"], ALL_LANE_KEY, 0))?.edits).toEqual([`writeState state-2 ${w.state(undefined, undefined, 0)}`]);
+        expect(lines(duplicateState(stamped, "state-2"))?.key).toBe("state-2-2");
+        expect(lines(deleteStates(stamped, ["state-2"]))?.edits).toEqual(["remove states state-2"]);
+    });
+});
+
+describe("a key built from the row follows the row (#1549)", () => {
+    /** States keyed by their labels and transitions by their ends: each kind's `key` building it from the row. */
+    const BUILT = rowsOf({
+        lanes: SORT.lanes,
+        states: [stateRow("Inducting", "Inducting", { lane: "induct", order: 1 }), stateRow("Sorted", "Sorted", { lane: "sort", order: 1 })],
+        transitions: [
+            transitionRow(moveKey({ from: "Inducting", to: "Sorted" }), "Inducting", "Sorted"),
+            transitionRow(moveKey({ from: "Sorted", to: "Sorted" }), "Sorted", "Sorted"),
+        ],
+    });
+
+    /**
+     * The rows a gesture moves, as `editing.ts`' `moves` finds them over BUILT: a state it finds held, written a label
+     * that is not its key, moves under it; a transition it finds held, written an end, under its ends.
+     *
+     * @param edits - The gesture's edits
+     * @returns The rows moved
+     */
+    function builtMoves(edits: readonly FlowchartEdit[]): FlowchartMove[] {
+        const out: FlowchartMove[] = [];
+        for (const edit of edits) {
+            if (edit.op === "writeState" && edit.write.label.type === "some") {
+                const held = BUILT.states.find((state) => keyEqual(state.key, edit.key));
+                if (held !== undefined && !keyEqual(held.key, edit.write.label.value)) out.push({ sort: "states", key: held.key, to: edit.write.label.value });
+            } else if (edit.op === "writeTransition") {
+                const held = BUILT.transitions.find((transition) => keyEqual(transition.key, edit.key));
+                if (held === undefined) continue;
+                const to = moveKey({
+                    from: edit.write.from.type === "some" ? edit.write.from.value : held.roles.from,
+                    to: edit.write.to.type === "some" ? edit.write.to.value : held.roles.to,
+                });
+                if (!keyEqual(held.key, to)) out.push({ sort: "transitions", key: held.key, to });
+            }
+        }
+        return out;
+    }
+
+    test("a gesture moving no row is as it was", () => {
+        const holding = holdingOf(BUILT, { moves: builtMoves });
+        const moved = renameLane(holding, "sort", "Sorting")!;
+        expect(followBuiltKeys(holding, moved)).toBe(moved);
+    });
+
+    test("a rename moves the state under the key its label builds — copied first, so the rename writes it there — and what names it follows, each transition moving in turn under the ends it is written", () => {
+        const holding = holdingOf(BUILT, { moves: builtMoves });
+        const followed = followBuiltKeys(holding, renameState(holding, "Sorted", "Done")!);
+        const IS = moveKey({ from: "Inducting", to: "Sorted" }), SS = moveKey({ from: "Sorted", to: "Sorted" });
+        const ID = moveKey({ from: "Inducting", to: "Done" }), DD = moveKey({ from: "Done", to: "Done" });
+        expect(lines(followed)?.edits).toEqual([
+            `copy transitions ${ID} from ${IS}`, `copy transitions ${DD} from ${SS}`,
+            "copy states Done from Sorted",
+            `writeState Done ${w.state("Done", undefined, undefined)}`,
+            "remove states Sorted",
+            `writeTransition ${ID} ${transitionWrite({ from: none, to: some("Done"), decision: none })}`,
+            `writeTransition ${DD} ${transitionWrite({ from: some("Done"), to: some("Done"), decision: none })}`,
+            `remove transitions ${IS}`, `remove transitions ${SS}`,
+        ]);
+        expect(followed.moved).toEqual([
+            { sort: "states", key: "Sorted", to: "Done" }, { sort: "transitions", key: IS, to: ID }, { sort: "transitions", key: SS, to: DD },
+        ]);
+    });
+
+    test("a key another row stands under refuses the gesture, naming it, with no edits — as do two rows moving under one; a key whose row a draft deletes stands free", () => {
+        const holding = holdingOf(BUILT, { moves: builtMoves });
+        const IS = moveKey({ from: "Inducting", to: "Sorted" }), SS = moveKey({ from: "Sorted", to: "Sorted" });
+        expect(followBuiltKeys(holding, renameState(holding, "Sorted", "Inducting")!)).toEqual({ edits: [], refused: { refusal: "taken", sort: "states", key: "Inducting" } });
+        const sorted = { from: some("Sorted"), to: none, decision: none };
+        expect(followBuiltKeys(holding, editLink(holding, IS, sorted)!)).toEqual({ edits: [], refused: { refusal: "taken", sort: "transitions", key: SS } });
+        const both = holdingOf(BUILT, { moves: () => [{ sort: "transitions", key: IS, to: "x" }, { sort: "transitions", key: SS, to: "x" }] });
+        expect(followBuiltKeys(both, deleteLink(both, IS)!)).toEqual({ edits: [], refused: { refusal: "taken", sort: "transitions", key: "x" } });
+        // The transition Sorted → Sorted deleted by a draft: its key stands free, and a row built under it takes it back.
+        const freed = holdingOf(BUILT, { moves: builtMoves, stands: (sort, key) => sort !== "transitions" || keyEqual(key, IS) });
+        expect(lines(followBuiltKeys(freed, editLink(freed, IS, sorted)!))?.edits).toEqual([
+            `copy transitions ${SS} from ${IS}`, `writeTransition ${SS} ${transitionWrite(sorted)}`, `remove transitions ${IS}`,
+        ]);
+    });
+
+    test("a gesture refused is as it was", () => {
+        const holding = holdingOf(BUILT, { moves: () => { throw new Error("asked"); } });
+        const refused = { edits: [], refused: { refusal: "untyped", sort: "lanes", type: "Blob" } } as const;
+        expect(followBuiltKeys(holding, refused)).toBe(refused);
     });
 });
 

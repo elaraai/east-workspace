@@ -35,6 +35,17 @@
  * - **A new row's key**, changed in the form before Save, moves the row to it,
  *   and the transitions naming a state, or the states naming a lane, follow
  *   (R9).
+ * - **A new row's key is its kind's** (#1549, `editing.ts`' `newKey`): the
+ *   text above where it is keyed by String; built from the row by its kind's
+ *   `key`, a gesture refused that builds one a row holds; one past the largest
+ *   by Integer; and by any other type a placeholder, made up as the text above,
+ *   until the viewer types it — a gesture naming that row in another row's
+ *   field refused until then. A kind whose key type the form can't type, and
+ *   that builds none, adds no row: the gesture says why.
+ * - **A key built from the row follows the row** (#1549, `followBuiltKeys`):
+ *   a gesture writing the fields its kind's `key` reads moves the row under the
+ *   key they build, and what names the row follows — refused, naming the row,
+ *   where another row holds that key.
  *
  * A kind read only takes no gesture of its own (R13). Where a gesture reaches
  * past its own kind — the transitions a state's Del deletes, the queues it
@@ -51,7 +62,7 @@
 
 import { StringType, equalFor, none, some } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
-import type { FlowchartEdit, FlowchartFieldWrites, FlowchartTransitionWrite } from "./editing.js";
+import type { FlowchartEdit, FlowchartFieldWrites, FlowchartMove, FlowchartNewKey, FlowchartTransitionWrite } from "./editing.js";
 import type { FlowchartWaiting } from "./drafted.js";
 import type { FlowchartModel, FlowchartRow, FlowchartRows, FlowchartTransitionRoles, ModelNode } from "./model.js";
 import type { FlowchartSort } from "./read.js";
@@ -109,6 +120,13 @@ export interface FlowchartHolding {
      */
     readonly taken: (sort: FlowchartSort, key: string) => boolean;
     /**
+     * Whether a row of a kind stands under a key (#1549): one a draft deletes stands free.
+     *
+     * @param sort - The kind
+     * @param key - The key
+     */
+    readonly stands: (sort: FlowchartSort, key: string) => boolean;
+    /**
      * A new transition's key, unique among the transitions' and those given.
      *
      * @param minted - The keys the gesture has minted already
@@ -118,7 +136,32 @@ export interface FlowchartHolding {
     readonly unqueues: boolean;
     /** Whether the lanes' order takes a whole number alone: an Integer field. */
     readonly wholeLaneOrders: boolean;
+    /**
+     * A new row's key, as its kind makes one (#1549; `editing.ts`' `newKey`).
+     *
+     * @param sort - The row's kind
+     * @param made - The edit making the row, under any key
+     * @param madeUp - The text the gesture makes up, unique by what it is told is taken
+     * @param minted - The keys the gesture has made already
+     */
+    readonly newKey: (sort: FlowchartSort, made: FlowchartEdit, madeUp: (taken: (key: string) => boolean) => string,
+        minted?: ReadonlySet<string>) => FlowchartNewKey | undefined;
+    /**
+     * The rows a gesture moves under the keys their fields build once it writes them (#1549; `editing.ts`' `moves`).
+     *
+     * @param edits - The gesture's edits
+     */
+    readonly moves: (edits: readonly FlowchartEdit[]) => FlowchartMove[];
 }
+
+/** Why a gesture records nothing (#1549), as the footer says it. */
+export type FlowchartRefusal =
+    /** The key a row builds is held already, by the row of that key. */
+    | { readonly refusal: "taken"; readonly sort: FlowchartSort; readonly key: string }
+    /** It names a row held under a placeholder, in another row's field: that row's key is still to be typed. */
+    | { readonly refusal: "placeholder"; readonly sort: FlowchartSort; readonly key: string }
+    /** Its kind's keys are of a type the form can't type, by the type's name, and its kind builds none. */
+    | { readonly refusal: "untyped"; readonly sort: FlowchartSort; readonly type: string };
 
 /** One gesture's edits, and the key of the row it adds, if it adds one. */
 export interface GestureEdits {
@@ -126,6 +169,39 @@ export interface GestureEdits {
     readonly edits: readonly FlowchartEdit[];
     /** The key of the row it adds. */
     readonly key?: string | undefined;
+    /** Why it records nothing, as the footer says it (#1549): its edits none. */
+    readonly refused?: FlowchartRefusal | undefined;
+    /** The rows it moves under the keys their fields now build (#1549): where what is selected follows them. */
+    readonly moved?: readonly FlowchartMove[] | undefined;
+}
+
+/** A gesture refused, saying why. */
+function refusedFor(refusal: FlowchartRefusal): GestureEdits {
+    return { edits: [], refused: refusal };
+}
+
+/** Whether a key of a kind is a placeholder's — a new row's whose key is still to be typed (#1549). */
+function placeholderOf(holding: FlowchartHolding, sort: FlowchartSort, key: string): boolean {
+    return !holding.model.keys[sort].isKey(key);
+}
+
+/**
+ * A new row's key, as its kind makes it (#1549), or why the gesture records
+ * nothing.
+ *
+ * @param holding - What the gesture reads
+ * @param sort - The row's kind
+ * @param made - The edit making the row, under any key
+ * @param madeUp - The text the gesture makes up, unique by what it is told is taken
+ * @returns The key, or the refusal; `undefined` while the key is still to be read
+ */
+function newRowKey(holding: FlowchartHolding, sort: FlowchartSort, made: FlowchartEdit,
+    madeUp: (taken: (key: string) => boolean) => string): { readonly key: string } | { readonly refused: FlowchartRefusal } | undefined {
+    const keyed = holding.newKey(sort, made, madeUp);
+    if (keyed === undefined) return undefined;
+    if ("taken" in keyed) return { refused: { refusal: "taken", sort, key: keyed.taken } };
+    if ("untyped" in keyed) return { refused: { refusal: "untyped", sort, type: keyed.untyped } };
+    return keyed;
 }
 
 /**
@@ -287,9 +363,13 @@ function appLanes(model: FlowchartModel): Placed[] {
 export function addLane(holding: FlowchartHolding, label: (n: number) => string): GestureEdits | undefined {
     if (!holding.can("lanes")) return undefined;
     const lanes = appLanes(holding.model);
-    const { key, n } = numberedKey("lane", lanes.length + 1, (k) => holding.taken("lanes", k));
+    const { n } = numberedKey("lane", lanes.length + 1, (k) => holding.taken("lanes", k));
     const { order } = between(lanes, lanes.length, holding.wholeLaneOrders);
-    return { edits: [{ op: "createLane", key, write: { label: some(label(n)), order: some(order) }, values: none }], key };
+    const write = { label: some(label(n)), order: some(order) };
+    const made = newRowKey(holding, "lanes", { op: "createLane", key: "", write, values: none },
+        (taken) => numberedKey("lane", lanes.length + 1, taken).key);
+    if (made === undefined || "refused" in made) return made === undefined ? undefined : refusedFor(made.refused);
+    return { edits: [{ op: "createLane", key: made.key, write, values: none }], key: made.key };
 }
 
 /**
@@ -304,14 +384,17 @@ export function addLane(holding: FlowchartHolding, label: (n: number) => string)
 export function dropLane(holding: FlowchartHolding, at: number, values: Uint8Array): GestureEdits | undefined {
     if (!holding.can("lanes")) return undefined;
     const lanes = appLanes(holding.model);
-    const { key } = numberedKey("lane", lanes.length + 1, (k) => holding.taken("lanes", k));
     const { order, shifts } = between(lanes, Math.max(0, Math.min(at, lanes.length)), holding.wholeLaneOrders);
+    const write = { label: none, order: some(order) };
+    const made = newRowKey(holding, "lanes", { op: "createLane", key: "", write, values: some(values) },
+        (taken) => numberedKey("lane", lanes.length + 1, taken).key);
+    if (made === undefined || "refused" in made) return made === undefined ? undefined : refusedFor(made.refused);
     return {
         edits: [
-            { op: "createLane", key, write: { label: none, order: some(order) }, values: some(values) },
+            { op: "createLane", key: made.key, write, values: some(values) },
             ...shifts.map((shift): FlowchartEdit => ({ op: "writeLane", key: shift.key, write: { label: none, order: some(shift.order!) } })),
         ],
-        key,
+        key: made.key,
     };
 }
 
@@ -345,20 +428,32 @@ export function deleteLane(holding: FlowchartHolding, key: string): GestureEdits
 
 /**
  * + STATE from a lane's editor: its key and its label, its lane, its order
- * one past the lane's last. A key the flowchart holds already is refused.
+ * one past the lane's last. A key the flowchart holds already is refused. A
+ * key the editor takes no typing of — the states keyed by another type than
+ * String, or building their keys — is the kind's to make, `state-<n>` made up
+ * where it makes one so (#1549).
  *
  * @param holding - What the gesture reads
  * @param band - The band's key
- * @param key - The state's key, as typed
+ * @param key - The state's key, as typed; `undefined` for one the kind makes
  * @param label - Its label
- * @returns Its edits and its key; `undefined` for a key taken, No lane, or while the states take no gesture
+ * @returns Its edits and its key, or why it records nothing; `undefined` for a key taken, No lane, or while the states take no gesture
  */
-export function addState(holding: FlowchartHolding, band: string, key: string, label: string): GestureEdits | undefined {
+export function addState(holding: FlowchartHolding, band: string, key: string | undefined, label: string): GestureEdits | undefined {
     const land = landing(holding.model, band);
-    if (land === undefined || !holding.can("states") || key.length === 0 || holding.taken("states", key)) return undefined;
+    if (land === undefined || !holding.can("states")) return undefined;
+    if (land.lane.type === "some" && placeholderOf(holding, "lanes", land.lane.value)) return refusedFor({ refusal: "placeholder", sort: "lanes", key: land.lane.value });
     const states = bandStates(holding.model, land.index);
     const { order } = between(states, states.length, false);
-    return { edits: [{ op: "createState", key, write: { label: some(label), lane: land.lane, order: some(order) }, values: none }], key };
+    const write = { label: some(label), lane: land.lane, order: some(order) };
+    if (key !== undefined) {
+        if (key.length === 0 || holding.taken("states", key)) return undefined;
+        return { edits: [{ op: "createState", key, write, values: none }], key };
+    }
+    const count = holding.model.nodes.filter((node) => !node.ghost).length;
+    const made = newRowKey(holding, "states", { op: "createState", key: "", write, values: none }, (taken) => numberedKey("state", count + 1, taken).key);
+    if (made === undefined || "refused" in made) return made === undefined ? undefined : refusedFor(made.refused);
+    return { edits: [{ op: "createState", key: made.key, write, values: none }], key: made.key };
 }
 
 /**
@@ -374,11 +469,15 @@ export function addState(holding: FlowchartHolding, band: string, key: string, l
 export function dropState(holding: FlowchartHolding, band: string, at: number, values: Uint8Array): GestureEdits | undefined {
     const land = landing(holding.model, band);
     if (land === undefined || !holding.can("states")) return undefined;
+    if (land.lane.type === "some" && placeholderOf(holding, "lanes", land.lane.value)) return refusedFor({ refusal: "placeholder", sort: "lanes", key: land.lane.value });
     const states = bandStates(holding.model, land.index);
     const count = holding.model.nodes.filter((node) => !node.ghost).length;
-    const { key } = numberedKey("state", count + 1, (k) => holding.taken("states", k));
     const { order } = between(states, Math.max(0, Math.min(at, states.length)), false);
-    return { edits: [{ op: "createState", key, write: { label: none, lane: land.lane, order: some(order) }, values: some(values) }], key };
+    const write = { label: none, lane: land.lane, order: some(order) };
+    const made = newRowKey(holding, "states", { op: "createState", key: "", write, values: some(values) },
+        (taken) => numberedKey("state", count + 1, taken).key);
+    if (made === undefined || "refused" in made) return made === undefined ? undefined : refusedFor(made.refused);
+    return { edits: [{ op: "createState", key: made.key, write, values: some(values) }], key: made.key };
 }
 
 /**
@@ -407,6 +506,7 @@ export function renameState(holding: FlowchartHolding, key: string, label: strin
 export function moveStates(holding: FlowchartHolding, keys: readonly string[], band: string, at?: number): GestureEdits | undefined {
     const land = landing(holding.model, band);
     if (land === undefined || !holding.can("states")) return undefined;
+    if (land.lane.type === "some" && placeholderOf(holding, "lanes", land.lane.value)) return refusedFor({ refusal: "placeholder", sort: "lanes", key: land.lane.value });
     const lifted = new Set(keys);
     const moving = holding.model.nodes
         .filter((node) => !node.ghost && lifted.has(node.key))
@@ -423,7 +523,7 @@ export function moveStates(holding: FlowchartHolding, keys: readonly string[], b
 
 /**
  * Duplicate: the state after itself in its band, under its key made unique,
- * every field as it has them.
+ * every field as it has them — or under the key its kind makes (#1549).
  *
  * @param holding - What the gesture reads
  * @param key - The state's key
@@ -432,11 +532,12 @@ export function moveStates(holding: FlowchartHolding, keys: readonly string[], b
 export function duplicateState(holding: FlowchartHolding, key: string): GestureEdits | undefined {
     const node = holding.model.nodesByKey.get(key);
     if (node === undefined || node.ghost || !holding.can("states")) return undefined;
-    const copy = uniqueKey(key, (k) => holding.taken("states", k));
     const states = bandStates(holding.model, node.laneIndex);
     const at = states.findIndex((state) => keyEqual(state.key, key));
     const { order } = between(states, at + 1, false);
-    return { edits: [{ op: "copy", sort: "states", key: copy, from: key, order }], key: copy };
+    const made = newRowKey(holding, "states", { op: "copy", sort: "states", key: "", from: key, order }, (taken) => uniqueKey(key, taken));
+    if (made === undefined || "refused" in made) return made === undefined ? undefined : refusedFor(made.refused);
+    return { edits: [{ op: "copy", sort: "states", key: made.key, from: key, order }], key: made.key };
 }
 
 /**
@@ -482,17 +583,22 @@ export function deleteStates(holding: FlowchartHolding, keys: readonly string[])
 
 /**
  * Connect: a transition between two states, keyed unique and never drawn —
- * its ends, every other field its type's default.
+ * its ends, every other field its kind's values of them — or keyed as its kind
+ * makes one (#1549). A state under a placeholder takes no transition until its
+ * key is typed.
  *
  * @param holding - What the gesture reads
  * @param from - The state it leaves
  * @param to - The state it enters; `from` itself for one in place
- * @returns Its edits and its key; `undefined` while the transitions take no gesture
+ * @returns Its edits and its key, or why it records nothing; `undefined` while the transitions take no gesture
  */
 export function connect(holding: FlowchartHolding, from: string, to: string): GestureEdits | undefined {
     if (!holding.can("transitions")) return undefined;
-    const key = holding.mintTransition(NO_KEYS);
-    return { edits: [{ op: "createTransition", key, write: { from: some(from), to: some(to), decision: none }, values: none }], key };
+    for (const end of [from, to]) if (placeholderOf(holding, "states", end)) return refusedFor({ refusal: "placeholder", sort: "states", key: end });
+    const write = { from: some(from), to: some(to), decision: none };
+    const made = newRowKey(holding, "transitions", { op: "createTransition", key: "", write, values: none }, () => holding.mintTransition(NO_KEYS));
+    if (made === undefined || "refused" in made) return made === undefined ? undefined : refusedFor(made.refused);
+    return { edits: [{ op: "createTransition", key: made.key, write, values: none }], key: made.key };
 }
 
 /**
@@ -507,6 +613,9 @@ export function connect(holding: FlowchartHolding, from: string, to: string): Ge
 export function editLink(holding: FlowchartHolding, key: string, write: FlowchartTransitionWrite): GestureEdits | undefined {
     if (!holding.can("transitions")) return undefined;
     if (write.from.type === "none" && write.to.type === "none" && write.decision.type === "none") return undefined;
+    for (const end of [write.from, write.to]) {
+        if (end.type === "some" && placeholderOf(holding, "states", end.value)) return refusedFor({ refusal: "placeholder", sort: "states", key: end.value });
+    }
     return { edits: [{ op: "writeTransition", key, write }] };
 }
 
@@ -602,7 +711,22 @@ export function setRow(holding: FlowchartHolding, sort: FlowchartSort, key: stri
  */
 export function rekey(holding: FlowchartHolding, sort: "states" | "lanes", from: string, to: string): GestureEdits | undefined {
     if (!holding.can(sort) || to.length === 0 || keyEqual(from, to) || holding.taken(sort, to)) return undefined;
-    const edits: FlowchartEdit[] = [{ op: "copy", sort, key: to, from }, { op: "remove", sort, key: from }];
+    return { edits: [{ op: "copy", sort, key: to, from }, { op: "remove", sort, key: from }, ...namers(holding, sort, from, to)], key: to };
+}
+
+/**
+ * What names a row moving to a new key, following it: a state's transitions —
+ * those drawn, those hidden with their far end and those waiting — and a
+ * lane's states, drawn and waiting; each while its kind takes a gesture.
+ *
+ * @param holding - What the gesture reads
+ * @param sort - The row's kind
+ * @param from - Its key
+ * @param to - Its new key
+ * @returns The edits writing each one's field naming it to the new key
+ */
+function namers(holding: FlowchartHolding, sort: FlowchartSort, from: string, to: string): FlowchartEdit[] {
+    const edits: FlowchartEdit[] = [];
     if (sort === "states" && holding.can("transitions")) {
         const waiting = holding.waiting.flatMap((row) => (row.sort === "transitions" ? [{ key: row.key, roles: row.roles }] : []));
         for (const transition of [...heldTransitions(holding), ...waiting]) {
@@ -624,5 +748,58 @@ export function rekey(holding: FlowchartHolding, sort: "states" | "lanes", from:
             }
         }
     }
-    return { edits, key: to };
+    return edits;
+}
+
+/** The kind an edit writes a row of. */
+function sortOfEdit(edit: FlowchartEdit): FlowchartSort {
+    switch (edit.op) {
+        case "createState": case "writeState": return "states";
+        case "createTransition": case "writeTransition": case "retypeTransition": return "transitions";
+        case "createLane": case "writeLane": return "lanes";
+        case "unqueue": return "decisions";
+        default: return edit.sort;
+    }
+}
+
+/** How many times a row's move can reach another's: a lane's to its states', a state's to its transitions'. */
+const FOLLOWS = 4;
+
+/**
+ * A gesture's edits with each row whose kind builds its key from its row
+ * moved under the key its fields build once the gesture writes them (#1549):
+ * the row copied under its new key before any of its edits, so each writes it
+ * there; then gone from its old key; then what names it following — a lane's
+ * states, a state's transitions — whose own keys, built from what they name,
+ * move them in turn. A key another row holds, or another moving row takes,
+ * refuses the gesture, naming that key.
+ *
+ * @param holding - What the gesture reads
+ * @param made - The gesture's edits
+ * @returns The edits with every move, and the rows moved; the refusal, with no edits, where a key is taken
+ */
+export function followBuiltKeys(holding: FlowchartHolding, made: GestureEdits): GestureEdits {
+    if (made.refused !== undefined || made.edits.length === 0) return made;
+    let edits = made.edits;
+    const moved: FlowchartMove[] = [];
+    for (let pass = 0; pass < FOLLOWS; pass++) {
+        const moves = holding.moves(edits);
+        if (moves.length === 0) break;
+        for (const move of moves) {
+            const both = moves.some((other) => other !== move && other.sort === move.sort && keyEqual(other.to, move.to));
+            if (both || holding.stands(move.sort, move.to)) return refusedFor({ refusal: "taken", sort: move.sort, key: move.to });
+        }
+        const to = (sort: FlowchartSort, key: string) => moves.find((move) => move.sort === sort && keyEqual(move.key, key))?.to;
+        edits = [
+            ...moves.map((move): FlowchartEdit => ({ op: "copy", sort: move.sort, key: move.to, from: move.key })),
+            ...edits.map((edit): FlowchartEdit => {
+                const moving = edit.op === "copy" || edit.op === "remove" ? undefined : to(sortOfEdit(edit), edit.key);
+                return moving === undefined ? edit : { ...edit, key: moving };
+            }),
+            ...moves.map((move): FlowchartEdit => ({ op: "remove", sort: move.sort, key: move.key })),
+            ...moves.flatMap((move) => namers(holding, move.sort, move.key, move.to)),
+        ];
+        moved.push(...moves);
+    }
+    return moved.length === 0 ? made : { ...made, edits, moved };
 }

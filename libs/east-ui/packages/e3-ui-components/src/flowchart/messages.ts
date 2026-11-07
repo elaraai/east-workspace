@@ -82,11 +82,27 @@ export type FlowchartDropWhatWord =
 /**
  * Why a drop is refused: not onto what the card lands on; or its kind's
  * record takes no edit — read only, or its session busy — the kind as one of
- * its rows is called, `state`.
+ * its rows is called, `state`; or its kind adds no row, its keys of a type the
+ * form can't type, by the type's name; or the lane it lands in is held under a
+ * placeholder, its key still to be typed — by what a lane is called (#1549).
  */
 export type FlowchartDropRefusalWord =
     | { readonly why: "onto"; readonly lands: FlowchartLandsWord }
-    | { readonly why: "readOnly" | "busy"; readonly kind: string };
+    | { readonly why: "readOnly" | "busy"; readonly kind: string }
+    | { readonly why: "untyped"; readonly kind: string; readonly type: string }
+    | { readonly why: "placeholder"; readonly kind: string };
+
+/**
+ * Why a gesture records nothing (#1549), as the footer says it: the row
+ * holding the key a row builds — a transition by its ends' names, any other row
+ * by its own; a row named in another's field while its key is still to be
+ * typed; and a kind adding no row, its keys of a type the form can't type.
+ */
+export type FlowchartRefusalWord =
+    | { readonly refusal: "taken"; readonly sort: FlowchartSort; readonly name: string }
+    | { readonly refusal: "taken"; readonly sort: "transitions"; readonly from: string; readonly to: string }
+    | { readonly refusal: "placeholder"; readonly sort: FlowchartSort }
+    | { readonly refusal: "untyped"; readonly sort: FlowchartSort; readonly type: string };
 
 /**
  * What the inspector shows, in its head and on its rail: one row, by its
@@ -309,6 +325,16 @@ export interface FlowchartMessages extends EditingMessages, HiddenWords, PagedLo
     inspectorAction: (p: { action: "duplicate" | "delete" }) => string;
     /** Why a key typed in the inspector is refused, in the footer — `Every state needs a key`, `A lane is keyed "ld" already`; `name` as a sentence says it. */
     inspectorKeyRefused: (p: { name: string; key: string; why: "empty" | "taken" }) => string;
+    /**
+     * Why a kind adds no row (#1549) — on Duplicate's off line, "+ LANE"'s and "+ STATE"'s tooltips, a drop and the
+     * footer: `Stations are keyed by Blob, which can't be typed — give the kind `key` to add them`; `name` as a
+     * sentence says one of its rows, `type` its key type's name.
+     */
+    keysUntyped: (p: { name: string; type: string }) => string;
+    /** A new row held under a placeholder, its key still to be typed (#1549) — `Type this lane's key: Save waits for it`. */
+    keyPlaceholder: (p: { sort: FlowchartSort }) => string;
+    /** Why a gesture records nothing (#1549), in the footer — `A move from Mix to Proof is there already`, `Type the new lane's key first`. */
+    gestureRefused: (p: FlowchartRefusalWord) => string;
     /** How many states a lane holds — `Holds 3 states`; `name` as a sentence says it. */
     inspectorLaneStates: (p: { n: number; count: string; name: string }) => string;
     /** A key no state is keyed by, which transitions name — `Named by 2 transitions, and e3 holds no state keyed "GONE"`. */
@@ -366,6 +392,9 @@ const capital = (name: string): string => `${name.charAt(0).toUpperCase()}${name
 
 /** A noun with its article, as a sentence takes it — `a state`, `an order`. */
 const aNoun = (noun: string): string => `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
+
+/** Why a kind adds no row (#1549): its rows' name as a sentence says one, and its key type's name. */
+const keysUntyped = (name: string, type: string): string => `${capital(kindPlural(name))} are keyed by ${type}, which can't be typed — give the kind \`key\` to add them`;
 
 /** Each field's label in the inspector's own forms. */
 const FIELDS: { readonly [F in Exclude<FlowchartFieldWord, "moveTo">]: string } = {
@@ -568,8 +597,15 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
             }
         },
         dropOnto: ({ what }) => `onto ${what}`,
-        dropRefused: (p) => (p.why === "onto" ? `Drop ${LANDS[p.lands]}`
-            : p.why === "readOnly" ? `${capital(kindPlural(p.kind))} are read only` : `${capital(kindPlural(p.kind))} take no edit now`),
+        dropRefused: (p) => {
+            switch (p.why) {
+                case "onto": return `Drop ${LANDS[p.lands]}`;
+                case "readOnly": return `${capital(kindPlural(p.kind))} are read only`;
+                case "busy": return `${capital(kindPlural(p.kind))} take no edit now`;
+                case "untyped": return keysUntyped(p.kind, p.type);
+                case "placeholder": return `Type the new ${p.kind}'s key first`;
+            }
+        },
         dropCanvas: () => "the canvas",
         dropLabel: ({ card, onto }) => `Drop ${card} on ${onto}`,
         inspectorPane: () => "Inspector",
@@ -597,6 +633,17 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
         inspectorChip: ({ state: chip }) => CHIPS[chip],
         inspectorAction: ({ action }) => (action === "duplicate" ? "Duplicate" : "Delete"),
         inspectorKeyRefused: ({ name, key, why }) => (why === "empty" ? `Every ${name} needs a key` : `${capital(aNoun(name))} is keyed ${quoted(key)} already`),
+        keysUntyped: ({ name, type }) => keysUntyped(name, type),
+        keyPlaceholder: ({ sort }) => `Type this ${ONE[sort]}'s key: Save waits for it`,
+        gestureRefused: (p) => {
+            switch (p.refusal) {
+                case "taken": return "from" in p
+                    ? `${capital(aNoun(transition))} from ${p.from} to ${p.to} is there already`
+                    : `${capital(aNoun(ONE[p.sort]))} ${p.name} is there already`;
+                case "placeholder": return `Type the new ${ONE[p.sort]}'s key first`;
+                case "untyped": return keysUntyped(ONE[p.sort], p.type);
+            }
+        },
         inspectorLaneStates: ({ n, count, name }) => (n === 0 ? `Holds no ${name}` : `Holds ${count} ${counted(n, name)}`),
         inspectorNoRow: ({ n, count, key, state: one, transition: link }) => `Named by ${count} ${counted(n, link)}, and e3 holds no ${one} keyed ${quoted(key)}`,
         inspectorCount: ({ name, n }) => counted(n, name),

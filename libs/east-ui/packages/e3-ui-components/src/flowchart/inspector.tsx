@@ -17,7 +17,9 @@
  * (`details-pane.tsx`, R35, R36) — then:
  *
  * - **a state**: its key, printed — a new state's the viewer's to change until
- *   Save, the transitions naming it following (R9) — its label and its lane,
+ *   Save, the transitions naming it following (R9), in the form's own editor
+ *   for its key type: a struct key's fields, a date's input, a number's
+ *   (#1549); a key its kind builds from the row is printed — its label and its lane,
  *   the lane chosen from the lanes, each written as the canvas's rename and
  *   move write them (R8); its kind's form over the fields no role writes, or
  *   its kind's own Details in the form's place; Duplicate and Delete; and its
@@ -93,6 +95,7 @@ import {
     deleteDecision, deleteLane, deleteLink, deleteStates, duplicateState, editLink, moveStates, rekey, renameLane, renameState, setFields, setRow,
     type FlowchartGesture, type FlowchartHolding, type GestureEdits,
 } from "./edits.js";
+import { keyEdited, keyFieldSpecs, type KindKeys } from "../shared/schedule/kind-keys.js";
 import type { FlowchartLastSaves } from "./footer.js";
 import type { FlowchartIssue } from "./issues.js";
 import type { FlowchartWords } from "./messages.js";
@@ -120,12 +123,12 @@ const NEW_ROW: Readonly<Record<string, unknown>> = {};
 
 const stringEqual = equalFor(StringType);
 
-/** A state's roles as its form edits them: its key, its label and its lane. */
-const StateRolesForm = StructType({ key: StringType, label: StringType, lane: StringType });
+/** A state's roles as its form edits them past its key, whose field is its key type's own (`keyFieldSpecs`): its label and its lane. */
+const StateRolesForm = StructType({ label: StringType, lane: StringType });
 /** A transition's roles as its form edits them: its ends and its decision. */
 const TransitionRolesForm = StructType({ from: StringType, to: StringType, decision: OptionType(StringType) });
-/** A lane's roles as its form edits them: its key and its label. */
-const LaneRolesForm = StructType({ key: StringType, label: StringType });
+/** A lane's roles as its form edits them past its key: its label. */
+const LaneRolesForm = StructType({ label: StringType });
 /** A decision's key, as its form prints it. */
 const DecisionKeyForm = StructType({ key: StringType });
 /** A transition's evidence as its form prints it: the volume with its unit, the count, and when it was measured. */
@@ -316,6 +319,25 @@ function Edits({ styles, available, children, actions }: { styles: Styles; avail
 /** A fact on a line of its own. */
 function Fact({ styles, fact, children }: { styles: Styles; fact: string; children: ReactNode }) {
     return <Box css={styles.section}><Box css={styles.fact} data-inspector-fact={fact}>{children}</Box></Box>;
+}
+
+/**
+ * A new row's key field (#1549): the form's own editor for its kind's key
+ * type, taking an edit while the row is new — a key its kind builds from the
+ * row never does — the warn wash and the keyboard while it holds a placeholder,
+ * which Issues points at.
+ *
+ * @param keys - The kind's keys
+ * @param at - The row's key
+ * @param keyed - Whether its key takes an edit
+ * @param m - The Flowchart's messages
+ * @returns The key's specs, and what the form washes and focuses
+ */
+function useKeyField(keys: KindKeys, at: string, keyed: boolean, m: FlowchartWords["m"]) {
+    const placeholder = !keys.isKey(at);
+    const specs = useMemo(() => keyFieldSpecs(keys, m.inspectorField({ field: "key" }), m.inspectorKeyHelp(), keyed), [keys, m, keyed]);
+    const issues = useMemo(() => (placeholder ? new Set(specs.map((spec) => spec.path.join("."))) : undefined), [placeholder, specs]);
+    return { specs, issues, focus: placeholder && keyed ? specs[0]?.path.join(".") : undefined };
 }
 
 /** A remount counter for a form whose edit was refused: its inputs show what the row holds again. */
@@ -644,17 +666,18 @@ function typedKey(props: RowViewProps, sort: "states" | "lanes", from: string, t
 
 /** A state: its head, its roles and its kind's form — or own Details — Duplicate and Delete, and its transitions. */
 function StateView(props: RowViewProps) {
-    const { at, styles, words, value, model, rows, held, act, reveal, storageKey } = props;
+    const { at, styles, words, value, model, rows, held, editing, act, reveal, storageKey } = props;
     const m = words.m;
     const side = useSide(props, "states", at, value.states.name);
     const { created } = side.state;
     const lanes = getSomeorUndefined(value.lanes);
-    const keyed = created && side.writes;
-    const specs = useMemo(() => Fields.specs(StateRolesForm, {
-        key: keyed ? Fields.text({ label: m.inspectorField({ field: "key" }), help: m.inspectorKeyHelp() }) : Fields.readonly({ label: m.inspectorField({ field: "key" }) }),
+    const keys = rows.keys.states;
+    const keyed = created && side.writes && !editing.builds("states");
+    const key = useKeyField(keys, at, keyed, m);
+    const specs = useMemo(() => [...key.specs, ...Fields.specs(StateRolesForm, {
         label: Fields.text({ label: m.inspectorField({ field: "label" }) }),
         lane: Fields.reference({ of: "lanes", label: lanes?.name ?? "" }),
-    }, lanes === undefined ? ["lane"] : []), [m, keyed, lanes]);
+    }, lanes === undefined ? ["lane"] : [])], [key.specs, m, lanes]);
     const options = useMemo(() => ({
         lanes: model.lanes.filter((lane) => lane.band === "lane").map((lane): FieldOption => ({ key: lane.key, label: lane.label })),
     }), [model.lanes]);
@@ -663,22 +686,27 @@ function StateView(props: RowViewProps) {
     const { bump, refused } = side;
     const onRole = useCallback((path: readonly string[], next: unknown) => {
         const field = path[0]!;
-        if (stringEqual(field, "key")) typedKey(props, "states", at, next as string, bump);
+        if (stringEqual(field, "key")) typedKey(props, "states", at, keys.textOf(keyEdited(keys, keys.keyOf(at), path, next)), bump);
         else if (stringEqual(field, "label")) {
             if (act("renameState", (holding) => renameState(holding, at, next as string)) === undefined) bump();
         } else if (act("moveStates", (holding) => moveStates(holding, [at], next as string)) === undefined) bump();
-    }, [props, at, act, bump]);
+    }, [props, at, keys, act, bump]);
     if (roles === undefined) return null;
     const transitions = stateGroups(props, at);
+    // Off where the states' keys can't be typed and their kind builds none: no copy has a key (#1549).
+    const untyped = editing.untyped("states");
     const actions = !side.writes ? undefined : (
         <>
-            <Action action="duplicate" words={words} onClick={() => {
+            <Action action="duplicate" words={words} disabled={untyped !== undefined} onClick={() => {
                 const copy = act("duplicateState", (holding) => duplicateState(holding, at));
                 if (copy?.key !== undefined) reveal({ kind: "state", key: copy.key });
             }} />
             <Action action="delete" words={words} onClick={() => {
                 if (act("deleteStates", (holding) => deleteStates(holding, [at])) !== undefined) reveal(null);
             }} />
+            {untyped !== undefined && (
+                <Box css={styles.why} data-inspector-why="">{m.keysUntyped({ name: value.states.name.toLocaleLowerCase(words.locale), type: untyped })}</Box>
+            )}
         </>
     );
     const label = roles.label.length === 0 ? undefined : roles.label;
@@ -690,9 +718,9 @@ function StateView(props: RowViewProps) {
             <Edits styles={styles} available={side.available} actions={actions}>
                 <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.states`} roles={(
                     <Box data-inspector-form="roles">
-                        <FieldForm key={refused} specs={specs} value={{ key: at, label: roles.label, lane: getSomeorUndefined(roles.lane) }}
-                            baseline={created || stored === undefined ? NEW_ROW : { key: at, label: stored.label, lane: getSomeorUndefined(stored.lane) }}
-                            options={options} onChange={side.writes ? onRole : NO_EDIT} readOnly={!side.writes} />
+                        <FieldForm key={refused} specs={specs} value={{ key: keys.keyOf(at), label: roles.label, lane: getSomeorUndefined(roles.lane) }}
+                            baseline={created || stored === undefined ? NEW_ROW : { key: keys.keyOf(at), label: stored.label, lane: getSomeorUndefined(stored.lane) }}
+                            options={options} onChange={side.writes ? onRole : NO_EDIT} readOnly={!side.writes} issues={key.issues} focus={key.focus} />
                     </Box>
                 )} />
             </Edits>
@@ -859,21 +887,22 @@ function DecisionView(props: RowViewProps) {
 
 /** A lane: its head, its key and its label, its kind's form — or own Details — how many states it holds, and Delete. */
 function LaneView(props: RowViewProps) {
-    const { at, styles, words, value, model, rows, held, act, reveal, storageKey } = props;
+    const { at, styles, words, value, model, rows, held, editing, act, reveal, storageKey } = props;
     const m = words.m;
     const name = kindName(value, "lanes");
     const side = useSide(props, "lanes", at, name);
     const { created } = side.state;
-    const keyed = created && side.writes;
-    const specs = useMemo(() => Fields.specs(LaneRolesForm, {
-        key: keyed ? Fields.text({ label: m.inspectorField({ field: "key" }), help: m.inspectorKeyHelp() }) : Fields.readonly({ label: m.inspectorField({ field: "key" }) }),
+    const keys = rows.keys.lanes;
+    const keyed = created && side.writes && !editing.builds("lanes");
+    const key = useKeyField(keys, at, keyed, m);
+    const specs = useMemo(() => [...key.specs, ...Fields.specs(LaneRolesForm, {
         label: Fields.text({ label: m.inspectorField({ field: "label" }) }),
-    }), [m, keyed]);
+    })], [key.specs, m]);
     const { bump, refused } = side;
     const onRole = useCallback((path: readonly string[], next: unknown) => {
-        if (stringEqual(path[0]!, "key")) typedKey(props, "lanes", at, next as string, bump);
+        if (stringEqual(path[0]!, "key")) typedKey(props, "lanes", at, keys.textOf(keyEdited(keys, keys.keyOf(at), path, next)), bump);
         else if (act("renameLane", (holding) => renameLane(holding, at, next as string)) === undefined) bump();
-    }, [props, at, act, bump]);
+    }, [props, at, keys, act, bump]);
     const lane = rows.lanes?.find((row) => stringEqual(row.key, at));
     if (lane === undefined) return null;
     const stored = held.lanes?.get(at)?.roles;
@@ -894,9 +923,9 @@ function LaneView(props: RowViewProps) {
             <Edits styles={styles} available={side.available} actions={actions}>
                 <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.lanes`} roles={(
                     <Box data-inspector-form="roles">
-                        <FieldForm key={refused} specs={specs} value={{ key: at, label: lane.roles.label }}
-                            baseline={created || stored === undefined ? NEW_ROW : { key: at, label: stored.label }}
-                            onChange={side.writes ? onRole : NO_EDIT} readOnly={!side.writes} />
+                        <FieldForm key={refused} specs={specs} value={{ key: keys.keyOf(at), label: lane.roles.label }}
+                            baseline={created || stored === undefined ? NEW_ROW : { key: keys.keyOf(at), label: stored.label }}
+                            onChange={side.writes ? onRole : NO_EDIT} readOnly={!side.writes} issues={key.issues} focus={key.focus} />
                     </Box>
                 )} />
             </Edits>
