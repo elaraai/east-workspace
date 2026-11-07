@@ -32,11 +32,11 @@
  * - **A new key e3 holds already (R9, D3).** A kind read through its source
  *   under `"hide"` knows only the keys its narrowing keeps, so its session's
  *   check asks e3 for each new row's key by key through the kind's source —
- *   every such key in one request (`recordSliceRows`), inside the history's
- *   tracked check — and a key e3 holds already is an `invalid` issue holding
- *   Save off, `incomplete` while the answer is read; the app's own `ready`
- *   is asked beside it. A key the Flowchart holds already is refused as it is
- *   typed (`edits.ts`).
+ *   every such key in one request (`recordSliceRows`), each read back at the
+ *   kind's key type (#1549), inside the history's tracked check — and a key
+ *   e3 holds already is an `invalid` issue holding Save off, `incomplete`
+ *   while the answer is read; the app's own `ready` is asked beside it. A key
+ *   the Flowchart holds already is refused as it is typed (`edits.ts`).
  * - **Its drafts.** Each draft is decoded once: its roles read through its
  *   kind's `read`, kept while its session keeps the entry's version — what the
  *   frame draws over the stored rows (`drafted.ts`).
@@ -61,6 +61,7 @@ import {
     type ScheduleChange, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleKindSession,
     type ScheduleRowRead,
 } from "../shared/schedule/editing.js";
+import { kindKeys } from "../shared/schedule/kind-keys.js";
 import { draftedRow, heldInWindow, keptAtRevision, mintKey, rowCodec } from "../shared/schedule/records.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import type { DraftedRow, FlowchartDrafts, KindDrafts } from "./drafted.js";
@@ -258,18 +259,23 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
             if (kind === undefined || !kind.editable || kind.editing.type !== "some") continue;
             const part = (sort === "states" || sort === "transitions") && value.narrowed.type === "hide" ? sourcePart(chrome, sort) : undefined;
             const app = someOf(kind.ready);
+            const keyed = kindKeys(kind.keyType);
             const ready = part === undefined ? kind.ready : some((batch: { id: string; entry: Uint8Array }[]): Readiness[] => {
                 const verdicts = app === undefined ? batch.map(() => READY) : app(batch);
                 // The rows new to the record: their session found none of their key before the gesture that wrote them, and
-                // the read holds none — a row it holds is e3's, and a Save's confirmation settles one written since.
+                // the read holds none — a row it holds is e3's, and a Save's confirmation settles one written since. Each is
+                // asked at the kind's key type: a text no key prints as, e3 holds none of.
                 const session = sessionsNow.current.find((s) => stringEqual(s.kind, sort))?.session;
                 const read: ReadonlyMap<string, unknown> | undefined = heldNow.current[sort];
-                const fresh = batch.flatMap(({ id }, i) =>
-                    (draftedRow(session?.originals.get(id)) === undefined && read?.has(id) !== true ? [i] : []));
+                const fresh = batch.flatMap(({ id }, i) => {
+                    if (draftedRow(session?.originals.get(id)) !== undefined || read?.has(id) === true) return [];
+                    const key = keyed.keyOf(id);
+                    return key === undefined ? [] : [{ at: i, key }];
+                });
                 if (fresh.length === 0) return verdicts;
-                const asked = recordSliceRows(part, fresh.map((i) => batch[i]!.id));
+                const asked = recordSliceRows(part, fresh.map(({ key }) => key));
                 const out = [...verdicts];
-                fresh.forEach((at, n) => {
+                fresh.forEach(({ at }, n) => {
                     const key = batch[at]!.id;
                     if (asked.type !== "some") {
                         out[at] = variant("incomplete", [{ field: "", message: wordsNow.current.checking({ sort, key }) }]);

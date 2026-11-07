@@ -38,7 +38,8 @@ import {
 import { READING, type Reading } from "./area.js";
 import { drawnItem, type DrawnItem, type DrawnZone, type ItemRoles } from "./canvas/drawn.js";
 import type { SchematicValue } from "./data.js";
-import { entryRow, kindKeys, type KindRows } from "./kind-rows.js";
+import { kindKeys } from "../shared/schedule/kind-keys.js";
+import { entryRow, type KindRows } from "./kind-rows.js";
 
 /** A kind's source of the slice. */
 type Part = ValueTypeOf<RecordSliceBindType>;

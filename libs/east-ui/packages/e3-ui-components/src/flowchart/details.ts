@@ -13,11 +13,13 @@
  *   read whole, through their `rows`; beside one read through its source, by
  *   the keys of the rows drawn, every key in one request, through the paged
  *   read they name (`defaultPagedRuntime.rowsAll`, as the Schematic reads its
- *   far ends). Either way a row is matched to the kind's by its key: a key the
- *   details hold no row of draws *no data* (R33), and a details row keyed as
- *   no row drawn draws nothing and is no issue (R38). The last settled read
- *   stands while a newer one is in flight; a key no settled read asked of
- *   draws a placeholder (R34); a failed read keeps what it held, and says why.
+ *   far ends), each key's text read back at the kind's key type, as the
+ *   details are keyed (#1549). Either way a row is matched to the kind's by
+ *   its key: a key the details hold no row of draws *no data* (R33), and a
+ *   details row keyed as no row drawn draws nothing and is no issue (R38). The
+ *   last settled read stands while a newer one is in flight; a key no settled
+ *   read asked of draws a placeholder (R34); a failed read keeps what it held,
+ *   and says why.
  * - **The flowchart's bins** (R26, R27). A histogram read's bins are shared by
  *   every card that draws it, so a bar is the same span on each: the app's
  *   `bins`, checked as they land — an Array the app binds may hold no edge, one
@@ -55,7 +57,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
     BlobType, FloatType, IntegerType, SortedMap, SortedSet, StringType, compareFor, encodeBeast2For, equalFor, fromEastTypeValue, lessFor, none,
-    printFor, some, variant, type EastType, type ValueTypeOf, type option,
+    printFor, some, variant, type EastType, type EastTypeValue, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { Flowchart } from "@elaraai/e3-ui/internal";
 import type { RecordSliceBindType, RecordSliceChoiceType, RecordSliceEntry, RecordSliceWhereType } from "@elaraai/east-ui/internal";
@@ -63,6 +65,7 @@ import { getSomeorUndefined, useTrackedEvaluation, type Formatters } from "@elar
 import { recordChoiceSummary, recordSliceWithin } from "@elaraai/east-ui-components/internal";
 import { indexedBindingOf, type IndexedBindingRead } from "../platform/indexed-paged.js";
 import { defaultPagedRuntime, pagedSourceOf, type PagedSource } from "../platform/paged-runtime.js";
+import { STRING_KEYS, kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import type { FlowchartModel, FlowchartValue } from "./model.js";
 
@@ -99,6 +102,8 @@ export interface FlowchartDetailsKind {
     readonly name: string;
     /** Its details. */
     readonly details: FlowchartDetailsValue;
+    /** Its keys (#1549): the details, keyed as the kind is, are asked by each key's text read back at its key type; String's by default. */
+    readonly keys?: KindKeys | undefined;
     /** The rail's part whose picks weigh them (#1522); `undefined` for details none weighs. */
     readonly weighing?: FlowchartSlicePart | undefined;
 }
@@ -115,20 +120,20 @@ export interface FlowchartDetailsKinds {
  * The kinds carrying details, from the payload.
  *
  * @param value - The payload
- * @returns Each kind's name and details, where it has some
+ * @returns Each kind's name, details and keys, where it has some
  */
 export function detailsKindsOf(value: FlowchartValue): FlowchartDetailsKinds {
     const chrome = getSomeorUndefined(value.slice);
-    const kind = (name: string, details: FlowchartDetailsValue | undefined): FlowchartDetailsKind | undefined => {
+    const kind = (name: string, details: FlowchartDetailsValue | undefined, keyType: EastTypeValue): FlowchartDetailsKind | undefined => {
         if (details === undefined) return undefined;
         // Weighed, the rail's part of the source whose picks weigh them (#1522): the payload refuses a source the slice lacks.
         const weighed = getSomeorUndefined(details.weighed);
-        return { name, details, weighing: weighed === undefined ? undefined : sourcePart(chrome, weighed.source) };
+        return { name, details, keys: kindKeys(keyType), weighing: weighed === undefined ? undefined : sourcePart(chrome, weighed.source) };
     };
     const transitions = getSomeorUndefined(value.transitions);
     return {
-        states: kind(value.states.name, getSomeorUndefined(value.states.details)),
-        transitions: transitions === undefined ? undefined : kind(transitions.name, getSomeorUndefined(transitions.details)),
+        states: kind(value.states.name, getSomeorUndefined(value.states.details), value.states.keyType),
+        transitions: transitions === undefined ? undefined : kind(transitions.name, getSomeorUndefined(transitions.details), transitions.keyType),
     };
 }
 
@@ -148,7 +153,7 @@ function messageOf(error: unknown): string {
 // The rows drawn
 // ============================================================================
 
-/** The keys of the rows the canvas draws, by kind, each in key order: what the details are matched to, and asked by. */
+/** The keys of the rows the canvas draws, by kind, each in their keys' order at its key type: what the details are matched to, and asked by. */
 export interface FlowchartDrawnKeys {
     /** The states drawn: a ghost stands for no row, so none of them. */
     readonly states: readonly string[];
@@ -160,17 +165,20 @@ export interface FlowchartDrawnKeys {
  * The keys of the rows a model draws (R19): what the details are asked by.
  *
  * @param model - What the canvas draws, the drafts in place
- * @returns Each kind's keys, in key order
+ * @returns Each kind's keys, in their keys' order at its key type (#1549)
  */
 export function drawnKeysOf(model: FlowchartModel): FlowchartDrawnKeys {
-    const states = new SortedSet<string>([], compareKey);
-    const transitions = new SortedSet<string>([], compareKey);
+    const states = new Set<string>();
+    const transitions = new Set<string>();
     for (const node of model.nodes) {
         if (!node.ghost) states.add(node.key);
         for (const key of node.inPlaceKeys) transitions.add(key);
     }
     for (const link of model.links) transitions.add(link.key);
-    return { states: [...states], transitions: [...transitions] };
+    return {
+        states: model.keys.states.order(states).map(({ text }) => text),
+        transitions: model.keys.transitions.order(transitions).map(({ text }) => text),
+    };
 }
 
 /** Two lists of keys holding the same keys, in the same order. */
@@ -203,10 +211,11 @@ export type FlowchartDetailBytes = ReadonlyMap<string, Uint8Array | null>;
 
 /**
  * How the details are read by key, beside a kind read through its source
- * (R19): the rows of the keys asked, every key in one request — `none` while
- * in flight. Throws the read's failure.
+ * (R19): the rows of the keys asked, every key in one request, each key's text
+ * read back at the kind's key type (#1549) — `none` while in flight. Throws
+ * the read's failure.
  */
-export type FlowchartPagedRows = (paged: string, keys: readonly string[]) => option<FlowchartDetailBytes>;
+export type FlowchartPagedRows = (paged: string, keys: readonly string[], keyed: KindKeys) => option<FlowchartDetailBytes>;
 
 /** Each paged source's row encoder: what turns a row read by key back into the bytes `values` reads. */
 const ENCODERS = new WeakMap<PagedSource, (row: unknown) => Uint8Array>();
@@ -218,15 +227,23 @@ const ENCODERS = new WeakMap<PagedSource, (row: unknown) => Uint8Array>();
  * `values` reads it.
  *
  * @param paged - The paged read's handle id
- * @param keys - The keys of the rows drawn
+ * @param keys - The keys of the rows drawn, as their texts
+ * @param keyed - The kind's keys, which the details are keyed as: a text no key prints as holds no row
  * @returns Each key's row's bytes — `null` for none — once every one is known; `none` while in flight
  * @throws {Error} Naming the read, where `Data.bindPaged` has bound no handle of its id; the read's failure, until a read
  *   after the retry gap asks again
  */
-export const pagedDetailRows: FlowchartPagedRows = (paged, keys) => {
+export const pagedDetailRows: FlowchartPagedRows = (paged, keys, keyed) => {
     const source = pagedSourceOf(paged);
     if (source === undefined) throw new Error(`The details' paged read '${paged}' names no handle Data.bindPaged has bound`);
-    const read = defaultPagedRuntime.rowsAll(source, keys);
+    const rows = new Map<string, Uint8Array | null>(keys.map((text) => [text, null] as const));
+    // Each text read back at the kind's key type: one no key prints as holds no row, and is asked nothing.
+    const asked = keys.flatMap((text) => {
+        const key = keyed.keyOf(text);
+        return key === undefined ? [] : [key];
+    });
+    if (asked.length === 0) return some(rows);
+    const read = defaultPagedRuntime.rowsAll(source, asked);
     if (read.type !== "some") return none;
     let encode = ENCODERS.get(source);
     if (encode === undefined) {
@@ -235,8 +252,7 @@ export const pagedDetailRows: FlowchartPagedRows = (paged, keys) => {
         encode = encodeBeast2For(fromEastTypeValue(rowType)) as (row: unknown) => Uint8Array;
         ENCODERS.set(source, encode);
     }
-    const rows = new Map<string, Uint8Array | null>();
-    for (const row of read.value) rows.set(row.key as string, row.row.type === "some" ? encode(row.row.value) : null);
+    for (const row of read.value) rows.set(keyed.textOf(row.key), row.row.type === "some" ? encode(row.row.value) : null);
     return some(rows);
 };
 
@@ -257,11 +273,11 @@ export interface FlowchartWeighedBytes {
 
 /**
  * How weighed details are read by key (#1522, R44): the drawn rows through
- * their entries index's lean rows, and the picked keys' ranges of the index,
- * each kept to the rows drawn — `none` while in flight. Throws the read's
- * failure.
+ * their entries index's lean rows, each key's text read back at the kind's key
+ * type (#1549), and the picked keys' ranges of the index, each kept to the rows
+ * drawn — `none` while in flight. Throws the read's failure.
  */
-export type FlowchartWeighedRows = (paged: string, weighed: FlowchartWeighedValue, picks: readonly string[], keys: readonly string[]) => option<FlowchartWeighedBytes>;
+export type FlowchartWeighedRows = (paged: string, weighed: FlowchartWeighedValue, picks: readonly string[], keys: readonly string[], keyed: KindKeys) => option<FlowchartWeighedBytes>;
 
 /** A binding's encoders, made once: a key's `.east` literal, a row's bytes, and an entry's, by its index. */
 interface WeighedCodecs {
@@ -301,12 +317,13 @@ type Run = { readonly found: boolean; readonly row: bigint; readonly count: bigi
  * @param paged - The binding's id
  * @param weighed - How the picks weigh the details
  * @param picks - The picked keys, as `.east` literals of the Dict's keys
- * @param keys - The keys of the rows drawn, in key order
+ * @param keys - The keys of the rows drawn, as their texts, in their keys' order
+ * @param keyed - The kind's keys, which the details are keyed as: a text no key prints as holds no row
  * @returns The rows, and their picked entries, once every one is known; `none` while in flight
  * @throws {Error} Naming the read, where `Data.bindPaged` has bound no binding of its id, or one listing no such entries
  *   index; the read's failure, until a read after the retry gap asks again
  */
-export const weighedDetailRows: FlowchartWeighedRows = (paged, weighed, picks, keys) => {
+export const weighedDetailRows: FlowchartWeighedRows = (paged, weighed, picks, keys, keyed) => {
     const binding = indexedBindingOf(paged);
     if (binding === undefined) throw new Error(`The details' paged read '${paged}' names no binding Data.bindPaged has bound over a record's indexes`);
     const index = binding.entries.get(weighed.index);
@@ -318,8 +335,13 @@ export const weighedDetailRows: FlowchartWeighedRows = (paged, weighed, picks, k
         codecs.entries.set(weighed.index, entry);
     }
     const { seekAll, runsAll } = binding.batches;
-    // The drawn rows, each a run of one of the lean rows; the picked keys, each its range of the index — asked together.
-    const found = seekAll(index.rows, keys.map((key) => variant("key", codecs.key(key))));
+    // The drawn rows, each a run of one of the lean rows — its text read back at the kind's key type, one no key prints
+    // as asked nothing; the picked keys, each its range of the index — asked together.
+    const asked = keys.flatMap((text) => {
+        const key = keyed.keyOf(text);
+        return key === undefined ? [] : [key];
+    });
+    const found = asked.length === 0 ? some([] as Run[]) : seekAll(index.rows, asked.map((key) => variant("key", codecs.key(key))));
     const ranges = picks.length === 0 ? some([] as Run[]) : seekAll(weighed.index, picks.map((pick) => variant("key", pick)));
     if (found.type === "none" || ranges.type === "none") return none;
     const rowRuns = found.value.filter((run) => run.found);
@@ -333,12 +355,13 @@ export const weighedDetailRows: FlowchartWeighedRows = (paged, weighed, picks, k
     for (const read of lean.value) {
         const row = read.row === undefined ? undefined : getSomeorUndefined(read.row);
         if (row === undefined) continue;
-        rows.set(read.key as string, codecs.row(row));
-        leanRows.set(read.key as string, row);
+        const key = keyed.textOf(read.key);
+        rows.set(key, codecs.row(row));
+        leanRows.set(key, row);
     }
     const entries = new Map<string, Uint8Array[]>();
     for (const read of held.value) {
-        const key = read.key as string;
+        const key = keyed.textOf(read.key);
         const value = read.value === undefined ? undefined : getSomeorUndefined(read.value);
         // Kept to the rows drawn: a range holds every row's entry of its key.
         if (value === undefined || !leanRows.has(key)) continue;
@@ -422,6 +445,7 @@ function withoutField(where: ValueTypeOf<RecordSliceWhereType>, field: string): 
 function readWeighed(kind: FlowchartDetailsKind, weighed: FlowchartWeighedValue, keys: readonly string[], weighedRows: FlowchartWeighedRows): KindRead {
     const paged = getSomeorUndefined(kind.details.paged);
     if (paged === undefined) throw new Error("The details the rail's picks weigh name no paged read");
+    const keyed = kind.keys ?? STRING_KEYS;
     const part = kind.weighing;
     const where = part?.read().where;
     // Two bindings of different records of one type: the source's picks are of another record's rows.
@@ -432,17 +456,18 @@ function readWeighed(kind: FlowchartDetailsKind, weighed: FlowchartWeighedValue,
     if (keys.length === 0) return { rows: NO_BYTES, error: undefined, weighed: { picks, entries: NO_ENTRIES, apart } };
     // In flight, the picks asked: picks that moved draw the reads they weigh as placeholders until their ranges land (R44).
     const flight: KindRead = { rows: undefined, error: undefined, weighed: { picks, entries: NO_ENTRIES, apart } };
-    const got = weighedRows(paged, weighed, picks, keys);
+    const got = weighedRows(paged, weighed, picks, keys, keyed);
     if (got.type === "none") return flight;
     let rows = got.value.rows;
     const others = apart || where === undefined || part === undefined ? undefined : withoutField(where, weighed.field);
     if (others !== undefined && others.size > 0) {
-        // The source's other fields narrow the details' rows: each drawn row asked of them, in one read.
+        // The source's other fields narrow the details' rows: each drawn row asked of them, at its key, in one read.
         const asked = keys.flatMap((key) => {
             const row = got.value.lean.get(key);
             return row === undefined ? [] : [{ key, row }];
         });
-        const within = asked.length === 0 ? some([] as boolean[]) : recordSliceWithin(part!, others, asked);
+        const within = asked.length === 0 ? some([] as boolean[])
+            : recordSliceWithin(part!, others, asked.map(({ key, row }) => ({ key: keyed.keyOf(key), row })));
         if (within.type === "none") return flight;
         const kept = new Map(rows);
         asked.forEach(({ key }, i) => {
@@ -480,7 +505,7 @@ function readKind(kind: FlowchartDetailsKind, keys: readonly string[], paged: Fl
         const id = getSomeorUndefined(details.paged);
         if (keys.length === 0) return { rows: NO_BYTES, error: undefined };
         if (id === undefined) return { rows: new Map(keys.map((key) => [key, null] as const)), error: undefined };
-        const got = paged(id, keys);
+        const got = paged(id, keys, kind.keys ?? STRING_KEYS);
         return got.type === "none" ? IN_FLIGHT : { rows: got.value, error: undefined };
     } catch (error) {
         return { rows: undefined, error: messageOf(error) };

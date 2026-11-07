@@ -148,6 +148,7 @@ import { LoadingReveal, loadingLineText, schematicColorTokens, type LoadingLineT
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import type { SourceHiding } from "../shared/schedule/hidden.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
+import { kindKeys as keysOfType } from "../shared/schedule/kind-keys.js";
 import { openFramePane } from "../shared/schedule/open-pane.js";
 import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords, type SourcesChrome } from "../shared/schedule/visibility.js";
@@ -323,10 +324,11 @@ function SchematicFollows(props: SchematicFrameProps) {
     const { sources, nouns } = useMemo(() => followedSources(value, words, chrome, look), [value, words, chrome, look]);
     // What a source's failed narrowing says, in the Schematic's words.
     const said = useCallback((name: string): KeyVisibilityWords => ({ changed: words.m.sourceChanged({ name }), failed: words.m.sourceFailed({ name }) }), [words]);
-    // Every kind read through its source of the rail, in the Schematic's order of its kinds: each one's hidden pick.
+    // Every kind read through its source of the rail, in the Schematic's order of its kinds: each one's hidden pick, which
+    // asks e3 of a row at its kind's key type (#1549).
     const hidden = useMemo(() => [...value.items, ...value.zones, ...value.links, ...value.nets].flatMap((kind): HiddenSource[] => {
         const part = sourcePart(chrome, kind.key);
-        return part === undefined ? [] : [{ key: kind.key, part }];
+        return part === undefined ? [] : [{ key: kind.key, part, keyType: kind.keyType }];
     }), [value.items, value.zones, value.links, value.nets, chrome]);
     return (
         <FollowSources chrome={chrome} narrowed={value.shown} sources={sources} nouns={nouns} said={said}>
@@ -592,6 +594,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // ── Find (§6.1, #1404): every item kind's record, by key — one read through its source sought through e3 ─────
     const findKinds = useMemo((): FindKind[] => value.items.map((kind) => ({
         slot: kind.key, name: kind.name, part: sourcePart(chrome, kind.key), rows: kind.rows, read: kind.read, codec: rowCodec(kind.rowType),
+        keys: keysOfType(kind.keyType),
     })), [value.items, chrome]);
     const reveal = useCallback((entity: string, avoid?: DOMRectReadOnly) => canvasRef.current?.reveal(entity, undefined, avoid), []);
     const hiddenLayers = useMemo(() => new Set(layersNow.flatMap((layer) => (getSomeorUndefined(layer.visible) === false ? [layer.key] : []))), [layersNow]);

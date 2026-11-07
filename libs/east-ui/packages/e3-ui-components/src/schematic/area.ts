@@ -121,7 +121,7 @@ import {
 import { defaultPagedRuntime, pagedSourceOf, type PagedRow } from "../platform/paged-runtime.js";
 import { SCHEMATIC_CARD_MAX_PX, type LodTier, type WorldBox } from "./canvas/model.js";
 import type { SchematicValue } from "./data.js";
-import { kindKeys, type KindKeys } from "./kind-rows.js";
+import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
 import { RowMaking, type StoredRows } from "./made-rows.js";
 
 /** An item kind or a zone kind: what reads by area. */

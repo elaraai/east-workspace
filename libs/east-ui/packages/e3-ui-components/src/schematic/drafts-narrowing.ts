@@ -34,6 +34,7 @@ import { StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
 import { RecordSliceWhereType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { recordSliceRevision, recordSliceWithin } from "@elaraai/east-ui-components/internal";
+import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import type { SchematicRef } from "./canvas/drawn.js";
 import type { SchematicValue } from "./data.js";
@@ -89,11 +90,12 @@ interface Kept {
 
 /**
  * Which of some rows a narrowing holds: each answer kept at the kind's revision and narrowing, the rows not yet answered
- * asked in one request.
+ * asked in one request, each at its key (#1549).
  *
- * @returns The answers, by key; `undefined` while the request is in flight
+ * @returns The answers, by key's text; `undefined` while the request is in flight
  */
-function answersOf(kept: Kept, slot: string, part: Part, revision: string, where: Where, rows: readonly { readonly key: string; readonly row: unknown }[]): ReadonlyMap<string, boolean> | undefined {
+function answersOf(kept: Kept, slot: string, part: Part, revision: string, where: Where, rows: readonly { readonly key: string; readonly row: unknown }[],
+    keyed: KindKeys): ReadonlyMap<string, boolean> | undefined {
     let answered = kept.now.get(slot);
     if (answered === undefined || !stringEqual(answered.revision, revision) || !sameWhere(answered.where, where)) {
         answered = { revision, where, held: new Map() };
@@ -102,7 +104,7 @@ function answersOf(kept: Kept, slot: string, part: Part, revision: string, where
     const held = answered.held;
     const asked = rows.filter(({ key }) => !held.has(key));
     if (asked.length > 0) {
-        const answer = recordSliceWithin(part, where, asked);
+        const answer = recordSliceWithin(part, where, asked.map(({ key, row }) => ({ key: keyed.keyOf(key), row })));
         if (answer.type !== "some") return undefined;
         // Only the drafted rows': a draft gone takes its answer with it.
         const next = new Map(rows.flatMap(({ key }) => { const was = held.get(key); return was === undefined ? [] : [[key, was] as const]; }));
@@ -157,7 +159,7 @@ export function SchematicDraftsReader({ value, areas = NO_AREAS, drafts, origina
                 continue;
             }
             const revision = recordSliceRevision(part);
-            const answers = revision.type === "some" ? answersOf(kept.current, kind.key, part, revision.value, where, began) : undefined;
+            const answers = revision.type === "some" ? answersOf(kept.current, kind.key, part, revision.value, where, began, kindKeys(kind.keyType)) : undefined;
             if (answers !== undefined) {
                 kept.current.settled.set(kind.key, kept.current.now.get(kind.key)!);
                 held.set(kind.key, answers);
