@@ -294,6 +294,9 @@ describe("Calendar explicit action forms", () => {
         expect(history(container, editingMessages.apply()).hasAttribute("disabled")).toBe(true);
         expect(event(container, "job", "job1").hasAttribute("data-drafted")).toBe(true);
         expect(container.textContent).toContain("Duration must be positive");
+        // The inspector's banner names the field by its form's label, never its key.
+        expect(slot(container, "end").textContent).toContain("Hours: Duration must be positive");
+        expect(slot(container, "end").textContent).not.toContain("hours: ");
         await act(async () => { fireEvent.keyDown(event(container, "job", "job1"), { key: "Escape" }); }); await settle();
         await press(history(container, editingMessages.issues({ n: 1, count: "1" })));
         expect(event(container, "job", "job1").hasAttribute("data-selected")).toBe(true);

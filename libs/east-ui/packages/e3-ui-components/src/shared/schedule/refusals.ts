@@ -7,8 +7,8 @@
  * The refusals holding a builder's Save (#1525): the app's `ready` refusing a
  * drafted entry, each its session's, while it stands — what the Roster's and
  * the Allocation's Issues tabs list ahead of their own issues, and an entry's
- * panel shows over its form, the Plan's included. Each names its field by its
- * form's label.
+ * panel shows over its form, the Plan's and the Calendar's included. Each names
+ * its field by its form's label.
  *
  * @packageDocumentation
  */

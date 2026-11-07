@@ -20,6 +20,7 @@ import { BannerView, EastChakraComponent, FieldForm, useFormatters, useTrackedEv
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { EMPTY_SCHEDULE_DRAFTS, heldRowOf, type ScheduleHeldRows } from "../shared/schedule/editing.js";
+import { refusalText } from "../shared/schedule/refusals.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { PagedChooser, pagedControl, useCalendarChooser } from "./chooser.js";
 import { EventActions, PlacementFields, useCalendarFieldWords, type CalendarShownResources } from "./controls.js";
@@ -175,7 +176,8 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
         {peers.length > 0 && <Box css={styles.section} data-calendar-inspector-overlaps=""><Box css={styles.detail}>Overlaps {peers.length} event{peers.length === 1 ? "" : "s"}</Box>
             {peers.map(peer => <Button key={eventKey(peer)} size="xs" variant="ghost" onClick={() => select([{ kind: peer.kind, key: peer.key }])}>{peer.title}</Button>)}
         </Box>}
-        {issues.length > 0 && <BannerView status="warning" title={item.title} description={issues.map(issue => `${issue.field.type === "some" ? `${issue.field.value}: ` : ""}${issue.message}`).join("; ")} />}
+        {/* Each field it names by its form's label, as the Roster's, the Allocation's and the Plan's do. */}
+        {issues.length > 0 && <BannerView status="warning" title={item.title} description={issues.map(issue => refusalText(issue, kind.fields)).join("; ")} />}
         <Box css={styles.fields}><Box css={styles.sectionHead}>Schedule</Box>
         <FieldForm specs={roleSpecs} words={fieldWords} value={row} baseline={baseline} options={options} onChange={onField} readOnly={fieldsReadOnly} renderControl={chooser === undefined ? undefined : renderReference} />
         {commands !== undefined && item.start.type === "some" && item.end.type === "some" && <PlacementFields source={{ kind, item }} value={value} shown={shown} readOnly={!commands.editing.available(kind.key)}
