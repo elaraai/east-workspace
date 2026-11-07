@@ -15,13 +15,16 @@
  * the status line (FR2–FR7, AD1–AD7), the strip's words (SP1–SP7) and the
  * footer (FT1, FT2) — and its inspector (#1534): Details by column group, the
  * one-line field, the facts, Duplicate and Delete, the stats with no row, and
- * the Issues tab (IN2–IN9) — over the Record's examples deployed to e3 itself,
- * each test a workspace of its own.
+ * the Issues tab (IN2–IN9) — and the app's part (#1527): a refusal of its
+ * `ready` listed and reachable (#1525), and a new row's fields its `newRow`
+ * gives (#1526) — over the Record's examples deployed to e3 itself, each test
+ * a workspace of its own.
  */
 
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { ArrayType, East, StringType, StructType, equalFor, printFor, some } from "@elaraai/east";
+import userEvent from "@testing-library/user-event";
+import { ArrayType, East, StringType, StructType, equalFor, printFor, some, variant } from "@elaraai/east";
 import { Reactive, RecordSlicesChromeType, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Record } from "@elaraai/e3-ui/internal";
@@ -1170,5 +1173,130 @@ describe("the inspector", () => {
         await press(history(container, editingMessages.undo()));
         expect(rows(container)).toHaveLength(3);
         expect(openPanel(container).querySelector("[data-inspector-no-issues]")).not.toBeNull();
+    });
+});
+
+/** The skills matrix's people, the app's `ready` refusing a contractor rated above 0 at Planning (#1525). */
+const skillsReady = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const people = $.let(Record.bind(ex.recordSkills));
+    const levels = $.let([{ key: "0", name: "Not trained" }, { key: "1", name: "Supervised" }, { key: "2", name: "Competent" }],
+        ArrayType(StructType({ key: StringType, name: StringType })));
+    const roles = $.let(["Operator", "Contractor", "Team lead"], ArrayType(StringType));
+    const ready = $.const(East.function([Record.Types.Draft(ex.Skills), Record.Types.DraftContext(ex.Skills)], Record.Types.Readiness, ($, row) => {
+        const contractor = $.const(row.role.match({ value: (_$2, role) => role.equals("Contractor") }, () => false));
+        const plans = $.const(row.planning.match({ value: (_$2, level) => level.equals("0").not() }, () => false));
+        $.if(contractor.and(() => plans), ($) => {
+            $.return(East.value(variant("invalid", [{ field: "planning", message: "A contractor can't plan" }]), Record.Types.Readiness));
+        });
+        return East.value(variant("ready", null), Record.Types.Readiness);
+    }));
+    return Record({
+        record: people,
+        title: "Skills matrix",
+        noun: { singular: "person", plural: "people" },
+        registers: {
+            levels: Record.register.members(levels, { kind: "level", key: (l) => l.key, label: (l) => l.key, meta: (l) => some(l.name) }),
+            roles: Record.register.members(roles, { kind: "role", key: (r) => r, label: (r) => r }),
+        },
+        columns: {
+            name: Record.column.title(ex.Skills, { header: "Name" }),
+            role: Record.column.reference(ex.Skills, "roles", { header: "Role" }),
+            planning: Record.column.cycle(ex.Skills, "levels", { header: "Planning", scale: true }),
+        },
+        inspector: true,
+        ready: { row: ready },
+        name: "skillsReady",
+    });
+})));
+
+/** The crew in an inspector, the app's new member uninducted and untrained: what Add and Duplicate draft (#1526). */
+const crewNewRow = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const members = $.let(Record.bind(ex.recordCrew));
+    const levels = $.let([{ key: "0", name: "Not trained" }, { key: "1", name: "Supervised" }, { key: "2", name: "Competent" }],
+        ArrayType(StructType({ key: StringType, name: StringType })));
+    const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(ex.Crew), () => Record.patch(ex.Crew, { inducted: false, forklift: "0" })));
+    return Record({
+        record: members,
+        title: "Crew",
+        noun: { singular: "crew member", plural: "crew members" },
+        registers: { levels: Record.register.members(levels, { kind: "level", key: (l) => l.key, label: (l) => l.key, meta: (l) => some(l.name) }) },
+        columns: {
+            name: Record.column.title(ex.Crew, { header: "Name" }),
+            inducted: Record.column.toggle(ex.Crew, { header: "Inducted", on: "yes", off: "no" }),
+            forklift: Record.column.cycle(ex.Crew, "levels", { header: "Forklift", scale: true }),
+        },
+        inspector: true,
+        newRow,
+        name: "crewNewRow",
+    });
+})));
+
+describe("the app's part (#1527)", () => {
+    test("a refusal of the app's `ready` holds Apply: Issues takes the ring to its field, Details shows it over the form with the field ringed, the Issues tab lists it, and setting the field back clears it (#1525, AD3, IN3, IN9)", async () => {
+        const { container } = await h.mount({ fn: skillsReady }, { storageKey: "record-ready" });
+        const apply = () => history(container, editingMessages.apply());
+        // B. Ellis, an operator, rated 1 at Planning: no refusal. C. Patel, a contractor, the same: refused.
+        await press(cellAt(container, 1, "planning"));
+        expect(apply().disabled).toBe(false);
+        expect(cellAt(container, 2, "planning").textContent).toBe("0");
+        await press(cellAt(container, 2, "planning"));
+        expect(cellAt(container, 2, "planning").textContent).toBe("1");
+        expect(apply().disabled).toBe(true);
+        // The ring elsewhere, then the history bar's Issues: C. Patel's Planning, open on Details.
+        await press(cellAt(container, 0, "role"));
+        await press(history(container, editingMessages.issues({ n: 1, count: "1" })));
+        expect(status(container)).toBe("1 issue holds Apply");
+        expect(active(container)).toBe(cellAt(container, 2, "planning"));
+        await waitFor(() => expect(inspected(container)).toBe("P-0415"));
+        const issues = details(container)!.querySelector<HTMLElement>("[data-inspector-issues]")!;
+        expect(issues.firstElementChild!.textContent).toBe("1 issue");
+        expect([...issues.querySelectorAll("[data-kind]")].map((text) => [text.previousElementSibling?.textContent, text.textContent]))
+            .toEqual([["Planning", "A contractor can't plan"]]);
+        expect([...details(container)!.querySelectorAll("[data-field][data-issue]")].map((field) => field.getAttribute("data-field"))).toEqual(["planning"]);
+        await waitFor(() => expect(detailsField(container, "planning").contains(document.activeElement)).toBe(true));
+        // The Issues tab: the row by its place, the field, and the app's words.
+        fireEvent.click(inspectorTab(container, /^Issues/));
+        await settle();
+        const lines = () => [...openPanel(container).querySelectorAll<HTMLElement>("[data-inspector-issue]")];
+        expect(lines().map((line) => [line.firstElementChild!.textContent, line.querySelector("[data-kind]")!.textContent])).toEqual([["row 3 · Planning", "A contractor can't plan"]]);
+        // Planning back to 0: the refusal gone from the tab, and Apply takes B. Ellis's change.
+        await press(lines()[0]!);
+        fireEvent.click(radiosOf(detailsField(container, "planning"))[0]!);
+        await settle();
+        expect(cellAt(container, 2, "planning").textContent).toBe("0");
+        expect(detailsField(container, "planning").hasAttribute("data-issue")).toBe(false);
+        expect(apply().disabled).toBe(false);
+        fireEvent.click(inspectorTab(container, /^Issues/));
+        await settle();
+        expect(openPanel(container).querySelector("[data-inspector-no-issues]")).not.toBeNull();
+    });
+
+    test("a new row takes the app's `newRow`: Add drafts its values, only the title is the person's to fill, and Apply writes them; Duplicate drafts the source's values over them, the title empty (#1526, AD2, IN7)", async () => {
+        const { container } = await h.mount({ fn: crewNewRow }, { storageKey: "record-new-row" });
+        await press(action(container, "add")!);
+        const added = drafted(container);
+        expect([part(cellOf(added, "inducted"), "chip")!.textContent, part(cellOf(added, "forklift"), "chip")!.textContent]).toEqual(["no", "0"]);
+        expect([...added.querySelectorAll("[data-required]")].map((cell) => cell.getAttribute("data-key"))).toEqual(["name"]);
+        // The name typed in Details, and nothing else.
+        await waitFor(() => expect(inspected(container)).toBe(added.getAttribute("data-row-id")));
+        const user = userEvent.setup();
+        await user.type(within(detailsField(container, "name")).getByRole("textbox"), "D. Quinn{Enter}");
+        await settle();
+        expect(cellOf(added, "name").textContent).toBe("D. Quinn");
+        await press(history(container, editingMessages.apply()));
+        await waitFor(() => expect(status(container)).toBe("Applied 1 new crew member"));
+        const crew = await h.read(ex.recordCrew);
+        const quinn = [...crew.values()].find((member) => stringEqual(member.name, "D. Quinn"));
+        expect(quinn === undefined ? undefined : [quinn.inducted, quinn.forklift]).toEqual([false, "0"]);
+        // Duplicate: B. Ellis's values over the app's, the name empty.
+        const ellis = rows(container).findIndex((row) => stringEqual(row.getAttribute("data-row-id") ?? "", "C-002"));
+        await press(cellAt(container, ellis, "name"));
+        await waitFor(() => expect(inspected(container)).toBe("C-002"));
+        await press(details(container)!.querySelector('[data-inspector-action="duplicate"]')!);
+        const copy = drafted(container);
+        expect(copy.getAttribute("data-row-id")).not.toBe("C-002");
+        expect([cellOf(copy, "name").textContent, part(cellOf(copy, "inducted"), "chip")!.textContent, part(cellOf(copy, "forklift"), "chip")!.textContent])
+            .toEqual(["", "no", "0"]);
+        expect(status(container)).toBe("Duplicated B. Ellis");
     });
 });
