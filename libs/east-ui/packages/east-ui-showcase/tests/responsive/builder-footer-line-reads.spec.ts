@@ -327,9 +327,10 @@ for (const theme of LAYOUT_THEMES) {
                 await sizeBuilder(page, entry, reader.root, width, { holding: true });
                 const where = `${reader.builder} at ${width}px`;
                 expect(await railHeight(rail), `${where}: the rail's height`).toBeCloseTo(rest, 0);
-                // A tall builder's footer sits below the page's fold: brought into view, as a finger would scroll to it.
+                // A tall builder's footer sits below the page's fold: brought into view, as a finger would scroll to it —
+                // the rail whole, since a tap at its foot is one of those tested, and Retry in view doesn't bring its foot.
                 const retry = line.locator("[data-line-retry]");
-                await retry.scrollIntoViewIfNeeded();
+                await rail.evaluate((el) => el.scrollIntoView({ block: "center" }));
                 expect(await missedTaps(retry), where).toEqual([]);
             }
             await releaseE3(page, fault);
