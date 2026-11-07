@@ -14,6 +14,8 @@
  *   at the field's type, refusing a text no key prints as.
  * - An accessor, a card and the details hear a key at its own type, the details keyed as their kind is.
  * - A row made with no card takes its own fields from its kind's `values` of what the gesture decided of it.
+ * - A kind's `key` builds a new row's key from its row, held to the record's key type; an editable kind of rows whose key
+ *   is never typed, keyed by neither String nor Integer, needs it.
  * - Each role is a field of a type a Dict may be keyed by, checked when the code compiles; where both kinds are known,
  *   the Flowchart checks it against the other kind's key type, refusing a mismatch by the role, the field, both kinds
  *   and both types.
@@ -27,12 +29,12 @@ import assert from "node:assert/strict";
 import {
     ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, StringType, StructType,
     compareFor, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, printFor, printType, some, variant,
-    type BlockBuilder,
+    type BlockBuilder, type ExprType,
 } from "@elaraai/east";
 import { Slice, UIComponentType } from "@elaraai/east-ui";
 import { DatasetStatusType } from "@elaraai/e3-types";
 import e3 from "@elaraai/e3";
-import { Data, DataBindHandleType, Flowchart as PublicFlowchart } from "@elaraai/e3-ui";
+import { Data, DataBindHandleType, Flowchart as PublicFlowchart, Record } from "@elaraai/e3-ui";
 import { Flowchart, FlowchartPayloadType } from "@elaraai/e3-ui/internal";
 
 // ============================================================================
@@ -59,6 +61,8 @@ const Crate = StructType({ name: StringType, slots: ArrayType(IntegerType) });
 const StepCard = StructType({ name: StringType, group: StringType, values: StructType({ name: StringType, note: StringType }) });
 /** What the line baked at each step: keyed as the steps are. */
 const Yield = StructType({ loaves: IntegerType });
+/** A bay of the line, placed among the bays by a whole number. */
+const Bay = StructType({ label: StringType, seq: IntegerType, crew: IntegerType });
 /** A batch, by the shift it runs in — by when the shift starts — and a shift, keyed by when it starts. */
 const Batch = StructType({ name: StringType, shift: DateTimeType });
 const Shift = StructType({ label: StringType });
@@ -80,6 +84,10 @@ const namedSteps = e3.record("flowchart_keys_spec_named_steps", DictType(StringT
 const lineStations = e3.record("flowchart_keys_spec_stations", Stations, { initial: new Map() });
 const namedStations = e3.record("flowchart_keys_spec_named_stations", DictType(StringType, Station), { initial: new Map() });
 const lineMoves = e3.record("flowchart_keys_spec_moves", Moves, { initial: new SortedMap([], compareFor(MoveKey)) });
+const editedMoves = e3.record("flowchart_keys_spec_edited_moves", Moves, {
+    initial: new SortedMap([], compareFor(MoveKey)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
 const slipMoves = e3.record("flowchart_keys_spec_slips", DictType(MoveKey, Slip), { initial: new SortedMap([], compareFor(MoveKey)) });
 const lineRules = e3.record("flowchart_keys_spec_rules", Rules, { initial: new Map() });
 const namedRules = e3.record("flowchart_keys_spec_named_rules", DictType(StringType, Rule), { initial: new Map() });
@@ -228,6 +236,8 @@ describe("the bakery's line: each kind keyed by its own type, every key as its t
                 }),
                 transitions: Flowchart.transitions(moves, {
                     from: "from", to: "to", decision: "rule",
+                    // A move's key is the two steps it joins.
+                    key: (move) => ({ from: move.from, to: move.to }),
                     // A move drawn on the canvas: its note names the step it was drawn from.
                     values: (made) => ({
                         note: made.from.match({
@@ -297,6 +307,14 @@ describe("the bakery's line: each kind keyed by its own type, every key as its t
         assert.equal(first.to, "9");
         assert.ok(optionText(first.decision, some("1")));
         assert.equal(rows.value.get(moveText({ from: 9n, to: 10n }))!.roles.decision.type, "none");
+    });
+
+    test("a move's `key` builds a new move's key from its row, as East prints its two ends; the steps give none", () => {
+        if (bakery.transitions.type !== "some") assert.fail("the moves cross");
+        const rowKey = bakery.transitions.value.rowKey;
+        if (rowKey.type !== "some") assert.fail("the moves give `key`");
+        assert.equal(rowKey.value(moveBytes({ from: 10n, to: 2n, rule: none, note: none })), moveText({ from: 10n, to: 2n }));
+        assert.equal(bakery.states.rowKey.type, "none", "an Integer key is one past the largest");
     });
 
     test("a move's write reads its ends and its rule back at their types; a rule's Del clears it; a text no key prints as is refused", () => {
@@ -474,6 +492,10 @@ function typeChecks($: BlockBuilder<UIComponentType>): void {
     });
     PublicFlowchart.lanes(stations, { label: "label", order: "seq" });
     PublicFlowchart.decisions(rules, { label: (rule, key) => East.str`${rule.name} ${key.add(1n)}`, queue: "queue" });
+    // A new move's key, built from its row at the moves' key type.
+    PublicFlowchart.transitions(moves, { from: "from", to: "to", key: (move) => ({ from: move.from, to: move.to }) });
+    // @ts-expect-error — the moves are keyed by the two steps they join: one step's number is no move's key
+    PublicFlowchart.transitions(moves, { from: "from", to: "to", key: (move) => move.from });
     // @ts-expect-error — `note` is an Option of a String and `from` an Integer: a transition's ends hold a state's key each, of one type
     PublicFlowchart.transitions(moves, { from: "from", to: "note" });
     // @ts-expect-error — `slots` is an Array: a state's lane holds its lane's key, of a type a Dict may be keyed by
@@ -538,6 +560,61 @@ describe("a role naming another kind's row holds that kind's key (#1549)", () =>
                 label: "name", details: Flowchart.details($.let(Data.bind(lineYields)), { details: [Flowchart.figure("loaves")] }),
             }),
         }));
+    });
+});
+
+// ============================================================================
+// A new row's key
+// ============================================================================
+
+describe("a new row's key: a kind's `key` builds it from its row (#1549)", () => {
+    test("a `key` building another type than the record's key is refused, naming both", () => {
+        refused(() => East.function([], UIComponentType, ($) => PublicFlowchart({
+            states: Flowchart.states($.let(Data.bind(lineSteps)), { label: "name" }),
+            transitions: Flowchart.transitions($.let(Data.bind(lineMoves)), { from: "from", to: "to", key: ((move: ExprType<typeof Move>) => move.from) as never }),
+        })), `Flowchart.transitions: \`key\` builds a transition's key, of the record's key type ${printType(MoveKey)} — and this one builds .Integer`);
+    });
+
+    test("editable transitions keyed by neither String nor Integer need `key`: nothing else keys what Connect makes", () => {
+        refused(() => East.function([], UIComponentType, ($) => PublicFlowchart({
+            states: Flowchart.states($.let(Data.bind(lineSteps)), { label: "name" }),
+            transitions: Flowchart.transitions($.let(Record.bind(editedMoves)), { from: "from", to: "to" }),
+        })), `Flowchart.transitions: the transitions are keyed by ${printType(MoveKey)}, and Connect makes one with no key typed — give \`key\`, ` +
+            "building one's key from its row, or key them by String or Integer");
+        // Given `key`, they build; read only, they need none.
+        East.function([], UIComponentType, ($) => PublicFlowchart({
+            states: Flowchart.states($.let(Data.bind(lineSteps)), { label: "name" }),
+            transitions: Flowchart.transitions($.let(Record.bind(editedMoves)), { from: "from", to: "to", key: (move) => ({ from: move.from, to: move.to }) }),
+        }));
+        East.function([], UIComponentType, ($) => PublicFlowchart({
+            states: Flowchart.states($.let(Data.bind(lineSteps)), { label: "name" }),
+            transitions: Flowchart.transitions($.let(Data.bind(lineMoves)), { from: "from", to: "to" }),
+        }));
+    });
+
+    test("a new lane at an order its whole-number field can't hold is refused before the kind's values are asked", () => {
+        const bays = East.compile(East.function([], Flowchart.Types.LaneKind, ($) => {
+            const bayRows = $.const(new SortedMap([[1n, { label: "Bench", seq: 1n, crew: 2n }]], compareFor(IntegerType)), DictType(IntegerType, Bay));
+            const handle = $.let({
+                read: East.function([], DictType(IntegerType, Bay), (_$2) => bayRows),
+                write: East.function([DictType(IntegerType, Bay)], NullType, (_$2) => null),
+                writeAndStart: East.function([DictType(IntegerType, Bay)], NullType, (_$2) => null),
+                start: East.function([], NullType, (_$2) => null),
+                source: East.function([], DictType(IntegerType, Bay), (_$2) => bayRows),
+                pending: East.function([], BooleanType, (_$2) => false),
+                commit: East.function([], NullType, (_$2) => null),
+                discard: East.function([], NullType, (_$2) => null),
+                has: East.function([], BooleanType, (_$2) => true),
+                status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
+                binding: { source: [variant("field", "inputs"), variant("field", "bays")], patch: none, mode: variant("staged", null) },
+            }, DataBindHandleType(DictType(IntegerType, Bay)));
+            // The crew counts the new bay's label: a lane given none has no label to count, so asking would fail.
+            return Flowchart.lanes(handle, { label: "label", order: "seq", values: (made) => ({ crew: made.label.unwrap().length() }) }).build(undefined, false);
+        }), [])();
+        assert.equal(bays.create({ label: none, order: some(0.5) }, none).type, "none", "no whole number: refused, the values never asked");
+        const added = bays.create({ label: some("Oven"), order: some(2) }, none);
+        if (added.type !== "some") assert.fail("a whole order makes a bay");
+        assert.ok(equalFor(Bay)(decodeBeast2For(Bay)(added.value), { label: "Oven", seq: 2n, crew: 4n }));
     });
 });
 

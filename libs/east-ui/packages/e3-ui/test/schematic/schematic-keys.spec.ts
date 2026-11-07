@@ -18,6 +18,9 @@
  * - Each role is a field of a type a Dict may be keyed by, checked when the code compiles; the Schematic checks each
  *   against its slot's key type, refusing a mismatch by the role, the field, both kinds and both types.
  * - The rail's sources may be over records keyed by any type: a kind read through its source, its cards and a tab.
+ * - A kind's `key` builds a new row's key from its row, held to the record's key type. A link's key and a net's are never
+ *   typed, so an editable link or net kind keyed by neither String nor Integer needs it; an item's is typed in the
+ *   inspector, so an item kind needs none.
  *
  * e3-ui's specs read and write no e3: each record a kind reads is a handle as `Data.bind` gives one.
  */
@@ -27,12 +30,12 @@ import assert from "node:assert/strict";
 import {
     ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, StringType, StructType,
     VariantType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, printFor, printType, some, variant,
-    type BlockBuilder, type ValueTypeOf,
+    type BlockBuilder, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Slice, UIComponentType } from "@elaraai/east-ui";
 import { DatasetStatusType } from "@elaraai/e3-types";
 import e3 from "@elaraai/e3";
-import { Data, DataBindHandleType, Schematic as PublicSchematic } from "@elaraai/e3-ui";
+import { Data, DataBindHandleType, Record, Schematic as PublicSchematic } from "@elaraai/e3-ui";
 import { Schematic, SchematicPayloadType } from "@elaraai/e3-ui/internal";
 
 // ============================================================================
@@ -47,6 +50,8 @@ const Mixer = StructType({ name: StringType, x: FloatType, y: FloatType });
 const Area = StructType({ name: StringType, x: FloatType, y: FloatType, w: FloatType, h: FloatType });
 /** A duct between two ovens, by their numbers. */
 const Duct = StructType({ from: IntegerType, to: IntegerType, note: StringType });
+/** A duct's key, where the ducts are keyed by the two ovens each joins. */
+const DuctKey = StructType({ from: IntegerType, to: IntegerType });
 /** A hose's fitting: an oven by its number, or a mixer by its name. */
 const Fitting = VariantType({ oven: IntegerType, mixer: StringType });
 /** A hose between two fittings. */
@@ -84,6 +89,7 @@ const Spots = DictType(SpotKey, Spot);
 const Ropes = DictType(IntegerType, Rope);
 const Racks = DictType(RackKey, Rack);
 const Straps = DictType(IntegerType, Strap);
+const JoinedDucts = DictType(DuctKey, Duct);
 
 /** The records the build-time checks bind, as an app declares them: each refusal is made where the surface is built. */
 const lineOvens = e3.record("schematic_keys_spec_ovens", Ovens, {
@@ -101,6 +107,18 @@ const lineCrates = e3.record("schematic_keys_spec_crates", DictType(IntegerType,
 const lineCards = e3.record("schematic_keys_spec_cards", DictType(IntegerType, OvenCard), {
     initial: new Map(),
     indexes: (index) => ({ schematic_keys_spec_cards_by_name: index.on(["name"]) }),
+});
+const joinedDucts = e3.record("schematic_keys_spec_joined_ducts", JoinedDucts, {
+    initial: new SortedMap([], compareFor(DuctKey)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+const datedFeeds = e3.record("schematic_keys_spec_dated_feeds", DictType(DateTimeType, Feed), {
+    initial: new SortedMap([], compareFor(DateTimeType)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+const placedSpots = e3.record("schematic_keys_spec_placed_spots", Spots, {
+    initial: new SortedMap([], compareFor(SpotKey)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
 });
 
 const ovenBytes = encodeBeast2For(Oven);
@@ -130,6 +148,7 @@ const refsEqual = equalFor(ArrayType(Schematic.Types.Ref));
 const timeText = printFor(DateTimeType);
 const spotText = printFor(SpotKey);
 const rackText = printFor(RackKey);
+const ductKeyText = printFor(DuctKey);
 
 /** When the dock's two bays open. */
 const EARLY = new Date("2026-11-07T06:00:00.000Z");
@@ -386,6 +405,12 @@ describe("the bakehouse: each kind keyed by its own type, every key as its text 
         assert.equal(feeds.write(feedBytes(given), { sources: [{ kind: "mixers", key: "M1" }], destinations: [] }).type, "none", "a mixer is no oven");
     });
 
+    test("a kind given no `key` gives none: the renderer counts a new oven's or a new duct's number on from the largest", () => {
+        assert.equal(ovens.rowKey.type, "none");
+        assert.equal(ducts.rowKey.type, "none");
+        assert.equal(feeds.rowKey.type, "none");
+    });
+
     test("the ovens' details: keyed as the ovens are, read whole by their numbers' text, the accessor hearing the number", () => {
         if (ovens.details.type !== "some") assert.fail("the ovens' details cross");
         const details = ovens.details.value;
@@ -602,6 +627,11 @@ function typeChecks($: BlockBuilder<UIComponentType>): void {
     PublicSchematic.links(ducts, { name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" } });
     PublicSchematic.links(hoses, { name: "Hose", icon: "faucet", from: { field: "from", of: { oven: "ovens", mixer: "mixers" } }, to: { field: "to", of: "fittings" } });
     PublicSchematic.nets(feeds, { name: "Feed", icon: "plug", sources: { field: "supply", of: "ovens" }, destinations: { field: "fed", of: "ovens" } });
+    // A new duct's key, built from its row at the ducts' key type.
+    const joined = $.let(Data.bind(joinedDucts));
+    PublicSchematic.links(joined, { name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" }, key: (duct) => ({ from: duct.from, to: duct.to }) });
+    // @ts-expect-error — the ducts are keyed by the two ovens they join: a note is no duct's key
+    PublicSchematic.links(joined, { name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" }, key: (duct) => duct.note });
     // @ts-expect-error — `spare` is an Option: a link has both its ends
     PublicSchematic.links(crates, { name: "Crate", icon: "box", from: { field: "spare", of: "ovens" }, to: { field: "first", of: "ovens" } });
     // @ts-expect-error — `slots` is an Array: a link's end holds an item's key, of a type a Dict may be keyed by
@@ -716,6 +746,81 @@ describe("a link's end and a net's side hold the keys of the item slot they name
                 }) },
             });
         });
+    });
+});
+
+// ============================================================================
+// A new row's key
+// ============================================================================
+
+describe("a new row's key: a kind's `key` builds it from its row (#1549)", () => {
+    test("a duct's `key` builds a new duct's key from its row, as East prints the two ovens it joins", () => {
+        const kind = East.compile(East.function([], Schematic.Types.LinkKind, ($) => {
+            const ductRows = $.const(new SortedMap([[{ from: 2n, to: 10n }, { from: 2n, to: 10n, note: "Main" }]], compareFor(DuctKey)), JoinedDucts);
+            const ducts = $.let({
+                read: East.function([], JoinedDucts, (_$2) => ductRows),
+                write: East.function([JoinedDucts], NullType, (_$2) => null),
+                writeAndStart: East.function([JoinedDucts], NullType, (_$2) => null),
+                start: East.function([], NullType, (_$2) => null),
+                source: East.function([], JoinedDucts, (_$2) => ductRows),
+                pending: East.function([], BooleanType, (_$2) => false),
+                commit: East.function([], NullType, (_$2) => null),
+                discard: East.function([], NullType, (_$2) => null),
+                has: East.function([], BooleanType, (_$2) => true),
+                status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
+                binding: { source: [variant("field", "inputs"), variant("field", "ducts")], patch: none, mode: variant("staged", null) },
+            }, DataBindHandleType(JoinedDucts));
+            return Schematic.links(ducts, {
+                name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" }, key: (duct) => ({ from: duct.from, to: duct.to }),
+            }).build("ducts");
+        }), [])();
+        if (kind.rowKey.type !== "some") assert.fail("the ducts give `key`");
+        assert.equal(kind.rowKey.value(ductBytes({ from: 10n, to: 2n, note: "Return" })), ductKeyText({ from: 10n, to: 2n }));
+        const rows = kind.rows();
+        if (rows.type !== "some") assert.fail("a record read whole holds its rows");
+        assert.ok(textsEqual([...rows.value.keys()], [ductKeyText({ from: 2n, to: 10n })]), "a stored duct by its key's text, as before");
+    });
+
+    test("a `key` building another type than the record's key is refused, naming both", () => {
+        refused(() => East.function([], UIComponentType, ($) => PublicSchematic({
+            extent: { width: 24, height: 12 },
+            items: { ovens: Schematic.items($.let(Data.bind(lineOvens)), { name: "Oven", icon: "fire-burner", x: "x", y: "y", label: "name", key: ((oven: ExprType<typeof Oven>) => oven.name) as never }) },
+        })), "Schematic.items: \"Oven\": `key` builds an item's key, of the record's key type .Integer — and this one builds .String");
+    });
+
+    test("editable links and nets keyed by neither String nor Integer need `key`: nothing else keys what Connect makes", () => {
+        refused(() => East.function([], UIComponentType, ($) => PublicSchematic({
+            extent: { width: 24, height: 12 },
+            items: { ovens: Schematic.items($.let(Data.bind(lineOvens)), { name: "Oven", icon: "fire-burner", x: "x", y: "y", label: "name" }) },
+            links: { ducts: Schematic.links($.let(Record.bind(joinedDucts)), { name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" } }) },
+        })), `Schematic.links: "Duct": the links are keyed by ${printType(DuctKey)}, and Connect makes one with no key typed — give \`key\`, ` +
+            "building one's key from its row, or key them by String or Integer");
+        refused(() => East.function([], UIComponentType, ($) => PublicSchematic({
+            extent: { width: 24, height: 12 },
+            items: { ovens: Schematic.items($.let(Data.bind(lineOvens)), { name: "Oven", icon: "fire-burner", x: "x", y: "y", label: "name" }) },
+            nets: { feeds: Schematic.nets($.let(Record.bind(datedFeeds)), { name: "Feed", icon: "plug", sources: { field: "supply", of: "ovens" }, destinations: { field: "fed", of: "ovens" } }) },
+        })), `Schematic.nets: "Feed": the nets are keyed by ${printType(DateTimeType)}, and Connect's Shift session makes one with no key typed — ` +
+            "give `key`, building one's key from its row, or key them by String or Integer");
+        // Given `key`, they build; read only, they need none.
+        East.function([], UIComponentType, ($) => PublicSchematic({
+            extent: { width: 24, height: 12 },
+            items: { ovens: Schematic.items($.let(Data.bind(lineOvens)), { name: "Oven", icon: "fire-burner", x: "x", y: "y", label: "name" }) },
+            links: { ducts: Schematic.links($.let(Record.bind(joinedDucts)), {
+                name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" }, key: (duct) => ({ from: duct.from, to: duct.to }),
+            }) },
+        }));
+        East.function([], UIComponentType, ($) => PublicSchematic({
+            extent: { width: 24, height: 12 },
+            items: { ovens: Schematic.items($.let(Data.bind(lineOvens)), { name: "Oven", icon: "fire-burner", x: "x", y: "y", label: "name" }) },
+            links: { ducts: Schematic.links($.let(Data.bind(joinedDucts)), { name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" } }) },
+        }));
+    });
+
+    test("editable items keyed by any type need no `key`: a new item's is typed in the inspector", () => {
+        East.function([], UIComponentType, ($) => PublicSchematic({
+            extent: { width: 16, height: 10 },
+            items: { spots: Schematic.items($.let(Record.bind(placedSpots)), { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name" }) },
+        }));
     });
 });
 

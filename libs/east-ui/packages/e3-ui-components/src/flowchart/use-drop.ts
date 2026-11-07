@@ -39,8 +39,7 @@ import {
     cardOf, dropCaption, dropEdits, dropHostOf, dropLabel, dropName, dropRefusal, droppedSelection, enterAt, landsOf, planDrop, readDropAt,
     type FlowchartCanvasDrop, type FlowchartDropAt, type FlowchartDropCard, type FlowchartDropContext, type FlowchartDropPlan,
 } from "./drop.js";
-import type { FlowchartEdit } from "./editing.js";
-import type { FlowchartHolding } from "./edits.js";
+import type { FlowchartHolding, GestureEdits } from "./edits.js";
 import { flowchartLibraryId } from "./library.js";
 import type { FlowchartWords } from "./messages.js";
 import type { FlowchartValue } from "./model.js";
@@ -59,8 +58,13 @@ export interface FlowchartDropProps {
     readonly context: () => FlowchartDropContext;
     /** What the Flowchart holds now: what a drop's edits are made over. */
     readonly holding: () => FlowchartHolding;
-    /** Records a drop's edits as one step of the history, under its name; whether anything was recorded. */
-    readonly record: (edits: readonly FlowchartEdit[], label: string) => boolean;
+    /**
+     * Records a drop's edits as one step of the history, under its name — every row whose key its kind builds from it
+     * following its fields, and a refusal said in the footer (#1549).
+     *
+     * @returns The edits recorded; `undefined` where nothing was
+     */
+    readonly record: (made: GestureEdits, label: string) => GestureEdits | undefined;
     /** What the canvas has selected now. */
     readonly selection: () => FlowchartSelection | null;
     /** Selects the state or the lane a drop added — scrolling it into view, for a card's ⏎. */
@@ -115,9 +119,9 @@ export function useFlowchartDrop(props: FlowchartDropProps): FlowchartDropState 
         const p = latest.current;
         if (planned.kind === "refused") return false;
         const edits = dropEdits(planned, p.holding());
-        if (edits === undefined || !p.record(edits.edits, dropLabel(planned, card, p.words.m))) return false;
-        p.notice(undefined);
-        const selection = droppedSelection(planned, edits);
+        const recorded = edits === undefined ? undefined : p.record(edits, dropLabel(planned, card, p.words.m));
+        if (recorded === undefined) return false;
+        const selection = droppedSelection(planned, recorded);
         if (selection !== undefined) p.select(selection, scroll);
         return true;
     }, []);

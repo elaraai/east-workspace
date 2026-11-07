@@ -32,7 +32,7 @@
  */
 
 import {
-    ArrayType, BlobType, BooleanType, DictType, East, EastTypeType, Expr, FunctionType, IntegerType, OptionType, StringType, StructType,
+    ArrayType, BlobType, BooleanType, DictType, East, EastTypeType, Expr, FunctionType, IntegerType, OptionType, StringType, StructType, TypeMismatchError,
     isSubtype, isTypeEqual, none, some, toEastTypeValue, variant,
     type EastType, type ExprType, type NullType, type SubtypeExprOrValue,
 } from "@elaraai/east";
@@ -302,6 +302,71 @@ export function accessorRole<T extends EastType>(keyType: EastType, rowType: Str
     if (typeof fn !== "function") throw new Error(`${where}: \`${role}\` is an accessor, (row, key) => ${what}`);
     return scheduleAccessor(rowType, keyType, out, fn as (row: ExprType<EastType>, key: ExprType<EastType>) => SubtypeExprOrValue<T>,
         (returns) => `${where}: \`${role}\` returns ${what} — and this one returns ${returns}`);
+}
+
+/**
+ * A new row's key, built from its row by the app (#1549): what a kind's `key`
+ * takes — `(move) => ({ from: move.from, to: move.to })`.
+ *
+ * @typeParam R - The record's row type
+ * @typeParam K - The record's key type
+ */
+export type KindKeyBuilder<R extends EastType, K extends EastType> = (row: ExprType<R>) => SubtypeExprOrValue<K>;
+
+/**
+ * A kind's `key`, reified once and held to the record's key type (#1549): on
+ * the wire, a new row's key's text from the row's bytes — a String key as
+ * itself, any other as East prints it — which the renderer makes a new row
+ * under, and moves the row to as an edit changes what it reads.
+ *
+ * @param keyType - The record's key type
+ * @param rowType - The record's row type
+ * @param where - The kind, as a refusal names it
+ * @param noun - A row of the kind, as the refusal names it (`a transition`)
+ * @param fn - What the kind was given
+ * @returns `(bytes)` → the key's text; `undefined` when not given
+ * @throws {Error} When it is no function, or builds a key of another type than the record's, naming both
+ */
+export function keyBuilderOf(keyType: EastType, rowType: StructType, where: string, noun: string, fn: unknown): ExprType<FunctionType<[BlobType], StringType>> | undefined {
+    if (fn === undefined) return undefined;
+    if (typeof fn !== "function") throw new Error(`${where}: \`key\` builds ${noun}'s key from its row, (row) => …`);
+    const author = fn as (row: ExprType<EastType>) => SubtypeExprOrValue<EastType>;
+    let built: ExprType<FunctionType<[EastType], EastType>>;
+    try {
+        built = East.function([rowType], keyType, (_$, row) => author(row)) as unknown as ExprType<FunctionType<[EastType], EastType>>;
+    } catch (err) {
+        if (!(err instanceof TypeMismatchError)) throw err;
+        // What it builds, as East infers it from its own body.
+        const inferred = East.function([rowType], undefined, (_$, row) => author(row) as ExprType<EastType>);
+        const builds = (Expr.type(inferred as unknown as Expr) as FunctionType).output as EastType;
+        throw new Error(`${where}: \`key\` builds ${noun}'s key, of the record's key type ${typeText(keyType)} — and this one builds ${typeText(builds)}`);
+    }
+    const textOf = keyTextOf(keyType);
+    return East.function([BlobType], StringType, ($, bytes) => {
+        const build = $.const(built);
+        const text = $.const(textOf);
+        return text(build(bytes.decodeBeast(rowType, "v2") as never));
+    }) as unknown as ExprType<FunctionType<[BlobType], StringType>>;
+}
+
+/**
+ * Refuses an editable kind of rows whose key is never typed — a Flowchart's
+ * transitions, a Schematic's links and nets — keyed by neither String nor
+ * Integer and given no `key` (#1549): a String key is made up and an Integer
+ * one counted on, and any other only `key` can build.
+ *
+ * @param bound - The kind's binding
+ * @param keyBuilt - Its `key`, reified; `undefined` for none
+ * @param where - The kind, as a refusal names it
+ * @param noun - Its rows, as the refusal names them (`transitions`)
+ * @param made - What makes a new row of the kind, as the refusal says it (`Connect makes one`)
+ * @throws {Error} For an editable kind keyed by another type than String or Integer, given no `key`
+ */
+export function checkMadeKeys(bound: KindBinding, keyBuilt: unknown, where: string, noun: string, made: string): void {
+    const keyType = bound.keyType;
+    if (bound.form !== "record" || keyBuilt !== undefined || keyType.type === "String" || keyType.type === "Integer") return;
+    throw new Error(`${where}: the ${noun} are keyed by ${typeText(keyType)}, and ${made} with no key typed — give \`key\`, building one's key from its row, ` +
+        "or key them by String or Integer");
 }
 
 /**

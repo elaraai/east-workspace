@@ -15,7 +15,9 @@
  * line, a state, a lane's header, the gap between two lanes, a decision's
  * diamond, or the canvas — and never a ghost, *No lane* or a row drawn as
  * context; what a drop there does, as a plan and as the edits it writes; why
- * one is refused, in its words or — what it lands on gone — in none; ⏎ on a
+ * one is refused, in its words or — what it lands on gone — in none — a kind
+ * whose keys can't be typed, and a lane whose key is still to be typed, among
+ * them (#1549); ⏎ on a
  * card; its words and its marks; and what the canvas takes dropped from the
  * tabs the payload lists.
  *
@@ -23,7 +25,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { StringType, equalFor, none, printFor, some, variant } from "@elaraai/east";
+import { DateTimeType, StringType, equalFor, none, printFor, some, toEastTypeValue, variant } from "@elaraai/east";
 import { FlowchartLibraryTabType } from "@elaraai/e3-ui/internal";
 import {
     DIAMOND_PAD, LINK_PAD, ON_CANVAS, cardOf, cardSort, dropAtPoint, dropCaption, dropEdits, dropHostOf, dropLabel, dropName, dropRefusal,
@@ -32,7 +34,8 @@ import {
 } from "./drop.js";
 import { computeLayout, landingSeam, rowCell, type FlowchartLayout, type LaneBand, type LinkRoute, type NodeRect } from "./layout.js";
 import type { FlowchartMessages } from "./messages.js";
-import { ALL_LANE_KEY, NO_LANE_KEY, type FlowchartModel, type FlowchartRow, type FlowchartRows } from "./model.js";
+import { kindKeys } from "../shared/schedule/kind-keys.js";
+import { ALL_LANE_KEY, NO_LANE_KEY, STRING_KIND_KEYS, type FlowchartModel, type FlowchartRow, type FlowchartRows } from "./model.js";
 import type { FlowchartSort } from "./read.js";
 import { bytes, decisionRow, holdingOf, laneRow, lines, modelOf, optionBytes, rowsOf, stateRow, transitionRow, w, words } from "./rows.test-utils.js";
 
@@ -120,14 +123,14 @@ const { model, layout } = drawn(DEPOT);
 const KIND_NAMES: { readonly [S in FlowchartSort]: string } = { states: "state", transitions: "transition", lanes: "lane", decisions: "decision" };
 
 /**
- * What a drop reads: every kind edited and taking an edit now — unless given.
+ * What a drop reads: every kind edited, taking an edit now and adding rows — unless given.
  *
  * @param over - What the Flowchart draws
  * @param more - What differs
  * @returns The drop's context
  */
 function ctx(over: FlowchartModel = model, more: Partial<FlowchartDropContext> = {}): FlowchartDropContext {
-    return { model: over, editable: () => true, available: () => true, kindName: (sort) => KIND_NAMES[sort], ...more };
+    return { model: over, editable: () => true, available: () => true, kindName: (sort) => KIND_NAMES[sort], untyped: () => undefined, ...more };
 }
 
 /** A band and the row a new state takes in it. */
@@ -412,6 +415,29 @@ describe("a drop is refused, in its words", () => {
         expect(planDrop(HELD, lane("sort", 0), busy).kind).toBe("addState");
         // Read only says so before busy.
         expect(dropCaption(planDrop(CUSTOMS, ON_CANVAS, ctx(model, { editable: () => false, available: () => false })), m)).toBe("Decisions are read only");
+    });
+
+    test("a card adding a row of a kind whose keys can't be typed, building none, is refused wherever it rests, saying why — a card setting fields lands (#1549)", () => {
+        const blobs = ctx(model, { untyped: (sort) => (sort === "lanes" ? "Blob" : undefined) });
+        const said = "Lanes are keyed by Blob, which can't be typed — give the kind `key` to add them";
+        for (const where of [gap(1), ON_CANVAS]) {
+            const plan = planDrop(DOCK, where, blobs);
+            expect([dropCaption(plan, m), dropRefusal(plan, m)]).toEqual([said, said]);
+        }
+        expect(planDrop(HELD, lane("sort", 0), blobs).kind).toBe("addState");
+        expect(planDrop(SORTATION, at("header", "sort"), blobs).kind).toBe("set");
+    });
+
+    test("a state's card over a lane held under a placeholder — a new lane of lanes keyed by DateTime, its key still to be typed — is refused, saying so (#1549)", () => {
+        const early = printFor(DateTimeType)(new Date("2026-11-07T06:00:00.000Z"));
+        const shifts = modelOf(rowsOf({
+            lanes: [laneRow(early, "Early", 1), laneRow("lane-2", "Lane 2", 2)],
+            states: [stateRow("A", "Arrived", { lane: early, order: 1 })],
+            keys: { ...STRING_KIND_KEYS, lanes: kindKeys(toEastTypeValue(DateTimeType)) },
+        }));
+        const plan = planDrop(HELD, lane("lane-2", 0), ctx(shifts));
+        expect([dropCaption(plan, m), dropRefusal(plan, m)]).toEqual(["Type the new lane's key first", "Type the new lane's key first"]);
+        expect(planDrop(HELD, lane(early, 1), ctx(shifts)).kind).toBe("addState");
     });
 
     test("what it lands on gone from the drawing — a stale coordinate, a ghost, a row drawn as context, No lane's header — refuses it without words, asking no table for any", () => {

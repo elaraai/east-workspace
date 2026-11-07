@@ -28,7 +28,9 @@
  *   its ends and its key kept; a lane from the card's values where it lands,
  *   keyed `lane-<n>`, its order between the lanes'; an author's card's fields
  *   set — or refused, with the reason the ghost says in red: anywhere but what
- *   the card lands on, a kind read only (R13), or a kind taking no edit now.
+ *   the card lands on, a kind read only (R13), a kind taking no edit now, a
+ *   kind adding no row — its keys of a type the form can't type, building none
+ *   — or a state's card on a lane whose key is still to be typed (#1549).
  * - **⏎ on a card** ({@link enterAt}): a drop on the canvas's selection — a
  *   state's card after the selected state, at the end of the selected lane, or
  *   at the end of the first lane; a lane's card after the selected lane, or at
@@ -421,6 +423,8 @@ export interface FlowchartDropContext {
     readonly available: (sort: FlowchartSort) => boolean;
     /** A kind's name, as a sentence writes it (`state`). */
     readonly kindName: (sort: FlowchartSort) => string;
+    /** Why a kind adds no row (#1549): its key type's name, where the form can't type it and the kind builds none; `undefined` for one that adds rows. */
+    readonly untyped: (sort: FlowchartSort) => string | undefined;
 }
 
 /** Why a drop is refused where it rests: in its words, or — what it lands on having left the drawing — in none. */
@@ -441,12 +445,13 @@ export type FlowchartDropPlan =
 const refused = (why: FlowchartDropRefusal): FlowchartDropPlan => ({ kind: "refused", why });
 const GONE: FlowchartDropPlan = refused({ why: "gone" });
 
-/** A state's card on a band at a row: where it lands among the band's states. */
-function planState(model: FlowchartModel, band: string, row: number, values: Uint8Array): FlowchartDropPlan {
+/** A state's card on a band at a row: where it lands among the band's states — never a lane whose key is still to be typed. */
+function planState(model: FlowchartModel, band: string, row: number, values: Uint8Array, laneName: string): FlowchartDropPlan {
     const index = model.lanes.findIndex((lane) => keyEqual(lane.key, band));
     const lane = model.lanes[index];
     if (lane === undefined) return GONE;
     if (lane.band === "noLane") return refused({ why: "onto", lands: "lane" });
+    if (lane.band === "lane" && !model.keys.lanes.isKey(lane.key)) return refused({ why: "placeholder", kind: laneName });
     const states = bandStates(model, index);
     const r = Math.max(0, Math.min(row, states.length));
     const name = lane.band === "lane" ? lane.label : undefined;
@@ -501,9 +506,10 @@ function whatTransition(model: FlowchartModel, key: string, plan: (what: Flowcha
 
 /**
  * What a drop does where it rests — see the module docs. A card of a kind
- * read only, or of a kind taking no edit now, is refused wherever it rests;
- * otherwise a card is refused anywhere but what it lands on, and says nothing
- * where that has left the drawing.
+ * read only, or of a kind taking no edit now, is refused wherever it rests, and
+ * so is one adding a row of a kind that adds none (#1549); otherwise a card is
+ * refused anywhere but what it lands on, and says nothing where that has left
+ * the drawing.
  *
  * @param card - The card dragged
  * @param at - Where the drag rests
@@ -514,10 +520,14 @@ export function planDrop(card: FlowchartDropCard, at: FlowchartDropAt, ctx: Flow
     const sort = cardSort(card);
     if (!ctx.editable(sort)) return refused({ why: "readOnly", kind: ctx.kindName(sort) });
     if (!ctx.available(sort)) return refused({ why: "busy", kind: ctx.kindName(sort) });
+    // A card adding a row of a kind that adds none: its keys can't be typed, and it builds none (#1549).
+    const untyped = card.does === "addState" || card.does === "addLane" ? ctx.untyped(sort) : undefined;
+    if (untyped !== undefined) return refused({ why: "untyped", kind: ctx.kindName(sort), type: untyped });
     const model = ctx.model;
     switch (card.does) {
         case "addState":
-            return at.type === "lane" ? planState(model, at.value.lane, Number(at.value.row), card.values) : refused({ why: "onto", lands: "lane" });
+            return at.type === "lane" ? planState(model, at.value.lane, Number(at.value.row), card.values, ctx.kindName("lanes"))
+                : refused({ why: "onto", lands: "lane" });
         case "retype":
             return at.type === "transition"
                 ? whatTransition(model, at.value, (what) => ({ kind: "retype", key: at.value, values: card.values, what }))
