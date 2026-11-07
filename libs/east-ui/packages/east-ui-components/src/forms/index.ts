@@ -134,6 +134,7 @@ export {
     fieldFormMessages,
     type FieldFormProps,
     type FieldOption,
+    type FieldLineChoice,
     type FieldFormMessages,
     type FieldFormWords,
 } from "./field-form/index.js";

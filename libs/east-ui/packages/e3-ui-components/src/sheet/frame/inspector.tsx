@@ -44,10 +44,16 @@
  * link cell's the `sheet` recipe's; the pane — its tab row, its collapse
  * control and its rail — is the Dock's.
  *
+ * A host with a view of its own (#1534) — the Record's — draws Details for one
+ * row and for nothing in the Sheet's place ({@link SheetInspectorHost}), over
+ * the same reads and writes, the form's own (`useTargetForm`) among them, and
+ * names an issue's row in the Issues tab in its own words. Several rows stay
+ * the Sheet's; so does a complete row given the author's own Details.
+ *
  * @packageDocumentation
  */
 
-import { memo, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faLock, faMinus, faPlus } from "@fortawesome/free-solid-svg-icons";
@@ -61,7 +67,7 @@ import {
     EastChakraComponent, FieldForm, fieldFormMessages, getSomeorUndefined, useDataStable, type BuilderFrameDock, type EditIssue, type FieldOption,
 } from "@elaraai/east-ui-components";
 import { FrameDrawer, useSlotStyles } from "@elaraai/east-ui-components/internal";
-import { useSheetInspect, type SheetCellEditorAt, type SheetInspect, type SheetInspectPlace, type SheetInspectTarget, type SheetInspectWrite } from "../index.js";
+import { useSheetInspect, type SheetCellEditorAt, type SheetInspect, type SheetInspectPlace, type SheetInspectTarget, type SheetInspectWrite, type SheetSelected } from "../index.js";
 import { formatTime, splitTimeToken, todayUtc, withTime } from "../parse/date.js";
 import { NULL_CELL, cellText, indexRegisters, type SheetColumnMeta } from "../model.js";
 import type { SheetCellValue } from "../values.js";
@@ -77,9 +83,11 @@ import type { SheetValue } from "./index.js";
 export type SheetInspectorValue = Pick<SheetValue, "sheet" | "inspector" | "history">;
 
 /** The inspector pane, decoded: its forms, and the author's own Details. */
-type PaneValue = Extract<SheetValue["inspector"], { type: "some" }>["value"];
+export type PaneValue = Extract<SheetValue["inspector"], { type: "some" }>["value"];
 /** One inspector form, decoded: its struct, its fields, the fields its columns write and show, and `encode`. */
-type FormValue = PaneValue["forms"]["row"];
+export type FormValue = PaneValue["forms"]["row"];
+/** What the author's own Details return for a complete row (SB58): the UI drawn in the form's place. */
+export type AuthorDetails = ReturnType<Extract<PaneValue["custom"], { type: "some" }>["value"]>;
 /** One field of a form, decoded. */
 type FormField = FormValue["fields"][number];
 /** The names the sheet keeps its viewer's state under. */
@@ -117,6 +125,44 @@ export interface SheetInspectorProps {
     hidden: ReadonlySet<string>;
     /** The record's last commit, when it has one. */
     lastCommit: SheetLastCommit | undefined;
+    /** What a host draws in the Sheet's place (#1534): its own Details, and its words for an issue's row; absent, the Sheet's. */
+    host?: SheetInspectorHost | undefined;
+}
+
+/**
+ * What a host draws in the inspector in the Sheet's place (#1534) — the Record's: Details for one row and for nothing,
+ * and the words an issue's line names its row by.
+ */
+export interface SheetInspectorHost {
+    /**
+     * Details while the ring selects one place — a row, a line or a band — or nothing. Several rows are the Sheet's, and
+     * so is a phone's drawer (SH12). A complete row given the author's own Details shows them in the form's place
+     * ({@link useAuthorDetails}).
+     */
+    Details: ComponentType<SheetInspectorDetailsProps>;
+    /**
+     * How an issue's line in the Issues tab names its row, given where the row stands among the rows drawn —
+     * `undefined` for one the sheet does not draw; absent, by its entry, a line by its place in its group.
+     */
+    where?: ((issue: EditIssue, place: SheetInspectPlace | undefined) => string) | undefined;
+}
+
+/** What a host's Details is given ({@link SheetInspectorHost.Details}). */
+export interface SheetInspectorDetailsProps {
+    /** The payload: the grid's root, the inspector pane and the record's history. */
+    value: SheetInspectorValue;
+    /** The pane: its forms, and the author's own Details. */
+    pane: PaneValue;
+    /** The names the sheet keeps its viewer's state under. */
+    keys: SheetKeys;
+    /** The sheet's words. */
+    words: SheetWords;
+    /** The columns this viewer hides. */
+    hidden: ReadonlySet<string>;
+    /** The host's word for a group. */
+    noun: string;
+    /** What the ring selects: one row's place, or nothing. */
+    selected: Exclude<SheetSelected, { kind: "several" }>;
 }
 
 /** The host's word for a group, or the sheet's. */
@@ -125,18 +171,25 @@ function nounOf(value: SheetInspectorValue, words: SheetWords): string {
     return (group !== undefined ? getSomeorUndefined(group.noun)?.singular : undefined) ?? words.m.groupNoun();
 }
 
-/** What the inspector shows, as its head and its rail name it — `row 3`, `line 2 of WO-2201`, `order 4`. */
-function whatOf(place: SheetInspectPlace, words: SheetWords, noun: string): string {
+/**
+ * What the inspector shows, as its head and its rail name it — `row 3`, `line 2 of WO-2201`, `order 4`.
+ *
+ * @param place - Where it stands
+ * @param words - The sheet's words
+ * @param noun - The host's word for a group
+ * @returns Its name
+ */
+export function whatOf(place: SheetInspectPlace, words: SheetWords, noun: string): string {
     return words.m.inspectorWhat({ what: place.kind, number: words.number(place.number), title: place.group?.title, noun });
 }
 
 /**
  * The inspector pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - The payload, the sheet's keys, the words, the columns hidden and the last commit
+ * @param props - The payload, the sheet's keys, the words, the columns hidden, the last commit, and what a host draws in the Sheet's place
  * @returns The pane — its tabs Details and Issues, 320px wide, its collapsed state kept per viewer (SB24) — or `undefined`, no pane, when the sheet is given no inspector
  */
-export function useSheetInspector({ value, keys, words, hidden, lastCommit }: SheetInspectorProps): BuilderFrameDock | undefined {
+export function useSheetInspector({ value, keys, words, hidden, lastCommit, host }: SheetInspectorProps): BuilderFrameDock | undefined {
     const { m } = words;
     const inspect = useSheetInspect();
     const pane = getSomeorUndefined(value.inspector);
@@ -158,9 +211,9 @@ export function useSheetInspector({ value, keys, words, hidden, lastCommit }: Sh
         detail,
         tabs: [
             { key: "details", label: m.inspectorTab({ tab: "details" }),
-                body: <SheetInspectorDetails value={value} pane={pane} keys={keys} words={words} hidden={hidden} lastCommit={lastCommit} noun={noun} /> },
+                body: <SheetInspectorDetails value={value} pane={pane} keys={keys} words={words} hidden={hidden} lastCommit={lastCommit} host={host} noun={noun} /> },
             { key: "issues", label: m.inspectorTab({ tab: "issues" }), count: words.number(issues),
-                body: <SheetInspectorIssues forms={pane.forms} words={words} noun={noun} /> },
+                body: <SheetInspectorIssues forms={pane.forms} words={words} noun={noun} where={host?.where} /> },
         ],
     };
 }
@@ -178,6 +231,12 @@ const SheetInspectorDetails = memo(function SheetInspectorDetails(props: Details
     const inspect = useSheetInspect();
     const styles = useSlotRecipe({ key: "sheetInspector" })() as Styles;
     const selected = inspect.selected;
+    // A host's own Details for one place and for nothing (#1534) — never in a phone's drawer, whose Details are the Sheet's (SH12).
+    const phone = useContext(FrameDrawer);
+    const Host = props.host?.Details;
+    if (Host !== undefined && !phone && selected.kind !== "several") {
+        return <Host value={props.value} pane={props.pane} keys={props.keys} words={props.words} hidden={props.hidden} noun={props.noun} selected={selected} />;
+    }
     if (selected.kind === "none") {
         return <NothingSelected styles={styles} inspect={inspect} words={props.words} record={props.value.history.type === "some"} lastCommit={props.lastCommit} />;
     }
@@ -242,6 +301,24 @@ function TargetDetails({ place, ...props }: PlaceProps) {
     return target === undefined ? null : <TargetView {...props} target={target} />;
 }
 
+/** One target's form, as {@link useTargetForm} reads it: what `FieldForm` draws it with. */
+export interface TargetForm {
+    /** The specs at this row. */
+    specs: FieldSpecValue[];
+    /** Each select's members at this row, by the field's path. */
+    options: Record<string, FieldOption[]>;
+    /** The form's value: the draft's fields. */
+    formValue: Record<string, unknown>;
+    /** What the record holds, as the value holds the draft: a field that differs is tinted. */
+    baseline: Record<string, unknown>;
+    /** An edit of a field, written as typing in the grid writes it. */
+    onChange: (path: readonly string[], next: unknown) => void;
+    /** The controls the form takes from the grid: a link's or a set's halves, an action's state, a member's label. */
+    renderControl: (spec: FieldSpecValue) => ReactNode | undefined;
+    /** The form's struct. */
+    struct: StructType;
+}
+
 /**
  * The form's specs, values and edits for one target — the payload's form at
  * this row: a quantity's unit and a date's level from its row, a select's
@@ -249,9 +326,12 @@ function TargetDetails({ place, ...props }: PlaceProps) {
  * by its print and a read-only column's value from its cell, and each edit
  * written as typing in the grid writes it — each one step of the history, or,
  * given `joins`, one step with the edits before it under that key (a phone's
- * cell editor, SH10.1).
+ * cell editor, SH10.1). A host's Details draws its form from it (#1534).
+ *
+ * @param input - The payload, the words, the columns hidden, the `sheetInspector` styles, the sheet's reads and writes, the target and its form — and the key its edits join under, if they are one step
+ * @returns The form, as `FieldForm` draws it
  */
-function useTargetForm({ value, words, hidden, styles, inspect, target, form, joins }: Pick<TargetProps, "value" | "words" | "hidden" | "styles" | "inspect" | "target" | "form"> & { joins?: string | undefined }) {
+export function useTargetForm({ value, words, hidden, styles, inspect, target, form, joins }: Pick<TargetProps, "value" | "words" | "hidden" | "styles" | "inspect" | "target" | "form"> & { joins?: string | undefined }): TargetForm {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const r = target.r;
@@ -391,15 +471,29 @@ function useTargetForm({ value, words, hidden, styles, inspect, target, form, jo
 }
 
 /** One issue of a target, as Details lists it. */
-interface TargetIssue {
+export interface TargetIssue {
+    /** Its place among the batch's issues: the list's key. */
     key: string;
+    /** The field it names, by its label — else its name; `undefined` for an issue of the whole row. */
     field: string | undefined;
+    /** The field's name, as the form keys it; `undefined` for an issue of the whole row. */
+    name: string | undefined;
+    /** What is wrong, in the sheet's words. */
     text: string;
+    /** A field still missing, or one refused. */
     kind: "incomplete" | "invalid";
 }
 
-/** A target's issues, by field: each its field's label (else its name) and its text in the sheet's words. */
-function targetIssues(target: SheetInspectTarget, inspect: SheetInspect, form: FormValue, words: SheetWords): TargetIssue[] {
+/**
+ * A target's issues, by field: each its field's label (else its name) and its text in the sheet's words.
+ *
+ * @param target - The row, line or band
+ * @param inspect - The sheet's reads: the batch's issues
+ * @param form - The target's form: its fields' labels
+ * @param words - The sheet's words
+ * @returns Its issues, in the batch's order
+ */
+export function targetIssues(target: SheetInspectTarget, inspect: SheetInspect, form: FormValue, words: SheetWords): TargetIssue[] {
     const labels = new Map(form.fields.map((f) => [f.spec.path[0]!, f.spec.label]));
     const out: TargetIssue[] = [];
     inspect.issues.forEach((issue, i) => {
@@ -408,27 +502,26 @@ function targetIssues(target: SheetInspectTarget, inspect: SheetInspect, form: F
         // A line's issues are addressed to its place in the group; a row's and a band's to none.
         if (target.index === undefined ? row !== undefined : row === undefined || Number(row) !== target.index) return;
         const field = getSomeorUndefined(issue.field);
-        out.push({ key: `${i}`, field: field === undefined ? undefined : labels.get(field) ?? field, text: issueText(issue.message, words), kind: inspect.kindOf(issue) });
+        out.push({ key: `${i}`, field: field === undefined ? undefined : labels.get(field) ?? field, name: field, text: issueText(issue.message, words), kind: inspect.kindOf(issue) });
     });
     return out;
 }
 
-/** One row, line or band: its head, its issues, its fields, its sub rows and its gestures (SB47, SB49). */
-function TargetView(props: TargetProps) {
-    const { value, keys, words, styles, inspect, target, form, noun } = props;
-    const { m } = words;
-    const button = useRecipe({ key: "button" });
-    const edit = useTargetForm(props);
+/**
+ * The author's own Details for a complete row (SB58): what their function returns for the row as bytes, its edit
+ * written back as one transaction — every field its columns write through them at once, a field with none on the
+ * draft. `undefined` for a band, for a row still missing a field or holding one unreadable, for a pane with no Details
+ * of the author's, and where their function fails: the form shows there. A host's Details draws them too (#1534).
+ *
+ * @param input - The payload, the pane, the sheet's reads and writes, the target, its form and the form's struct
+ * @returns What the author's function returns, drawn in the form's place
+ */
+export function useAuthorDetails({ value, pane, inspect, target, form, struct }: {
+    value: SheetInspectorValue; pane: PaneValue; inspect: SheetInspect; target: SheetInspectTarget; form: FormValue; struct: StructType;
+}): AuthorDetails | undefined {
     const band = target.kind === "band";
-    const issues = targetIssues(target, inspect, form, words);
-    const isNew = target.baseline === undefined && target.value !== undefined;
     const idField = getSomeorUndefined(value.sheet.editing.idField);
-    // Its id: a line's own where it has one (beside loose rows), else its entry's.
-    const ownId = target.kind === "line" && idField !== undefined ? target.value?.[idField] : undefined;
-
-    // The author's own Details for a complete row (SB58): its row as bytes, its edit back as one transaction.
-    const author = getSomeorUndefined(props.pane.custom);
-    const struct = edit.struct;
+    const author = getSomeorUndefined(pane.custom);
     const codec = useMemo(() => ({ encode: encodeBeast2For(struct), decode: decodeBeast2For(struct), patch: encodeBeast2For(Sheet.Types.Patch(struct)) }), [struct]);
     const equals = useMemo(() => new Map(Object.entries(struct.fields as Record<string, EastType>).map(([k, t]) => [k, equalFor(t)])), [struct]);
     const rowEqual = useMemo(() => {
@@ -459,7 +552,7 @@ function TargetView(props: TargetProps) {
         inspect.write([write]);
         return null;
     }, [complete, codec, equals, form, idField, inspect, target.r]);
-    const own = useMemo(() => {
+    return useMemo(() => {
         if (band || author === undefined || complete === undefined) return undefined;
         try {
             return author(codec.encode(complete as Record<string, unknown>), update);
@@ -468,6 +561,22 @@ function TargetView(props: TargetProps) {
             return undefined;
         }
     }, [band, author, complete, codec, update]);
+}
+
+/** One row, line or band: its head, its issues, its fields, its sub rows and its gestures (SB47, SB49). */
+function TargetView(props: TargetProps) {
+    const { value, keys, words, styles, inspect, target, form, noun } = props;
+    const { m } = words;
+    const button = useRecipe({ key: "button" });
+    const edit = useTargetForm(props);
+    const band = target.kind === "band";
+    const issues = targetIssues(target, inspect, form, words);
+    const isNew = target.baseline === undefined && target.value !== undefined;
+    const idField = getSomeorUndefined(value.sheet.editing.idField);
+    // Its id: a line's own where it has one (beside loose rows), else its entry's.
+    const ownId = target.kind === "line" && idField !== undefined ? target.value?.[idField] : undefined;
+    // The author's own Details for a complete row (SB58): its row as bytes, its edit back as one transaction.
+    const own = useAuthorDetails({ value, pane: props.pane, inspect, target, form, struct: edit.struct });
 
     const subRows = target.subRows;
     const can = inspect.can;
@@ -1111,7 +1220,9 @@ function NothingSelected({ styles, inspect, words, record, lastCommit }: {
 // ============================================================================
 
 /** The Issues tab: every issue of the batch by row, each a control that goes to its cell. */
-const SheetInspectorIssues = memo(function SheetInspectorIssues({ forms, words, noun }: { forms: PaneValue["forms"]; words: SheetWords; noun: string }) {
+const SheetInspectorIssues = memo(function SheetInspectorIssues({ forms, words, noun, where: hostWhere }: {
+    forms: PaneValue["forms"]; words: SheetWords; noun: string; where?: SheetInspectorHost["where"];
+}) {
     const { m } = words;
     const inspect = useSheetInspect();
     const styles = useSlotRecipe({ key: "sheetInspector" })() as Styles;
@@ -1120,11 +1231,14 @@ const SheetInspectorIssues = memo(function SheetInspectorIssues({ forms, words, 
         ...(getSomeorUndefined(forms.group)?.fields ?? []).map((f) => [f.spec.path[0]!, f.spec.label] as const),
         ...forms.row.fields.map((f) => [f.spec.path[0]!, f.spec.label] as const),
     ]), [forms]);
-    // An issue's place: its entry, or a line of its group.
+    // An issue's place: a host's words for it, given where its row stands among the rows drawn (#1534) — else its entry,
+    // or a line of its group.
+    const placeOf = inspect.placeOf;
     const where = useCallback((issue: EditIssue) => {
+        if (hostWhere !== undefined) return hostWhere(issue, placeOf(issue));
         const row = getSomeorUndefined(issue.row);
         return row === undefined ? issue.entry : m.rowRef({ line: true, number: words.number(Number(row) + 1), title: issue.entry, noun });
-    }, [m, words, noun]);
+    }, [m, words, noun, hostWhere, placeOf]);
     // Whether the rail's filters hide the rows of the issues the sheet does not draw, and by which, asked of e3 while the
     // tab lists them (the hidden pick).
     const { issues, askHidden } = inspect;

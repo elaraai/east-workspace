@@ -13,8 +13,10 @@
  * Sheet's pager over the other columns, no select column — and its chrome
  * (#1533): the toolbar and its fold, Add, Delete and the history's steps in
  * the status line (FR2–FR7, AD1–AD7), the strip's words (SP1–SP7) and the
- * footer (FT1, FT2) — over the Record's examples deployed to e3 itself, each
- * test a workspace of its own.
+ * footer (FT1, FT2) — and its inspector (#1534): Details by column group, the
+ * one-line field, the facts, Duplicate and Delete, the stats with no row, and
+ * the Issues tab (IN2–IN9) — over the Record's examples deployed to e3 itself,
+ * each test a workspace of its own.
  */
 
 import { describe, expect, test, vi } from "vitest";
@@ -48,8 +50,10 @@ const editor = (container: HTMLElement) => container.querySelector<HTMLElement>(
 const part = (cell: HTMLElement, name: string) => cell.querySelector<HTMLElement>(`[data-slot="${name}"]`);
 /** The inspector pane. */
 const pane = (container: HTMLElement) => slot(container, "end")!;
+/** The Record's Details for a row, in the inspector's open tab. */
+const details = (container: HTMLElement) => pane(container).querySelector<HTMLElement>('[role="tabpanel"]:not([hidden]) [data-record-details="row"]');
 /** The row Details shows, by its key. */
-const inspected = (container: HTMLElement) => pane(container).querySelector('[role="tabpanel"]:not([hidden]) [data-inspector-id]')?.textContent;
+const inspected = (container: HTMLElement) => details(container)?.getAttribute("data-record-entry");
 /** The toolbar's region. */
 const toolbar = (container: HTMLElement) => slot(container, "toolbar")!;
 /** The status line's words. */
@@ -946,5 +950,225 @@ describe("the states", () => {
         await act(async () => { fireEvent.click(empty()!.querySelector('[data-slot="emptyClear"]')!); });
         await waitFor(() => expect(rows(container).length).toBeGreaterThan(0), { timeout: 10_000 });
         expect(skillsRows().read().where.size).toBe(0);
+    });
+});
+
+/** A field of the row's Details, by its key. */
+const detailsField = (container: HTMLElement, key: string) => details(container)!.querySelector<HTMLElement>(`[data-field="${key}"]`)!;
+/** A one-line field's radios. */
+const radiosOf = (field: HTMLElement) => within(field).getAllByRole("radio") as HTMLInputElement[];
+/** Which of a one-line field's radios are checked. */
+const checkedOf = (field: HTMLElement) => radiosOf(field).map((radio) => radio.checked);
+/** A one-line field's choices, as they read. */
+const choicesOf = (field: HTMLElement) => [...field.querySelectorAll("[data-scope=radio-group][data-part=item-text]")].map((text) => text.textContent);
+/** An inspector tab, by its name. */
+const inspectorTab = (container: HTMLElement, name: string | RegExp) => within(pane(container)).getByRole("tab", { name });
+/** The inspector's open tab's panel. */
+const openPanel = (container: HTMLElement) => pane(container).querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+/** The chip in the head of the row's Details, beside its title: its state and its words, or `undefined` for none. */
+const chipOf = (container: HTMLElement) => {
+    const chip = details(container)!.querySelector<HTMLElement>("[data-inspector-id] + * > [data-state]");
+    return chip === null ? undefined : [chip.getAttribute("data-state"), chip.textContent];
+};
+/** A shift preference's fields, as Details draws them: the title and the role, then the cycles, column by column. */
+const PREFERENCE_FIELDS = ["name", "role", "days", "afternoon", "nights", "sat", "sun", "overtime"];
+
+describe("the inspector", () => {
+    test("Details: the head names the row and its title, and counts the fields its drafts change; the fields in column order, each column group a section under its label, an unlabelled one's Other, and the audit no field (IN2, IN4)", async () => {
+        const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-details" });
+        await press(cellAt(container, 0, "role"));
+        await waitFor(() => expect(inspected(container)).toBe("P-0401"));
+        expect(details(container)!.querySelector("[data-inspector-what]")!.textContent).toBe("row 1");
+        expect(details(container)!.querySelector("[data-inspector-id]")!.textContent).toBe("A. Morgan");
+        expect(chipOf(container)).toBeUndefined();
+        expect([...details(container)!.querySelectorAll("[data-field]")].map((field) => field.getAttribute("data-field"))).toEqual(PREFERENCE_FIELDS);
+        const sections = [...details(container)!.querySelectorAll<HTMLElement>("[data-field-group]")];
+        expect(sections.map((section) => [section.getAttribute("data-field-group"), [...section.querySelectorAll("[data-field]")].map((field) => field.getAttribute("data-field"))]))
+            .toEqual([["Shifts", ["days", "afternoon", "nights"]], ["Weekends", ["sat", "sun"]], ["Other", ["overtime"]]]);
+        // Two of its cycles stepped in the grid, one twice: two fields its drafts change.
+        await press(cellAt(container, 0, "days"));
+        await press(cellAt(container, 0, "days"));
+        await press(cellAt(container, 0, "sat"));
+        expect(chipOf(container)).toEqual(["pending", "2 pending"]);
+    });
+
+    test("a cycle, a toggle and a boolean are each one line of radios, the held one checked and the label whole in its tooltip; a Record that adds no row offers Delete alone (IN5, IN7)", async () => {
+        const { container } = await h.mount(ex.recordEveryKind, { storageKey: "record-details-lines" });
+        await press(cellAt(container, 0, "notes"));
+        await waitFor(() => expect(inspected(container)).toBe("P-0401"));
+        const lines = ["inducted", "night", "preference"].map((key) => detailsField(container, key));
+        expect(lines.map((field) => field.getAttribute("data-layout"))).toEqual(["line", "line", "line"]);
+        expect(lines.map((field) => field.getAttribute("title"))).toEqual(["Inducted", "Nights", "Overtime"]);
+        expect(lines.map(choicesOf)).toEqual([["Yes", "No"], ["yes", "no"], ["can", "prefer", "can't"]]);
+        expect(lines.map(checkedOf)).toEqual([[true, false], [false, true], [false, true, false]]);
+        // Every other kind its column's own.
+        expect(detailsField(container, "notes").getAttribute("data-layout")).toBeNull();
+        // The Gatehouse's operators: no Duplicate.
+        expect([...details(container)!.querySelectorAll("[data-inspector-action]")].map((button) => button.getAttribute("data-inspector-action"))).toEqual(["delete"]);
+    });
+
+    test("a Record read only prints the member each line holds, and offers no Duplicate or Delete (IN5, IN7, ST9)", async () => {
+        const { container } = await withRows(await h.mount(ex.recordSkillsReadOnly, { storageKey: "record-details-read-only" }));
+        await press(cellAt(container, 0, "role"));
+        await waitFor(() => expect(inspected(container)).toBe("P-0401"));
+        expect(detailsField(container, "intake").querySelector("[data-field-value]")!.textContent).toBe("2");
+        expect(detailsField(container, "intake").querySelector("[data-scope=radio-group]")).toBeNull();
+        expect(details(container)!.querySelector("[data-inspector-actions]")).toBeNull();
+    });
+
+    test("a cycle field drafts as its grid cell does — the cell and the field changed, one step of the history — and Undo and Redo take both (IN5)", async () => {
+        const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-details-cycle" });
+        await press(cellAt(container, 1, "role"));
+        await waitFor(() => expect(inspected(container)).toBe("P-0415"));
+        // C. Patel can't work nights; Details says can.
+        expect(checkedOf(detailsField(container, "nights"))).toEqual([false, false, true]);
+        fireEvent.click(radiosOf(detailsField(container, "nights"))[0]!);
+        await settle();
+        expect(part(cellAt(container, 1, "nights"), "chip")!.textContent).toBe("can");
+        expect(cellAt(container, 1, "nights").hasAttribute("data-dirty")).toBe(true);
+        expect(rows(container)[1]!.hasAttribute("data-draft")).toBe(true);
+        expect(detailsField(container, "nights").hasAttribute("data-dirty")).toBe(true);
+        expect(chipOf(container)).toEqual(["pending", "1 pending"]);
+        await press(history(container, editingMessages.undo()));
+        expect(part(cellAt(container, 1, "nights"), "chip")!.textContent).toBe("can't");
+        expect(cellAt(container, 1, "nights").hasAttribute("data-dirty")).toBe(false);
+        expect(checkedOf(detailsField(container, "nights"))).toEqual([false, false, true]);
+        expect(detailsField(container, "nights").hasAttribute("data-dirty")).toBe(false);
+        expect(chipOf(container)).toBeUndefined();
+        await press(history(container, editingMessages.redo()));
+        expect(checkedOf(detailsField(container, "nights"))).toEqual([true, false, false]);
+        expect(part(cellAt(container, 1, "nights"), "chip")!.textContent).toBe("can");
+        // And the cell's own step is the field's: can → prefer.
+        await press(cellAt(container, 1, "nights"));
+        expect(checkedOf(detailsField(container, "nights"))).toEqual([false, true, false]);
+    });
+
+    test("the facts last, read only: the audit's when, verb and who, and the age's count, warning once stale — none for a row the record does not hold yet (IN6)", async () => {
+        vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+        vi.setSystemTime(new Date("2027-01-19T10:14:00Z"));
+        try {
+            const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-details-facts" });
+            const facts = () => [...details(container)!.querySelectorAll<HTMLElement>("[data-record-fact]")].map((fact) => {
+                const input = fact.querySelector<HTMLInputElement>("input")!;
+                return [fact.querySelector("[data-field-key]")!.textContent, input.getAttribute("aria-label"), input.value, input.readOnly, input.hasAttribute("data-stale")];
+            });
+            await press(cellAt(container, 0, "role"));
+            await waitFor(() => expect(inspected(container)).toBe("P-0401"));
+            expect(facts()).toEqual([
+                ["days_since", "Days since", "89", true, false],
+                ["updated", "Last updated", "2026-10-21 10:15 · changed · K. Lund", true, false],
+            ]);
+            // D. Novak's, from May: stale.
+            await press(cellAt(container, 2, "role"));
+            await waitFor(() => expect(inspected(container)).toBe("P-0422"));
+            expect(facts()[0]).toEqual(["days_since", "Days since", "251", true, true]);
+            await press(action(container, "add")!);
+            await waitFor(() => expect(inspected(container)).toBe(drafted(container).getAttribute("data-row-id")));
+            expect(details(container)!.querySelector("[data-record-facts]")).toBeNull();
+            expect(chipOf(container)).toEqual(["new", "New"]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    test("with no row selected: the rows shown, the drafts pending and the rows stale, then where a row's fields show (IN8)", async () => {
+        vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+        vi.setSystemTime(new Date("2027-01-19T10:14:00Z"));
+        try {
+            const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-details-none" });
+            const nothing = openPanel(container).querySelector<HTMLElement>('[data-record-details="none"]')!;
+            expect([...nothing.querySelectorAll("[data-count]")].map((stat) => [...stat.children].map((child) => child.textContent)))
+                .toEqual([["3", "Shown"], ["0", "Pending"], ["1", "Stale"]]);
+            expect(nothing.querySelector("[data-record-hint]")!.textContent).toBe("Select a row to see its fields here.");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    test("a press on a title opens its Details with the keyboard in the title's field, as Add does (P4, AD1)", async () => {
+        const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-details-title" });
+        await press(cellAt(container, 1, "name"));
+        await waitFor(() => expect(inspected(container)).toBe("P-0415"));
+        await waitFor(() => expect(document.activeElement).toBe(within(detailsField(container, "name")).getByRole("textbox")));
+        await press(action(container, "add")!);
+        const added = drafted(container);
+        await waitFor(() => expect(inspected(container)).toBe(added.getAttribute("data-row-id")));
+        await waitFor(() => expect(document.activeElement).toBe(within(detailsField(container, "name")).getByRole("textbox")));
+        expect(details(container)!.querySelector("[data-inspector-id]")!.textContent).toBe("—");
+    });
+
+    test("Duplicate drafts a copy, in its key's place, its title empty: the ring on it, its Details open with the keyboard in its title, and the status line says so; Undo takes it back (IN7)", async () => {
+        const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-duplicate" });
+        const held = ["P-0401", "P-0415", "P-0422"];
+        await press(cellAt(container, 1, "role"));
+        await waitFor(() => expect(inspected(container)).toBe("P-0415"));
+        await press(details(container)!.querySelector('[data-inspector-action="duplicate"]')!);
+        await waitFor(() => expect(rows(container)).toHaveLength(4));
+        const copy = rows(container).find((row) => !held.includes(row.getAttribute("data-row-id")!))!;
+        expect(copy.hasAttribute("data-draft")).toBe(true);
+        expect([cellOf(copy, "name").textContent, cellOf(copy, "name").hasAttribute("data-required")]).toEqual(["", true]);
+        // Every other field C. Patel's.
+        expect(["days", "afternoon", "nights", "sat", "sun", "overtime"].map((key) => part(cellOf(copy, key), "chip")!.textContent))
+            .toEqual(["can", "prefer", "can't", "prefer", "can't", "can"]);
+        expect(status(container)).toBe("Duplicated C. Patel");
+        await waitFor(() => expect(inspected(container)).toBe(copy.getAttribute("data-row-id")));
+        expect(active(container)).toBe(cellOf(copy, "name"));
+        await waitFor(() => expect(document.activeElement).toBe(within(detailsField(container, "name")).getByRole("textbox")));
+        expect(chipOf(container)).toEqual(["new", "New"]);
+        await press(history(container, editingMessages.undo()));
+        expect(rows(container).map((row) => row.getAttribute("data-row-id"))).toEqual(held);
+    });
+
+    test("Delete takes the row out as one draft, unticking it, and Undo restores it (IN7)", async () => {
+        const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-details-delete" });
+        const ids = () => rows(container).map((row) => row.getAttribute("data-row-id"));
+        await press(tick(container, 0));
+        await press(cellAt(container, 0, "role"));
+        await waitFor(() => expect(inspected(container)).toBe("P-0401"));
+        await press(details(container)!.querySelector('[data-inspector-action="delete"]')!);
+        expect(ids()).toEqual(["P-0415", "P-0422"]);
+        expect(ticked(container)).toEqual([]);
+        expect(status(container)).toBe("Deleted 1 person · Apply writes it, Undo restores");
+        await press(history(container, editingMessages.undo()));
+        expect(ids()).toEqual(["P-0401", "P-0415", "P-0422"]);
+    });
+
+    test("Issues lists every refusal holding Apply by its row's place and its field; a click selects the row, opens Details and rings the field, the keyboard in it; No issues only once nothing holds Apply (IN3, IN9)", async () => {
+        const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-issues-tab" });
+        const toIssues = async () => {
+            fireEvent.click(inspectorTab(container, /^Issues/));
+            await settle();
+        };
+        await toIssues();
+        expect(openPanel(container).querySelector("[data-inspector-no-issues]")!.textContent).toContain("No issues");
+        await press(action(container, "add")!);
+        const added = drafted(container);
+        const n = rows(container).indexOf(added) + 1;
+        // The ring elsewhere, and the Issues tab again: a new row's every empty field, and never No issues.
+        await press(cellAt(container, n === 1 ? 1 : 0, "role"));
+        await toIssues();
+        expect(openPanel(container).querySelector("[data-inspector-no-issues]")).toBeNull();
+        const lines = () => [...openPanel(container).querySelectorAll<HTMLElement>("[data-inspector-issue]")];
+        const labels = ["Name", "Role", "Days", "Afternoon", "Nights", "Sat", "Sun", "Overtime"];
+        expect(lines().map((line) => line.firstElementChild!.textContent).sort()).toEqual(labels.map((label) => `row ${n} · ${label}`).sort());
+        await press(lines().find((line) => line.firstElementChild!.textContent === `row ${n} · Nights`)!);
+        expect(active(container)).toBe(cellOf(added, "nights"));
+        await waitFor(() => expect(inspectorTab(container, "Details").getAttribute("aria-selected")).toBe("true"));
+        await waitFor(() => expect(inspected(container)).toBe(added.getAttribute("data-row-id")));
+        // Its issues over its form (IN3), each field they name washed — and the keyboard in Nights.
+        expect(details(container)!.querySelector("[data-inspector-issues]")!.firstElementChild!.textContent).toBe("8 issues");
+        expect([...details(container)!.querySelectorAll("[data-field][data-issue]")].map((field) => field.getAttribute("data-field"))).toEqual(PREFERENCE_FIELDS);
+        await waitFor(() => expect(detailsField(container, "nights").contains(document.activeElement)).toBe(true));
+        // A field set, its issue gone from the form and the tab.
+        fireEvent.click(radiosOf(detailsField(container, "nights"))[0]!);
+        await settle();
+        expect(detailsField(container, "nights").hasAttribute("data-issue")).toBe(false);
+        await toIssues();
+        expect(lines()).toHaveLength(7);
+        // The row taken back: nothing holds Apply, and the tab says so.
+        await press(history(container, editingMessages.undo()));
+        await press(history(container, editingMessages.undo()));
+        expect(rows(container)).toHaveLength(3);
+        expect(openPanel(container).querySelector("[data-inspector-no-issues]")).not.toBeNull();
     });
 });

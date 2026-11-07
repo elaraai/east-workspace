@@ -14,8 +14,9 @@
  * printed. And (#1188) a field with no value yet, a date's precision, and a
  * control the host draws itself; and (#1250) a text's control titled with its
  * whole text, and a choice's with its chosen words; and (#1473) a choice of up
- * to four cases a radio group. Every value handed back is asserted with East's
- * `equalFor`.
+ * to four cases a radio group; and (#1534) a field a host draws on one line,
+ * the wash of a field an issue names, and the field a host names taking the
+ * keyboard. Every value handed back is asserted with East's `equalFor`.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -32,7 +33,7 @@ import { Fields } from "@elaraai/east-ui";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
 import { formatters } from "../../format/index.js";
-import { FieldForm } from "./index.js";
+import { FieldForm, type FieldLineChoice } from "./index.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -626,6 +627,101 @@ describe("FieldForm — a choice of up to four cases is a radio group, past four
         const { field: printed } = mountAlert({ changes: "", severity: variant("high", null), priority: none, status: variant("done", null) }, true);
         expect((within(printed("severity")).getByRole("textbox") as HTMLInputElement).value).toBe("High");
         expect(printed("severity").querySelector("[data-scope=radio-group]")).toBeNull();
+    });
+});
+
+describe("FieldForm — a field a host draws on one line, an issue's wash, and the field named to take the keyboard (#1534)", () => {
+    // A crew shift: its kind a key of the host's cycle, a Boolean, and an Option of one.
+    const Shift = StructType({ name: StringType, kind: StringType, active: BooleanType, lead: OptionType(BooleanType), note: StringType });
+    const SHIFT_SPECS = Fields.specs(Shift);
+    const YES_NO: readonly FieldLineChoice[] = [{ value: true, label: "Yes" }, { value: false, label: "No" }];
+    const LINES: ReadonlyMap<string, readonly FieldLineChoice[]> = new Map([
+        ["kind", [{ value: "day", label: "Day" }, { value: "night", label: "Night" }]],
+        ["active", YES_NO],
+        ["lead", YES_NO],
+    ]);
+
+    function mountShift(value: Record<string, unknown>, extra: { readOnly?: boolean; issues?: ReadonlySet<string> } = {}) {
+        const edits: Edit[] = [];
+        let named: (key: string | undefined) => void = () => {};
+        function Host() {
+            const [current, setValue] = useState<Record<string, unknown>>(value);
+            const [focus, setFocus] = useState<string | undefined>(undefined);
+            named = setFocus;
+            return (
+                <FieldForm specs={SHIFT_SPECS} value={current} readOnly={extra.readOnly} lines={LINES} issues={extra.issues} focus={focus}
+                    onChange={(path, next) => { edits.push({ path: path.join("."), value: next }); setValue((v) => setAt(v, path, next)); }} />
+            );
+        }
+        const utils = render(<ChakraProvider value={system}><I18nProvider locale={LOCALE}><Host /></I18nProvider></ChakraProvider>);
+        const field = (key: string) => utils.container.querySelector<HTMLElement>(`[data-field="${key}"]`)!;
+        return { ...utils, edits, field, focus: (key: string | undefined) => act(() => { named(key); }) };
+    }
+    const radios = (el: HTMLElement) => within(el).getAllByRole("radio") as HTMLInputElement[];
+    const labelsOf = (el: HTMLElement) => [...el.querySelectorAll("[data-scope=radio-group][data-part=item-text]")].map((t) => t.textContent);
+
+    test("a named field is one line — its label, whole in its title, then its choices as one line of radios — and the lines in a run sit together", () => {
+        const { container, field } = mountShift({ name: "Early", kind: "night", active: true, lead: none, note: "" });
+        expect(field("kind").getAttribute("data-layout")).toBe("line");
+        expect(field("kind").getAttribute("title")).toBe("Kind");
+        expect(field("kind").firstElementChild!.textContent).toBe("Kind");
+        // No shared Field around it: the line is the field.
+        expect(field("kind").querySelector("[data-scope=field]")).toBeNull();
+        expect(within(field("kind")).getByRole("radiogroup", { name: "Kind" })).toBeTruthy();
+        expect(labelsOf(field("kind"))).toEqual(["Day", "Night"]);
+        expect(radios(field("kind")).map((r) => r.checked)).toEqual([false, true]);
+        expect(radios(field("active")).map((r) => r.checked)).toEqual([true, false]);
+        // The three lines are one run, between the name and the note, each still a field of its own.
+        const runs = [...container.querySelectorAll<HTMLElement>("[data-field-lines]")];
+        expect(runs.map((run) => [...run.querySelectorAll("[data-field]")].map((el) => el.getAttribute("data-field")))).toEqual([["kind", "active", "lead"]]);
+        expect([...container.querySelectorAll("[data-field]")].map((el) => `${el.getAttribute("data-field")}:${el.getAttribute("data-layout") ?? "column"}`))
+            .toEqual(["name:column", "kind:line", "active:line", "lead:line", "note:column"]);
+    });
+
+    test("a choice picked is one edit at once, typed as the field — a key, a Boolean, an Option's some — none checked while it holds no value; an Option's Clear empties it", async () => {
+        const { field, edits } = mountShift({ name: "Early", active: true, lead: none, note: "" });
+        expect(radios(field("kind")).map((r) => r.checked)).toEqual([false, false]);
+        await act(async () => { fireEvent.click(radios(field("kind"))[0]!); });
+        await settle();
+        expectEdit(edits, "kind", equalFor(StringType), "day");
+        expect(radios(field("kind")).map((r) => r.checked)).toEqual([true, false]);
+        // A required field holding its value has no Clear.
+        expect(within(field("kind")).queryByRole("button", { name: /^Clear/ })).toBeNull();
+
+        edits.length = 0;
+        await act(async () => { fireEvent.click(radios(field("active"))[1]!); });
+        await settle();
+        expectEdit(edits, "active", equalFor(BooleanType), false);
+
+        edits.length = 0;
+        expect(radios(field("lead")).map((r) => r.checked)).toEqual([false, false]);
+        expect(within(field("lead")).queryByRole("button", { name: /^Clear/ })).toBeNull();
+        await act(async () => { fireEvent.click(radios(field("lead"))[0]!); });
+        await settle();
+        expectEdit(edits, "lead", equalFor(OptionType(BooleanType)), some(true));
+        edits.length = 0;
+        await act(async () => { fireEvent.click(within(field("lead")).getByRole("button", { name: "Clear Lead" })); });
+        await settle();
+        expectEdit(edits, "lead", equalFor(OptionType(BooleanType)), none);
+        expect(radios(field("lead")).map((r) => r.checked)).toEqual([false, false]);
+    });
+
+    test("read only, the choice made is printed where the radios would be, and Not set where it holds none", () => {
+        const { container, field } = mountShift({ name: "Early", kind: "night", active: true, lead: none, note: "" }, { readOnly: true });
+        expect(["kind", "active", "lead"].map((key) => field(key).querySelector("[data-field-value]")!.textContent)).toEqual(["Night", "Yes", "Not set"]);
+        expect(field("kind").getAttribute("data-editor")).toBe("readonly");
+        expect(container.querySelector("[data-scope=radio-group], [data-field-clear]")).toBeNull();
+    });
+
+    test("a field an issue names takes the warn wash; the field a host names takes the keyboard as it is named", async () => {
+        const { container, field, focus } = mountShift({ name: "", kind: "day", active: true, lead: none, note: "" }, { issues: new Set(["name", "lead"]) });
+        expect([...container.querySelectorAll("[data-field][data-issue]")].map((el) => el.getAttribute("data-field"))).toEqual(["name", "lead"]);
+        expect(field("name").contains(document.activeElement)).toBe(false);
+        await focus("name");
+        expect(document.activeElement).toBe(within(field("name")).getByRole("textbox"));
+        await focus("kind");
+        expect(field("kind").contains(document.activeElement)).toBe(true);
+        expect((document.activeElement as HTMLInputElement).type).toBe("radio");
     });
 });
 

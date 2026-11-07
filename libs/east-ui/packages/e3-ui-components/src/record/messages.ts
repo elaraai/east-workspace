@@ -5,12 +5,12 @@
 
 /**
  * The Record's own words (`Record - DX Proposal.md` SL1, ST8, EM1, C1–C10,
- * FR5, FR6, AD1–AD7, SP1–SP6, FT1): its select column's, a new row's
- * required cell's, its empty state's, its cells' — their hovers, an age's and
- * an audit's, and the words for no one and for no value where a column gives
- * none — and its toolbar's, its status line's, its strip's and its footer's,
- * each in the Record's word for its rows. Every other word it shows is the
- * Sheet's.
+ * FR5, FR6, AD1–AD7, SP1–SP6, FT1, IN2, IN4, IN7, IN8): its select column's,
+ * a new row's required cell's, its empty state's, its cells' — their hovers,
+ * an age's and an audit's, and the words for no one and for no value where a
+ * column gives none — and its toolbar's, its status line's, its strip's, its
+ * footer's and its inspector's, each in the Record's word for its rows. Every
+ * other word it shows is the Sheet's.
  *
  * @packageDocumentation
  */
@@ -153,6 +153,16 @@ export interface RecordMessages {
     stripRemoveRow: () => string;
     /** A Sheet kind's keys, at rest: ⏎ edits, where it edits. */
     stripEdit: (p: { editable: boolean }) => string;
+    /** The inspector's chip on a row whose drafts change its fields (IN2): how many. */
+    detailsPending: (p: { count: string }) => string;
+    /** The inspector's counts with no row selected (IN8): the rows shown, the drafts pending, the rows stale. */
+    detailsStat: (p: { stat: "shown" | "pending" | "stale" }) => string;
+    /** The inspector with no row selected (IN8): where a row's fields show. */
+    detailsHint: () => string;
+    /** The inspector's section of the fields of a column group with no label (IN4). */
+    otherGroup: () => string;
+    /** The status line once Duplicate has drafted a copy of a row (IN7): the row copied, by its name. */
+    duplicated: (p: { name: string }) => string;
 }
 
 /** The Record's words in English. */
@@ -229,4 +239,9 @@ export const recordMessages: RecordMessages = {
     },
     stripRemoveRow: () => "⌘Z removes the row",
     stripEdit: ({ editable }) => (editable ? "⏎ edit · ↑ ↓ ← → move" : "↑ ↓ ← → move"),
+    detailsPending: ({ count }) => `${count} pending`,
+    detailsStat: ({ stat }) => (stat === "shown" ? "Shown" : stat === "pending" ? "Pending" : "Stale"),
+    detailsHint: () => "Select a row to see its fields here.",
+    otherGroup: () => "Other",
+    duplicated: ({ name }) => `Duplicated ${name}`,
 };

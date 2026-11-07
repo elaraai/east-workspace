@@ -13,7 +13,8 @@
  *   Sheet's words;
  * - **else what a step of the history did** — Undo, Redo, Discard and
  *   Apply, each told as it is taken ({@link stepOf}, {@link createRecordStatus}),
- *   until a gesture or a notice comes after it;
+ *   and a Duplicate, which the Sheet's notice says nothing of (IN7) — until a
+ *   gesture or a notice comes after it;
  * - **else how many rows are ticked**, of the rows shown.
  *
  * What an Apply sends and a Discard drops is tallied before the step is taken
@@ -44,12 +45,13 @@ export interface RecordNoun {
     readonly plural: string;
 }
 
-/** What a step of the history did, as the status line says it (AD4–AD7). */
+/** What a step of the history did (AD4–AD7), or a Duplicate the inspector drafted (IN7), as the status line says it. */
 export type RecordStep =
     | { readonly id: "undid" | "redid" }
     | { readonly id: "restored"; readonly n: number }
     | { readonly id: "discarded"; readonly n: number }
-    | { readonly id: "applied"; readonly tally: RecordTally };
+    | { readonly id: "applied"; readonly tally: RecordTally }
+    | { readonly id: "duplicated"; readonly name: string };
 
 /** A step the status line was told of, and when: each told later than the one before. */
 export interface RecordSaid {
@@ -168,6 +170,7 @@ export function stepText(step: RecordStep, words: SheetWords, noun: RecordNoun):
         case "restored": return m.restored({ n: step.n, count: words.number(step.n), noun: noun.singular, nouns: noun.plural });
         case "discarded": return m.discarded({ n: step.n, count: words.number(step.n) });
         case "applied": return m.applied({ tally: step.tally, count: (n) => words.number(n), noun: noun.singular, nouns: noun.plural });
+        case "duplicated": return m.duplicated({ name: step.name });
     }
 }
 

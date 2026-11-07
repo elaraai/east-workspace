@@ -21,15 +21,25 @@
  * sits centred on it, as a Set or a Clear does. A text longer than its box
  * ends in an ellipsis.
  *
+ * A field drawn on one line (#1534) is that line: its label at the start, as
+ * strong as a field's label, one line and an ellipsis, and its radios at the
+ * end; lines that follow one another sit closer than fields do, rows of
+ * choices. A field an issue names takes the warn wash a Record's empty
+ * required cell wears, spread as the drafts' tint is — so a new row's empty
+ * lines read as one block.
+ *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fieldHeights } from "../field-chrome.js";
 
+/** The warn wash around a field an issue names: a new row's empty required cell's (`record`'s ST8). */
+const ISSUE_WASH = "color-mix(in srgb, {colors.status.warn} 17%, {colors.bg.surface})";
+
 export const fieldFormSlotRecipe = defineSlotRecipe({
     className: "elara-field-form",
-    slots: ["root", "group", "groupHead", "groupFields", "field", "line", "control", "side", "items", "item"],
+    slots: ["root", "group", "groupHead", "groupFields", "field", "line", "control", "side", "items", "item", "lines", "lineLabel", "lineChoices", "lineValue"],
     base: {
         root: {
             display: "flex",
@@ -74,6 +84,48 @@ export const fieldFormSlotRecipe = defineSlotRecipe({
                 background: "brandTint",
                 boxShadow: "0 0 0 6px {colors.brandTint}",
             },
+            /* A field an issue names: the warn wash, spread as the tint is — over a change's. */
+            "&[data-issue]": {
+                background: ISSUE_WASH,
+                boxShadow: `0 0 0 6px ${ISSUE_WASH}`,
+            },
+            /* Drawn on one line: its label at the start, its choices at the end, on the Input's line. */
+            "&[data-layout=line]": {
+                flexDirection: "row",
+                alignItems: "center",
+                gap: "{spacing.3}",
+                minHeight: fieldHeights.md,
+                _coarse: { minHeight: "44px" },
+            },
+        },
+        /* Fields drawn on one line, one after another: rows of choices, closer than fields sit. */
+        lines: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "{spacing.1}",
+            minWidth: 0,
+        },
+        lineLabel: {
+            flex: "1 1 0",
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            fontSize: "body.sm",
+            fontWeight: "semibold",
+            color: "fg",
+        },
+        lineChoices: {
+            flex: "none",
+            display: "flex",
+            alignItems: "center",
+        },
+        /* Read only: the choice made, where the radios would be. */
+        lineValue: {
+            flex: "none",
+            fontSize: "body",
+            color: "fg",
+            whiteSpace: "nowrap",
         },
         /* The control's line: the field's width — the shared Field lays its
          * parts out from their start — the control filling it, and an
