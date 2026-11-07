@@ -5,12 +5,13 @@
 
 /**
  * The Record's own words (`Record - DX Proposal.md` SL1, ST8, EM1, C1–C10,
- * FR5, FR6, AD1–AD7, SP1–SP6, FT1, IN2, IN4, IN7, IN8): its select column's,
+ * FR5, FR6, AD1–AD7, SP1–SP6, FT1, IN2–IN4, IN7–IN9): its select column's,
  * a new row's required cell's, its empty state's, its cells' — their hovers,
  * an age's and an audit's, and the words for no one and for no value where a
  * column gives none — and its toolbar's, its status line's, its strip's, its
  * footer's and its inspector's, each in the Record's word for its rows. Every
- * other word it shows is the Sheet's.
+ * other word it shows is the Sheet's, but the message of an empty field a new
+ * row needs, which the Record says its own way in the Sheet's place.
  *
  * @packageDocumentation
  */
@@ -161,6 +162,8 @@ export interface RecordMessages {
     detailsHint: () => string;
     /** The inspector's section of the fields of a column group with no label (IN4). */
     otherGroup: () => string;
+    /** An empty field a new row needs, as its Details' issues and the Issues tab say it (IN3, IN9). */
+    fieldRequired: () => string;
     /** The status line once Duplicate has drafted a copy of a row (IN7): the row copied, by its name. */
     duplicated: (p: { name: string }) => string;
 }
@@ -243,5 +246,6 @@ export const recordMessages: RecordMessages = {
     detailsStat: ({ stat }) => (stat === "shown" ? "Shown" : stat === "pending" ? "Pending" : "Stale"),
     detailsHint: () => "Select a row to see its fields here.",
     otherGroup: () => "Other",
+    fieldRequired: () => "Required",
     duplicated: ({ name }) => `Duplicated ${name}`,
 };

@@ -44,7 +44,7 @@
  *   - Inspector facts: an audit's and an age's, ruled off as the inspector's
  *     sections are, each value read only on the canvas behind the subtle
  *     rule, at the Input's height, in the mono face at tabular figures; an
- *     age's warns once stale.
+ *     age's warns once stale. With no row, the counts at the body's size.
  *
  * Every value is a semantic token, so the dark theme comes for free; the
  * renderer sets data attributes and geometry alone.
@@ -124,7 +124,7 @@ export const recordSlotRecipe = defineSlotRecipe({
         "empty", "emptyMark", "emptyTitle", "emptyClear", "emptyBox", "emptyLink",
         "strip", "stripLabel", "stripText", "stripKeys",
         "footer", "footerCount", "footerNote", "footerSpacer", "footerLive", "legend", "legendItem", "legendChip", "legendName",
-        "facts", "factValue",
+        "facts", "factValue", "statValue",
     ],
     base: {
         /* Main: the grid, then the strip, then the footer. */
@@ -358,6 +358,8 @@ export const recordSlotRecipe = defineSlotRecipe({
             _focusVisible: { boxShadow: "{shadows.focus}" },
             "&[data-stale]": { color: "fg.warning" },
         },
+        /* The inspector's counts with no row (IN8): its stat values, at the body's size. */
+        statValue: { fontSize: "body" },
     },
     variants: {
         /* Rows 36 · 32 · 28: at compact and condensed the chips stand 15 tall and the initials 20. */

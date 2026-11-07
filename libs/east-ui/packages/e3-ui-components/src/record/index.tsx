@@ -21,10 +21,13 @@
  * - **the banners** — the session's, then an `entry` the record does not
  *   hold;
  * - **main** — the grid, filling the room the inspector leaves and scrolling
- *   its own rows, the strip docked under it;
+ *   its own rows, the strip docked under it. Beside the inspector it keeps
+ *   more than a phone's frame, and where it could not the inspector overlays
+ *   it, so the grid draws as on a phone only in a phone's frame;
  * - **the inspector**, the end pane, 320 wide, when the Record is given one —
  *   Details for the ring's row (`inspector.tsx`, IN1–IN8), and the batch's
- *   Issues, each naming its row by its place among the rows shown (IN9); a
+ *   Issues, each naming its row by its place among the rows shown (IN9), and
+ *   an empty field a new row needs `Required` in both, the Record's word; a
  *   press, ⏎ or F2 on a title opens it on Details with the keyboard in the
  *   title's field, as Add and Duplicate do — and the history bar's Issues and
  *   an issue's line, in the field the issue names — its open tab kept per
@@ -59,7 +62,7 @@ import { Box, useToken } from "@chakra-ui/react";
 import { equivalentFor, fromEastTypeValue, type ValueTypeOf } from "@elaraai/east";
 import { RecordComponent, RecordPayloadType, type sheetKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, usePersistedState,
+    BannerView, BuilderFrame, NARROW_FRAME, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, usePersistedState,
     type EditIssue, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, keptRead, useDensity, useSlotStyles, type SlotStyles } from "@elaraai/east-ui-components/internal";
@@ -67,6 +70,7 @@ import {
     SheetGrid, SheetProvider, useSheetEntries, useSheetFooter, useSheetHistory, useSheetInspect, useSheetLoading, useSheetToolbarParts, useSheetToolbarRef, type SheetHost,
 } from "../sheet/index.js";
 import { draftChanges } from "../sheet/draft-state.js";
+import { SheetMessagesProvider, type SheetMessages } from "../sheet/messages.js";
 import { useLastCommit } from "../sheet/frame/index.js";
 import { useSheetInspector, type SheetInspectorHost } from "../sheet/frame/inspector.js";
 import { indexColumns, indexRegisters } from "../sheet/model.js";
@@ -95,6 +99,16 @@ const payloadEquivalent = equivalentFor(RecordPayloadType);
 
 /** The select column's width, px (SL1): 20 in, the 14 box, 12 out. */
 const SELECT_PX = 46;
+
+/**
+ * The narrowest main gets beside a pinned inspector, px: wider than a phone's
+ * frame, which the grid draws as a phone's whatever frame it sits in — the
+ * pager, no select column — while the toolbar is still a desktop's.
+ */
+const MIN_MAIN_PX = NARROW_FRAME + 1;
+
+/** The Sheet's words the Record says its own way (IN3, IN9): an empty field a new row needs. */
+const RECORD_SHEET_MESSAGES: Partial<SheetMessages> = { issueRequired: rm.fieldRequired };
 
 /** No column hidden: a Record has no Columns tab. */
 const NO_COLUMN_HIDDEN: ReadonlySet<string> = new Set();
@@ -184,16 +198,18 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const inspection = useMemo((): RecordInspector => ({ focus, focused, status, ticks, readOnly }), [focus, focused, status, ticks, readOnly]);
     const onTab = useCallback((tab: string) => setPane({ tab }), [setPane]);
     return (
-        <RecordClock>
-            <RecordGridProvider value={grid}>
-                <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>
-                    <RecordInspectorProvider value={inspection}>
-                        <RecordFrame value={value} keys={keys} styles={styles} frameRef={frameRef} tab={pane.tab} onTab={onTab} onOpen={onOpen}
-                            openDetails={openDetails} ticks={ticks} status={status} readOnly={readOnly} />
-                    </RecordInspectorProvider>
-                </SheetProvider>
-            </RecordGridProvider>
-        </RecordClock>
+        <SheetMessagesProvider messages={RECORD_SHEET_MESSAGES}>
+            <RecordClock>
+                <RecordGridProvider value={grid}>
+                    <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>
+                        <RecordInspectorProvider value={inspection}>
+                            <RecordFrame value={value} keys={keys} styles={styles} frameRef={frameRef} tab={pane.tab} onTab={onTab} onOpen={onOpen}
+                                openDetails={openDetails} ticks={ticks} status={status} readOnly={readOnly} />
+                        </RecordInspectorProvider>
+                    </SheetProvider>
+                </RecordGridProvider>
+            </RecordClock>
+        </SheetMessagesProvider>
     );
 }, (prev, next) => payloadEquivalent(prev.value, next.value) && prev.storageKey === next.storageKey);
 
@@ -325,6 +341,7 @@ function RecordFrame({ value, keys, styles, frameRef, tab, onTab, onOpen, openDe
                 toolbarRef={toolbarRef}
                 banners={banners}
                 end={end}
+                minMain={MIN_MAIN_PX}
                 footer={<RecordFooter styles={styles} count={count} saved={saved} stale={stale} recordSlice={rowsPart} legend={legend} live={statusLine}
                     loading={footer.loading} noun={footer.noun} onRetry={footer.onRetry} />}
                 loading={loading.cold}
