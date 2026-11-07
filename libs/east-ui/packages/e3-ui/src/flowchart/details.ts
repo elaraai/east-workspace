@@ -26,7 +26,8 @@
  * - **Read as the kind is** (R19): beside a kind read whole the details bind
  *   `Data.bind(record)`, read whole; beside one read through its source,
  *   `Data.bindPaged(record)`, read by the drawn rows' keys, every key in one
- *   request. They are read only (R18): `Record.bind` is refused.
+ *   request. They are read only (R18): `Record.bind` is refused. Their record
+ *   is keyed as the kind's is, by any type a Dict takes (#1549).
  * - **The row type never reaches the payload**: `values` turns a row's bytes
  *   into one value a read, one type whatever the row holds.
  * - **The rail's picks weigh them** (#1522, R43–R46): details that name a
@@ -51,7 +52,7 @@ import {
     ColorSchemeType, StyleVariantType, resolveRowSource, resolveTag, type ColorSchemeLiteral, type IndexedSource, type StyleVariantLiteral,
 } from "@elaraai/east-ui/internal";
 import { fieldOf } from "../schedule/fields.js";
-import { checkEntries, optionOf, typeText } from "../schedule/window.js";
+import { checkEntries, keyTextOf, optionOf, typeText } from "../schedule/window.js";
 import type { FlowchartBinding } from "./kinds.js";
 import { FlowchartDetailRowType, FlowchartDetailsType, FlowchartTagColorType } from "./types.js";
 
@@ -508,7 +509,8 @@ export interface FlowchartTransitionDetailsSpec {
  * The binding a kind's details take (R19): `Data.bind(record)`'s handle, read
  * whole, or `Data.bindPaged(record)`'s, read by key — or, weighed by the
  * rail's picks (#1522), `Data.bindPaged(record, { indexes: [its entries index] })`'s,
- * its rows read by key through the index's lean rows.
+ * its rows read by key through the index's lean rows. The record is keyed as
+ * its kind's is, by any type a Dict takes (#1549).
  *
  * @typeParam R - The details' row type
  * @typeParam P - Through an entries index, an index entry's value: the row, its Dict field emptied
@@ -516,11 +518,12 @@ export interface FlowchartTransitionDetailsSpec {
  * @typeParam IK - Through an entries index, the binding's index keys
  * @typeParam N - Through an entries index, the binding's nested part
  * @typeParam X - Through an entries index, the binding's maintenance part
+ * @typeParam K - The details' key type: their kind's
  */
 export type FlowchartDetailsBinding<R extends StructType, P extends EastType = EastType, M extends EastType = EastType, IK extends EastType = EastType,
-    N extends EastType = EastType, X extends EastType = EastType> =
-    | FlowchartBinding<R>
-    | IndexedSource<StringType, R, P, M, IK, N, X>;
+    N extends EastType = EastType, X extends EastType = EastType, K extends EastType = StringType> =
+    | FlowchartBinding<R, K>
+    | IndexedSource<K, R, P, M, IK, N, X>;
 
 /** The key a kind's details carry their mark under. */
 export const FLOWCHART_DETAILS: unique symbol = Symbol("Flowchart.details");
@@ -543,6 +546,8 @@ export interface FlowchartDetails<R extends StructType, S, L = FlowchartLabelDra
     readonly [FLOWCHART_DETAILS]: "details";
     /** The details' row type. */
     readonly rowType: StructType;
+    /** The details' key type: their kind is keyed by it too (#1549). */
+    readonly keyType: EastType;
     /** The rail's source whose picks weigh them (#1522); `undefined` for details none weighs. */
     readonly source: string | undefined;
     /** Whether a read shows in the inspector alone: refused beside `inspector={false}`. */
@@ -589,10 +594,11 @@ interface DetailsEntries {
     readonly valueType: EastType;
 }
 
-/** The details' record, bound: read whole, or by key; its handle, its row type, and the entries index it is bound with, if any. */
+/** The details' record, bound: read whole, or by key; its handle, its key and row types, and the entries index it is bound with, if any. */
 interface DetailsBinding {
     readonly form: "data" | "paged";
     readonly handle: ExprType<EastType>;
+    readonly keyType: EastType;
     readonly rowType: StructType;
     readonly entries: DetailsEntries | undefined;
 }
@@ -622,18 +628,15 @@ export function flowchartIndexedRows(type: EastType): { readonly row: StructType
  * The details' record bound through its entries index (#1522):
  * `Data.bindPaged(record, { indexes: [its entries index] })`, the rows read by
  * key through its lean rows. Its row type from its entries' joined row, its
- * entries index from the binding's metadata.
+ * entries index from the binding's metadata, its key type from its entries'.
  *
- * @throws {Error} When the binding lists no entries index, or several, or holds its rows by another key than a String
+ * @throws {Error} When the binding lists no entries index, or several
  */
 function indexedOf(record: Expr, type: StructType, where: string): DetailsBinding {
     const fields = type.fields as Record<string, EastType>;
     const paged = flowchartIndexedRows(type);
     if (paged === undefined) throw new Error(`${where}: Data.bindPaged(record, { indexes }) reads no rows of structs`);
     const { row, key } = paged;
-    if (!isTypeEqual(key, StringType)) {
-        throw new Error(`${where}: the details' record holds its rows by String key, keyed as the kind's are — and this one by ${typeText(key)}`);
-    }
     const indexes = fields["indexes"];
     const listed = indexes?.type === "Struct" ? Object.entries(indexes.fields as Record<string, EastType>) : [];
     const entries = listed.flatMap(([index, meta]) => {
@@ -652,7 +655,7 @@ function indexedOf(record: Expr, type: StructType, where: string): DetailsBindin
     if (entries.length > 1) {
         throw new Error(`${where}: the details are weighed by one entries index, and this binding lists ${entries.map((e) => `'${e.index}'`).join(", ")} — list one`);
     }
-    return { form: "paged", handle: record as ExprType<EastType>, rowType: row, entries: entries[0] };
+    return { form: "paged", handle: record as ExprType<EastType>, keyType: key, rowType: row, entries: entries[0] };
 }
 
 /**
@@ -687,12 +690,13 @@ function bindingOf(record: unknown, where: string): DetailsBinding {
         form = "data";
         recordType = read.output as EastType;
     }
-    if (recordType.type !== "Dict" || !isTypeEqual(recordType.key as EastType, StringType) || (recordType.value as EastType).type !== "Struct") {
-        throw new Error(`${where}: the details' record holds its rows by String key, keyed as the kind's are, each a struct — and this one holds ${typeText(recordType)}`);
+    if (recordType.type !== "Dict" || (recordType.value as EastType).type !== "Struct") {
+        throw new Error(`${where}: the details' record holds its rows by key, keyed as the kind's are, each a struct — and this one holds ${typeText(recordType)}`);
     }
+    const keyType = recordType.key as EastType;
     const rowType = recordType.value as StructType;
-    if (form === "paged") checkEntries(record, StringType, rowType, `${where}: Data.bindPaged(record)`);
-    return { form, handle: record as ExprType<EastType>, rowType, entries: undefined };
+    if (form === "paged") checkEntries(record, keyType, rowType, `${where}: Data.bindPaged(record)`);
+    return { form, handle: record as ExprType<EastType>, keyType, rowType, entries: undefined };
 }
 
 /** Whether a type is a number: an Integer or a Float. */
@@ -1130,12 +1134,13 @@ function wireOf(spec: ReadSpec, top: 1 | 2): unknown {
  * @typeParam IK - Through an entries index, the binding's index keys, inferred from it
  * @typeParam N - Through an entries index, the binding's nested part, inferred from it
  * @typeParam X - Through an entries index, the binding's maintenance part, inferred from it
+ * @typeParam K - The details' key type, inferred from the binding: their kind's (#1549)
  * @param binding - The details' record: `Data.bind(record)`, `Data.bindPaged(record)`, or `Data.bindPaged(record, { indexes: [its entries index] })`
  * @param spec - `{ source?, details: [ … ] }`: the rail's source whose picks weigh them, and every read, in the order drawn
  * @returns The details, for a state's or a transition's `details`
  * @throws {Error} Naming the binding or the read (R18–R20): `Record.bind` — "Details are read only: bind them with
  *   Data.bind(record), or Data.bindPaged(record) beside a kind read through its source" — or anything but a binding of
- *   a record of structs keyed by String; an element that is no read; a read's field the row lacks, or one of another
+ *   a record of structs; an element that is no read; a read's field the row lacks, or one of another
  *   type; an Array of counts without bins; a Dict of structs without a draw. Weighed (#1522): `source` naming the
  *   states' or the transitions' own; a source named while bound without an entries index, or an entries index bound
  *   with no source named; `weigh` beside details that name no source; a read of the entries' own field; a read whose
@@ -1215,8 +1220,8 @@ function wireOf(spec: ReadSpec, top: 1 | 2): unknown {
  * ```
  */
 export function flowchartDetails<R extends StructType, const S extends FlowchartDetailsSpec<R>, P extends EastType = EastType, M extends EastType = EastType,
-    IK extends EastType = EastType, N extends EastType = EastType, X extends EastType = EastType>(
-    binding: FlowchartDetailsBinding<R, P, M, IK, N, X>,
+    IK extends EastType = EastType, N extends EastType = EastType, X extends EastType = EastType, K extends EastType = StringType>(
+    binding: FlowchartDetailsBinding<R, P, M, IK, N, X, K>,
     spec: S & FlowchartLegendOnCanvas<S>,
 ): FlowchartDetails<NoInfer<R>, NoInfer<S>> {
     const where = "Flowchart.details";
@@ -1286,18 +1291,24 @@ export function flowchartDetails<R extends StructType, const S extends Flowchart
             return weigh === undefined ? read.value($ as unknown as { const: (value: unknown) => unknown }, row) : weigh($ as BlockBuilder<EastType>, taken, row);
         }) as never, FlowchartDetailRowType);
     });
-    // The details read whole, beside a kind read whole: each row's bytes, by key — built only then, since a paged
-    // read has no whole to read.
+    // The details read whole, beside a kind read whole: each row's bytes, by its key's text (#1549) — built only then,
+    // since a paged read has no whole to read.
     const Rows = DictType(StringType, BlobType);
+    const textOf = keyTextOf(bound.keyType);
     const whole = () => {
-        const read = (bound.handle as unknown as { read: () => ExprType<DictType<StringType, StructType>> }).read;
-        return East.function([], OptionType(Rows), (_$) =>
-            East.value(some(read().map((_$2, row) => East.Blob.encodeBeast(row as ExprType<EastType>, "v2"))), OptionType(Rows)));
+        const read = (bound.handle as unknown as { read: () => ExprType<DictType<EastType, StructType>> }).read;
+        return East.function([], OptionType(Rows), ($) => {
+            const text = $.const(textOf);
+            const rows = $.let(new Map(), Rows);
+            $.for(read(), ($2, row, key) => { $2(rows.insert(text(key), East.Blob.encodeBeast(row as ExprType<EastType>, "v2"))); });
+            return East.value(some(rows), OptionType(Rows));
+        });
     };
 
     return {
         [FLOWCHART_DETAILS]: "details",
         rowType,
+        keyType: bound.keyType,
         source,
         inspectorReads: reads.some((r) => r.spec.show === "inspector"),
         check(noun, at) {

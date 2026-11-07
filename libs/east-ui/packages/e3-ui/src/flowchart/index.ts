@@ -67,6 +67,7 @@ export {
     type FlowchartDecisions,
     type FlowchartDecisionsSpec,
     type FlowchartKeyField,
+    type FlowchartKeyRole,
     type FlowchartKeysField,
     type FlowchartKindDeclaration,
     type FlowchartKindSort,
@@ -253,6 +254,13 @@ const MEMBERS = {
  *   slice with `entries: Data.bindPaged(record)` beside it — `Data.bind`,
  *   read only and whole, or `Data.bindPaged` alone, read only, through its
  *   source; a lane or a decision `Record.bind` or `Data.bind`, read whole.
+ * - **Its keys** (#1549): each kind's record may be keyed by any type a Dict
+ *   takes, and a role naming another kind's row holds that kind's key — a
+ *   state's lane the lanes', a transition's ends the states' and its decision
+ *   an Option of the decisions', a decision's queue the states' — each refused
+ *   at build, naming both kinds and both types, where it holds another. A key
+ *   reaches the host as its text: a String as itself, any other as East
+ *   prints it.
  * - **Its details** (R18–R21): a state or a transition takes `details`,
  *   `Flowchart.details(binding, { details: [ … ] })` over the app's rows keyed
  *   as the kind's are, read only and bound as the kind is read — four reads,

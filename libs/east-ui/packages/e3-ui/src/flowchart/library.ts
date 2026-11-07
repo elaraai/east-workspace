@@ -31,7 +31,7 @@
  */
 
 import {
-    ArrayType, East, Expr, OptionType, StringType, StructType, VariantType, isTypeEqual, none, printType, some, variant,
+    ArrayType, East, Expr, OptionType, StringType, StructType, VariantType, none, printType, some, variant,
     type DictType, type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { ScheduleAuthorTabType, buildScheduleTab, type ScheduleLibraryTabConfig } from "../schedule/library.js";
@@ -104,7 +104,7 @@ export interface FlowchartKindTab {
 export interface FlowchartAuthorTab {
     /** Identifies an author's tab. */
     readonly kind: "tab";
-    /** Its rows: an Array, or a Dict by String keys. */
+    /** Its rows: an Array, or a Dict keyed by any type. */
     readonly rows: unknown;
     /** How it reads them. */
     readonly config: ScheduleLibraryTabConfig<EastType, EastType>;
@@ -116,15 +116,20 @@ export type FlowchartLibraryTab = FlowchartKindTab | FlowchartAuthorTab;
 /**
  * An author's tab's options — `Flowchart.library.tab(rows, { … })`: its name
  * and icon, what each card shows, the source of the slice it follows, and the
- * patch a card dropped on a row sets.
+ * patch a card dropped on a row sets. Each callback hears a card's key at its
+ * rows' key type.
  *
  * @typeParam T - The rows' element type
  * @typeParam P - The patch `drop` returns
+ * @typeParam K - The rows' key type: a Dict's, or an Array's index, printed
  */
-export type FlowchartTabConfig<T extends EastType, P extends EastType = EastType> = ScheduleLibraryTabConfig<StringType, T, P>;
+export type FlowchartTabConfig<T extends EastType, P extends EastType = EastType, K extends EastType = StringType> = ScheduleLibraryTabConfig<K, T, P>;
 
-/** The rows an author's tab reads: an Array, each card keyed by its index, printed; or a Dict by String keys — a record's, when it follows a source. */
-export type FlowchartLibraryRows<T extends EastType> = SubtypeExprOrValue<ArrayType<T>> | SubtypeExprOrValue<DictType<StringType, T>>;
+/**
+ * The rows an author's tab reads: an Array, each card keyed by its index, printed; or a Dict keyed by any type, each
+ * card keyed by its key's text (#1549) — a record's, when it follows a source.
+ */
+export type FlowchartLibraryRows<T extends EastType, K extends EastType = StringType> = SubtypeExprOrValue<ArrayType<T>> | SubtypeExprOrValue<DictType<K, T>>;
 
 /** The cards a kind's `templates` takes, as a refusal writes them. */
 const CARDS = "templates: Flowchart.templates(cards.read(), { name, values, source })";
@@ -217,19 +222,22 @@ export function libraryLanes(options?: FlowchartKindTabOptions, ...rest: readonl
  *
  * @remarks
  * The rows are an `Array<T>`, each card keyed by its index, printed, or a
- * `Dict<String, T>`, each by its key. Naming a `source` of the Flowchart's
- * slice, the tab follows it by its cards' keys, each a row's key in that
- * record — so its rows are that record's, a Dict; naming none, it lists its
- * rows whole. A tab's name is its identity in `library`. `Flowchart.templates`'
+ * `Dict<K, T>` of any key type, each by its key's text (#1549). Naming a
+ * `source` of the Flowchart's slice, the tab follows it by its cards' keys,
+ * each a row's key in that record — so its rows are that record's, a Dict;
+ * naming none, it lists its rows whole. A tab's name is its identity in `library`. `Flowchart.templates`'
  * example, the depot, shows the tabs together, its Owners tab among them.
  *
  * @typeParam T - The rows' element type
  * @typeParam P - The patch `drop` returns
- * @param rows - The rows: an `Array<T>` or a `Dict<String, T>`, usually a record's `read()`
+ * @typeParam K - The rows' key type: a Dict's, or an Array's index, printed
+ * @param rows - The rows: an `Array<T>` or a `Dict<K, T>`, usually a record's `read()`
  * @param config - The tab's name and icon, what each card shows, its `drop` and its `source` ({@link FlowchartTabConfig})
  * @returns The tab
  */
-export function libraryTab<T extends EastType, P extends EastType = EastType>(rows: FlowchartLibraryRows<T>, config: FlowchartTabConfig<T, P>): FlowchartAuthorTab {
+export function libraryTab<T extends EastType, P extends EastType = EastType, K extends EastType = StringType>(
+    rows: FlowchartLibraryRows<T, K>, config: FlowchartTabConfig<T, P, K>,
+): FlowchartAuthorTab {
     return { kind: "tab", rows, config: config as unknown as ScheduleLibraryTabConfig<EastType, EastType> };
 }
 
@@ -296,13 +304,14 @@ function isTab(value: unknown): value is FlowchartLibraryTab {
 }
 
 /**
- * An author's tab's rows, as the shared tab reads them: a Dict by String keys
- * as it is; an Array as a Dict keyed by each row's index, printed.
+ * An author's tab's rows, as the shared tab reads them: a Dict as it is, of
+ * any key type, each card keyed by its key's text (#1549); an Array as a Dict
+ * keyed by each row's index, printed.
  *
  * @param tab - The tab
  * @returns Its declaration over Dict rows
- * @throws {Error} Naming the tab: rows that are neither an Array nor a `Dict<String, T>`; an Array following a source,
- *   whose cards' keys are its indexes, never that record's keys; and a `key`, which the rows' keys are
+ * @throws {Error} Naming the tab: rows that are neither an Array nor a Dict; an Array following a source, whose cards'
+ *   keys are its indexes, never that record's keys; and a `key`, which the rows' keys are
  */
 function keyedRows(tab: FlowchartAuthorTab): FlowchartAuthorTab {
     if ("key" in tab.config) {
@@ -310,14 +319,14 @@ function keyedRows(tab: FlowchartAuthorTab): FlowchartAuthorTab {
     }
     const rows = East.value(tab.rows as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
     const type = Expr.type(rows as unknown as Expr) as EastType;
-    if (type.type === "Dict" && isTypeEqual(type.key as EastType, StringType)) return { ...tab, rows };
+    if (type.type === "Dict") return { ...tab, rows };
     if (type.type !== "Array") {
-        throw new Error(`Flowchart: ${tabName(tab)} reads its rows as an Array<T> or a Dict<String, T> — a value, or an expression such as a record's read() — ` +
+        throw new Error(`Flowchart: ${tabName(tab)} reads its rows as an Array<T> or a Dict — a value, or an expression such as a record's read() — ` +
             `and these are ${printType(type)}`);
     }
     if (tab.config.source !== undefined) {
         throw new Error(`Flowchart: ${tabName(tab)} follows the source '${tab.config.source}' by its cards' keys, each a row's key in that record — ` +
-            "read its rows as that record's, a Dict<String, T>, its binding's read(), never an Array keyed by index");
+            "read its rows as that record's, a Dict, its binding's read(), never an Array keyed by index");
     }
     const array = rows as unknown as ExprType<ArrayType<EastType>>;
     return { ...tab, rows: array.toDict(($, _row, index) => East.print(index), ($, row, _index) => row) };
@@ -332,7 +341,7 @@ function keyedRows(tab: FlowchartAuthorTab): FlowchartAuthorTab {
  * @returns The tabs on the wire
  * @throws {Error} Naming the tab: a `library` that is no list of `Flowchart.library.*` calls; a tab listed twice (an
  *   author's tab by its name); a kind's tab when the Flowchart has no such kind, or the kind has no cards; and each of
- *   an author's tab's refusals — rows that are neither an Array nor a `Dict<String, T>`, an Array following a source,
+ *   an author's tab's refusals — rows that are neither an Array nor a Dict, an Array following a source,
  *   a `key`, a source the slice lacks, and a `drop` over no kind's row type, or over one several kinds share
  * @internal
  */
