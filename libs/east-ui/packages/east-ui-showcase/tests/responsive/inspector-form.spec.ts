@@ -14,7 +14,9 @@
  * a coarse pointer), whatever its kind; a checkbox's box sits centred on that
  * line, and a tag's chip is the design system's 22px. One rhythm: 16px between fields, a nested struct's among them, and
  * 8px inside a field — from its label to its control, from its control to its
- * help line, from a group's head to its first field. Nothing runs past the
+ * help line, from a group's head to its first field. A variant's block (#1549)
+ * sits right under its choice, 16px under it and as wide, its fields set in
+ * from the choice's start: the block is their column. Nothing runs past the
  * pane's edge or is cut off, and no word breaks across lines where the pane has
  * room for it whole; a changed field's tint stays clear of its neighbours and
  * inside the pane, and so does a focus ring.
@@ -36,8 +38,12 @@
  * — the fibre run and the power feed it is
  * joined to, their ends as Choosers and their sides as tags, a cooling unit's
  * own Details, two racks, an area read only, a field changed, and a rack typed
- * off the floor, listed in Issues. Pinned beside main on a desktop, overlaid
- * on a phone; in both themes. No screenshot is read: boxes and computed
+ * off the floor, listed in Issues — and over the Record's joinery (#1549): a
+ * painted piece's finish, its block under its choice and a block in that under
+ * its gloss, a stain chosen in its place, and a bare piece's choice alone.
+ * Pinned beside main on a desktop, overlaid on a phone — the joinery at both a
+ * phone's widths too, its blocks' place being the measure; in both themes,
+ * the joinery in one. No screenshot is read: boxes and computed
  * styles, polled until the page is at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
@@ -47,6 +53,7 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
+import { visitBuilder } from "./builder-page";
 import { openExample, rowId, rowSel } from "./plan-page";
 import { DATA_CENTRE, centred, openSchematic, openTab as openLibraryTab, printedRef, screenPoint, sizeTo } from "./schematic-page";
 
@@ -127,16 +134,30 @@ async function formLayoutFaults(pane: Locator, coarse: boolean): Promise<string[
             const s = getComputedStyle(el);
             return ["Top", "Right", "Bottom", "Left"].every((side) => Number.parseFloat(s[`border${side}Width` as "borderTopWidth"]) > 0 && s[`border${side}Style` as "borderTopStyle"] !== "none");
         };
+        // A field's column: the form's — or, a field of the case a variant holds, its block's under the choice (#1549),
+        // set in past the block's rule and padding.
+        const columnOf = (field: Element, form: Element) => {
+            const block = field.closest("[data-field-block]");
+            const F = box(form);
+            if (block === null || !form.contains(block)) return { left: F.left, right: F.right, width: F.width, edge: "the form's" };
+            const K = box(block);
+            const s = getComputedStyle(block);
+            const left = K.left + Number.parseFloat(s.borderLeftWidth) + Number.parseFloat(s.paddingLeft);
+            const right = K.right - Number.parseFloat(s.borderRightWidth) - Number.parseFloat(s.paddingRight);
+            return { left, right, width: right - left, edge: "its block's" };
+        };
         const forms = [...panel.querySelectorAll("[data-field-form]")];
         if (forms.length === 0) bad.push("the pane shows no form");
         for (const form of forms) {
             const F = box(form);
             if (F.width === 0) { bad.push("a form not laid out"); continue; }
-            // ── One rhythm: the form's own items, then each group's.
+            // ── One rhythm: the form's own items, a variant's block among them, then each group's.
             const items = [...form.children].filter((el) => box(el).height > 0);
             for (let i = 1; i < items.length; i++) {
-                const gap = box(items[i]!).top - box(items[i - 1]!).bottom;
-                if (!near(gap, between)) bad.push(`${items[i]!.getAttribute("data-field") ?? items[i]!.getAttribute("data-field-group")}: ${px(gap)} under the field before it, not ${between}px`);
+                const at = items[i]!;
+                const gap = box(at).top - box(items[i - 1]!).bottom;
+                const part = at.getAttribute("data-field") ?? at.getAttribute("data-field-group") ?? (at.hasAttribute("data-field-block") ? `${at.getAttribute("data-field-block")}'s block` : null);
+                if (!near(gap, between)) bad.push(`${part}: ${px(gap)} under the field before it, not ${between}px`);
             }
             for (const group of form.querySelectorAll("[data-field-group]")) {
                 const head = group.firstElementChild!;
@@ -162,11 +183,12 @@ async function formLayoutFaults(pane: Locator, coarse: boolean): Promise<string[
                 const lineEl = label.nextElementSibling;
                 const help = root.querySelector(":scope > [data-part=helper-text]");
                 const side = field.querySelector("[data-field-set], [data-field-clear]");
-                // ── One column.
-                if (!near(B.left, F.left) || !near(B.right, F.right)) bad.push(`${key}: the field spans ${px(B.left - F.left)}–${px(B.right - F.left)} of the form's ${px(F.width)}`);
+                // ── One column: the form's, or its block's.
+                const C = columnOf(field, form);
+                if (!near(B.left, C.left) || !near(B.right, C.right)) bad.push(`${key}: the field spans ${px(B.left - C.left)}–${px(B.right - C.left)} of ${C.edge} ${px(C.width)}`);
                 for (const [what, el] of [["label", label], ["control", lineEl], ["help line", help]] as const) {
                     if (el === null) continue;
-                    if (!near(box(el).left, F.left)) bad.push(`${key}: its ${what} starts ${px(box(el).left - F.left)} in from the form's edge`);
+                    if (!near(box(el).left, C.left)) bad.push(`${key}: its ${what} starts ${px(box(el).left - C.left)} in from ${C.edge} edge`);
                 }
                 if (lineEl === null) { bad.push(`${key}: no control`); continue; }
                 const L = box(lineEl);
@@ -222,15 +244,15 @@ async function formLayoutFaults(pane: Locator, coarse: boolean): Promise<string[
                 if (side !== null) {
                     const S = box(side);
                     const what = side.hasAttribute("data-field-set") ? "Set" : "Clear";
-                    if (!near(S.right, F.right)) bad.push(`${key}: its ${what} ends ${px(F.right - S.right)} short of the form's edge`);
+                    if (!near(S.right, C.right)) bad.push(`${key}: its ${what} ends ${px(C.right - S.right)} short of ${C.edge} edge`);
                     const A = fills ? box(control!) : L;
                     if (fills && S.left < A.right + 4 - 0.5) bad.push(`${key}: its ${what} sits ${px(S.left - A.right)} from its control`);
                     const mid = A.top + A.height / 2;
                     if (!near(S.top + S.height / 2, mid)) bad.push(`${key}: its ${what} is centred ${px(S.top + S.height / 2 - mid)} off its control's line`);
-                } else if (fills && control !== null && !near(box(control).right, F.right)) {
-                    bad.push(`${key} (${editor}): its control ends ${px(F.right - box(control).right)} short of the form's edge`);
+                } else if (fills && control !== null && !near(box(control).right, C.right)) {
+                    bad.push(`${key} (${editor}): its control ends ${px(C.right - box(control).right)} short of ${C.edge} edge`);
                 }
-                if (fills && control !== null && !near(box(control).left, F.left)) bad.push(`${key} (${editor}): its control starts ${px(box(control).left - F.left)} in from the form's edge`);
+                if (fills && control !== null && !near(box(control).left, C.left)) bad.push(`${key} (${editor}): its control starts ${px(box(control).left - C.left)} in from ${C.edge} edge`);
             }
         }
         // ── Nothing escapes the pane, or is cut off.
@@ -309,6 +331,71 @@ async function paneEdgeFaults(pane: Locator): Promise<string[]> {
         if (shown === 0) bad.push("the pane shows nothing");
         return bad;
     }, PANEL);
+}
+
+/**
+ * What a variant's blocks measure wrong (#1549), read in the page — each a line naming the block and what is out of
+ * place. A block sits right after its choice, the form's 16px under it, as wide as it and inside the form, its fields
+ * set in from the choice's start; its fields and a block of its own each span its column, 16px apart; nothing in it
+ * runs past its edges, or is cut off. A pane that shows no block is a fault.
+ */
+async function blockFaults(pane: Locator): Promise<string[]> {
+    return pane.evaluate((slot, { between, panelSel }) => {
+        const bad: string[] = [];
+        const panel = slot.querySelector(panelSel) ?? slot;
+        const near = (a: number, b: number) => Math.abs(a - b) <= 0.5;
+        const px = (n: number) => `${Math.round(n * 10) / 10}px`;
+        const box = (el: Element) => el.getBoundingClientRect();
+        const blocks = [...panel.querySelectorAll("[data-field-block]")];
+        if (blocks.length === 0) bad.push("the pane shows no block");
+        for (const block of blocks) {
+            const of = block.getAttribute("data-field-block")!;
+            const name = `${of}'s block`;
+            const form = block.closest("[data-field-form]");
+            const choice = block.previousElementSibling;
+            if (form === null || choice === null || choice.getAttribute("data-field") !== of) {
+                bad.push(`${name}: not right after its choice`);
+                continue;
+            }
+            const K = box(block);
+            const H = box(choice);
+            const F = box(form);
+            // ── Under its choice, in the form: the form's rhythm under it, as wide as it, its fields set in.
+            const gap = K.top - H.bottom;
+            if (!near(gap, between)) bad.push(`${name}: ${px(gap)} under its choice, not ${between}px`);
+            if (!near(K.left, H.left) || !near(K.right, H.right)) bad.push(`${name}: spans ${px(K.left - H.left)}–${px(K.right - H.left)} of its choice's ${px(H.width)}`);
+            if (K.left < F.left - 0.5 || K.right > F.right + 0.5) bad.push(`${name}: ${px(K.left - F.left)}–${px(K.right - F.left)} past the form's ${px(F.width)}`);
+            const s = getComputedStyle(block);
+            const left = K.left + Number.parseFloat(s.borderLeftWidth) + Number.parseFloat(s.paddingLeft);
+            const right = K.right - Number.parseFloat(s.borderRightWidth) - Number.parseFloat(s.paddingRight);
+            if (left <= K.left + 0.5) bad.push(`${name}: its fields are not set in from its choice's start`);
+            // ── Its fields, and a block of its own under a choice of its: each across its column, 16px apart.
+            const items = [...block.children].filter((el) => box(el).height > 0);
+            if (items.length === 0) bad.push(`${name}: holds nothing`);
+            items.forEach((item, i) => {
+                const part = item.getAttribute("data-field") ?? `${item.getAttribute("data-field-block")}'s block`;
+                const I = box(item);
+                if (!near(I.left, left) || !near(I.right, right)) bad.push(`${part}: spans ${px(I.left - left)}–${px(I.right - left)} of ${name}'s ${px(right - left)}`);
+                if (i === 0) return;
+                const apart = I.top - box(items[i - 1]!).bottom;
+                if (!near(apart, between)) bad.push(`${part}: ${px(apart)} under the field before it in ${name}, not ${between}px`);
+            });
+            // ── Nothing in it past its edges, or cut off.
+            for (const el of block.querySelectorAll("*")) {
+                const t = getComputedStyle(el);
+                const b = box(el);
+                if (b.width <= 1 || b.height <= 1 || t.visibility === "hidden" || t.clip.startsWith("rect(0")) continue;
+                const what = el.closest("[data-field]")?.getAttribute("data-field") ?? el.tagName.toLowerCase();
+                if (b.left < K.left - 0.5 || b.right > K.right + 0.5) bad.push(`${what}: ${px(b.left - K.left)}–${px(b.right - K.left)} past ${name}'s ${px(K.width)}`);
+                const clips = t.overflowX === "hidden" || t.overflowX === "clip" || el.tagName === "INPUT";
+                if (!clips || el.scrollWidth <= el.clientWidth + 1 || el.clientWidth === 0) continue;
+                const text = el instanceof HTMLInputElement ? el.value : el.textContent ?? "";
+                const titled = el.closest("[title]")?.getAttribute("title") === text;
+                if (t.textOverflow !== "ellipsis" || !titled) bad.push(`${what}: "${text}" is cut off`);
+            }
+        }
+        return bad;
+    }, { between: BETWEEN, panelSel: PANEL });
 }
 
 /** Every control's focus ring, stepped through by Tab from the form's first: inside the pane. */
@@ -938,6 +1025,63 @@ for (const phone of [false, true]) {
             // Its two lines in their padding: a 44px tap target, on any pointer.
             expect(await issue.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(TOUCH - 0.5);
             expect(await paneFaults(pane)).toEqual([]);
+        });
+    });
+}
+
+// ============================================================================
+// The Record's inspector: a variant's block (#1549)
+// ============================================================================
+
+const RECORDS = "e3/record/record";
+
+/** Open the joinery: on a desktop in a page 1600px wide, the inspector pinned beside main; on a phone as the page lays it out. */
+async function openJoinery(page: Page, phone: boolean): Promise<{ frame: Locator; pane: Locator }> {
+    if (!phone) await page.setViewportSize({ width: 1600, height: 1000 });
+    const entry = await visitBuilder(page, `${RECORDS}/recordFinishes`, "[data-builder-frame]", "light");
+    await expect(entry.locator("[data-record] [data-slot=row]").first()).toBeVisible({ timeout: 30_000 });
+    await settled(page);
+    const frame = entry.locator("[data-builder-frame]").first();
+    const pane = frame.locator("[data-frame-slot=end]");
+    if (!phone) await expect(pane).toHaveAttribute("data-pane-mode", "pinned");
+    return { frame, pane };
+}
+
+/** A piece's room, by the piece's key: a click on it — a tap on a phone — selects the piece. */
+const roomOf = (frame: Locator, id: string) => frame.locator(`[data-record] [data-slot=row][data-row-id="${id}"] [data-slot=cell][data-key=room]`);
+
+for (const phone of [false, true]) {
+    // On a phone at both its widths: the narrow project runs what is tagged `@narrow`.
+    test.describe(`The Record's inspector form, a variant's block — ${phone ? "on a phone" : "pinned beside main"} (#1549)`, { tag: phone ? ["@mobile", "@narrow"] : "@desktop" }, () => {
+        test("the joinery: a painted piece's block under its choice and a block in it under its gloss; a stain chosen, its shade alone in the block; a bare piece, the choice alone", async ({ page }) => {
+            const { frame, pane } = await openJoinery(page, phone);
+            await test.step("the hall door, painted with a sheen: its colour, coats and gloss in the block under its finish, its sheen in the block under its gloss", async () => {
+                await select(page, frame, roomOf(frame, "J-101"), phone);
+                await expect(pane.locator("[data-field-block='finish'] > [data-field]")).toHaveCount(3);
+                await expect(pane.locator("[data-field-block='finish.paint.gloss'] > [data-field]")).toHaveCount(1);
+                await expect.poll(() => blockFaults(pane)).toEqual([]);
+                if (!phone) await expect.poll(() => formFaults(pane, false)).toEqual([]);
+                expect(await paneFaults(pane)).toEqual([]);
+            });
+            await test.step("a stain chosen in its place: the choice tinted, and the shade alone in its block", async () => {
+                const stain = pane.locator("[data-field='finish'] [data-part=item]", { hasText: "Stain" });
+                if (phone) await stain.tap();
+                else await stain.click();
+                await settled(page);
+                await expect(pane.locator("[data-field='finish'][data-dirty]")).toHaveCount(1);
+                await expect(pane.locator("[data-field-block='finish'] > [data-field]")).toHaveCount(1);
+                await expect(pane.locator("[data-field-block='finish'] > [data-field='finish.stain']")).toBeVisible();
+                await expect.poll(() => blockFaults(pane)).toEqual([]);
+                if (!phone) await expect.poll(() => formFaults(pane, false)).toEqual([]);
+                expect(await paneFaults(pane)).toEqual([]);
+            });
+            await test.step("the window seat, bare: its choice alone, no block under it", async () => {
+                await select(page, frame, roomOf(frame, "J-103"), phone);
+                await expect(pane.locator("[data-field='finish']")).toBeVisible();
+                await expect(pane.locator("[data-field-block]")).toHaveCount(0);
+                if (!phone) await expect.poll(() => formFaults(pane, false)).toEqual([]);
+                expect(await paneFaults(pane)).toEqual([]);
+            });
         });
     });
 }

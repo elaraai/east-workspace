@@ -58,7 +58,7 @@ import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faLock, faMinus, faPlus } from "@fortawesome/free-solid-svg-icons";
 import {
-    FloatType, IntegerType, NullType, StringType, VariantType, compareFor, decodeBeast2For, defaultValue, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, printFor, some,
+    ArrayType, FloatType, IntegerType, NullType, StringType, VariantType, compareFor, decodeBeast2For, defaultValue, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, printFor, some,
     toEastTypeValue, variant, type EastType, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
@@ -73,6 +73,7 @@ import { NULL_CELL, cellText, indexRegisters, type SheetColumnMeta } from "../mo
 import type { SheetCellValue } from "../values.js";
 import { issueText, type SheetWords } from "../words.js";
 import { actionColumnOf } from "../actions/model.js";
+import { setAt } from "../actions/form-check.js";
 import { namesMember } from "../Rows.js";
 import type { SheetValue } from "./index.js";
 
@@ -95,6 +96,7 @@ type SheetKeys = ReturnType<typeof sheetKeys>;
 type Styles = Record<string, SystemStyleObject>;
 
 const stringEqual = equalFor(StringType);
+const pathEqual = equalFor(ArrayType(StringType));
 
 /** The inspector open: the Calendar's 320px (§8). */
 const INSPECTOR_SIZE = "320px";
@@ -433,13 +435,12 @@ export function useTargetForm({ value, words, hidden, styles, inspect, target, f
             write([{ r, cells: form.encode(encodePatch(patchOne(struct, name, next) as never)) }]);
             return;
         }
-        // No column: the field on the draft — a nested field rebuilt under its struct, from its type's default when the struct has none yet.
+        // No column: the field on the draft — a nested field rebuilt under its struct, and a case's value under its
+        // variant while it holds that case (#1549), from its type's default when the field has none yet.
         if (path.length === 1) { write([{ r, fields: new Map([[name, next]]) }]); return; }
         const fieldType = (struct.fields as Record<string, EastType>)[name]!;
         const top = target.value?.[name] ?? defaultValue(fieldType);
-        const rebuild = (at: Record<string, unknown>, rest: readonly string[]): Record<string, unknown> =>
-            ({ ...at, [rest[0]!]: rest.length === 1 ? next : rebuild(at[rest[0]!] as Record<string, unknown>, rest.slice(1)) });
-        write([{ r, fields: new Map([[name, rebuild(top as Record<string, unknown>, path.slice(1))]]) }]);
+        write([{ r, fields: new Map([[name, setAt(top, path.slice(1), next)]]) }]);
     }, [byPath, inspect, r, struct, form, encodePatch, target.value, write]);
 
     // A link or set field: its halves as the grid draws them, and Edit in sheet (SB48).
@@ -485,6 +486,18 @@ export interface TargetIssue {
 }
 
 /**
+ * A form's fields' words by their names, as an issue names a field: a field's own spec's label — a variant's, never
+ * one of its cases' fields' (#1549) — else, under a nested struct's name, the last of its fields'.
+ *
+ * @param fields - The form's fields
+ * @returns Each name and its words, as a `Map` takes them: a field's own after its nested fields', which it overrides
+ */
+function labelsOf(fields: readonly FormField[]): (readonly [string, string])[] {
+    const own = (f: FormField) => f.spec.path.length === 1;
+    return [...fields.filter((f) => !own(f)), ...fields.filter(own)].map((f) => [f.spec.path[0]!, f.spec.label] as const);
+}
+
+/**
  * A target's issues, by field: each its field's label (else its name) and its text in the sheet's words.
  *
  * @param target - The row, line or band
@@ -494,7 +507,7 @@ export interface TargetIssue {
  * @returns Its issues, in the batch's order
  */
 export function targetIssues(target: SheetInspectTarget, inspect: SheetInspect, form: FormValue, words: SheetWords): TargetIssue[] {
-    const labels = new Map(form.fields.map((f) => [f.spec.path[0]!, f.spec.label]));
+    const labels = new Map(labelsOf(form.fields));
     const out: TargetIssue[] = [];
     inspect.issues.forEach((issue, i) => {
         if (!stringEqual(issue.entry, target.entry)) return;
@@ -700,11 +713,22 @@ function PhoneTarget({ value, words, hidden, styles, inspect, target, form, noun
     const eyebrow = [where, actionName, stringEqual(id, title ?? "") ? undefined : id].filter((t): t is string => t !== undefined && t !== "").join(" · ");
     const chip = isNew ? "new" : target.presentation.pending ? "pending" : undefined;
     // The fields it edits: every field but those the grid alone shows — an action's, which its cases write, among them.
-    const specs = edit.specs.filter((spec) => {
+    const specs = useMemo(() => edit.specs.filter((spec) => {
         if (spec.editor.type !== "readonly") return true;
         const key = getSomeorUndefined(byPath.get(pathKey(spec.path))?.column ?? none);
         return key !== undefined && inspect.columnAt(r, key)?.kind === "action";
-    });
+    }), [edit.specs, byPath, inspect, r]);
+    // Each field a section of its own: a variant's with the fields of its cases, which its form draws in a block under
+    // its choice (#1549) — the fields after it at paths through it.
+    const sections = useMemo(() => {
+        const out: FieldSpecValue[][] = [];
+        for (const spec of specs) {
+            const head = out[out.length - 1]?.[0];
+            if (head !== undefined && spec.path.length > head.path.length && pathEqual(spec.path.slice(0, head.path.length), head.path)) out[out.length - 1]!.push(spec);
+            else out.push([spec]);
+        }
+        return out;
+    }, [specs]);
     const can = inspect.can;
     return (
         <Box css={styles.root} data-sheet-inspector={target.kind} data-phone="">
@@ -728,10 +752,11 @@ function PhoneTarget({ value, words, hidden, styles, inspect, target, form, noun
                 </Box>
             )}
             <Box data-inspector-fields="phone">
-                {specs.map((spec) => {
+                {sections.map((section) => {
+                    const spec = section[0]!;
                     const f = byPath.get(pathKey(spec.path));
                     const key = f === undefined ? undefined : getSomeorUndefined(f.column);
-                    return <PhoneField key={pathKey(spec.path)} words={words} hidden={hidden} styles={styles} bar={bar} inspect={inspect} r={r} columnKey={key} spec={spec} edit={edit} value={value} />;
+                    return <PhoneField key={pathKey(spec.path)} words={words} hidden={hidden} styles={styles} bar={bar} inspect={inspect} r={r} columnKey={key} spec={spec} section={section} edit={edit} value={value} />;
                 })}
             </Box>
             {target.subRows.length > 0 && (
@@ -776,12 +801,13 @@ interface PhoneFieldProps {
     r: number;
     columnKey: string | undefined;
     spec: FieldSpecValue;
+    /** The field's specs: its own, then — a variant's — the fields of its cases, drawn in its block (#1549). */
+    section: readonly FieldSpecValue[];
     edit: ReturnType<typeof useTargetForm>;
 }
 
 /** One field of a phone's Details (SH12): a section of its own, its label over its name, then its control at touch size. */
-function PhoneField({ words, styles, bar, inspect, r, columnKey, spec, edit }: PhoneFieldProps) {
-    const specs = useMemo(() => [spec], [spec]);
+function PhoneField({ words, styles, bar, inspect, r, columnKey, spec, section, edit }: PhoneFieldProps) {
     const dirty = useDirty(spec, edit.formValue, edit.baseline);
     const meta = columnKey === undefined ? undefined : inspect.columnAt(r, columnKey);
     const header = meta?.header ?? spec.label;
@@ -799,7 +825,7 @@ function PhoneField({ words, styles, bar, inspect, r, columnKey, spec, edit }: P
                 ? inspect.drawAction(r, columnKey)
                 : columnKey !== undefined && touch !== undefined
                     ? <TouchControl inspect={inspect} words={words} bar={bar} r={r} columnKey={columnKey} spec={spec} header={header} dirty={dirty} joins={undefined} />
-                    : <FieldForm specs={specs} value={edit.formValue} baseline={edit.baseline} options={edit.options}
+                    : <FieldForm specs={section} value={edit.formValue} baseline={edit.baseline} options={edit.options}
                         onChange={edit.onChange} readOnly={!inspect.writable} renderControl={edit.renderControl} />}
         </Box>
     );
@@ -1227,10 +1253,7 @@ const SheetInspectorIssues = memo(function SheetInspectorIssues({ forms, words, 
     const inspect = useSheetInspect();
     const styles = useSlotRecipe({ key: "sheetInspector" })() as Styles;
     // A field's words: its label in the row's form or the group's, else its name.
-    const labels = useMemo(() => new Map([
-        ...(getSomeorUndefined(forms.group)?.fields ?? []).map((f) => [f.spec.path[0]!, f.spec.label] as const),
-        ...forms.row.fields.map((f) => [f.spec.path[0]!, f.spec.label] as const),
-    ]), [forms]);
+    const labels = useMemo(() => new Map([...labelsOf(getSomeorUndefined(forms.group)?.fields ?? []), ...labelsOf(forms.row.fields)]), [forms]);
     // An issue's place: a host's words for it, given where its row stands among the rows drawn (#1534) — else its entry,
     // or a line of its group.
     const placeOf = inspect.placeOf;

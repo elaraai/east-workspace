@@ -194,7 +194,8 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
     }, [target, equals]);
 
     // Its fields in column order, each column group a section under its label — an unlabelled group's `Other` — the fields
-    // no column shows after them (IN4). The audit is a fact, never a field (IN6).
+    // no column shows after them, in the form's order (IN4): a variant's cases' fields right after it, its block under its
+    // choice (#1549) — a column's field is one spec, never a variant's cases'. The audit is a fact, never a field (IN6).
     const specs = useMemo(() => {
         const order = new Map(columns.list.map((meta, i) => [meta.key, i] as const));
         const groupOf = new Map<string, string>();

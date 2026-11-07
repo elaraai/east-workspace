@@ -123,9 +123,10 @@ export const sheetInspectorSlotRecipe = defineSlotRecipe({
             position: "relative",
             display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "8px", minWidth: 0, paddingY: "16px", paddingX: "20px",
             borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
-            /* The field's own form at touch size, its label the section's. */
+            /* The field's own form at touch size, its label the section's: the shared Field's own label hidden — never a
+             * radio's or a checkbox's, which are its control — and each field of a variant's block keeping its own (#1549). */
             "& [data-field-form], & [data-field], & [data-field-line]": { minWidth: 0, maxWidth: "100%" },
-            "& [data-field] label": { display: "none" },
+            "& [data-field] [data-scope=field][data-part=label]:not([data-field-block] *)": { display: "none" },
             "& [data-field-line] input, & [data-field-line] button, & [data-field-line] [data-part=trigger]": { minHeight: "44px" },
         },
         /* Its label 13/500 in ink over its name, mono 11 in `--ink-4`. */

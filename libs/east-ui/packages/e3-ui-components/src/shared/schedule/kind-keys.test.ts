@@ -6,13 +6,13 @@
  * `kind-keys.ts`): each key's text — a String key as itself, any other as East
  * prints it — a text read back at the record's key type, a text no key prints
  * as reading nothing, and the keys' order at their type, where text order
- * would put `10` before `9`; made once a key type. Over real East values,
- * compared by East.
+ * would put `10` before `9`; made once a key type; and a variant key's field
+ * edited through the case it holds. Over real East values, compared by East.
  */
 
 import { describe, expect, test } from "vitest";
 import { DateTimeType, IntegerType, StringType, StructType, VariantType, equalFor, printFor, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
-import { kindKeys } from "./kind-keys.js";
+import { keyEdited, kindKeys } from "./kind-keys.js";
 
 const SpotKey = StructType({ row: IntegerType, col: IntegerType });
 const RackKey = VariantType({ wall: IntegerType, floor: StringType });
@@ -69,5 +69,19 @@ describe("kindKeys", () => {
     test("made once a key type: every read of a kind's keys is the same printer and reader", () => {
         const type = toEastTypeValue(IntegerType);
         expect(kindKeys(type)).toBe(kindKeys(type));
+    });
+
+    test("a variant key's field is its choice and its cases' values under it; an edit through the case it holds sets it, through another leaves it", () => {
+        const racks = kindKeys(toEastTypeValue(RackKey));
+        expect(racks.typed).toBe(true);
+        expect(racks.specs.map((spec) => spec.path.join("."))).toEqual(["key", "key.floor", "key.wall"]);
+        const rackEqual = equalFor(RackKey);
+        const edited = (held: unknown, path: string[], next: unknown) => keyEdited(racks, held, path, next) as ValueTypeOf<typeof RackKey>;
+        expect(rackEqual(edited(variant("wall", 3n), ["key", "wall"], 4n), variant("wall", 4n))).toBe(true);
+        expect(rackEqual(edited(variant("wall", 3n), ["key", "floor"], "B"), variant("wall", 3n))).toBe(true);
+        // Another case chosen: the key the choice wrote.
+        expect(rackEqual(edited(variant("wall", 3n), ["key"], variant("floor", "")), variant("floor", ""))).toBe(true);
+        // A placeholder, typed no key yet, starts from its type's default: its first case.
+        expect(rackEqual(edited(undefined, ["key", "floor"], "B"), variant("floor", "B"))).toBe(true);
     });
 });

@@ -25,7 +25,7 @@ import { settled } from "./settle";
 const ROOT = "[data-builder-frame]";
 
 /** Every example of the Record's. */
-const EXAMPLES = ["recordBasic", "recordSkillsMatrix", "recordShiftPreferences", "recordEveryKind", "recordSkillsReadOnly", "recordLooks"] as const;
+const EXAMPLES = ["recordBasic", "recordSkillsMatrix", "recordShiftPreferences", "recordEveryKind", "recordSkillsReadOnly", "recordLooks", "recordFinishes"] as const;
 
 /** An example of the Record's on the phone's page: its grid, the element that takes the keys. */
 async function openRecord(page: Page, name: (typeof EXAMPLES)[number]): Promise<Locator> {

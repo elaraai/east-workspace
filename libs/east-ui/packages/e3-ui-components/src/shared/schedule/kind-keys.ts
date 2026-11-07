@@ -15,8 +15,9 @@
  *
  * A new row's key is typed in the inspector where its kind makes none (#1549):
  * its field is the form's own editor for the key type — a struct key's fields,
- * a date's input, a number's — and a type the form can't type, a Blob or a
- * recursive type among them, keys no row the viewer adds. Until it is typed the
+ * a variant's block under its choice, a date's input, a number's — and a type
+ * the form can't type, a Blob or a recursive type among them, keys no row the
+ * viewer adds. Until it is typed the
  * row is held under a placeholder — a text no key prints as — and read as keyed
  * by the type's default, as a kind's `read`, which reads its key back, takes it.
  *
@@ -24,7 +25,7 @@
  */
 
 import {
-    StringType, StructType, compareFor, defaultValue, fromEastTypeValue, none, parseFor, printFor, some, toEastTypeValue, variant,
+    StringType, StructType, compareFor, defaultValue, fromEastTypeValue, isVariant, none, parseFor, printFor, some, toEastTypeValue, variant,
     type EastType, type EastTypeValue,
 } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui/internal";
@@ -159,7 +160,8 @@ export function keyFieldSpecs(keys: KindKeys, label: string, help: string | unde
 /**
  * A key with one of its field's parts edited in the form (#1549): the key as
  * the form's spec at `path` — under `key` — sets it, the rest as the key held
- * them; a key not typed yet starts from its type's default.
+ * them, a step into a variant setting its case's value while it holds that
+ * case; a key not typed yet starts from its type's default.
  *
  * @param keys - The kind's keys
  * @param held - The key as it stands: `undefined` for a placeholder, typed no key yet
@@ -171,6 +173,7 @@ export function keyEdited(keys: KindKeys, held: unknown, path: readonly string[]
     const within = (at: unknown, rest: readonly string[]): unknown => {
         if (rest.length === 0) return next;
         const [name, ...more] = rest;
+        if (isVariant(at)) return compareString(at.type, name!) === 0 ? variant(name!, within(at.value, more)) : at;
         const fields = at as Record<string, unknown>;
         return { ...fields, [name!]: within(fields[name!], more) };
     };
