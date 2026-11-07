@@ -365,9 +365,11 @@ is the example.
   vocabulary for kinds of events and resources (Plan, Calendar, Roster,
   Allocation).
 - **Every gesture is a draft.** Drags, drops, typed cells and form edits are
-  steps of one editing session with Undo / Redo, saved with one checked Save
-  through each record's patch door (or the host's `onApply`). Drafts survive
-  paging, narrowing and remount.
+  steps of one session with Undo / Redo, saved with one checked Save through
+  each record's patch door (or the host's `onApply`), surviving paging,
+  narrowing and remount. While a kind's `ready` refuses a draft, Save waits:
+  the entry's panel shows the refusal over its form, the field ringed, an
+  Issues tab lists it, and the history's warning button selects the entry.
 - **It renders in its own frame**: one toolbar, the canvas, a footer, and the
   panes its props ask for (`library`, `inspector`). Give it a box with a height.
 - **One rail narrows it**: `slice={{ slice: Slice.bindRecords(key, { … }) }}`,

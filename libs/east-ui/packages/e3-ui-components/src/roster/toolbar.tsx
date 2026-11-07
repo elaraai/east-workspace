@@ -50,6 +50,10 @@ interface ToolbarArgs extends RosterWindow {
     picker: SortedMap<Date, Status>;
     onDisplay: (value: Partial<{ density: "compact" | "comfortable"; chipSkills: boolean; requirements: boolean }>) => void;
     issues: readonly Issue[]; onIssues: () => void; onAction: (action: HistoryAction) => void; onPickerDates: (dates: readonly Date[]) => void;
+    /** How many refusals hold Save (#1525): the issues chip counts them with the breaches and the gaps. */
+    refused: number;
+    /** The history's warning button pressed: its first issue's duty shown and selected (#1525). */
+    onIssue: (issue: EditIssue) => void;
     /** Where an issue of the history's is, in the Roster's words — its banners' — what the history item's conflicts name their items by. */
     where?: ((issue: EditIssue) => string) | undefined;
     /** A conflict's Go to: its item shown and selected. */
@@ -89,7 +93,8 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     // folds, to its icon, before the rail and the week's steps (ruled 25 Oct 2026); at the row's last step it goes into the
     // View, beside the week and the view controls.
     const search = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK });
-    const count = issues.filter(issue => issue.kind.type === "breach" || issue.kind.type === "gap").length;
+    // The breaches and the gaps, and the refusals holding Save (#1525).
+    const count = issues.filter(issue => issue.kind.type === "breach" || issue.kind.type === "gap").length + args.refused;
     // The layout's own periods (P1), each layout keeping its own as the window does; Month → Week opens the selected
     // person-week's week (P3).
     // Those this Roster offers: its switch, in every form, only where there is a choice to make.
@@ -183,7 +188,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         // The Elara eye (#1409), between the issues item and the history item, whose actions a run out locks (R2): in the row
         // at every width the ladder and the rail's caret leave it room, and else the View's entry, never out of the toolbar.
         eye === undefined ? args.optimise : { ...eye.item, forms: [...eye.item.forms, null], rank: OPTIMISE_RANK, bundle: EYE_INTO_VIEW },
-        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onConflict: args.onConflict, where: args.where, onAction: args.onAction, locked: args.locked === true }),
+        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssue, onConflict: args.onConflict, where: args.where, onAction: args.onAction, locked: args.locked === true }),
         // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the week can't publish.
         heldPublish && { key: "roster.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!publishable} onClick={() => commands.publish()}>Publish</Button>, null] },
     ];

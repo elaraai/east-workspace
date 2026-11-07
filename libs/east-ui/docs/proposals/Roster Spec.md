@@ -655,8 +655,8 @@ mock.
   Without `costs`, the money is left out.
 - **B4.** The week's status: Draft, Published or Not started. The read-outs
   are `3 changes` pending and `4 to agree · 2 proposals`. The issues chip
-  (`8 issues`, the breaches and gaps in view, in the warning tone) opens the
-  Issues tab.
+  (`8 issues`, the breaches and gaps in view and the refusals holding Save
+  (B41), in the warning tone) opens the Issues tab.
 - **B5.** *Product.* The period, the week and the day persist per builder for
   the viewer.
 - **B6.** A shift's header (Day): its label, its time (`06:00–14:00`), and
@@ -881,6 +881,9 @@ mock.
     - its status: Rostered, Requested · awaiting agency, Added · unsaved,
       Moved · unsaved, Edited · unsaved, Removed · unsaved, or Model
       proposal;
+  - **its refusals holding Save** (B41), in one warning banner,
+    `Not saved yet` over `Cost centre: Give the duty a cost centre`, each
+    field one names ringed in the duty's form;
   - **a banner per issue** with its fix;
   - **Shift:**
     - the shift, a segmented control that moves it;
@@ -944,6 +947,17 @@ mock.
 
   A click opens the issue's day and selects its subject. With none:
   `No issues — Every shift is covered and every change is agreed.`
+
+  *Product.* Ahead of them, `Not saved yet · 1`: the refusals holding Save,
+  the app's `ready` refusing a drafted duty, of any week's drafts. Each names
+  its duty by its person, day and shift
+  (`Requested · Northside Staffing · Thu, Mar 9, 2028 · Night`), or by its key
+  for one the Roster can't place, and its field by its form's label and the
+  app's message (`Cost centre: Give the duty a cost centre`), in the warning
+  tone. A click on one, or on the history item's warning button, opens its
+  duty's day and selects it, its panel showing the refusal over the form
+  (B34). The tab's count and the issues chip count them, and the tab never
+  says `No issues` while Save is held.
 - **B42.** The fixes:
   - request agency staff drafts a request on the slot;
   - mark agreed sets agreed;

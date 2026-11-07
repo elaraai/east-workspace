@@ -1027,7 +1027,13 @@ As built (#1196):
 
 - **PB38.** One event: its kind, title and state; its resource, its start and
   end (or its instant) and its lane; its quantity; overlaps as a banner; then
-  the kind's fields through `Fields` (#1147); Duplicate and Delete.
+  the kind's fields through `Fields` (#1147); Duplicate and Delete. While the
+  kind's `ready` refuses the event's draft, its refusals holding Save show
+  under the overlaps in one warning banner, `Not saved yet` over
+  `Pallets: Pallets must be positive` (each field by its form's label), as the
+  Calendar's inspector shows an event's, and each field one names is ringed in
+  the form. The history item's warning button selects the first refused
+  event, so its panel shows them.
 - **PB39.** Several events: the list, and a bulk edit of the state, the
   resource and a shift in time (−1 d, −1 h, +1 h, +1 d).
 - **PB40.** A row: the resource's name and meta, its events in the window

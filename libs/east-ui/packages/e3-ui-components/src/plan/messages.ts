@@ -295,6 +295,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     inspectorRowOverlaps: (p: { n: number; count: string }) => string;
     /** One pair in a row's banner — `Market posters · Loyalty cards`: its events' titles. */
     inspectorOverlapPair: (p: { first: string; second: string }) => string;
+    /** The banner over one event's form while the app's `ready` refuses it, which holds Save (#1525). */
+    inspectorRefusals: () => string;
 
     // ── The horizon, the ruler, the axis in words ──────────────────────────
     /** The horizon strip's caption — `HORIZON · 26 WK`. */
@@ -701,6 +703,7 @@ export const planMessages: PlanMessages = {
     inspectorOverlaps: ({ n, count, on }) => `Overlaps ${count} ${plural(n, "event", "events")} on ${on}`,
     inspectorRowOverlaps: ({ n, count }) => `${count} ${plural(n, "overlap", "overlaps")}`,
     inspectorOverlapPair: ({ first, second }) => `${first} · ${second}`,
+    inspectorRefusals: () => "Not saved yet",
 
     horizon: ({ count, unit }) => `HORIZON · ${count} ${HORIZON_UNIT[unit]}`,
     horizonMax: ({ n, count, unit }) => `max ${count} ${plural(n, "item", "items")} / ${HORIZON_PER[unit]}`,

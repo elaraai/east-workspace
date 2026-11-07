@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import { within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { equalFor, none, variant } from "@elaraai/east";
+import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import {
     act, assignment, at, card, cell, drop, libraryCard, narrow, open, press, rosterHarness, settle, slot, START, weekDuties, width, type Choice,
@@ -60,6 +61,43 @@ describe('Roster shared and custom forms', () => {
         await save(container);
         const added = [...(await h.read(ex.rosterDuties))].filter(([key]) => !before.has(key)).map(([, duty]) => duty.costCentre);
         expect(added).toEqual(['CC-IN']);
+    });
+    test("the check's refusal holding Save is listed and reachable (#1525): the warning button selects its duty, its panel shows it over the form, the Issues tab lists it first in any view, and a cost centre clears it", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse); const user = userEvent.setup();
+        const toolbar = () => within(slot(container, 'toolbar'));
+        const end = () => slot(container, 'end');
+        const chip = () => Number.parseInt(slot(container, 'toolbar').querySelector('[data-roster-issues]')?.getAttribute('aria-label') ?? '0', 10);
+        await press(within(cell(container, 4, 'inbound', 'night')).getByRole('button', { name: 'Request Northside Staffing' }));
+        const request = () => slot(container, 'main').querySelector('[data-roster-assignment][data-request][data-drafted]');
+        expect(toolbar().getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true);
+        // The chip counts it with the breaches and the gaps: one fewer once it clears.
+        const counted = chip();
+        // The history's warning button: the refused duty selected, its Details showing the refusal over its form, the field ringed.
+        await press(toolbar().getByRole('button', { name: editingMessages.issues({ n: 1, count: '1' }) }));
+        expect(request()?.hasAttribute('data-selected')).toBe(true);
+        const details = () => end().querySelector('[data-roster-inspector="details"]');
+        expect(details()?.querySelector('[data-roster-refusals]')?.textContent).toContain('Cost centre: Give the duty a cost centre');
+        expect([...details()!.querySelectorAll('[data-issue]')].map(el => el.getAttribute('data-field'))).toEqual(['costCentre']);
+        // The Issues tab lists it first, by its duty's person, day and shift — whatever day the view shows.
+        await press(toolbar().getByRole('radio', { name: 'Fri' }));
+        await press(within(end()).getByRole('tab', { name: /^Issues/ }));
+        const issues = end().querySelector('[data-roster-inspector="issues"]')!;
+        expect(issues.textContent).toContain('Not saved yet · 1');
+        const line = issues.querySelector('[data-roster-issue]')!;
+        expect(line.getAttribute('data-roster-issue')).toBe('refusal');
+        expect([line.querySelector('button')?.textContent, line.lastElementChild?.textContent])
+            .toEqual(['Requested · Northside Staffing · Thu, Mar 9, 2028 · Night', 'Cost centre: Give the duty a cost centre']);
+        // Pressed, its duty is shown on its day and selected, the refusal over its form.
+        await press(line.querySelector('button'));
+        expect(toolbar().getByRole('radio', { name: 'Thu' }).getAttribute('aria-checked')).toBe('true');
+        expect(request()?.hasAttribute('data-selected')).toBe(true);
+        expect(details()?.querySelector('[data-roster-refusals]')).not.toBeNull();
+        // A cost centre clears it: Save on, and nothing left over the form.
+        await user.type(within(end().querySelector<HTMLElement>('[data-field="costCentre"]')!).getByRole('textbox'), 'CC-IN{Enter}');
+        await settle();
+        expect(toolbar().getByRole('button', { name: 'Save' })).toHaveProperty('disabled', false);
+        expect(details()?.querySelector('[data-roster-refusals]')).toBeNull();
+        expect(chip()).toBe(counted - 1);
     });
     test('live configuration and suggestions refresh without replacing a pending duty', async () => {
         const { container } = await h.mount(ex.rosterWarehouse);

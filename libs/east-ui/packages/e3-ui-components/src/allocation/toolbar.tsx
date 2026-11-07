@@ -57,12 +57,16 @@ export function countedIssues(issues: readonly Issue[]): Issue[] {
     return issues.filter(i => i.tone.type === "warning" || i.tone.type === "danger");
 }
 
-/** What the counted issues are, each kind's count (A63, A81): `2 overlaps`, `1 over max`; the app's, `N more`. */
-export function issueParts(issues: readonly Issue[]): string[] {
+/**
+ * What the counted issues are, each kind's count (A63, A81): the refusals holding Save first (#1525), `1 not saved
+ * yet`, then `2 overlaps`, `1 over max`; the app's, `N more`.
+ */
+export function issueParts(issues: readonly Issue[], refused = 0): string[] {
     const counted = countedIssues(issues);
     const n = (kind: Issue["kind"]["type"]) => counted.filter(i => i.kind.type === kind).length;
     const custom = counted.filter(i => i.kind.type === "custom");
     return [
+        refused > 0 ? `${refused} not saved yet` : "",
         n("unlinked") > 0 ? `${n("unlinked")} not linked` : "",
         n("unallocated") > 0 ? `${n("unallocated")} partly allocated` : "",
         n("overlap") > 0 ? plural(n("overlap"), "overlap") : "",
@@ -74,17 +78,19 @@ export function issueParts(issues: readonly Issue[]): string[] {
 
 /**
  * The issues the chip counts — warning and danger, never neutral or info
- * (A64) — and its words (A81): `2 overlaps · 1 over max · show them`, with
- * `· warnings only, Save still works` when every one is an under-min warning.
+ * (A64), and the refusals holding Save (#1525) — and its words (A81): `2
+ * overlaps · 1 over max · show them`, with `· warnings only, Save still works`
+ * when every one is an under-min warning.
  */
-export function issueSummary(issues: readonly Issue[]): { count: number; label: string; tip: string; aria: string } {
+export function issueSummary(issues: readonly Issue[], refused = 0): { count: number; label: string; tip: string; aria: string } {
     const counted = countedIssues(issues);
-    const parts = issueParts(issues);
-    const warningsOnly = counted.length > 0 && counted.every(i => i.kind.type === "under");
+    const parts = issueParts(issues, refused);
+    const count = counted.length + refused;
+    const warningsOnly = refused === 0 && counted.length > 0 && counted.every(i => i.kind.type === "under");
     return {
-        count: counted.length, label: plural(counted.length, "issue"),
+        count, label: plural(count, "issue"),
         tip: `${parts.join(" · ")}${warningsOnly ? " · warnings only, Save still works" : ""} · show them`,
-        aria: `${plural(counted.length, "issue")}, show them`,
+        aria: `${plural(count, "issue")}, show them`,
     };
 }
 
@@ -112,6 +118,10 @@ interface ToolbarArgs extends AllocationWindow {
     picker: SortedMap<Date, Day["status"]>;
     issues: readonly Issue[];
     onIssues: () => void;
+    /** How many refusals hold Save (#1525): the issues chip counts them with the counted issues. */
+    refused: number;
+    /** The history's warning button pressed: its first issue's bin shown and selected (#1525). */
+    onIssue: (issue: EditIssue) => void;
     /** Where an issue of the history's is, in the board's words — its banners' — what the history item's conflicts name their items by. */
     where?: ((issue: EditIssue) => string) | undefined;
     /** A conflict's Go to: its item shown and selected. */
@@ -162,7 +172,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     // bins by key`. Its box is the first thing the row folds, to its icon, before the rail and the day's steps (ruled 25 Oct
     // 2026); at the row's last step it goes into the View, beside the date and the controls.
     const search = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK, label: words.m.keySearch({ bins: other(value.labels.bin) }) });
-    const summary = issueSummary(issues);
+    const summary = issueSummary(issues, args.refused);
     const status = args.publishing ? "Publishing" : args.status;
     const unread = args.unread;
     // Publish: only over periods, on a day that takes edits; its slot held wherever the board publishes and edits at all.
@@ -249,7 +259,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         // The Elara eye (#1409), immediately before the history item, whose actions a run out locks (R2): in the row at every
         // width the ladder and the rail's caret leave it room, and else the View's entry, never out of the toolbar.
         eye === undefined ? args.optimise : { ...eye.item, forms: [...eye.item.forms, null], rank: OPTIMISE_RANK, bundle: EYE_INTO_VIEW },
-        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onConflict: args.onConflict, where: args.where, onAction: args.onAction, locked: args.locked === true }),
+        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssue, onConflict: args.onConflict, where: args.where, onAction: args.onAction, locked: args.locked === true }),
         // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the day can't publish.
         heldPublish && { key: "allocation.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!canPublish} onClick={() => commands.publish()}>Publish</Button>, null] },
     ];

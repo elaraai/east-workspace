@@ -24,7 +24,7 @@
  * @packageDocumentation
  */
 import { vi } from "vitest";
-import { East, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { East, some, variant, type ExprType, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { Allocation, Data, Func, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
@@ -41,8 +41,10 @@ export const TUE_4 = new Date("2027-05-04T00:00:00Z");
 export const WED = new Date("2027-05-12T00:00:00Z");
 export const THU = new Date("2027-05-13T00:00:00Z");
 
+/** A row of the yard's bins: the board's roles and the yard's own fields. */
+type KilnBinType = typeof ex.kilnBins.type.value;
 /** One of the yard's bins, as its record holds it: the board's roles and the yard's own fields. */
-export type KilnBin = ValueTypeOf<typeof ex.kilnBins.type.value>;
+export type KilnBin = ValueTypeOf<KilnBinType>;
 /** A question to the yard's fit, over the yard's own bin rows. */
 const FIT_REQUEST = Allocation.Types.FitRequest(ex.kilnBins.type.value);
 /** A question to the yard's fit, and its answer, decoded. */
@@ -89,13 +91,20 @@ export function allocationHarness(): AllocationHarness {
  * day at a time through the slice's bin source, its days, its bays, kilns and
  * loads, the yard's fit, the library and the inspector — over the records a
  * test needs: the yard's own, or its locked bins or its locked days, whose
- * door refuses every change.
+ * door refuses every change. Given `ready`, the yard's check on a draft holds
+ * Save while a bin's measured grade is empty (#1525).
  *
- * @param options - Which of its records is locked, if either
+ * @param options - Which of its records is locked, if either, and whether the yard checks a draft
  * @returns The example
  */
-export function kilnYard(options: { readonly locked?: "bins" | "days" } = {}): Example {
+export function kilnYard(options: { readonly locked?: "bins" | "days"; readonly ready?: boolean } = {}): Example {
     const lockedBins = options.locked === "bins", lockedDays = options.locked === "days";
+    // The yard's check on a draft: a bin's measured grade, which Save waits for.
+    const check = options.ready !== true ? {} : {
+        ready: (bin: ExprType<KilnBinType>) => East.equal(bin.gradeMeasured, "").ifElse(
+            () => variant("incomplete", [{ field: "gradeMeasured", message: "Measure the grade" }]),
+            () => variant("ready", null)),
+    };
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         // The bins a test needs, the yard's own or its locked ones, each read a day at a time through its interval index.
         const bins = $.let(lockedBins ? Record.bind(ex.kilnLockedBins, ["patch"]) : Record.bind(ex.kilnBins, ["patch"]));
@@ -116,6 +125,7 @@ export function kilnYard(options: { readonly locked?: "bins" | "days" } = {}): E
                 name: "Bin", icon: "box", entries,
                 at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
                 quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
+                ...check,
             }) },
             resources: {
                 bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),

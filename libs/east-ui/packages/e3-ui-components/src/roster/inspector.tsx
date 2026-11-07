@@ -6,7 +6,8 @@ import { useCallback, useMemo, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faMinus } from "@fortawesome/free-solid-svg-icons";
 import { Box, Button, chakra, useSlotRecipe } from "@chakra-ui/react";
-import { EastChakraComponent, FieldForm, useTrackedEvaluation, type BuilderFrameDock } from "@elaraai/east-ui-components";
+import { StringType, equalFor } from "@elaraai/east";
+import { BannerView, EastChakraComponent, FieldForm, useTrackedEvaluation, type BuilderFrameDock, type EditIssue } from "@elaraai/east-ui-components";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { Seg } from "../shared/schedule/segments.js";
@@ -26,13 +27,34 @@ export interface FindFixes {
     /** Whether this find is asked and its answer has not landed (R4). */
     finding: (asked: RosterFind) => boolean;
 }
+/**
+ * A refusal holding Save (#1525), as the Roster says it: the app's `ready` refusing a drafted duty, named by its
+ * person, day and shift — or by its key, for a duty the Roster can't place — and its field by its form's label.
+ */
+export interface RosterRefusal {
+    /** The duty kind's slot, or the record's key, whose session refuses. */
+    readonly kind: string;
+    /** The refusal's issue: its entry's key's text, its field and the app's message. */
+    readonly issue: EditIssue;
+    /** Its duty in words: `A. Morgan · Thu 9 Mar · Early`. */
+    readonly title: string;
+    /** Its field and the app's message: `Cost centre: Choose the cost centre`. */
+    readonly text: string;
+}
 type Args = RosterViewsProps & {
     storageKey: string; tab: string; onTab: (tab: string) => void; find: FindFixes;
     /** The week's duties as drafted, and as stored: each one's row. */
     duties: PlacedDuties; heldDuties: PlacedDuties;
     /** The week's targets as drafted: each slot's row. */
     targets: PlacedTargets;
+    /** Every refusal holding Save, of every week's drafts (#1525): listed ahead of the rule issues, and over its duty's form. */
+    refusals: readonly RosterRefusal[];
+    /** A refusal pressed: its duty shown on its day and selected. */
+    onRefusal: (refusal: RosterRefusal) => void;
 };
+const keyEqual = equalFor(StringType);
+/** No field a refusal names. */
+const NO_REFUSED: ReadonlySet<string> = new Set();
 function fixLabel(issue: Issue, props: Args) {
     if (issue.fix.type === "none") return "";
     const fix = issue.fix.value;
@@ -88,9 +110,10 @@ function DutyPay({ props, id }: { props: Args; id: string }) {
 /**
  * The duty's form: its roles the Roster edits — its times and, where its kind
  * maps them, its position and its activity — then the app's fields none of
- * them writes, in the kind's form (`fields`) or the kind's own inspector.
+ * them writes, in the kind's form (`fields`) or the kind's own inspector, each
+ * field a refusal names (`refused`) ringed.
  */
-function DutyForm({ props, assignment, id }: { props: Args; assignment: Assignment; id: string }) {
+function DutyForm({ props, assignment, id, refused }: { props: Args; assignment: Assignment; id: string; refused: ReadonlySet<string> }) {
     const { onError, commands } = props;
     const kind = props.value.duty.kind;
     const row = props.duties.rows.get(id);
@@ -113,7 +136,7 @@ function DutyForm({ props, assignment, id }: { props: Args; assignment: Assignme
         {error !== undefined && <Box css={props.styles.error} role="alert">{error}</Box>}
         {result.ok && result.value !== undefined ? <chakra.fieldset disabled={readOnly}><EastChakraComponent value={result.value} storageKey={`${props.storageKey}.duty.${id}`} /></chakra.fieldset>
             : decoded !== undefined && kind.fields.length > 0 && <FieldForm specs={kind.fields} value={decoded} baseline={baselineRow ?? {}} readOnly={readOnly}
-                onChange={(path, next) => onError(commands.field(id, path, next))} />}
+                issues={refused} onChange={(path, next) => onError(commands.field(id, path, next))} />}
         {!result.ok && <Box css={props.styles.error} role="alert">The duty's form could not be rendered.</Box>}
     </>;
 }
@@ -123,13 +146,18 @@ function OneAssignment({ props, id, assignment: a }: { props: Args; id: string; 
     const person = a.who.type === "person" ? props.value.people.find(p => p.key === a.who.value) : undefined;
     const state = removed ? "Removed · unsaved" : baseline === undefined ? "Added · unsaved" : !sameSlot(baseline.slot, a.slot) ? "Moved · unsaved" : changed ? "Edited · unsaved" : a.who.type === "request" ? "Requested · awaiting agency" : "Rostered";
     const position = props.value.positions.find(p => p.key === a.position);
+    // Its refusals holding Save (#1525): over its form, as the Calendar's banner shows an event's, each field named ringed.
+    const refusals = props.refusals.filter(r => keyEqual(r.kind, props.value.duty.kind.key) && keyEqual(r.issue.entry, id));
+    const refused = refusals.length === 0 ? NO_REFUSED
+        : new Set(refusals.flatMap(r => (r.issue.field.type === "some" ? [r.issue.field.value] : [])));
     return <><ScheduleInspectorHead styles={props.styles} kind={{ name: `Duty · ${props.value.groups.find(g => g.key === a.slot.group)?.label} · ${props.value.shifts.find(s => s.key === a.slot.shift)?.label}`, icon: a.who.type === "request" ? "building" : "user" }} title={assignmentName(props.value, a)}
         when={`${position === undefined ? "" : `${position.label} · `}${props.format.weekdayDate(dayOfSlot(props.start, a.slot))}${person?.trainer ? " · trainer" : person?.trainee ? " · trainee" : ""}`} status={{ label: state, tone: { type: removed ? "warning" : "neutral" }, ring: changed }} pending={changed ? baseline === undefined ? "new" : "pending" : undefined} home />
+        {!removed && refusals.length > 0 && <Box css={props.styles.section} data-roster-refusals=""><BannerView status="warning" title="Not saved yet" description={refusals.map(r => r.text).join("; ")} /></Box>}
         {!removed && <RosterIssues props={props} issues={props.issues.filter(issue => issue.assignment.type === "some" && issue.assignment.value === id)} />}
         {!removed && <Box css={props.styles.fields}><Box css={props.styles.sectionHead}>Shift</Box>
             <Seg fullWidth label="Duty shift" scope="roster" name="assignment-shift" active={a.slot.shift} items={props.value.shifts.map(s => ({ key: s.key, label: s.label, disabled: !props.commands.available }))} onPick={shift => props.onError(props.commands.place({ type: "assignment", key: id }, { ...a.slot, shift }))} />
             <Box css={props.styles.detail}>{props.format.time(a.start)}–{props.format.time(a.end)} · {props.format.number(a.hours)} h{props.format.weekday(a.end) !== props.format.weekday(a.start) && " · ends next day"}</Box>
-            <DutyForm props={props} assignment={a} id={id} />
+            <DutyForm props={props} assignment={a} id={id} refused={refused} />
         </Box>}
         {!removed && <DutyPay props={props} id={id} />}
         {person !== undefined && <PersonFacts props={props} person={person} slot={a.slot} />}
@@ -234,14 +262,25 @@ export function useRosterInspector(args: Args): BuilderFrameDock | undefined {
     const styles = { ...args.styles, ...recipe({}), summary: args.styles.summary, section: args.styles.section, detail: args.styles.detail } as unknown as RosterStyles;
     if (!args.value.inspector) return undefined;
     const props = { ...args, styles };
+    // The refusals holding Save come first, and count with the rule issues: never "No issues" while Save is held (#1525).
+    const count = String(args.issues.length + args.refusals.length);
     return { label: "Inspector", icon: "sliders", size: "320px", persist: "local", active: args.selection !== undefined,
-        badge: String(args.issues.length), tab: args.tab, onTabChange: args.onTab,
+        badge: count, tab: args.tab, onTabChange: args.onTab,
         tabs: [{ key: "details", label: "Details", body: <DetailsTab props={props} /> },
-            { key: "issues", label: "Issues", count: String(args.issues.length), body: <Box css={styles.root} data-roster-inspector="issues">
-                {args.issues.length === 0 && <Box css={styles.empty}>No issues in view.</Box>}
+            { key: "issues", label: "Issues", count, body: <Box css={styles.root} data-roster-inspector="issues">
+                {args.issues.length === 0 && args.refusals.length === 0 && <Box css={styles.empty}>No issues in view.</Box>}
+                {args.refusals.length > 0 && <Refusals props={props} />}
                 {(["breach", "gap", "proposal"] as const).map(kind => { const issues = args.issues.filter(i => i.kind.type === kind); return issues.length === 0 ? null : <FragmentGroup key={kind} props={props} kind={kind} issues={issues} />; })}
             </Box> }],
     };
+}
+/** The refusals holding Save (#1525): each its duty, which a press shows on its day and selects, and its field and the app's message. */
+function Refusals({ props }: { props: Args }) {
+    return <><Box css={props.styles.section}><Box css={props.styles.sectionHead}>Not saved yet · {props.refusals.length}</Box></Box>
+        {props.refusals.map((refusal, index) => <Box key={index} css={props.styles.issue} data-tone="warning" data-roster-issue="refusal">
+            <chakra.button type="button" css={props.styles.issueTitle} onClick={() => props.onRefusal(refusal)}>{refusal.title}</chakra.button>
+            <Box css={props.styles.issueDetail}>{refusal.text}</Box>
+        </Box>)}</>;
 }
 function FragmentGroup({ props, kind, issues }: { props: Args; kind: string; issues: readonly Issue[] }) {
     return <><Box css={props.styles.section}><Box css={props.styles.sectionHead}>{kind === "breach" ? "Breaches" : kind === "gap" ? "Gaps" : "Model proposals"} · {issues.length}</Box></Box><RosterIssues props={props} issues={issues} /></>;

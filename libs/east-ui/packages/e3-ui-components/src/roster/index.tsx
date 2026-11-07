@@ -41,6 +41,7 @@ import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { openFramePane } from "../shared/schedule/open-pane.js";
 import { publishPeriod } from "../shared/schedule/records.js";
+import { refusalText, scheduleRefusals } from "../shared/schedule/refusals.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
 import { publishChange, rosterCommands } from "./actions.js";
 import { RosterDataReader, initialRosterData, type RosterData } from "./data.js";
@@ -49,11 +50,11 @@ import { PERIODS, TARGETS, useRosterEditing, type RosterEditing } from "./editin
 import { useRosterFind, type FoundPerson } from "./find.js";
 import { sameFind, useRosterFit, type RosterFind } from "./fit.js";
 import { RosterFooter } from "./footer.js";
-import { useRosterInspector } from "./inspector.js";
+import { useRosterInspector, type RosterRefusal } from "./inspector.js";
 import { useRosterLibrary } from "./library.js";
 import { rosterMessages, type RosterWords } from "./messages.js";
 import {
-    DAY, NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, availableProposals, compareDate, configError, editableStatus, placeDrafted, placeStored, placeTargets,
+    DAY, NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, availableProposals, compareDate, configError, dayOfSlot, editableStatus, placeDrafted, placeStored, placeTargets,
     rosterContext, rosterDomain, spanWindow, spanWords, started, statusText, weekBefore, weekKey, weekNumber, weekOf, weekStart, type Assignment, type DraftedDuty, type Issue,
     type PlacedDuties, type PlacedPeriod,
     type RosterPayload, type RosterStyles, type RosterValue, type Selection, type StoredDuty, type StoredTarget, type WeekState,
@@ -348,8 +349,6 @@ function RosterFrame(props: FrameProps) {
     const search = useMemo(() => (found === undefined ? undefined : pick.search(found)), [found, pick]);
     const library = useRosterLibrary({ ...viewProps, storageKey: key, tab: libraryTab, onTab: setLibraryTab,
         find: find === undefined ? undefined : { need: find.need, shown: fit.shown, busy: finding }, onClearFind: () => setFind(undefined), shown: props.shown });
-    const inspector = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab, find: { offered: fit.offered, finding: isFinding },
-        duties: draftedDuties, heldDuties: storedDuties, targets });
     const onIssues = () => { setTab("issues"); openFramePane(root.current, "Inspector", "end"); };
     const history = editing?.history;
     const { acted } = optimiseParts;
@@ -417,24 +416,47 @@ function RosterFrame(props: FrameProps) {
         setGoing(undefined);
         select({ type: "assignment", key: going.key });
     }, [going, span, current, select]);
-    // A conflict's Go to: its duty shown on its day and selected, as its issue's click in the Issues tab does — in its
-    // own week, where it is a duty of another; a week's or a target's opens the Issues tab.
-    const onConflict = (issue: EditIssue) => {
-        const key = history?.sourceOf(issue);
-        const part = key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key));
-        const here = part?.kind !== source.duty.kind.key ? undefined : week.assignments.get(issue.entry) ?? held.assignments.get(issue.entry);
-        const there = part?.kind !== source.duty.kind.key || here !== undefined ? undefined : elsewhere(issue.entry);
-        const a = here ?? there?.a;
-        if (a === undefined) { onIssues(); return; }
+    /** A duty of a session's: in the week in view, else in its own week (`there`), as its draft places it; `undefined` for neither. */
+    const dutyOf = (kind: string | undefined, entry: string): { readonly a: Assignment; readonly there: ReturnType<typeof elsewhere> } | undefined => {
+        if (kind === undefined || !keyEqual(kind, dutyKind)) return undefined;
+        const here = week.assignments.get(entry) ?? held.assignments.get(entry);
+        if (here !== undefined) return { a: here, there: undefined };
+        const there = elsewhere(entry);
+        return there === undefined ? undefined : { a: there.a, there };
+    };
+    // A duty shown on its day and selected, as its issue's click in the Issues tab does — in its own week, where it is a
+    // duty of another: a conflict's Go to, a refusal pressed, and the warning button's first issue (#1525). A week's or a
+    // target's, or a duty the Roster can't place, opens the Issues tab.
+    const goTo = (kind: string | undefined, entry: string) => {
+        const found = dutyOf(kind, entry);
+        if (found === undefined) { onIssues(); return; }
+        const { a, there } = found;
         // Its group opened where it is folded: its shift's on the board, its person's in the People layout.
         groups.open(a.slot.group);
         const person = a.who.type === "person" ? value.people.find((p) => keyEqual(p.key, a.who.value)) : undefined;
         if (person !== undefined) groups.open(person.group);
         window.setView({ ...window.view, date: (there?.start ?? start).getTime() + Number(a.slot.day) * DAY });
-        if (there === undefined) select({ type: "assignment", key: issue.entry });
-        else setGoing({ key: issue.entry, week: there.start });
+        if (there === undefined) select({ type: "assignment", key: entry });
+        else setGoing({ key: entry, week: there.start });
     };
-    const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onConflict, where: historyWhere, onAction, onPickerDates: setPickerDates, narrow,
+    const onConflict = (issue: EditIssue) => {
+        const key = history?.sourceOf(issue);
+        goTo(key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key))?.kind, issue.entry);
+    };
+    // Each refusal holding Save, of every week's drafts, in the Roster's words (#1525): a duty by its person, day and shift,
+    // or by its key for one the Roster can't place, and its field by its form's label.
+    const refusals = scheduleRefusals(editing?.schedule.sessions ?? []).map(({ kind, issue }): RosterRefusal => {
+        const found = dutyOf(kind, issue.entry);
+        const shift = found === undefined ? undefined : value.shifts.find((s) => keyEqual(s.key, found.a.slot.shift));
+        return { kind, issue,
+            title: found === undefined ? issue.entry
+                : `${assignmentName(value, found.a)} · ${format.weekdayDate(dayOfSlot(found.there?.start ?? start, found.a.slot))} · ${shift?.label ?? found.a.slot.shift}`,
+            text: refusalText(issue, keyEqual(kind, dutyKind) ? source.duty.kind.fields : []) };
+    });
+    const inspector = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab, find: { offered: fit.offered, finding: isFinding },
+        duties: draftedDuties, heldDuties: storedDuties, targets, refusals, onRefusal: refusal => goTo(refusal.kind, refusal.issue.entry) });
+    const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, refused: refusals.length, onIssues, onIssue: onConflict, onConflict,
+        where: historyWhere, onAction, onPickerDates: setPickerDates, narrow,
         optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,
         selectedWeek: pickedWeek === undefined ? undefined : new Date(pickedWeek.start),
         status: source.periods.type === "some" ? statusText(heldPeriod) : undefined, unread: !current, publishing, picker: data.picker,
