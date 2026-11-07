@@ -112,7 +112,7 @@
 - **QP36** Items are min 56 tall, padding 8 12, with a 1 px `--rule` on `--r-md` and gap 12: a 36 tile and the name in 13/600, which wraps.
   - Datasets meta is mono 10.5 `--ink-4` and wraps at its ` · ` joins.
   - Library descriptions are 12.5 `--ink-3`, two lines at most, ending on a whole word and `…`.
-  - An item the open query reads is `--brand-tint` with 1 px `--brand-d`, the name `--brand-dd`, and a trailing 12 `--brand-d` glyph: play for the source, the arrows for a lookup.
+  - An item the open query reads is `--brand-tint` with 1 px `--brand-d`, the name `--brand-dd`, and a trailing 14 `--brand-d` glyph: play for the source, the arrows for a lookup — a touch icon beside words, as every phone control's is (ruled 8 Nov 2026; the design drew it 12).
 - **QP37** The foot is a min 44 hint in mono 11 `--ink-3` saying what a tap does. With no match, the list shows `×` in mono 26 `--rule-strong`, *No queries match “refunds”* in DM Sans 15/700, and a checklist.
 
 **States, motion, access**

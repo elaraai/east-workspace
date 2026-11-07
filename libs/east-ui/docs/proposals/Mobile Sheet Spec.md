@@ -33,7 +33,7 @@ At 402 px today the Sheet gives Step, Good and Done 94 px between its 108 px fol
 **SH5. Rows.** 44 on a coarse pointer, 32 on a fine one, 1 px `--rule`. Numbers mono 13/500 right-aligned; text 13 left.
 
 **SH6. Order band.** 44 tall, `--paper-2`, the band's content sticky at the left across the frame's width:
-- a 40 fold chevron (`fa-chevron-down`/`-right` 12, `--ink-3`), named `Fold WO-1042` / `Open WO-1042`;
+- a 44 fold chevron (`fa-chevron-down`/`-right` 16, `--ink-3`), named `Fold WO-1042` / `Open WO-1042` — a touch icon alone, as every phone control's is (ruled 8 Nov 2026; the design drew it 12 in a 40);
 - the order's name, DM Sans 14/600 (ellipsis);
 - its id, mono 11 `--ink-4`;
 - at the end, its status: an 8 dot and the word mono 10.5/600 caps in its tone, on a `--brand-tint` chip while drafted.

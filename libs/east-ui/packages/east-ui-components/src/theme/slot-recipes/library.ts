@@ -470,8 +470,9 @@ export const librarySlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             flexShrink: "0",
             fontSize: "9.5px",
-            /* A phone's library tabs: the trailing glyph the item's tile carries, play for the source, the arrows for a lookup (QP36). */
-            "[data-library-phone] &": { fontSize: "12px" },
+            /* A phone's library tabs: the trailing glyph the item's tile carries, play for the source, the arrows for a lookup (QP36),
+             * a touch icon beside words (#1547). */
+            "[data-library-phone] &": { fontSize: "14px" },
             color: "fg.faint",
             "[data-placed] &": { color: "brand.solid" },
             "&[data-tone=success]": { color: "fg.success" },

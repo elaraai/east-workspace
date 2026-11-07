@@ -12,7 +12,8 @@
  * (Chakra's preflight draws an svg as a block): no line box grows around it,
  * so it sits where that svg sat — a flex item in a row, the search box's
  * holder 14px tall. The sizes are the ones the editor draws — 11, 12, 13 and
- * 14 px in the table and the search box, 18 px on a node.
+ * 14 px in the table and the search box, 18 px on a node. On a coarse pointer a
+ * mark beside the Graph · Table switch's words takes a touch icon's size (#1547).
  *
  * @packageDocumentation
  */
@@ -25,6 +26,7 @@ export const ontologyMarkRecipe = defineRecipe({
         display: "flex",
         flexShrink: "0",
         "--fa-width": "1em",
+        "[data-scope=segment-group][data-part=item-text] &": { _coarse: { fontSize: "14px" } },
     },
     variants: {
         size: {
