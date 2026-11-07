@@ -22,13 +22,17 @@
  * and `nets` each map a slot to a kind, each closed over its record behind
  * East functions over beast2 bytes, so the payload is one type whatever the
  * rows hold. A slot names the kind in the payload and the source of the slice
- * that narrows it.
+ * that narrows it. A record may be keyed by any type a Dict takes (#1549), and
+ * a link's end or a net's side holds the keys of the item slot it names: the
+ * payload checks each against that slot's key type, and a mismatch is refused
+ * naming the role, the field, both kinds and both types.
  *
  * Its narrowing is one `Slice.bindRecords` (§10.1): a source named after a
  * kind's slot narrows that kind, read complete through it (`window.ts`) — or,
  * under `narrowed="dim"`, every row read through it, and what the narrowing
  * leaves out drawn as context (§10.3, #1392) — and each other source the
- * templates list or the author's tab that names it. The payload's block binds
+ * templates list or the author's tab that names it. Each may narrow a record
+ * keyed by any type, its shown keys their text (#1549). The payload's block binds
  * each source once (`recordSources(…).bind($)`, #1356), and each kind reads
  * its own source inside its functions; none reads a source's state, so a
  * choice builds the Schematic no more (#1354).
@@ -40,14 +44,15 @@
  */
 
 import {
-    ArrayType, BooleanType, DictType, East, Expr, FloatType, FunctionType, NullType, OptionType, StringType, StructType, none, some, variant,
-    type ExprType, type SubtypeExprOrValue, type ValueTypeOf,
+    ArrayType, BooleanType, DictType, East, Expr, FloatType, FunctionType, NullType, OptionType, StringType, StructType, isTypeEqual, none, some, variant,
+    type EastType, type ExprType, type SubtypeExprOrValue, type ValueTypeOf,
 } from "@elaraai/east";
 import { EastUI, RowSourceType } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, isRecordSlices, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
+import { typeText } from "../schedule/window.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { VocabularyNounType, vocabularyNoun, vocabularyWord, type VocabularyNoun } from "../utils/vocabulary.js";
-import { isSchematicKind, type SchematicItems, type SchematicLinks, type SchematicNets, type SchematicZones } from "./kinds.js";
+import { isSchematicKind, type SchematicItems, type SchematicKeyRole, type SchematicLinks, type SchematicNets, type SchematicZones } from "./kinds.js";
 import { SchematicLibraryTabType, buildSchematicLibrary, schematicTabSources, type SchematicLibraryKind, type SchematicLibraryTab } from "./library.js";
 import { isSchematicLayers, type SchematicLayers } from "./layers.js";
 import {
@@ -502,7 +507,8 @@ function inspectorOf(inspector: unknown): boolean {
  *   `onSelectionChange`, `onZoneSelectionChange`, `onSelectLink`, `onViewportChange`, `onItemOpen`, `selectZoomFocus`
  *   and `name` — and a prop the Schematic doesn't take; an `extent` that is no pair of positive numbers; no item kind;
  *   a sort given rows rather than kinds by slot, a slot holding a kind of another sort, and one slot holding two kinds;
- *   a link's end or a net's side holding keys of a slot that holds no item kind; a `slice` that is not `{ slice }`, or
+ *   a link's end or a net's side holding keys of a slot that holds no item kind, or keys of another type than that
+ *   slot's (#1549), naming the role, the field, both kinds and both types; a `slice` that is not `{ slice }`, or
  *   not `Slice.bindRecords`, or holding a source nothing names, or the brush; a templates list naming no source of the
  *   slice; a `narrowed` of another form; `layers` other than `Schematic.layers`' declaration, a list written in the code
  *   among them; an `inspector` that is no Boolean; an `id` that is no string; each of the library's refusals
@@ -537,18 +543,30 @@ export function createSchematicPayload(props: object): ExprType<SchematicPayload
         }
         slotted.set(one.slot, one);
     }
-    // A link's ends and a net's sides hold keys of item slots.
+    // A link's ends and a net's sides hold keys of item slots, each of its slot's key type (#1549).
     const itemSlots = items.map((one) => one.slot);
-    const holdsItems = (one: Slotted, prop: string, slot: string) => {
-        if (!itemSlots.includes(slot)) {
-            throw new Error(`Schematic: the ${NOUN[one.sort]} kind "${one.slot}"'s \`${prop}\` holds keys of "${slot}", which holds no item kind — ` +
-                `its item slots are ${itemSlots.map((s) => `"${s}"`).join(", ")}`);
+    const keyOfSlot = new Map<string, EastType>(items.map((one) => [one.slot, one.kind.keyType]));
+    const holdsItems = (one: Slotted, prop: string, role: SchematicKeyRole) => {
+        for (const { slot, key, case: c } of role.slots) {
+            if (!itemSlots.includes(slot)) {
+                throw new Error(`Schematic: the ${NOUN[one.sort]} kind "${one.slot}"'s \`${prop}\` holds keys of "${slot}", which holds no item kind — ` +
+                    `its item slots are ${itemSlots.map((s) => `"${s}"`).join(", ")}`);
+            }
+            const keyed = keyOfSlot.get(slot)!;
+            if (isTypeEqual(key, keyed)) continue;
+            const kinds = `the ${NOUN[one.sort]} kind "${one.slot}"'s \`${prop}\`, "${role.field}",`;
+            const slotKeyed = `and the item kind "${slot}" is keyed by ${typeText(keyed)}: key "${slot}" by ${typeText(key)}`;
+            throw new Error(one.sort === "nets"
+                ? `Schematic: ${kinds} holds the "${slot}" keys as ${typeText(key)} — ${slotKeyed}, or name a Set or an Array field of ${typeText(keyed)}`
+                : c === undefined
+                    ? `Schematic: ${kinds} holds ${typeText(key)} — ${slotKeyed}, or name a field holding ${typeText(keyed)}`
+                    : `Schematic: ${kinds} holds ${typeText(key)} in its case "${c}" — ${slotKeyed}, or give the case ${typeText(keyed)}`);
         }
     };
     for (const one of links) {
         const ends = (one.kind as SchematicLinks).ends;
-        for (const slot of ends.from) holdsItems(one, "from", slot);
-        for (const slot of ends.to) holdsItems(one, "to", slot);
+        holdsItems(one, "from", ends.from);
+        holdsItems(one, "to", ends.to);
     }
     for (const one of nets) {
         const sides = (one.kind as SchematicNets).sides;
@@ -577,8 +595,9 @@ export function createSchematicPayload(props: object): ExprType<SchematicPayload
     }
     const tabSources = schematicTabSources(given.library);
     const names = [...new Set([...kinds.map((one) => one.slot), ...templateSources, ...tabSources])];
+    // Each source may narrow a record keyed by any type, its shown keys their text (#1549).
     const sources = recordSources(narrowing, {
-        builder: "Schematic", names, what: "its kinds, each by its slot, and the templates lists and tabs that name a source",
+        builder: "Schematic", names, anyKey: true, what: "its kinds, each by its slot, and the templates lists and tabs that name a source",
     });
     const library = buildSchematicLibrary(given.library, {
         kinds: kinds.map((one): SchematicLibraryKind => ({

@@ -103,7 +103,7 @@ import { EditingDraftFieldType, EditingReadinessType, Fields, FieldSpecType, Tic
 import type { PlanDrawLiteral } from "../plan/types.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { scheduleAccessor } from "./accessor.js";
-import { checkKeyField, fieldOf, fieldSetters, keyFieldRef, keyFieldSlots, keyFieldValue, type FieldName, type FieldsOf, type KeyField } from "./fields.js";
+import { checkKeyField, fieldOf, fieldSetters, keyFieldRef, keyFieldSlots, keyFieldValue, stringCases, type FieldName, type FieldsOf, type KeyField } from "./fields.js";
 import { SCHEDULE_TEMPLATES, checkedTemplates, type ScheduleTemplates } from "./templates.js";
 import { SCHEDULE_DEF } from "./resources.js";
 import { SCHEDULE_EVENT_CAP, scheduleRecordCount, scheduleRecordWindow, type ScheduleKindPart } from "./record-window.js";
@@ -817,9 +817,23 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             : `${where}: \`backlog\` is a kind's rows with no time, and its times are plain DateTime fields — make \`start\` and \`end\` Options for a backlog`);
     }
 
-    // The resource: a key of one kind, or a case per kind (`fields.ts`).
-    const resource: KeyField | undefined = config.resource === undefined ? undefined
-        : checkKeyField(config.resource.field, fieldType("resource.field", config.resource.field), config.resource.of, { where, prop: "resource", noun: "resource" });
+    // The resource: a key of one kind, or a case per kind (`fields.ts`). An event names its resource by the key's text,
+    // so its field holds a String, or a String per case, whatever the resource kinds are keyed by (#1549).
+    const resource: KeyField | undefined = config.resource === undefined ? undefined : (() => {
+        const { field, of } = config.resource!;
+        const type = fieldType("resource.field", field);
+        const inner = optionOf(type) ?? type;
+        const cases = stringCases(inner);
+        if (!isTypeEqual(inner, StringType) && cases === undefined) {
+            throw new Error(`${where}: \`resource.field\` names a field holding a resource's key — a String, a variant of String cases, or an Option of either — ` +
+                `and "${field}" holds ${typeText(type)}`);
+        }
+        // String cases name a slot per case: a slot's name would read the variant as one kind's key.
+        if (cases !== undefined && typeof of === "string") {
+            throw new Error(`${where}: "${field}" is a variant — \`resource.of\` names a resource slot per case: { ${cases.map((c) => `${c}: "…"`).join(", ")} }`);
+        }
+        return checkKeyField(field, type, of, { where, prop: "resource", noun: "resource" });
+    })();
     const takes = resource === undefined ? [] : keyFieldSlots(resource);
 
     // The status: a variant, a Status per case.

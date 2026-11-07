@@ -7,12 +7,16 @@
  * A kind's rows as its `rowsOf` makes them (#1393): each one's roles beside
  * its bytes, kept at the revision they were read at — those not yet made
  * made in one call — what the paged Backlog and the Index read of a kind read
- * by area outside its window.
+ * by area outside its window — and a kind's keys as the Schematic speaks
+ * them (#1549): each its text, read back at the record's key type where the
+ * record is read by key or asked of its narrowing.
  *
  * @packageDocumentation
  */
 
-import { ArrayType, StringType, StructType, encodeBeast2For, equalFor, fromEastTypeValue, type StructType as StructTypeOf } from "@elaraai/east";
+import {
+    ArrayType, StringType, StructType, encodeBeast2For, equalFor, fromEastTypeValue, parseFor, printFor, type EastTypeValue, type StructType as StructTypeOf,
+} from "@elaraai/east";
 import type { RecordSliceEntry } from "@elaraai/east-ui/internal";
 import type { SchematicValue } from "./data.js";
 
@@ -47,6 +51,49 @@ export function entryRow(entry: RecordSliceEntry): unknown {
     return undefined;
 }
 
+/**
+ * A kind's keys as the Schematic speaks them (#1549): each key's text — what
+ * a reference, the drawing and a kind's `rowsOf` name a row by — and a text
+ * read back at the record's key type — what a read by key and a narrowing's
+ * `within` take.
+ */
+export interface KindKeys {
+    /** A key's text: a String key as itself, any other as East prints it. */
+    readonly textOf: (key: unknown) => string;
+    /** A text read back at the record's key type; `undefined` for a text no key prints as. */
+    readonly keyOf: (text: string) => unknown;
+}
+
+/** Each key type's keys, made once a key type. */
+const keysOf = new WeakMap<EastTypeValue, KindKeys>();
+
+/**
+ * A kind's keys (see {@link KindKeys}), made once for its key type.
+ *
+ * @param keyType - The kind's record's key type, as its wire carries it: its details' too, which are keyed as it is
+ * @returns Its keys' text, and a text read back
+ */
+export function kindKeys(keyType: EastTypeValue): KindKeys {
+    let keys = keysOf.get(keyType);
+    if (keys === undefined) {
+        if (keyType.type === "String") {
+            keys = { textOf: (key) => key as string, keyOf: (text) => text };
+        } else {
+            const print = printFor(keyType);
+            const parse = parseFor(keyType);
+            keys = {
+                textOf: (key) => print(key),
+                keyOf: (text) => {
+                    const read = parse(text);
+                    return read.success ? read.value : undefined;
+                },
+            };
+        }
+        keysOf.set(keyType, keys);
+    }
+    return keys;
+}
+
 /** Some kinds' rows as their `rowsOf` makes them (see the module docs). */
 export class KindRows<R> {
     /** Each kind's rows, by key, at the revision they were read at. */
@@ -59,7 +106,7 @@ export class KindRows<R> {
      *
      * @param kind - The kind
      * @param revision - The record's revision the rows were read at
-     * @param rows - The rows, each its key and its row
+     * @param rows - The rows, each its key's text ({@link kindKeys}) and its row
      * @returns Each row's roles and bytes, by key — every row made at the revision, these among them
      */
     rowsOf(kind: ItemKind, revision: string, rows: readonly { readonly key: string; readonly row: unknown }[]): ReadonlyMap<string, KindRow<R>> {
