@@ -63,7 +63,7 @@ describe("Tag — in the palette it is given", () => {
     });
 
     test("given no palette, each variant keeps the chip's own colours, an outline's ring gone", () => {
-        expect(colours(drawn({ variant: "solid" })).slice(0, 3)).toEqual([token("brand-600"), token("brand-600"), token("fg-inverse")]);
+        expect(colours(drawn({ variant: "solid" })).slice(0, 3)).toEqual([token("brand-solid"), token("brand-solid"), token("brand-contrast")]);
         expect(colours(drawn({ variant: "subtle" })).slice(0, 3)).toEqual([token("bg-subtle"), token("transparent"), token("fg")]);
         expect(colours(drawn({ variant: "outline" }))).toEqual([token("bg-surface"), token("border-strong"), token("brand-fg"), "none"]);
     });
