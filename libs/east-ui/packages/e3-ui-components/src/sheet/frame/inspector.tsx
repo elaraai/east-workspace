@@ -45,10 +45,11 @@
  * control and its rail — is the Dock's.
  *
  * A host with a view of its own (#1534) — the Record's — draws Details for one
- * row and for nothing in the Sheet's place ({@link SheetInspectorHost}), over
- * the same reads and writes, the form's own (`useTargetForm`) among them, and
- * names an issue's row in the Issues tab in its own words. Several rows stay
- * the Sheet's; so does a complete row given the author's own Details.
+ * row and for nothing in the Sheet's place ({@link SheetInspectorHost}), a
+ * phone's drawer's among them, over the same reads and writes, the form's own
+ * (`useTargetForm`) among them, and names an issue's row in the Issues tab in
+ * its own words. Several rows stay the Sheet's; so does a complete row given
+ * the author's own Details.
  *
  * @packageDocumentation
  */
@@ -137,9 +138,9 @@ export interface SheetInspectorProps {
  */
 export interface SheetInspectorHost {
     /**
-     * Details while the ring selects one place — a row, a line or a band — or nothing. Several rows are the Sheet's, and
-     * so is a phone's drawer (SH12). A complete row given the author's own Details shows them in the form's place
-     * ({@link useAuthorDetails}).
+     * Details while the ring selects one place — a row, a line or a band — or nothing: in a phone's drawer too, where
+     * they draw at touch size, as the Sheet's own do there (SH12). Several rows are the Sheet's. A complete row given
+     * the author's own Details shows them in the form's place ({@link useAuthorDetails}).
      */
     Details: ComponentType<SheetInspectorDetailsProps>;
     /**
@@ -233,10 +234,9 @@ const SheetInspectorDetails = memo(function SheetInspectorDetails(props: Details
     const inspect = useSheetInspect();
     const styles = useSlotRecipe({ key: "sheetInspector" })() as Styles;
     const selected = inspect.selected;
-    // A host's own Details for one place and for nothing (#1534) — never in a phone's drawer, whose Details are the Sheet's (SH12).
-    const phone = useContext(FrameDrawer);
+    // A host's own Details for one place and for nothing (#1534), a phone's drawer's too, at touch size (#1536).
     const Host = props.host?.Details;
-    if (Host !== undefined && !phone && selected.kind !== "several") {
+    if (Host !== undefined && selected.kind !== "several") {
         return <Host value={props.value} pane={props.pane} keys={props.keys} words={props.words} hidden={props.hidden} noun={props.noun} selected={selected} />;
     }
     if (selected.kind === "none") {

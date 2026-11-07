@@ -24,7 +24,10 @@
  * Details shows them in the form's place (SB58). A title opened, a copy made
  * and an issue gone to put the keyboard in their field (AD1, IN7, IN9): the
  * focus the Record asks for ({@link RecordInspector}). Several rows are the
- * Sheet's, and so is a phone's drawer (SH12).
+ * Sheet's. A phone's drawer holds these Details at touch size (SH12): the head
+ * and the gestures as the Sheet's phone Details draw theirs, the form's lines
+ * and inputs touch-sized there already, and no field taking the keyboard
+ * unasked — a tap gives it.
  *
  * Styles are the `sheetInspector` recipe's, the form's `fieldForm`'s, and a
  * fact's value the `record` recipe's.
@@ -41,7 +44,7 @@ import { Field, type FieldSpecValue } from "@elaraai/east-ui/internal";
 import {
     EastChakraComponent, EastChakraField, FieldForm, fieldFormMessages, getSomeorUndefined, type FieldLineChoice,
 } from "@elaraai/east-ui-components";
-import { formatDatePattern } from "@elaraai/east-ui-components/internal";
+import { FrameDrawer, formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { useSheetEntries, useSheetInspect, type SheetInspect, type SheetInspectPlace, type SheetInspectTarget } from "../sheet/index.js";
 import { targetIssues, useAuthorDetails, useTargetForm, whatOf, type FormValue, type SheetInspectorDetailsProps } from "../sheet/frame/inspector.js";
 import { indexColumns, indexRegisters, type SheetColumnIndex } from "../sheet/model.js";
@@ -173,6 +176,8 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
     const registers = useMemo(() => indexRegisters(value.sheet.registers), [value.sheet.registers]);
     const isNew = target.baseline === undefined && target.value !== undefined;
     const r = target.r;
+    // In a phone's drawer (SH12): its head and its gestures at touch size.
+    const phone = useContext(FrameDrawer);
 
     // Its title, as the head names it: the title column's text — else, with no title column, its first text, else its key.
     const titleKey = useMemo(() => columns.list.find((meta) => meta.kind === "title")?.key, [columns]);
@@ -236,12 +241,14 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
     // The fields its issues name, washed in the form (IN3).
     const named = useMemo(() => new Set(issues.flatMap((issue) => (issue.name === undefined ? [] : [issue.name]))), [issues]);
 
-    // The field asked to take the keyboard on this row, once the form is drawn to give it; then the request is answered.
+    // The field asked to take the keyboard on this row, once the form is drawn to give it; then the request is answered —
+    // in a phone's drawer at once, the field left to a tap, so no keyboard rises over the drawer unasked.
     const drawn = target.value !== undefined && own === undefined;
-    const focusKey = focus !== undefined && focus.r === r && drawn ? focus.key : undefined;
+    const asked = focus !== undefined && focus.r === r && drawn ? focus.key : undefined;
+    const focusKey = phone ? undefined : asked;
     useEffect(() => {
-        if (focus !== undefined && focusKey !== undefined) focused(focus.seq);
-    }, [focus, focusKey, focused]);
+        if (focus !== undefined && asked !== undefined) focused(focus.seq);
+    }, [focus, asked, focused]);
 
     // Its facts (IN6): the audit's when, verb and who, and the age's count — none on a row the record does not hold yet.
     const facts = useMemo((): RecordFact[] => {
@@ -279,24 +286,37 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
         if (ticks.has(target.entry)) ticks.toggle(target.entry);
         entries.remove([target.entry]);
     };
-    const chip: ReactNode = isNew ? <Box as="span" css={styles.chip} data-state="new">{m.inspectorChip({ state: "new" })}</Box>
+    const chipCss = phone ? styles.phoneChip : styles.chip;
+    const chip: ReactNode = isNew ? <Box as="span" css={chipCss} data-state="new">{m.inspectorChip({ state: "new" })}</Box>
         : target.presentation.pending
-            ? <Box as="span" css={styles.chip} data-state="pending">{changed > 0 ? rm.detailsPending({ count: words.number(changed) }) : m.inspectorChip({ state: "pending" })}</Box>
+            ? <Box as="span" css={chipCss} data-state="pending">{changed > 0 ? rm.detailsPending({ count: words.number(changed) }) : m.inspectorChip({ state: "pending" })}</Box>
             : null;
+    const heading = title !== "" ? title : <Box as="span" css={record.absent}>{rm.absent()}</Box>;
+    // Duplicate and Delete: a phone's touch-sized Default buttons, as the Sheet's phone Details draw theirs.
+    const gesture = phone ? [button({ variant: "outline", size: "md" }), styles.phoneButton] : [button({ variant: "outline", size: "xs" })];
     return (
-        <Box css={styles.root} data-sheet-inspector={target.kind} data-record-details="row" data-record-entry={target.entry}>
-            <Box css={styles.head}>
-                <Box css={styles.eyebrow} data-inspector-what="">{whatOf(target, words, noun)}</Box>
-                <Box css={styles.name} data-inspector-id="">{title !== "" ? title : <Box as="span" css={record.absent}>{rm.absent()}</Box>}</Box>
-                <Box css={styles.marks}>
+        <Box css={styles.root} data-sheet-inspector={target.kind} data-record-details="row" data-record-entry={target.entry} data-phone={phone ? "" : undefined}>
+            {phone ? (
+                <Box css={styles.phoneHead}>
+                    <Box as="span" css={styles.phoneEyebrow} data-inspector-what="">{whatOf(target, words, noun)}</Box>
+                    <Box as="span" css={styles.phoneName} data-inspector-id="">{heading}</Box>
                     {chip}
-                    {target.owned && (
-                        <Box as="span" css={styles.lock} role="img" aria-label={m.inspectorOwned()} title={m.inspectorOwned()} data-inspector-lock="">
-                            <FontAwesomeIcon icon={faLock} />
-                        </Box>
-                    )}
+                    {target.owned && <Box as="span" css={styles.lock} data-inspector-lock=""><FontAwesomeIcon icon={faLock} aria-hidden />{m.inspectorOwned()}</Box>}
                 </Box>
-            </Box>
+            ) : (
+                <Box css={styles.head}>
+                    <Box css={styles.eyebrow} data-inspector-what="">{whatOf(target, words, noun)}</Box>
+                    <Box css={styles.name} data-inspector-id="">{heading}</Box>
+                    <Box css={styles.marks}>
+                        {chip}
+                        {target.owned && (
+                            <Box as="span" css={styles.lock} role="img" aria-label={m.inspectorOwned()} title={m.inspectorOwned()} data-inspector-lock="">
+                                <FontAwesomeIcon icon={faLock} />
+                            </Box>
+                        )}
+                    </Box>
+                </Box>
+            )}
             {issues.length > 0 && (
                 <Box css={styles.issues} data-inspector-issues="">
                     <Box css={styles.sectionHead}>{m.inspectorSection({ section: "issues", n: issues.length, count: words.number(issues.length) })}</Box>
@@ -329,15 +349,15 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
                 </Box>
             )}
             {!readOnly && (capabilities.insertRows || capabilities.removeRows) && (
-                <Box css={styles.actions} data-inspector-actions="">
+                <Box css={phone ? styles.phoneActions : styles.actions} data-inspector-actions="">
                     {capabilities.insertRows && (
-                        <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled={!inspect.can.insertRows}
+                        <chakra.button type="button" css={gesture} disabled={!inspect.can.insertRows}
                             data-inspector-action="duplicate" onClick={onDuplicate}>
                             {m.inspectorAction({ action: "duplicate", header: undefined, withLines: false })}
                         </chakra.button>
                     )}
                     {capabilities.removeRows && (
-                        <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled={!inspect.can.removeRows}
+                        <chakra.button type="button" css={gesture} disabled={!inspect.can.removeRows}
                             data-inspector-action="delete" onClick={onDelete}>
                             {m.inspectorAction({ action: "delete", header: undefined, withLines: false })}
                         </chakra.button>

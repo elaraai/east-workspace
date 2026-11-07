@@ -646,7 +646,9 @@ export interface SheetHost {
      * A phone's cell editor (`Mobile Sheet Spec.md` SH10, R9): what the bottom
      * container shows for the ring's cell — the inspector's form at touch size,
      * that cell's field — in the docked strip's place. Absent, or answering
-     * `undefined` for a cell its form has no field for, the strip shows.
+     * `undefined` for a cell its form has no field for, the strip shows. A
+     * host's grid asks it for no cell that steps in place or opens where the
+     * host edits it.
      */
     cellEditor?: ((at: SheetCellEditorAt) => ReactNode | undefined) | undefined;
     /**
@@ -1032,10 +1034,16 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // A host's grid has none either (#1531): its lead stands there — a Record's select column — where it has one, and on
     // a phone's frame goes as the gutter does (#1536).
     const gutterPx = phoneFrame ? 0 : hostGrid !== undefined ? hostGrid.leadPx : folded ? least.folded : fullGutterPx;
+    // The columns a phone's pager pages: every one but a pinned one; and what it pages, the Row column before them while it shows.
+    const pagedColumns = useMemo(() => (pinned ? columns.list.slice(1) : columns.list), [columns, pinned]);
+    const pagerColumns = useMemo((): readonly SheetPagerColumn[] => {
+        const each = pagedColumns.map((c): SheetPagerColumn => ({ key: c.key, header: c.header, kind: words.m.columnKind({ kind: c.kind }) }));
+        return rowNumbers ? [{ key: ROW_COLUMN, header: words.m.pagerRow(), kind: words.m.pagerRowKind() }, ...each] : each;
+    }, [pagedColumns, rowNumbers, words.m]);
     // A phone's window (SH1.4): the frame's width less any pinned column, shared by the columns in view — as many as
-    // the sheet's `narrow.columns` says, else two.
+    // the sheet's `narrow.columns` says, else two, and never more than it pages: the window never ends at an empty slot.
     const narrowColumns = narrow === undefined ? undefined : getSomeorUndefined(narrow.columns);
-    const phoneColumns = narrowColumns === undefined ? PHONE_COLUMNS : Number(narrowColumns);
+    const phoneColumns = Math.max(1, Math.min(narrowColumns === undefined ? PHONE_COLUMNS : Number(narrowColumns), pagerColumns.length));
     const slotPx = phoneFrame && viewPx !== undefined ? Math.max(0, (viewPx - pinPx) / phoneColumns) : 0;
     // The frame's slack goes to the TEXT columns, each capped at 2.5× its
     // width, and the last column takes the rest, out to the frame's edge: the
@@ -1057,12 +1065,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // How a host's rows and header are laid out (#1536): its lead's track, a phone's frame and its pinned column — one
     // object while they hold, so no row's memo sees it change.
     const hostLayout = useMemo((): SheetHostLayout => ({ lead: gutterPx > 0, phone: phoneFrame, pinPx }), [gutterPx, phoneFrame, pinPx]);
-    // The columns a phone's pager pages: every one but a pinned one; and what it pages, the Row column before them while it shows.
-    const pagedColumns = useMemo(() => (pinned ? columns.list.slice(1) : columns.list), [columns, pinned]);
-    const pagerColumns = useMemo((): readonly SheetPagerColumn[] => {
-        const each = pagedColumns.map((c): SheetPagerColumn => ({ key: c.key, header: c.header, kind: words.m.columnKind({ kind: c.kind }) }));
-        return rowNumbers ? [{ key: ROW_COLUMN, header: words.m.pagerRow(), kind: words.m.pagerRowKind() }, ...each] : each;
-    }, [pagedColumns, rowNumbers, words.m]);
     const minWidth = phoneFrame ? pinPx + slotPx * pagerColumns.length : gutterPx + columns.list.reduce((n, c) => n + c.width, 0);
     // The window as it stands, for a pick of the phone's Library (SH11).
     const pagerRef = useRef({ list: pagerColumns, slot: slotPx, inView: phoneColumns });
@@ -4386,7 +4388,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             summary={ruleText(barRow.it.row, barRow.column.summary) ?? ""} onClose={() => setBarClosedAt({ r: ui.sel.r, c: ui.sel.c })} />;
     // A phone's cell editor (`Mobile Sheet Spec.md` SH10, R9): the ring's cell of every other kind edits in the same
     // bottom container — the inspector's form at touch size, its field alone, the frame's — opened by a press on the cell
-    // and ⌄ closed as the bar is. A column that takes no edit opens nothing (SH10.2); a sheet read only opens nothing.
+    // and ⌄ closed as the bar is. A column that takes no edit opens nothing (SH10.2); a sheet read only opens nothing; nor,
+    // on a host's grid, does a cell that steps in place or opens where the host edits it (#1536): the press takes it there.
     const hostEditor = host.cellEditor;
     // Its eyebrow names the row as the action bar's does — its action column's name and title — where it has one.
     const rowActionName = (r: number): string | undefined => {
@@ -4401,7 +4404,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const ringR = ui.sel.r;
     const ringC = ui.sel.c;
     const cellEditor = !phoneFrame || hostEditor === undefined || ui.ringless || ui.selEnd !== null || barClosed || readOnly || ringMeta === undefined
-        || !ringMeta.editable || ringMeta.kind === "action" || ringMeta.kind === "stamped" || (ringRow?.kind !== "real" && ringRow?.kind !== "group") ? undefined
+        || !ringMeta.editable || ringMeta.kind === "action" || ringMeta.kind === "stamped" || (hostGrid !== undefined && (stepsInPlace(ringMeta) || editsOutOfPlace(ringMeta)))
+        || (ringRow?.kind !== "real" && ringRow?.kind !== "group") ? undefined
         : hostEditor({ r: ringR, columnKey: ringMeta.key, band: ringRow.kind === "group", name: rowActionName(ringR), onClose: () => setBarClosedAt({ r: ringR, c: ringC }) });
     // What the runs of the optimiser left on each row (#1409, R25), by the row's id — a line's by its line id — while the
     // drafts hold it: each row is handed its own marks, held still until a run touches it again.

@@ -45,7 +45,10 @@
  * phone frame, the inspector its drawer, and the grid the Sheet's on a phone:
  * the title column pinned at the left, the Sheet's pager stepping through the
  * other columns, and no select column (`grid.tsx`). Its toolbar is the title,
- * the rail and Add; the status line's words are its footer's band.
+ * the rail and Add; the status line's words are its footer's band. A press on
+ * a cell of the Sheet's kinds edits it in the bottom container, the
+ * inspector's field at touch size (SH10), and the drawer holds the Record's
+ * own Details.
  *
  * Its rows are 36, 32 or 28 tall, the rule included — the Record's own
  * density, else the one it is placed in, else comfortable — at the theme's
@@ -72,7 +75,7 @@ import {
 import { draftChanges } from "../sheet/draft-state.js";
 import { SheetMessagesProvider, type SheetMessages } from "../sheet/messages.js";
 import { useLastCommit } from "../sheet/frame/index.js";
-import { useSheetInspector, type SheetInspectorHost } from "../sheet/frame/inspector.js";
+import { sheetCellEditor, useSheetInspector, type SheetInspectorHost } from "../sheet/frame/inspector.js";
 import { indexColumns, indexRegisters } from "../sheet/model.js";
 import type { SheetTransactions } from "../sheet/transactions.js";
 import { issueText, useSheetWords } from "../sheet/words.js";
@@ -187,10 +190,14 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
             status.say(step);
         };
     }, [fields, ticks, status]);
+    // A phone's cell editor (SH10): a cell of the Sheet's kinds edits in the bottom container, its inspector's field at
+    // touch size; a cycle, a toggle and a boolean step where they are pressed, and a title opens its Details.
+    const cellEditor = useMemo(() => sheetCellEditor(value, words, NO_COLUMN_HIDDEN), [value, words]);
     const host = useMemo((): SheetHost => ({
         grid: { rowPx, leadPx: readOnly ? 0 : SELECT_PX, leadRun: "check", runStyles: styles, Row: RecordRow, Header: RecordHeader, Empty: RecordEmpty, Strip: RecordStrip, onOpen },
         onHistory,
-    }), [rowPx, readOnly, styles, onOpen, onHistory]);
+        cellEditor,
+    }), [rowPx, readOnly, styles, onOpen, onHistory, cellEditor]);
     const noun = useMemo((): RecordNoun => getSomeorUndefined(value.noun) ?? rm.rowNoun(), [value.noun]);
     const title = getSomeorUndefined(value.title);
     const inspector = value.inspector.type === "some";

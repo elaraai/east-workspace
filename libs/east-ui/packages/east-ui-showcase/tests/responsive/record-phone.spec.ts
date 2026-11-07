@@ -8,7 +8,8 @@
  * Spec.md` SH1, SH4, SH8.1, R5): each of the Record's examples in a phone's
  * frame, its title column pinned at the left and the other columns a window
  * the Sheet's pager steps through, with no select column, and the page never
- * scrolling sideways. Paged on, the title keeps its place and the window
+ * scrolling sideways — columns that fit the window filling it to its edge.
+ * Paged on, the title keeps its place and the window
  * moves a column; ← and → on the grid page it too. A column group's label
  * sits over its columns in view, clear of the pinned title, and the jump
  * menu lists the columns with no `Row number`: a Record's rows have no
@@ -96,9 +97,10 @@ test.describe("The Record on a phone", () => {
             expect(Math.abs(at.paged[0]!.left - at.title.right)).toBeLessThan(1);
             expect(await sideways(page, grid)).toEqual({ page: 0, frame: 0 });
             const pager = pagerOf(grid);
-            // A Record whose columns fit its window has no pager.
+            // A Record whose columns fit its window has no pager, and they fill it to its edge: never an empty slot after them (SH1.4).
             if (await pager.count() === 0) {
                 expect(at.paged.every((head) => head.right <= at.grid.right + 1)).toBe(true);
+                expect(Math.abs(at.paged[at.paged.length - 1]!.right - at.grid.right)).toBeLessThan(1);
                 return;
             }
             const slot = at.paged[0]!.width;

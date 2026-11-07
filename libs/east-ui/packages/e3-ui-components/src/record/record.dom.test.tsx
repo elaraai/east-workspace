@@ -181,6 +181,19 @@ describe("on a phone", () => {
         }
     });
 
+    test("one column beside the pinned title takes the window's whole width, never half of it with an empty slot after, and has no pager (SH1.4)", async () => {
+        const restore = touchFrame(390);
+        try {
+            const { container } = await h.mount(ex.recordFinishes, { storageKey: "record-phone-one-column" });
+            // The pinned piece, 150 wide, then the room in all of a 390 frame's other 240.
+            for (const row of rows(container)) expect(row.style.gridTemplateColumns).toBe("150px 240px");
+            expect(container.querySelector<HTMLElement>('[data-record] [data-slot="headerRow"]')!.style.gridTemplateColumns).toBe("150px 240px");
+            expect(container.querySelector('[data-record] [data-slot="pager"]')).toBeNull();
+        } finally {
+            restore();
+        }
+    });
+
     test("the Sheet's pager steps the window a column past the pinned title — ‹ ›, and ← → on the grid — the ring where it is, and stops at the ends (SH1, SH8.1)", async () => {
         const restore = touchFrame(390);
         const restoreScroll = frameScrolls();
@@ -236,7 +249,7 @@ describe("on a phone", () => {
         }
     });
 
-    test("a row is picked by its title — the ring on it, and the inspector's view open on its Details — and deleted there, one step Undo takes back (P4, IN7)", async () => {
+    test("a row is picked by its title — the ring on it, and the drawer open on the Record's Details at touch size, named by its title, its facts after its fields and no field taking the keyboard unasked — and deleted there, one step Undo takes back (P4, IN2, IN6, IN7, SH12)", async () => {
         const restore = touchFrame(390, { builder: true });
         try {
             const { container } = await h.mount(ex.recordEveryKind, { storageKey: "record-phone-pick" });
@@ -249,11 +262,50 @@ describe("on a phone", () => {
                 expect(open).not.toBeNull();
                 return open!;
             });
-            await waitFor(() => expect(drawer.querySelector('[role="tabpanel"]:not([hidden]) [data-inspector-id]')?.textContent).toBe("P-0408"));
-            await press(drawer.querySelector('[data-inspector-action="delete"]')!);
+            const shown = await waitFor(() => {
+                const record = drawer.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden]) [data-record-details="row"]');
+                expect(record?.getAttribute("data-record-entry")).toBe("P-0408");
+                return record!;
+            });
+            expect(shown.hasAttribute("data-phone")).toBe(true);
+            expect(shown.querySelector("[data-inspector-id]")!.textContent).toBe("B. Ellis");
+            expect(shown.querySelector("[data-record-facts]")).not.toBeNull();
+            expect(shown.querySelector('[data-field="name"]')!.contains(document.activeElement)).toBe(false);
+            await press(shown.querySelector('[data-inspector-action="delete"]')!);
             expect(ids()).toEqual(["P-0401"]);
             await key(container, "z", { metaKey: true });
             expect(ids()).toEqual(["P-0401", "P-0408"]);
+        } finally {
+            restore();
+        }
+    });
+
+    test("a press on a cell of the Sheet's kinds edits it in the bottom container, its inspector's field at touch size, its edits while it stays open one step; a cycle steps where it is pressed and a title opens its Details, neither opening it (SH10, SH10.1, P2, P4)", async () => {
+        const restore = touchFrame(390);
+        try {
+            const { container } = await h.mount(ex.recordEveryKind, { storageKey: "record-phone-cell-editor" });
+            const cellEditor = () => container.querySelector<HTMLElement>("[data-record] [data-sheet-cell-editor]");
+            // Shifts, a whole number: − · the field · +.
+            await press(cellAt(container, 0, "shifts"));
+            expect(cellEditor()?.getAttribute("data-sheet-cell-editor")).toBe("shifts");
+            expect(cellEditor()!.querySelector("[data-cell-editor-eyebrow]")!.textContent).toBe("Shifts · row 1");
+            const shifts = () => cellAt(container, 0, "shifts").textContent;
+            const was = shifts();
+            await press(cellEditor()!.querySelector('[data-cell-step="more"]')!);
+            await press(cellEditor()!.querySelector('[data-cell-step="more"]')!);
+            expect(shifts()).not.toBe(was);
+            await press(history(container, editingMessages.undo()));
+            expect(shifts()).toBe(was);
+            // Notes, its form's own input.
+            await press(cellAt(container, 0, "notes"));
+            expect(cellEditor()?.getAttribute("data-sheet-cell-editor")).toBe("notes");
+            expect(cellEditor()!.querySelector("[data-cell-form] input")).not.toBeNull();
+            // Overtime, a cycle, steps: prefer → can't, and nothing opens.
+            await press(cellAt(container, 0, "preference"));
+            expect(cellEditor()).toBeNull();
+            expect(part(cellAt(container, 0, "preference"), "chip")!.textContent).toBe("can't");
+            await press(cellAt(container, 0, "name"));
+            expect(cellEditor()).toBeNull();
         } finally {
             restore();
         }

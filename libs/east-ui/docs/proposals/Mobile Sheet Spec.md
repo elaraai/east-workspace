@@ -17,7 +17,7 @@ At 402 px today the Sheet gives Step, Good and Done 94 px between its 108 px fol
 - **SH1.1** ‹ › move the window one column. A pick in the jump menu brings that column into view.
 - **SH1.2** The window's scroll animates over `--dur-base` for one column and `--dur-slow` for more, easing out (the design: 200 ms, 360 ms, quintic out); under reduced motion it jumps.
 - **SH1.3** A swipe or a drag pans the columns; on release the view settles on the nearest column (`scroll-snap-type: x mandatory`, `scroll-padding-left` the pinned width). A fling carries to the next.
-- **SH1.4** The slot: (frame width − pinned width) ÷ columns in view, two by default, one or three by the author's choice (§9 DX).
+- **SH1.4** The slot: (frame width − pinned width) ÷ columns in view, two by default, one or three by the author's choice (§9 DX), and never more than there are columns to page: the window never ends at an empty slot, so one column beside the pinned one takes the whole width.
 
 **SH2. Jump menu.** 240 wide, `--paper`, 1 px `--rule-strong`, `--r-md`.
 - The eyebrow `Go to column`.
