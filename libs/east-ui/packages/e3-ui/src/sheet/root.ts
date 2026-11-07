@@ -118,6 +118,7 @@ import { unsettableFields } from "./fields.js";
 import { SheetApplyResultType, SheetNewRowType, SheetNewGroupType, SheetReadinessType, type SheetDraftOf, type SheetChangeSetTypeFor } from "./transactions.js";
 import type { SheetPatchEventTypeFor, SheetDraftEntryOf } from "./drafts.js";
 import { orderedRowSource, type OrderedRowSource } from "../utils/ordered-source.js";
+import { scheduleLastKey } from "../schedule/window.js";
 import { isExistsCheck, type SheetLocksInput } from "./link.js";
 
 // ============================================================================
@@ -234,7 +235,9 @@ export interface SheetOptions<R extends StructType, K extends EastType = StringT
     newRow?: SubtypeExprOrValue<FunctionType<[typeof SheetNewRowType], SheetPatchOf<R>>>;
     /**
      * A new row's key, in the app's own scheme: given the keys taken — every key the sheet has read, and every one its
-     * batch has drafted — one that is not. Without it a String key is a UUID; any other key needs it.
+     * batch has drafted — one that is not. Without it a String key is a UUID, and an Integer one one past the largest
+     * (#1549): of the keys taken, and of the last key a source paging the record's own entries serves. Any other key
+     * needs it.
      */
     newKey?: SubtypeExprOrValue<FunctionType<[SetType<K>], K>>;
     /** Never on a flat sheet — grouped rows take {@link SheetGroupedOptions}. */
@@ -795,17 +798,19 @@ function buildSheet(
     const writes = opts.onApply !== undefined || opts.onUpdate !== undefined || internal.applyKeyed !== undefined;
     const adds = (what: "insertRows" | "insertGroups"): boolean => writes && opts.readOnly !== true && opts.edits?.[what] !== false;
     // A new entry — a row, or a group, never a group's line, keyed within it — takes the source's key: the app's, from
-    // `newKey`, or a UUID the renderer mints, which only a String key is (#1182, #1536).
+    // `newKey`; else a UUID the renderer mints for a String key, and one past the largest for an Integer one (#1182,
+    // #1536, #1549). Any other key needs `newKey`.
     const entry = groupDecl === undefined ? "row" : "group";
-    if (keyType !== undefined && keyType.type !== "String" && opts.newKey === undefined && (groupDecl === undefined ? adds("insertRows") : adds("insertGroups"))) {
+    if (keyType !== undefined && keyType.type !== "String" && keyType.type !== "Integer" && opts.newKey === undefined
+        && (groupDecl === undefined ? adds("insertRows") : adds("insertGroups"))) {
         throw new Error(
-            `Sheet: the ${entry}s are keyed by ${printType(keyType)}, and a new ${entry}'s key is minted only for a String key — ` +
+            `Sheet: the ${entry}s are keyed by ${printType(keyType)}, and a new ${entry}'s key is made only for a String key or an Integer one — ` +
             `pass \`newKey\`, an East function from the keys taken to a new one, or \`edits={{ ${groupDecl === undefined ? "insertRows" : "insertGroups"}: false }}\``,
         );
     }
     // The app's `newKey` on the wire: over the keys' text, as the rows' ids are — a String key's function as it is, any
     // other key's read from its text and printed back, as `Record.onApply` reads an id.
-    const newKey = opts.newKey === undefined ? undefined : (() => {
+    const appKey = opts.newKey === undefined ? undefined : (() => {
         const key = keyType ?? StringType;
         const fn = East.value(opts.newKey as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
         const type = Expr.type(fn as Expr<EastType>) as EastType;
@@ -818,6 +823,38 @@ function buildSheet(
             return East.print(mint(taken.toSet((_$, id) => id.parse(key))));
         });
     })();
+    // With no `newKey`, an Integer key is one past the largest (#1549), as the Plan's is: of every key taken — the rows the
+    // sheet has read, its drafts and what its gesture made — and, paging the record's own entries, of the last key they
+    // hold, once that read lands. A key the record holds unread is a conflict at Save, never written over; with no key at
+    // all, the first is 1.
+    const integerKey = opts.newKey !== undefined || keyType?.type !== "Integer" ? undefined : (() => {
+        // The record's own entries, paged, end at its largest key: an index's window ends at the last of its own order,
+        // and a narrowing at the last it keeps.
+        const lastKey = incoming.kind === "paged" && !incoming.query
+            ? scheduleLastKey(incoming.source as unknown as ExprType<EastType>, IntegerType)
+            : undefined;
+        return East.function([SetType(StringType)], StringType, ($, taken) => {
+            const largest = $.let(taken.reduce(($2, most, id) => {
+                const key = $2.const(id.parse(IntegerType));
+                return East.less(most, key).ifElse(() => key, () => most);
+            }, 0n), IntegerType);
+            if (lastKey !== undefined) {
+                const last = $.const(lastKey);
+                $.match(last(), {
+                    some: ($2, read) => {
+                        $2.match(read, {
+                            some: ($3, text) => {
+                                const key = $3.const(text.parse(IntegerType));
+                                $3.if(East.less(largest, key), ($4) => { $4.assign(largest, key); });
+                            },
+                        });
+                    },
+                });
+            }
+            return East.print(largest.add(1n));
+        });
+    })();
+    const newKey = appKey ?? integerKey;
     const fields = groupType.fields as Record<string, EastType>;
     const idField = opts.id as string | undefined;
     if (!keyed && idField === undefined) {
