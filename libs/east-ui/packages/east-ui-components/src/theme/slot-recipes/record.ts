@@ -41,6 +41,10 @@
  *     header's other cells the window's snap points; the pinned column's
  *     segment of the group row on the paper behind the same rule, and each
  *     group's label held over its columns in view, clear of the pinned column.
+ *   - Inspector facts: an audit's and an age's, ruled off as the inspector's
+ *     sections are, each value read only on the canvas behind the subtle
+ *     rule, at the Input's height, in the mono face at tabular figures; an
+ *     age's warns once stale.
  *
  * Every value is a semantic token, so the dark theme comes for free; the
  * renderer sets data attributes and geometry alone.
@@ -49,8 +53,10 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { fieldHeights } from "../field-chrome.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { FOOTER_FIT } from "./builder-footer.js";
+import { INSPECTOR_SECTION } from "./inspector.js";
 
 /** A chip's or a legend chip's look: the first member, a scale step, a toggle's on, or a valence's wash, edge and text step. */
 const LOOKS = {
@@ -118,6 +124,7 @@ export const recordSlotRecipe = defineSlotRecipe({
         "empty", "emptyMark", "emptyTitle", "emptyClear", "emptyBox", "emptyLink",
         "strip", "stripLabel", "stripText", "stripKeys",
         "footer", "footerCount", "footerNote", "footerSpacer", "footerLive", "legend", "legendItem", "legendChip", "legendName",
+        "facts", "factValue",
     ],
     base: {
         /* Main: the grid, then the strip, then the footer. */
@@ -340,6 +347,17 @@ export const recordSlotRecipe = defineSlotRecipe({
             ...LOOKS,
         },
         legendName: { fontFamily: "mono", fontSize: "label.md", color: "fg.muted" },
+
+        /* The inspector's facts (IN6): each the shared Field, its label and its key, over its value read only. */
+        facts: { ...INSPECTOR_SECTION, gap: "{spacing.4}" },
+        factValue: {
+            display: "block", width: "100%", minWidth: "0", height: fieldHeights.md, boxSizing: "border-box", paddingInline: "{spacing.3}",
+            borderWidth: "1px", borderStyle: "solid", borderColor: "border.subtle", borderRadius: "0", background: "bg.canvas",
+            fontFamily: "mono", fontFeatureSettings: '"tnum" 1', fontSize: "body", fontWeight: 500, color: "fg",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", outline: "none",
+            _focusVisible: { boxShadow: "{shadows.focus}" },
+            "&[data-stale]": { color: "fg.warning" },
+        },
     },
     variants: {
         /* Rows 36 · 32 · 28: at compact and condensed the chips stand 15 tall and the initials 20. */

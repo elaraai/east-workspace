@@ -5,16 +5,19 @@
 
 import { memo, useCallback, useState, useEffect } from "react";
 import { RadioGroup as ChakraRadioGroup, HStack, VStack } from "@chakra-ui/react";
-import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { RadioGroup } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 const radioGroupEqual = equivalentFor(RadioGroup.Types.Root);
+const stringEqual = equalFor(StringType);
 
 export type RadioGroupValue = ValueTypeOf<typeof RadioGroup.Types.Root>;
 
 export interface EastChakraRadioGroupProps {
     value: RadioGroupValue;
+    /** What the group is called, where no label names it — a host's field drawn on one line (#1534). */
+    label?: string | undefined;
 }
 
 /**
@@ -23,7 +26,7 @@ export interface EastChakraRadioGroupProps {
  * (empty string when nothing selected). Selection updates fire the
  * East-side `onChange` with the new value.
  */
-export const EastChakraRadioGroup = memo(function EastChakraRadioGroup({ value }: EastChakraRadioGroupProps) {
+export const EastChakraRadioGroup = memo(function EastChakraRadioGroup({ value, label: groupLabel }: EastChakraRadioGroupProps) {
     const style = getSomeorUndefined(value.style);
     const colorPalette = style ? getSomeorUndefined(style.colorPalette)?.type : undefined;
     const size = style ? getSomeorUndefined(style.size)?.type : undefined;
@@ -59,6 +62,7 @@ export const EastChakraRadioGroup = memo(function EastChakraRadioGroup({ value }
             required={required}
             name={name}
             orientation={orientation}
+            aria-label={groupLabel}
         >
             <Stack gap="3" align={orientation === "vertical" ? "start" : undefined}>
                 {value.items.map((item) => {
@@ -90,4 +94,5 @@ export const EastChakraRadioGroup = memo(function EastChakraRadioGroup({ value }
             </Stack>
         </ChakraRadioGroup.Root>
     );
-}, (prev, next) => radioGroupEqual(prev.value, next.value));
+}, (prev, next) => radioGroupEqual(prev.value, next.value)
+    && (prev.label === undefined ? next.label === undefined : next.label !== undefined && stringEqual(prev.label, next.label)));

@@ -88,6 +88,39 @@ export function legendOf(columns: SheetColumnIndex, registers: SheetRegisterInde
     return { items, chip: items.reduce((n, item) => Math.max(n, [...item.label].length), 0) };
 }
 
+/** The rows the first age column with a threshold says are stale: how many, at what threshold, and what it counts. */
+export interface RecordStaleCount {
+    /** How many rows are stale. */
+    n: number;
+    /** At or past this many, a row is stale. */
+    threshold: bigint;
+    /** What the column counts. */
+    unit: "hours" | "days" | "weeks";
+}
+
+/**
+ * How many of the rows the first age column with a threshold says are stale,
+ * to the Record's clock: what the footer's note (FT1) and the inspector's
+ * count with no row selected (IN8) say.
+ *
+ * @param columns - The columns
+ * @param rows - The rows to count: every row the narrowing shows
+ * @param now - The Record's now
+ * @returns The count; `undefined` with no such column
+ */
+export function staleCountOf(columns: SheetColumnIndex, rows: readonly SheetRowValue[], now: Date): RecordStaleCount | undefined {
+    for (const meta of columns.list) {
+        const kind = meta.raw.kind;
+        if (kind.type !== "age") continue;
+        const threshold = getSomeorUndefined(kind.value.stale);
+        if (threshold === undefined) continue;
+        let n = 0;
+        for (const row of rows) if (ageOf(meta, row.cells.get(meta.key), now)?.stale === true) n += 1;
+        return { n, threshold, unit: kind.value.unit.type };
+    }
+    return undefined;
+}
+
 /**
  * The stale note (FT1): how many of the rows the first age column with a
  * threshold says are stale, to the Record's clock.
@@ -99,16 +132,9 @@ export function legendOf(columns: SheetColumnIndex, registers: SheetRegisterInde
  * @returns The note; `undefined` with no such column, or no row stale
  */
 export function staleNoteOf(columns: SheetColumnIndex, rows: readonly SheetRowValue[], now: Date, words: SheetWords): string | undefined {
-    for (const meta of columns.list) {
-        const kind = meta.raw.kind;
-        if (kind.type !== "age") continue;
-        const threshold = getSomeorUndefined(kind.value.stale);
-        if (threshold === undefined) continue;
-        let n = 0;
-        for (const row of rows) if (ageOf(meta, row.cells.get(meta.key), now)?.stale === true) n += 1;
-        return n === 0 ? undefined : m.staleNote({ count: words.number(n), threshold: words.number(threshold), unit: kind.value.unit.type, one: integerEqual(threshold, 1n) });
-    }
-    return undefined;
+    const stale = staleCountOf(columns, rows, now);
+    if (stale === undefined || stale.n === 0) return undefined;
+    return m.staleNote({ count: words.number(stale.n), threshold: words.number(stale.threshold), unit: stale.unit, one: integerEqual(stale.threshold, 1n) });
 }
 
 /** Props of {@link RecordFooter}. */

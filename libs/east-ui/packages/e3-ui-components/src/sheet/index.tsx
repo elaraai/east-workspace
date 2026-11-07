@@ -4765,8 +4765,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         return true;
     }, [columns, rowAt, dispatch]);
     const removeRows = useCallback((r0: number, r1: number) => { runEffects([{ t: "delete.rows", r0, r1 }]); }, [runEffects]);
-    const duplicate = useCallback((rs: readonly number[]) => {
-        if (!canEdit || !editingState.available) return;
+    const duplicate = useCallback((rs: readonly number[], options?: SheetDuplicateOptions): boolean => {
+        if (!canEdit || !editingState.available) return false;
         const idField = getSomeorUndefined(value.editing.idField);
         const events: SheetEditValue[] = [];
         const draftEdits = new Map<string, DraftEdit>();
@@ -4774,6 +4774,15 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         // A copy's draft: the source's, with its own identity where the struct carries one.
         const withIdentity = (draft: Record<string, unknown>, id: string): Record<string, unknown> =>
             (idField !== undefined && idField in draft ? { ...draft, [idField]: variant("value", id) } : draft);
+        // The field a host's copy leaves empty (#1534) — a Record's title: missing on its draft, and blank under the column
+        // over it, which its key names.
+        const empty = options?.empty;
+        const emptied = (draft: Record<string, unknown>): Record<string, unknown> =>
+            (empty !== undefined && empty in draft ? withFields(draft, new Map([[empty, undefined]])) : draft);
+        const blanked = (cells: SheetRowValue["cells"]): SheetRowValue["cells"] =>
+            (empty === undefined || !cells.has(empty) ? cells : new Map([...cells, [empty, NULL_CELL]]));
+        // The first copy: where a host's ring lands once the body holds it.
+        let first: { id: string; child?: string } | undefined;
         // A group as the layer has it now: lines inserted earlier in this gesture included.
         const groupsNow = new Map<string, SheetRowValue>();
         const groupOf = (g: SheetRowValue) => groupsNow.get(g.id) ?? layerRef.current.edits.get(g.id) ?? layerRef.current.appended.find((x) => x.id === g.id) ?? g;
@@ -4792,11 +4801,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     if (index < 0 || source === undefined) continue;
                     const key = mintLineKey(g0);
                     const line = g0.lines[index]!;
-                    const g: SheetRowValue = { ...g0, lines: [...g0.lines.slice(0, index + 1), { ...line, key }, ...g0.lines.slice(index + 1)] };
+                    const g: SheetRowValue = { ...g0, lines: [...g0.lines.slice(0, index + 1), { ...line, key, cells: blanked(line.cells) }, ...g0.lines.slice(index + 1)] };
                     groupsNow.set(g.id, g);
                     events.push(variant("lineInsert", { rowId: g.id, offset: BigInt(it.position), after: some(lineAddress(index)), line: lineAddress(index + 1), row: g, source: typed }));
+                    first ??= { id: g.id, child: key };
                     const prior = draftEdits.get(g.id);
-                    const copy = loose ? withIdentity(source.draft, mintLineId()) : source.draft;
+                    const copy = emptied(loose ? withIdentity(source.draft, mintLineId()) : source.draft);
                     draftEdits.set(g.id, (version) => {
                         const before = prior === undefined ? version : prior(version);
                         const looseDraft = draftType.type === "Variant";
@@ -4815,23 +4825,29 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 const version = versionOf(it.row.id);
                 if (version?.draft === undefined) continue;
                 const id = mintAmong(takenKeys());
-                let copy: SheetRowValue = { ...it.row, id, owned: false, lines: [] };
+                let copy: SheetRowValue = { ...it.row, id, owned: false, lines: [], cells: blanked(it.row.cells) };
                 for (const line of it.row.lines) copy = { ...copy, lines: [...copy.lines, { ...line, key: mintLineKey(copy) }] };
                 events.push(variant("insert", { afterRowId: some(it.row.id), row: copy, source: typed }));
+                first ??= { id };
                 const looseDraft = draftType.type === "Variant";
                 const arm = looseDraft ? (version.draft as ValueTypeOf<typeof draftType>).type as string : undefined;
                 const inner = (looseDraft ? (version.draft as ValueTypeOf<typeof draftType>).value : version.draft) as Record<string, unknown>;
-                let draft = withIdentity(inner, id);
+                let draft = emptied(withIdentity(inner, id));
                 if (childField !== undefined && it.kind === "group" && loose) {
                     draft = { ...draft, [childField]: (draft[childField] as Record<string, unknown>[]).map((c) => withIdentity(c, mintLineId())) };
                 }
                 const final = looseDraft ? variant(arm!, draft) : draft;
                 draftEdits.set(id, (v) => ({ ...v, draft: final, wire: copy }));
             }
-            if (events.length === 0) return;
-            recordGesture(events, undefined, "insert", draftEdits);
+            if (events.length === 0) return false;
+            const recorded = recordGesture(events, undefined, "insert", draftEdits);
+            // A host's ring lands on its column in the first copy, once the body holds it — opening where the host edits
+            // it, as a host's Add's does (#1534).
+            if (recorded && options?.ring !== undefined && first !== undefined) pendingInsertFocus.current = { ...first, edit: true, key: options.ring };
+            return recorded;
         } catch (error) {
             failed(error);
+            return false;
         }
     }, [canEdit, editingState.available, value.editing.idField, takenKeys, mintAmong, failed, rowAt, canInsertRows, canInsertGroups, structOf, versionOf, loose, mintLineId, draftType, childField, recordGesture]);
     const addLine = useCallback((bandR: number) => {
@@ -5025,6 +5041,16 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         return ready.type !== "ready" && ready.value.some((raised) => Object.is(raised, issue)) ? kindOfIssue(issue, ready) : "invalid";
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
     }, [session, readiness, draftVersion]);
+    // Where an issue's row stands among the rows drawn (#1534), as Go to issue finds it: a row or a band by its entry, a
+    // line by its place in its group — none where the body does not draw it.
+    const placeOfIssue = useCallback((issue: EditIssue): SheetInspectPlace | undefined => {
+        const line = getSomeorUndefined(issue.row);
+        const index = line === undefined
+            ? body.findIndex((item) => (item.kind === "real" || item.kind === "group") && stringEqual(item.row.id, issue.entry))
+            : body.findIndex((item) => item.kind === "real" && item.group !== undefined && stringEqual(item.group.row.id, issue.entry) && item.group.index === Number(line));
+        const r = index < 0 ? undefined : rowSpace.rowOf[index];
+        return r === undefined || r < 0 ? undefined : placeAt(r);
+    }, [body, rowSpace, placeAt]);
     const inspect = useMemo((): SheetInspect => ({
         selected, targetAt,
         writable: canEdit && editingState.available,
@@ -5037,10 +5063,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         counts: { rows: wholeCount, pending: session.pending, issues: issueList.length },
         issues: issueList,
         kindOf,
-        write: inspectWrite, editInSheet, remove: removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden,
+        write: inspectWrite, editInSheet, remove: removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, placeOf: placeOfIssue,
         columnAt, cellAt: inspectCellAt, unitAt, levelAt: inspectLevelAt, allowedAt, drawCell, drawAction,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks the session's pending count.
-    }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, columnAt, inspectCellAt, unitAt, inspectLevelAt, allowedAt, drawCell, drawAction, draftVersion]);
+    }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, placeOfIssue, columnAt, inspectCellAt, unitAt, inspectLevelAt, allowedAt, drawCell, drawAction, draftVersion]);
 
     // ── Drag and drop: the plans (#1187) ──────────────────────────────────
     // Every drop is planned (`drop.ts`) from the rows as they stand — the
@@ -5673,6 +5699,14 @@ export type SheetSelected =
     | { kind: "one"; place: SheetInspectPlace }
     | { kind: "several"; rs: readonly number[]; r0: number; r1: number };
 
+/** How a host's Duplicate makes its copies ({@link SheetInspect.duplicate}, #1534) — a Record's: its title left empty, the ring on it. */
+export interface SheetDuplicateOptions {
+    /** A field each copy leaves empty: missing on its draft, and blank under the column over it, which its key names — a Record's title. */
+    empty?: string | undefined;
+    /** The column the ring lands on in the first copy, once the body holds it: a cell that edits out of place opens where the host edits it, as a host's Add's does. */
+    ring?: string | undefined;
+}
+
 /** One row's write from the inspector — beside the others, one transaction (SB52). */
 export interface SheetInspectWrite {
     /** The row-space row it lands on: a row, a line, or a band. */
@@ -5710,8 +5744,8 @@ export interface SheetInspect {
     editInSheet: (r: number, key: string) => boolean;
     /** Delete the rows (or lines) from `r0` to `r1`, as ⌫ on them does. */
     remove: (r0: number, r1: number) => void;
-    /** Duplicate rows, lines or bands — a band with its lines — each just after its source, as one transaction. */
-    duplicate: (rs: readonly number[]) => void;
+    /** Duplicate rows, lines or bands — a band with its lines — each just after its source, as one transaction; a host's copies as its options say. Returns whether the session recorded it. */
+    duplicate: (rs: readonly number[], options?: SheetDuplicateOptions) => boolean;
     /** Add a line at the end of the band's group. */
     addLine: (bandR: number) => void;
     /** Delete a band's group with its lines, as one transaction. */
@@ -5736,6 +5770,8 @@ export interface SheetInspect {
     hiddenNote: (issue: EditIssue) => string | undefined;
     /** Ask e3 whether the rail's filters hide the rows of some issues the sheet does not draw, and by which: what their lines then say. */
     askHidden: (issues: readonly EditIssue[]) => void;
+    /** Where an issue's row stands among the rows drawn — a line by its place in its group — or `undefined` where the sheet does not draw it: hidden by the narrowing, or not read yet (#1534). */
+    placeOf: (issue: EditIssue) => SheetInspectPlace | undefined;
 }
 
 /** One field of a draft, decoded: missing, a value, or the text that could not be read. */

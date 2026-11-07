@@ -23,9 +23,12 @@
  * - **main** — the grid, filling the room the inspector leaves and scrolling
  *   its own rows, the strip docked under it;
  * - **the inspector**, the end pane, 320 wide, when the Record is given one —
- *   Details for the ring's row, and the batch's Issues; a press, ⏎ or F2 on a
- *   title opens it on Details, as Add and the history bar's Issues do, its
- *   open tab kept per viewer;
+ *   Details for the ring's row (`inspector.tsx`, IN1–IN8), and the batch's
+ *   Issues, each naming its row by its place among the rows shown (IN9); a
+ *   press, ⏎ or F2 on a title opens it on Details with the keyboard in the
+ *   title's field, as Add and Duplicate do — and the history bar's Issues and
+ *   an issue's line, in the field the issue names — its open tab kept per
+ *   viewer;
  * - **the footer** — the rows shown of the record's, the record's last save,
  *   the stale note and the legend (`footer.tsx`, FT1, FT2).
  *
@@ -60,10 +63,12 @@ import {
     type EditIssue, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, keptRead, useDensity, useSlotStyles, type SlotStyles } from "@elaraai/east-ui-components/internal";
-import { SheetGrid, SheetProvider, useSheetEntries, useSheetFooter, useSheetHistory, useSheetLoading, useSheetToolbarParts, useSheetToolbarRef, type SheetHost } from "../sheet/index.js";
+import {
+    SheetGrid, SheetProvider, useSheetEntries, useSheetFooter, useSheetHistory, useSheetInspect, useSheetLoading, useSheetToolbarParts, useSheetToolbarRef, type SheetHost,
+} from "../sheet/index.js";
 import { draftChanges } from "../sheet/draft-state.js";
 import { useLastCommit } from "../sheet/frame/index.js";
-import { useSheetInspector } from "../sheet/frame/inspector.js";
+import { useSheetInspector, type SheetInspectorHost } from "../sheet/frame/inspector.js";
 import { indexColumns, indexRegisters } from "../sheet/model.js";
 import type { SheetTransactions } from "../sheet/transactions.js";
 import { issueText, useSheetWords } from "../sheet/words.js";
@@ -72,6 +77,7 @@ import { sourcePart } from "../shared/schedule/visibility.js";
 import { RecordClock, useRecordNow } from "./clock.js";
 import { RecordFooter, legendOf, staleNoteOf } from "./footer.js";
 import { RecordEmpty, RecordGridProvider, RecordHeader, RecordRow, useRecordGrid, type RecordGrid } from "./grid.js";
+import { RecordDetails, RecordInspectorProvider, recordIssueWhere, type RecordFocus, type RecordInspector } from "./inspector.js";
 import { recordMessages as rm } from "./messages.js";
 import { createRecordStatus, stepOf, useRecordStatusLine, type RecordNoun, type RecordStatus } from "./status.js";
 import { RecordStrip } from "./strip.js";
@@ -140,10 +146,20 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const frameRef = useRef<HTMLDivElement | null>(null);
     const { state: pane, setState: setPane } = usePersistedState<{ tab: string }>(`${keys.frame}.inspector.tab`, { tab: "details" }, readTab);
     const inspectorPane = words.m.inspectorPane();
-    const onOpen = useCallback(() => {
+    const openDetails = useCallback(() => {
         setPane({ tab: "details" });
         openFramePane(frameRef.current, inspectorPane, "end");
     }, [setPane, inspectorPane]);
+    // …with the keyboard in the title's field (AD1), as a copy's (IN7) and an issue's once it is gone to (IN9): asked of
+    // the row's Details, which answer once their form has given it.
+    const [focus, setFocus] = useState<RecordFocus | undefined>(undefined);
+    const focusSeq = useRef(0);
+    const onOpen = useCallback((r: number, key: string) => {
+        focusSeq.current += 1;
+        setFocus({ r, key, seq: focusSeq.current });
+        openDetails();
+    }, [openDetails]);
+    const focused = useCallback((seq: number) => setFocus((was) => (was !== undefined && was.seq === seq ? undefined : was)), []);
     // Each step of the history, told to the status line in the Record's words once it is taken (AD4–AD7): what it
     // will take back or send read before it is taken — after it, the session holds none of it. Discard drops the ticks
     // with the drafts (AD6); an Apply is told once its batch is written, a refusal saying itself in the banners.
@@ -165,13 +181,16 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const title = getSomeorUndefined(value.title);
     const inspector = value.inspector.type === "some";
     const grid = useMemo((): RecordGrid => ({ styles, ticks, groups: value.columnGroups, noun, title, inspector }), [styles, ticks, value.columnGroups, noun, title, inspector]);
+    const inspection = useMemo((): RecordInspector => ({ focus, focused, status, ticks, readOnly }), [focus, focused, status, ticks, readOnly]);
     const onTab = useCallback((tab: string) => setPane({ tab }), [setPane]);
     return (
         <RecordClock>
             <RecordGridProvider value={grid}>
                 <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>
-                    <RecordFrame value={value} keys={keys} styles={styles} frameRef={frameRef} tab={pane.tab} onTab={onTab} onOpen={onOpen}
-                        ticks={ticks} status={status} readOnly={readOnly} />
+                    <RecordInspectorProvider value={inspection}>
+                        <RecordFrame value={value} keys={keys} styles={styles} frameRef={frameRef} tab={pane.tab} onTab={onTab} onOpen={onOpen}
+                            openDetails={openDetails} ticks={ticks} status={status} readOnly={readOnly} />
+                    </RecordInspectorProvider>
                 </SheetProvider>
             </RecordGridProvider>
         </RecordClock>
@@ -190,8 +209,10 @@ interface RecordFrameProps {
     tab: string;
     /** Opens an inspector tab. */
     onTab: (tab: string) => void;
+    /** Opens the inspector on a row's Details, with the keyboard in a field: its row-space index, and the field's key. */
+    onOpen: (r: number, key: string) => void;
     /** Opens the inspector on Details. */
-    onOpen: () => void;
+    openDetails: () => void;
     /** The rows ticked. */
     ticks: RecordTicks;
     /** The steps of the history the status line is told of. */
@@ -201,7 +222,7 @@ interface RecordFrameProps {
 }
 
 /** The frame, its regions holding the Sheet's parts and the Record's grid. */
-function RecordFrame({ value, keys, styles, frameRef, tab, onTab, onOpen, ticks, status, readOnly }: RecordFrameProps) {
+function RecordFrame({ value, keys, styles, frameRef, tab, onTab, onOpen, openDetails, ticks, status, readOnly }: RecordFrameProps) {
     const words = useSheetWords();
     const { m } = words;
     const parts = useSheetToolbarParts();
@@ -210,10 +231,13 @@ function RecordFrame({ value, keys, styles, frameRef, tab, onTab, onOpen, ticks,
     const footer = useSheetFooter();
     const loading = useSheetLoading();
     const { session, onAction } = useSheetHistory();
+    const inspect = useSheetInspect();
     const now = useRecordNow();
     const lastCommit = useLastCommit(value.history, words);
     const saved = lastCommit === undefined ? undefined : m.savedAt({ when: lastCommit.when });
-    const inspector = useSheetInspector({ value, keys, words, hidden: NO_COLUMN_HIDDEN, lastCommit });
+    // The inspector's Details the Record's (IN1–IN8), and an issue's row named by its place among the rows shown (IN9).
+    const inspectorHost = useMemo((): SheetInspectorHost => ({ Details: RecordDetails, where: recordIssueWhere(words) }), [words]);
+    const inspector = useSheetInspector({ value, keys, words, hidden: NO_COLUMN_HIDDEN, lastCommit, host: inspectorHost });
     const end = inspector === undefined ? undefined : { ...inspector, tab, onTabChange: onTab };
     // A Save that takes rows out of the `rows` source's narrowing says so in the footer.
     const rowsPart = useMemo(() => sourcePart(getSomeorUndefined(value.sheet.slice), "rows"), [value.sheet.slice]);
@@ -233,11 +257,18 @@ function RecordFrame({ value, keys, styles, frameRef, tab, onTab, onOpen, ticks,
     const statusLine = useRecordStatusLine({
         status, notice: entries.notice, gestures: entries.gestures, ticks, ticked, of: shown ?? entries.rows.length, issues, words, noun,
     });
-    // Issues takes the ring to the first issue's field, its row opened on Details (AD3), as the Issues tab's lines do.
+    // Issues takes the ring to the first issue's field, its row opened on Details with the keyboard in the field (AD3, IN9),
+    // as the Issues tab's lines do. Where the row stands is read as the notice comes, never again as the rows move.
     const notice = entries.notice;
+    const placeOf = useRef(inspect.placeOf);
+    placeOf.current = inspect.placeOf;
     useEffect(() => {
-        if (notice?.id === "issue") onOpen();
-    }, [notice, onOpen]);
+        if (notice?.id !== "issue") return;
+        const place = placeOf.current(notice.issue);
+        const field = getSomeorUndefined(notice.issue.field);
+        if (place !== undefined && field !== undefined) onOpen(place.r, field);
+        else openDetails();
+    }, [notice, onOpen, openDetails]);
     // Add drafts a row, its ring on the title (AD1); Delete the ticked rows (AD5), the ticks going with them.
     const capabilities = value.sheet.editing.edits;
     const titleKey = useMemo(() => value.sheet.columns.find((column) => column.kind.type === "title")?.key, [value.sheet.columns]);

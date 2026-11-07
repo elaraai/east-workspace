@@ -48,17 +48,26 @@
  * pane — ends in an ellipsis where the box cuts it, and its control carries
  * the whole as its title (#1250).
  *
+ * A host may draw a field on one line instead (`lines`, #1534): its label at
+ * the start, cut with an ellipsis and whole in its tooltip, and its choices at
+ * the end as one line of radios, none checked while it holds no value — a
+ * Record's cycle, toggle and boolean. A choice is an edit at once; read only,
+ * the choice made is printed there. Lines that follow one another sit closer
+ * than fields do, rows of choices. A field an issue names (`issues`) takes the warn wash
+ * around it, as a changed one takes the brand's; and the field a host names
+ * (`focus`) takes the keyboard as it is named — a new row's title.
+ *
  * It is a React part for renderers, as `BuilderFrame` is: no East component.
  * Each input's payload is East's `defaultValue` of its type with the field's
  * parts set; the `fieldForm` recipe lays the fields out and tints a changed
  * one; the form sets data attributes (`data-field`, `data-editor`,
- * `data-dirty`, `data-field-line`, `data-field-side`), a text's or a choice's
- * title and geometry only.
+ * `data-layout`, `data-dirty`, `data-issue`, `data-field-line`,
+ * `data-field-side`), a text's or a choice's title and geometry only.
  *
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
@@ -97,6 +106,14 @@ export interface FieldOption {
     readonly label: string;
 }
 
+/** One choice of a field drawn on one line ({@link FieldFormProps.lines}): a value of the field, and what its radio reads. */
+export interface FieldLineChoice {
+    /** The value it sets, of the field's type — an Option's, of its value's: a String field's key, a Boolean field's `true`. */
+    readonly value: unknown;
+    /** What its radio reads. */
+    readonly label: string;
+}
+
 /** Props of {@link FieldForm}. */
 export interface FieldFormProps {
     /** The fields, as `Fields.specs` resolved them. */
@@ -126,6 +143,17 @@ export interface FieldFormProps {
      * as far as the last edit told.
      */
     live?: boolean | undefined;
+    /**
+     * The fields drawn on one line (#1534), by key — the field's path, joined by "." — each with its choices in order:
+     * the label at the start, the choices at the end as one line of radios, none checked while the field holds no
+     * value. A field a host draws itself (`renderControl`) keeps its column. Keep it stable: each field's memo
+     * compares it.
+     */
+    lines?: ReadonlyMap<string, readonly FieldLineChoice[]> | undefined;
+    /** The fields an issue names, by key: each takes the warn wash around it. */
+    issues?: ReadonlySet<string> | undefined;
+    /** The field that takes the keyboard, by key, as it is named: the first thing in its control that takes it. */
+    focus?: string | undefined;
 }
 
 // Each shared input's payload with nothing set: East's default for its type.
@@ -296,22 +324,44 @@ function printOf(
  * />
  * ```
  */
-export const FieldForm = memo(function FieldForm({ specs, value, baseline, options = NO_OPTIONS, onChange, readOnly = false, words, renderControl, live = false }: FieldFormProps) {
+export const FieldForm = memo(function FieldForm({
+    specs, value, baseline, options = NO_OPTIONS, onChange, readOnly = false, words, renderControl, live = false, lines, issues, focus,
+}: FieldFormProps) {
     const styles = useSlotRecipe({ key: "fieldForm" })() as Styles;
     const formatters = useFormatters();
     const said = useMemo((): FieldFormWords => words ?? { ...formatters, m: fieldFormMessages }, [words, formatters]);
     const sections = useMemo(() => sectionsOf(specs), [specs]);
-    const row = (spec: FieldSpecValue) => (
-        <FieldRow key={spec.path.join("\u001f")} spec={spec} current={valueAt(value, spec.path)}
-            base={baseline === undefined ? undefined : valueAt(baseline, spec.path)} hasBaseline={baseline !== undefined}
-            options={options} onChange={onChange} readOnly={readOnly} words={said} styles={styles} renderControl={renderControl} live={live} />
-    );
+    const row = (spec: FieldSpecValue) => {
+        const key = spec.path.join(".");
+        return (
+            <FieldRow key={spec.path.join("\u001f")} spec={spec} current={valueAt(value, spec.path)}
+                base={baseline === undefined ? undefined : valueAt(baseline, spec.path)} hasBaseline={baseline !== undefined}
+                options={options} onChange={onChange} readOnly={readOnly} words={said} styles={styles} renderControl={renderControl} live={live}
+                choices={lines?.get(key)} issue={issues?.has(key) === true} focused={focus !== undefined && stringEqual(focus, key)} />
+        );
+    };
+    // A section's fields in order, each run of fields drawn on one line together.
+    const draw = (run: readonly FieldSpecValue[]): ReactNode[] => {
+        const out: ReactNode[] = [];
+        let together: FieldSpecValue[] = [];
+        const close = () => {
+            if (together.length === 0) return;
+            out.push(<Box key={`lines\u001f${together[0]!.path.join("\u001f")}`} css={styles.lines} data-field-lines="">{together.map(row)}</Box>);
+            together = [];
+        };
+        for (const spec of run) {
+            if (lines?.has(spec.path.join(".")) === true) together.push(spec);
+            else { close(); out.push(row(spec)); }
+        }
+        close();
+        return out;
+    };
     return (
         <Box css={styles.root} data-field-form="">
-            {sections.map((section) => (section.group === undefined ? section.specs.map(row) : (
+            {sections.map((section) => (section.group === undefined ? draw(section.specs) : (
                 <Box key={`group\u001f${section.group}`} css={styles.group} role="group" aria-label={section.group} data-field-group={section.group}>
                     <Box as="span" css={styles.groupHead}>{section.group}</Box>
-                    <Box css={styles.groupFields}>{section.specs.map(row)}</Box>
+                    <Box css={styles.groupFields}>{draw(section.specs)}</Box>
                 </Box>
             )))}
         </Box>
@@ -331,10 +381,21 @@ interface FieldRowProps {
     styles: Styles;
     renderControl: FieldFormProps["renderControl"];
     live: boolean;
+    /** Its choices, where it is drawn on one line. */
+    choices: readonly FieldLineChoice[] | undefined;
+    /** An issue names it. */
+    issue: boolean;
+    /** It takes the keyboard. */
+    focused: boolean;
 }
 
-/** One field: the shared `Field` around its control's line — its input, and an Option's Set or Clear — and a checklist's items. */
-const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, options, onChange, readOnly, words, styles, renderControl, live }: FieldRowProps) {
+/**
+ * One field: the shared `Field` around its control's line — its input, and an Option's Set or Clear — and a
+ * checklist's items; or, drawn on one line, its label and its choices.
+ */
+const FieldRow = memo(function FieldRow({
+    spec, current, base, hasBaseline, options, onChange, readOnly, words, styles, renderControl, live, choices, issue, focused,
+}: FieldRowProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const iconButton = useRecipe({ key: "iconButton" });
@@ -346,6 +407,8 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
     }, [type]);
     // An Option's input edits its value's type; `none` is no value.
     const inner = useMemo(() => (spec.optional && type.type === "Variant" ? (type.cases as Record<string, EastType>)["some"]! : type), [spec.optional, type]);
+    // Two values of what the input edits: a line's choice against the value the field holds.
+    const sameInner = useMemo(() => equalFor(inner), [inner]);
     const held = spec.optional ? getSomeorUndefined(current as option<unknown>) : current;
     const dirty = hasBaseline && !same(current, base);
     const key = spec.path.join(".");
@@ -382,6 +445,50 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
     const done = checklist === undefined ? 0 : items.filter((item) => item[checklist.done] as boolean).length;
     const typed = useRef("");
     const fieldRef = useRef<HTMLDivElement | null>(null);
+    // Named to take the keyboard: the first thing in its control that takes it.
+    useEffect(() => {
+        if (focused) fieldRef.current?.querySelector<HTMLElement>("input:not([type=hidden]), textarea, button, [tabindex]:not([tabindex='-1'])")?.focus();
+    }, [focused]);
+    // An Option's Clear, beside a line's choices or an input that cannot show none.
+    const clear = (
+        <chakra.button type="button" css={iconButton({ variant: "ghost", size: "xs" })} aria-label={m.clear({ label: spec.label })}
+            title={m.clear({ label: spec.label })} data-field-clear="" onClick={() => emit(undefined)}>
+            <FontAwesomeIcon icon={faXmark} />
+        </chakra.button>
+    );
+
+    // Drawn on one line: its label at the start, cut where the line is short and whole in its tooltip, and its choices
+    // at the end as one line of radios, none checked while it holds no value — or, read only, the choice made.
+    if (choices !== undefined && own === undefined) {
+        const chosen = held === undefined ? -1 : choices.findIndex((choice) => sameInner(choice.value, held));
+        const printedLine = editor.type === "readonly" || readOnly;
+        return (
+            <Box css={styles.field} data-field={key} data-editor={printedLine ? "readonly" : editor.type} data-layout="line"
+                data-dirty={dirty ? "" : undefined} data-issue={issue ? "" : undefined} title={spec.label}>
+                <Box as="span" css={styles.lineLabel}>{spec.label}</Box>
+                {printedLine
+                    ? <Box as="span" css={styles.lineValue} data-field-value="">{chosen < 0 ? m.notSet() : choices[chosen]!.label}</Box>
+                    : (
+                        <Box ref={fieldRef} css={styles.lineChoices} data-field-choice="radio">
+                            <EastChakraRadioGroup label={spec.label} value={{
+                                ...RADIO,
+                                value: chosen < 0 ? "" : String(chosen),
+                                items: choices.map((choice, i) => ({ value: String(i), label: some(choice.label), disabled: none })),
+                                name: some(`fieldForm.${key}`),
+                                onChange: some((next: string) => {
+                                    const choice = choices[Number(next)];
+                                    if (choice !== undefined) emit(choice.value);
+                                    return null;
+                                }),
+                                style: RADIO_STYLE,
+                            }} />
+                        </Box>
+                    )}
+                {!printedLine && spec.optional && held !== undefined && <Box css={styles.side} data-field-side="clear">{clear}</Box>}
+            </Box>
+        );
+    }
+
     const addItem = () => {
         if (checklist === undefined || inner.type !== "Array") return;
         const text = typed.current.trim();
@@ -576,12 +683,7 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
                             onClick={() => emit(startOf(inner, editor))}>
                             {m.set()}
                         </chakra.button>
-                    ) : (
-                        <chakra.button type="button" css={iconButton({ variant: "ghost", size: "xs" })} aria-label={m.clear({ label: spec.label })}
-                            title={m.clear({ label: spec.label })} data-field-clear="" onClick={() => emit(undefined)}>
-                            <FontAwesomeIcon icon={faXmark} />
-                        </chakra.button>
-                    )}
+                    ) : clear}
                 </Box>
             )}
         </Box>
@@ -589,7 +691,7 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
 
     return (
         <Box css={styles.field} data-field={key} data-editor={own !== undefined ? "custom" : printed ? "readonly" : editor.type} data-dirty={dirty ? "" : undefined}
-            onBlur={onBlur} onKeyDown={onKeyDown}>
+            data-issue={issue ? "" : undefined} onBlur={onBlur} onKeyDown={onKeyDown}>
             <EastChakraField key={revision} value={field} storageKey={`fieldForm.${key}`} controlNode={line} />
             {checklist !== undefined && items.length > 0 && (
                 <Box css={styles.items} data-checklist-items="">

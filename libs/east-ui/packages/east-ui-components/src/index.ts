@@ -311,6 +311,7 @@ export {
     fieldFormMessages,
     type FieldFormProps,
     type FieldOption,
+    type FieldLineChoice,
     type FieldFormMessages,
     type FieldFormWords,
     // ClauseBuilder
