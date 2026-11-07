@@ -19,50 +19,59 @@
  *   its keys in East's order, as the server finds a key (`findKeyInline`).
  *
  * The query is the shared key search's: a key's start, a quoted key or a
- * range, keys case-sensitive, as the Sheet's Search Records takes it. The
- * matches are one list: each kind's in its keys' order, the kinds in the order
- * the Schematic lists them, each kind's run after the one before. A line names
- * an item by its key, its label where it is not its key, and its kind's name,
- * and says what keeps it off the canvas: its layer, or no position — and,
- * where its kind's source's narrowing leaves it out, which of the rail's
- * choices do, as every builder's Search Records names them (the shared hidden
- * pick, `shared/schedule/hidden.ts`): `hidden by Owner: Northwind Media —
- * picking it clears that filter`, asked of e3 for the rows a list shows that
- * the narrowing leaves out, by the page the list read them from, and `hidden
- * by the filters` until it has said — or, where the narrowing draws what it
- * leaves out as context (`narrowed="dim"`), `dimmed by Owner: Northwind Media
- * — …` and `dimmed by the filters`. A pick hands the frame the item and what
- * it knows of it — what hides it among it (`onPick`) — and the box shows its
- * key; the pick stands until the search is cleared or a new query asked in its
- * place, which the frame hears (`onCleared`), so what it said of where the
- * pick landed goes with it. The box asks its query again when what its lines
- * are read from moves — a source's record or its narrowing, a kind read
- * whole's rows, the layers hidden — and never when a window of what the
- * canvas draws lands, so a pick's fly keeps its place among the matches: a
- * query asked again leaves the pick standing. It lists its lines again as e3
- * says which choices hide a row, and as the narrowing comes to dim what it
- * leaves out or to hide it (`relist`).
+ * range, keys case-sensitive, as the Sheet's Search Records takes it. The box
+ * parses it at the item kinds' key type where they share one (#1549) — a
+ * String key by its start, any other as typed, `10` finding the oven keyed by
+ * the number 10 — and at String where they are keyed by several types, a kind
+ * keyed otherwise reading the text as typed at its own ({@link kindQuery}).
+ * The empty box lists the first matches of the kinds keyed by String alone.
+ * The matches are one list: each kind's in its keys' order at its key type,
+ * the kinds in the order the Schematic lists them, each kind's run after the
+ * one before. A line names an item by its key, its label where it is not its
+ * key, and its kind's name, and says what keeps it off the canvas: its layer,
+ * or no position — and, where its kind's source's narrowing leaves it out,
+ * which of the rail's choices do, as every builder's Search Records names them
+ * (the shared hidden pick, `shared/schedule/hidden.ts`): `hidden by Owner:
+ * Northwind Media — picking it clears that filter`, asked of e3 for the rows a
+ * list shows that the narrowing leaves out, by the page the list read them
+ * from, and `hidden by the filters` until it has said — or, where the
+ * narrowing draws what it leaves out as context (`narrowed="dim"`), `dimmed by
+ * Owner: Northwind Media — …` and `dimmed by the filters`. A pick hands the
+ * frame the item and what it knows of it — what hides it among it (`onPick`) —
+ * and the box shows its key; the pick stands until the search is cleared or a
+ * new query asked in its place, which the frame hears (`onCleared`), so what
+ * it said of where the pick landed goes with it. The box asks its query again
+ * when what its lines are read from moves — a source's record or its
+ * narrowing, a kind read whole's rows, the layers hidden — and never when a
+ * window of what the canvas draws lands, so a pick's fly keeps its place among
+ * the matches: a query asked again leaves the pick standing. It lists its
+ * lines again as e3 says which choices hide a row, and as the narrowing comes
+ * to dim what it leaves out or to hide it (`relist`).
  *
  * @packageDocumentation
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { StringType, compareFor, equalFor, match, none, printFor, toEastTypeValue, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
-import { RecordSliceWhereType, findKeyInline, type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType } from "@elaraai/east-ui/internal";
+import {
+    EastTypeType, StringType, compareFor, equalFor, match, none, parseFor, printFor, type EastTypeValue, type ValueTypeOf, type option,
+} from "@elaraai/east";
+import {
+    RecordSliceWhereType, findKeyInline, parseKeyInput, type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType,
+} from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type KeySearchSource } from "@elaraai/east-ui-components";
 import { awaitTracked, recordSlicePage, recordSliceRevision, recordSliceSeek, recordSliceWithin, toSeekQuery } from "@elaraai/east-ui-components/internal";
 import { entityId, type ItemRoles, type SchematicRef } from "./canvas/drawn.js";
 import { hiddenLine, hiddenOf, useRelist, type RowHidden, type SourceHidden } from "../shared/schedule/hidden.js";
 import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
+import { STRING_KEYS, type KindKeys } from "../shared/schedule/kind-keys.js";
 import type { RowCodec } from "../shared/schedule/records.js";
 import type { HiddenWords } from "../shared/schedule/words.js";
 import type { SchematicMessages, SchematicWords } from "./messages.js";
 
-/** An item's key is a String: the search's text parses against that. */
-const KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
-
 const compareKey = compareFor(StringType);
 const keyEqual = equalFor(StringType);
+const sameType = equalFor(EastTypeType);
+const readString = parseFor(StringType);
 const printWhere = printFor(RecordSliceWhereType);
 
 /** Each kind read whole's rows as read, numbered: what tells Find they were read again. */
@@ -84,7 +93,7 @@ function rowsToken(rows: option<ReadonlyMap<string, unknown>>): string {
 /** No narrowing: a record's own rows, in its order. */
 const WHOLE: ValueTypeOf<typeof RecordSliceWhereType> = new Map();
 
-/** An empty box lists the first of the matches every item kind's record holds. */
+/** An empty box lists the first of the matches each item kind keyed by String holds: one keyed otherwise is sought as typed. */
 const BROWSE_QUERY: DatasetKeyQuery = { prefix: "" };
 
 /** An Option's value, or `undefined`. */
@@ -93,9 +102,9 @@ const someOf = <T,>(opt: option<T>): T | undefined => match(opt, { some: (value)
 /** A record Slice's part, as a kind's source of the slice. */
 type RecordPart = ValueTypeOf<RecordSliceBindType>;
 
-/** An entry of a record's window, as every record Slice binding reads one: its key — a kind's are Strings — and its row, joined. */
+/** An entry of a record's window, as every record Slice binding reads one: its key, at the record's key type, and its row, joined. */
 interface RecordEntry {
-    readonly key: string;
+    readonly key: unknown;
     readonly row: option<unknown>;
 }
 
@@ -113,6 +122,8 @@ export interface FindKind {
     readonly read: (bytes: Uint8Array, key: string) => ItemRoles;
     /** Its record's rows, as bytes and back. */
     readonly codec: RowCodec;
+    /** Its keys (#1549): each key's text read back at its record's key type, and their order. */
+    readonly keys: KindKeys;
 }
 
 /** One item Find found. */
@@ -185,17 +196,56 @@ export function foundLine(item: FoundItem, mark: FoundMark, words: SchematicWord
 }
 
 /**
- * The keys of a kind read whole that a query finds, in East's order: as the server finds a key in a record's own
- * order (`findKeyInline`) — a key's start, a quoted key, a range.
+ * The keys of a kind read whole that a query finds, in East's order at the kind's key type (#1549): as the server finds a
+ * key in a record's own order (`findKeyInline`) — a key's start, a quoted key, a range.
  *
- * @param keys - The kind's keys, in any order
- * @param query - The query the box parsed
- * @returns The keys it finds, in order
+ * @param keys - The kind's keys' texts, in any order
+ * @param query - The query, as the kind seeks it ({@link kindQuery})
+ * @param keyed - The kind's keys: each text read back at its key type, and their order; String's by default
+ * @returns The texts of the keys it finds, in their keys' order
  */
-export function wholeMatches(keys: readonly string[], query: DatasetKeyQuery): string[] {
-    const sorted = [...keys].sort(compareKey);
-    const range = findKeyInline(KEY_TYPE, sorted, query);
-    return range.found ? sorted.slice(range.row, range.row + range.count) : [];
+export function wholeMatches(keys: readonly string[], query: DatasetKeyQuery, keyed: KindKeys = STRING_KEYS): string[] {
+    // A text no key prints as is no key a query finds.
+    const sought = keyed.order(keys).filter(({ key }) => key !== undefined);
+    const range = findKeyInline(keyed.keyType, sought.map(({ key }) => key), query);
+    return range.found ? sought.slice(range.row, range.row + range.count).map(({ text }) => text) : [];
+}
+
+/**
+ * The text a query the box parsed at String was typed as: a key's start as itself, a quoted key as its literal, a range
+ * by its ends' texts — what a kind keyed by another type reads as typed.
+ *
+ * @param query - The query, parsed at String
+ * @returns The text
+ */
+function typedText(query: DatasetKeyQuery): string {
+    if ("key" in query) return query.key;
+    if ("from" in query || "to" in query) {
+        const end = (literals: readonly string[] | undefined): string => {
+            const literal = literals?.[0];
+            const read = literal === undefined ? undefined : readString(literal);
+            return read?.success === true ? read.value : "";
+        };
+        return `${end(query.from)}..${end(query.to)}`;
+    }
+    return "prefix" in query ? query.prefix : "";
+}
+
+/**
+ * A query the box parsed, as one kind seeks it (#1549): as it is where the box parses at the kind's key type; else — the
+ * box at String, over item kinds keyed by several types — the text as typed, read at the kind's as the shared key search
+ * reads it (`parseKeyInput`): `10` the key 10 of a kind keyed by Integer, `2..9` a range of them.
+ *
+ * @param query - The query the box parsed
+ * @param box - The key type the box parses at
+ * @param keyed - The kind's keys
+ * @returns The query the kind is sought by; `undefined` where the text reads as no key of the kind's, which finds none of
+ *   its rows
+ */
+export function kindQuery(query: DatasetKeyQuery, box: EastTypeValue, keyed: KindKeys): DatasetKeyQuery | undefined {
+    if (sameType(box, keyed.keyType)) return query;
+    const parsed = parseKeyInput(keyed.keyType, typedText(query));
+    return parsed.kind === "query" ? parsed.query : undefined;
 }
 
 /** One kind's matches: a run of its record's rows, from `start`, or a kind read whole's keys. */
@@ -261,12 +311,13 @@ async function matchesOf(run: FindRun, offset: number, n: number, pick: SourceHi
     }
     const part = kind.part;
     const from = run.start + offset;
-    // Every record Slice binding reads joined entries of its record's String keys: record.ts' bind refuses any other.
+    // Each entry by its key's text (#1549), the narrowing asked of it at its key.
     const entries = await awaitTracked(() => recordSlicePage(part, { where: WHOLE, area: none }, BigInt(from), BigInt(n))) as readonly RecordEntry[];
-    const listed = entries.map((entry) => ({ key: entry.key, row: someOf(entry.row) }));
-    const rows = listed.flatMap(({ key, row }) => (row === undefined ? [] : [{ key, row }]));
+    const listed = entries.map((entry) => ({ key: kind.keys.textOf(entry.key), at: entry.key, row: someOf(entry.row) }));
+    const rows = listed.flatMap(({ key, at, row }) => (row === undefined ? [] : [{ key, at, row }]));
     const where = part.read().where;
-    const within = where.size === 0 ? undefined : await awaitTracked(() => recordSliceWithin(part, where, rows));
+    const within = where.size === 0 ? undefined
+        : await awaitTracked(() => recordSliceWithin(part, where, rows.map(({ at, row }) => ({ key: at, row }))));
     // Whether the narrowing holds each row read, in order; every entry of the page with it — one with no row asks nothing.
     const held = rows.map((_row, i) => within === undefined || within[i] === true);
     let at = 0;
@@ -308,9 +359,15 @@ export interface SchematicFindProps {
  * @returns The source
  */
 export function useSchematicFind({ kinds, words, picks, hiddenLayers, dim, onPick, onCleared }: SchematicFindProps): KeySearchSource {
+    // The box parses at the item kinds' key type where they share one; else at String, each kind keyed otherwise reading
+    // the text as typed at its own (#1549).
+    const keyType = useMemo(() => {
+        const first = kinds[0]?.keys.keyType;
+        return first !== undefined && kinds.every((kind) => sameType(kind.keys.keyType, first)) ? first : STRING_KEYS.keyType;
+    }, [kinds]);
     // What a find reads, and whom a pick tells: the latest — the box calls what it captured before the find answered.
-    const latest = useRef({ kinds, words, picks, hiddenLayers, dim, onPick, onCleared });
-    useLayoutEffect(() => { latest.current = { kinds, words, picks, hiddenLayers, dim, onPick, onCleared }; });
+    const latest = useRef({ kinds, keyType, words, picks, hiddenLayers, dim, onPick, onCleared });
+    useLayoutEffect(() => { latest.current = { kinds, keyType, words, picks, hiddenLayers, dim, onPick, onCleared }; });
     // What the last find found, each kind's run; a find answered after a newer one asked finds nothing here.
     const found = useRef<readonly FindRun[]>([]);
     const asked = useRef(0);
@@ -318,15 +375,18 @@ export function useSchematicFind({ kinds, words, picks, hiddenLayers, dim, onPic
         // A new query takes the last pick's place; one asked again, as what its lines are read from moved, keeps it.
         if (again !== true) latest.current.onCleared();
         const mine = ++asked.current;
-        const seek = toSeekQuery(query);
-        const runs = await Promise.all(latest.current.kinds.map(async (kind): Promise<FindRun> => {
+        const { kinds: sought, keyType: box } = latest.current;
+        const runs = await Promise.all(sought.map(async (kind): Promise<FindRun> => {
+            // Text that reads as no key of the kind's finds none of its rows.
+            const kindAsked = kindQuery(query, box, kind.keys);
+            if (kindAsked === undefined) return { kind, start: 0, count: 0, keys: undefined };
             if (kind.part !== undefined) {
                 const part = kind.part;
-                const range = await awaitTracked(() => recordSliceSeek(part, WHOLE, seek));
+                const range = await awaitTracked(() => recordSliceSeek(part, WHOLE, toSeekQuery(kindAsked)));
                 return { kind, start: range.found ? Number(range.row) : 0, count: range.found ? Number(range.count) : 0, keys: undefined };
             }
             const rows = await awaitTracked(() => kind.rows());
-            const keys = wholeMatches([...rows.keys()], query);
+            const keys = wholeMatches([...rows.keys()], kindAsked, kind.keys);
             return { kind, start: 0, count: keys.length, keys };
         }));
         if (mine === asked.current) found.current = runs;
@@ -372,7 +432,9 @@ export function useSchematicFind({ kinds, words, picks, hiddenLayers, dim, onPic
     // the narrowing comes to dim what it leaves out, or to hide it, which its lines word.
     const relist = useRelist(kinds.flatMap((kind) => { const pick = picks.get(kind.slot); return pick === undefined ? [] : [pick]; }), [dim]);
     const noMatches = words.m.findNoMatches();
+    // The empty box lists the first matches where a key's start finds them: the box parsing at String.
+    const browse = keyType.type === "String" ? BROWSE_QUERY : undefined;
     return useMemo(() => ({
-        resetKey: "schematic", requery, relist, keyType: KEY_TYPE, find, listRange, jump, clear, browseQuery: BROWSE_QUERY, noMatchesText: noMatches,
-    }), [requery, relist, find, listRange, jump, clear, noMatches]);
+        resetKey: "schematic", requery, relist, keyType, find, listRange, jump, clear, browseQuery: browse, noMatchesText: noMatches,
+    }), [requery, relist, keyType, find, listRange, jump, clear, browse, noMatches]);
 }

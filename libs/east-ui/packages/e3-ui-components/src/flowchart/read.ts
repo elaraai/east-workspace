@@ -14,10 +14,11 @@
  *
  * - **Under `"hide"`** a transition kept whose end no state read holds has
  *   that end read by key through the states' source (`recordSliceRows`, the
- *   Plan's link ends' read), every such end in one request: found, the state
- *   the narrowing hides holds it, and the transition is hidden with it;
- *   absent, the end is a ghost, and Issues lists it. Under `"dim"` every row
- *   is read, so an end no state holds is absent.
+ *   Plan's link ends' read), every such end in one request, at the states' key
+ *   type (#1549): found, the state the narrowing hides holds it, and the
+ *   transition is hidden with it; absent — or a text no key of theirs prints
+ *   as — the end is a ghost, and Issues lists it. Under `"dim"` every row is
+ *   read, so an end no state holds is absent.
  * - **The last settled read stands** while a newer one is in flight, so a new
  *   narrowing keeps what the canvas drew, busy, and the footer's loading line
  *   says what is read (`reading`) and whether it is a new narrowing
@@ -40,6 +41,7 @@ import { BlobType, StringType, SortedSet, compareFor, equalFor, type ValueTypeOf
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { recordSliceRows } from "@elaraai/east-ui-components/internal";
+import { kindKeys } from "../shared/schedule/kind-keys.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import type { FlowchartDecisionRoles, FlowchartLaneRoles, FlowchartStateRoles, FlowchartTransitionRoles, FlowchartValue } from "./model.js";
 
@@ -225,14 +227,19 @@ export function useFlowchartData(value: FlowchartValue, attempt = 0): FlowchartD
                 if (!states.has(entry.roles.from)) far.add(entry.roles.from);
                 if (!states.has(entry.roles.to)) far.add(entry.roles.to);
             }
-            if (far.size > 0) {
+            // Each end read back at the states' key type (#1549): a text no key of theirs prints as names no state, a ghost.
+            const stateKeys = kindKeys(value.states.keyType);
+            const asked = [...far].flatMap((text) => {
+                const key = stateKeys.keyOf(text);
+                return key === undefined ? [] : [{ text, key }];
+            });
+            if (asked.length > 0) {
                 try {
-                    const keys = [...far];
-                    const got = recordSliceRows(part, keys);
+                    const got = recordSliceRows(part, asked.map(({ key }) => key));
                     if (got.type === "none") inFlight.add("transitions");
                     else {
                         const held = new SortedSet<string>([], compareString);
-                        got.value.forEach((row, i) => { if (row.type === "some") held.add(keys[i]!); });
+                        got.value.forEach((row, i) => { if (row.type === "some") held.add(asked[i]!.text); });
                         if (held.size > 0) {
                             const hidden = new SortedSet<string>([], compareString);
                             for (const [key, entry] of transitions) {

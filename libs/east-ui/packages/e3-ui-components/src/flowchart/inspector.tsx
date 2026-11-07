@@ -74,7 +74,7 @@
 import { Fragment, memo, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import {
-    DateTimeType, IntegerType, OptionType, StringType, StructType, compareFor, encodeBeast2For, equalFor, fromEastTypeValue, none, some,
+    DateTimeType, IntegerType, OptionType, StringType, StructType, encodeBeast2For, equalFor, fromEastTypeValue, none, some,
     type EastType, type StructType as EastStructType, type option,
 } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui/internal";
@@ -119,7 +119,6 @@ const NO_EDIT = (): void => {};
 const NEW_ROW: Readonly<Record<string, unknown>> = {};
 
 const stringEqual = equalFor(StringType);
-const compareKey = compareFor(StringType);
 
 /** A state's roles as its form edits them: its key, its label and its lane. */
 const StateRolesForm = StructType({ key: StringType, label: StringType, lane: StringType });
@@ -484,10 +483,10 @@ interface LinkLine {
 }
 
 /**
- * Transitions as a list shows them, in key order (R37): each its ends' keys,
- * its kind — unresolved where an end is no state's — and its decision, and its
- * evidence's volume with its unit — *not measured* without one. What the
- * narrowing draws as context is left out.
+ * Transitions as a list shows them, in their keys' order at their key type
+ * (R37, #1549): each its ends' keys, its kind — unresolved where an end is no
+ * state's — and its decision, and its evidence's volume with its unit — *not
+ * measured* without one. What the narrowing draws as context is left out.
  *
  * @param props - The inspector's props: what the canvas draws
  * @param pick - Which of its transitions
@@ -496,9 +495,9 @@ interface LinkLine {
 function linkLines(props: FlowchartInspectorProps, pick: (roles: FlowchartTransitionRoles) => boolean): LinkLine[] {
     const { model, rows, words } = props;
     const unresolved = (key: string): boolean => model.nodesByKey.get(key)?.ghost !== false;
-    return rows.transitions
-        .filter((transition) => !transition.dimmed && pick(transition.roles))
-        .sort((a, b) => compareKey(a.key, b.key))
+    const picked = new Map(rows.transitions.filter((transition) => !transition.dimmed && pick(transition.roles)).map((transition) => [transition.key, transition] as const));
+    return rows.keys.transitions.order(picked.keys())
+        .map(({ text }) => picked.get(text)!)
         .map((transition) => {
             const { from, to } = transition.roles;
             const kind: LinkClass = unresolved(from) || unresolved(to) ? "unresolved" : transition.roles.kind.type;

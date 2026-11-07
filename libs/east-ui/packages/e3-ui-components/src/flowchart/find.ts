@@ -21,9 +21,12 @@
  *   add what its matches leave out: a state found by its label alone, and a new
  *   one, which the record holds no row of yet.
  *
- * Keys are case-sensitive, as every builder's Search Records takes them. The
- * matches are one list: the record's in its keys' order, then the drawn
- * states' in theirs. A line names a state by its key, its label where it has
+ * Keys are case-sensitive, as every builder's Search Records takes them, and
+ * sought at the states' key type (#1549): a String key by its start, any other
+ * as typed — `10` finds the state keyed by the number 10 — and the empty box
+ * lists the first states only where they are keyed by String. The matches are
+ * one list: the record's in its keys' order, then the drawn states' in theirs,
+ * at their type. A line names a state by its key, its label where it has
  * one, and — where the narrowing leaves it out — which of the rail's choices
  * do, in the shared hidden pick's words (`shared/schedule/hidden.ts`), asked
  * of e3 for the rows a list shows, or, under `"dim"`, the words for a row
@@ -38,20 +41,17 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { StringType, compareFor, equalFor, match, none, printFor, toEastTypeValue, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
+import { StringType, equalFor, match, none, printFor, type ValueTypeOf, type option } from "@elaraai/east";
 import { RecordSliceWhereType, findKeyInline, type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type KeySearchSource } from "@elaraai/east-ui-components";
 import { awaitTracked, recordSlicePage, recordSliceRevision, recordSliceSeek, recordSliceWithin, toSeekQuery } from "@elaraai/east-ui-components/internal";
 import { askHiding, hiddenLine, hiddenOf, useRelist, type RowHidden, type SourceHidden } from "../shared/schedule/hidden.js";
+import { STRING_KEYS, type KindKeys } from "../shared/schedule/kind-keys.js";
 import type { RowCodec } from "../shared/schedule/records.js";
 import type { HiddenWords } from "../shared/schedule/words.js";
 import type { FlowchartMessages, FlowchartWords } from "./messages.js";
 import type { FlowchartStateRoles } from "./model.js";
 
-/** A state's key is a String: the search's text parses against that. */
-const KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
-
-const compareKey = compareFor(StringType);
 const keyEqual = equalFor(StringType);
 const printWhere = printFor(RecordSliceWhereType);
 
@@ -67,9 +67,9 @@ const someOf = <T,>(opt: option<T>): T | undefined => match(opt, { some: (value)
 /** A record Slice's part: the states' source of the rail. */
 type RecordPart = ValueTypeOf<RecordSliceBindType>;
 
-/** An entry of a record's page, as every record Slice binding reads one: its key — a state's is a String — and its row, joined. */
+/** An entry of a record's page, as every record Slice binding reads one: its key, at the record's key type, and its row, joined. */
 interface RecordEntry {
-    readonly key: string;
+    readonly key: unknown;
     readonly row: option<unknown>;
 }
 
@@ -123,22 +123,27 @@ export function foundLine(found: FoundState, words: FlowchartWords, dim: boolean
 }
 
 /**
- * The drawn states a query finds, in East's order of their keys (see the module docs): those its key finds — a key's
- * start, a quoted key, a range, as the server finds a key (`findKeyInline`) — but those `listed` says the record's matches
- * hold; and, for bare text, those whose label holds it, in any case.
+ * The drawn states a query finds, in East's order of their keys at the states' key type (see the module docs): those its
+ * key finds — a key's start, a quoted key, a range, as the server finds a key (`findKeyInline`) — but those `listed` says
+ * the record's matches hold; and, for bare text, those whose label holds it, in any case.
  *
  * @param states - The states the canvas draws, in any order
  * @param query - The query the box parsed
  * @param locale - The app's locale, which a label and the text are compared in
  * @param listed - Whether the record's matches list a state its key finds: one the states' read holds, where the record is
  *   sought through e3; none where it is not
+ * @param keys - The states' keys (#1549): each key's text read back once at their key type, and their order; String's by default
  * @returns The states found, in key order
  */
 export function drawnMatches(states: readonly FindableState[], query: DatasetKeyQuery, locale: string,
-    listed: (key: string) => boolean): FindableState[] {
-    const sorted = [...states].sort((a, b) => compareKey(a.key, b.key));
-    const range = findKeyInline(KEY_TYPE, sorted.map((state) => state.key), query);
-    const byKey = new Set(range.found ? sorted.slice(range.row, range.row + range.count).map((state) => state.key) : []);
+    listed: (key: string) => boolean, keys: KindKeys = STRING_KEYS): FindableState[] {
+    const byText = new Map(states.map((state) => [state.key, state] as const));
+    const order = keys.order(byText.keys());
+    const sorted = order.map(({ text }) => byText.get(text)!);
+    // The keys the query is sought among: a text no key prints as is found by its label alone.
+    const sought = order.filter(({ key }) => key !== undefined);
+    const range = findKeyInline(keys.keyType, sought.map(({ key }) => key), query);
+    const byKey = new Set(range.found ? sought.slice(range.row, range.row + range.count).map(({ text }) => text) : []);
     // Bare text finds a label that holds it too.
     const text = "prefix" in query && !("fields" in query) ? query.prefix.toLocaleLowerCase(locale) : undefined;
     return sorted.filter((state) => (byKey.has(state.key)
@@ -170,6 +175,8 @@ export interface FlowchartFindProps {
     readonly read: (bytes: Uint8Array, key: string) => FlowchartStateRoles;
     /** The states' rows, as bytes and back. */
     readonly codec: RowCodec;
+    /** The states' keys (#1549): the key type the box parses typed text at, each key's text, and their order. */
+    readonly keys: KindKeys;
     /** The states the canvas draws, the drafts in place — as themselves or as context — never a ghost. */
     readonly drawn: readonly FindableState[];
     /** The states the read holds, by key: a drawn state of one is listed among the record's matches, found by its key. */
@@ -187,26 +194,26 @@ export interface FlowchartFindProps {
 /**
  * Find state's source, for the shared key search's toolbar item (see the module docs).
  *
- * @param props - The states' source, their read, the drawn states, the hidden pick, whether the narrowing dims, the words
- *   and the pick
+ * @param props - The states' source, their read, their keys, the drawn states, the hidden pick, whether the narrowing dims,
+ *   the words and the pick
  * @returns The source; `undefined` with no state to seek — none drawn, and none sought through e3
  */
-export function useFlowchartFind({ part, read, codec, drawn, stored, pick, dim, words, onPick }: FlowchartFindProps): KeySearchSource | undefined {
+export function useFlowchartFind({ part, read, codec, keys, drawn, stored, pick, dim, words, onPick }: FlowchartFindProps): KeySearchSource | undefined {
     // What a find reads, and whom a pick tells: the latest — the box calls what it captured before the find answered.
-    const latest = useRef({ part, read, codec, drawn, stored, pick, dim, words, onPick });
-    useLayoutEffect(() => { latest.current = { part, read, codec, drawn, stored, pick, dim, words, onPick }; });
+    const latest = useRef({ part, read, codec, keys, drawn, stored, pick, dim, words, onPick });
+    useLayoutEffect(() => { latest.current = { part, read, codec, keys, drawn, stored, pick, dim, words, onPick }; });
     // What the last find found; a find answered after a newer one asked finds nothing here.
     const found = useRef<Found>(NOTHING);
     const asked = useRef(0);
     const find = useCallback(async (query: DatasetKeyQuery): Promise<DatasetKeyMatchRange> => {
         const mine = ++asked.current;
-        const { part: source, drawn: states, stored: held, words: w } = latest.current;
+        const { part: source, keys: stateKeys, drawn: states, stored: held, words: w } = latest.current;
         let record: Found["record"];
         if (source !== undefined) {
             const range = await awaitTracked(() => recordSliceSeek(source, WHOLE, toSeekQuery(query)));
             record = { part: source, start: range.found ? Number(range.row) : 0, count: range.found ? Number(range.count) : 0 };
         }
-        const matches = drawnMatches(states, query, w.locale, (key) => source !== undefined && held.has(key));
+        const matches = drawnMatches(states, query, w.locale, (key) => source !== undefined && held.has(key), stateKeys);
         if (mine === asked.current) found.current = { record, drawn: matches };
         const count = (record?.count ?? 0) + matches.length;
         return { found: count > 0, row: 0, count };
@@ -214,19 +221,20 @@ export function useFlowchartFind({ part, read, codec, drawn, stored, pick, dim, 
     /** The matches at the list's rows `[row, row + limit)`, each with the row it is at. */
     const statesAt = useCallback(async (row: number, limit: number): Promise<{ at: number; state: FoundState }[]> => {
         const { record, drawn: matches } = found.current;
-        const { read: readRoles, codec: rows, drawn: states, pick: hidden } = latest.current;
+        const { read: readRoles, codec: rows, keys: stateKeys, drawn: states, pick: hidden } = latest.current;
         const out: { at: number; state: FoundState }[] = [];
         const inRecord = record?.count ?? 0;
         if (record !== undefined && row < inRecord) {
             const { part: source } = record;
             const from = record.start + row;
             const n = Math.min(limit, inRecord - row);
-            // Every record Slice binding reads joined entries of its record's String keys: record.ts' bind refuses any other.
+            // Each entry by its key's text (#1549), the narrowing asked of it at its key.
             const entries = await awaitTracked(() => recordSlicePage(source, { where: WHOLE, area: none }, BigInt(from), BigInt(n))) as readonly RecordEntry[];
-            const listed = entries.map((entry) => ({ key: entry.key, row: someOf(entry.row) }));
-            const present = listed.flatMap(({ key, row: value }) => (value === undefined ? [] : [{ key, row: value }]));
+            const listed = entries.map((entry) => ({ key: stateKeys.textOf(entry.key), at: entry.key, row: someOf(entry.row) }));
+            const present = listed.flatMap(({ key, at, row: value }) => (value === undefined ? [] : [{ key, at, row: value }]));
             const where = source.read().where;
-            const within = where.size === 0 ? undefined : await awaitTracked(() => recordSliceWithin(source, where, present));
+            const within = where.size === 0 ? undefined
+                : await awaitTracked(() => recordSliceWithin(source, where, present.map(({ at, row: value }) => ({ key: at, row: value }))));
             // Whether the narrowing holds each row read; every entry of the page with it — one with no row asks nothing.
             const held = present.map((_row, i) => within === undefined || within[i] === true);
             let at = 0;
@@ -290,7 +298,10 @@ export function useFlowchartFind({ part, read, codec, drawn, stored, pick, dim, 
     const relist = useRelist(pick === undefined ? [] : [pick], [dim]);
     const noMatches = words.m.findNoMatches();
     const any = part !== undefined || drawn.length > 0;
+    // Typed text parses at the states' key type; the empty box lists the first of them where a key's start finds them all.
+    const keyType = keys.keyType;
+    const browse = keys.text ? BROWSE_QUERY : undefined;
     return useMemo(() => (any ? {
-        resetKey: "flowchart", requery, relist, keyType: KEY_TYPE, find, listRange, jump, clear, browseQuery: BROWSE_QUERY, noMatchesText: noMatches,
-    } : undefined), [any, requery, relist, find, listRange, jump, clear, noMatches]);
+        resetKey: "flowchart", requery, relist, keyType, find, listRange, jump, clear, browseQuery: browse, noMatchesText: noMatches,
+    } : undefined), [any, requery, relist, keyType, find, listRange, jump, clear, browse, noMatches]);
 }

@@ -96,7 +96,7 @@ import { flowchartInspectorPane } from "./inspector.js";
 import { conflictValueName, flowchartIssues, selectionOf, sessionIssues, type FlowchartIssueArgs, type FlowchartKeyFields } from "./issues.js";
 import { useFlowchartLibrary } from "./library.js";
 import { DEFAULT_FLOWCHART_NOUNS, flowchartMessagesOf, type FlowchartNouns, type FlowchartWords } from "./messages.js";
-import { buildModel, type FlowchartValue } from "./model.js";
+import { buildModel, flowchartKindKeys, type FlowchartValue } from "./model.js";
 import { useViewerOrientation } from "./orientation.js";
 import { FLOWCHART_SORTS, FlowchartDataReader, INITIAL_FLOWCHART_DATA, SOURCE_SORTS, type FlowchartData, type FlowchartSort } from "./read.js";
 import { selectionHeld, type FlowchartSelection } from "./selection.js";
@@ -208,10 +208,12 @@ function FlowchartFollows(props: FlowchartFollowsProps) {
     const nouns = useMemo(() => sourceNouns(value, words.m, words.locale), [value, words]);
     // What a source's failed narrowing says, in the Flowchart's words.
     const said = useCallback((name: string): KeyVisibilityWords => ({ changed: words.m.sourceChanged({ name }), failed: words.m.sourceFailed({ name }) }), [words]);
-    // The states and the transitions, each read through its source of the rail: each one's hidden pick.
+    // The states and the transitions, each read through its source of the rail: each one's hidden pick, which asks e3 of
+    // a row at its kind's key type (#1549).
     const hidden = useMemo(() => SOURCE_SORTS.flatMap((sort): HiddenSource[] => {
-        const part = kindOf(value, sort) === undefined ? undefined : sourcePart(chrome, sort);
-        return part === undefined ? [] : [{ key: sort, part }];
+        const kind = kindOf(value, sort);
+        const part = kind === undefined ? undefined : sourcePart(chrome, sort);
+        return kind === undefined || part === undefined ? [] : [{ key: sort, part, keyType: kind.keyType }];
     }), [value, chrome]);
     return (
         <FollowSources chrome={chrome} narrowed={value.shown} sources={sources} nouns={nouns} said={said}>
@@ -256,6 +258,8 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
     const m = words.m;
     const name = getSomeorUndefined(value.name);
     const keys = useMemo(() => flowchartKeys(name), [name]);
+    // Each kind's keys (#1549): each key's text, read back at its record's key type, and their order by it.
+    const rowKeys = useMemo(() => flowchartKindKeys(value), [value]);
     const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
     const kindName = useCallback((sort: FlowchartSort): string => kindOf(value, sort)?.name ?? sort, [value]);
 
@@ -289,7 +293,8 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         };
         return { states: of("states"), transitions: of("transitions") };
     }, [value.narrowed, followed]);
-    const drafted = useMemo(() => draftedRows(data.held, data.hiddenWith, editing.drafts, dimmed), [data.held, data.hiddenWith, editing.drafts, dimmed]);
+    const drafted = useMemo(() => draftedRows(data.held, data.hiddenWith, editing.drafts, rowKeys, dimmed),
+        [data.held, data.hiddenWith, editing.drafts, rowKeys, dimmed]);
     const model = useMemo(() => buildModel(drafted.rows, words), [drafted.rows, words]);
 
     // ── The details: read by the rows drawn, in a reader of their own, and counted into the flowchart's bins ──
@@ -411,7 +416,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
     const findable = useMemo(() => model.nodes.filter((node) => !node.ghost)
         .map((node): FindableState => ({ key: node.key, label: node.label, dimmed: node.dimmed })), [model.nodes]);
     const finder = useFlowchartFind({
-        part: statesPart, read: value.states.read, codec, drawn: findable, stored: data.held.states, pick: picks.get("states"),
+        part: statesPart, read: value.states.read, codec, keys: rowKeys.states, drawn: findable, stored: data.held.states, pick: picks.get("states"),
         dim: value.narrowed.type === "dim", words, onPick: onFound,
     });
     const find = useMemo(() => (finder === undefined ? undefined : pick.search(finder)), [finder, pick]);

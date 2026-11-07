@@ -20,7 +20,7 @@ import type { FlowchartEdit } from "./editing.js";
 import type { FlowchartHolding, GestureEdits } from "./edits.js";
 import { flowchartMessages, type FlowchartWords } from "./messages.js";
 import {
-    buildModel, type FlowchartDecisionRoles, type FlowchartLaneRoles, type FlowchartModel, type FlowchartRow, type FlowchartRows,
+    STRING_KIND_KEYS, buildModel, type FlowchartDecisionRoles, type FlowchartLaneRoles, type FlowchartModel, type FlowchartRow, type FlowchartRows,
     type FlowchartStateRoles, type FlowchartTransitionRoles,
 } from "./model.js";
 import type { FlowchartSort } from "./read.js";
@@ -117,14 +117,14 @@ export function decisionRow(key: string, label: string, queue: readonly string[]
 }
 
 /**
- * Rows as the read holds them: none of a kind not given, and no lanes — a
- * Flowchart given none — unless given.
+ * Rows as the read holds them: none of a kind not given, no lanes — a
+ * Flowchart given none — and every kind keyed by String, unless given.
  *
- * @param parts - The rows of each kind given
+ * @param parts - The rows of each kind given, and the kinds' keys
  * @returns The rows
  */
 export function rowsOf(parts: Partial<FlowchartRows>): FlowchartRows {
-    return { states: [], transitions: [], lanes: undefined, decisions: [], ...parts };
+    return { states: [], transitions: [], lanes: undefined, decisions: [], keys: STRING_KIND_KEYS, ...parts };
 }
 
 /**

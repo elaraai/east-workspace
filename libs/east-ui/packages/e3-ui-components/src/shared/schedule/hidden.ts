@@ -51,13 +51,14 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { SortedMap, StringType, compareFor, equalFor, none, printFor, some, type option, type ValueTypeOf } from "@elaraai/east";
+import { SortedMap, StringType, compareFor, equalFor, none, printFor, some, type EastTypeValue, type option, type ValueTypeOf } from "@elaraai/east";
 import {
     RecordSliceWhereType, recordChoiceWhere, recordPlanIndex,
     type RecordSliceBindType, type RecordSliceChoiceType, type RecordSliceEntry, type RecordSliceFieldType, type RecordSliceIndexType,
 } from "@elaraai/east-ui/internal";
 import { useSliceReactivity, useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
 import { awaitTracked, recordChoiceLabel, recordSlicePage, recordSliceRevision, recordSliceRows, recordSliceWithin } from "@elaraai/east-ui-components/internal";
+import { STRING_KEYS, kindKeys } from "./kind-keys.js";
 import type { HiddenWords } from "./words.js";
 
 type Where = ValueTypeOf<typeof RecordSliceWhereType>;
@@ -487,26 +488,27 @@ export function useHidden(input: SourceHiddenInput): SourceHidden {
     return useMemo(() => ({ rows, part, where, window, ready }), [rows, part, where, window, ready]);
 }
 
-/** A source's rows by their keys, as every source a builder binds through `recordSources` keys them: by String, a row's id its key. */
-const stringKey = (id: string): option<unknown> => some(id);
-const stringId = (key: unknown): string => key as string;
-
 /**
  * The hidden pick over one source of a builder's `Slice.bindRecords`, read
  * through its part — never through a lens of its own, as the Sheet's is — its
- * rows keyed by String, as `recordSources` binds every source: its narrowing
- * followed as a choice moves it, the same object while its choices hold, its
- * answers kept by its record's revision: the Allocation's lanes, resources and
- * arrivals, the Roster's people, each of the Calendar's event and resource
- * kinds, and the Schematic's kinds (`hidden-pick.tsx`' `HideSources`).
+ * rows by their ids, each its key's text (#1549): by String, a row's id its
+ * key, as `recordSources` binds every source but the Flowchart's and the
+ * Schematic's, whose records may be keyed by any type, each id read back at it.
+ * Its narrowing followed as a choice moves it, the same object while its
+ * choices hold, its answers kept by its record's revision: the Allocation's
+ * lanes, resources and arrivals, the Roster's people, each of the Calendar's
+ * event and resource kinds, and the Flowchart's and the Schematic's kinds
+ * (`hidden-pick.tsx`' `HideSources`).
  *
  * @param name - Who asks, as its console names it when a read fails
  * @param part - The source's part of the slice; `undefined` with none
  * @param window - The field of its narrowing the builder's own navigation writes — the Calendar's event kinds' range,
  *   their window — which hides no row: left out of what is asked, and kept as a pick clears ({@link clearHidden})
+ * @param keyType - Its record's key type, which a row's id is read back at; String by default
  * @returns The pick
  */
-export function useSourceHidden(name: string, part: Bind | undefined, window?: string): SourceHidden {
+export function useSourceHidden(name: string, part: Bind | undefined, window?: string, keyType?: EastTypeValue): SourceHidden {
+    const keys = keyType === undefined ? STRING_KEYS : kindKeys(keyType);
     // Its narrowing, read again as a choice moves it.
     const moved = useSliceReactivity(part?.key);
     const read = useMemo(() => {
@@ -521,7 +523,11 @@ export function useSourceHidden(name: string, part: Bind | undefined, window?: s
     const holds = kept.current !== undefined && (was === undefined || text === undefined ? was === text : stringEqual(was, text));
     if (!holds) kept.current = { text, where: read };
     const where = kept.current!.where;
-    return useHidden({ name, part, where, revision: usePartRevision(part), keyOf: stringKey, idOf: stringId, window });
+    const keyOf = (id: string): option<unknown> => {
+        const key = keys.keyOf(id);
+        return key === undefined ? none : some(key);
+    };
+    return useHidden({ name, part, where, revision: usePartRevision(part), keyOf, idOf: keys.textOf, window });
 }
 
 /**

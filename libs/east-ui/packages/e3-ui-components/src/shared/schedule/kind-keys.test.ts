@@ -2,15 +2,17 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
- * A kind's keys as the Schematic speaks them (#1549, `kind-rows.ts`): each
- * key's text — a String key as itself, any other as East prints it — and a
- * text read back at the record's key type, a text no key prints as reading
- * nothing; made once a key type. Over real East values, compared by East.
+ * A kind's keys as the Flowchart and the Schematic speak them (#1549,
+ * `kind-keys.ts`): each key's text — a String key as itself, any other as East
+ * prints it — a text read back at the record's key type, a text no key prints
+ * as reading nothing, and the keys' order at their type, where text order
+ * would put `10` before `9`; made once a key type. Over real East values,
+ * compared by East.
  */
 
 import { describe, expect, test } from "vitest";
 import { DateTimeType, IntegerType, StringType, StructType, VariantType, equalFor, printFor, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
-import { kindKeys } from "./kind-rows.js";
+import { kindKeys } from "./kind-keys.js";
 
 const SpotKey = StructType({ row: IntegerType, col: IntegerType });
 const RackKey = VariantType({ wall: IntegerType, floor: StringType });
@@ -46,6 +48,22 @@ describe("kindKeys", () => {
         const racks = kindKeys(toEastTypeValue(RackKey));
         expect(racks.textOf(variant("wall", 3n))).toBe(".wall 3");
         expect(equalFor(RackKey)(racks.keyOf(".wall 3") as ValueTypeOf<typeof RackKey>, variant("wall", 3n))).toBe(true);
+    });
+
+    test("keys in their order at their type, each read back once: Integer keys 2, 9 and 10, never 10 first", () => {
+        const keys = kindKeys(toEastTypeValue(IntegerType));
+        expect(keys.order(["10", "2", "9"]).map(({ text }) => text)).toEqual(["2", "9", "10"]);
+        // Each beside the key it reads back as.
+        const integerEqual = equalFor(IntegerType);
+        expect(integerEqual(keys.order(["10"])[0]!.key as ValueTypeOf<typeof IntegerType>, 10n)).toBe(true);
+        // A text no key prints as — a placeholder — after every key, in its text's order.
+        expect(keys.order(["new b", "10", "new a", "9"]).map(({ text }) => text)).toEqual(["9", "10", "new a", "new b"]);
+        // A struct key in East's order of its fields, a variant's by its cases.
+        const spots = kindKeys(toEastTypeValue(SpotKey));
+        expect(spots.order(["(row=2, col=1)", "(row=1, col=10)", "(row=1, col=9)"]).map(({ text }) => text))
+            .toEqual(["(row=1, col=9)", "(row=1, col=10)", "(row=2, col=1)"]);
+        // A String key in its text's order: as before.
+        expect(kindKeys(toEastTypeValue(StringType)).order(["10", "9", "2"]).map(({ text }) => text)).toEqual(["10", "2", "9"]);
     });
 
     test("made once a key type: every read of a kind's keys is the same printer and reader", () => {

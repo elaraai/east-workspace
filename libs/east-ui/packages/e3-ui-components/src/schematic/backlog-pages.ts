@@ -41,7 +41,8 @@ import { entityId, type ItemRoles } from "./canvas/drawn.js";
 import type { SchematicValue } from "./data.js";
 import type { SortDrafts } from "./drafted.js";
 import type { SchematicDropCard } from "./drop.js";
-import { entryRow, kindKeys, type KindRows } from "./kind-rows.js";
+import { kindKeys } from "../shared/schedule/kind-keys.js";
+import { entryRow, type KindRows } from "./kind-rows.js";
 
 /** A kind's source of the slice. */
 type Part = ValueTypeOf<RecordSliceBindType>;
