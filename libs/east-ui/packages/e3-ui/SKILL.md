@@ -195,6 +195,7 @@ Task → What do you need?
     ├─ Draw a state-transition flow over the app's records — the Flowchart
     │   ├─ A kind per record: its states, transitions, lanes, decisions → <Flowchart states={Flowchart.states(record, { label, lane, order, members? })} transitions={Flowchart.transitions(record, { from, to, decision?, kind?, evidence? })} lanes={Flowchart.lanes(record, { label, order })} decisions={Flowchart.decisions(record, { label, owner? })} />
     │   ├─ Editable, or read only                              → Record.bind(record) · Data.bind(record) (lanes and decisions: small records, read whole)
+    │   ├─ Records keyed by any type a Dict takes              → a field naming a kind's row holds that kind's key type, checked at build · a new row's key: the kind's key: (row) => … builds it from the row; without one, a String's is made up, an Integer's one past the largest, and any other's typed in the inspector before Save — an editable transition kind keyed so needs key
     │   ├─ Narrow its states, transitions and cards — one rail → slice={{ slice: Slice.bindRecords(key, { states: { source: Data.bindPaged(record, { indexes }) }, transitions: { … }, <a cards list's source>? }, { presets? }) }} (+ the kind's entries: Data.bindPaged(record))
     │   ├─ What a narrowing leaves out: gone, or faded         → narrowed="hide" (the default) · narrowed="dim"
     │   ├─ What its cards and labels draw from the app's rows  → details: Flowchart.details(rows, { details: [Flowchart.figure(f), .tags(f), .histogram(f, { unit }), .list(f)] }) on Flowchart.states / .transitions — rows keyed as the kind's, bound as it is read (Data.bind, or Data.bindPaged beside a kind read through its source)
@@ -205,7 +206,7 @@ Task → What do you need?
     │   ├─ The app's own words for what it draws              → each kind's own name: Flowchart.states(record, { …, name: "Stop" }) — its tabs, canvas, inspector, footer and Find say it · vocabulary={{ planned, observed }}, a transition's kinds
     │   ├─ An author's card dropped onto any kind's row        → Flowchart.library.tab(rows, { …, drop: (r) => Flowchart.patch(R, { … }) })
     │   ├─ The inspector, a kind's form and the app's check    → on by default (inspector={false} takes it away) · Flowchart.states(record, { …, fields?, ready? })
-    │   ├─ What the host hears, and the connect veto           → onSelectState · onSelectLink · onSelectTrigger · onTracePath (⌥-click) · canConnect={fn → Option<String>}
+    │   ├─ What the host hears, and the connect veto           → onSelectState · onSelectLink · onSelectTrigger · onTracePath (⌥-click) · canConnect={fn → Option<String>}, each key as its text
     │   ├─ Top down, a minimap, no legend, read only           → orientation="TD" · minimap · legend={false} · readOnly
     │   ├─ On a phone: how many lanes in view, ‹ › through them → narrow={{ lanes?: 1 | 2 | 3 }} (2 by default; one where the details draw on the cards)
     │   └─ Edit it: lanes, states, transitions, one Save       → each kind Record.bind(record) over a record declaring mutation.patch(); Save writes each through its patch door
@@ -213,6 +214,7 @@ Task → What do you need?
     ├─ Draw the app's records at world coordinates — a floor, a site — the Schematic
     │   ├─ A kind per record, under its slot                   → <Schematic extent={{ width, height }} items={{ racks: Schematic.items(record, { name, icon, x, y, label, … }) }} zones={{ … }} links={{ … }} nets={{ … }} />
     │   ├─ Editable, or read only                              → Record.bind(record) · Data.bind(record)
+    │   ├─ Records keyed by any type a Dict takes              → as the Flowchart's, new keys too — an item's typed, a link kind's or a net kind's key; a link's end and a net's side hold their items' key type, a variant's each case its slot's
     │   ├─ A link or net drawn with no template: its fields    → the kind's values: (ends) => ({ … }), over Schematic.Types.Ends (a net's, Sides)
     │   ├─ Narrow its kinds and templates — one rail           → slice={{ slice: Slice.bindRecords(key, { <a kind's slot>: { source: Data.bindPaged(record, { indexes }) }, … }) }} (+ the kind's entries: Data.bindPaged(record))
     │   ├─ A floor too large to read whole: a window at a time → its source lists index.area({ x, y, width, height, at: "centre", cell }); past 5,000 rows in view, their density
@@ -223,7 +225,7 @@ Task → What do you need?
     │   ├─ The app's own words for what it draws               → vocabulary={{ templates, backlog, index, layer, zone, net, link, source, destination }}
     │   ├─ An author's card dropped onto an entity             → Schematic.library.tab(rows, { …, drop: (r) => Schematic.patch(R, { … }) })
     │   ├─ The inspector, a kind's form and its own Details    → inspector · Schematic.items(record, { …, fields?, ready?, inspector? })
-    │   └─ What the host hears, and the connect veto           → onSelect={fn(Array<Schematic.Types.Ref>)} · canConnect={fn(Schematic.Types.Candidate) → Option<String>}
+    │   └─ What the host hears, and the connect veto           → onSelect={fn(Array<Schematic.Types.Ref>)} · canConnect={fn(Schematic.Types.Candidate) → Option<String>}, each key as its text
     │
     ├─ Staff a week's shifts from the app's own duties — the Roster
     │   ├─ The duties: the app's record, a span kind                  → events={{ duty: Schedule.events(Record.bind(duties), { start, end, resource: { field, of }, shift, group, position?, activity?, hours? }) }}
@@ -404,12 +406,12 @@ is the example.
 |---|---|---|
 | `<Plan>` | Heterogeneous rows on one time / number / ordinal axis: series over data, event kinds over records, read-only rows | `e3-ui:plan-events.examples.tsx:planEvents` (smallest), `e3-ui:plan.examples.tsx:planTargetState`, `e3-ui:plan-windows.examples.tsx:planWindows`, `e3-ui:plan-records.examples.tsx:planRecordIndexes` |
 | `<Sheet>` | A planning spreadsheet over a record, the host's rows or a paged source: typed columns, registers, groups, copilot, Excel round-trip | `e3-ui:sheet.examples.tsx:sheetBasic` (smallest), `e3-ui:sheet.examples.tsx:sheetWorkshop`, `e3-ui:sheet.examples.tsx:sheetPaged`, `e3-ui:sheet-records.examples.tsx:sheetRecordIndexes` |
-| `<Record>` | A system of records' rows as a table: the Sheet's kinds with title, person, boolean, toggle, cycle, age and audit; column groups, Add and Delete | `e3-ui:record.examples.tsx:recordBasic` (smallest), `e3-ui:record.examples.tsx:recordSkillsMatrix`, `e3-ui:record.examples.tsx:recordEveryKind` |
+| `<Record>` | A system of records' rows as a table: the Sheet's kinds with title, person, boolean, toggle, cycle, age and audit; column groups, Add and Delete | `e3-ui:record.examples.tsx:recordBasic` (smallest), `e3-ui:record.examples.tsx:recordSkillsMatrix`, `e3-ui:record.examples.tsx:recordEveryKind`, `e3-ui:record.examples.tsx:recordFinishes` |
 | `<Calendar>` | Calendar, Resources and Timeline layouts over event records with a backlog | `e3-ui:calendar.examples.tsx:calendarMinimal` (smallest), `e3-ui:calendar.examples.tsx:calendarOperations`, `e3-ui:calendar-records.examples.tsx:calendarRecordIndexes` |
 | `<Roster>` | Weekly staffing: duties over people by shift, cover targets, pay, fit, publish | `e3-ui:roster.examples.tsx:rosterMinimal` (smallest), `e3-ui:roster.examples.tsx:rosterWarehouse`, `e3-ui:roster.examples.tsx:rosterPeople` |
 | `<Allocation>` | A day's arrivals booked into lane slots, each bin on resources | `e3-ui:allocation.examples.tsx:allocationMinimal` (smallest), `e3-ui:allocation.examples.tsx:allocationKilnYard`, `e3-ui:allocation.examples.tsx:allocationFitRule` |
-| `<Flowchart>` | States in ordered lanes, transitions and decisions, a record of the app's each, the app's details drawn on the cards and labels | `e3-ui:flowchart.examples.tsx:flowchartDwell` (smallest), `e3-ui:flowchart.examples.tsx:flowchartDepot`, `e3-ui:flowchart.examples.tsx:flowchartDepotEditing`, `e3-ui:flowchart.examples.tsx:flowchartTicketMinutes`, `e3-ui:flowchart.examples.tsx:flowchartDepotTopDown` |
-| `<Schematic>` | Items, zones, links and nets at world coordinates | `e3-ui:schematic.examples.tsx:schematicFloor` (smallest), `e3-ui:schematic.examples.tsx:schematicDataCentre`, `e3-ui:schematic-records.examples.tsx:schematicRecordIndexes` |
+| `<Flowchart>` | States in ordered lanes, transitions and decisions, a record of the app's each, the app's details drawn on the cards and labels | `e3-ui:flowchart.examples.tsx:flowchartDwell` (smallest), `e3-ui:flowchart.examples.tsx:flowchartDepot`, `e3-ui:flowchart.examples.tsx:flowchartDepotEditing`, `e3-ui:flowchart.examples.tsx:flowchartTicketMinutes`, `e3-ui:flowchart.examples.tsx:flowchartDepotTopDown`, `e3-ui:flowchart.examples.tsx:flowchartBakery` |
+| `<Schematic>` | Items, zones, links and nets at world coordinates | `e3-ui:schematic.examples.tsx:schematicFloor` (smallest), `e3-ui:schematic.examples.tsx:schematicDataCentre`, `e3-ui:schematic-records.examples.tsx:schematicRecordIndexes`, `e3-ui:schematic.examples.tsx:schematicBakehouse` |
 
 Field types matter: a `Sheet.column.quantity` sits on a `Float` field, a
 `Sheet.column.date` on a `DateTime`, each `Option` of it allowed; an event's

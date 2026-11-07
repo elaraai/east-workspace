@@ -29,8 +29,8 @@ import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import {
-    ArrayType, BooleanType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType,
-    decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, printType, some, variant,
+    ArrayType, BooleanType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType,
+    compareFor, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, printType, some, variant,
     type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Slice, UIComponentType } from "@elaraai/east-ui";
@@ -57,6 +57,7 @@ describeEast("Flowchart", (test) => {
         flowchartFlagColors: ex.flowchartFlagColors,
         flowchartTicketMinutes: ex.flowchartTicketMinutes,
         flowchartTicketMinutesLinear: ex.flowchartTicketMinutesLinear,
+        flowchartBakery: ex.flowchartBakery,
     });
 }, { platformFns: TestImpl });
 
@@ -748,6 +749,27 @@ describe("the transitions', the lanes' and the decisions' closed functions, over
         const fromSet = setQueued.unqueue.value(encodeBeast2For(SetRule)({ name: "route", queue: new Set(["ARV", "CH*"]) }), "CH*");
         if (fromSet.type !== "some") assert.fail("CH* was queued");
         assert.ok(equalFor(SetRule)(decodeBeast2For(SetRule)(fromSet.value), { name: "route", queue: new Set(["ARV"]) }));
+    });
+});
+
+describe("the bakery's kinds, keyed as the bakery keys them (#1549)", () => {
+    hostTest("each kind says its record's key type, and names its rows by their keys' text: the steps by number, the moves by their ends", () => {
+        const steps = kindOf(Flowchart.Types.StateKind, ($) => Flowchart.states($.let(recordHandle(DictType(IntegerType, ex.BakeryStep),
+            new Map([[10n, { name: "Mix", station: 1n, seq: 1, portion: variant("whole", null) }]]), "steps")()), { label: "name", order: "seq" }).build(undefined, false));
+        assert.ok(isTypeEqual(fromEastTypeValue(steps.keyType), IntegerType));
+        const stepRows = steps.rows();
+        if (stepRows.type !== "some") assert.fail("a record read whole holds its rows");
+        assert.ok(keysEqual([...stepRows.value.keys()], ["10"]), "a step's key as East prints it");
+        const moves = kindOf(Flowchart.Types.TransitionKind, ($) => Flowchart.transitions($.let(recordHandle(DictType(ex.BakeryMoveKey, ex.BakeryMove),
+            new SortedMap([[{ from: 10n, to: 20n }, { from: 10n, to: 20n, note: none }]], compareFor(ex.BakeryMoveKey)), "moves")()), {
+            from: "from", to: "to", key: (move) => ({ from: move.from, to: move.to }),
+        }).build(undefined, false));
+        assert.ok(isTypeEqual(fromEastTypeValue(moves.keyType), ex.BakeryMoveKey));
+        const moveRows = moves.rows();
+        if (moveRows.type !== "some") assert.fail("a record read whole holds its rows");
+        assert.ok(keysEqual([...moveRows.value.keys()], ["(from=10, to=20)"]), "a move's key as East prints its ends");
+        const mixToProof = moveRows.value.get("(from=10, to=20)")!.roles;
+        assert.ok(keysEqual([mixToProof.from, mixToProof.to], ["10", "20"]), "its ends as the steps' keys' text");
     });
 });
 

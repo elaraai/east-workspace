@@ -40,6 +40,7 @@ describeEast("Schematic", (test) => {
         schematicDataCentre: ex.schematicDataCentre,
         schematicWording: ex.schematicWording,
         schematicConflicts: ex.schematicConflicts,
+        schematicBakehouse: ex.schematicBakehouse,
     });
 }, { platformFns: TestImpl });
 
@@ -915,6 +916,32 @@ describe("a link kind's, a net kind's, a zone kind's and a details record's clos
             /Schematic\.links: "Fibre run": `values` gives every one of a new row's own fields \(path, speed, colour\) — and it leaves out "path"/);
         assert.throws(() => links((ends: ExprType<typeof Schematic.Types.Ends>) => ({ from: variant("rack", ends.from.key), path: [], speed: "", colour: "" })),
             /`values` gives "from", which the builder writes itself — it gives a new row's own fields \(path, speed, colour\)/);
+    });
+});
+
+describe("the bakehouse's kinds, keyed by number (#1549)", () => {
+    const OVENS = new Map([[1n, { name: "Deck oven", x: 4, y: 3, w: 3, h: 2 }], [2n, { name: "Convection oven", x: 12, y: 3, w: 3, h: 2 }]]);
+
+    hostTest("each kind says its record's key type; its rows, and a duct's ends, name the ovens by their numbers' text; Connect writes the ends as numbers", () => {
+        const ovens = kindOf(Schematic.Types.ItemKind, ($) => Schematic.items($.let(recordHandle(DictType(IntegerType, ex.BakeryOven), OVENS, "ovens")()), {
+            name: "Oven", icon: "fire-burner", x: "x", y: "y", width: "w", height: "h", label: "name",
+        }).build("ovens"));
+        assert.ok(isTypeEqual(fromEastTypeValue(ovens.keyType), IntegerType));
+        const ovenRows = ovens.rows();
+        if (ovenRows.type !== "some") assert.fail("a record read whole holds its rows");
+        assert.equal(ovenRows.value.get("2")!.roles.label, "Convection oven", "an oven by its number as East prints it");
+        const ducts = kindOf(Schematic.Types.LinkKind, ($) => Schematic.links($.let(recordHandle(DictType(IntegerType, ex.BakeryDuct), new Map([[1n, { from: 1n, to: 2n }]]), "ducts")()), {
+            name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" },
+        }).build("ducts"));
+        assert.ok(isTypeEqual(fromEastTypeValue(ducts.keyType), IntegerType));
+        const ductRows = ducts.rows();
+        if (ductRows.type !== "some") assert.fail("a record read whole holds its rows");
+        const duct = ductRows.value.get("1")!.roles;
+        assert.ok(equalFor(Schematic.Types.Ref)(duct.from, refOf("ovens", "1")));
+        assert.ok(equalFor(Schematic.Types.Ref)(duct.to, refOf("ovens", "2")));
+        const drawn = ducts.create({ from: refOf("ovens", "2"), to: refOf("ovens", "1") }, none);
+        if (drawn.type !== "some") assert.fail("Connect records a duct");
+        assert.ok(equalFor(ex.BakeryDuct)(decodeBeast2For(ex.BakeryDuct)(drawn.value), { from: 2n, to: 1n }), "each end an oven's number, read back from its text");
     });
 });
 

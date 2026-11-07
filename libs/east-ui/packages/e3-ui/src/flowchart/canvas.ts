@@ -135,16 +135,22 @@ export interface FlowchartCanvasOptions {
     /** Optional legend toggle (default true). */
     legend?: SubtypeExprOrValue<BooleanType> | boolean;
 
-    /** Optional state-click callback (node key). */
+    /**
+     * Optional state-click callback: the state's key, as its text — a String key as itself, any other as East prints it,
+     * whatever the states are keyed by (#1549).
+     */
     onSelectState?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
-    /** Optional link-click callback (link key). */
+    /** Optional link-click callback: the transition's key, as its text. */
     onSelectLink?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
-    /** Optional trigger-click callback (trigger key; the click also highlights governed links). */
+    /** Optional trigger-click callback: the decision's key, as its text; the click also highlights governed links. */
     onSelectTrigger?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
-    /** Optional ⌥-click trace-path callback (link key). */
+    /** Optional ⌥-click trace-path callback: the transition's key, as its text. */
     onTracePath?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
 
-    /** Optional connection validator — `(from, to)` BEFORE the draft snaps; false forbids the pair. A throwing validator logs and ALLOWS (fail-open). */
+    /**
+     * Optional connection validator — `(from, to)`, the two states' keys as their text, BEFORE the draft snaps; false
+     * forbids the pair. A throwing validator logs and ALLOWS (fail-open).
+     */
     canConnect?: SubtypeExprOrValue<FunctionType<[StringType, StringType], BooleanType>>;
 
     /** On a phone: how many lanes the window shows at once, 1 to 3 (default 2), its pager stepping through them — one where the details draw on the cards, each step bringing its card to the window's middle. */
