@@ -8,17 +8,21 @@
  * kinds on the wire — a title, a person, a boolean, a toggle, a cycle, an age
  * and an audit, and a quantity's unit — their cells, the age's count to a
  * clock and the audit's who and what; the columns map's typing; and every
- * refusal, naming the column or the prop.
+ * refusal, naming the column or the prop — a new row's field no person can
+ * set among them (#1526).
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, BooleanType, DateTimeType, East, FloatType, OptionType, StringType, StructType,
-    equalFor, none, some, variant, type ValueTypeOf,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, OptionType, StringType, StructType,
+    equalFor, none, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
-import { Data, Record, RecordPayloadType, Sheet, SheetInspectorPaneType, buildInspectorPane, createSheetBuild, createSheetRootWith } from "@elaraai/e3-ui/internal";
+import e3 from "@elaraai/e3";
+import {
+    Data, Record, RecordPayloadType, Sheet, SheetInspectorPaneType, SheetUnsettableType, buildInspectorPane, createSheetBuild, createSheetRootWith,
+} from "@elaraai/e3-ui/internal";
 import { refusingPlatform } from "../refusing-platform.js";
 import * as ex from "./record.examples.js";
 
@@ -202,6 +206,13 @@ describe("the Record's kinds refuse", () => {
     });
 });
 
+/** A record whose last change is no Option: a new row needs one, and no person can set it. */
+const Audited = StructType({ name: StringType, updated: Record.Types.Change });
+const recordAudited = e3.record("record_audited", DictType(StringType, Audited), {
+    initial: new Map([["A-1", { name: "A. Morgan", updated: { at: new Date("2026-09-18T09:12:00Z"), by: "M. Hale", verb: "confirmed" } }]]),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
 describe("<Record> refuses", () => {
     const columns = {
         name: Record.column.title(ex.Crew),
@@ -232,6 +243,18 @@ describe("<Record> refuses", () => {
 
     test("the Sheet root's refusals, in the Record's words", () => {
         assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns }), /^Error: Record: column "forklift" names register "levels", which `registers` does not declare/);
+    });
+
+    test("a new row's field no person can set — an audit on a `Change`, not its Option — with Add on and no `newRow`, naming it; a `newRow` leaving it unset builds, the field the renderer refuses an Add over (#1526)", () => {
+        const audited = { name: Record.column.title(Audited, { header: "Name" }), updated: Record.column.audit(Audited, { header: "Last updated" }) };
+        assert.throws(() => Record.Payload({ record: Record.bind(recordAudited), columns: audited }),
+            /^Error: Record: a new row's "updated" is required, and no column or form sets it — give it in `newRow`/);
+        const payload = East.compile(East.function([], RecordPayloadType, ($) => {
+            const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(Audited), () => Record.patch(Audited, {})));
+            return Record.Payload({ record: Record.bind(recordAudited), window: Data.bindPaged(recordAudited), columns: audited, newRow });
+        }), refusingPlatform)();
+        const unsettable = payload.sheet.editing.unsettable.row;
+        assert.ok(equalFor(ArrayType(SheetUnsettableType))(unsettable, [{ field: "updated", label: "Last updated" }]), printFor(ArrayType(SheetUnsettableType))(unsettable));
     });
 
     test("builds a payload with its title, noun and column groups, and its title column the one a phone pins, as the renderer decodes them", () => {
