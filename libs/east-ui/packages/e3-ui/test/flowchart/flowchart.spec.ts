@@ -209,15 +209,15 @@ function typeChecks($: BlockBuilder<UIComponentType>): void {
     PublicFlowchart.decisions(rules, { label: (r) => r.name, queue: "queue" });
     // @ts-expect-error — `slots` is an Option of an Integer: a state's label is a String field, or an Option of one
     PublicFlowchart.states(states, { label: "slots" });
-    // @ts-expect-error — `volume` is an Option of a Float: an end names a state by its key, a String field
+    // @ts-expect-error — `volume` and `dst` hold two types: a transition's ends hold a state's key each, of one type
     PublicFlowchart.transitions(transitions, { from: "volume", to: "dst" });
     // @ts-expect-error — `name` is a String: a state's order is a Float field
     PublicFlowchart.states(states, { label: "name", order: "name" });
-    // @ts-expect-error — `seq` is a Float: a state's lane names its lane by key, a String field
-    PublicFlowchart.states(states, { label: "name", lane: "seq" });
+    // @ts-expect-error — `queue` is an Array: a state's lane holds its lane's key, of a type a Dict may be keyed by
+    PublicFlowchart.states(rules, { label: "name", lane: "queue" });
     // @ts-expect-error — `label` is a String: a lane's order is an Integer or a Float field
     PublicFlowchart.lanes(lanes, { label: "label", order: "label" });
-    // @ts-expect-error — `owner` is a String: a decision's queue is an Array or a Set of String field
+    // @ts-expect-error — `owner` is a String: a decision's queue is an Array or a Set of the states' keys
     PublicFlowchart.decisions(decisions, { label: (d) => d.name, queue: "owner" });
     // @ts-expect-error — `members` returns an Option of an Integer
     PublicFlowchart.states(states, { label: "name", members: (s) => s.name });
@@ -246,7 +246,7 @@ describe("each role is a field of the app's row, named and checked (R2)", () => 
         refused(states({ label: "slots", lane: "phase" }),
             "Flowchart.states: `label` names a String field, or an Option of one — \"slots\" holds an Option of .Integer");
         refused(states({ label: "name", lane: "seq" }),
-            "Flowchart.states: `lane` names a String field holding its lane's key — \"seq\" holds .Float");
+            "Flowchart: a state's lane, \"seq\", holds .Float — and the lanes are keyed by .String: key the lanes by .Float, or name a field holding .String");
         refused(states({ label: "name", lane: "phase", order: "flow" }),
             "Flowchart.states: `order` names a Float field, the state's place in its lane — \"flow\" holds .String");
         refused(states({ label: "phase", lane: "phase" }),
@@ -257,7 +257,7 @@ describe("each role is a field of the app's row, named and checked (R2)", () => 
         refused(states({ label: "name", lane: "phase", icon: 3 }), "Flowchart.states: `icon` is a Font Awesome solid icon's name");
     });
 
-    hostTest("a transition's ends are two String fields, and its decision a third", () => {
+    hostTest("a transition's ends are two fields of one type, and its decision a third", () => {
         const transitions = (spec: object) => () => built(($) => {
             const states = $.let(statesRecord());
             const moves = $.let(movesRecord());
@@ -268,9 +268,9 @@ describe("each role is a field of the app's row, named and checked (R2)", () => 
                 decisions: Flowchart.decisions(decisions, { label: (d) => d.name }),
             });
         });
-        refused(transitions({ from: 1, to: "dst" }), "Flowchart.transitions: `from` names the String field holding a state's key");
+        refused(transitions({ from: 1, to: "dst" }), "Flowchart.transitions: `from` names the field holding a state's key");
         refused(transitions({ from: "volume", to: "dst" }),
-            "Flowchart.transitions: `from` names a state by its key, a String field — \"volume\" holds an Option of .Float");
+            "Flowchart.transitions: `from` and `to` each hold a state's key, of one type — \"volume\" holds an Option of .Float, and \"dst\" .String");
         refused(transitions({ from: "src", to: "src" }),
             "Flowchart.transitions: `from` and `to` both name \"src\" — a transition's ends are two fields");
         refused(transitions({ from: "src", to: "dst", decision: "dst" }),
@@ -296,7 +296,7 @@ describe("each role is a field of the app's row, named and checked (R2)", () => 
         const named = (d: ExprType<typeof ex.DepotDecision>) => d.name;
         refused(decisions({ label: "name" }), "Flowchart.decisions: `label` is an accessor giving a decision's name, (row, key) => …");
         refused(decisions({ label: named, queue: "owner" }),
-            "Flowchart.decisions: `queue` names an Array or a Set of String field, the states queued at it by key — \"owner\" holds .String");
+            "Flowchart.decisions: `queue` names an Array or a Set field, the states queued at it by key — \"owner\" holds .String");
         refused(decisions({ label: named, entries: true }), "Flowchart.decisions: the decisions are read whole — leave entries out");
     });
 });
@@ -505,7 +505,7 @@ describe("a kind's cards are a record's rows, following their own source of the 
                     name: (c: ExprType<typeof ex.StepCard>) => c.name, values: (c: ExprType<typeof ex.StepCard>) => c.values, source: "stepCards",
                 }) as never,
             }) });
-        }), `Flowchart.templates: the cards are a record's rows, keyed by String — a Dict, Data.bind(record).read() — and these are ${printType(ArrayType(ex.StepCard))}`);
+        }), `Flowchart.templates: the cards are a record's rows — a Dict, Data.bind(record).read() — and these are ${printType(ArrayType(ex.StepCard))}`);
         refused(() => built(($) => PublicFlowchart({ states: Flowchart.states($.let(statesRecord()), {
             label: "name", templates: [{ name: "Sort chutes" }] as never,
         }) })), "Flowchart.states: `templates` are records — Flowchart.templates(cards.read(), { name, values, source }) over a record of the app's, its source one of the slice's");
@@ -914,7 +914,7 @@ describe("the library's tabs (R14)", () => {
         refused(() => built(depot(($) => [PublicFlowchart.library.tab($.const([...OWNERS.values()], ArrayType(ex.DecisionOwner)), {
             name: "Owners", label: (o) => o.name, source: "stepCards",
         })])), "Flowchart: the \"Owners\" tab follows the source 'stepCards' by its cards' keys, each a row's key in that record — " +
-            "read its rows as that record's, a Dict<String, T>, its binding's read(), never an Array keyed by index");
+            "read its rows as that record's, a Dict, its binding's read(), never an Array keyed by index");
     });
 
     hostTest("a kind's tab takes at most its name and its icon: its cards are on the kind", () => {
