@@ -89,8 +89,9 @@ export function rosterHarness(modules: Parameters<typeof e3Harness>[0] = {}): Ro
 /**
  * The warehouse's Roster as `rosterWarehouse` mounts it — its duties, weeks,
  * cover targets and suggestions, its staff and agencies, its lists, its pay
- * and its check, its rail over the week's duties, the staff and the
- * activities, its library and its inspector — over the duties a test needs,
+ * and its check, a new duty's and a new target's own fields, its rail over the
+ * week's duties, the staff and the activities, its library and its inspector,
+ * though no check on a draft of its own — over the duties a test needs,
  * and asking the fit it needs: the warehouse's own duties, or the duties it
  * has locked, whose patch door refuses every change; the warehouse's own fit,
  * or the app's that warns past contract.
@@ -123,6 +124,7 @@ export function warehouseRoster(options: { readonly locked?: boolean; readonly f
         const firms = $.let(Data.bind(ex.rosterAgencies));
         const times = $.let(Data.bind(ex.rosterShiftTimes));
         const teams = $.let(Data.bind(ex.rosterTeams));
+        const centres = $.const(teams.read().map((_$2, team) => team.costCentre));
         const roles = $.let(Data.bind(ex.rosterPositions));
         const ideas = $.let(Data.bind(ex.rosterSuggestions));
         const rateRows = $.let(Data.bind(ex.rosterPayRates));
@@ -180,6 +182,13 @@ export function warehouseRoster(options: { readonly locked?: boolean; readonly f
                 hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
                 fields: { unpaidBreak: Schedule.field.number({ label: "Unpaid break", unit: "min", step: 15.0, min: 0.0 }),
                     costCentre: Schedule.field.text({ label: "Cost centre" }), note: Schedule.field.text({ label: "Note" }) },
+                // A new duty's own fields, the warehouse's: half an hour's break on a shift over six hours, and its team's cost centre.
+                values: d => ({
+                    unpaidBreak: d.hours.greaterThan(6.0).ifElse(() => 30.0, () => 0.0),
+                    agreed: none,
+                    costCentre: centres.get(d.group, () => ""),
+                    note: "",
+                }),
             }) },
             resources: {
                 people: Schedule.resources(people.read(), { name: "People", icon: "user", label: p => p.name, group: p => p.team,
@@ -188,7 +197,7 @@ export function warehouseRoster(options: { readonly locked?: boolean; readonly f
                 agencies: Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name }),
             },
             periods: Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed" }),
-            targets: Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" }),
+            targets: Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours", values: _t => ({ basis: "planner" }) }),
             shifts: Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order }),
             groups: Roster.groups(teams.read(), { label: t => t.label, order: t => t.order }),
             positions: Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order }),

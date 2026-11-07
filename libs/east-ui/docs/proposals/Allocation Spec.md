@@ -173,10 +173,17 @@ take the bin row type, because an East function has one type —
 and needs none.
 
 A booking writes the bin's roles and the arrival's `values` into the row's other
-fields; a reservation's other fields are their type's default (East's
-`defaultValue`), as the mock's reservations are blank. Cards drag between bay
-hours, the connector links, every gesture is one undo step, and Save sends the
-changed bins and the day's status, each record its own request.
+fields. A reservation's other fields are what the bin kind's `values` gives of
+it: an East function from `Allocation.Types.NewBin`, the roles a reservation
+writes (`at`, `lane`, `quantity`, `parts`, `hold` and `kind`), to the row's
+fields no role maps. It is checked once at build: a field missing, extra or of
+another type is refused, naming it. The kiln yard's reservation books its kind
+as its spec, with the instruction `Hold for the next load`. Without `values`,
+each takes its type's default (East's `defaultValue`), as the mock's
+reservations are blank. A bin booked from an arrival takes the arrival's
+`values`, never the kind's. Cards drag between bay hours, the connector links,
+every gesture is one undo step, and Save sends the changed bins and the day's
+status, each record its own request.
 
 ### 3.4 The example set
 
@@ -186,7 +193,7 @@ records, and each is paired with its behavioural tests.
 | Example | Shows |
 |---|---|
 | `allocationMinimal` | §3.1: the bins, the bays, the loads and the kilns, and the yard's fit. |
-| `allocationKilnYard` | §3.1, Timeline. |
+| `allocationKilnYard` | §3.1, Timeline; a reservation's own fields from the bin kind's `values`. |
 | `allocationTable` | The same, `view={{ layout: "table" }}`. |
 | `allocationLabels` | The Table in the yard's own words and shifts: `labels={{ lane: "Bay", arrival: { one: "Delivery", other: "Deliveries" }, resource: "Kiln", quantity: "Vol" }}`, `table={{ bands }}` Night · Day shift · Evening. |
 | `allocationPublished` | A published day (Tue 4 May): read-only; navigation, narrowing, focus, links and the inspector still work. |
@@ -204,7 +211,7 @@ accessors keep the meanings they had here; where each now lives:
 
 | Was | Is | What it gives the board |
 |---|---|---|
-| `days`, `window` | `events={{ <slot>: Schedule.events(bins, …) }}`, an instant kind with `at`, `resource` (the lane), `arrival`, `quantity`, `parts`, `hold` and `kind?` | The bins: the app's rows, each a booking in a lane slot and its parts on resources |
+| `days`, `window` | `events={{ <slot>: Schedule.events(bins, …) }}`, an instant kind with `at`, `resource` (the lane), `arrival`, `quantity`, `parts`, `hold`, `kind?` and `values?` (a reservation's other fields, §3.1) | The bins: the app's rows, each a booking in a lane slot and its parts on resources |
 | the day's status in `Days(V)`; `publish` | `periods={Schedule.periods(days, { every: "day", status })}`; leave it out for no Publish | The day's stored status and Publish |
 | `Allocation.events(rows, { label, quantity, hold, kind?, meta?, due?, window?, details?, values })` | `Allocation.arrivals(rows, { label, quantity, hold, kind?, meta?, due?, window?, details?, values? })` | Every arrival the day may book. `values` now returns the bin row's own fields, the ones no role maps; without it they take their type's default |
 | `Allocation.lanes(rows, { label, offset? })` | a `Schedule.resources` kind (`label`, `offset?`), the one the bin kind's `resource.of` names | The lanes, in key order |

@@ -248,10 +248,15 @@ the inspector, when the kind is bound with its patch door.
 | `layer`? | `String` | the inspector | its layer |
 
 Options are `name`, `icon`, `entries`, `details`, `templates` (§4.6, which
-retype a link), `fields`, `inspector` and `ready`. A link Connect records
-writes `from` and `to`. Its other fields take their type's default (East's
-`defaultValue`), or the values of the link template selected when the drag
-began (§7).
+retype a link), `values`, `fields`, `inspector` and `ready`. A link Connect
+records writes `from` and `to`. Its other fields are the values of the link
+template selected when the drag began (§7), or, with none selected, what the
+kind's `values` gives of its ends: an East function from
+`Schematic.Types.Ends`, `{ from, to }`, each a `Ref`, to every field of the
+row but the two its `from` and `to` name, `via` and `layer`'s among them. It is
+checked once at build: a field missing, extra or of another type is refused,
+naming it. Without `values`, each takes its type's default (East's
+`defaultValue`).
 
 ### 4.4 `Schematic.nets(record, config)`
 
@@ -260,7 +265,9 @@ began (§7).
 | `sources`, `destinations` | `{ field, of }`: a `Set<String>` or `Array<String>` field of item keys, `of` as a link's | Connect's Shift session, a leg's Delete, Extend | the trunk's two sides |
 | `via`?, `label`?, `metric`?, `style`?, `route`?, `layer`? | as a link's | | |
 
-Options are as a link's.
+Options are as a link's. A net's `values` hears its `Schematic.Types.Sides`,
+`{ sources, destinations }`, each an `Array` of `Ref`s, and gives every field
+but the two its sides name.
 
 ### 4.5 `Schematic.details(record, config)`
 
@@ -307,7 +314,8 @@ app's records hold their own types, which its accessors map (D35). It adds:
 
 - `Ref`, `{ kind: String, key: String }`: an entity named by its slot and its key;
 - `Box`, `{ minX, minY, maxX, maxY }` in world units;
-- `Candidate`, `{ kind: String, from: Ref, to: Ref }`: the link or net a Connect, a Retarget or an Extend would write, and its two items, as `canConnect` hears it (§5).
+- `Candidate`, `{ kind: String, from: Ref, to: Ref }`: the link or net a Connect, a Retarget or an Extend would write, and its two items, as `canConnect` hears it (§5);
+- `Ends`, `{ from: Ref, to: Ref }`, and `Sides`, `{ sources: Array<Ref>, destinations: Array<Ref> }`: a new link's ends and a new net's sides, as its kind's `values` hears them (§4.3, §4.4).
 
 These helpers stay: `outline`, `hatch`, `solid`, `dashed`, `rect`, `circle`,
 `polyline` and `polygon`. `polygon` and `polyline` take the row's own points,
@@ -334,7 +342,7 @@ Each kind is built under its slot into a closed struct, as
 - `rows(where)`: the kind's stored rows a read holds, by key, each one's roles beside its bytes, read in one pass;
 - `read(bytes, key)`: a drafted row's roles;
 - `write(bytes, roles)`: the row with its mapped fields written and every other field as it was;
-- `create(roles, values?)`: a new row, with its mapped fields written and every other field from a template's values or its type's default;
+- `create(roles, values?)`: a new row, with its mapped fields written and every other field from a template's values, else the kind's `values` of its ends or sides, else its type's default;
 - `editing`: the shared session over the record (`scheduleRecordSession`), with its patch door;
 - `entries`: the record read by key;
 - `history`, `fields`, `inspector`, `ready`, `templates` and `templatesSource`;
@@ -472,7 +480,7 @@ whole and for the drawing's read — and the footer's line.
 | Gesture | Records | One step writes |
 |---|---|---|
 | Move (Move tool) | the item kinds | every selected item's `x`, `y` by the drag's delta, clamped to the extent; on release |
-| Connect (Connect tool) | a link kind | a new link, its `from` and `to`, its key minted |
+| Connect (Connect tool) | a link kind | a new link, its `from` and `to`, its key minted, its other fields the selected template's or its kind's `values` (§4.3) |
 | Shift + Connect | a net kind | the session's net: its `sources` and `destinations`. The first Shift-extension turns the session's link into a net, deleting the link it absorbed |
 | Retarget (a selected link's end handle) | a link kind | the link's `from` or `to` |
 | Extend (Shift-drag from a member of a selected net) | a net kind | its `destinations` |
@@ -996,7 +1004,7 @@ records in the file, and each Schematic named by its `id`:
 | Example | Shows |
 |---|---|
 | `schematicFloor` | the smallest: one hall's racks, read only (`Data.bind`), no panes |
-| `schematicDataCentre` | the builder: racks, cooling units and power distribution units (three item kinds); halls and cages; hot and cold aisles; fibre runs; power feeds as nets; the racks' loads as details (cards and inspector); rack and fibre templates; Templates, Backlog, Index and Layers, its layers a systems record; the rail; `narrowed="dim"`; the inspector, and a kind's own Details; `onSelect`, the whole selection kept in a State of the host's; and `canConnect`, a run between two frames refused in its words. Its records hold their own fields, mapped by accessors: a cooling unit's radius, an area's kind, a fibre run's cable |
+| `schematicDataCentre` | the builder: racks, cooling units and power distribution units (three item kinds); halls and cages; hot and cold aisles; fibre runs; power feeds as nets; the racks' loads as details (cards and inspector); rack and fibre templates; Templates, Backlog, Index and Layers, its layers a systems record; the rail; `narrowed="dim"`; the inspector, and a kind's own Details; `onSelect`, the whole selection kept in a State of the host's; and `canConnect`, a run between two frames refused in its words; a fibre run or a trunk drawn with no template on the network layer, from its kind's `values`. Its records hold their own fields, mapped by accessors: a cooling unit's radius, an area's kind, a fibre run's cable |
 | `schematicShapes` | read only: polygon, circle and polyline footprints and zones, built by accessors from the rows' own fields; tones and theme colours; layers from a systems record |
 | `schematicRecordIndexes` | 20,000 racks — each hall's first 20 rows, so neither the showcase nor a test deploys the 50,000 a full floor holds (ruled 23 Oct 2026); the budget run fills the floor through the patch doors — over the area index (`racks_by_area`, with `racks_by_hall_area` beside it, at a 1 cm cell), read from the index alone; the density layer at fit zoom, the footer saying how many racks it shades; the rail; and the racks' loads, bound with `Data.bindPaged` and read by the runs the window's cells are of the area index (D45), a cell's once, so a dot draws its rack's alarm; and the racks bound with their patch door, a move a draft wherever the window goes, Save writing it through the door. Its record is seeded by the pure generator that also runs as an e3 task, as `sheetRecordIndexes`' is |
 | `schematicRecordIndexesMobile` | the same in a phone-width container, with the inspector: nothing drags, so a rack found or tapped shows in Details, its `x` and `y` moving it, each a draft Save writes through the racks' patch door |
@@ -1014,7 +1022,7 @@ records in the file, and each Schematic named by its `id`:
 | SC6 | Save sends each changed record's batch as its own request; a conflict on one keeps its drafts and leaves the others committed. | `editing/history.ts` | DOM: one refused write |
 | SC7 | A new item's, link's or net's key is minted unique among every key read and drafted. | renderer | DOM |
 | SC8 | Move moves the selection rigidly, clamped to the extent, as one step on release; Esc or a lost pointer puts it back. | renderer canvas | DOM; responsive drag |
-| SC9 | Connect records a link of the tool's kind, `from` and `to` written and its other fields defaulted or from the selected template. Shift grows the session into a net. `canConnect` vetoes a pair: the draft goes danger, doesn't snap, and shows the veto's words. | renderer | DOM; responsive |
+| SC9 | Connect records a link of the tool's kind, `from` and `to` written and its other fields from the selected template, else its kind's `values` of its ends, else defaulted; a net the same from its sides. A `values` with a field missing, extra or of another type is refused at build, naming it. Shift grows the session into a net. `canConnect` vetoes a pair: the draft goes danger, doesn't snap, and shows the veto's words. | renderer, `kinds.ts` (`values`) | DOM; responsive; spec |
 | SC10 | Retarget writes the end it moves; Extend adds a net destination; Del on a leg removes its endpoint, and on a side's last member deletes the net. | renderer | DOM |
 | SC11 | A link template dropped on a link writes its values and never its ends or key. | renderer `drop.ts` | DOM |
 | SC12 | An item template dropped on the canvas adds an item at the drop point, minted and selected. | renderer `drop.ts` | DOM; responsive |

@@ -866,6 +866,48 @@ describe("a link kind's, a net kind's, a zone kind's and a details record's clos
         if (feed.type !== "some") assert.fail("name is the feed's");
         assert.ok(equalFor(Feed)(decodeBeast2For(Feed)(feed.value), { ...f1, name: "Feed A" }));
     });
+
+    hostTest("a link or a net drawn with no template selected takes its kind's `values` of its ends or its sides; a template's values stand in their place (#1526)", () => {
+        const valued = kindOf(Schematic.Types.LinkKind, ($) => {
+            const record = $.let(fibreRecord());
+            return Schematic.links(record, {
+                name: "Fibre run", icon: "bolt", via: "path",
+                from: { field: "from", of: { rack: "racks", frame: "network" } }, to: { field: "to", of: { rack: "racks", frame: "network" } },
+                values: (ends) => ({ path: [], speed: "10G", colour: East.str`${ends.from.key} to ${ends.to.key}` }),
+            }).build("fibre");
+        });
+        const drawn = valued.create({ from: refOf("racks", "A01"), to: refOf("network", "ODF-1") }, none);
+        if (drawn.type !== "some") assert.fail("Connect records a link");
+        assert.ok(equalFor(FibreType)(fibreOf(drawn.value), { from: variant("rack", "A01"), to: variant("frame", "ODF-1"), path: [], speed: "10G", colour: "A01 to ODF-1" }),
+            "its ends written over the kind's values of them");
+        const Values = StructType({ path: ArrayType(Corner), speed: StringType, colour: StringType });
+        const templated = valued.create({ from: refOf("racks", "A01"), to: refOf("racks", "A02") }, some(encodeBeast2For(Values)({ path: [], speed: "400G", colour: "yellow" })));
+        if (templated.type !== "some") assert.fail("a template's link");
+        assert.ok(equalFor(FibreType)(fibreOf(templated.value), { from: variant("rack", "A01"), to: variant("rack", "A02"), path: [], speed: "400G", colour: "yellow" }),
+            "a template selected: its values, never the kind's");
+        const nets = kindOf(Schematic.Types.NetKind, ($) => {
+            const record = $.let(feedsRecord());
+            return Schematic.nets(record, {
+                name: "Feed", icon: "plug", sources: { field: "supply", of: "racks" }, destinations: { field: "racks", of: "racks" },
+                values: (sides) => ({ name: East.str`Feed to ${East.print(sides.destinations.size())}` }),
+            }).build("feeds");
+        });
+        const feed = nets.create({ sources: [refOf("racks", "A01")], destinations: [refOf("racks", "A02"), refOf("racks", "A03")] }, none);
+        if (feed.type !== "some") assert.fail("a net drawn");
+        assert.ok(equalFor(Feed)(decodeBeast2For(Feed)(feed.value), { supply: new Set(["A01"]), racks: ["A02", "A03"], name: "Feed to 2" }));
+        // Held at build to every field but the ends, as the kind's templates are.
+        const links = (values: unknown) => built(($) => {
+            const fibre = $.let(fibreRecord());
+            return floor($, { links: { fibre: Schematic.links(fibre, {
+                name: "Fibre run", icon: "bolt", from: { field: "from", of: { rack: "racks", frame: "network" } }, to: { field: "to", of: { rack: "racks", frame: "network" } },
+                values: values as never,
+            }) } });
+        });
+        assert.throws(() => links(() => ({ speed: "10G", colour: "" })),
+            /Schematic\.links: "Fibre run": `values` gives every one of a new row's own fields \(path, speed, colour\) — and it leaves out "path"/);
+        assert.throws(() => links((ends: ExprType<typeof Schematic.Types.Ends>) => ({ from: variant("rack", ends.from.key), path: [], speed: "", colour: "" })),
+            /`values` gives "from", which the builder writes itself — it gives a new row's own fields \(path, speed, colour\)/);
+    });
 });
 
 // ============================================================================

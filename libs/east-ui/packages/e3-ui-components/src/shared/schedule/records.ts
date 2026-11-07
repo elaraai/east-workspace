@@ -197,21 +197,23 @@ export function periodRowsRead(periods: SchedulePeriodsValue, from: Date, to: Da
 /**
  * The period's row as Publish writes it: its status the published case, at
  * the time given — over the row as the periods' session last saw it saved,
- * else as the builder read it, else a new one.
+ * else as the builder read it, else a new one, its own fields the periods'
+ * `values` of its start (#1526).
  *
  * @param periods - The builder's periods
  * @param schedule - The editing over the builder's records
  * @param record - What a change names the periods' record by
  * @param id - The period's key's text
+ * @param start - The period's start: its key
  * @param stored - The period's row as the builder read it
  * @param at - When it is published
  * @returns The change
  */
-export function periodPublishChange(periods: SchedulePeriodsValue, schedule: Pick<ScheduleEditing, "held">, record: string, id: string,
+export function periodPublishChange(periods: SchedulePeriodsValue, schedule: Pick<ScheduleEditing, "held">, record: string, id: string, start: Date,
     stored: Uint8Array | undefined, at: Date): ScheduleChange {
     const saved = schedule.held(record, id);
     const row = saved !== undefined ? rowCodec(periods.rowType).encode(saved) : stored;
-    return { kind: record, id, row: periods.publish(row === undefined ? none : some(row), at) };
+    return { kind: record, id, row: periods.publish(start, row === undefined ? none : some(row), at) };
 }
 
 /**

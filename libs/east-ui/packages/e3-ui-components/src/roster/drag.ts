@@ -138,7 +138,7 @@ function rosterDrag({ value, commands, week, duties, weeks, context, storageKey,
         const who = variant("person", person);
         const roles = times.newDuty(who, slot, start, positionFor(value, who), none, context);
         if (roles.type !== "some") return undefined;
-        const bytes = value.duty.create(roles.value);
+        const bytes = value.duty.create({ ...roles.value, pattern: none });
         if (bytes.type !== "some") return undefined;
         return { slot, who, position: roles.value.position.type === "some" ? roles.value.position.value : "", activity: none,
             start: roles.value.start, end: roles.value.end, hours: roles.value.hours, row: domain.decodeRow(bytes.value) };

@@ -213,6 +213,7 @@ Task → What do you need?
     ├─ Draw the app's records at world coordinates — a floor, a site — the Schematic
     │   ├─ A kind per record, under its slot                   → <Schematic extent={{ width, height }} items={{ racks: Schematic.items(record, { name, icon, x, y, label, … }) }} zones={{ … }} links={{ … }} nets={{ … }} />
     │   ├─ Editable, or read only                              → Record.bind(record) · Data.bind(record)
+    │   ├─ A link or net drawn with no template: its fields    → the kind's values: (ends) => ({ … }), over Schematic.Types.Ends (a net's, Sides)
     │   ├─ Narrow its kinds and templates — one rail           → slice={{ slice: Slice.bindRecords(key, { <a kind's slot>: { source: Data.bindPaged(record, { indexes }) }, … }) }} (+ the kind's entries: Data.bindPaged(record))
     │   ├─ A floor too large to read whole: a window at a time → its source lists index.area({ x, y, width, height, at: "centre", cell }); past 5,000 rows in view, their density
     │   ├─ Shapes from the row's own fields                    → footprint: (u) => some(Schematic.circle(u.radius)) · a zone's geometry: (a) => some(Schematic.polygon(a.corners))
@@ -229,6 +230,7 @@ Task → What do you need?
     │   ├─ Who is rostered                                            → resources={{ people: Schedule.resources(staff.read(), { name, icon, label, group, … }), agencies? }}
     │   ├─ The lists it reads, over the app's rows                    → Roster.shifts / groups / positions / activities / proposals(rows, { … })
     │   ├─ Publish, and the targets: the app's weeks and cover        → periods={Schedule.periods(Record.bind(weeks), { every: "week", status, dismissed? })} · targets={Roster.targets(Record.bind(cover), { day, group, shift, positions, hours })}
+    │   ├─ A new duty's, target's and week's own fields               → values: (d) => ({ … }) on the duty kind, over Roster.Types.NewDuty · Roster.targets(…, { values }) · Schedule.periods(…, { values })
     │   ├─ Costs in the app's own pay codes                           → pay={fn(Roster.Types.PayRequest(R)) → Roster.Types.Pay} currency="…"
     │   ├─ Who fits a Find fix: the app's fit, on e3                  → fit={Func.bind(e3.function)} from Roster.Types.FitRequest(R) to FitResult, over Roster.answer(R) + Roster.fit(R)
     │   ├─ The app's optimiser over the week                          → optimise={Func.bind(e3.function)} from Roster.Types.OptimiseRequest(R) to Roster.Types.OptimiseResult(R)
@@ -241,6 +243,7 @@ Task → What do you need?
     │
     ├─ Book a day's arrivals into lane slots, each bin on its resources — the Allocation
     │   ├─ The bins: the app's record, an instant kind                → events={{ bin: Schedule.events(Record.bind(bins), { at, resource: { field, of: "<lanes>" }, arrival, quantity: { field, unit }, parts: { field, of: "<resources>" }, hold, kind? }) }}
+    │   ├─ A reservation's own fields                                 → the bin kind's values: (b) => ({ … }), over Allocation.Types.NewBin; a booked bin takes its arrival's values
     │   ├─ The lanes and the resources                                → resources={{ <lanes>: Schedule.resources(rows, { name, icon, label, offset? }), <resources>: Schedule.resources(rows, { name, icon, label, min, max, … }) }}
     │   ├─ What it books from                                         → arrivals={Allocation.arrivals(rows, { label, quantity, hold, kind?, values?, … })}
     │   ├─ Publish: the app's days                                    → periods={Schedule.periods(Record.bind(days), { every: "day", status })}

@@ -104,7 +104,7 @@ describe("Roster shared drag layer", () => {
             && byDate(duty.start, thursday) >= 0 && byDate(duty.start, friday) < 0)).toHaveLength(1);
     });
     test("an agency request fills a slot but refuses an activity", async () => {
-        // The warehouse's roster with no check of its own on a draft: a request saves with no cost centre given.
+        // The warehouse's roster with no check of its own on a draft: a request saves with the fields the app's `values` give it.
         const { container: c } = await h.mount(warehouseRoster());
         const original = await h.read(ex.rosterDuties);
         await drop(await libraryCard(c, "Northside Staffing"), cell(c, 4, "inbound", "night"));

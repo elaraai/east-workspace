@@ -200,8 +200,8 @@ export const allocationViews = example({
 });
 
 export const allocationKilnYard = example({
-    description: "The kiln yard's board over its own records: its bins, each with the yard's spec and grade beside the board's roles, read a day at a time through the slice; the days it publishes; a check over the bins' own fields; the rail over the bays, the kilns and the loads — each source with its icon, and each narrowing every place its rows appear, the Library's tabs included; the yard's fields as columns; the Arrivals and Resources library; the inspector; and the yard's greedy fit on e3.",
-    keywords: ["Allocation", "Schedule.events", "Schedule.resources", "Schedule.periods", "Allocation.arrivals", "Slice.bindRecords", "Data.bindPaged", "Func.bind", "fit", "check", "columns", "links", "Publish", "Library", "narrowing"], inputs: [],
+    description: "The kiln yard's board over its own records: its bins, each with the yard's spec and grade beside the board's roles, read a day at a time through the slice; the days it publishes; a check over the bins' own fields; a booked bin's own fields from its load's `values`, a reservation's from the bin kind's; the rail over the bays, the kilns and the loads — each source with its icon, and each narrowing every place its rows appear, the Library's tabs included; the yard's fields as columns; the Arrivals and Resources library; the inspector; and the yard's greedy fit on e3.",
+    keywords: ["Allocation", "Schedule.events", "Schedule.resources", "Schedule.periods", "Allocation.arrivals", "Slice.bindRecords", "Data.bindPaged", "Func.bind", "fit", "check", "values", "reservation", "Allocation.Types.NewBin", "columns", "links", "Publish", "Library", "narrowing"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         // What the board writes: the bins and the days of the plan, each through its patch door.
         const bins = $.let(Record.bind(kilnBins));
@@ -255,6 +255,12 @@ export const allocationKilnYard = example({
                 at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
                 quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
                 fields: { specMeasured: Schedule.field.text({ label: "Spec measured" }), instruction: Schedule.field.text({ label: "Loading instruction" }) },
+                // A reservation's own fields, the yard's: the spec it is held for, booked and measured alike until a load comes, no
+                // grade yet, and its instruction. A bin booked from a load takes the load's `values` below.
+                values: r => ({
+                    specBooked: r.kind.unwrap("some", () => ""), specMeasured: r.kind.unwrap("some", () => ""),
+                    gradeBooked: "", gradeMeasured: "", instruction: some("Hold for the next load"),
+                }),
             }) }}
             resources={{
                 bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),

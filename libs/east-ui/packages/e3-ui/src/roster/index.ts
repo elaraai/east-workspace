@@ -38,7 +38,7 @@ import type { ScheduleEventKind } from "../schedule/events.js";
 import { ScheduleAuthorTabType, buildScheduleTab } from "../schedule/library.js";
 import type { SchedulePeriods } from "../schedule/periods.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
-import { ScheduleClockType, SchedulePeriodsKindType, ScheduleRosterKindType } from "../schedule/types.js";
+import { ScheduleClockType, SchedulePeriodsKindType, ScheduleRosterKindType, ScheduleRosterNewDutyType } from "../schedule/types.js";
 import { optimiseBinding, type OptimiseContract } from "../utils/optimise.js";
 import { recordSources } from "../utils/record-sources.js";
 import { firstView, literalViews, viewsProp, type ViewsProp } from "../utils/views.js";
@@ -714,6 +714,10 @@ export interface RosterNamespace {
         FitResult: T.RosterFitResultType; Fit: T.RosterFitType; Refusal: T.RosterRefusalType; PayRequest: typeof T.RosterPayRequestTypeFor;
         Pay: T.RosterPayType; Layout: typeof RosterLayoutType; Period: typeof RosterPeriodType; Pattern: T.RosterPatternType;
         TileTimes: typeof RosterTileTimesType; OptimiseRequest: typeof T.RosterOptimiseRequestTypeFor; OptimiseResult: typeof T.RosterOptimiseResultTypeFor;
+        /** A new duty, its roles and the pattern whose day made it: what the duty kind's `values` gives its own fields from (#1526). */
+        NewDuty: typeof ScheduleRosterNewDutyType;
+        /** A new target, its roles: what `Roster.targets`' `values` gives its own fields from (#1526). */
+        NewTarget: T.RosterTargetRolesType;
     };
 }
 
@@ -745,6 +749,7 @@ export const Roster: RosterNamespace = Object.assign(
             FitResult: T.RosterFitResultType, Fit: T.RosterFitType, Refusal: T.RosterRefusalType, PayRequest: T.RosterPayRequestTypeFor,
             Pay: T.RosterPayType, Layout: RosterLayoutType, Period: RosterPeriodType, Pattern: T.RosterPatternType,
             TileTimes: RosterTileTimesType, OptimiseRequest: T.RosterOptimiseRequestTypeFor, OptimiseResult: T.RosterOptimiseResultTypeFor,
+            NewDuty: ScheduleRosterNewDutyType, NewTarget: T.RosterTargetRolesType,
         },
     },
 );

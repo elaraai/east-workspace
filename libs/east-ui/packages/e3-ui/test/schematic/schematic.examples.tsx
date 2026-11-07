@@ -423,8 +423,9 @@ export const schematicDataCentre = example({
         "Schematic.layers", "Schematic.library", "Schematic.library.tab", "Schematic.patch", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "records",
         "details", "templates", "backlog", "layers", "narrowed", "inspector", "accessor", "id", "onSelect", "canConnect", "Schematic.Types.Ref",
         "Schematic.Types.Candidate", "veto", "editing", "Save", "undo", "Move", "Connect", "nets", "drag and drop", "drop",
+        "values", "Schematic.Types.Ends", "Schematic.Types.Sides",
     ],
-    description: "A data centre floor over the app's records, each holding its own fields: racks read through their source of the slice, editable with their patch door, their loads as details on each card, editable in the inspector; network frames, round cooling units with their own Details and power distribution units; halls, cages and aisles, outlined or hatched by what they are; fibre runs between racks and frames, solid or dashed by their cable, a run between two frames refused in the veto's words; power feeds, and fibre trunks a Shift-connect gathers runs into, none onto the core; every gesture a step of one history, Save writing each record through its patch door; the inspector; the whole selection kept by the host; and in the library every kind's templates, dropped on the canvas or on a fibre run, the racks with no position, a drop placing one, the zones' index, the layers, a systems record, and the floor's owners, an owner's card dropped on a rack making it the rack's owner",
+    description: "A data centre floor over the app's records, each holding its own fields: racks read through their source of the slice, editable with their patch door, their loads as details on each card, editable in the inspector; network frames, round cooling units with their own Details and power distribution units; halls, cages and aisles, outlined or hatched by what they are; fibre runs between racks and frames, solid or dashed by their cable, a run between two frames refused in the veto's words; power feeds, and fibre trunks a Shift-connect gathers runs into, none onto the core; a run or a trunk drawn with no template selected on the network layer, its kind's `values`; every gesture a step of one history, Save writing each record through its patch door; the inspector; the whole selection kept by the host; and in the library every kind's templates, dropped on the canvas or on a fibre run, the racks with no position, a drop placing one, the zones' index, the layers, a systems record, and the floor's owners, an owner's card dropped on a rack making it the rack's owner",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const racks = $.let(Record.bind(schematicRacks));
@@ -548,6 +549,8 @@ export const schematicDataCentre = example({
                                 to: { field: "to", of: { rack: "racks", frame: "network" } },
                                 label: (f) => f.label, metric: (f) => f.speed,
                                 style: (f) => f.cable.match({ fibre: (_$2) => Schematic.solid(), logical: (_$2) => Schematic.dashed() }),
+                                // A run drawn with no template selected: a fibre run on the network layer, every field but its ends.
+                                values: (_ends) => ({ path: [], label: none, speed: none, cable: variant("fibre", null), system: "network" }),
                                 templates: Schematic.templates(fibreTemplates.read(), {
                                     name: (t) => t.name, group: (t) => some(t.system), values: (t) => t.values, source: "fibreTemplates",
                                 }),
@@ -564,6 +567,8 @@ export const schematicDataCentre = example({
                                 name: "Fibre trunk", icon: "diagram-project", layer: "system",
                                 sources: { field: "racks", of: "racks" }, destinations: { field: "frames", of: "network" },
                                 label: (t) => t.label,
+                                // A trunk a Shift-connect grows: on the network layer, every field but its sides.
+                                values: (_sides) => ({ label: none, system: "network" }),
                             }),
                         }}
                         layers={Schematic.layers(systems.read(), {

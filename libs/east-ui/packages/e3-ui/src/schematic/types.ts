@@ -752,7 +752,7 @@ export type SchematicZoneKindType = typeof SchematicZoneKindType;
  * @property rows - Its stored links a read holds, by key, each its roles and its row
  * @property read - A drafted row's roles, from its bytes and its key
  * @property write - The row with its ends written and every other field as it was; `none` for an end of a slot its field holds no keys of
- * @property create - A new link between two items, every other field from a template's values or its type's default; `none` as `write` refuses
+ * @property create - A new link between two items, every other field from a template's values, the kind's `values` of its ends with none selected (#1526), or its type's default; `none` as `write` refuses
  * @property templates - Its templates, which retype a link they are dropped on
  * @property templatesSource - The slice's source its templates list names
  */
@@ -777,7 +777,7 @@ export type SchematicLinkKindType = typeof SchematicLinkKindType;
  * @property rows - Its stored nets a read holds, by key, each its roles and its row
  * @property read - A drafted row's roles, from its bytes and its key
  * @property write - The row with its sides written and every other field as it was; `none` for a member of a slot a side holds no keys of
- * @property create - A new net, every other field from a template's values or its type's default; `none` as `write` refuses
+ * @property create - A new net, every other field from a template's values, the kind's `values` of its sides with none selected (#1526), or its type's default; `none` as `write` refuses
  * @property templates - Its templates
  * @property templatesSource - The slice's source its templates list names
  */

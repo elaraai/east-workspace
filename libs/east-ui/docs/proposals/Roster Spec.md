@@ -1038,6 +1038,19 @@ mock.
   racing with Save returns the shared conflict banner. Both preserve the drafts
   and the newer stored value. Discard drops the week's drafts and adopts the
   latest record. Unconfirmed outcomes retain the same write identity for retry.
+- **B61.** *Product.* A new row's own fields are the app's. A duty the Roster
+  makes (a person or a request rostered on a slot, a pattern's day, a Find
+  fix) writes the roles the gesture decides over what the duty kind's
+  `values` gives of it: `Roster.Types.NewDuty`, those roles and the pattern
+  that made it. A slot's first target writes its roles over `Roster.targets`'
+  `values` of it (`Roster.Types.NewTarget`), and a week's period row, made at
+  its first Save or Publish, over `Schedule.periods`' `values` of its start
+  (`Schedule.Types.NewPeriod`). Each `values` is checked once at build: a
+  field missing, extra or of another type is refused, naming it. Without
+  `values`, each field takes its type's default. The warehouse's duties take
+  half an hour's break on a shift over six hours and their team's cost centre,
+  its targets the planner's basis, and its new weeks the approver `Ops`
+  (builder-interfaces spec §5.2).
 
 ### 9.12 The People layout (owner: People layout, *product*)
 
