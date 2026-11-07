@@ -352,6 +352,7 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
  * not known, the stale count until every row shown is read — then where a row's fields show.
  */
 function RecordNothing({ styles, inspect, words, columns }: { styles: Styles; inspect: SheetInspect; words: SheetWords; columns: SheetColumnIndex }) {
+    const { styles: record } = useRecordGrid();
     const entries = useSheetEntries();
     const now = useRecordNow();
     const shown = entries.count.shown;
@@ -366,7 +367,7 @@ function RecordNothing({ styles, inspect, words, columns }: { styles: Styles; in
             <Box css={styles.stats} data-inspector-counts="">
                 {stats.map(([stat, text]) => (
                     <Box key={stat} css={styles.stat} data-count={stat}>
-                        <Box as="span" css={styles.statValue}>{text ?? rm.absent()}</Box>
+                        <Box as="span" css={[styles.statValue, record.statValue]}>{text ?? rm.absent()}</Box>
                         <Box as="span" css={styles.statLabel}>{rm.detailsStat({ stat })}</Box>
                     </Box>
                 ))}
