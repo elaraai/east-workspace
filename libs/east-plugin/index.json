@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1318,
+    "totalEntries": 1321,
     "totalFiles": 222,
     "packages": {
       "east": 584,
@@ -9,8 +9,8 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 308,
-      "e3-ui": 177,
-      "e3": 23,
+      "e3-ui": 179,
+      "e3": 24,
       "e3-ui-cli": 8,
       "e3-create": 6
     }
@@ -40979,7 +40979,7 @@
         "FunctionDef"
       ],
       "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { ArrayType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, variant } from \"@elaraai/east\";",
         "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Func } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -40988,6 +40988,35 @@
         "tsx"
       ],
       "source": "// Bind an e3.function def; a button launches it and a stat shows the result\n// inputs: []\nexport const forecastFn = e3.function(\"forecast\", East.function([IntegerType, FloatType], FloatType, (_$, _periods, growth) => growth));\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const forecast = $.let(Func.bind(forecastFn));\n            const run = $.const(East.function([], NullType, $ => {\n                $(forecast.call(12n, 1.05));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Button onClick={run} loading={forecast.pending()}>Run forecast</Button>\n                    <Stat label=\"Forecast\" value={East.print(forecast.read())} />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:func.examples.tsx:funcBindInputs",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/func/func.examples.tsx",
+      "suite": "",
+      "test": "Bind an e3.function that reads the workspace: its call takes the order alone, and each call reads the prices and stock as stored",
+      "keywords": [
+        "Func",
+        "bind",
+        "call",
+        "inputs",
+        "args",
+        "e3.function",
+        "workspace",
+        "quote",
+        "reads datasets"
+      ],
+      "imports": [
+        "import { ArrayType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, variant } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Func } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Bind an e3.function that reads the workspace: its call takes the order alone, and each call reads the prices and stock as stored\n// inputs: []\nexport const OrderLineType = StructType({ sku: StringType, quantity: IntegerType });\n\nexport const QuoteType = StructType({ total: FloatType, short: ArrayType(StringType) });\n\nexport const unitPrices = e3.input(\"unit_prices\", DictType(StringType, FloatType), variant(\"value\", new Map([[\"bolt\", 0.25], [\"nut\", 0.1]])));\n\nexport const stockOnHand = e3.input(\"stock_on_hand\", DictType(StringType, IntegerType), variant(\"value\", new Map([[\"bolt\", 500n], [\"nut\", 40n]])));\n\nexport const quoteFn = e3.function(\"quote\", {\n    inputs: [unitPrices, stockOnHand],\n    args: [ArrayType(OrderLineType)],\n    output: QuoteType,\n}, ($, prices, stock, lines) => {\n    const total = $.let(0.0);\n    const short = $.let([], ArrayType(StringType));\n    $.for(lines, ($, line) => {\n        $.assign(total, total.add(prices.get(line.sku, () => 0.0).multiply(line.quantity.toFloat())));\n        $.if(East.less(stock.get(line.sku, () => 0n), line.quantity), $ => {\n            $(short.pushLast(line.sku));\n        });\n    });\n    return { total, short };\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const quoting = $.let(Func.bind(quoteFn));\n            const draft = $.let([{ sku: \"bolt\", quantity: 120n }, { sku: \"nut\", quantity: 60n }], ArrayType(OrderLineType));\n            const run = $.const(East.function([], NullType, $ => {\n                $(quoting.call(draft));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Button onClick={run} loading={quoting.pending()}>Quote order</Button>\n                    <Stat label=\"Quote\" value={East.print(quoting.read())} />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:func.examples.tsx:funcBindStatus",
@@ -41005,7 +41034,7 @@
         "lifecycle"
       ],
       "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { ArrayType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, variant } from \"@elaraai/east\";",
         "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Func } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41030,7 +41059,7 @@
         "abort"
       ],
       "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { ArrayType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, variant } from \"@elaraai/east\";",
         "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Func } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41056,7 +41085,7 @@
         "name"
       ],
       "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { ArrayType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, variant } from \"@elaraai/east\";",
         "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Func } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -44254,6 +44283,33 @@
       "source": "// The Record's looks, as the designer's tweaks show them: a rota with a cell of every Record kind, each cycle and toggle as a chip and as a mark side by side, under a density control that steps its rows through comfortable, compact and condensed\n// inputs: []\nexport const Rota = StructType({\n    name: StringType, supervisor: OptionType(StringType), inducted: BooleanType,\n    nights: BooleanType, weekends: BooleanType, forklift: StringType, scanner: StringType, days: StringType, evenings: StringType,\n    updated: OptionType(Record.Types.Change),\n});\n\nexport const recordRota = e3.record(\"record_rota\", DictType(StringType, Rota), {\n    initial: new Map([\n        [\"R-01\", { name: \"A. Morgan\", supervisor: some(\"S. Park\"), inducted: true, nights: false, weekends: true, forklift: \"2\", scanner: \"1\",\n            days: \"prefer\", evenings: \"can\", updated: some({ at: new Date(\"2026-09-18T09:12:00Z\"), by: \"M. Hale\", verb: \"confirmed\" }) }],\n        [\"R-02\", { name: \"B. Ellis\", supervisor: none, inducted: false, nights: true, weekends: false, forklift: \"0\", scanner: \"2\",\n            days: \"can\", evenings: \"cannot\", updated: none }],\n        [\"R-03\", { name: \"C. Patel\", supervisor: some(\"J. Ortiz\"), inducted: true, nights: true, weekends: true, forklift: \"1\", scanner: \"0\",\n            days: \"cannot\", evenings: \"prefer\", updated: some({ at: new Date(\"2026-05-13T09:41:00Z\"), by: \"S. Park\", verb: \"changed\" }) }],\n    ]),\n    mutations: (mutation) => ({\n        // The rota's patch door — every Apply commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const rota = $.let(Record.bind(recordRota));\n            // The density control: each segment a density, and the Record takes the one chosen.\n            const densities = $.const([variant(\"comfortable\", null), variant(\"compact\", null), variant(\"condensed\", null)], ArrayType(Style.Types.Density));\n            const densityBind = $.let(State.bind([StringType], \"record_looks_density\", \"comfortable\"));\n            const densityKey = $.let(densityBind.read());\n            const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));\n            const density = $.let(densities.filter((_$, d) => d.getTag().equal(densityKey)).get(0n));\n            const LevelType = StructType({ key: StringType, name: StringType });\n            const levels = $.let([\n                { key: \"0\", name: \"Not trained\" },\n                { key: \"1\", name: \"Supervised\" },\n                { key: \"2\", name: \"Competent\" },\n            ], ArrayType(LevelType));\n            const ChoiceType = StructType({ key: StringType, label: StringType, name: StringType, tone: StatusValueType });\n            const choices = $.let([\n                { key: \"can\",    label: \"can\",    name: \"Can work\",   tone: variant(\"neutral\", null) },\n                { key: \"prefer\", label: \"prefer\", name: \"Prefers\",    tone: variant(\"success\", null) },\n                { key: \"cannot\", label: \"can't\",  name: \"Can't work\", tone: variant(\"danger\", null) },\n            ], ArrayType(ChoiceType));\n            const supervisors = $.let([\"S. Park\", \"M. Hale\", \"J. Ortiz\"], ArrayType(StringType));\n            return (\n                <Configurator\n                    controls={[\n                        Configurator.Control(\"Density\", densityKey,\n                            <SegmentGroup value={densityKey} onChange={onDensity} size=\"sm\"\n                                items={densities.map((_$, d) => SegmentGroup.Item(d.getTag(), <Text>{d.getTag().upperCase()}</Text>))} />),\n                    ]}\n                    preview={\n                        <Box height=\"360px\" width=\"100%\">\n                            <Record\n                                record={rota}\n                                title=\"Rota\"\n                                noun={{ singular: \"person\", plural: \"people\" }}\n                                density={density}\n                                registers={{\n                                    levels:      Record.register.members(levels, { kind: \"level\", key: l => l.key, label: l => l.key, meta: l => some(l.name) }),\n                                    choices:     Record.register.members(choices, { kind: \"choice\", key: c => c.key, label: c => c.label, meta: c => some(c.name), tone: c => some(c.tone) }),\n                                    supervisors: Record.register.members(supervisors, { kind: \"person\", key: p => p, label: p => p }),\n                                }}\n                                columns={{\n                                    name:       Record.column.title(Rota, { header: \"Name\", width: \"176px\", avatar: true }),\n                                    supervisor: Record.column.person(Rota, \"supervisors\", { header: \"Supervisor\", width: \"152px\" }),\n                                    inducted:   Record.column.boolean(Rota, { header: \"Inducted\", width: \"80px\" }),\n                                    nights:     Record.column.toggle(Rota, { header: \"Nights\", width: \"80px\", on: \"yes\", off: \"no\" }),\n                                    weekends:   Record.column.toggle(Rota, { header: \"Weekends\", width: \"88px\", on: \"yes\", off: \"no\", look: \"mark\" }),\n                                    forklift:   Record.column.cycle(Rota, \"levels\", { header: \"Forklift\", width: \"72px\", scale: true }),\n                                    scanner:    Record.column.cycle(Rota, \"levels\", { header: \"Scanner\", width: \"72px\", scale: true, look: \"mark\" }),\n                                    days:       Record.column.cycle(Rota, \"choices\", { header: \"Days\", width: \"80px\" }),\n                                    evenings:   Record.column.cycle(Rota, \"choices\", { header: \"Evenings\", width: \"112px\", look: \"mark\" }),\n                                    days_since: Record.column.age(Rota, { header: \"Days since\", width: \"136px\", since: r => r.updated, stale: 90n, absent: \"not confirmed\" }),\n                                    updated:    Record.column.audit(Rota, { header: \"Last updated\", width: \"232px\", mode: \"blame\" }),\n                                }}\n                                columnGroups={[\n                                    { label: \"Shifts\", columnKeys: [\"nights\", \"weekends\"] },\n                                    { label: \"Skills\", columnKeys: [\"forklift\", \"scanner\"] },\n                                    { label: \"Preferences\", columnKeys: [\"days\", \"evenings\"] },\n                                ]}\n                                name=\"looks\"\n                            />\n                        </Box>\n                    }\n                />\n            );\n        }}</Reactive>\n    ))"
     },
     {
+      "id": "e3-ui:record.examples.tsx:recordFinishes",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/record/record.examples.tsx",
+      "suite": "",
+      "test": "A variant field in a Record's inspector: a piece's finish chosen among its cases, and the fields of the case it holds in a block under the choice — a stain's shade, a paint's colour, coats and gloss, the gloss a choice of its own — each case hinted through the select's `cases`",
+      "keywords": [
+        "Record",
+        "Record.field.select",
+        "cases",
+        "variant",
+        "block",
+        "inspector",
+        "Fields.select"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A variant field in a Record's inspector: a piece's finish chosen among its cases, and the fields of the case it holds in a block under the choice — a stain's shade, a paint's colour, coats and gloss, the gloss a choice of its own — each case hinted through the select's `cases`\n// inputs: []\n/** How a piece is finished: left bare, stained a shade, or painted a colour in coats, matt or with a sheen. */\nexport const Finish = VariantType({\n    bare: NullType,\n    stain: StringType,\n    paint: StructType({ colour: StringType, coats: IntegerType, gloss: VariantType({ matt: NullType, sheen: FloatType }) }),\n});\n\nexport const Piece = StructType({ name: StringType, room: StringType, finish: Finish });\n\nexport const recordPieces = e3.record(\"record_pieces\", DictType(StringType, Piece), {\n    initial: new Map([\n        [\"J-101\", { name: \"Hall door\", room: \"Hall\", finish: variant(\"paint\", { colour: \"Teal\", coats: 2n, gloss: variant(\"sheen\", 0.4) }) }],\n        [\"J-102\", { name: \"Stair rail\", room: \"Stairs\", finish: variant(\"stain\", \"Walnut\") }],\n        [\"J-103\", { name: \"Window seat\", room: \"Lounge\", finish: variant(\"bare\", null) }],\n    ]),\n    mutations: (mutation) => ({\n        // The joinery's patch door — every Apply commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const pieces = $.let(Record.bind(recordPieces));\n            return (\n                <Box height=\"480px\">\n                    <Record\n                        record={pieces}\n                        title=\"Joinery\"\n                        noun={{ singular: \"piece\", plural: \"pieces\" }}\n                        columns={{\n                            name: Record.column.title(Piece, { header: \"Piece\", width: \"176px\" }),\n                            room: Record.column.text(Piece, { header: \"Room\", width: \"136px\" }),\n                        }}\n                        fields={{\n                            finish: Record.field.select({\n                                labels: { bare: \"Bare\", stain: \"Stain\", paint: \"Paint\" },\n                                cases: {\n                                    stain: Record.field.text({ label: \"Shade\" }),\n                                    paint: { colour: Record.field.text({ help: \"As the tin names it\" }), coats: Record.field.number({ min: 1n, max: 4n }) },\n                                },\n                            }),\n                        }}\n                        inspector\n                        name=\"finishes\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
       "id": "e3-ui:domain.examples.ts:rosterCoverage",
       "skill": "e3-ui",
       "package": "e3-ui",
@@ -47365,6 +47421,39 @@
         "import e3 from '@elaraai/e3';"
       ],
       "source": "const RowType = StructType({ id: StringType, at: IntegerType });\n\n// A producer has no inputs: it reads platform sources (paged APIs, database\n// cursors) and emits. Emission order is free — the runner sorts a Dict output\n// in runs of bounded size — and a key emitted twice folds with `merge`: here\n// the latest row wins.\nconst rows = e3.streamTask('ingest', {\n  inputs: [],\n  output: e3.output.dict(StringType, RowType, {\n    merge: ($, _id, a, b) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),\n  }),\n}, ($, emit) => { /* fetch pages, $(emit(row.id, row)) each */ });",
+      "languages": [
+        "typescript"
+      ]
+    },
+    {
+      "id": "e3:static:function-inputs",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3.function",
+      "test": "A named function that reads the workspace: its inputs are read as stored at each call, and its caller passes the arguments alone",
+      "keywords": [
+        "e3",
+        "function",
+        "e3.function",
+        "named function",
+        "RPC",
+        "inputs",
+        "args",
+        "workspace",
+        "reads datasets",
+        "reference data",
+        "call",
+        "e3 call",
+        "Func.bind",
+        "pinned",
+        "hash"
+      ],
+      "imports": [
+        "import { ArrayType, DictType, East, FloatType, IntegerType, StringType, StructType, variant } from '@elaraai/east';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "const OrderLineType = StructType({ sku: StringType, quantity: IntegerType });\nconst QuoteType = StructType({ total: FloatType, short: ArrayType(StringType) });\n\nconst prices = e3.input('prices', DictType(StringType, FloatType), variant('value', new Map([['bolt', 0.25]])));\nconst stock = e3.input('stock', DictType(StringType, IntegerType), variant('value', new Map([['bolt', 500n]])));\n\n// `inputs` (an input, a task's output or a record) are read from the workspace\n// at each call, pinned at their hashes; `args` are what the caller passes. The\n// body takes the inputs, then the arguments. Nothing reruns when an input\n// changes: a function is no node of the dataflow.\nconst quote = e3.function('quote', {\n  inputs: [prices, stock],\n  args: [ArrayType(OrderLineType)],\n  output: QuoteType,\n}, ($, prices, stock, lines) => {\n  const total = $.let(0.0);\n  const short = $.let([], ArrayType(StringType));\n  $.for(lines, ($, line) => {\n    $.assign(total, total.add(prices.get(line.sku, () => 0.0).multiply(line.quantity.toFloat())));\n    $.if(East.less(stock.get(line.sku, () => 0n), line.quantity), ($) => { $(short.pushLast(line.sku)); });\n  });\n  return { total, short };\n});\n\nexport default e3.package('shop', '1.0.0', quote);   // collects prices and stock\n\n// Called through a workspace, with the order alone:\n//   e3 call . -w dev quote '[(sku=\"bolt\", quantity=120)]'\n// On a page: Func.bind(quote).call(order) — the page binds neither dataset.",
       "languages": [
         "typescript"
       ]

@@ -12,7 +12,7 @@
  */
 
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
     example, none, some, variant,
 } from "@elaraai/east";
 import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from "@elaraai/east-ui";
@@ -489,6 +489,64 @@ export const recordLooks = example({
                         </Box>
                     }
                 />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// Example 7 — a variant field: its cases a choice, and the case held a block
+// ============================================================================
+
+/** How a piece is finished: left bare, stained a shade, or painted a colour in coats, matt or with a sheen. */
+export const Finish = VariantType({
+    bare: NullType,
+    stain: StringType,
+    paint: StructType({ colour: StringType, coats: IntegerType, gloss: VariantType({ matt: NullType, sheen: FloatType }) }),
+});
+export const Piece = StructType({ name: StringType, room: StringType, finish: Finish });
+export const recordPieces = e3.record("record_pieces", DictType(StringType, Piece), {
+    initial: new Map([
+        ["J-101", { name: "Hall door", room: "Hall", finish: variant("paint", { colour: "Teal", coats: 2n, gloss: variant("sheen", 0.4) }) }],
+        ["J-102", { name: "Stair rail", room: "Stairs", finish: variant("stain", "Walnut") }],
+        ["J-103", { name: "Window seat", room: "Lounge", finish: variant("bare", null) }],
+    ]),
+    mutations: (mutation) => ({
+        // The joinery's patch door — every Apply commits through it.
+        patch: mutation.patch(),
+    }),
+});
+
+export const recordFinishes = example({
+    keywords: ["Record", "Record.field.select", "cases", "variant", "block", "inspector", "Fields.select"],
+    description: "A variant field in a Record's inspector: a piece's finish chosen among its cases, and the fields of the case it holds in a block under the choice — a stain's shade, a paint's colour, coats and gloss, the gloss a choice of its own — each case hinted through the select's `cases`",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const pieces = $.let(Record.bind(recordPieces));
+            return (
+                <Box height="480px">
+                    <Record
+                        record={pieces}
+                        title="Joinery"
+                        noun={{ singular: "piece", plural: "pieces" }}
+                        columns={{
+                            name: Record.column.title(Piece, { header: "Piece", width: "176px" }),
+                            room: Record.column.text(Piece, { header: "Room", width: "136px" }),
+                        }}
+                        fields={{
+                            finish: Record.field.select({
+                                labels: { bare: "Bare", stain: "Stain", paint: "Paint" },
+                                cases: {
+                                    stain: Record.field.text({ label: "Shade" }),
+                                    paint: { colour: Record.field.text({ help: "As the tin names it" }), coats: Record.field.number({ min: 1n, max: 4n }) },
+                                },
+                            }),
+                        }}
+                        inspector
+                        name="finishes"
+                    />
+                </Box>
             );
         }}</Reactive>
     )),

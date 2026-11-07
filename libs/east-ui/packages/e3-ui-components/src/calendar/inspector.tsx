@@ -13,7 +13,7 @@
  */
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { BlobType, decodeBeast2For, equalFor, fromEastTypeValue, isValueOf, none, some, OptionType, StringType, StructType, type ValueTypeOf } from "@elaraai/east";
+import { BlobType, decodeBeast2For, equalFor, fromEastTypeValue, isValueOf, isVariant, none, some, OptionType, StringType, StructType, type ValueTypeOf } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui";
 import { Schedule } from "@elaraai/e3-ui/internal";
 import { BannerView, EastChakraComponent, FieldForm, useFormatters, useTrackedEvaluation, type BuilderFrameDock, type TrackedResult } from "@elaraai/east-ui-components";
@@ -37,11 +37,15 @@ interface InspectorArgs {
     visible?: VisibleDaysStore | undefined;
 }
 
-/** The resources an event's reference fields name (`technician`): what their Choosers keep whatever the rail hides. */
+/**
+ * The resources an event's reference fields name (`technician`): what their Choosers keep whatever the rail hides. A
+ * field under a variant's case is read through the case the variant holds (#1549).
+ */
 function referenced(specs: readonly FieldSpecValue[], row: unknown): CalendarResource[] {
     return specs.flatMap(spec => {
         if (spec.editor.type !== "reference") return [];
-        const at = spec.path.reduce<unknown>((value, name) => (value as Readonly<Record<string, unknown>> | undefined)?.[name], row);
+        const at = spec.path.reduce<unknown>((value, name) => (isVariant(value) ? (stringEqual(value.type, name) ? value.value : undefined)
+            : (value as Readonly<Record<string, unknown>> | undefined)?.[name]), row);
         let key: string | undefined;
         if (spec.optional && isValueOf(at, OptionType(StringType))) {
             const option = at as ValueTypeOf<OptionType<StringType>>;
@@ -56,6 +60,7 @@ export type CalendarSelection = TrackedResult<Inspected[]>;
 export const NO_SELECTION: CalendarSelection = { ok: true, value: [] };
 const itemEqual = equalFor(Schedule.Types.Item);
 const rowEqual = equalFor(BlobType);
+const stringEqual = equalFor(StringType);
 
 /** Whether two selections show alike: the same events, each read to the same row. */
 function sameSelection(a: CalendarSelection, b: CalendarSelection): boolean {

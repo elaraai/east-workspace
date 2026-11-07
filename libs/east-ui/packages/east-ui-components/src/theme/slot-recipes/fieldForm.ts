@@ -28,6 +28,11 @@
  * required cell wears, spread as the drafts' tint is — so a new row's empty
  * lines read as one block.
  *
+ * A variant whose case holds data has a block under its choice (#1549): the
+ * case's fields, a column of the form's rhythm, set in from the choice along
+ * a rule, so they read as the choice's — a block inside a block for a case
+ * holding a variant of its own.
+ *
  * @packageDocumentation
  */
 
@@ -39,7 +44,7 @@ const ISSUE_WASH = "color-mix(in srgb, {colors.status.warn} 17%, {colors.bg.surf
 
 export const fieldFormSlotRecipe = defineSlotRecipe({
     className: "elara-field-form",
-    slots: ["root", "group", "groupHead", "groupFields", "field", "line", "control", "side", "items", "item", "lines", "lineLabel", "lineChoices", "lineValue"],
+    slots: ["root", "group", "groupHead", "groupFields", "field", "block", "line", "control", "side", "items", "item", "lines", "lineLabel", "lineChoices", "lineValue"],
     base: {
         root: {
             display: "flex",
@@ -97,6 +102,18 @@ export const fieldFormSlotRecipe = defineSlotRecipe({
                 minHeight: fieldHeights.md,
                 _coarse: { minHeight: "44px" },
             },
+        },
+        /* A variant's block: the fields of the case it holds, under its choice,
+         * set in along a rule — the form's column and rhythm inside it. */
+        block: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "{spacing.4}",
+            minWidth: 0,
+            paddingInlineStart: "{spacing.3}",
+            borderInlineStartWidth: "1px",
+            borderInlineStartStyle: "solid",
+            borderInlineStartColor: "border.subtle",
         },
         /* Fields drawn on one line, one after another: rows of choices, closer than fields sit. */
         lines: {

@@ -9,15 +9,22 @@
  * #1479): a field's value along its path, and which required field is left
  * empty. A field emptied as it is typed in is empty whatever value it last
  * told: a number field that is cleared tells nothing (the hand test's F3), so
- * its own text is read too.
+ * its own text is read too. A path steps into a variant through the case it
+ * holds (#1549), and a field under a case it does not hold is not shown, and
+ * not required.
  *
  * @packageDocumentation
  */
 
+import { StringType, equalFor, isVariant, variant } from "@elaraai/east";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 
+const stringEqual = equalFor(StringType);
+
 /**
- * A value with one field along a path set.
+ * A value with one field along a path set: a step into a variant sets its
+ * case's value while it holds that case, and leaves it as it is while it holds
+ * another.
  *
  * @param value - The form's value
  * @param path - The field's path
@@ -27,25 +34,31 @@ import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 export function setAt(value: unknown, path: readonly string[], to: unknown): unknown {
     if (path.length === 0) return to;
     const [head, ...rest] = path;
+    if (isVariant(value)) return stringEqual(value.type, head!) ? variant(head!, setAt(value.value, rest, to)) : value;
     const at = (value ?? {}) as Record<string, unknown>;
     return { ...at, [head!]: setAt(at[head!], rest, to) };
 }
 
 /**
- * A field's value along a path.
+ * A field's value along a path: a step into a variant its case's value while
+ * it holds that case.
  *
  * @param value - The form's value
  * @param path - The field's path
- * @returns Its value, `undefined` for none
+ * @returns Its value, `undefined` for none, or for a case the variant does not hold
  */
 export function getAt(value: unknown, path: readonly string[]): unknown {
     let at = value;
-    for (const name of path) at = at === undefined || at === null ? undefined : (at as Record<string, unknown>)[name];
+    for (const name of path) {
+        if (at === undefined || at === null) return undefined;
+        at = isVariant(at) ? (stringEqual(at.type, name) ? at.value : undefined) : (at as Record<string, unknown>)[name];
+    }
     return at;
 }
 
 /**
- * The first required field left empty: one holding no value, or a text input the viewer has emptied.
+ * The first required field left empty: one holding no value, or a text input the viewer has emptied — never one under
+ * a case its variant does not hold, which the form does not show.
  *
  * @param specs - The form's fields
  * @param value - The form's value as it stands
@@ -55,7 +68,16 @@ export function getAt(value: unknown, path: readonly string[]): unknown {
 export function emptyRequired(specs: readonly FieldSpecValue[], value: unknown, root: HTMLElement | null): FieldSpecValue | undefined {
     return specs.find((spec) => {
         if (spec.optional) return false;
-        if (getAt(value, spec.path) === undefined) return true;
+        if (getAt(value, spec.path) === undefined) {
+            // Under a case its variant does not hold: down the path, a variant holding another case.
+            let at = value;
+            for (const name of spec.path) {
+                if (at === undefined || at === null) return true;
+                if (isVariant(at) && !stringEqual(at.type, name)) return false;
+                at = isVariant(at) ? at.value : (at as Record<string, unknown>)[name];
+            }
+            return true;
+        }
         const input = root?.querySelector<HTMLInputElement>(`[data-field="${spec.path.join(".")}"] input:not([type=radio]):not([type=checkbox])`);
         return input !== null && input !== undefined && input.value.trim() === "";
     });

@@ -34,6 +34,7 @@ describeEast("Record — examples", test => {
         recordEveryKind: ex.recordEveryKind,
         recordSkillsReadOnly: ex.recordSkillsReadOnly,
         recordLooks: ex.recordLooks,
+        recordFinishes: ex.recordFinishes,
     });
 }, { platformFns: TestImpl });
 

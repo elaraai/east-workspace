@@ -699,6 +699,9 @@ export {
     scheduleEntryByKey, scheduleLastKey, type ScheduleWindowProp,
 } from './schedule/window.js';
 export { SchedulePatchTypeFor, schedulePatch, type SchedulePatchInput, type SchedulePatchOf } from './schedule/patch.js';
+// A row's fields written by their paths (#1390), through a variant's case too (#1549): the setters an inspector's edit
+// of a Schedule kind's field and an author's card on a Schematic entity write through.
+export { fieldSetters, type FieldSetter } from './schedule/fields.js';
 // The most events a builder reads and draws of one kind over what it reads at once (#1039): a kind's window through its
 // source is counted first and read only within it; past it, its rows shade from its summary or are hatched.
 export { SCHEDULE_EVENT_CAP } from './schedule/record-window.js';

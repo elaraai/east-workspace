@@ -20,8 +20,8 @@
  * | `number` | `IntegerInput` or `FloatInput`, by the field's type: moved by its step, clamped to its bounds, its unit and bounds in the help line |
  * | `checkbox` | `Checkbox` |
  * | `datetime` | `DateTimeInput` |
- * | `select` | `RadioGroup` of the variant's cases while it has up to four, Not set first for an Option (#1473); `Select` past four |
- * | `reference` | `Select` of the host's choices for its keyed set, Unassigned first for an Option |
+ * | `select` | `RadioGroup` of the variant's cases while it has up to four, Not set first for an Option (#1473); `Select` past four; a case holding data, its fields in a block under the choice |
+ * | `reference` | `Select` of the host's choices for its keyed set, Unassigned first for an Option; a key held as its text — a String as itself, any other key as East prints it, read back at the field's type |
  * | `tags` | `TagsInput`, its options suggested; a Set field's values held once, in East's order |
  * | `checklist` | a `StringInput` adding an item on Enter, the items done of all in the help line, and a `Checkbox` per item, labelled with its text, each with its remove |
  * | `readonly` | the value printed, in a read-only `StringInput` |
@@ -39,6 +39,16 @@
  * is printed, and tags and a checklist keep their shape without their
  * controls. A host may draw a field's control itself (`renderControl`), what
  * no input shows — the field keeps its label and help line.
+ *
+ * A variant whose cases hold data has a block under its choice (#1549): the
+ * fields of the case it holds, which `Fields.specs` puts after the variant's
+ * at paths through the case, drawn as the form's own — a block inside it for
+ * a case holding a variant of its own; an empty case, the choice alone.
+ * Choosing a case starts its value as an empty Option's starts when it is set,
+ * a struct's fields each their own; choosing the case it holds is no edit. Its
+ * choice is tinted when its case differs from the baseline's, and each of the
+ * block's fields when it does. Read only, the choice prints its case's words
+ * and the block its fields.
  *
  * Every field is one column (#1220): its label, its control's line and its
  * help line, the control filling the line and an Option's Set or Clear at its
@@ -63,7 +73,8 @@
  * parts set; the `fieldForm` recipe lays the fields out and tints a changed
  * one; the form sets data attributes (`data-field`, `data-editor`,
  * `data-layout`, `data-dirty`, `data-issue`, `data-field-line`,
- * `data-field-side`), a text's or a choice's title and geometry only.
+ * `data-field-side`, `data-field-block`), a text's or a choice's title and
+ * geometry only.
  *
  * @packageDocumentation
  */
@@ -74,8 +85,8 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
 import {
     ArrayType, BooleanType, DateTimeType, FloatType, IntegerType, NullType, SetType, StringType,
-    SortedSet, compareFor, defaultValue, equalFor, fromEastTypeValue, isTypeEqual, none, printFor, some, variant,
-    type EastType, type StructType, type ValueTypeOf, type option,
+    SortedSet, compareFor, defaultValue, equalFor, fromEastTypeValue, isTypeEqual, isVariant, none, parseFor, printFor, some, variant,
+    type EastType, type StructType, type ValueTypeOf, type VariantType, type option,
 } from "@elaraai/east";
 import {
     Checkbox, Field, FieldEditorType, Input, RadioGroup, Select, TagsInput, spellOut, type FieldEditorValue, type FieldSpecValue,
@@ -183,6 +194,7 @@ const SELECT_STYLE = some({ ...defaultValue<typeof Select.Types.Root.fields.styl
 const TAGS_STYLE = some({ ...defaultValue<typeof TagsInput.Types.Style>(TagsInput.Types.Style), size: SIZE });
 
 const stringEqual = equalFor(StringType);
+const pathEqual = equalFor(ArrayType(StringType));
 const compareStrings = compareFor(StringType);
 const compareIntegers = compareFor(IntegerType);
 const compareFloats = compareFor(FloatType);
@@ -191,6 +203,7 @@ const compareFloats = compareFor(FloatType);
 const NONE_CHOICE = "\u0000none";
 
 const NO_OPTIONS: Readonly<Record<string, readonly FieldOption[]>> = {};
+const NO_SPECS: readonly FieldSpecValue[] = [];
 
 /** What takes the keyboard in a field: the first control in it that takes it. */
 const FOCUSABLE = "input:not([type=hidden]):not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex='-1'])";
@@ -224,16 +237,40 @@ function takeWhenShown(root: HTMLElement | null, key: string): (() => void) | un
 }
 
 /**
- * A field's value, read along its path from the struct the form edits.
+ * A field's value, read along its path from the struct the form edits: a step
+ * into a struct its field, a step into a variant its case's value while it
+ * holds that case.
  *
  * @param value - The struct
- * @param path - The field's names, from the struct down
- * @returns The field's value, or `undefined` where the struct holds none
+ * @param path - The field's names, from the struct down, and the cases it is under
+ * @returns The field's value, or `undefined` where the struct holds none, or its variant another case
  */
 function valueAt(value: unknown, path: readonly string[]): unknown {
     let at: unknown = value;
-    for (const name of path) at = at === undefined || at === null ? undefined : (at as Record<string, unknown>)[name];
+    for (const name of path) {
+        if (at === undefined || at === null) return undefined;
+        at = isVariant(at) ? (stringEqual(at.type, name) ? at.value : undefined) : (at as Record<string, unknown>)[name];
+    }
     return at;
+}
+
+/** Whether a field's path runs through another's: a case's value's, under its variant's. */
+function isUnder(path: readonly string[], parent: readonly string[]): boolean {
+    return path.length > parent.length && pathEqual(path.slice(0, parent.length), [...parent]);
+}
+
+/**
+ * The specs under each variant's, by its spec's path: those after it at paths
+ * through its cases, as `Fields.specs` puts them, which its block draws.
+ */
+function underOf(specs: readonly FieldSpecValue[]): ReadonlyMap<string, readonly FieldSpecValue[]> {
+    const out = new Map<string, readonly FieldSpecValue[]>();
+    specs.forEach((spec, i) => {
+        let end = i + 1;
+        while (end < specs.length && isUnder(specs[end]!.path, spec.path)) end += 1;
+        if (end > i + 1) out.set(spec.path.join("\u001f"), specs.slice(i + 1, end));
+    });
+    return out;
 }
 
 /** The specs in runs of one group, in order. */
@@ -301,11 +338,33 @@ function numberLine(editor: NumberEditor, words: FieldFormWords): string | undef
  * What an empty Option starts from when it is set: East's default for its
  * type, held to a number's bounds — and for a date, this minute.
  */
-function startOf(inner: EastType, editor: FieldEditorValue): unknown {
+function startOf(inner: EastType, editor: FieldEditorValue | undefined): unknown {
     if (isTypeEqual(inner, DateTimeType)) return new Date(Math.floor(Date.now() / 60_000) * 60_000);
     const start = defaultValue<EastType>(inner) as unknown;
-    if (editor.type === "number") return clampOf(editor.value, isTypeEqual(inner, IntegerType))(start as bigint | number);
+    if (editor?.type === "number") return clampOf(editor.value, isTypeEqual(inner, IntegerType))(start as bigint | number);
     return start;
+}
+
+/**
+ * What a case's value starts from when the case is chosen: a field's start, as
+ * an empty Option's when it is set; a struct's fields each their own; a
+ * variant chosen among, East's default case, its value started the same way.
+ *
+ * @param type - The value's type
+ * @param path - Its path, through the case
+ * @param under - The specs under the variant's, by which the value's fields are edited
+ * @returns The value
+ */
+function startAt(type: EastType, path: readonly string[], under: readonly FieldSpecValue[]): unknown {
+    const spec = under.find((s) => pathEqual(s.path, [...path]));
+    if (spec === undefined && type.type === "Struct") {
+        return Object.fromEntries(Object.entries(type.fields as Record<string, EastType>).map(([name, field]) => [name, startAt(field, [...path, name], under)]));
+    }
+    if (spec !== undefined && !spec.optional && spec.editor.type === "select" && type.type === "Variant") {
+        const first = (defaultValue<EastType>(type) as variant).type;
+        return variant(first, startAt((type.cases as Record<string, EastType>)[first]!, [...path, first], under));
+    }
+    return startOf(type, spec === undefined || spec.optional ? undefined : spec.editor);
 }
 
 /**
@@ -320,7 +379,9 @@ function printOf(
 ): string {
     if (value === undefined) return words.m.noValue();
     if (editor.type === "reference") {
-        return options[editor.value.of]?.find((o) => stringEqual(o.key, value as string))?.label ?? (value as string);
+        // A key by its text: a String as itself, any other as East prints it.
+        const text = isTypeEqual(type, StringType) ? value as string : printFor(type)(value as never);
+        return options[editor.value.of]?.find((o) => stringEqual(o.key, text))?.label ?? text;
     }
     if (editor.type === "select") {
         const tag = (value as variant).type as string;
@@ -366,6 +427,7 @@ export const FieldForm = memo(function FieldForm({
     const formatters = useFormatters();
     const said = useMemo((): FieldFormWords => words ?? { ...formatters, m: fieldFormMessages }, [words, formatters]);
     const sections = useMemo(() => sectionsOf(specs), [specs]);
+    const unders = useMemo(() => underOf(specs), [specs]);
     // The field named takes the keyboard (`focus`), once it shows: a later name stops the wait for the one before.
     const rootRef = useRef<HTMLDivElement | null>(null);
     const taking = useRef<(() => void) | undefined>(undefined);
@@ -375,27 +437,44 @@ export const FieldForm = memo(function FieldForm({
         taking.current = takeWhenShown(rootRef.current, focus);
     }, [focus]);
     useEffect(() => () => taking.current?.(), []);
-    const row = (spec: FieldSpecValue) => {
+    // A field, and the specs under it where it is a variant's choice — never drawn on one line.
+    const row = (spec: FieldSpecValue, under: readonly FieldSpecValue[] | undefined) => {
         const key = spec.path.join(".");
         return (
-            <FieldRow key={spec.path.join("\u001f")} spec={spec} current={valueAt(value, spec.path)}
+            <FieldRow key={spec.path.join("\u001f")} spec={spec} under={under} current={valueAt(value, spec.path)}
                 base={baseline === undefined ? undefined : valueAt(baseline, spec.path)} hasBaseline={baseline !== undefined}
                 options={options} onChange={onChange} readOnly={readOnly} words={said} styles={styles} renderControl={renderControl} live={live}
-                choices={lines?.get(key)} issue={issues?.has(key) === true} />
+                choices={under === undefined ? lines?.get(key) : undefined} issue={issues?.has(key) === true} />
         );
     };
-    // A section's fields in order, each run of fields drawn on one line together.
+    // A section's fields in order, each run of fields drawn on one line together, and under a variant's choice its
+    // block: the fields of the case it holds.
     const draw = (run: readonly FieldSpecValue[]): ReactNode[] => {
         const out: ReactNode[] = [];
         let together: FieldSpecValue[] = [];
         const close = () => {
             if (together.length === 0) return;
-            out.push(<Box key={`lines\u001f${together[0]!.path.join("\u001f")}`} css={styles.lines} data-field-lines="">{together.map(row)}</Box>);
+            out.push(<Box key={`lines\u001f${together[0]!.path.join("\u001f")}`} css={styles.lines} data-field-lines="">{together.map((spec) => row(spec, undefined))}</Box>);
             together = [];
         };
-        for (const spec of run) {
-            if (lines?.has(spec.path.join(".")) === true) together.push(spec);
-            else { close(); out.push(row(spec)); }
+        for (let i = 0; i < run.length; i += 1) {
+            const spec = run[i]!;
+            const under = unders.get(spec.path.join("\u001f"));
+            if (under === undefined) {
+                if (lines?.has(spec.path.join(".")) === true) together.push(spec);
+                else { close(); out.push(row(spec, undefined)); }
+                continue;
+            }
+            close();
+            out.push(row(spec, under));
+            let end = i + 1;
+            while (end < run.length && isUnder(run[end]!.path, spec.path)) end += 1;
+            const held = valueAt(value, spec.path);
+            const shown = isVariant(held) ? run.slice(i + 1, end).filter((s) => stringEqual(s.path[spec.path.length]!, held.type)) : [];
+            if (shown.length > 0) {
+                out.push(<Box key={`block\u001f${spec.path.join("\u001f")}`} css={styles.block} data-field-block={spec.path.join(".")}>{draw(shown)}</Box>);
+            }
+            i = end - 1;
         }
         close();
         return out;
@@ -415,6 +494,8 @@ export const FieldForm = memo(function FieldForm({
 /** Props of {@link FieldRow}. */
 interface FieldRowProps {
     spec: FieldSpecValue;
+    /** The specs under it, where it is a variant's choice: what a case chosen starts from. */
+    under: readonly FieldSpecValue[] | undefined;
     current: unknown;
     base: unknown;
     hasBaseline: boolean;
@@ -436,7 +517,7 @@ interface FieldRowProps {
  * checklist's items; or, drawn on one line, its label and its choices.
  */
 const FieldRow = memo(function FieldRow({
-    spec, current, base, hasBaseline, options, onChange, readOnly, words, styles, renderControl, live, choices, issue,
+    spec, under, current, base, hasBaseline, options, onChange, readOnly, words, styles, renderControl, live, choices, issue,
 }: FieldRowProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
@@ -452,9 +533,14 @@ const FieldRow = memo(function FieldRow({
     // Two values of what the input edits: a line's choice against the value the field holds.
     const sameInner = useMemo(() => equalFor(inner), [inner]);
     const held = spec.optional ? getSomeorUndefined(current as option<unknown>) : current;
-    const dirty = hasBaseline && !same(current, base);
+    // A variant's choice differs where its case does: what the case holds is its block's fields' to tint.
+    const dirty = hasBaseline && (under === undefined ? !same(current, base)
+        : current === undefined || base === undefined ? current !== base : !stringEqual((current as variant).type, (base as variant).type));
     const key = spec.path.join(".");
     const editor = spec.editor;
+    // A reference's key by its text: a String as itself, a key of any other type as East prints it and reads it back.
+    const keyText = useMemo(() => (editor.type !== "reference" || isTypeEqual(inner, StringType) ? undefined
+        : { print: printFor(inner), parse: parseFor(inner) }), [editor.type, inner]);
     // A control the host draws itself, in the field.
     const own = renderControl?.(spec);
     // Read-only, a value is printed; tags and a checklist keep their shape.
@@ -559,6 +645,15 @@ const FieldRow = memo(function FieldRow({
         queueMicrotask(commit);
     };
 
+    // A case chosen: its value starts as an empty Option's does when it is set, and the case the variant holds is no
+    // edit, keeping its value.
+    const choose = (next: string) => {
+        if (stringEqual(next, NONE_CHOICE)) { emit(undefined); return; }
+        if (isVariant(held) && stringEqual(held.type, next)) return;
+        const value = ((inner as VariantType).cases as Record<string, EastType>)[next];
+        if (value !== undefined) emit(variant(next, startAt(value, [...spec.path, next], under ?? NO_SPECS)));
+    };
+
     // A value printed for a person: read only, or under the host's own control.
     const printedText = printed || own !== undefined ? printOf(inner, held, editor, options, words) : undefined;
     const control = ((): Control => {
@@ -623,12 +718,12 @@ const FieldRow = memo(function FieldRow({
                         ...(spec.optional ? [{ value: NONE_CHOICE, label: m.notSet(), disabled: none }] : []),
                         ...editor.value.map((o) => ({ value: o.case, label: o.label, disabled: none })),
                     ],
-                    onChange: some((next: string) => { emit(stringEqual(next, NONE_CHOICE) ? undefined : variant(next, null)); return null; }),
+                    onChange: some((next: string) => { choose(next); return null; }),
                     style: SELECT_STYLE,
                 });
             case "reference": {
                 const listed = options[editor.value.of] ?? [];
-                const at = held as string | undefined;
+                const at = held === undefined ? undefined : keyText === undefined ? held as string : keyText.print(held);
                 // A key the host does not list still shows, as itself.
                 const unlisted = at !== undefined && !listed.some((o) => stringEqual(o.key, at));
                 return variant("Select", {
@@ -639,7 +734,15 @@ const FieldRow = memo(function FieldRow({
                         ...listed.map((o) => ({ value: o.key, label: o.label, disabled: none })),
                         ...(unlisted ? [{ value: at, label: at.length === 0 ? m.noValue() : at, disabled: none }] : []),
                     ],
-                    onChange: some((next: string) => { emit(stringEqual(next, NONE_CHOICE) ? undefined : next); return null; }),
+                    // The key chosen, read back at the field's type from its text: one that does not read is no edit.
+                    onChange: some((next: string) => {
+                        if (stringEqual(next, NONE_CHOICE) || keyText === undefined) emit(stringEqual(next, NONE_CHOICE) ? undefined : next);
+                        else {
+                            const read = keyText.parse(next);
+                            if (read.success) emit(read.value);
+                        }
+                        return null;
+                    }),
                     style: SELECT_STYLE,
                 });
             }
@@ -678,7 +781,7 @@ const FieldRow = memo(function FieldRow({
                 ...editor.value.map((o) => ({ value: o.case, label: some(o.label), disabled: none })),
             ],
             name: some(`fieldForm.${key}`),
-            onChange: some((next: string) => { emit(stringEqual(next, NONE_CHOICE) ? undefined : variant(next, null)); return null; }),
+            onChange: some((next: string) => { choose(next); return null; }),
             style: RADIO_STYLE,
         };
     })();
