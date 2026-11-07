@@ -33,7 +33,8 @@ import { keepsSpace, keyFromPage, keyInFrame } from "../../shared/frame-keys.js"
 import { densityInView } from "../area.js";
 import type { SchematicValue } from "../data.js";
 import {
-    clampDelta, connectCandidate, connectStep, connectVeto, deleteEdits, editKinds, extendEdits, extendPairs, linkRefusal, moveEdits, retargetEdits, vetoOfPairs,
+    clampDelta, connectCandidate, connectStep, connectVeto, deleteEdits, editKinds, extendEdits, extendPairs, linkRefusal, moveEdits, placeholderRefusal,
+    retargetEdits, vetoOfPairs,
     type ConnectDragArgs, type ConnectSession, type EditRefusal, type Mover, type NetLeg, type SchematicEdit, type SessionDrawn,
 } from "../edits.js";
 import type { SchematicStep, SchematicWords } from "../messages.js";
@@ -366,9 +367,13 @@ export function useGestures({
         return ref === undefined ? undefined : { ref, label: labelById.get(id) ?? ref.key };
     }, [refById, labelById]);
     /** A refusal's words. */
-    const refusalWords = useCallback((refusal: EditRefusal): string => (refusal.why === "end"
-        ? words.m.endRefused({ kind: refusal.kind, end: refusal.end, item: refusal.item })
-        : words.m.deleteRefused({ item: refusal.item, kind: refusal.kind, key: refusal.key })), [words]);
+    const refusalWords = useCallback((refusal: EditRefusal): string => {
+        switch (refusal.why) {
+            case "end": return words.m.endRefused({ kind: refusal.kind, end: refusal.end, item: refusal.item });
+            case "named": return words.m.deleteRefused({ item: refusal.item, kind: refusal.kind, key: refusal.key });
+            case "placeholder": return words.m.placeholderRefused({ kind: refusal.kind.toLocaleLowerCase(words.locale) });
+        }
+    }, [words]);
     /** A connect drag onto a target, as the edits read it: the open session, Shift, the Connect tool's kind and its items. */
     const dragArgs = useCallback((cd: Pick<ConnectDrag, "from" | "additive">, target: string): ConnectDragArgs | undefined => {
         const from = itemOf(cd.from), to = itemOf(target);
@@ -379,7 +384,8 @@ export function useGestures({
         };
     }, [itemOf, linkKind, sessionDrawn, labelById]);
     // Why a connect drag can't land on a target (SC9, #1401 D34): the end of its
-    // kind that holds no item of the target's slot, else the veto's words of a
+    // kind that holds no item of the target's slot, or a target held under a
+    // placeholder, its key still to be typed (#1549), else the veto's words of a
     // pair the drag newly joins. A re-target writes its link, vetted in the
     // link's REAL direction — the fixed end may be either side; an Extend its net,
     // each source with the item it adds, whichever member the drag began at; a
@@ -394,7 +400,7 @@ export function useGestures({
             const link = slot === undefined ? undefined : kinds.links.get(slot);
             if (slot === undefined || link === undefined) return undefined;
             const toFrom = cd.retarget.movingEnd === "from";
-            const refusal = toFrom ? linkRefusal(link, moving, fixed) : linkRefusal(link, fixed, moving);
+            const refusal = placeholderRefusal(kinds, moving) ?? (toFrom ? linkRefusal(link, moving, fixed) : linkRefusal(link, fixed, moving));
             if (refusal !== undefined) return refusalWords(refusal);
             return toFrom ? connectRefusal(slot, target, cd.from) : connectRefusal(slot, cd.from, target);
         }
@@ -404,6 +410,8 @@ export function useGestures({
             const sides = net === undefined ? undefined : sessionDrawn.sides(net.ref);
             if (net === undefined || kind === undefined || sides === undefined) return undefined;
             if (!stringEqual(moving.ref.kind, kind.destinations)) return refusalWords({ why: "end", kind: kind.name, end: "end", item: moving.label });
+            const waiting = placeholderRefusal(kinds, moving);
+            if (waiting !== undefined) return refusalWords(waiting);
             return vetoOfPairs(connectRefusal, net.ref.kind, extendPairs(sides, moving.ref));
         }
         const args = dragArgs(cd, target);
@@ -563,19 +571,20 @@ export function useGestures({
     }, [editing, words, onRefused]);
     // Commit a connect gesture (SC9): a link of the Connect tool's kind — or,
     // Shift held in an open session, the net the session grows into, absorbing
-    // its links — each new row's key minted, its other fields the template of
-    // its kind the library has selected (§4.3), one step; then the flash.
+    // its links — each new row keyed as its kind makes one (#1549), its other
+    // fields the template of its kind the library has selected (§4.3), one
+    // step; then the flash. A key its kind refuses records nothing, the footer
+    // saying why.
     const commitConnect = useCallback((from: string, to: string, shift: boolean) => {
         if (editing === undefined) return;
         const args = dragArgs({ from, additive: shift }, to);
         if (args === undefined) return;
-        const minted = new Set<string>();
-        const step = connectStep(kinds, args, (slot) => {
-            const key = editing.mint(slot, minted);
-            minted.add(key);
-            return key;
-        }, connectValues);
+        const step = connectStep(kinds, args, (made) => editing.newKey(made), connectValues);
         if (step === undefined) return;
+        if ("refused" in step) {
+            editing.keyRefused(step.refused);
+            return;
+        }
         const grown = step.edits.find((edit) => edit.op === "net" || edit.op === "sides");
         const slot = (grown ?? step.edits.find((edit) => edit.op === "link"))?.ref.kind;
         if (slot === undefined) return;

@@ -26,7 +26,8 @@
  * canvas has no drop cell, and a card's ⏎ — a tap on the selected card, or the
  * inspector's Place — is how a card lands.
  *
- * An item a drop adds or places is selected (SC12). Every function the parts
+ * An item a drop adds is keyed as its kind makes one (#1549): a drop its kind
+ * makes no key for records nothing, the footer saying why. An item a drop adds or places is selected (SC12). Every function the parts
  * hold reads the frame's latest state, so the parts stay put while the
  * Schematic takes drops.
  *
@@ -39,11 +40,12 @@ import { useDragTarget, type DragEventValue, type DragPayload, type DragTargetCo
 import type { BacklogEntry } from "./backlog.js";
 import { entityId, type SchematicRef } from "./canvas/drawn.js";
 import type { SchematicValue } from "./data.js";
+import type { SchematicNewKey } from "./editing.js";
 import {
     cardOf, dropCaption, dropEdits, dropHostOf, dropLabel, dropName, dropRefusal, droppedItem, planDrop, planEnter, readDropAt,
     type SchematicCanvasDrop, type SchematicDropAt, type SchematicDropCard, type SchematicDropContext, type SchematicDropPlan, type SchematicDropPoint,
 } from "./drop.js";
-import type { SchematicEdit } from "./edits.js";
+import type { SchematicEdit, SchematicKeyRefusal } from "./edits.js";
 import { schematicLibraryId } from "./library.js";
 import type { SchematicWords } from "./messages.js";
 
@@ -64,8 +66,10 @@ export interface SchematicDropProps {
     readonly context: () => SchematicDropContext;
     /** Records a drop's edits as one step of the history, under its name; whether anything was recorded. */
     readonly record: (edits: readonly SchematicEdit[], label: string) => boolean;
-    /** A new row's key: unique among every key the Schematic holds of the kind, and those given. */
-    readonly mint: (slot: string, minted: ReadonlySet<string>) => string;
+    /** A new row's key, as its kind makes one from the edit making it (`editing.ts`' `newKey`, #1549). */
+    readonly newKey: (made: SchematicEdit) => SchematicNewKey | undefined;
+    /** Says why a drop records nothing, its new item's key refused (#1549), in the footer. */
+    readonly keyRefused: (refusal: SchematicKeyRefusal) => void;
     /** What the canvas has selected now, each entity by its reference. */
     readonly selection: () => readonly SchematicRef[];
     /** The view's centre, at the screen's resolution; `undefined` while the canvas has no size. */
@@ -121,15 +125,15 @@ export function useSchematicDrop(props: SchematicDropProps): SchematicDropState 
     const run = useCallback((card: SchematicDropCard, planned: SchematicDropPlan): boolean => {
         const p = latest.current;
         if (planned.kind === "refused") return false;
-        const minted = new Set<string>();
-        const edits = dropEdits(planned, (slot) => {
-            const key = p.mint(slot, minted);
-            minted.add(key);
-            return key;
-        });
-        if (!p.record(edits, dropLabel(planned, card, p.words, p.unit))) return false;
+        const made = dropEdits(planned, p.newKey);
+        if (made === undefined) return false;
+        if ("refused" in made) {
+            p.keyRefused(made.refused);
+            return false;
+        }
+        if (!p.record(made.edits, dropLabel(planned, card, p.words, p.unit))) return false;
         p.notice(undefined);
-        const item = droppedItem(planned, edits);
+        const item = droppedItem(planned, made.edits);
         if (item !== undefined) p.select(entityId(item));
         return true;
     }, []);

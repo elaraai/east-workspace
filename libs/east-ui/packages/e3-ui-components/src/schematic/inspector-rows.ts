@@ -12,7 +12,9 @@
  * read by its key through the kind's `entries`, or, for a kind read by area
  * that has none, through its source of the slice (`recordSliceRows`, at the
  * kind's key type, #1549): a row the window no longer holds, still selected. A details record read whole
- * holds its row, and one read by key is asked for it. The reader hands the
+ * holds its row, and one read by key is asked for it. A new row whose key isn't
+ * typed yet — held under a placeholder, which no key prints as (#1549) — has no
+ * stored rows, and no read asks for one. The reader hands the
  * frame what it read only when that moves, so a scan landing elsewhere redraws
  * no inspector. What its drafts make of the rows is the inspector's: the reads
  * are the record's alone.
@@ -164,6 +166,7 @@ export function SchematicInspectedReader({ value, inspected, areas = NO_AREAS, w
         if (inspected === undefined) return NO_INSPECTED_ROWS;
         const kind = [...value.items, ...value.zones, ...value.links, ...value.nets].find((k) => stringEqual(k.key, inspected.kind));
         if (kind === undefined) return { ref: inspected, row: ABSENT, details: undefined };
+        if (!kindKeys(kind.keyType).isKey(inspected.key)) return { ref: inspected, row: ABSENT, details: kind.details.type === "some" ? ABSENT : undefined };
         // A kind read by area: its window's rows, none before it has landed — a row they don't hold read by its key.
         const byArea = areas.has(kind.key);
         const window = byArea ? windows.get(kind.key)?.rows ?? new Map<string, { readonly row: Uint8Array }>() : undefined;

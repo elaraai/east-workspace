@@ -107,7 +107,8 @@ import { RevealTell, niceScaleLength, usePaint } from "./use-paint";
 import type { SchematicDensity, SchematicViewportStore } from "../area.js";
 import { areaSlots, type SchematicValue } from "../data.js";
 import { dropPoint, type SchematicCanvasDrop, type SchematicDropPoint } from "../drop.js";
-import type { NetLeg, SchematicEdit } from "../edits.js";
+import type { SchematicNewKey } from "../editing.js";
+import type { NetLeg, SchematicEdit, SchematicKeyRefusal } from "../edits.js";
 import type { SchematicWords } from "../messages.js";
 import type { SchematicNarrowedLook } from "../narrowing.js";
 import type { SchematicTool } from "../tools.js";
@@ -148,13 +149,19 @@ export interface SchematicCanvasEditing {
      */
     readonly record: (edits: readonly SchematicEdit[], origin: Origin, label: string) => boolean;
     /**
-     * A new row's key: unique among every key the Schematic has read and drafted of the kind, and those given.
+     * A new row's key, as its kind makes one from the edit making it (`editing.ts`' `newKey`, #1549).
      *
-     * @param slot - The kind's slot
-     * @param minted - The keys the gesture has minted already
-     * @returns The key
+     * @param made - The edit making the row, under any key
+     * @param minted - The keys the gesture has made already
+     * @returns The key, or why there is none; `undefined` while it is still to be read
      */
-    readonly mint: (slot: string, minted: ReadonlySet<string>) => string;
+    readonly newKey: (made: SchematicEdit, minted?: ReadonlySet<string>) => SchematicNewKey | undefined;
+    /**
+     * Says why a gesture records nothing, its new row's key refused (#1549), in the footer.
+     *
+     * @param refusal - Why
+     */
+    readonly keyRefused: (refusal: SchematicKeyRefusal) => void;
 }
 
 /** LOD thresholds in px per world unit: card ⇢ labelled dot ⇢ dot. */
