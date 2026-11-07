@@ -641,16 +641,19 @@ describe("FieldForm — a field a host draws on one line, an issue's wash, and t
         ["lead", YES_NO],
     ]);
 
-    function mountShift(value: Record<string, unknown>, extra: { readOnly?: boolean; issues?: ReadonlySet<string> } = {}) {
+    function mountShift(value: Record<string, unknown>, extra: { readOnly?: boolean; issues?: ReadonlySet<string>; hidden?: boolean } = {}) {
         const edits: Edit[] = [];
         let named: (key: string | undefined) => void = () => {};
         function Host() {
             const [current, setValue] = useState<Record<string, unknown>>(value);
             const [focus, setFocus] = useState<string | undefined>(undefined);
             named = setFocus;
+            // A panel around the form, hidden as a tab's is until it is shown.
             return (
-                <FieldForm specs={SHIFT_SPECS} value={current} readOnly={extra.readOnly} lines={LINES} issues={extra.issues} focus={focus}
-                    onChange={(path, next) => { edits.push({ path: path.join("."), value: next }); setValue((v) => setAt(v, path, next)); }} />
+                <div data-panel="" hidden={extra.hidden}>
+                    <FieldForm specs={SHIFT_SPECS} value={current} readOnly={extra.readOnly} lines={LINES} issues={extra.issues} focus={focus}
+                        onChange={(path, next) => { edits.push({ path: path.join("."), value: next }); setValue((v) => setAt(v, path, next)); }} />
+                </div>
             );
         }
         const utils = render(<ChakraProvider value={system}><I18nProvider locale={LOCALE}><Host /></I18nProvider></ChakraProvider>);
@@ -722,6 +725,26 @@ describe("FieldForm — a field a host draws on one line, an issue's wash, and t
         await focus("kind");
         expect(field("kind").contains(document.activeElement)).toBe(true);
         expect((document.activeElement as HTMLInputElement).type).toBe("radio");
+    });
+
+    test("a field named while the form is hidden takes the keyboard once it shows, a later name in its place", async () => {
+        // The browser gives the keyboard to nothing hidden; jsdom lays nothing out, so here a hidden ancestor is what hides.
+        const prototype = HTMLElement.prototype as { checkVisibility?: (this: HTMLElement) => boolean };
+        const was = prototype.checkVisibility;
+        prototype.checkVisibility = function (this: HTMLElement) { return this.closest("[hidden]") === null; };
+        try {
+            const { container, field, focus } = mountShift({ name: "Early", kind: "day", active: true, lead: none, note: "" }, { hidden: true });
+            await focus("note");
+            await focus("name");
+            expect(container.querySelector("[data-field-form]")!.contains(document.activeElement)).toBe(false);
+            // The panel shown: the name, never the note named before it.
+            await act(async () => { container.querySelector("[data-panel]")!.removeAttribute("hidden"); });
+            await settle();
+            expect(document.activeElement).toBe(within(field("name")).getByRole("textbox"));
+        } finally {
+            if (was === undefined) delete prototype.checkVisibility;
+            else prototype.checkVisibility = was;
+        }
     });
 });
 

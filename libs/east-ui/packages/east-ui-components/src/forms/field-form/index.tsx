@@ -55,7 +55,8 @@
  * the choice made is printed there. Lines that follow one another sit closer
  * than fields do, rows of choices. A field an issue names (`issues`) takes the warn wash
  * around it, as a changed one takes the brand's; and the field a host names
- * (`focus`) takes the keyboard as it is named — a new row's title.
+ * (`focus`) takes the keyboard as it is named — a new row's title — or, where a
+ * tab or a fold still hides the form, once it shows.
  *
  * It is a React part for renderers, as `BuilderFrame` is: no East component.
  * Each input's payload is East's `defaultValue` of its type with the field's
@@ -152,7 +153,10 @@ export interface FieldFormProps {
     lines?: ReadonlyMap<string, readonly FieldLineChoice[]> | undefined;
     /** The fields an issue names, by key: each takes the warn wash around it. */
     issues?: ReadonlySet<string> | undefined;
-    /** The field that takes the keyboard, by key, as it is named: the first thing in its control that takes it. */
+    /**
+     * The field that takes the keyboard, by key, as it is named: the first control in it that takes it — or, where a
+     * tab or a fold still hides the form, once it shows. A later name takes its place; naming none leaves it to take it.
+     */
     focus?: string | undefined;
 }
 
@@ -187,6 +191,37 @@ const compareFloats = compareFor(FloatType);
 const NONE_CHOICE = "\u0000none";
 
 const NO_OPTIONS: Readonly<Record<string, readonly FieldOption[]>> = {};
+
+/** What takes the keyboard in a field: the first control in it that takes it. */
+const FOCUSABLE = "input:not([type=hidden]):not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex='-1'])";
+
+/**
+ * Gives the keyboard to a field of a form — the first control in it that takes it — at once where it shows, else once
+ * it does: the browser gives it to nothing hidden, and a change of an element around the form (a tab's panel shown, a
+ * fold opened) is when it may show.
+ *
+ * @param root - The form
+ * @param key - The field, by key
+ * @returns What stops the wait, while it waits; `undefined` once the field has the keyboard, or where it has nothing to take it
+ */
+function takeWhenShown(root: HTMLElement | null, key: string): (() => void) | undefined {
+    if (root === null) return undefined;
+    // Whether the wait is over: the keyboard given, or nothing in the field to take it.
+    const take = (): boolean => {
+        const field = [...root.querySelectorAll<HTMLElement>("[data-field]")].find((el) => stringEqual(el.getAttribute("data-field") ?? "", key));
+        const control = field?.querySelector<HTMLElement>(FOCUSABLE);
+        if (control === undefined || control === null) return true;
+        if (typeof control.checkVisibility === "function" && !control.checkVisibility()) return false;
+        control.focus();
+        return true;
+    };
+    if (take()) return undefined;
+    const observer = new MutationObserver((records) => {
+        if (records.some((record) => record.target.contains(root)) && take()) observer.disconnect();
+    });
+    observer.observe(root.ownerDocument.documentElement, { attributes: true, subtree: true });
+    return () => observer.disconnect();
+}
 
 /**
  * A field's value, read along its path from the struct the form edits.
@@ -331,13 +366,22 @@ export const FieldForm = memo(function FieldForm({
     const formatters = useFormatters();
     const said = useMemo((): FieldFormWords => words ?? { ...formatters, m: fieldFormMessages }, [words, formatters]);
     const sections = useMemo(() => sectionsOf(specs), [specs]);
+    // The field named takes the keyboard (`focus`), once it shows: a later name stops the wait for the one before.
+    const rootRef = useRef<HTMLDivElement | null>(null);
+    const taking = useRef<(() => void) | undefined>(undefined);
+    useEffect(() => {
+        if (focus === undefined) return;
+        taking.current?.();
+        taking.current = takeWhenShown(rootRef.current, focus);
+    }, [focus]);
+    useEffect(() => () => taking.current?.(), []);
     const row = (spec: FieldSpecValue) => {
         const key = spec.path.join(".");
         return (
             <FieldRow key={spec.path.join("\u001f")} spec={spec} current={valueAt(value, spec.path)}
                 base={baseline === undefined ? undefined : valueAt(baseline, spec.path)} hasBaseline={baseline !== undefined}
                 options={options} onChange={onChange} readOnly={readOnly} words={said} styles={styles} renderControl={renderControl} live={live}
-                choices={lines?.get(key)} issue={issues?.has(key) === true} focused={focus !== undefined && stringEqual(focus, key)} />
+                choices={lines?.get(key)} issue={issues?.has(key) === true} />
         );
     };
     // A section's fields in order, each run of fields drawn on one line together.
@@ -357,7 +401,7 @@ export const FieldForm = memo(function FieldForm({
         return out;
     };
     return (
-        <Box css={styles.root} data-field-form="">
+        <Box ref={rootRef} css={styles.root} data-field-form="">
             {sections.map((section) => (section.group === undefined ? draw(section.specs) : (
                 <Box key={`group\u001f${section.group}`} css={styles.group} role="group" aria-label={section.group} data-field-group={section.group}>
                     <Box as="span" css={styles.groupHead}>{section.group}</Box>
@@ -385,8 +429,6 @@ interface FieldRowProps {
     choices: readonly FieldLineChoice[] | undefined;
     /** An issue names it. */
     issue: boolean;
-    /** It takes the keyboard. */
-    focused: boolean;
 }
 
 /**
@@ -394,7 +436,7 @@ interface FieldRowProps {
  * checklist's items; or, drawn on one line, its label and its choices.
  */
 const FieldRow = memo(function FieldRow({
-    spec, current, base, hasBaseline, options, onChange, readOnly, words, styles, renderControl, live, choices, issue, focused,
+    spec, current, base, hasBaseline, options, onChange, readOnly, words, styles, renderControl, live, choices, issue,
 }: FieldRowProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
@@ -445,10 +487,6 @@ const FieldRow = memo(function FieldRow({
     const done = checklist === undefined ? 0 : items.filter((item) => item[checklist.done] as boolean).length;
     const typed = useRef("");
     const fieldRef = useRef<HTMLDivElement | null>(null);
-    // Named to take the keyboard: the first thing in its control that takes it.
-    useEffect(() => {
-        if (focused) fieldRef.current?.querySelector<HTMLElement>("input:not([type=hidden]), textarea, button, [tabindex]:not([tabindex='-1'])")?.focus();
-    }, [focused]);
     // An Option's Clear, beside a line's choices or an input that cannot show none.
     const clear = (
         <chakra.button type="button" css={iconButton({ variant: "ghost", size: "xs" })} aria-label={m.clear({ label: spec.label })}
@@ -469,7 +507,7 @@ const FieldRow = memo(function FieldRow({
                 {printedLine
                     ? <Box as="span" css={styles.lineValue} data-field-value="">{chosen < 0 ? m.notSet() : choices[chosen]!.label}</Box>
                     : (
-                        <Box ref={fieldRef} css={styles.lineChoices} data-field-choice="radio">
+                        <Box css={styles.lineChoices} data-field-choice="radio">
                             <EastChakraRadioGroup label={spec.label} value={{
                                 ...RADIO,
                                 value: chosen < 0 ? "" : String(chosen),
