@@ -11,8 +11,10 @@
  *
  * - **one event** (PB38): its kind's icon and name, its title, when it runs
  *   and its status; the overlaps banner when it overlaps another (#1198,
- *   PB53), a line per event it overlaps whose click selects that event; its
- *   resource, its start and end or its instant, its lane, its state and its
+ *   PB53), a line per event it overlaps whose click selects that event; the
+ *   banner of its refusals holding Save while the app's `ready` refuses it
+ *   (#1525), as the Calendar's inspector has it, each field one names ringed
+ *   in its form; its resource, its start and end or its instant, its lane, its state and its
  *   quantity; its kind's fields through `FieldForm`, the fields its roles
  *   read left to their own lines — or, when the kind has its own inspector,
  *   what that returns for the event in place of the form (PB60); then
@@ -97,6 +99,7 @@ import { heldRowOf } from "../../shared/schedule/editing.js";
 import { removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
 import { usePlanResourceRows, type PlanResourceLookup, type PlanResourceRefValue } from "./resources.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
+import { refusalText, scheduleRefusals } from "../../shared/schedule/refusals.js";
 import { stateText } from "../a11y.js";
 import type { PlanSnapshot } from "../controller/index.js";
 import { usePlanSelector } from "../controller/react.js";
@@ -559,6 +562,9 @@ const NONE_MINTED: ReadonlySet<string> = new Set();
 /** What a new event's form is tinted against: nothing — every field it has is a change. */
 const NEW_EVENT: Readonly<Record<string, unknown>> = {};
 
+/** No field a refusal names: the one set, so the form's rings hold while none does. */
+const NO_REFUSED: ReadonlySet<string> = new Set();
+
 /** Whether two field paths are one. */
 function samePath(a: readonly string[], b: readonly string[]): boolean {
     return a.length === b.length && a.every((step, i) => stringEqual(step, b[i]!));
@@ -672,6 +678,10 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
     // holds no snapshot to read it from).
     const drafted = editing?.draftsOf(kind.key).has(item.key) === true;
     const held = editing?.held(kind.key, item.key) ?? (drafted ? NEW_EVENT : value);
+    // Its refusals holding Save (#1525): the app's `ready` refusing it while it stands, each field one names ringed.
+    const refusals = scheduleRefusals(editing?.sessions ?? []).filter((r) => stringEqual(r.kind, kind.key) && stringEqual(r.issue.entry, item.key));
+    const refused = refusals.length === 0 ? NO_REFUSED
+        : new Set(refusals.flatMap((r) => (r.issue.field.type === "some" ? [r.issue.field.value] : [])));
     // A field edited (PB42): one transaction, written through the kind's own `write`, its value as bytes at the field's type.
     const onField = useCallback((path: readonly string[], next: unknown) => {
         const spec = specs.find((s) => samePath(s.path, path));
@@ -708,6 +718,12 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
                     lines={peers.map((peer) => ({ keys: [scheduleEventKey(peer)], when: whenText(peer, kind.instant, words), title: peer.title }))}
                     onSelect={chrome.selectEvents} />
             )}
+            {/* Over its form, as the Calendar's inspector shows an event's: each refusal's field by its form's label. */}
+            {refusals.length > 0 && (
+                <Box css={styles.refusals} data-inspector-refusals="">
+                    <BannerView status="warning" title={m.inspectorRefusals()} description={refusals.map((r) => refusalText(r.issue, kind.fields)).join("; ")} />
+                </Box>
+            )}
             <Box as="dl" css={styles.facts} data-inspector-facts="">
                 <Fact styles={styles} fact="resource" label={m.inspectorFact({ fact: "resource" })} value={resourceText(item.resource, resourceRows, words)} />
                 {start !== undefined && end !== undefined && (kind.instant
@@ -731,7 +747,7 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
                     </Box>
                 ) : specs.length > 0 && (
                     <Box css={styles.fields} data-inspector-fields="form">
-                        <FieldForm specs={specs} value={value} baseline={held} onChange={editing !== undefined ? onField : NO_EDIT} />
+                        <FieldForm specs={specs} value={value} baseline={held} issues={refused} onChange={editing !== undefined ? onField : NO_EDIT} />
                     </Box>
                 )}
                 <Box css={styles.actions} data-inspector-actions="">

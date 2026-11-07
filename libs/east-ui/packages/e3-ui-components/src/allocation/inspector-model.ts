@@ -399,26 +399,26 @@ export interface SummaryStat { key: string; label: string; value: string; sub: s
 /**
  * The summary's four counts (A63): Bins (`26`, `556 m³ · 0 reserved`), Loading
  * (`21 of 33`, `10 free · 2 busy`), Issues (`3`, `2 overlaps · 1 over max`, or
- * `none`) and Changes (`0`, `all saved`, or `N`, `unsaved · Save is in the
- * toolbar`).
+ * `none`), the refusals holding Save among them (#1525), and Changes (`0`,
+ * `all saved`, or `N`, `unsaved · Save is in the toolbar`).
  *
- * @param args - The day as drafted and as the record holds it, every load, every issue and the words
+ * @param args - The day as drafted and as the record holds it, every load, every issue, how many refusals hold Save, and the words
  * @returns The counts, in order
  */
-export function summaryStats(args: { plan: Day; held: Day | undefined; sameBin: (a: Bin, b: Bin) => boolean; loads: SortedMap<string, Load>; issues: readonly Issue[]; words: InspectorWords }): SummaryStat[] {
-    const { plan, held, sameBin, loads, issues, words } = args;
+export function summaryStats(args: { plan: Day; held: Day | undefined; sameBin: (a: Bin, b: Bin) => boolean; loads: SortedMap<string, Load>; issues: readonly Issue[]; refused?: number; words: InspectorWords }): SummaryStat[] {
+    const { plan, held, sameBin, loads, issues, refused = 0, words } = args;
     const bins = [...plan.bins.values()];
     const booked = bins.filter(bin => bin.arrival.type === "some");
     const states = [...loads.values()].map(load => load.state.type);
     const count = (state: Load["state"]["type"]) => states.filter(s => s === state).length;
-    const issueCount = countedIssues(issues).length;
+    const issueCount = countedIssues(issues).length + refused;
     let drafts = 0;
     for (const [id, bin] of plan.bins) { const was = held?.bins.get(id); if (was === undefined || !sameBin(was, bin)) drafts++; }
     for (const [id] of held?.bins ?? []) if (!plan.bins.has(id)) drafts++;
     return [
         { key: "bins", label: words.nouns.bin.other, value: `${booked.length}`, sub: `${words.quantity(Math.round(booked.reduce((n, bin) => n + bin.quantity, 0)))} · ${bins.length - booked.length} ${lower(words.nouns.reserved)}`, tone: undefined },
         { key: "loading", label: "Loading", value: `${count("loading")} of ${states.length}`, sub: `${count("free")} free · ${count("busy")} busy`, tone: undefined },
-        { key: "issues", label: "Issues", value: `${issueCount}`, sub: issueCount > 0 ? issueParts(issues).join(" · ") : "none", tone: issueCount > 0 ? "warning" : undefined },
+        { key: "issues", label: "Issues", value: `${issueCount}`, sub: issueCount > 0 ? issueParts(issues, refused).join(" · ") : "none", tone: issueCount > 0 ? "warning" : undefined },
         { key: "changes", label: "Changes", value: `${drafts}`, sub: drafts > 0 ? "unsaved · Save is in the toolbar" : "all saved", tone: drafts > 0 ? "brand" : undefined },
     ];
 }

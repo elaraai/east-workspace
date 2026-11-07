@@ -787,7 +787,10 @@ Rules marked *ruled* follow a decision of §2; *product* rules are not in the mo
   `Check`, `Not linked`, `Added · unsaved`, `Moved · unsaved`, `Allocated ·
   unsaved`, `Unlinked · unsaved`, `Edited · unsaved`), the title `LD-2210 · 32 m³`,
   its meta, and its actions: Unlink (when linked), Revert (a changed committed
-  bin), Back to Events. Then a banner per issue (`Over max · K-207 holds 44 m³
+  bin), Back to Events. Then, while the app's `ready` refuses the bin, the
+  refusals holding Save in one warning banner, `Not saved yet` over
+  `Grade measured: Measure the grade` (A64), each field one names ringed in
+  the bin's form (*product*). Then a banner per issue (`Over max · K-207 holds 44 m³
   against a 40 m³ max · 4 m³ over.`, `Under min · … Another load can top it up;
   Save still works.`, `Overlaps the next job · The 8-day hold on K-105 runs to
   Tue 18, 2 d into the job planned Mon 17.`, `Not linked · LD-2231 has no
@@ -840,6 +843,16 @@ Rules marked *ruled* follow a decision of §2; *product* rules are not in the mo
   the tab's count and the summary count warning and danger issues; neutral and
   info ones (the yard's Spec mismatch) are listed but not counted, as the mock
   does. Issues never block Save or Publish. *Ruled.*
+
+  *Product.* What does hold Save is the app's `ready` refusing a drafted bin.
+  Ahead of the groups, `Not saved yet` with its count, in the warning tone: each
+  refusal of any day's drafts, its bin by its code (`LD-2210`, or `Reserved`
+  for a reservation; its key, for a bin the board can't read), and its field by
+  its form's label and the app's message (`Grade measured: Measure the grade`).
+  Its `Show →`, or the history item's warning button, opens the bin's day and
+  selects it, its Details showing the refusal over its form (A56). The issues
+  chip, the tab's count and the summary's Issues stat count the refusals
+  (`1 not saved yet · 2 overlaps`), and None never shows while Save is held.
 
 ### 9.9 Links (owner: links) — §11
 

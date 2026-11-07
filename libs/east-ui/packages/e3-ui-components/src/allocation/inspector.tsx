@@ -8,7 +8,8 @@
  * pane's two tabs. Details shows a refused drop's note (A40), the drop list
  * during a drag or a pick (A34), else the selection — a bin (A56–A59), a free
  * slot (A60), a reservation (A61), a resource (A62) — else the summary (A63);
- * Issues groups every issue with its fix (A64). A bin's Assigned to holds its
+ * Issues groups every issue with its fix (A64), the refusals holding Save
+ * ahead of them, each over its bin's form too (#1525). A bin's Assigned to holds its
  * parts (A70–A74, #1332): each part's quantity a field, the remainder in
  * warn, `Split…` to put the remainder — or, with none, some of a part — on
  * another resource (`split.tsx`, #1362), and Find a fit.
@@ -39,11 +40,11 @@ import {
     faArrowRight, faArrowsSplitUpAndLeft, faChevronDown, faChevronUp, faCircleCheck, faCircleExclamation, faLinkSlash, faMagnifyingGlass, faMinus, faPlus,
     faRotateLeft, faTriangleExclamation, faXmark,
 } from "@fortawesome/free-solid-svg-icons";
-import { DateTimeType, FloatType, OptionType, StringType, StructType, none, some, variant, type SortedMap, type option } from "@elaraai/east";
+import { DateTimeType, FloatType, OptionType, StringType, StructType, equalFor, none, some, variant, type SortedMap, type option } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui";
 import {
     BannerView, EastChakraComponent, FieldForm, fieldFormMessages, useDropCell, useFormatters, useTrackedEvaluation, type BuilderFrameDock,
-    type FieldFormWords,
+    type EditIssue, type FieldFormWords,
 } from "@elaraai/east-ui-components";
 import { Chooser, formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
@@ -84,6 +85,21 @@ const NO_EDIT = () => {};
 const PART = OptionType(FloatType);
 /** A bin's parts as a struct: a field per part, named by its resource's key, as the bin's parts are keyed — the key the shared field shows. */
 const partsType = (keys: readonly string[]) => StructType(Object.fromEntries(keys.map(key => [key, PART])));
+
+/**
+ * A refusal holding Save (#1525), as the board says it: the app's `ready` refusing a drafted bin, named by its code —
+ * or by its key, for a bin the board can't read — and its field by its form's label.
+ */
+export interface AllocationRefusal {
+    /** The bin kind's slot, or the record's key, whose session refuses. */
+    readonly kind: string;
+    /** The refusal's issue: its entry's key's text, its field and the app's message. */
+    readonly issue: EditIssue;
+    /** Its bin in words: its code, `LD-2231`. */
+    readonly title: string;
+    /** Its field and the app's message: `Grade: Choose the grade`. */
+    readonly text: string;
+}
 
 /** The Inspector's args: what the board knows, and what it can do. */
 export interface InspectorArgs {
@@ -132,6 +148,10 @@ export interface InspectorArgs {
     finding?: ((bin: string) => boolean) | undefined;
     /** The board's message table: what a bin's Details call its key. */
     m: AllocationMessages;
+    /** Every refusal holding Save, of every day's drafts (#1525): listed ahead of the issues, and over its bin's form. */
+    refusals: readonly AllocationRefusal[];
+    /** A refusal's Show pressed: its bin shown on its day and selected. */
+    onRefusal: (refusal: AllocationRefusal) => void;
 }
 
 /** What every part reads. */
@@ -141,6 +161,22 @@ interface Part { args: InspectorArgs; styles: Styles; words: InspectorWords; hor
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const timeText = (at: Date) => formatDatePattern("HH:mm", at);
 const dayLong = (at: Date) => formatDatePattern("ddd D MMM", at);
+const keyEqual = equalFor(StringType);
+/** No field a refusal names: the one set, so a form's memo holds while none does. */
+const NO_REFUSED: ReadonlySet<string> = new Set();
+
+/**
+ * A bin's refusals holding Save (#1525), as its Details' first banner — over its form, as the Calendar's shows an
+ * event's — and the fields they name, which its form rings.
+ */
+function refusalsOf(args: InspectorArgs, id: string): { banners: InspectorBanner[]; fields: ReadonlySet<string> } {
+    const own = args.refusals.filter(r => keyEqual(r.kind, args.value.bin.kind.key) && keyEqual(r.issue.entry, id));
+    if (own.length === 0) return { banners: [], fields: NO_REFUSED };
+    return {
+        banners: [{ status: "warning", title: "Not saved yet", text: own.map(r => r.text).join("; ") }],
+        fields: new Set(own.flatMap(r => (r.issue.field.type === "some" ? [r.issue.field.value] : []))),
+    };
+}
 
 /**
  * The end pane (see the module docs).
@@ -162,7 +198,8 @@ export function useAllocationInspector(args: InspectorArgs): BuilderFrameDock | 
     const horizon = value.settings.horizon;
     const horizonEnd = useMemo(() => resourceAxis(args.day, Number(board.ms(horizon.before)), Number(board.ms(horizon.after))).to, [args.day, board, horizon]);
     if (!value.inspector) return undefined;
-    const count = countedIssues(args.issues).length;
+    // The counted issues and the refusals holding Save (#1525).
+    const count = countedIssues(args.issues).length + args.refusals.length;
     // A drag shows Details, where its drop list is (A22, A34); the viewer's tab comes back as it ends.
     const dragging = args.drag.grip !== undefined;
     const part: Part = { args, styles, words, horizonEnd };
@@ -293,7 +330,8 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
     const status = binStatus(bin, committed, domain.sameBin, at.map(r => r.line), nouns);
     const code = binCode(context, bin, nouns);
     const arrival = bin.arrival.type === "some" ? context.arrivals.get(bin.arrival.value) : undefined;
-    const banners = bannersOf({ issues, bin: { id, code }, resources: at, day, words });
+    const refused = refusalsOf(args, id);
+    const banners = [...refused.banners, ...bannersOf({ issues, bin: { id, code }, resources: at, day, words })];
     // Its connector's question (A23, F1): asked as the bin was selected; its answer ranks the other gaps (A59).
     const asked = placeAsk(plan, { kind: "port", bin: id });
     const alternatives = alternativesOf(asked === undefined ? undefined : fit.answer(asked.ask), current, context);
@@ -313,7 +351,7 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
             </Box>}
         </ScheduleInspectorHead>
         <Banners styles={styles} banners={banners} />
-        <BinSection {...part} id={id} bin={bin} committed={committed} />
+        <BinSection {...part} id={id} bin={bin} committed={committed} refused={refused.fields} />
         <AssignedTo {...part} id={id} bin={bin} current={current} at={at[0]} />
         <Box css={styles.section} data-allocation-alternatives="">
             <Box css={styles.sectionHead}>{bin.parts.size > 0 ? "Other gaps that fit" : "Gaps that fit"}</Box>
@@ -341,11 +379,12 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
  * quantity, each a field of the shared form; on a day that takes no edit its
  * lane, by its name, and its time are printed as the form prints every field,
  * with no segments or stepper (the hand retest); then the row's own
- * fields, the bin kind's form over its `fields`, and the app's columns as
- * rows — or, with the bin kind's own `inspector`, that form over the row in
- * place of the quantity, the fields and the rows.
+ * fields, the bin kind's form over its `fields` — each field a refusal names
+ * (`refused`) ringed — and the app's columns as rows; or, with the bin kind's
+ * own `inspector`, that form over the row in place of the quantity, the
+ * fields and the rows.
  */
-function BinSection({ id, bin, committed, ...part }: Part & { id: string; bin: Bin; committed: Bin | undefined }) {
+function BinSection({ id, bin, committed, refused, ...part }: Part & { id: string; bin: Bin; committed: Bin | undefined; refused: ReadonlySet<string> }) {
     const { args, styles, words } = part;
     const { value, slots, plan, commands, day, context, shown } = args;
     const nouns = words.nouns;
@@ -409,19 +448,22 @@ function BinSection({ id, bin, committed, ...part }: Part & { id: string; bin: B
         <Box css={styles.sectionHead}>{nouns.bin.one}</Box>
         <FieldForm specs={specs} value={shownValue} baseline={baseline} options={laneNames} onChange={onChange} readOnly={!editable} renderControl={renderControl} />
         {form !== undefined ? <CustomBin {...part} id={id} bin={bin} form={form} /> : <>
-            <RowFields {...part} id={id} bin={bin} committed={committed} />
+            <RowFields {...part} id={id} bin={bin} committed={committed} refused={refused} />
             <ValueRows {...part} bin={bin} />
         </>}
     </Box>;
 }
 
-/** The row's own fields (`Builder Interfaces Spec.md` §1, rule 2): the bin kind's form over its `fields`, each edit one command, a draft until Save. */
-function RowFields({ args, id, bin, committed }: Part & { id: string; bin: Bin; committed: Bin | undefined }) {
+/**
+ * The row's own fields (`Builder Interfaces Spec.md` §1, rule 2): the bin kind's form over its `fields`, each edit one
+ * command, a draft until Save, and each field a refusal names ringed (#1525).
+ */
+function RowFields({ args, id, bin, committed, refused }: Part & { id: string; bin: Bin; committed: Bin | undefined; refused: ReadonlySet<string> }) {
     const { value, commands } = args;
     const { field } = commands;
     const onChange = useCallback((path: readonly string[], next: unknown) => { field(id, path, next); }, [field, id]);
     if (value.bin.kind.fields.length === 0) return null;
-    return <FieldForm specs={value.bin.kind.fields} value={bin.row} baseline={committed?.row ?? {}} onChange={onChange} readOnly={!commands.canEdit()} />;
+    return <FieldForm specs={value.bin.kind.fields} value={bin.row} baseline={committed?.row ?? {}} onChange={onChange} readOnly={!commands.canEdit()} issues={refused} />;
 }
 
 /** The app's columns as rows (A57): each column's text, in warn-text 600 when its tone warns; read through the app's callbacks over the bin's row. */
@@ -701,6 +743,8 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
         <ScheduleInspectorHead styles={styles} kind={{ name: committed === undefined ? `New ${one(nouns.reservation)}` : `${nouns.reserved} slot`, icon: "bookmark" }}
             title={`${words.lane(bin.lane)} · ${timeText(bin.at)}`} when={name === undefined ? `${nouns.reserved} · no ${one(nouns.arrival)} yet` : `${nouns.reserved} on ${name} · no ${one(nouns.arrival)} yet`}
             status={statusOf(status)} pending={status.pending} home />
+        {/* Its refusals holding Save (#1525), over what it holds. */}
+        <Banners styles={styles} banners={refusalsOf(args, id).banners} />
         <Box css={styles.fields} data-allocation-reservation="">
             <Box css={styles.sectionHead}>{nouns.reservation.one}</Box>
             <FieldForm specs={keySpecs} value={keyValue} baseline={keyBaseline} onChange={NO_EDIT} readOnly />
@@ -772,7 +816,7 @@ function ResourceDetails({ resource, ...part }: Part & { resource: string }) {
 function Summary({ args, styles, words }: Part) {
     const { value, plan, held, domain, loads, issues, shown } = args;
     const nouns = words.nouns;
-    const stats = summaryStats({ plan, held, sameBin: domain.sameBin, loads, issues, words });
+    const stats = summaryStats({ plan, held, sameBin: domain.sameBin, loads, issues, refused: args.refusals.length, words });
     const count = (keys: option<Set<string>>, total: number) => keys.type === "none" ? total : keys.value.size;
     const note = narrowingNote([
         { shown: count(shown.lanes, value.lanes.length), total: value.lanes.length, noun: nouns.lane },
@@ -793,27 +837,44 @@ function Summary({ args, styles, words }: Part) {
 }
 
 /**
- * Issues (A64): each group with its mark and its count, each issue its title
- * and `Show →`, its detail and its fix — the resource Chooser of the bin it
- * names, or Find a fit; with none, `No issues`.
+ * Issues (A64): the refusals holding Save first (#1525), each its bin's code
+ * and `Show →`, and its field and the app's message; then each group with its
+ * mark and its count, each issue its title and `Show →`, its detail and its
+ * fix — the resource Chooser of the bin it names, or Find a fit. With none of
+ * either, `No issues`: never while Save is held.
  */
 function IssuesTab(part: Part) {
     const { args, styles, words } = part;
     const groups = issueGroups(args.issues);
-    if (groups.length === 0) {
+    const refusals = args.refusals;
+    if (groups.length === 0 && refusals.length === 0) {
         return <Box css={styles.empty} data-allocation-issues-empty="">
             <Box as="span" css={styles.emptyIcon} aria-hidden="true"><FontAwesomeIcon icon={faCircleCheck} /></Box>
             <Box css={styles.emptyTitle}>No issues</Box>
             <Box css={styles.emptyHint}>Every {one(words.nouns.arrival)} sits within its gap and its max.</Box>
         </Box>;
     }
-    return <Box css={styles.issues} data-allocation-issues="">{groups.map(group => <Box key={group.key} css={styles.issueGroup} data-allocation-issue-group={group.key}>
-        <Box css={styles.issueHead} data-tone={group.tone}>
-            {group.tone === "danger" ? <FontAwesomeIcon icon={faCircleExclamation} aria-hidden="true" /> : group.tone === "warning" ? <FontAwesomeIcon icon={faTriangleExclamation} aria-hidden="true" /> : null}
-            <span>{group.label}</span><Box as="span" css={styles.issueCount}>{group.issues.length}</Box>
-        </Box>
-        {group.issues.map((issue, i) => <IssueItem key={i} {...part} issue={issue} />)}
-    </Box>)}</Box>;
+    return <Box css={styles.issues} data-allocation-issues="">
+        {refusals.length > 0 && <Box css={styles.issueGroup} data-allocation-issue-group="refusals">
+            <Box css={styles.issueHead} data-tone="warning">
+                <FontAwesomeIcon icon={faTriangleExclamation} aria-hidden="true" /><span>Not saved yet</span><Box as="span" css={styles.issueCount}>{refusals.length}</Box>
+            </Box>
+            {refusals.map((refusal, i) => <Box key={i} css={styles.issue} data-allocation-issue="refusal">
+                <Box css={styles.issueTop}>
+                    <Box as="span" css={styles.issueTitle} title={refusal.title}>{refusal.title}</Box>
+                    <chakra.button type="button" css={styles.link} onClick={() => args.onRefusal(refusal)}>Show<FontAwesomeIcon icon={faArrowRight} /></chakra.button>
+                </Box>
+                <Box css={styles.issueDetail}>{refusal.text}</Box>
+            </Box>)}
+        </Box>}
+        {groups.map(group => <Box key={group.key} css={styles.issueGroup} data-allocation-issue-group={group.key}>
+            <Box css={styles.issueHead} data-tone={group.tone}>
+                {group.tone === "danger" ? <FontAwesomeIcon icon={faCircleExclamation} aria-hidden="true" /> : group.tone === "warning" ? <FontAwesomeIcon icon={faTriangleExclamation} aria-hidden="true" /> : null}
+                <span>{group.label}</span><Box as="span" css={styles.issueCount}>{group.issues.length}</Box>
+            </Box>
+            {group.issues.map((issue, i) => <IssueItem key={i} {...part} issue={issue} />)}
+        </Box>)}
+    </Box>;
 }
 
 /** One issue (A64): its title and `Show →`, which selects its bin or resource; its detail; its fix. */
