@@ -101,7 +101,6 @@ export const workOrders = East.function([], UIComponentType, (_$) => (
                             key: st => st.word, label: st => st.label, drop: st => Sheet.patch(WorkOrder, { status: st.word }) }),
                         Sheet.library.columns(),
                     ]}
-                    applyMode="batch"
                 />
             </Box>
         );

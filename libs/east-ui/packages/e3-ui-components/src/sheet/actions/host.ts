@@ -32,8 +32,6 @@ export interface SheetActionHost {
     held: (r: number, key: string) => ActionHeld | undefined;
     /** Whether the cell's value is a draft (ST3). */
     dirty: (r: number, key: string) => boolean;
-    /** Whether an auto save of the cell is in flight (N2). */
-    live: (r: number, key: string) => boolean;
     /** The next half pressed: a button taken at once, a choice's Menu or a form's Popover opened (P2–P4). */
     next: (r: number, key: string, c: ActionCase, anchor: HTMLElement) => void;
     /** The ▾ part pressed: the Menu of the rest of the offer (P5). */

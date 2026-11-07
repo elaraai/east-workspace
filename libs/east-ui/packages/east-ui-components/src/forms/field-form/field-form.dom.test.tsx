@@ -14,8 +14,11 @@
  * printed. And (#1188) a field with no value yet, a date's precision, and a
  * control the host draws itself; and (#1250) a text's control titled with its
  * whole text, and a choice's with its chosen words; and (#1473) a choice of up
- * to four cases a radio group. Every value handed back is asserted with East's
- * `equalFor`.
+ * to four cases a radio group; and (#1534) a field a host draws on one line,
+ * the wash of a field an issue names, and the field a host names taking the
+ * keyboard; and (#1549) a variant whose cases hold data edited as a block
+ * under its choice, and a reference to a key of any type. Every value handed
+ * back is asserted with East's `equalFor`.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -26,13 +29,13 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { I18nProvider } from "@react-aria/i18n";
 import {
     ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet,
-    StringType, StructType, VariantType, compareFor, equalFor, none, printFor, some, variant, type ValueTypeOf,
+    StringType, StructType, VariantType, compareFor, equalFor, isVariant, none, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Fields } from "@elaraai/east-ui";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
 import { formatters } from "../../format/index.js";
-import { FieldForm } from "./index.js";
+import { FieldForm, type FieldLineChoice } from "./index.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -90,10 +93,13 @@ const JOB: JobValue = {
 /** One edit the form handed back. */
 interface Edit { path: string; value: unknown }
 
-/** The job with one field set, along its path — a host's draft. */
-function setAt(value: Record<string, unknown>, path: readonly string[], next: unknown): Record<string, unknown> {
+/** The value with one field set along its path — a step into a variant through the case it holds — a host's draft. */
+function setAt<V>(value: V, path: readonly string[], next: unknown): V {
     const [head, ...rest] = path;
-    return { ...value, [head!]: rest.length === 0 ? next : setAt(value[head!] as Record<string, unknown>, rest, next) };
+    if (head === undefined) return next as V;
+    if (isVariant(value)) return variant(head, setAt(value.value, rest, next)) as V;
+    const struct = value as Record<string, unknown>;
+    return { ...struct, [head]: setAt(struct[head], rest, next) } as V;
 }
 
 /** Mounts the form over the job, a host applying each edit to the value it shows. */
@@ -626,6 +632,261 @@ describe("FieldForm — a choice of up to four cases is a radio group, past four
         const { field: printed } = mountAlert({ changes: "", severity: variant("high", null), priority: none, status: variant("done", null) }, true);
         expect((within(printed("severity")).getByRole("textbox") as HTMLInputElement).value).toBe("High");
         expect(printed("severity").querySelector("[data-scope=radio-group]")).toBeNull();
+    });
+});
+
+describe("FieldForm — a field a host draws on one line, an issue's wash, and the field named to take the keyboard (#1534)", () => {
+    // A crew shift: its kind a key of the host's cycle, a Boolean, and an Option of one.
+    const Shift = StructType({ name: StringType, kind: StringType, active: BooleanType, lead: OptionType(BooleanType), note: StringType });
+    const SHIFT_SPECS = Fields.specs(Shift);
+    const YES_NO: readonly FieldLineChoice[] = [{ value: true, label: "Yes" }, { value: false, label: "No" }];
+    const LINES: ReadonlyMap<string, readonly FieldLineChoice[]> = new Map([
+        ["kind", [{ value: "day", label: "Day" }, { value: "night", label: "Night" }]],
+        ["active", YES_NO],
+        ["lead", YES_NO],
+    ]);
+
+    function mountShift(value: Record<string, unknown>, extra: { readOnly?: boolean; issues?: ReadonlySet<string>; hidden?: boolean } = {}) {
+        const edits: Edit[] = [];
+        let named: (key: string | undefined) => void = () => {};
+        function Host() {
+            const [current, setValue] = useState<Record<string, unknown>>(value);
+            const [focus, setFocus] = useState<string | undefined>(undefined);
+            named = setFocus;
+            // A panel around the form, hidden as a tab's is until it is shown.
+            return (
+                <div data-panel="" hidden={extra.hidden}>
+                    <FieldForm specs={SHIFT_SPECS} value={current} readOnly={extra.readOnly} lines={LINES} issues={extra.issues} focus={focus}
+                        onChange={(path, next) => { edits.push({ path: path.join("."), value: next }); setValue((v) => setAt(v, path, next)); }} />
+                </div>
+            );
+        }
+        const utils = render(<ChakraProvider value={system}><I18nProvider locale={LOCALE}><Host /></I18nProvider></ChakraProvider>);
+        const field = (key: string) => utils.container.querySelector<HTMLElement>(`[data-field="${key}"]`)!;
+        return { ...utils, edits, field, focus: (key: string | undefined) => act(() => { named(key); }) };
+    }
+    const radios = (el: HTMLElement) => within(el).getAllByRole("radio") as HTMLInputElement[];
+    const labelsOf = (el: HTMLElement) => [...el.querySelectorAll("[data-scope=radio-group][data-part=item-text]")].map((t) => t.textContent);
+
+    test("a named field is one line — its label, whole in its title, then its choices as one line of radios — and the lines in a run sit together", () => {
+        const { container, field } = mountShift({ name: "Early", kind: "night", active: true, lead: none, note: "" });
+        expect(field("kind").getAttribute("data-layout")).toBe("line");
+        expect(field("kind").getAttribute("title")).toBe("Kind");
+        expect(field("kind").firstElementChild!.textContent).toBe("Kind");
+        // No shared Field around it: the line is the field.
+        expect(field("kind").querySelector("[data-scope=field]")).toBeNull();
+        expect(within(field("kind")).getByRole("radiogroup", { name: "Kind" })).toBeTruthy();
+        expect(labelsOf(field("kind"))).toEqual(["Day", "Night"]);
+        expect(radios(field("kind")).map((r) => r.checked)).toEqual([false, true]);
+        expect(radios(field("active")).map((r) => r.checked)).toEqual([true, false]);
+        // The three lines are one run, between the name and the note, each still a field of its own.
+        const runs = [...container.querySelectorAll<HTMLElement>("[data-field-lines]")];
+        expect(runs.map((run) => [...run.querySelectorAll("[data-field]")].map((el) => el.getAttribute("data-field")))).toEqual([["kind", "active", "lead"]]);
+        expect([...container.querySelectorAll("[data-field]")].map((el) => `${el.getAttribute("data-field")}:${el.getAttribute("data-layout") ?? "column"}`))
+            .toEqual(["name:column", "kind:line", "active:line", "lead:line", "note:column"]);
+    });
+
+    test("a choice picked is one edit at once, typed as the field — a key, a Boolean, an Option's some — none checked while it holds no value; an Option's Clear empties it", async () => {
+        const { field, edits } = mountShift({ name: "Early", active: true, lead: none, note: "" });
+        expect(radios(field("kind")).map((r) => r.checked)).toEqual([false, false]);
+        await act(async () => { fireEvent.click(radios(field("kind"))[0]!); });
+        await settle();
+        expectEdit(edits, "kind", equalFor(StringType), "day");
+        expect(radios(field("kind")).map((r) => r.checked)).toEqual([true, false]);
+        // A required field holding its value has no Clear.
+        expect(within(field("kind")).queryByRole("button", { name: /^Clear/ })).toBeNull();
+
+        edits.length = 0;
+        await act(async () => { fireEvent.click(radios(field("active"))[1]!); });
+        await settle();
+        expectEdit(edits, "active", equalFor(BooleanType), false);
+
+        edits.length = 0;
+        expect(radios(field("lead")).map((r) => r.checked)).toEqual([false, false]);
+        expect(within(field("lead")).queryByRole("button", { name: /^Clear/ })).toBeNull();
+        await act(async () => { fireEvent.click(radios(field("lead"))[0]!); });
+        await settle();
+        expectEdit(edits, "lead", equalFor(OptionType(BooleanType)), some(true));
+        edits.length = 0;
+        await act(async () => { fireEvent.click(within(field("lead")).getByRole("button", { name: "Clear Lead" })); });
+        await settle();
+        expectEdit(edits, "lead", equalFor(OptionType(BooleanType)), none);
+        expect(radios(field("lead")).map((r) => r.checked)).toEqual([false, false]);
+    });
+
+    test("read only, the choice made is printed where the radios would be, and Not set where it holds none", () => {
+        const { container, field } = mountShift({ name: "Early", kind: "night", active: true, lead: none, note: "" }, { readOnly: true });
+        expect(["kind", "active", "lead"].map((key) => field(key).querySelector("[data-field-value]")!.textContent)).toEqual(["Night", "Yes", "Not set"]);
+        expect(field("kind").getAttribute("data-editor")).toBe("readonly");
+        expect(container.querySelector("[data-scope=radio-group], [data-field-clear]")).toBeNull();
+    });
+
+    test("a field an issue names takes the warn wash; the field a host names takes the keyboard as it is named", async () => {
+        const { container, field, focus } = mountShift({ name: "", kind: "day", active: true, lead: none, note: "" }, { issues: new Set(["name", "lead"]) });
+        expect([...container.querySelectorAll("[data-field][data-issue]")].map((el) => el.getAttribute("data-field"))).toEqual(["name", "lead"]);
+        expect(field("name").contains(document.activeElement)).toBe(false);
+        await focus("name");
+        expect(document.activeElement).toBe(within(field("name")).getByRole("textbox"));
+        await focus("kind");
+        expect(field("kind").contains(document.activeElement)).toBe(true);
+        expect((document.activeElement as HTMLInputElement).type).toBe("radio");
+    });
+
+    test("a field named while the form is hidden takes the keyboard once it shows, a later name in its place", async () => {
+        // The browser gives the keyboard to nothing hidden; jsdom lays nothing out, so here a hidden ancestor is what hides.
+        const prototype = HTMLElement.prototype as { checkVisibility?: (this: HTMLElement) => boolean };
+        const was = prototype.checkVisibility;
+        prototype.checkVisibility = function (this: HTMLElement) { return this.closest("[hidden]") === null; };
+        try {
+            const { container, field, focus } = mountShift({ name: "Early", kind: "day", active: true, lead: none, note: "" }, { hidden: true });
+            await focus("note");
+            await focus("name");
+            expect(container.querySelector("[data-field-form]")!.contains(document.activeElement)).toBe(false);
+            // The panel shown: the name, never the note named before it.
+            await act(async () => { container.querySelector("[data-panel]")!.removeAttribute("hidden"); });
+            await settle();
+            expect(document.activeElement).toBe(within(field("name")).getByRole("textbox"));
+        } finally {
+            if (was === undefined) delete prototype.checkVisibility;
+            else prototype.checkVisibility = was;
+        }
+    });
+});
+
+describe("FieldForm — a variant whose cases hold data, a block under its choice; a reference to a key of any type (#1549)", () => {
+    // A joinery piece's finish: bare, a stain of a shade, or a paint — its colour, its coats, and its gloss, matt or a
+    // sheen of a level. Its bench and its spare are keyed by number, and its slot by when it starts.
+    const Gloss = VariantType({ matt: NullType, sheen: FloatType });
+    const Paint = StructType({ colour: StringType, coats: IntegerType, gloss: Gloss });
+    const Finish = VariantType({ bare: NullType, stain: StringType, paint: Paint });
+    const Piece = StructType({ name: StringType, finish: Finish, bench: IntegerType, spare: OptionType(IntegerType), slot: DateTimeType });
+    type PieceValue = ValueTypeOf<typeof Piece>;
+    const PIECE_SPECS = Fields.specs(Piece, {
+        finish: Fields.select({
+            labels: { bare: "Bare", stain: "Stain", paint: "Paint" },
+            cases: { stain: Fields.text({ label: "Shade" }), paint: { coats: Fields.number({ min: 2n, max: 4n }) } },
+        }),
+        bench: Fields.reference({ of: "benches" }),
+        spare: Fields.reference({ of: "benches", label: "Spare bench" }),
+        slot: Fields.reference({ of: "slots" }),
+    });
+    const MORNING = new Date(Date.UTC(2026, 10, 9, 8, 0));
+    const AFTERNOON = new Date(Date.UTC(2026, 10, 9, 13, 0));
+    // The host lists each key by its text: an Integer's, and a DateTime's, as East prints them.
+    const OPTIONS = {
+        benches: [{ key: "2", label: "Bench 2" }, { key: "9", label: "Bench 9" }, { key: "10", label: "Bench 10" }],
+        slots: [{ key: printFor(DateTimeType)(MORNING), label: "Morning" }, { key: printFor(DateTimeType)(AFTERNOON), label: "Afternoon" }],
+    };
+    const STAINED: PieceValue = { name: "Door", finish: variant("stain", "Walnut"), bench: 9n, spare: none, slot: MORNING };
+    const PAINTED: PieceValue = { ...STAINED, finish: variant("paint", { colour: "Teal", coats: 2n, gloss: variant("matt", null) }) };
+
+    function mountPiece(value: PieceValue, extra: { readOnly?: boolean; baseline?: PieceValue } = {}) {
+        const edits: Edit[] = [];
+        function Host() {
+            const [current, setValue] = useState<PieceValue>(value);
+            return (
+                <FieldForm specs={PIECE_SPECS} value={current} baseline={extra.baseline} options={OPTIONS} readOnly={extra.readOnly}
+                    onChange={(path, next) => { edits.push({ path: path.join("."), value: next }); setValue((v) => setAt(v, path, next)); }} />
+            );
+        }
+        const utils = render(<ChakraProvider value={system}><I18nProvider locale={LOCALE}><Host /></I18nProvider></ChakraProvider>);
+        const field = (key: string) => utils.container.querySelector<HTMLElement>(`[data-field="${key}"]`)!;
+        const block = (key: string) => utils.container.querySelector<HTMLElement>(`[data-field-block="${key}"]`);
+        return { ...utils, edits, field, block };
+    }
+    const radios = (el: HTMLElement) => within(el).getAllByRole("radio") as HTMLInputElement[];
+    const labelsOf = (el: HTMLElement) => [...el.querySelectorAll("[data-scope=radio-group][data-part=item-text]")].map((t) => t.textContent);
+    const keysIn = (el: Element) => [...el.querySelectorAll("[data-field]")].map((f) => f.getAttribute("data-field"));
+
+    test("the case held has its fields in a block right under its choice; another chosen starts its value, each field at its start, and the block follows; an empty case is the choice alone", async () => {
+        const { container, edits, field, block } = mountPiece(STAINED);
+        expect(labelsOf(field("finish"))).toEqual(["Bare", "Stain", "Paint"]);
+        expect(radios(field("finish")).map((r) => r.checked)).toEqual([false, true, false]);
+        expect(field("finish").nextElementSibling).toBe(block("finish"));
+        expect(keysIn(block("finish")!)).toEqual(["finish.stain"]);
+        expect(field("finish.stain").querySelector("label")!.textContent).toBe("Shade");
+        expect((within(field("finish.stain")).getByRole("textbox") as HTMLInputElement).value).toBe("Walnut");
+        expect(keysIn(container)).toEqual(["finish", "finish.stain", "bench", "spare", "slot", "name"]);
+
+        // A paint: its coats at their least, its colour empty, its gloss East's first case — matt, empty, no block.
+        await act(async () => { fireEvent.click(radios(field("finish"))[2]!); });
+        await settle();
+        expectEdit(edits, "finish", equalFor(Finish), variant("paint", { colour: "", coats: 2n, gloss: variant("matt", null) }));
+        expect(keysIn(block("finish")!)).toEqual(["finish.paint.coats", "finish.paint.colour", "finish.paint.gloss"]);
+        expect(labelsOf(field("finish.paint.gloss"))).toEqual(["Matt", "Sheen"]);
+        expect(block("finish.paint.gloss")).toBeNull();
+
+        // A sheen: a block of its own inside the paint's.
+        edits.length = 0;
+        await act(async () => { fireEvent.click(radios(field("finish.paint.gloss"))[1]!); });
+        await settle();
+        expectEdit(edits, "finish.paint.gloss", equalFor(Gloss), variant("sheen", 0));
+        expect(block("finish")!.contains(block("finish.paint.gloss"))).toBe(true);
+        expect(keysIn(block("finish.paint.gloss")!)).toEqual(["finish.paint.gloss.sheen"]);
+
+        edits.length = 0;
+        await act(async () => { fireEvent.click(radios(field("finish"))[0]!); });
+        await settle();
+        expectEdit(edits, "finish", equalFor(Finish), variant("bare", null));
+        expect(container.querySelector("[data-field-block]")).toBeNull();
+        expect(keysIn(container)).toEqual(["finish", "bench", "spare", "slot", "name"]);
+    });
+
+    test("an edit inside the block reaches onChange along a path through the case, typed as the field and held to its bounds", async () => {
+        const { edits, field } = mountPiece(PAINTED);
+        const user = userEvent.setup();
+        const colour = within(field("finish.paint.colour")).getByRole("textbox");
+        await user.clear(colour);
+        await user.type(colour, "Sage{Enter}");
+        await settle();
+        expectEdit(edits, "finish.paint.colour", equalFor(StringType), "Sage");
+        expect((within(field("finish.paint.colour")).getByRole("textbox") as HTMLInputElement).value).toBe("Sage");
+
+        edits.length = 0;
+        const coats = within(field("finish.paint.coats")).getByRole("spinbutton");
+        await user.clear(coats);
+        await user.type(coats, "9");
+        await leave(coats);
+        expectEdit(edits, "finish.paint.coats", equalFor(IntegerType), 4n);
+    });
+
+    test("against the baseline, the choice is tinted where its case differs, and a block's field where it does", async () => {
+        const { container, field } = mountPiece({ ...PAINTED, finish: variant("paint", { colour: "Sage", coats: 2n, gloss: variant("matt", null) }) }, { baseline: PAINTED });
+        const tinted = () => [...container.querySelectorAll("[data-field][data-dirty]")].map((el) => el.getAttribute("data-field"));
+        expect(tinted()).toEqual(["finish.paint.colour"]);
+        await act(async () => { fireEvent.click(radios(field("finish"))[1]!); });
+        await settle();
+        expect(tinted()).toEqual(["finish", "finish.stain"]);
+    });
+
+    test("read only, the choice prints its case's words and the block its fields", () => {
+        const { container, field } = mountPiece({ ...PAINTED, finish: variant("paint", { colour: "Teal", coats: 3n, gloss: variant("sheen", 0.4) }) }, { readOnly: true });
+        const printed = (key: string) => (within(field(key)).getByRole("textbox") as HTMLInputElement).value;
+        expect(["finish", "finish.paint.colour", "finish.paint.coats", "finish.paint.gloss", "finish.paint.gloss.sheen"].map(printed))
+            .toEqual(["Paint", "Teal", "3", "Sheen", formatters(LOCALE).number(0.4)]);
+        expect(container.querySelector("[data-scope=radio-group]")).toBeNull();
+    });
+
+    test("a reference to a key of any type: the key held chosen by its text, and a choice read back at the field's type — an Integer, an Option of one, a DateTime", async () => {
+        const { edits, field } = mountPiece(STAINED);
+        expect(chosenOf(field, "bench")).toBe("Bench 9");
+        expect(await open(field("bench"))).toEqual(["Bench 2", "Bench 9", "Bench 10"]);
+        await choose("Bench 10");
+        expectEdit(edits, "bench", equalFor(IntegerType), 10n);
+
+        edits.length = 0;
+        expect(await open(field("spare"))).toEqual(["Unassigned", "Bench 2", "Bench 9", "Bench 10"]);
+        await choose("Bench 2");
+        expectEdit(edits, "spare", equalFor(OptionType(IntegerType)), some(2n));
+
+        edits.length = 0;
+        expect(chosenOf(field, "slot")).toBe("Morning");
+        await open(field("slot"));
+        await choose("Afternoon");
+        expectEdit(edits, "slot", equalFor(DateTimeType), AFTERNOON);
+        cleanup();
+        const { field: printed } = mountPiece(STAINED, { readOnly: true });
+        expect(["bench", "spare", "slot"].map((key) => (within(printed(key)).getByRole("textbox") as HTMLInputElement).value)).toEqual(["Bench 9", "—", "Morning"]);
     });
 });
 

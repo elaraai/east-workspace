@@ -102,7 +102,7 @@ and the wire format for a name.
 | Concern | Decision |
 |---|---|
 | **What the component owns** | The sheet card (two-line header, gutter, cells, editors, selection, keyboard, clipboard), the docked strip, the footer (counts, key hint, live message, the paged transport line), the lens (hits, ±n context bands, reveals) over the slice's narrowing, the view tabs, the copilot runner, register-driven cell kinds and the link grammar. |
-| **What the host owns** | The app bar (title, breadcrumb, sync status — `<App>`), persistence and its mode (autosave = `Data.bind` direct; held-locally = `Data.bind` staged + commit), the autosave toggle, the release/stamping action, the `owned` predicate (data), registers (data), footer counts (expressions over the host's rows), **every copilot rule** (East functions), the slice binding. |
+| **What the host owns** | The app bar (title, breadcrumb, sync status — `<App>`), persistence (a `Data.bind` handle, direct or staged + commit), the release/stamping action, the `owned` predicate (data), registers (data), footer counts (expressions over the host's rows), **every copilot rule** (East functions), the slice binding. |
 | **Cells are the Table's primitive; links are typed** | A scalar cell is a bare `LiteralValueType` (`Null` is blank): `date` = `DateTime` (UTC midnight); `quantity` = `Float`; `integer` = `Integer`; everything else a `String`. A `set` / `link` cell is a **`Sheet.Types.Link` value** — two arrays of resolved members with a direction — never a string the host has to re-parse; the renderer's grammar (B§4.1) is the kind's parse / print pair (§3.4). The planner's as-typed string (B§4.2) is what the *editor* shows, and a host that wants it stored verbatim sits the column on a `String` field (§3.4). No per-cell UI in the IR (#206). |
 | **Rows are the host's structs — positional inline, keyed only when paged** | `data` inline is an `Array<R>`, or a `Data.bind` / `State.bind` handle of one (`data={jobs}` and `data={jobs.read()}` build the same IR), never a `Dict`: a dictionary decodes to a sorted map, so its rows would sit in key order (`j10` before `j2`) instead of the planner's. A **paged source** — a platform bind's handle, `Data.bindPaged` (paged data is bound-only, #849) — may be positional (`Array<R>` windows; `seek` when the source is sorted by a key) or keyed (`Dict<String, R>` windows in key order — the host designs keys that sort as the sheet should read, and the key is the row id). The factory projects `R` into sheet rows (`id` / `owned` + one cell per column) through the shared row-source contract (#567/#576). Blank padding rows are renderer state, never data. |
 | **Accessors and `SubtypeExprOrValue` — the Plan / Table rule** | `data` is the host's raw rows; every per-row fact is an **accessor** returning an expression of the IR field's type (`owned`, a column's `value`, a register's `key` / `label` / `meta` / `tone`, and — over the **driver's row type** — a quantity's `uom` and a link's `sides`); every static field of a declaration (`header`, `sub`, `width`, `accepts`) is `SubtypeExprOrValue` — a literal or an expression. Columns are **builders that take the row type first** — `Sheet.column.date(R, …)`, `Sheet.column.quantity(R, D, …)`, `Sheet.column.link(R, D, register, …)` — the `Plan.series.<kind>(OpsRow, …)` shape, so every accessor inside is typed by `R`, and by `D` (the driver's row type) where the kind reads the driver's row; the `columns` map is checked per key against the row's fields (`SheetColumnSpec<R>`, the `<Table columns>` mapped type). Nothing at the author's side is addressed by a string name — not a driver attribute, not a cell. The names that ARE strings are field KEYS of `R`, typed as such: the `columns` map's keys, `id` (the String field that identifies a row — a name, because the rebuild writes it on an insert), a date column's `base`, and a link column's `to` / `from` naming its other half's field (§3.4). |
@@ -717,15 +717,18 @@ Two channels, both optional, both East functions:
   sheet this is the only channel — the host routes edits to the dataset it pages
   from (§3.13). The factory bridges the typed function to the wire (§4.8).
 
-With both set, `onEdit` observes and `onUpdate` writes. `newRowId: () => String`
-overrides the renderer's id minting for inserted rows.
+With both set, `onEdit` observes and `onUpdate` writes. `newKey: (taken: Set<K>) => K`
+gives an inserted row its key — `K` the source's key type (a record's, else
+`String`), `taken` every key the sheet holds or has given. Without it the renderer
+mints a UUID; a sheet keyed by anything but a `String` needs it wherever it adds
+rows, and the build says so.
 
-Persistence mode is the host's, through the e3-ui bind (`east:e3-ui`):
+Persistence is the host's, through the e3-ui bind (`east:e3-ui`):
 
 ```tsx
 /** @jsxImportSource @elaraai/e3-ui */
-// autosave ON  = every mutation lands:      Data.bind(planInput)                 (direct)
-// autosave OFF = changes held locally:       Data.bind(planInput, { mode: "staged" }) + commit / discard
+// direct = each write lands:                   Data.bind(planInput)
+// staged = writes held until the host commits: Data.bind(planInput, { mode: "staged" }) + commit / discard
 <Reactive>{$ => {
     const plan   = $.let(Data.bind(planInput, { mode: "staged" }));
     const commit  = $.const(East.function([], NullType, $ => { $(plan.commit()); }));
@@ -744,10 +747,9 @@ Persistence mode is the host's, through the e3-ui bind (`east:e3-ui`):
 }}</Reactive>
 ```
 
-The prototype's autosave toggle is host chrome: a `<Switch>` in the app bar that
-selects which bound handle's `write` the sheet calls (`autosaveOn.ifElse(_$ =>
-direct.write, _$ => staged.write)`), with the "saved N m ago" stamp derived from
-the handle's `status()`.
+The prototype's autosave toggle is not built: every edit waits for Save, in
+every builder (ruled 6 November 2026). Its "saved N m ago" stamp is the footer's
+last save (`Sheet Builder Spec.md` SB22).
 
 ### 3.8 Search through the slice — the lens and the views
 
@@ -1195,7 +1197,7 @@ export const SheetRootType = StructType({
     onEdit:        OptionType(FunctionType([SheetEditType], NullType)),   // `onUpdate` compiles to this (§4.7); a typed `onEdit` is bridged to it (§4.8)
     onSelect:      OptionType(FunctionType([SheetSelectionType], NullType)),
     selection:     OptionType(SheetSelectionType),           // controlled when some (§3.14) — the ring follows it, the row scrolls into view
-    newRowId:      OptionType(FunctionType([], StringType)),
+    newKey:        OptionType(FunctionType([SetType(StringType)], StringType)),   // the keys taken → a new one, as wire ids; none ⇒ a UUID
     readOnly:      OptionType(BooleanType),
     blanks:        OptionType(IntegerType),                  // padding rows below the last real one (default 18)
     density:       OptionType(DensityType),
@@ -1288,7 +1290,7 @@ behaviour lives and how it is tested.
 | 25 | What the viewer arranged survives a remount (#857). Under the sheet's `storageKey` the renderer keeps the fold overrides (a group's or a line's id → folded; a line's `false` opens its sub rows) with the tab they were left on, and where a bounded frame's scroll rests — an item, never pixels: its body key, the px scrolled past it, its index and, on a paged sheet, its source element. Both are read back through a shape check. Folds come back when the sheet opens on the tab they were left on, before the first body build; a host that moves `activeView` later opens each view's own, and a sheet no one folded records no tab. The anchor restores by key once its item is in the body — on a paged sheet after its window is fetched, the way a key search jumps, the element clamped to the source's count. A band is a place in one run, never an item: over one, the element the band draws there is what persists. An anchor whose item is gone lands in its place — on a paged sheet the first item at or past its element, else its index clamped to the body. Never the ring, nor the lens's context and reveals (they follow the narrowing, which the slice owns) | `persisted.ts` + `index.tsx` | unit + DOM |
 | 26 | The grid to assistive tech (#860): a WAI-ARIA grid, one tab stop, naming the ring's cell as its active descendant; `aria-rowcount` the sheet's rows and the header — on a flat sheet the source's count (a paged source's `total()`, `-1` until it has counted itself) and the blank padding, on a grouped sheet the body's items; every row its `aria-rowindex` — a flat sheet's source position, where an unloaded band, a lens gap or a failed window stands for the rows from its first, a grouped sheet's place in the body (#819's rule) — and its gutter the `rowheader` at column 1; every cell its `aria-colindex`, the ring's and the range's `aria-selected`; a band's title the cell over its span, described by its sub line; no control inside the grid in the tab order but a failed window's Retry; the copies that stick under the header hidden (§6.3) | `index.tsx` + `Rows.tsx` + `Header.tsx` | DOM |
 | 27 | The sheet's words (#861): every word, title and accessible name the sheet says itself — the toolbar and the view tabs, the header, the rows, bands and gap pills, the strip and the editor, the link cells, the footer and the history bar, the insertion chips, and the message each gesture leaves — comes from ONE typed message table (`sheetMessages`, the Plan's #820 twin), its counts in the locale the shared formatters read (#850); `SheetMessagesProvider` overrides any subset for a subtree, providers nesting. The machine leaves a message as DATA — an id, raw counts, a row as its number, a noun only where the host names one — and the footer words it as it shows, so the reducer knows no locale and a new table re-words a message already shown. A group's noun is the host's when it names one, else the table's: the wire carries none rather than an English default. What the author wrote is data (headers, subs, nouns, register labels and metas, lock tags, footer items); the date and link grammars keep their forms; the issues a patch event carries to the host stay canonical English, and the sheet shows them in its words | `messages.ts` + `words.ts` + every component | unit + DOM |
-| 28 | Loose rows between the groups (#846): a grouped sheet over `Sheet.Types.Entry(P, "lines")` entries — each a group or a row of the line type, the wire's `loose` flag — draws a row entry as a plain row: no band, no rail, numbered in the groups' sequence, its own cells (on the wire, a row with no band). The seam above a band, beside a loose row, or on an empty sheet inserts a loose row; below a band, at a line's seam or at a group's blank line it is still a line, and the group chip a group. Loose rows delete, paste and count on their own: a paste onto one fills the run of loose rows from it, then new loose rows after the last; a range over loose rows and a band's lines deletes both, the band's own second ⌫ unchanged; the footer counts them (*2 groups · 3 lines · 3 loose rows*). Fold-all folds the groups and finds the ring's loose row again by its id; the sticky walk stops at a loose row, so no band sticks over one. Proposals under a loose row are loose rows, taken in one write. A new line there gets its `id` field — the field a loose row is identified by, so the author names one of both types — minted unless `newRow` supplied it; a loose row's draft is `variant("row", …)`, a group's `variant("group", …)` | `model.ts` + `insertion-gesture.ts` + `creation.ts` + `index.tsx` | unit + DOM |
+| 28 | Loose rows between the groups (#846): a grouped sheet over `Sheet.Types.Entry(P, "lines")` entries — each a group or a row of the line type, the wire's `loose` flag — draws a row entry as a plain row: no band, no rail, numbered in the groups' sequence, its own cells (on the wire, a row with no band). The seam above a band, beside a loose row, or on an empty sheet inserts a loose row; below a band, at a line's seam or at a group's blank line it is still a line, and the group chip a group. Loose rows delete, paste and count on their own: a paste onto one fills the run of loose rows from it, then new loose rows after the last; a range over loose rows and a band's lines deletes both, the band's own second ⌫ unchanged; the footer counts them (*2 groups · 3 lines · 3 loose rows*). Fold-all folds the groups and finds the ring's loose row again by its id; the sticky walk stops at a loose row, so no band sticks over one. Proposals under a loose row are loose rows, taken in one write. A new line there gets its `id` field — the field a loose row is identified by, so the author names one of both types — minted (`newKey`'s, else a UUID) unless `newRow` supplied it; a loose row's draft is `variant("row", …)`, a group's `variant("group", …)` | `model.ts` + `insertion-gesture.ts` + `creation.ts` + `index.tsx` | unit + DOM |
 
 ---
 
@@ -1539,8 +1541,8 @@ the sheet is never inert without a bound callback) and reaches the host through
 around with the edit applied and nothing is applied twice. A real row's commit
 is one `commit` event per changed cell, each carrying the row after it; typing
 into a blank row (or a paste past the padding) makes ONE inserted row — appended
-after the last real row, its id minted by `newRowId` or the renderer, its
-`insert` event naming the row it lands after — and the ring follows it, keeping
+after the last real row, its id `newKey`'s given the keys taken, else a UUID the
+renderer mints, its `insert` event naming the row it lands after — and the ring follows it, keeping
 whatever move the commit made. Rows are measured (a link cell wraps); the ledger
 is taught what the body draws of each landed window's rows — one height
 function, `drawnPx`, shared with the body's own estimates: a row, or a group's

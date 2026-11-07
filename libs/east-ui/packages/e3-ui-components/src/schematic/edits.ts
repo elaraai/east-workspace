@@ -14,7 +14,8 @@
  * - **Move** places every item it moves by the drag's delta, rigidly: the
  *   delta is clamped so each centre stays within the extent (SC8).
  * - **Connect** adds a link of the Connect tool's kind between two items,
- *   its key minted (SC7, SC9).
+ *   under the key its kind makes (SC7, SC9; `editing.ts`' `newKey`, #1549) —
+ *   refused, naming the link, where the key its row builds is taken.
  * - **A Shift session** folds its drags' pairs into a net's two sides, keeping
  *   membership: the first pair sets both sides, a pair from a member adds the
  *   other item downstream, one into a member adds it upstream, and a member
@@ -32,7 +33,13 @@
  *
  * A gesture onto an item of a slot the kind's end or side holds no keys of is
  * refused before its draft snaps, naming the end, as the connect veto's words
- * are (SC9).
+ * are (SC9); so is one naming an item held under a placeholder — a new item's
+ * key still to be typed (#1549) — in a link's end or a net's side.
+ *
+ * **A key built from the row follows the row** (#1549, {@link followBuiltKeys}):
+ * a gesture writing the fields its kind's `key` reads moves the row under the
+ * key they build, its details row with it, and the links and nets naming an
+ * item follow — refused, naming the row, where another row holds that key.
  *
  * A library card's drop (#1390, `drop.ts`) writes its rows as edits too: an
  * item template's new item, a backlog row placed, a link or net template's
@@ -57,8 +64,11 @@
 
 import { StringType, equalFor, some, type ValueTypeOf, type option } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
+import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
 import { entityId, refOfId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import type { SchematicValue } from "./data.js";
+import type { SchematicMove, SchematicNewKey } from "./editing.js";
+import { detailsKey } from "./record-keys.js";
 
 /** A point in world units. */
 type Point = ValueTypeOf<typeof Schematic.Types.Point>;
@@ -92,6 +102,10 @@ const sidesEqual = equalFor(Schematic.Types.Sides);
  *   details row (`details`);
  * - `row`: the row as a kind's own Details hands it back (`update`, #1391),
  *   whole — the row's, or its details row's;
+ * - `move`: the row — or its details row (`details`) — under a new key, as the
+ *   gesture finds it, and gone from its own (#1549): a row whose kind builds
+ *   its key from its fields, once a gesture moves them; or a new item's
+ *   placeholder, once its key is typed;
  * - `remove`: the row deleted.
  */
 export type SchematicEdit =
@@ -104,6 +118,7 @@ export type SchematicEdit =
     | { readonly op: "retype"; readonly ref: SchematicRef; readonly values: Uint8Array }
     | { readonly op: "set"; readonly ref: SchematicRef; readonly sets: readonly SchematicFieldWrite[]; readonly details?: true }
     | { readonly op: "row"; readonly ref: SchematicRef; readonly row: Uint8Array; readonly details?: true }
+    | { readonly op: "move"; readonly ref: SchematicRef; readonly to: string; readonly details?: true }
     | { readonly op: "remove"; readonly ref: SchematicRef };
 
 /** A link kind, as the edits read it: its name, whether it writes, and the item slots each end holds keys of. */
@@ -122,10 +137,18 @@ export interface EditNetKind {
     readonly destinations: string;
 }
 
+/** An item kind's keys, as the edits read them (#1549): its name, and its keys — what tells a placeholder. */
+export interface EditItemKeys {
+    readonly name: string;
+    readonly keys: KindKeys;
+}
+
 /** The Schematic's kinds, as the edits read them: which write, and what each link's ends and each net's sides hold. */
 export interface EditKinds {
     /** The slots of the item kinds that write: bound with their patch door, and the Schematic not read only. */
     readonly items: ReadonlySet<string>;
+    /** Every item kind's keys, by its slot (#1549): a gesture naming an item held under a placeholder is refused. */
+    readonly itemKeys: ReadonlyMap<string, EditItemKeys>;
     /** Each link kind, by its slot, in the order the Schematic lists them. */
     readonly links: ReadonlyMap<string, EditLinkKind>;
     /** Each net kind, by its slot, in the order the Schematic lists them. */
@@ -143,6 +166,7 @@ export function editKinds(value: Pick<SchematicValue, "items" | "links" | "nets"
     const writes = (editable: boolean) => editable && !value.readOnly;
     return {
         items: new Set(value.items.filter((kind) => writes(kind.editable)).map((kind) => kind.key)),
+        itemKeys: new Map(value.items.map((kind) => [kind.key, { name: kind.name, keys: kindKeys(kind.keyType) }] as const)),
         links: new Map(value.links.map((kind) => [kind.key, { name: kind.name, editable: writes(kind.editable), from: kind.ends.from, to: kind.ends.to }] as const)),
         nets: new Map(value.nets.map((kind) => [kind.key, {
             name: kind.name, editable: writes(kind.editable), sources: kind.sides.sources, destinations: kind.sides.destinations,
@@ -157,16 +181,55 @@ export function editKinds(value: Pick<SchematicValue, "items" | "links" | "nets"
  *   slot at — `start` the link's from or the net's sources, `end` the link's
  *   to or the net's destinations;
  * - `named`: an item a link or a net bound read only names, which a Delete
- *   would leave naming an item no kind holds.
+ *   would leave naming an item no kind holds;
+ * - `placeholder`: an item held under a placeholder, its key still to be
+ *   typed (#1549), which no link's end or net's side names until it is — by its
+ *   kind's name.
  */
 export type EditRefusal =
     | { readonly why: "end"; readonly kind: string; readonly end: "start" | "end"; readonly item: string }
-    | { readonly why: "named"; readonly item: string; readonly kind: string; readonly key: string };
+    | { readonly why: "named"; readonly item: string; readonly kind: string; readonly key: string }
+    | { readonly why: "placeholder"; readonly kind: string; readonly item: string };
 
 /** An item a gesture names: its reference, and its label for a refusal's words. */
 export interface EditItem {
     readonly ref: SchematicRef;
     readonly label: string;
+}
+
+/**
+ * Why a gesture can't name an item in a link's end or a net's side (#1549):
+ * it is held under a placeholder, its key still to be typed.
+ *
+ * @param kinds - The Schematic's kinds
+ * @param item - The item
+ * @returns The refusal; `undefined` for an item under its key
+ */
+export function placeholderRefusal(kinds: EditKinds, item: EditItem): EditRefusal | undefined {
+    const kind = kinds.itemKeys.get(item.ref.kind);
+    return kind === undefined || kind.keys.isKey(item.ref.key) ? undefined : { why: "placeholder", kind: kind.name, item: item.label };
+}
+
+/** Why a gesture records nothing (#1549), as the footer says it. */
+export type SchematicKeyRefusal =
+    /** The key a row builds is held already, by the row of that key. */
+    | { readonly refusal: "taken"; readonly ref: SchematicRef }
+    /** Its kind's keys are of a type the form can't type — by the type's name — and its kind builds none: by the kind's slot. */
+    | { readonly refusal: "untyped"; readonly kind: string; readonly type: string };
+
+/**
+ * A new row's key as its kind makes it (`editing.ts`' `newKey`, #1549), or why
+ * the gesture records nothing.
+ *
+ * @param slot - The row's kind
+ * @param keyed - What its kind makes
+ * @returns The key, or the refusal; `undefined` while the key is still to be read
+ */
+export function keyedRow(slot: string, keyed: SchematicNewKey | undefined): { readonly key: string } | { readonly refused: SchematicKeyRefusal } | undefined {
+    if (keyed === undefined) return undefined;
+    if ("taken" in keyed) return { refused: { refusal: "taken", ref: { kind: slot, key: keyed.taken } } };
+    if ("untyped" in keyed) return { refused: { refusal: "untyped", kind: slot, type: keyed.untyped } };
+    return keyed;
 }
 
 // ============================================================================
@@ -401,19 +464,21 @@ const NO_CANDIDATE: ConnectCandidate = { kind: undefined, refusal: undefined, pa
 export function connectCandidate(kinds: EditKinds, args: ConnectDragArgs): ConnectCandidate {
     const link = args.linkKind === undefined ? undefined : kinds.links.get(args.linkKind);
     const pair: ConnectPair = { from: args.from.ref, to: args.to.ref };
+    // An item held under a placeholder joins nothing until its key is typed (#1549).
+    const waiting = placeholderRefusal(kinds, args.from) ?? placeholderRefusal(kinds, args.to);
     const plain = (): ConnectCandidate => (link === undefined || !link.editable ? NO_CANDIDATE
-        : { kind: args.linkKind, refusal: linkRefusal(link, args.from, args.to), pairs: [pair] });
+        : { kind: args.linkKind, refusal: waiting ?? linkRefusal(link, args.from, args.to), pairs: [pair] });
     const open = grows(args);
     if (open === undefined) return plain();
     const sides = foldPair(open.sides, pair);
     if (open.net !== undefined) {
         const net = kinds.nets.get(open.net.kind);
         return net === undefined || !net.editable ? NO_CANDIDATE
-            : { kind: open.net.kind, refusal: netRefusal(net, sides, args.labelOf), pairs: joinedPairs(open.sides, sides) };
+            : { kind: open.net.kind, refusal: waiting ?? netRefusal(net, sides, args.labelOf), pairs: joinedPairs(open.sides, sides) };
     }
     // Grown from links into a net: each run it gathers is a leg of the net's kind now, as the new pair is.
     const grown = netKindFor(kinds, sides);
-    return grown !== undefined ? { kind: grown, refusal: undefined, pairs: joinedPairs(NO_SIDES, sides) } : plain();
+    return grown !== undefined ? { kind: grown, refusal: waiting, pairs: joinedPairs(NO_SIDES, sides) } : plain();
 }
 
 /** One Connect drag landed: what it writes, and the session it leaves. */
@@ -429,16 +494,19 @@ export interface ConnectStep {
  * first — a new link of the Connect tool's kind; a Shift-drag in an open
  * session, the session's net — its first making it a net of the kind
  * {@link connectCandidate} names, deleting the links it absorbs, each later
- * one writing its sides — else another link.
+ * one writing its sides — else another link. A new link or net is keyed as
+ * its kind makes one (#1549): refused, saying why, where its kind makes none.
  *
  * @param kinds - The Schematic's kinds
  * @param args - The drag
- * @param mint - A new key for a row of a kind
+ * @param newKey - A new row's key, as its kind makes one from the edit making it (`editing.ts`' `newKey`)
  * @param values - What a new link's or net's other fields take, by its kind's slot: the values of the template of that kind
  *   the library has selected (§4.3, #1390); `none`, their types' defaults
- * @returns The step; `undefined` for a drag that writes nothing — one its kind refuses, or one between two members of the net
+ * @returns The step, or why it records nothing; `undefined` for a drag that writes nothing — one its kind refuses, one
+ *   between two members of the net, or one whose key is still to be read
  */
-export function connectStep(kinds: EditKinds, args: ConnectDragArgs, mint: (slot: string) => string, values: (slot: string) => option<Uint8Array>): ConnectStep | undefined {
+export function connectStep(kinds: EditKinds, args: ConnectDragArgs, newKey: (made: SchematicEdit) => SchematicNewKey | undefined,
+    values: (slot: string) => option<Uint8Array>): ConnectStep | { readonly refused: SchematicKeyRefusal } | undefined {
     const candidate = connectCandidate(kinds, args);
     const slot = candidate.kind;
     if (slot === undefined || candidate.refusal !== undefined) return undefined;
@@ -446,7 +514,9 @@ export function connectStep(kinds: EditKinds, args: ConnectDragArgs, mint: (slot
     const open = grows(args);
     if (kinds.links.has(slot)) {
         // A link: the session's first, or one more of a session no net kind holds.
-        const ref = { kind: slot, key: mint(slot) };
+        const made = keyedRow(slot, newKey({ op: "link", ref: { kind: slot, key: "" }, ends: pair, values: values(slot) }));
+        if (made === undefined || "refused" in made) return made;
+        const ref = { kind: slot, key: made.key };
         return { edits: [{ op: "link", ref, ends: pair, values: values(slot) }], session: { links: [...(open?.links ?? []), ref], net: undefined } };
     }
     if (open === undefined) return undefined;
@@ -457,7 +527,9 @@ export function connectStep(kinds: EditKinds, args: ConnectDragArgs, mint: (slot
         return { edits: [{ op: "sides", ref: open.net, sides }], session: { links: [], net: open.net } };
     }
     // The session grows into a net, which absorbs its links.
-    const net = { kind: slot, key: mint(slot) };
+    const made = keyedRow(slot, newKey({ op: "net", ref: { kind: slot, key: "" }, sides, values: values(slot) }));
+    if (made === undefined || "refused" in made) return made;
+    const net = { kind: slot, key: made.key };
     return {
         edits: [...open.links.map((ref): SchematicEdit => ({ op: "remove", ref })), { op: "net", ref: net, sides, values: values(slot) }],
         session: { links: [], net },
@@ -671,4 +743,117 @@ export function deleteEdits(kinds: EditKinds, drawn: Pick<SchematicDrawn, "items
         edits.push({ op: "sides", ref: net.ref, sides: { sources: refs(sources), destinations: refs(destinations) } });
     }
     return { edits };
+}
+
+// ============================================================================
+// A key built from the row
+// ============================================================================
+
+/** What a gesture's moves read (#1549): the rows it moves, where a row stands, which records are edited, and what names an item. */
+export interface SchematicKeyHolding {
+    /** The Schematic's kinds. */
+    readonly kinds: EditKinds;
+    /**
+     * The rows a gesture moves under the keys their fields build once it writes them (`editing.ts`' `moves`).
+     *
+     * @param edits - The gesture's edits
+     */
+    readonly moves: (edits: readonly SchematicEdit[]) => readonly SchematicMove[];
+    /**
+     * Whether a row of a kind stands under a key: drafted, else read — one a draft deletes stands free.
+     *
+     * @param slot - The kind's slot
+     * @param key - The key's text
+     */
+    readonly stands: (slot: string, key: string) => boolean;
+    /**
+     * Whether a record is edited: a kind's, or its details' (`detailsKey`).
+     *
+     * @param record - The record's key in the history
+     */
+    readonly edited: (record: string) => boolean;
+    /** The links and nets the Schematic holds — drawn, and waiting in their sessions — their drafts in place: what names an item. */
+    readonly drawn: Pick<SchematicDrawn, "links" | "nets">;
+}
+
+/** A gesture's edits with every row it moves following its key, and the rows moved; or why it records nothing. */
+export type FollowedEdits =
+    | { readonly edits: readonly SchematicEdit[]; readonly moved: readonly SchematicMove[] }
+    | { readonly refused: SchematicKeyRefusal };
+
+/** How many times a row's move can reach another's: an item's to the links and nets naming it, keyed by what they name. */
+const FOLLOWS = 4;
+
+/**
+ * What names the items a gesture moves, following them (#1549): each link of
+ * a kind that writes naming one at an end, and each net of a kind that writes
+ * naming one on a side — those drawn and those waiting — written to name it
+ * under its new key, every other end and member as it was. A link or a net
+ * bound read only is left, naming the key it named.
+ *
+ * @param holding - What the gesture reads
+ * @param moves - The rows it moves
+ * @returns The edits writing each one's ends or sides
+ */
+function namers(holding: SchematicKeyHolding, moves: readonly SchematicMove[]): SchematicEdit[] {
+    const follow = (ref: SchematicRef): SchematicRef => {
+        const move = moves.find((m) => refEqual(m.ref, ref));
+        return move === undefined ? ref : { kind: ref.kind, key: move.to };
+    };
+    const moving = (ref: SchematicRef): boolean => moves.some((m) => refEqual(m.ref, ref));
+    const refs = (ids: readonly string[]) => ids.flatMap((id) => { const ref = refOfId(id); return ref === undefined ? [] : [ref]; });
+    const edits: SchematicEdit[] = [];
+    for (const link of holding.drawn.links) {
+        if (holding.kinds.links.get(link.ref.kind)?.editable !== true) continue;
+        const from = refOfId(link.from), to = refOfId(link.to);
+        if (from === undefined || to === undefined || (!moving(from) && !moving(to))) continue;
+        edits.push({ op: "ends", ref: link.ref, ends: { from: follow(from), to: follow(to) } });
+    }
+    for (const net of holding.drawn.nets) {
+        if (holding.kinds.nets.get(net.ref.kind)?.editable !== true) continue;
+        const sources = refs(net.sources), destinations = refs(net.destinations);
+        if (!sources.some(moving) && !destinations.some(moving)) continue;
+        edits.push({ op: "sides", ref: net.ref, sides: { sources: sources.map(follow), destinations: destinations.map(follow) } });
+    }
+    return edits;
+}
+
+/**
+ * A gesture's edits with each row whose kind builds its key from its row
+ * moved under the key its fields build once the gesture writes them (#1549):
+ * the row moved under its new key before any of its edits — its details row
+ * with it, where they are edited — so each writes it there; then what names
+ * it following — an item's links and nets — whose own keys, built from what
+ * they name, move them in turn. A key another row stands under, or another
+ * moving row takes, refuses the gesture, naming that key.
+ *
+ * @param holding - What the gesture reads
+ * @param made - The gesture's edits
+ * @returns The edits with every move, and the rows moved; or the refusal, where a key is taken
+ */
+export function followBuiltKeys(holding: SchematicKeyHolding, made: readonly SchematicEdit[]): FollowedEdits {
+    let edits = made;
+    const moved: SchematicMove[] = [];
+    for (let pass = 0; pass < FOLLOWS && edits.length > 0; pass++) {
+        const moves = holding.moves(edits);
+        if (moves.length === 0) break;
+        for (const move of moves) {
+            const both = moves.some((other) => other !== move && stringEqual(other.ref.kind, move.ref.kind) && stringEqual(other.to, move.to));
+            if (both || holding.stands(move.ref.kind, move.to)) return { refused: { refusal: "taken", ref: { kind: move.ref.kind, key: move.to } } };
+        }
+        const to = (ref: SchematicRef) => moves.find((move) => refEqual(move.ref, ref))?.to;
+        edits = [
+            ...moves.flatMap((move): SchematicEdit[] => [
+                { op: "move", ref: move.ref, to: move.to },
+                ...(holding.edited(detailsKey(move.ref.kind)) ? [{ op: "move", ref: move.ref, to: move.to, details: true } as const] : []),
+            ]),
+            ...edits.map((edit): SchematicEdit => {
+                const moving = edit.op === "move" || edit.op === "remove" ? undefined : to(edit.ref);
+                return moving === undefined ? edit : { ...edit, ref: { kind: edit.ref.kind, key: moving } };
+            }),
+            ...namers(holding, moves),
+        ];
+        moved.push(...moves);
+    }
+    return { edits, moved };
 }

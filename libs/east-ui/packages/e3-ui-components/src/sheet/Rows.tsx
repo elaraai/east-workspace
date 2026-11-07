@@ -27,9 +27,9 @@ import { none } from "@elaraai/east";
 import {
     getSomeorUndefined, optimiseMessages, useDragEventChip, useDropCell, type CellCoord, type DragHandle, type DragPayload, type DropCellOptions,
 } from "@elaraai/east-ui-components";
-import { EastErrorBoundary, FrameMenuLayer, UnloadedRun, loadingLineText, type PlaceholderKind, type RunCell } from "@elaraai/east-ui-components/internal";
+import { EastErrorBoundary, FrameMenuLayer, UnloadedRun, loadingLineText, type PlaceholderKind, type RunCell, type SlotStyles } from "@elaraai/east-ui-components/internal";
 import {
-    BAND_MIN_PX, TITLE_KEY, cellIsBlank, cellText, driverKeyOf, resolveMember,
+    BAND_MIN_PX, TITLE_KEY, cellIsBlank, cellText, driverKeyOf, resolveMember, unitOf,
     type LineGroup, type SheetBand, type SheetColumnIndex, type SheetColumnMeta, type SheetGroupIndex, type SheetKind, type SheetRegisterIndex, type SheetWindowFailure,
 } from "./model.js";
 import { SheetCellContent, type LinkCellContext } from "./cells/Cell.js";
@@ -48,9 +48,9 @@ import type { SheetActionHost } from "./actions/host.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
-/** Whether a column's cell names a register member, which it shows by the member's label: an enum, a reference, a lookup. */
+/** Whether a column's cell names a register member, which it shows by the member's label: an enum, a reference, a lookup, a person, a cycle. */
 export function namesMember(meta: SheetColumnMeta): boolean {
-    return meta.kind === "enum" || meta.kind === "reference" || meta.kind === "lookup";
+    return meta.kind === "enum" || meta.kind === "reference" || meta.kind === "lookup" || meta.kind === "person" || meta.kind === "cycle";
 }
 
 /**
@@ -495,7 +495,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                 const editing = editor?.c === c;
                 const selected = selC === c && !editing;
                 const inRange = range !== undefined && c >= range.c0 && c <= range.c1;
-                const unit = meta.kind === "quantity" && driverKey !== undefined ? meta.uom?.get(driverKey) : undefined;
+                const unit = unitOf(meta, driverKey);
                 const member = namesMember(meta) && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
                 const fill = !editing && cellIsBlank(cell) ? fills?.get(meta.key) : undefined;
                 const isTarget = !editing && nextTargetC === c && fill !== undefined;
@@ -550,7 +550,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                             meta={meta}
                             cell={cell}
                             rowBlank={rowBlank && fill === undefined}
-                            unit={unit ?? (fill !== undefined && meta.kind === "quantity" && driverKey !== undefined ? meta.uom?.get(driverKey) : undefined)}
+                            unit={unit}
                             member={member}
                             ghost={fill?.cell}
                             link={meta.kind === "link" ? linkCtx(row, meta) : undefined}
@@ -751,7 +751,7 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
             </Box>
             {columns.list.map((colMeta, c) => {
                 const cell = cells.get(colMeta.key);
-                const unit = colMeta.kind === "quantity" && driverKey !== undefined ? colMeta.uom?.get(driverKey) : undefined;
+                const unit = unitOf(colMeta, driverKey);
                 const member = namesMember(colMeta) && cell?.type === "String" ? resolveMember(registers, colMeta.register, cell.value) : undefined;
                 const when = colMeta.kind === "date" && colMeta.level !== undefined ? { level: colMeta.level(cells) } : undefined;
                 return (
@@ -787,7 +787,7 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
 });
 
 /** A recipe slot's styles, as the shared run merges them over its own. */
-const slot = (styles: Styles, name: string): SystemStyleObject | undefined => styles[name] as SystemStyleObject | undefined;
+const slot = (styles: Styles | SlotStyles, name: string): SystemStyleObject | undefined => styles[name] as SystemStyleObject | undefined;
 
 /** What a column's cells hold before their rows land (#1398): the issue's shape by the column's kind. */
 const RUN_KINDS: Readonly<Record<SheetKind, PlaceholderKind>> = {
@@ -795,10 +795,12 @@ const RUN_KINDS: Readonly<Record<SheetKind, PlaceholderKind>> = {
     date: "date", stamped: "date",
     quantity: "number", integer: "number",
     enum: "enum", set: "chip", link: "link", action: "enum",
+    title: "text", person: "text", boolean: "boolean", toggle: "enum", cycle: "enum", age: "number", audit: "date",
 };
 
 export interface SheetRunRowProps {
-    styles: Styles;
+    /** The sheet recipe's slot styles — or a host's grid's, its `run` slots (#1531). */
+    styles: Styles | SlotStyles;
     /** The run's place among the grid's rows, the header first: where its first element would be (#860). */
     ariaRowIndex?: number | undefined;
     /** A paged source's unloaded run, or a stretch of the record the lens is still reading (#1349). */
@@ -821,6 +823,11 @@ export interface SheetRunRowProps {
     noun: string;
     /** Ask a failed window again. */
     onRetry: (w: number) => void;
+    /**
+     * What the run's first cell, under the grid's lead track, stands for (#1531): the gutter's row number, by default,
+     * or a host's lead — a Record's select column, its box; `null` where the grid has no lead track.
+     */
+    lead?: PlaceholderKind | null | undefined;
 }
 
 /**
@@ -842,7 +849,7 @@ export interface SheetRunRowProps {
  * is the cell instead (CL12).
  */
 export const SheetRunRow = memo(function SheetRunRow({
-    styles, band, failure, loading, gridTemplate, columns, rowPx, bandPx, dense, noun, onRetry, ariaRowIndex,
+    styles, band, failure, loading, gridTemplate, columns, rowPx, bandPx, dense, noun, onRetry, ariaRowIndex, lead = "rowNumber",
 }: SheetRunRowProps) {
     const words = useSheetWords();
     const { m } = words;
@@ -852,11 +859,11 @@ export const SheetRunRow = memo(function SheetRunRow({
     const elements = failure !== undefined ? failure.elements : band?.elements;
     const n = elements ?? Math.max(0, to - from + 1);
     const px = Math.max(BAND_MIN_PX, failure?.px ?? band?.px ?? 0);
-    // The gutter, then each column's cells: the column kind's shape on the sheet's own cell rules.
+    // The gutter — or a host's lead — then each column's cells: the column kind's shape on the sheet's own cell rules.
     const cells = useMemo((): RunCell[] => [
-        { kind: "rowNumber", css: slot(styles, "runGutter") },
+        ...(lead === null ? [] : [{ kind: lead, css: slot(styles, "runGutter") }]),
         ...columns.list.map((meta): RunCell => ({ kind: RUN_KINDS[meta.kind], css: slot(styles, meta.kind === "action" ? "runActionCell" : "runCell") })),
-    ], [styles, columns]);
+    ], [styles, columns, lead]);
     // A grouped sheet's elements: a band each, then the lines the ledger's rate says an element draws.
     const group = useMemo(() => {
         if (bandPx === undefined) return undefined;
@@ -876,7 +883,7 @@ export const SheetRunRow = memo(function SheetRunRow({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the range is its two formatted ends
     }), [w, m, noun, range.from, range.to, onRetry]);
     // To the grid the run is one row, its one cell across the gutter and every column (#860).
-    const cell = useMemo(() => ({ colIndex: 1, colSpan: columns.list.length + 1 }), [columns]);
+    const cell = useMemo(() => ({ colIndex: 1, colSpan: columns.list.length + (lead === null ? 0 : 1) }), [columns, lead]);
     return (
         <Box
             css={styles.run}
@@ -1161,7 +1168,7 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                             title={provenance === undefined ? bandTitle : `${provenance} · ${bandTitle}`}
                         >
                             {inRange && <Box css={styles.rangeWash} data-slot="rangeWash" />}
-                            <SheetCellContent styles={styles} meta={meta} cell={cell} rowBlank={false} unit={undefined} member={member} ghost={undefined} link={undefined} marked={op !== undefined} />
+                            <SheetCellContent styles={styles} meta={meta} cell={cell} rowBlank={false} unit={unitOf(meta, undefined)} member={member} ghost={undefined} link={undefined} marked={op !== undefined} />
                             {selected && <Box css={styles.ring} data-slot="ring" />}
                             {editing && editor.node}
                         </Box>

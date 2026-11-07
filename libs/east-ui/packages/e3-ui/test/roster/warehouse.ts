@@ -51,8 +51,8 @@ export const WarehouseAgency = StructType({ name: StringType });
 export const WarehouseShift = StructType({ label: StringType, code: StringType, start: Schedule.Types.Clock, hours: FloatType, order: IntegerType, colour: OptionType(ColorTokenType) });
 /** A week pattern (#1406): its name, its seven days from the week's first day — a shift's key, or none for a day off — and where it shows. */
 export const WarehousePattern = StructType({ label: StringType, days: ArrayType(OptionType(StringType)), order: IntegerType });
-/** A team, and where it shows. */
-export const WarehouseTeam = StructType({ label: StringType, order: IntegerType });
+/** A team: its name, the cost centre its duties are booked to, and where it shows. */
+export const WarehouseTeam = StructType({ label: StringType, costCentre: StringType, order: IntegerType });
 /** A position: its name, its badge, whether it leads, and where it shows. */
 export const WarehousePosition = StructType({ label: StringType, code: StringType, lead: BooleanType, order: IntegerType });
 /** The Roster's reading of a week of the warehouse's duties. */
@@ -94,9 +94,10 @@ export const warehousePatterns: SortedMap<string, ValueTypeOf<typeof WarehousePa
     ["ptl", patternOf("Part time · lates", "..L.L.L", 12)],
     ["off", patternOf("Off", ".......", 13)],
 ], stringOrder);
-/** The teams, each a group of the roster. */
+/** The teams, each a group of the roster, and each its own cost centre. */
 export const warehouseTeams: SortedMap<string, ValueTypeOf<typeof WarehouseTeam>> = new SortedMap<string, ValueTypeOf<typeof WarehouseTeam>>([
-    ["inbound", { label: "Inbound", order: 1n }], ["picking", { label: "Picking", order: 2n }], ["dispatch", { label: "Dispatch", order: 3n }],
+    ["inbound", { label: "Inbound", costCentre: "CC-IN", order: 1n }], ["picking", { label: "Picking", costCentre: "CC-PK", order: 2n }],
+    ["dispatch", { label: "Dispatch", costCentre: "CC-DS", order: 3n }],
 ], stringOrder);
 /** The positions, in the mock's order; the supervisors lead. */
 export const warehousePositions: SortedMap<string, ValueTypeOf<typeof WarehousePosition>> = new SortedMap<string, ValueTypeOf<typeof WarehousePosition>>([
@@ -977,8 +978,6 @@ const currentTargets: readonly Target[] = [
 ];
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
-/** Each team's cost centre, which every one of its seeded duties is booked to. */
-const centres: Readonly<Record<string, string>> = { inbound: "CC-IN", picking: "CC-PK", dispatch: "CC-DS" };
 /** Where a seeded duty's shift starts on its day of the week: the shift's own start, in UTC. */
 function shiftStartOn(weekStart: Date, day: number, shift: string): Date {
     const clock = warehouseShifts.get(shift)!.start;
@@ -987,7 +986,8 @@ function shiftStartOn(weekStart: Date, day: number, shift: string): Date {
 /**
  * A seeded row's duty, the warehouse's own: who, its own times — its shift's,
  * or a later start or a later finish where the mock has one — its shift and
- * team, its role and task, and the warehouse's fields.
+ * team, its role and task, and the warehouse's fields: booked to its team's
+ * cost centre.
  */
 function dutyOf(weekStart: Date, [id, day, group, shift, person, kind, position, activity, later, longer, agreed]: SeedRow): [string, ValueTypeOf<typeof WarehouseDuty>] {
     const start = new Date(shiftStartOn(weekStart, day, shift).getTime() + later * HOUR);
@@ -995,7 +995,7 @@ function dutyOf(weekStart: Date, [id, day, group, shift, person, kind, position,
     return [id, {
         who: kind === "request" ? variant("agency", "northside") : variant("staff", person!), start, end, shift, team: group, role: position,
         task: activity === null ? none : some(activity), unpaidBreak: 0, agreed: agreed === null ? none : some(agreed),
-        costCentre: centres[group]!, note: "",
+        costCentre: warehouseTeams.get(group)!.costCentre, note: "",
     }];
 }
 /** Both weeks' duties, by key: the week before's, and this week's. */

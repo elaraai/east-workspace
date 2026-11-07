@@ -26,7 +26,7 @@
 import { expect, test } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ArrayType, East, defaultValue, equalFor, printFor, some, variant } from "@elaraai/east";
+import { ArrayType, East, defaultValue, equalFor, none, printFor, some, variant } from "@elaraai/east";
 import { State } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Schematic } from "@elaraai/e3-ui/internal";
@@ -306,9 +306,11 @@ test("below 480px of main an item's Connect to… records a run from it as a Con
     const saved = await h.read(ex.schematicFibre);
     const added = [...saved.keys()].filter((run) => !stored.has(run));
     expect(added).toHaveLength(1);
-    // Its key minted new, its ends written, every other field its type's default — as a Connect drag writes it.
+    // Its key minted new, its ends written, every other field its kind's `values` of it (#1526) — as a Connect drag writes it.
     expect(added[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u);
-    expect(fibreEqual(saved.get(added[0]!)!, { ...defaultValue<typeof ex.DcFibre>(ex.DcFibre), from: variant("rack", "A05"), to: variant("frame", "MMR-1") })).toBe(true);
+    expect(fibreEqual(saved.get(added[0]!)!, {
+        from: variant("rack", "A05"), to: variant("frame", "MMR-1"), path: [], label: none, speed: none, cable: variant("fibre", null), system: "network",
+    })).toBe(true);
     // From ODF-1, a frame: a run to MMR-1 would join two frames — refused in the veto's words, nothing recorded.
     await tap(canvas, CAM, 8.4, 9.6);
     expect(head(container).title).toBe("ODF-1");
@@ -471,5 +473,5 @@ test("a run's ends and a trunk's sides are held to the host's veto as their gest
     await history(container, SAVE);
     const trunks = [...(await h.read(ex.schematicTrunks)).values()];
     expect(trunks).toHaveLength(1);
-    expect(trunkEqual(trunks[0]!, { ...defaultValue<typeof ex.DcTrunk>(ex.DcTrunk), racks: ["A05", "A04"], frames: ["ODF-1", "MMR-1"] })).toBe(true);
+    expect(trunkEqual(trunks[0]!, { ...defaultValue<typeof ex.DcTrunk>(ex.DcTrunk), racks: ["A05", "A04"], frames: ["ODF-1", "MMR-1"], system: "network" })).toBe(true);
 });

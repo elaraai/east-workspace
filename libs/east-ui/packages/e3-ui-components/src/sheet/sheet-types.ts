@@ -16,6 +16,7 @@
  */
 
 import type { EditIssue } from "@elaraai/east-ui-components";
+import type { SheetCandidate } from "./candidates.js";
 import type { SheetKind } from "./model.js";
 import type { SheetDropRefusalWord } from "./messages.js";
 import type { ParseOutcome } from "./parse/index.js";
@@ -73,6 +74,12 @@ export interface EditBuffer {
     seeded: boolean;
     /** The text the editor opened with, when it opened on the cell's own value (not a key, not a link) — a commit of that same text writes nothing (#852). */
     opened?: string | undefined;
+    /**
+     * The register member a gesture chose, by its key (#1536): the cell's own as the editor opens on it, an option of
+     * the menu, a strip chip, a candidate ⇥ or ⌘→ took. It commits as itself, so two members who show one label are
+     * told apart; typing, or ⌥ stepping the candidates, lets it go.
+     */
+    pick?: string | undefined;
     /** The link editor's state — present on a link / set column. */
     link?: LinkEdit;
 }
@@ -155,6 +162,15 @@ export type SheetNotice =
     | { id: "issue"; where: string; issue: EditIssue }
     /** A card's ⏎ refused below the ring's row (#1187, SB45): why. */
     | { id: "dropRefused"; word: SheetDropRefusalWord }
+    /** A new entry's key the app's `newKey` gave is taken already (#1536): its text — the gesture drafted nothing. */
+    | { id: "keyTaken"; key: string }
+    /** The app's `newKey` threw (#1536): why — the gesture drafted nothing. */
+    | { id: "keyFailed"; reason: string }
+    /**
+     * A new entry the app's `newRow` or `newGroup` left a required field of empty, one no person can set (#1536): what
+     * it would have been, the host's word for a group, and the field as the sheet labels it — the gesture drafted nothing.
+     */
+    | { id: "cantAdd"; what: "row" | "line" | "group"; noun: string | undefined; label: string }
     | { id: "text"; text: string };
 
 /** All ephemeral UI state — one object, one reducer. */
@@ -183,6 +199,11 @@ export interface SheetUiState {
     folds: ReadonlyMap<string, boolean>;
     /** The view tabs. */
     tabs: TabsState;
+    /**
+     * No ring is placed yet (#1531): a grid a host draws — the Record's — opens with none, and selects nothing. A press
+     * places it, and so does the first move key, on the first row's first cell that edits in place; no other key acts.
+     */
+    ringless: boolean;
 }
 
 /** A commit direction — where the ring goes after a commit. */
@@ -193,12 +214,17 @@ export type SheetEvent =
     | { t: "cell.down"; r: number; c: number; shift: boolean }
     | { t: "cell.dbl"; r: number; c: number }
     | { t: "cell.enter"; r: number; c: number; dragging: boolean }
+    /** The pointer left the grid: no cell is hovered, and a strip that previews the hovered cell returns to the ring's (#1531). */
+    | { t: "cell.leave" }
     | { t: "row.pick"; r: number; shift: boolean }
     | { t: "key"; key: string; shift: boolean; meta: boolean; alt: boolean }
     | { t: "editor.change"; val: string }
     | { t: "editor.key"; key: string; shift: boolean; meta: boolean; alt: boolean; atEnd: boolean }
     | { t: "editor.blur" }
-    | { t: "strip.pick"; label: string; i: number; members?: SheetMemberValue[] }
+    /** A strip chip: a candidate — its label, and its member's key — or a link chip's members. */
+    | { t: "strip.pick"; label: string; key?: string | undefined; i: number; members?: SheetMemberValue[] }
+    /** The combobox chose an option (#1536) — stepped to while browsing, or pressed: its member, in the words it shows. */
+    | { t: "editor.pick"; label: string; key: string }
     /** A click in a link editor's half moves the caret there (the buffer resolves first). */
     | { t: "half.down"; side: 0 | 1 }
     /** The controlled `selection` prop moved the ring — no `emit.select` echo. */
@@ -278,6 +304,10 @@ export type SheetEffect =
     | { t: "write"; r: number; c: number; cell: SheetCellValue | null; text: string }
     /** Write several cells of one row — a fill taken (`fill`) or the whole row filled (`row`). */
     | { t: "write.many"; r: number; writes: readonly { c: number; cell: SheetCellValue }[]; source: EditSource }
+    /** The writes before it are one gesture and the writes after it another (#1531): a press that commits an open editor, then steps the cell it lands on, is two undo steps. */
+    | { t: "gesture.end" }
+    /** A press, ⏎ or F2 on a cell that edits out of place (#1531) — a Record's title: the host opens it where it edits it. */
+    | { t: "open"; r: number; c: number }
     /** Insert proposed rows after the anchor, in order; `rest` re-anchors on the last one inserted. */
     | { t: "insert.rows"; anchorR: number; rows: readonly PendingRow[]; rest: readonly PendingRow[] }
     /** Clear a block of cells (stamped columns skipped by the component). */
@@ -342,14 +372,31 @@ export interface SheetMachineCtx {
     editableAt: (r: number, c: number) => boolean;
     /** The kind of the cell at a row and column — a band's cell under the column, else the column's. */
     kindAt: (r: number, c: number) => SheetKind;
+    /**
+     * A cell that steps in place rather than open an editor (#1531) — a cycle, a toggle, a boolean: its state after a
+     * step, the next (`1`), the one before (`-1`) or a cycle's first. `undefined` for any other cell, and absent on a
+     * sheet whose cells all edit.
+     */
+    stepAt?: ((r: number, c: number, step: 1 | -1 | "first") => SheetCellValue | undefined) | undefined;
+    /** The cell a key sets on a cell that steps in place (#1531): a cycle's member whose label, key or alias it is. */
+    keyAt?: ((r: number, c: number, key: string) => SheetCellValue | undefined) | undefined;
+    /**
+     * Whether a cell edits out of place (#1531) — a Record's title: a press, ⏎ or F2 opens it through the host
+     * (`open`), and no editor opens on it. Absent on a sheet whose cells all edit in place.
+     */
+    opensAt?: ((r: number, c: number) => boolean) | undefined;
+    /** The strip previews the cell under the pointer (#1531): a key's move drops the hover, and the strip returns to the ring. */
+    previewsHover?: boolean | undefined;
     /** Parse a buffer for a cell. */
     parse: (r: number, c: number, text: string) => ParseOutcome;
     /** The candidates for a buffer (the entry menu when empty). */
-    candidates: (r: number, c: number, text: string) => string[];
+    candidates: (r: number, c: number, text: string) => SheetCandidate[];
     /** The armed candidate for a buffer, if any. */
-    candidateAt: (r: number, c: number, text: string, hi: number) => string | undefined;
+    candidateAt: (r: number, c: number, text: string, hi: number) => SheetCandidate | undefined;
     /** The cell's edit form. */
     editTextAt: (r: number, c: number) => string;
+    /** The key of the register member a cell holds (#1536): what its editor opens on, by the words the cell shows. */
+    memberAt?: ((r: number, c: number) => string | undefined) | undefined;
     /** The link editor's context for a link / set column (`undefined` on every other kind). */
     linkAt?: (r: number, c: number) => LinkEditCtx | undefined;
     /** The row-space index of a row id — a real row's, or a blank row's synthetic id (`undefined` when not resident). */
@@ -424,12 +471,16 @@ export const NO_REJECTIONS: Rejections = { fills: new Set(), follows: new Set() 
 /** No fold overridden. */
 export const NO_FOLDS: ReadonlyMap<string, boolean> = new Map();
 
-/** The initial UI state — `active` is the initial view tab, if the sheet opens on one; `folds`, the fold overrides it opens with (#857). */
-export function initialSheetState(sel: CellRef = { r: 0, c: 0 }, active: string | null = null, folds?: ReadonlyMap<string, boolean>): SheetUiState {
+/**
+ * The initial UI state — `active` is the initial view tab, if the sheet opens on one; `folds`, the fold overrides it
+ * opens with (#857); `ringless`, whether it opens with no ring placed (#1531).
+ */
+export function initialSheetState(sel: CellRef = { r: 0, c: 0 }, active: string | null = null, folds?: ReadonlyMap<string, boolean>, ringless = false): SheetUiState {
     return {
         sel, selEnd: null, edit: null, hover: null, msg: null, appended: 0, sugg: null, armed: null, gsel: null, rejected: NO_REJECTIONS,
         folds: folds === undefined || folds.size === 0 ? NO_FOLDS : folds,
         tabs: { active, seq: 1, renaming: null, renameVal: "" },
+        ringless,
     };
 }
 

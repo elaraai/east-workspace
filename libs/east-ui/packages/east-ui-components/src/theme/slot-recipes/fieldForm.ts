@@ -21,15 +21,30 @@
  * sits centred on it, as a Set or a Clear does. A text longer than its box
  * ends in an ellipsis.
  *
+ * A field drawn on one line (#1534) is that line: its label at the start, as
+ * strong as a field's label, one line and an ellipsis, and its radios at the
+ * end; lines that follow one another sit closer than fields do, rows of
+ * choices. A field an issue names takes the warn wash a Record's empty
+ * required cell wears, spread as the drafts' tint is — so a new row's empty
+ * lines read as one block.
+ *
+ * A variant whose case holds data has a block under its choice (#1549): the
+ * case's fields, a column of the form's rhythm, set in from the choice along
+ * a rule, so they read as the choice's — a block inside a block for a case
+ * holding a variant of its own.
+ *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fieldHeights } from "../field-chrome.js";
 
+/** The warn wash around a field an issue names: a new row's empty required cell's (`record`'s ST8). */
+const ISSUE_WASH = "color-mix(in srgb, {colors.status.warn} 17%, {colors.bg.surface})";
+
 export const fieldFormSlotRecipe = defineSlotRecipe({
     className: "elara-field-form",
-    slots: ["root", "group", "groupHead", "groupFields", "field", "line", "control", "side", "items", "item"],
+    slots: ["root", "group", "groupHead", "groupFields", "field", "block", "line", "control", "side", "items", "item", "lines", "lineLabel", "lineChoices", "lineValue"],
     base: {
         root: {
             display: "flex",
@@ -74,6 +89,60 @@ export const fieldFormSlotRecipe = defineSlotRecipe({
                 background: "brandTint",
                 boxShadow: "0 0 0 6px {colors.brandTint}",
             },
+            /* A field an issue names: the warn wash, spread as the tint is — over a change's. */
+            "&[data-issue]": {
+                background: ISSUE_WASH,
+                boxShadow: `0 0 0 6px ${ISSUE_WASH}`,
+            },
+            /* Drawn on one line: its label at the start, its choices at the end, on the Input's line. */
+            "&[data-layout=line]": {
+                flexDirection: "row",
+                alignItems: "center",
+                gap: "{spacing.3}",
+                minHeight: fieldHeights.md,
+                _coarse: { minHeight: "44px" },
+            },
+        },
+        /* A variant's block: the fields of the case it holds, under its choice,
+         * set in along a rule — the form's column and rhythm inside it. */
+        block: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "{spacing.4}",
+            minWidth: 0,
+            paddingInlineStart: "{spacing.3}",
+            borderInlineStartWidth: "1px",
+            borderInlineStartStyle: "solid",
+            borderInlineStartColor: "border.subtle",
+        },
+        /* Fields drawn on one line, one after another: rows of choices, closer than fields sit. */
+        lines: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "{spacing.1}",
+            minWidth: 0,
+        },
+        lineLabel: {
+            flex: "1 1 0",
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            fontSize: "body.sm",
+            fontWeight: "semibold",
+            color: "fg",
+        },
+        lineChoices: {
+            flex: "none",
+            display: "flex",
+            alignItems: "center",
+        },
+        /* Read only: the choice made, where the radios would be. */
+        lineValue: {
+            flex: "none",
+            fontSize: "body",
+            color: "fg",
+            whiteSpace: "nowrap",
         },
         /* The control's line: the field's width — the shared Field lays its
          * parts out from their start — the control filling it, and an
@@ -99,6 +168,8 @@ export const fieldFormSlotRecipe = defineSlotRecipe({
         },
         side: {
             display: "flex",
+            /* A phone's Clear: a touch target of its own beside the touch-sized line, its icon the second row's (FR6). */
+            "[data-phone] &": { _coarse: { "& [data-field-clear]": { width: "44px", height: "44px", fontSize: "16px" } } },
         },
         /* A checklist's items, each its checkbox and its remove. */
         items: {

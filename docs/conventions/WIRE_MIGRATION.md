@@ -671,3 +671,67 @@ Each wire changed under this rule, with the kind it is.
   are of one release. A call's result names the inputs it read before its
   dataset arguments, in `ExecuteResultType`'s `inputs`, whose type does not
   change.
+- **e3-ui's `Sheet` takes a system of records' column kinds, and a new entry's
+  key and the fields no person can set from the app** — package-borne.
+  `Sheet.Types.ColumnKind` gains `title`, `person`, `boolean`, `toggle`,
+  `cycle`, `age` and `audit`, the kinds e3-ui's `<Record>` builds its grid
+  from and `<Sheet>` refuses at build, and its `quantity` arm gains `unit`,
+  after `uom`: one unit for every row. A variant encodes its case by its index
+  among its cases, which are sorted by name, so every case after `action`
+  moves down. The root (`Sheet.Types.Root`) trades
+  `newRowId`, which took nothing and returned a key's text, for `newKey`, an
+  East function from the keys taken, each as its text, to a new one
+  (`Option<Function([Set<String>], String)>`); with none, the renderer mints a
+  UUID. Its editing declaration (`SheetEditingType`) gains `unsettable`, after
+  `newGroup`: a new row's and a new group's required fields that no column,
+  band cell or form sets, each with the label the sheet gives it
+  (`SheetUnsettableType`), which only the app's `newRow` and `newGroup` give.
+  A UI value encoded under either type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. A UI task's output is not stored state, so no
+  repository upgrade step ships with it. The `Record` extension and
+  `Record.Types.Change`, the last change a row's field holds for an audit
+  column, are new: no earlier release wrote either, so no form of them moves.
+- **east-ui's editing session loses its apply mode: every edit waits for
+  Save** — package-borne. The shared session's fields (`EditingSessionFields`:
+  east-ui's `EditingType` and `SnapGridEditingType`, e3-ui's `PlanEditingType`
+  and `SheetEditingType`) lose `mode`, which chose between Save and applying
+  each ready gesture as it landed, and e3-ui's Plan settings
+  (`PlanSettingsType`) lose `applyMode`, keeping `date`. They travel in
+  east-ui's `SnapGrid` arm and in every e3-ui builder's payload, each Schedule
+  kind's session among them, so a UI value encoded under either type does not
+  decode under the other: packages are re-exported, and the dataflow computes
+  each UI task's output again under the new type. A UI task's output is not
+  stored state, so no repository upgrade step ships with it.
+- **e3-ui's new rows take the app's `values` (#1526)** — package-borne. A new
+  row's fields no role maps are the app's East function of what the builder
+  decided of it, closed into its kind's `create` as their defaults were, so
+  the Allocation's bin kind, the Schematic's link and net kinds and the cover
+  targets keep their forms. Two kinds' functions change type: the Roster's
+  duty kind (`ScheduleRosterKindType`) takes a new duty in its `create`
+  (`Roster.Types.NewDuty`: its roles and the pattern that made it), where it
+  took the roles, and the periods (`SchedulePeriodsKindType`) take the
+  period's start before its row in `publish` and `dismiss`, which the
+  periods' `values` makes a new row from. They travel in the `Roster`'s and
+  the `Allocation`'s payloads, so a UI value encoded under either type does
+  not decode under the other: packages are re-exported, and the dataflow
+  computes each UI task's output again under the new type. A UI task's output
+  is not stored state, and a new row is the app's record's own, so no
+  repository upgrade step ships with it.
+- **e3-ui's `Flowchart` and `Schematic` take records keyed by any key type
+  (#1549)** — package-borne. Each kind on the wire — `FlowchartStateKindType`,
+  `FlowchartTransitionKindType`, `FlowchartLaneKindType`,
+  `FlowchartDecisionKindType`, `SchematicItemKindType`,
+  `SchematicZoneKindType`, `SchematicLinkKindType` and
+  `SchematicNetKindType` — gains `keyType`, after its last field: its
+  record's key type. Each kind a gesture makes rows of — every one but the
+  decisions and the zones — gains `rowKey` before it: the kind's `key`, a new
+  row's key's text from its row's bytes, `none` without `key`. Keys travel as
+  their text, as before. A UI value encoded under either type does not decode
+  under the other: packages are re-exported, and the dataflow computes each UI
+  task's output again under the new type. A UI task's output is not stored
+  state, so no repository upgrade step ships with it. An application's records
+  keep their types: one keyed by String reads as it did, and re-keying one by
+  another type is that record's own migration (`migration.rekey`). The form's
+  specs keep their type (`FieldSpecType`): a variant whose cases hold data gets
+  the `select` editor and its cases' specs, where it got `readonly`.

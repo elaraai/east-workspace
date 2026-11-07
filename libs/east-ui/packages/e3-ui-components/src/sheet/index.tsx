@@ -27,6 +27,15 @@
  * columns the viewer hides, the drops the sheet takes, and what its rail
  * counts each source in.
  *
+ * A host with chrome of its own — the Record's title, status line, Add,
+ * Delete and footer (#1533) — takes the toolbar's items as parts
+ * (`useSheetToolbarParts()`) and lays out its own row of them, and reads the
+ * rows as its chrome counts and changes them (`useSheetEntries()`): the rows
+ * drawn, how many the narrowing shows of how many the record holds, the last
+ * gesture's notice, and a gesture that adds a row and one that removes rows,
+ * each one step of the history. It hears each step of the history as it is
+ * taken (`SheetHost.onHistory`), to say what the step did in its own words.
+ *
  * Its narrowing is one rail over the sheet's `Slice.bindRecords` (#1345):
  * the sheet's rows are its `rows` source's record, every one in the record's
  * order, paged from it, and the source's narrowing is drawn over them as the
@@ -91,9 +100,9 @@
  * decisions and the inserts at it — and the seams offer no chips.
  */
 
-import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type ComponentType, type CSSProperties, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { StringType, StructType, equalFor, fromEastTypeValue, none, parseFor, printFor, some, variant, type EastType, type PatchPath, type ValueTypeOf, type option } from "@elaraai/east";
+import { SortedSet, StringType, StructType, compareFor, equalFor, fromEastTypeValue, isVariant, none, parseFor, printFor, some, variant, type EastType, type PatchPath, type ValueTypeOf, type option } from "@elaraai/east";
 import { Sheet, SheetBatchReadinessType, SheetDraftFieldType } from "@elaraai/e3-ui/internal";
 import {
     focusKeySearch, getSomeorUndefined, optimiseMessages, useCoarsePointer, useLanding, useLandingStyles, useSlicesReactivity, useDataStable, usePersistedState, useDragLayerOptional,
@@ -101,23 +110,24 @@ import {
     type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, type LandingAttributes, historyToolbarItem, historyShortcut, takeKey,
     type ToolbarItem,
 } from "@elaraai/east-ui-components";
-import { DensityProvider, useDensityHeights, VirtualRows, devicePixels, kindOfIssue, recordSliceNoun, recordSliceWithinAt, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { DensityProvider, useDensityHeights, VirtualRows, devicePixels, kindOfIssue, recordSliceNoun, recordSliceWithinAt, type PlaceholderKind, type RowsViewport, type SlotStyles, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { SeekQueryType } from "@elaraai/east-ui";
 import { EditingIssueType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import {
     BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NEW_LINE_KEY, NULL_CELL, TITLE_KEY,
     blankIdOf, bodyIndexOfId, buildBody, buildLensBody, cellIsBlank, cellText, countNoun, densityOf, drawnPx, driverKeyOf, groupBandPx, indexColumns, indexGroup, indexRegisters, isLooseRow, isRowSpace, itemPx,
-    latencyOf, layoutLensRun, layoutRun, lineAddress, lineId, lineRowsOf, parseWidth, resolveMember as resolveRegisterMember, rowIsBlank, segmentOf, stickyRows, withLine, withProposals, withoutLines,
-    type LineGroup, type SheetBodyItem, type SheetColumnIndex, type SheetColumnMeta, type SheetGeometry,
+    latencyOf, layoutLensRun, layoutRun, lineAddress, lineId, lineRowsOf, parseWidth, resolveMember as resolveRegisterMember, rowIsBlank, segmentOf, stickyRows, unitOf, withLine, withProposals, withoutLines,
+    type LineGroup, type SheetBodyItem, type SheetColumnIndex, type SheetColumnMeta, type SheetGeometry, type SheetRegisterIndex,
 } from "./model.js";
 import { SHEET_PAGE_SIZE, useSheetPaging, type SheetViewport } from "./paging.js";
 import { placeInOrder } from "./placement.js";
 import { keyOrderOf } from "./key-order.js";
-import { clearNarrowing, narrowingEqual, narrowingOf, narrowingQuery, narrowingScope, sheetViewsEqual, writeNarrowing, writeSheetViews } from "./view-state.js";
+import { clearNarrowing, clearSearch, narrowingEqual, narrowingOf, narrowingQuery, narrowingScope, sheetViewsEqual, writeNarrowing, writeSheetViews } from "./view-state.js";
 import { useRecordViewCounts } from "./use-record-view-counts.js";
 import { NOT_PERSISTED, persistedOf, sameAnchor, sameFolds, type SheetAnchor, type SheetPersisted } from "./persisted.js";
 import { useSheetSeek, type SheetSeekNarrowing } from "./use-seek.js";
 import { askHiding, hiddenLine, hiddenOf, useHidden, useRelist } from "../shared/schedule/hidden.js";
+import { mintKey } from "../shared/schedule/records.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { useOptimise, type OptimiseCounts } from "../shared/func/use-optimise.js";
@@ -150,6 +160,7 @@ import {
     type SheetDropContext, type SheetDropHost, type SheetDropMark, type SheetDropPlan, type SheetDropRow, type SheetDropSource, type SheetRowDrop,
 } from "./drop.js";
 import { normalizeDraft } from "./draft-values.js";
+import { SheetRefused } from "./creation.js";
 import { noticeText, useSheetWords, type SheetWords } from "./words.js";
 import { runSuggest, SuggestMemo, LATENCY_MS, type FillColumn } from "./suggest.js";
 import { InFlight, trackWork } from "./suggest-async.js";
@@ -159,7 +170,8 @@ import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
 import { SheetRow, SheetRunRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry, namesMember, type SheetRowAction } from "./Rows.js";
 import { NUMBER_PX, gutterFolds, gutterWidths } from "./gutter.js";
-import { SheetCellContent } from "./cells/Cell.js";
+import { SheetCellContent, type LinkCellContext } from "./cells/Cell.js";
+import { editsOutOfPlace, keyedCell, stepCell, stepsInPlace } from "./steps.js";
 import { actionCell, actionColumnOf, canTake, caseOf, offerOf, verbOf, type ActionCase } from "./actions/model.js";
 import { createActionStore, type SheetActionHost } from "./actions/host.js";
 import { ActionForm, ActionMenu, type ActionOverlayState } from "./actions/ActionOverlay.js";
@@ -167,13 +179,13 @@ import { ActionPanel, type ActionPanelApi } from "./actions/ActionPanel.js";
 import { ActionBar } from "./actions/ActionBar.js";
 import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
 import { SheetPager, pageWindow, type SheetPagerColumn } from "./Pager.js";
-import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
+import { SheetEditor, isComboboxKind, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripModel, type StripSuggestInput } from "./Strip.js";
 import type { SheetFooterProps, SheetLoadingLine } from "./Footer.js";
 import { useSheetEditing, type DraftEdit, type LocalLayer, type SheetSeeds } from "./use-editing.js";
-import { draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
-import { useSheetToolbarItemsFor, type SheetToolbarTabs } from "./Toolbar.js";
-import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLineValue, SheetLinkValue, SheetMemberValue, SheetNarrowing, SheetNounValue, SheetProposerValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetSubRowValue, SheetSavedView } from "./values.js";
+import { draftChanges, draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
+import { sheetToolbarRow, useSheetToolbarPartsFor, type SheetToolbarParts, type SheetToolbarTabs } from "./Toolbar.js";
+import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLineValue, SheetLinkValue, SheetMemberValue, SheetNarrowing, SheetNounValue, SheetProposerValue, SheetRegisterMemberValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetSubRowValue, SheetSavedView } from "./values.js";
 
 export type { SheetRootValue, SheetRowValue, SheetCellValue } from "./values.js";
 
@@ -218,6 +230,7 @@ const cellEqual = equalFor(Sheet.Types.Cell);
 const readinessEqual = equalFor(SheetBatchReadinessType);
 const issueEqual = equalFor(EditingIssueType);
 const printString = printFor(StringType);
+const compareString = compareFor(StringType);
 /** A live source's rows under one narrowing, named apart (#1354): the source and its narrowing, as East prints them. */
 const printNarrowedSource = printFor(StructType({ source: StringType, narrowing: StringType }));
 
@@ -301,14 +314,6 @@ function blankRow(id: string, columns: readonly SheetColumnMeta[]): SheetRowValu
 }
 
 let mintCounter = 0;
-/** A renderer-minted row id — unique per session, never a source id. */
-function mintId(taken: (id: string) => boolean): string {
-    for (;;) {
-        const id = `sheet-${Date.now().toString(36)}-${(mintCounter++).toString(36)}`;
-        if (!taken(id)) return id;
-    }
-}
-
 /** A renderer-minted line key (#740) — never a source index, unique within the group. */
 function mintLineKey(group: SheetRowValue): string {
     for (;;) {
@@ -517,9 +522,10 @@ export interface SheetParts {
     styles: Styles;
     /** What {@link SheetRoot} carries. */
     root: SheetRootFacts;
-    /** The toolbar: its items, and the element the frame places them in. */
+    /** The toolbar: its items, the same as parts (#1533), and the element the frame places them in. */
     toolbar: {
         items: ReadonlyArray<ToolbarItem | false | undefined>;
+        parts: SheetToolbarParts;
         ref: RefObject<HTMLDivElement | null>;
     };
     /** The header, the rows and the strip: what {@link SheetGrid} places. */
@@ -540,6 +546,37 @@ export interface SheetParts {
     optimise: SheetOptimiseParts;
     /** A phone's Library (`Mobile Sheet Spec.md` SH11). */
     phoneLibrary: SheetPhoneLibrary;
+    /** What a host's own chrome counts of the rows and changes in them (#1533). */
+    entries: SheetEntries;
+}
+
+/**
+ * The rows as a host's own chrome counts and changes them (#1533) — the
+ * Record's title, status line, Add, Delete and footer: the rows drawn, how
+ * many the narrowing shows and the record holds, the last gesture's notice,
+ * the gestures recorded, and a gesture that adds a row and one that removes
+ * rows.
+ */
+export interface SheetEntries {
+    /** The rows drawn, the drafts applied: the resident rows — under the lens, the narrowing's. */
+    rows: readonly SheetRowValue[];
+    /** Whether `rows` is every row the narrowing shows: inline rows, or a paged source or a lens with no run left to read. */
+    whole: boolean;
+    /** How many rows the narrowing shows, and how many the record holds — the drafts applied; `undefined` while not known. */
+    count: { shown: number | undefined; total: number | undefined };
+    /** What the last gesture left in the footer's line; `null` once a step of the history moved past it. */
+    notice: SheetNotice | null;
+    /** How many gestures have been recorded — a cell's write, an insert, a removal: it moves with each. */
+    gestures: number;
+    /**
+     * Adds a row, one draft and one undo step: first in the rows where the rows keep an order, and where they are keyed
+     * in its key's place — the app's `newKey`'s, else a UUID. The rail's search clears first, so the row is never
+     * hidden; the ring lands on the row at `column` — the driver's, else its first editable column, by default — and a
+     * column that edits out of place opens where the host edits it. The footer's notice says so. Stable.
+     */
+    add: (column?: string) => void;
+    /** Removes rows by id, one draft and one undo step; a new row is simply dropped, and the ring goes with its row. The footer's notice says how many. Stable. */
+    remove: (ids: readonly string[]) => void;
 }
 
 /** What a phone's Library reads of the sheet, and the taps it makes (`Mobile Sheet Spec.md` SH11, R7). */
@@ -612,6 +649,187 @@ export interface SheetHost {
      * `undefined` for a cell its form has no field for, the strip shows.
      */
     cellEditor?: ((at: SheetCellEditorAt) => ReactNode | undefined) | undefined;
+    /**
+     * What draws the grid's rows and header in the Sheet's place (#1531) — the Record's, in the Table's anatomy, over
+     * the Sheet's one machine, session and lens. Such a grid opens with no ring, which a press or the first move key
+     * places; its cycles, toggles and booleans step in place, and a title opens through `onOpen`; its strip shows the
+     * cell under the pointer, and the ring's once the pointer leaves; and it has no gutter — no row numbers, seams,
+     * insertion strip or padding under the rows. On a phone's frame it is the Sheet's (#1536): its lead goes as the
+     * gutter does, the column the sheet's `narrow.pin` names is held at the left, and the pager pages the rest — its
+     * rows and its header told so ({@link SheetHostLayout}). Absent, the Sheet draws its own.
+     */
+    grid?: SheetGridHost | undefined;
+    /**
+     * Told of each step of the history as the history item, a key or a banner asks for it (#1533) — before it is
+     * taken, the session as it stands, so a host can read what the step will take back or replay (`nextUndo`,
+     * `nextRedo`, the drafts an Apply sends). What it answers is called once the step is taken: an Apply's once its
+     * request has been answered, the session then saying how. Absent, nothing is told.
+     */
+    onHistory?: ((action: HistoryAction, session: SheetTransactions) => (() => void) | undefined) | undefined;
+}
+
+/**
+ * What a row's drafts changed against what the record holds (#1531): whether it is new, the columns whose cells
+ * differ, the cells the record holds, and how many fields the drafts change.
+ */
+export interface SheetRowChanges {
+    /** A new row, never applied. */
+    added: boolean;
+    /** The columns, by key, whose cells differ from what the record holds — none on a new row. */
+    dirty: ReadonlySet<string>;
+    /** The cells the record holds for the row: what a changed cell was — none on a new row. */
+    held: ReadonlyMap<string, SheetCellValue> | undefined;
+    /** How many of the row's fields its drafts change, a field no column shows among them — none on a new row. */
+    fields: number;
+}
+
+/**
+ * A row-space row a host draws ({@link SheetGridHost.Row}, #1531): its cells, the ring's column, the range, the open
+ * editor and its draft, with the Sheet's own pointer calls — so a press, a double press and a hover are the Sheet's
+ * gestures, whatever draws them.
+ */
+export interface SheetHostRowProps {
+    /** The sheet recipe's slot styles: what a cell's content draws with. */
+    styles: Styles;
+    /** Its row-space index. */
+    r: number;
+    /** The row; `undefined` for a blank padding row. */
+    row: SheetRowValue | undefined;
+    /** The columns the grid draws. */
+    columns: SheetColumnIndex;
+    /** The registers, by name. */
+    registers: SheetRegisterIndex;
+    /** The driver column's key: a quantity's unit is its driver member's. */
+    driverColumn: string | undefined;
+    /** The rows' tracks: the host's lead, where it is laid out, then each column's. */
+    gridTemplate: string;
+    /** How the grid lays the row out: its lead's track, and a phone's frame. */
+    layout: SheetHostLayout;
+    /** Its height, px, the rule included. */
+    rowPx: number;
+    /** The grid's id: a cell's id is `{idPrefix}-{r}-{c}`, what the grid names as its active cell. */
+    idPrefix: string;
+    /** Its place among the grid's rows, the header first. */
+    ariaRowIndex: number | undefined;
+    /** The ring's column on the ring's row; `undefined` elsewhere, and while no ring is placed. */
+    selC: number | undefined;
+    /** The range's columns on a row inside it. */
+    range: { c0: number; c1: number } | undefined;
+    /** The open editor on its row: its column, and the element laid over the cell. */
+    editor: { c: number; node: ReactNode } | undefined;
+    /** How its draft presents. */
+    draft: DraftPresentation | undefined;
+    /** What its drafts changed; `undefined` for a row no gesture has touched. */
+    changes: SheetRowChanges | undefined;
+    /** Whether a gesture may be made now: the sheet writable, and its session taking one. */
+    writable: boolean;
+    /** A link cell's halves, vocabulary and flags. */
+    linkCtx: (row: SheetRowValue | undefined, meta: SheetColumnMeta) => LinkCellContext | undefined;
+    /** What its action cells ask of the sheet; absent with no action column. Stable. */
+    actions: SheetActionHost | undefined;
+    onCellDown: (r: number, c: number, e: MouseEvent) => void;
+    onCellDouble: (r: number, c: number) => void;
+    onCellEnter: (r: number, c: number) => void;
+}
+
+/** The header a host draws over its rows ({@link SheetGridHost.Header}, #1531). */
+export interface SheetHostHeaderProps {
+    /** The columns the grid draws. */
+    columns: readonly SheetColumnMeta[];
+    /** The rows' tracks: the host's lead, where it is laid out, then each column's. */
+    gridTemplate: string;
+    /** How the grid lays the header out: its lead's track, and a phone's frame. */
+    layout: SheetHostLayout;
+    /** A row's height, px: the header row's. */
+    rowPx: number;
+    /** The rows shown, by id: the resident rows, in order. */
+    rowIds: readonly string[];
+}
+
+/**
+ * How the grid lays a host's rows and header out (#1536): whether its lead has a track, and a phone's frame
+ * (`Mobile Sheet Spec.md`) — its columns a window the pager pages, any column the sheet's `narrow.pin` names held at
+ * the left. One object while it holds, so no row's memo sees it change.
+ */
+export interface SheetHostLayout {
+    /** Whether the lead track is laid out: the host's lead, where it has one — never on a phone's frame, as the gutter is not (R5). */
+    lead: boolean;
+    /** A phone's frame: the columns a window of slots, which the pager pages (SH1). */
+    phone: boolean;
+    /** The width of the column a phone's frame holds at the left, px — the first column; `0` with none (SH4). */
+    pinPx: number;
+}
+
+/** What a host shows when the narrowing leaves no row to show ({@link SheetGridHost.Empty}, #1531). */
+export interface SheetHostEmptyProps {
+    /** The rail's search narrows the rows — else its filters alone. */
+    query: boolean;
+    /** Clears what narrows them: the search, else the filters. */
+    onClear: () => void;
+}
+
+/** The cell a host's strip speaks of ({@link SheetHostStripProps.at}, #1533): its row, its column and what its drafts changed. */
+export interface SheetHostStripCell {
+    /** Its row-space index. */
+    r: number;
+    /** Its row. */
+    row: SheetRowValue;
+    /** Its column. */
+    column: SheetColumnMeta;
+    /** What the row's drafts changed; `undefined` for a row no gesture has touched. */
+    changes: SheetRowChanges | undefined;
+}
+
+/**
+ * The strip a host draws under its rows ({@link SheetGridHost.Strip}, #1533): the Sheet's own strip as it stands, and
+ * the cell the host's words would speak of.
+ */
+export interface SheetHostStripProps {
+    /** The sheet recipe's slot styles: what the Sheet's own strip draws with. */
+    styles: Styles;
+    /** The Sheet's own strip as it stands: an editor's, a suggestion's, an action's, a cell's detail — or off. */
+    model: StripModel;
+    /** A chip of the Sheet's strip, taken. */
+    onAction: (action: StripAction) => void;
+    /** Whether the Sheet's strip speaks of what is in hand — an open editor, a range, a suggestion, an action: the host draws it then. */
+    own: boolean;
+    /** The cell under the pointer, else the ring's — `undefined` with neither, and over a row that is not drawn yet. */
+    at: SheetHostStripCell | undefined;
+    /** The columns the grid draws. */
+    columns: SheetColumnIndex;
+    /** The registers, by name. */
+    registers: SheetRegisterIndex;
+    /** Whether a gesture may be made now: the sheet writable, and its session taking one. */
+    writable: boolean;
+}
+
+/**
+ * A host's grid ({@link SheetHost.grid}, #1531): its rows' pitch and lead, and what draws its rows, its header and,
+ * when the narrowing leaves nothing to show, its empty state — over the Sheet's machine, session, lens and paging.
+ */
+export interface SheetGridHost {
+    /** A row's height, px, the rule included: the host's density's. */
+    rowPx: number;
+    /** The lead track before the columns, px — a Record's select column; `0` for none. */
+    leadPx: number;
+    /** What a run of rows not drawn yet shows in the lead track: a select column's box. */
+    leadRun: PlaceholderKind;
+    /** The slot styles a run of rows not drawn yet draws with — `run`, `runRow`, `runGutter` (the lead), `runCell`, `runActionCell`. */
+    runStyles: SlotStyles;
+    /** Draws a row-space row. */
+    Row: ComponentType<SheetHostRowProps>;
+    /** Draws the header over the rows: it sticks with them. */
+    Header: ComponentType<SheetHostHeaderProps>;
+    /** Shown under the header when the narrowing leaves no row to show; absent, nothing is. */
+    Empty?: ComponentType<SheetHostEmptyProps> | undefined;
+    /**
+     * Draws the strip docked under the rows in the Sheet's place (#1533): the host's words for the cell it is over, or
+     * for none, and the Sheet's own strip while it speaks of what is in hand. Absent, the Sheet's. A phone's action bar
+     * and cell editor take the strip's place either way.
+     */
+    Strip?: ComponentType<SheetHostStripProps> | undefined;
+    /** A press, ⏎ or F2 on a cell that edits out of place — a title: the host opens it where it edits it. */
+    onOpen?: ((r: number, columnKey: string) => void) | undefined;
 }
 
 /** The cell a phone's bottom container edits ({@link SheetHost.cellEditor}). */
@@ -718,14 +936,17 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // when it would hide them all.
     const allColumns = useMemo(() => indexColumns(value.columns), [value.columns]);
     const hidden = host.hidden;
+    // A host draws the grid (#1531): its rows at its pitch, its lead before the columns, no gutter.
+    const hostGrid = host.grid;
     // The frame's width: inside it (`clientWidth`), the view a sub row's well
     // keeps its content to; its box (`offsetWidth`, which no scrollbar of its
     // own changes), what decides whether the gutter folds (#1215).
     const [viewPx, setViewPx] = useState<number | undefined>(undefined);
     const [framePx, setFramePx] = useState<number | undefined>(undefined);
     // A phone's frame (`Mobile Sheet Spec.md`): 560 wide or less — a frame not laid out yet (0 wide) is none. The
-    // columns are a window the pager pages (SH1), no gutter (R5); the column the sheet's `narrow.pin` names, where it names
-    // one the grid draws, leads the row pinned at the left (SH4) — none by default (ruled 3 Nov 2026).
+    // columns are a window the pager pages (SH1), no gutter (R5) — and a host's grid no lead (#1536); the column the
+    // sheet's `narrow.pin` names, where it names one the grid draws, leads the row pinned at the left (SH4) — none by
+    // default (ruled 3 Nov 2026).
     const phoneFrame = framePx !== undefined && framePx > 0 && framePx <= 560;
     const narrow = useMemo(() => getSomeorUndefined(value.narrow), [value.narrow]);
     const pinKey = narrow === undefined ? undefined : getSomeorUndefined(narrow.pin);
@@ -740,9 +961,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // Whether a phone's frame pins a column: the one `narrow.pin` names, led into first place above.
     const pinned = phoneFrame && pinKey !== undefined && columns.list[0] !== undefined && stringEqual(columns.list[0].key, pinKey);
     const pinPx = pinned ? PHONE_PIN_PX : 0;
-    // A phone's Row column (SH2, R5): the row numbers as a column of the window, off until the jump menu's `Row number`.
+    // A phone's Row column (SH2, R5): the row numbers as a column of the window, off until the jump menu's `Row number` —
+    // never a host's grid's, which has no row numbers (#1531).
     const [rowNumbersOn, setRowNumbers] = useState(false);
-    const rowNumbers = phoneFrame && rowNumbersOn;
+    const rowNumbers = phoneFrame && hostGrid === undefined && rowNumbersOn;
     const registers = useMemo(() => indexRegisters(value.registers), [value.registers]);
     const driver = useMemo(() => getSomeorUndefined(value.driver), [value.driver]);
     const driverColumn = driver?.column;
@@ -766,8 +988,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // narrowing's rows landed (#1398, CL8). On the grid each one measures as it was laid out, and rows land where their
     // placeholders stood.
     const densityRow = useDensityHeights(size).row;
-    // A phone's rows (SH5): 44 on a coarse pointer, 32 on a fine one, whatever the density — the rule included.
-    const rowPx = devicePixels(phoneFrame ? (coarse ? 44 : 32) : Math.max(densityRow, coarse ? 45 : 0));
+    // A phone's rows (SH5): 44 on a coarse pointer, 32 on a fine one, whatever the density — the rule included. A host's
+    // grid, its own pitch at every width (#1531).
+    const rowPx = devicePixels(phoneFrame && hostGrid === undefined ? (coarse ? 44 : 32) : Math.max(hostGrid?.rowPx ?? densityRow, coarse ? 45 : 0));
     const bandPx = devicePixels(phoneFrame ? PHONE_BAND_PX : Math.max(groupBandPx(size), coarse ? 46 : 42));
     // A sub row's least height; a wrapping detail grows it, and the rows are measured.
     const subRowPx = devicePixels(30);
@@ -804,9 +1027,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // Touch targets fit in separate lanes; row heights include their seam borders.
     const fullGutterPx = Math.max(parseWidth(style !== undefined ? getSomeorUndefined(style.gutterWidth) : undefined) ?? DEFAULT_GUTTER_PX, least.fine, coarse ? least.coarse : 0);
     // A frame too narrow for the touch gutter beside the first column folds it: one row-actions button holds each row's actions (#1215).
-    const folded = gutterFolds(framePx, coarse, fullGutterPx, columns.list[0]?.width);
+    const folded = hostGrid === undefined && gutterFolds(framePx, coarse, fullGutterPx, columns.list[0]?.width);
     // A phone's frame has no gutter (R5): its rows are picked by their pinned cell, and their actions are the Inspector's.
-    const gutterPx = phoneFrame ? 0 : folded ? least.folded : fullGutterPx;
+    // A host's grid has none either (#1531): its lead stands there — a Record's select column — where it has one, and on
+    // a phone's frame goes as the gutter does (#1536).
+    const gutterPx = phoneFrame ? 0 : hostGrid !== undefined ? hostGrid.leadPx : folded ? least.folded : fullGutterPx;
     // A phone's window (SH1.4): the frame's width less any pinned column, shared by the columns in view — as many as
     // the sheet's `narrow.columns` says, else two.
     const narrowColumns = narrow === undefined ? undefined : getSomeorUndefined(narrow.columns);
@@ -826,8 +1051,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         }
         const tracks = columns.list.map((c, i) => (i === columns.list.length - 1 ? `minmax(${c.width}px, 1fr)`
             : c.kind === "text" ? `minmax(${c.width}px, ${Math.round(c.width * 2.5)}px)` : `${c.width}px`));
-        return `${gutterPx}px ${tracks.join(" ")}`;
-    }, [gutterPx, columns, phoneFrame, slotPx, pinned, rowNumbers]);
+        // A host's grid with no lead has no lead track (#1531).
+        return hostGrid !== undefined && gutterPx === 0 ? tracks.join(" ") : `${gutterPx}px ${tracks.join(" ")}`;
+    }, [gutterPx, columns, phoneFrame, slotPx, pinned, rowNumbers, hostGrid]);
+    // How a host's rows and header are laid out (#1536): its lead's track, a phone's frame and its pinned column — one
+    // object while they hold, so no row's memo sees it change.
+    const hostLayout = useMemo((): SheetHostLayout => ({ lead: gutterPx > 0, phone: phoneFrame, pinPx }), [gutterPx, phoneFrame, pinPx]);
     // The columns a phone's pager pages: every one but a pinned one; and what it pages, the Row column before them while it shows.
     const pagedColumns = useMemo(() => (pinned ? columns.list.slice(1) : columns.list), [columns, pinned]);
     const pagerColumns = useMemo((): readonly SheetPagerColumn[] => {
@@ -843,7 +1072,26 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // Callbacks — taken from the latest value on every render.
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
     const onViewsChangeFn = useMemo(() => getSomeorUndefined(value.onViewsChange), [value.onViewsChange]);
-    const newRowIdFn = useMemo(() => getSomeorUndefined(value.newRowId), [value.newRowId]);
+    // A new entry's key (#1536): the app's `newKey`'s, given every key taken, each as its text — else a UUID, as every
+    // builder mints one. A key the app gives that is taken, or a `newKey` that throws, refuses the gesture.
+    const newKeyFn = useMemo(() => getSomeorUndefined(value.newKey), [value.newKey]);
+    // Every key the sheet has minted, taken from then on: a gesture's own before the session holds them.
+    const minted = useRef(new Set<string>());
+    const mintAmong = useCallback((taken: Set<string>): string => {
+        let key: string;
+        if (newKeyFn === undefined) key = mintKey((k) => taken.has(k));
+        else {
+            try {
+                key = newKeyFn(new SortedSet(taken, compareString));
+            } catch (error) {
+                throw new SheetRefused({ id: "keyFailed", reason: error instanceof Error ? error.message : String(error) });
+            }
+            if (taken.has(key)) throw new SheetRefused({ id: "keyTaken", key });
+        }
+        taken.add(key);
+        minted.current.add(key);
+        return key;
+    }, [newKeyFn]);
     // The controlled selection follows the host's DATA: a closure-only change
     // must not snap the ring back to it.
     const selection = useMemo(() => getSomeorUndefined(data.selection), [data.selection]);
@@ -933,7 +1181,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const first = decodedRows?.[0];
         const firstFolded = first !== undefined && (restoredFolds?.get(first.id) ?? getSomeorUndefined(first.band)?.folded === true);
         const r = group !== undefined ? (first !== undefined && !isLooseRow(first) && !firstFolded ? 1 + first.lines.length : 0) : decodedRows?.length ?? 0;
-        return initialSheetStore({ r, c }, opening, restoredFolds);
+        // A host's grid opens with no ring (#1531): a press, or the first move key, places it.
+        return initialSheetStore({ r, c }, opening, restoredFolds, hostGrid !== undefined);
     });
     const ui = store.ui;
     const folds = ui.folds;
@@ -991,12 +1240,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // The rows shown are not the narrowing's yet — another narrowing's stand in, or nothing is read: they take no
     // gesture (#1345). A new revision's rows reading under the last ones still do.
     const standingIn = lensDrawn ? lens.replacing || lensStandsIn : paging.replacing || pagesStandIn || (lensWanted && !lensReady);
-    // A new line beside loose rows (#846) takes a minted id: the field a loose row is identified by.
-    const mintLineId = useCallback(() => newRowIdFn?.() ?? mintId((id) => sourceRows.some((row) => row.id === id)), [newRowIdFn, sourceRows]);
+    // Every key a new one's must not be (#1536), read as one is minted: so it reaches the session made below.
+    const takenRef = useRef<() => Set<string>>(() => new Set());
+    // A new line beside loose rows (#846) takes a minted id: the field a loose row is identified by, a key of the same rows.
+    const mintLineId = useCallback(() => mintAmong(takenRef.current()), [mintAmong]);
     // The rows a key's far jump holds stand in, retained, until its rows replace them (#1398, CL10): the source's own
     // rows still, which the session holds, but they take no gesture.
     const keyHeld = !lensDrawn && paging.held;
-    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld);
+    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular);
     const session = editingState.session;
     // ── The app's optimiser (#1409, #1418) ────────────────────────────────
     // One run over the current tab's rows, its result landed on them as one edit (below, once the rows and their
@@ -1024,8 +1275,36 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const readiness = useDataStable(session.readiness, readinessEqual);
     const draftType = useMemo(() => fromEastTypeValue(value.editing.draftType), [value.editing.draftType]);
     const childField = getSomeorUndefined(value.editing.children);
+    // Every key a new one's must not be (#1536): each the sheet has read; each its batch has drafted, a removed entry's
+    // among them, which the record holds until Apply; and each it has minted. Beside loose rows, each drafted line's id
+    // too, a key of the same rows.
+    const lineIdField = loose ? getSomeorUndefined(value.editing.idField) : undefined;
+    const takenKeys = useCallback((): Set<string> => {
+        const taken = new Set(minted.current);
+        for (const row of sourceRows) taken.add(row.id);
+        for (const [id, entry] of session.entries) {
+            taken.add(id);
+            const draft = entry.draft;
+            if (lineIdField === undefined || childField === undefined || !isVariant(draft) || draft.type !== "group") continue;
+            for (const line of (draft.value as Record<string, unknown>)[childField] as readonly Record<string, unknown>[]) {
+                const held = line[lineIdField];
+                if (isVariant(held) && held.type === "value") taken.add(held.value as string);
+            }
+        }
+        return taken;
+    }, [sourceRows, session, lineIdField, childField]);
+    takenRef.current = takenKeys;
     const draftVersion = editingState.version;
-    const recordGesture = editingState.record;
+    // Every gesture the session records, counted (#1533): what a host's status line lets the last gesture's words go by
+    // when the next has none of its own. A ref, read as the sheet draws: a recorded gesture moves the session, which
+    // draws the sheet again.
+    const gestureCount = useRef(0);
+    const recordSession = editingState.record;
+    const recordGesture = useCallback<typeof recordSession>((events, placements, originOverride, draftEdits, seeds, label, joins) => {
+        const recorded = recordSession(events, placements, originOverride, draftEdits, seeds, label, joins);
+        if (recorded) gestureCount.current += 1;
+        return recorded;
+    }, [recordSession]);
     const drafts = editingState.drafts;
     const layer = editingState.layer;
     // A row's draft presentation, derived once per session change (#858): the
@@ -1042,6 +1321,30 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
     }, [session, draftType, childField, readiness, draftVersion, words]);
+    // What a row's drafts changed against what the record holds (#1531), for a host's rows: derived once per session
+    // change and per rows, so between changes a row keeps it by identity and its memo holds.
+    const fieldChanges = useMemo(() => draftChanges(draftType), [draftType]);
+    const changesOf = useMemo(() => {
+        const byId = new Map<string, SheetRowChanges | null>();
+        return (id: string, row: SheetRowValue): SheetRowChanges | undefined => {
+            const known = byId.get(id);
+            if (known !== undefined) return known ?? undefined;
+            const began = session.originals.get(id);
+            const draft = session.entries.get(id)?.draft;
+            let found: SheetRowChanges | null = null;
+            if (began !== undefined && draft !== undefined) {
+                if (began.draft === undefined) found = { added: true, dirty: NOTHING, held: undefined, fields: 0 };
+                else {
+                    const dirty = new Set<string>();
+                    for (const [key, cell] of row.cells) if (!cellEqual(began.wire?.cells.get(key) ?? NULL_CELL, cell)) dirty.add(key);
+                    found = { added: false, dirty, held: began.wire?.cells, fields: fieldChanges(began.draft, draft) };
+                }
+            }
+            byId.set(id, found);
+            return found ?? undefined;
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session; the rows, what a change is read against.
+    }, [session, draftVersion, sourceRows, layer, fieldChanges]);
     // Temporary writes within one reducer effect batch; the transaction session
     // publishes the completed gesture and owns the rendered layer thereafter.
     const layerRef = useRef(layer);
@@ -1147,6 +1450,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [rowAt]);
     /** A date column's level for a row (#844). */
     const levelAt = useCallback((r: number, meta: SheetColumnMeta) => (meta.kind === "date" && meta.level !== undefined ? meta.level(cellsAt(r)) : undefined), [cellsAt]);
+    /** The register member a cell holds the key of (#1536) — the one its label shows for, as the cell draws it. */
+    const memberAt = useCallback((r: number, c: number): SheetRegisterMemberValue | undefined => {
+        const meta = metaAt(r, c);
+        const cell = cellAt(r, c);
+        if (meta === undefined || !namesMember(meta) || cell?.type !== "String") return undefined;
+        const member = resolveRegisterMember(registers, meta.register, cell.value);
+        return member !== undefined && stringEqual(member.key, cell.value) ? member : undefined;
+    }, [metaAt, cellAt, registers]);
     const rowOf = useCallback((id: string): number | undefined => {
         const bi = anchorBodyIndex(body, id);
         if (bi < 0) return undefined;
@@ -1300,9 +1611,17 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             if (it.kind === "blank" && !canInsertRows) return false;
             // An action column is written by its actions alone (T7): typed into, pasted over and cleared never.
             if (!meta.editable || meta.kind === "stamped" || meta.kind === "action") return false;
+            // A cell that steps in place is a control, as an action cell is (#1531): an owned row's takes no step (T9).
+            if (hostGrid !== undefined && stepsInPlace(meta) && (it.kind === "real" || it.kind === "group") && it.row.owned) return false;
             return true;
         },
         kindAt: (r, c) => metaAt(r, c)?.kind ?? "text",
+        // A host's grid (#1531): its cycles, toggles and booleans step in place, its titles open where the host edits
+        // them, and its strip shows the cell under the pointer.
+        stepAt: hostGrid === undefined ? undefined : (r, c, step) => stepCell(metaAt(r, c), cellAt(r, c), registers, step),
+        keyAt: hostGrid === undefined ? undefined : (r, c, key) => keyedCell(metaAt(r, c), key, registers),
+        opensAt: hostGrid === undefined ? undefined : (r, c) => editsOutOfPlace(metaAt(r, c)),
+        previewsHover: hostGrid !== undefined,
         parse: (r, c, text) => {
             const meta = metaAt(r, c);
             if (meta === undefined) return { kind: "unrecognised" };
@@ -1318,8 +1637,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         },
         editTextAt: (r, c) => {
             const meta = metaAt(r, c);
-            return meta === undefined ? "" : editText(cellAt(r, c), meta, words, levelAt(r, meta));
+            return meta === undefined ? "" : editText(cellAt(r, c), meta, words, levelAt(r, meta), memberAt(r, c));
         },
+        memberAt: (r, c) => memberAt(r, c)?.key,
         // A band's cells are never link cells, whatever column they sit under.
         linkAt: (r, c) => { const k = rowAt(r)?.kind; return k === "group" ? undefined : linkCtxFor(r, c); },
         rowOf,
@@ -1394,7 +1714,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 group: g.lines.filter((l) => l.subRows.length > 0).map((l) => lineId(g.id, l.key)),
             };
         },
-    }), [rowCount, colCount, lensDrawn, exhausted, canEdit, canInsertRows, editingState.available, group, declaredNoun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, narrowing, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, lensEnds, pageRows]);
+    }), [rowCount, colCount, lensDrawn, exhausted, canEdit, canInsertRows, editingState.available, group, declaredNoun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, memberAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, narrowing, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, lensEnds, pageRows, hostGrid, registers]);
     const ctxRef = useRef(ctx);
     ctxRef.current = ctx;
     const uiRef = useRef(ui);
@@ -1460,6 +1780,15 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // ── Writes — the local layer, then the host ───────────────────────────
     const gestureEvents = useRef<SheetEditValue[]>([]);
     const emitEdit = useCallback((edit: SheetEditValue) => { gestureEvents.current.push(edit); }, []);
+    /** A gesture that failed: one the sheet refuses says why in the footer, in its words (#1536); anything else is logged, and says its own. */
+    const failed = useCallback((error: unknown) => {
+        if (error instanceof SheetRefused) {
+            dispatchStore({ t: "patch", patch: { msg: error.notice } });
+            return;
+        }
+        console.error("Sheet transaction failure", error);
+        dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } });
+    }, []);
     /**
      * Write cells: a real row's commits land in the layer's edits (one
      * `commit` event per changed cell, each carrying the row AFTER it); a
@@ -1467,9 +1796,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
      * do the k-th rows past a loose row (#846), each placed after the one
      * before. Returns the row-space index the FIRST inserted row landed on, so
      * the ring can follow a blank row that just became real, and the ids of
-     * the rows written, in order.
+     * the rows written, in order. A new row whose key is refused (#1536)
+     * refuses the whole write: nothing is written, the footer says why, and
+     * `refused` says so.
      */
-    const writeCells = useCallback((writes: readonly CellWrite[], source: EditSource): { firstInserted: number | undefined; ids: string[] } => {
+    const writeCells = useCallback((writes: readonly CellWrite[], source: EditSource): { firstInserted: number | undefined; ids: string[]; refused?: boolean } => {
         if (!canEdit || !editingState.available) return { firstInserted: undefined, ids: [] };
         // Writes group by row, and by the extra new line they land on past a group's blank line.
         const byRow = new Map<string, { r: number; extra: number; list: CellWrite[] }>();
@@ -1492,12 +1823,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         let firstInserted: number | undefined;
         let inserted = 0;
         const src = variant(source, null);
-        // The ids a minted one must avoid — one set per write, grown as rows
-        // append, never a scan of the rows per new row (#859).
-        const takenIds = new Set<string>();
+        // The keys a new row's must not be (#1536) — one set per write, grown as
+        // its rows are minted, never a scan of the rows per new row (#859).
+        const takenIds = takenKeys();
         for (const x of rowsNow) takenIds.add(x.id);
         for (const x of appended) takenIds.add(x.id);
-        const taken = (id: string) => takenIds.has(id);
         // The last new loose row placed after each loose row (#846): the next lands after it.
         const chained = new Map<string, string>();
         // A group's latest row through the layer (#740), and how a rewritten group lands back in it.
@@ -1508,119 +1838,126 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             else edits.set(g.id, g);
         };
         const entries = [...byRow.values()].sort((a, b) => a.r - b.r || a.extra - b.extra);
-        for (const { r, extra, list } of entries) {
-            const it = rowAt(r);
-            if (group !== undefined && it !== undefined) {
-                // A line: its cells change inside its group; each changed cell commits the group after it.
-                if (it.kind === "real" && it.group !== undefined) {
-                    const lg = it.group;
-                    let g = currentGroup(lg.row);
-                    const line = g.lines.find((l) => l.key === lg.key);
-                    const cells = new Map(line?.cells ?? it.row.cells);
-                    let changed = false;
+        try {
+            for (const { r, extra, list } of entries) {
+                const it = rowAt(r);
+                if (group !== undefined && it !== undefined) {
+                    // A line: its cells change inside its group; each changed cell commits the group after it.
+                    if (it.kind === "real" && it.group !== undefined) {
+                        const lg = it.group;
+                        let g = currentGroup(lg.row);
+                        const line = g.lines.find((l) => l.key === lg.key);
+                        const cells = new Map(line?.cells ?? it.row.cells);
+                        let changed = false;
+                        for (const w of list) {
+                            const meta = metaOf(w);
+                            if (meta === undefined) continue;
+                            if (cellEqual(cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
+                            cells.set(meta.key, w.cell);
+                            changed = true;
+                            g = withLine(g, lg.key, new Map(cells));
+                            events.push(variant("lineCommit", { rowId: g.id, offset: BigInt(it.position), line: lineAddress(lg.index), key: meta.key, row: g, source: src }));
+                        }
+                        if (changed) setGroup(g);
+                        ids.push(it.row.id);
+                        continue;
+                    }
+                    // A group's blank line (or the k-th line past it): one line inserted at the end of the group.
+                    if (it.kind === "blank" && it.group !== undefined) {
+                        if (!canInsertRows) continue;
+                        const g0 = currentGroup(it.group.row);
+                        const cells = new Map<string, SheetCellValue>(allColumns.list.map((c) => [c.key, NULL_CELL]));
+                        for (const w of list) {
+                            const meta = metaOf(w);
+                            if (meta !== undefined) cells.set(meta.key, w.cell);
+                        }
+                        if (allColumns.list.every((c) => cellIsBlank(cells.get(c.key)))) continue;
+                        const key = mintLineKey(g0);
+                        const index = g0.lines.length;
+                        const last = g0.lines[index - 1];
+                        const g: SheetRowValue = { ...g0, lines: [...g0.lines, { key, cells, subRows: [] }] };
+                        events.push(variant("lineInsert", {
+                            rowId: g.id, offset: BigInt(it.position),
+                            after: last !== undefined ? some(lineAddress(index - 1)) : none,
+                            line: lineAddress(index), row: g, source: src,
+                        }));
+                        setGroup(g);
+                        ids.push(lineId(g.id, key));
+                        if (firstInserted === undefined) firstInserted = r + extra;
+                        continue;
+                    }
+                    // Past a loose row (#846) — a paste's rows beyond the run, a
+                    // proposal under it: the k-th new loose row, after the one before.
+                    if (it.kind === "real" && it.loose !== undefined && extra > 0) {
+                        if (!canInsertRows) continue;
+                        let row = blankRow("", allColumns.list);
+                        for (const w of list) {
+                            const meta = metaOf(w);
+                            if (meta !== undefined) row = withCell(row, meta.key, w.cell);
+                        }
+                        if (allColumns.list.every((c) => cellIsBlank(row.cells.get(c.key)))) continue;
+                        row = { ...row, id: mintAmong(takenIds) };
+                        const after = chained.get(it.row.id) ?? it.row.id;
+                        appended.push(row);
+                        events.push(variant("insert", { afterRowId: some(after), row, source: src }));
+                        chained.set(it.row.id, row.id);
+                        ids.push(row.id);
+                        if (firstInserted === undefined) firstInserted = r + extra;
+                        continue;
+                    }
+                    // A band cell: the group's own field commits.
+                    if (it.kind === "group") {
+                        const g0 = currentGroup(it.row);
+                        let g = g0;
+                        for (const w of list) {
+                            const meta = w.key !== undefined ? group.cells.get(w.key) : metaAt(r, w.c);
+                            if (meta === undefined || (!meta.editable && w.force !== true)) continue;
+                            if (cellEqual(g.cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
+                            const cells = new Map(g.cells);
+                            cells.set(meta.key, w.cell);
+                            g = { ...g, cells };
+                            events.push(variant("commit", { rowId: g.id, offset: BigInt(it.position), key: meta.key, row: g, source: src }));
+                        }
+                        if (!Object.is(g, g0)) setGroup(g);
+                        ids.push(g.id);
+                        continue;
+                    }
+                }
+                if (it !== undefined && it.kind === "real") {
+                    let row = edits.get(it.row.id) ?? it.row;
                     for (const w of list) {
                         const meta = metaOf(w);
                         if (meta === undefined) continue;
-                        if (cellEqual(cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
-                        cells.set(meta.key, w.cell);
-                        changed = true;
-                        g = withLine(g, lg.key, new Map(cells));
-                        events.push(variant("lineCommit", { rowId: g.id, offset: BigInt(it.position), line: lineAddress(lg.index), key: meta.key, row: g, source: src }));
+                        if (cellEqual(row.cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
+                        row = withCell(row, meta.key, w.cell);
+                        events.push(variant("commit", { rowId: row.id, offset: BigInt(it.position), key: meta.key, row, source: src }));
                     }
-                    if (changed) setGroup(g);
-                    ids.push(it.row.id);
-                    continue;
-                }
-                // A group's blank line (or the k-th line past it): one line inserted at the end of the group.
-                if (it.kind === "blank" && it.group !== undefined) {
-                    if (!canInsertRows) continue;
-                    const g0 = currentGroup(it.group.row);
-                    const cells = new Map<string, SheetCellValue>(allColumns.list.map((c) => [c.key, NULL_CELL]));
-                    for (const w of list) {
-                        const meta = metaOf(w);
-                        if (meta !== undefined) cells.set(meta.key, w.cell);
-                    }
-                    if (allColumns.list.every((c) => cellIsBlank(cells.get(c.key)))) continue;
-                    const key = mintLineKey(g0);
-                    const index = g0.lines.length;
-                    const last = g0.lines[index - 1];
-                    const g: SheetRowValue = { ...g0, lines: [...g0.lines, { key, cells, subRows: [] }] };
-                    events.push(variant("lineInsert", {
-                        rowId: g.id, offset: BigInt(it.position),
-                        after: last !== undefined ? some(lineAddress(index - 1)) : none,
-                        line: lineAddress(index), row: g, source: src,
-                    }));
-                    setGroup(g);
-                    ids.push(lineId(g.id, key));
-                    if (firstInserted === undefined) firstInserted = r + extra;
-                    continue;
-                }
-                // Past a loose row (#846) — a paste's rows beyond the run, a
-                // proposal under it: the k-th new loose row, after the one before.
-                if (it.kind === "real" && it.loose !== undefined && extra > 0) {
-                    if (!canInsertRows) continue;
-                    let row = blankRow(newRowIdFn !== undefined ? newRowIdFn() : mintId(taken), allColumns.list);
-                    for (const w of list) {
-                        const meta = metaOf(w);
-                        if (meta !== undefined) row = withCell(row, meta.key, w.cell);
-                    }
-                    if (allColumns.list.every((c) => cellIsBlank(row.cells.get(c.key)))) continue;
-                    const after = chained.get(it.row.id) ?? it.row.id;
-                    appended.push(row);
-                    takenIds.add(row.id);
-                    events.push(variant("insert", { afterRowId: some(after), row, source: src }));
-                    chained.set(it.row.id, row.id);
+                    if (!Object.is(row, it.row)) edits.set(row.id, row);
                     ids.push(row.id);
-                    if (firstInserted === undefined) firstInserted = r + extra;
                     continue;
                 }
-                // A band cell: the group's own field commits.
-                if (it.kind === "group") {
-                    const g0 = currentGroup(it.row);
-                    let g = g0;
-                    for (const w of list) {
-                        const meta = w.key !== undefined ? group.cells.get(w.key) : metaAt(r, w.c);
-                        if (meta === undefined || (!meta.editable && w.force !== true)) continue;
-                        if (cellEqual(g.cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
-                        const cells = new Map(g.cells);
-                        cells.set(meta.key, w.cell);
-                        g = { ...g, cells };
-                        events.push(variant("commit", { rowId: g.id, offset: BigInt(it.position), key: meta.key, row: g, source: src }));
-                    }
-                    if (!Object.is(g, g0)) setGroup(g);
-                    ids.push(g.id);
-                    continue;
-                }
-            }
-            if (it !== undefined && it.kind === "real") {
-                let row = edits.get(it.row.id) ?? it.row;
+                if (it !== undefined && !isRowSpace(it)) continue;
+                if (group !== undefined || !canInsertRows) continue;
+                // A blank row (or a row past the padding): one inserted row, keyed once it holds a value.
+                let row = blankRow("", allColumns.list);
                 for (const w of list) {
                     const meta = metaOf(w);
-                    if (meta === undefined) continue;
-                    if (cellEqual(row.cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
-                    row = withCell(row, meta.key, w.cell);
-                    events.push(variant("commit", { rowId: row.id, offset: BigInt(it.position), key: meta.key, row, source: src }));
+                    if (meta !== undefined) row = withCell(row, meta.key, w.cell);
                 }
-                if (!Object.is(row, it.row)) edits.set(row.id, row);
+                if (allColumns.list.every((c) => cellIsBlank(row.cells.get(c.key)))) continue;
+                row = { ...row, id: mintAmong(takenIds) };
+                appended.push(row);
+                events.push(variant("insert", { afterRowId: lastId !== undefined ? some(lastId) : none, row, source: src }));
+                lastId = row.id;
                 ids.push(row.id);
-                continue;
+                if (firstInserted === undefined) firstInserted = rowsNow.length + inserted;
+                inserted += 1;
             }
-            if (it !== undefined && !isRowSpace(it)) continue;
-            if (group !== undefined || !canInsertRows) continue;
-            // A blank row (or a row past the padding): one inserted row.
-            let row = blankRow(newRowIdFn !== undefined ? newRowIdFn() : mintId(taken), allColumns.list);
-            for (const w of list) {
-                const meta = metaOf(w);
-                if (meta !== undefined) row = withCell(row, meta.key, w.cell);
-            }
-            if (allColumns.list.every((c) => cellIsBlank(row.cells.get(c.key)))) continue;
-            appended.push(row);
-            takenIds.add(row.id);
-            events.push(variant("insert", { afterRowId: lastId !== undefined ? some(lastId) : none, row, source: src }));
-            lastId = row.id;
-            ids.push(row.id);
-            if (firstInserted === undefined) firstInserted = rowsNow.length + inserted;
-            inserted += 1;
+        } catch (error) {
+            // A new row's key refused (#1536): nothing is written — the layer, the rows and the events are this write's own until it ends.
+            if (!(error instanceof SheetRefused)) throw error;
+            failed(error);
+            return { firstInserted: undefined, ids: [], refused: true };
         }
         if (events.length === 0) return { firstInserted: undefined, ids };
         const next: LocalLayer = { edits, appended, removed: base.removed, placements: base.placements };
@@ -1628,7 +1965,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         setLayer(() => next);
         for (const e of events) emitEdit(e);
         return { firstInserted, ids };
-    }, [sourceRows, rowAt, columns, allColumns, group, metaAt, newRowIdFn, setLayer, emitEdit, canEdit, canInsertRows, keyOrder, editingState.available]);
+    }, [sourceRows, rowAt, columns, allColumns, group, metaAt, takenKeys, mintAmong, failed, setLayer, emitEdit, canEdit, canInsertRows, keyOrder, editingState.available]);
     /**
      * Delete whole rows. On a grouped sheet (#740, G7) lines in the range
      * leave their groups (`lineRemove`) and loose rows in it leave the sheet
@@ -1861,6 +2198,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const [scrollTarget, setScrollTarget] = useState<{ index: number; align: "auto" | "start" } | undefined>(undefined);
     const runEffects = useCallback((effects: readonly SheetEffect[]) => {
         gestureEvents.current = [];
+        /** The writes so far as one gesture: one step of the history. */
+        const recordSoFar = () => {
+            try { recordGesture(gestureEvents.current); }
+            catch (error) { failed(error); }
+            finally { gestureEvents.current = []; }
+        };
         /** After a write: the ring follows an insert, a blank anchor's suggestions follow the new id, the copilot re-runs. */
         const afterWrite = (r: number, res: { firstInserted: number | undefined; ids: string[] }, rerun: boolean) => {
             const anchorBefore = idAt(r);
@@ -1886,6 +2229,16 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 case "write.many": {
                     const res = writeCells(eff.writes.map((w) => ({ r: eff.r, c: w.c, cell: w.cell })), eff.source);
                     afterWrite(eff.r, res, true);
+                    break;
+                }
+                case "gesture.end":
+                    recordSoFar();
+                    break;
+                case "open": {
+                    // A cell that edits out of place (#1531): the host opens it once this commit is drawn, as `onSelect` is told of a move.
+                    const key = columns.list[eff.c]?.key;
+                    const onOpen = hostGrid?.onOpen;
+                    if (key !== undefined && onOpen !== undefined) queueMicrotask(() => onOpen(eff.r, key));
                     break;
                 }
                 case "insert.rows": {
@@ -1914,7 +2267,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     for (let r = eff.r0; r <= eff.r1; r++) {
                         for (let c = eff.c0; c <= eff.c1; c++) {
                             const meta = metaAt(r, c);
-                            if (meta === undefined || meta.kind === "stamped" || meta.kind === "action" || !meta.editable || !canEdit) continue;
+                            // A cell that edits out of place is cleared where it edits, never in the grid (#1531).
+                            if (meta === undefined || meta.kind === "stamped" || meta.kind === "action" || editsOutOfPlace(meta) || !meta.editable || !canEdit) continue;
                             if (cellIsBlank(cellAt(r, c))) continue;
                             writes.push({ r, c, cell: NULL_CELL });
                         }
@@ -1970,8 +2324,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     for (const p of laid.cells) {
                         const meta = columns.list[p.c];
                         if (meta === undefined) continue;
-                        // An action cell takes no paste (T7).
+                        // An action cell takes no paste (T7); a cell that edits out of place takes it where it edits (#1531).
                         if (meta.kind === "action") { actions += 1; continue; }
+                        if (editsOutOfPlace(meta)) { skipped += 1; continue; }
                         const r = eff.r + p.dr;
                         const outcome = parseCell(meta, p.text, parseCtxFor(Math.min(r, blankR ?? r), meta));
                         const cell = outcome.kind === "unrecognised" ? variant("Invalid", p.text) : outcome.kind === "cell" ? outcome.cell : NULL_CELL;
@@ -1989,7 +2344,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                         }
                         writes.push({ r, c: p.c, cell });
                     }
-                    if (writes.length > 0) writeCells(writes, "pasted");
+                    // A paste whose new rows' keys are refused writes nothing, and the footer says why (#1536).
+                    if (writes.length > 0 && writeCells(writes, "pasted").refused === true) break;
                     const wide = Math.max(1, laid.width);
                     dispatchStore({ t: "patch", patch: {
                         selEnd: { r: eff.r + matrix.length - 1, c: Math.min(colCount - 1, eff.c + wide - 1) },
@@ -2106,10 +2462,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 }
             }
         }
-        try { recordGesture(gestureEvents.current); }
-        catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
-        finally { gestureEvents.current = []; }
-    }, [recordGesture, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo]);
+        recordSoFar();
+    }, [recordGesture, failed, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo, hostGrid]);
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
         if (store.fxSeq === drainedFx.current) return;
@@ -2121,13 +2475,21 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // A run's highlight ends with Undo, Apply and Discard; a Redo of its step replays its landing (R9, R16) — heard
     // first, by the parts of the run (below), through a ref: they are built once the rows and their words are.
     const actedRef = useRef<(action: HistoryAction, redoOrigin: string | undefined) => void>(() => undefined);
+    // The host hears each step (#1533), through a ref: the history's one runner stays as it is.
+    const onHistoryRef = useRef(host.onHistory);
+    onHistoryRef.current = host.onHistory;
     const executeHistory = useCallback((action: HistoryAction) => {
         actedRef.current(action, session.nextRedo?.origin);
         // The footer's message said what the last gesture did: a step of the history moves past it (F13 of the hand test).
         if (action !== "refresh") dispatchStore({ t: "patch", patch: { msg: null } });
-        if (action === "apply") void session.apply();
+        // Told before the step, as the session stands; what it answers once the step is taken.
+        const after = action === "refresh" ? undefined : onHistoryRef.current?.(action, session);
+        if (action === "apply") void session.apply().then(after);
         else if (action === "refresh") session.refresh();
-        else session[action]();
+        else {
+            session[action]();
+            after?.();
+        }
     }, [session]);
     const onHistoryAction = useCallback((action: HistoryAction) => {
         // The lock (R2): no history action while a run's call is out — its item says so, and the keys are ignored.
@@ -2184,11 +2546,13 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
 
     // Insertion retains identities while an open editor commits, then resolves
     // the destination against the latest local collection.
-    const pendingInsertion = useRef<{ request: InsertRequest; from?: SheetInsertFrom | undefined } | undefined>(undefined);
+    const pendingInsertion = useRef<{ request: InsertRequest; from?: SheetInsertFrom | undefined; key?: string | undefined } | undefined>(undefined);
     /**
      * The row a gesture made, set or moved, once the body holds it: its
-     * editor opens on an insert of the sheet's own; after a drop (#1187) it
-     * is selected — on the column a card set first, when the grid shows it.
+     * editor opens on an insert of the sheet's own — or, where a host names
+     * the column (#1533), the ring lands there, a cell that edits out of place
+     * opening where the host edits it; after a drop (#1187) it is selected —
+     * on the column a card set first, when the grid shows it.
      */
     const pendingInsertFocus = useRef<{ id: string; child?: string; edit: boolean; key?: string | undefined } | undefined>(undefined);
     const anchorFor = useCallback((r: number, side: "before" | "after"): InsertionAnchor => anchorAt(rowAt(r), side), [rowAt]);
@@ -2196,24 +2560,33 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
      * Inserts a row or a group where a request says, as one transaction —
      * seeded and labelled as a drop says, when it is one (#1187).
      *
+     * @param request - What to insert, and where
+     * @param from - A drop's seeds and origin
+     * @param key - The column the ring lands on in the new row — a host's (#1533); the driver's, else the first editable, by default
      * @returns Whether the session recorded it
      */
-    const executeInsertion = useCallback((request: InsertRequest, from?: SheetInsertFrom): boolean => {
+    const executeInsertion = useCallback((request: InsertRequest, from?: SheetInsertFrom, key?: string): boolean => {
         if (!canEdit || !editingState.available || (request.kind === "row" ? !canInsertRows : !canInsertGroups)) return false;
-        const gesture = insertionGesture(request, rows, (i) => runLayout.positions[i] ?? endPosition, group !== undefined, keyed,
-            () => newRowIdFn?.() ?? mintId(id => rows.some(row => row.id === id)), mintLineKey, loose);
-        if (gesture === undefined) return false;
-        const recorded = recordGesture([gesture.event], gesture.placement === undefined ? undefined : new Map([[gesture.id, gesture.placement]]), from?.origin ?? "insert", undefined, from?.seeds);
-        if (!recorded) return false;
-        pendingInsertFocus.current = { id: gesture.id, ...(gesture.child === undefined ? {} : { child: gesture.child }), edit: from === undefined };
+        // A new entry whose key is refused, or a gesture the session cannot take, inserts nothing: the footer says why (#1536).
+        try {
+            const gesture = insertionGesture(request, rows, (i) => runLayout.positions[i] ?? endPosition, group !== undefined, keyed,
+                () => mintAmong(takenKeys()), mintLineKey, loose);
+            if (gesture === undefined) return false;
+            const recorded = recordGesture([gesture.event], gesture.placement === undefined ? undefined : new Map([[gesture.id, gesture.placement]]), from?.origin ?? "insert", undefined, from?.seeds);
+            if (!recorded) return false;
+            pendingInsertFocus.current = { id: gesture.id, ...(gesture.child === undefined ? {} : { child: gesture.child }), edit: from === undefined, key };
+        } catch (error) {
+            failed(error);
+            return false;
+        }
         // A drop is announced by the drag layer: the footer says nothing more.
         dispatchStore({ t: "patch", patch: { sugg: null, selEnd: null, ...(from !== undefined ? {} : { msg: request.kind === "group" ? { id: "newGroup", noun: declaredNoun?.singular } : { id: "newRow" } }) } });
         return true;
-    }, [canEdit, editingState.available, canInsertRows, canInsertGroups, rows, runLayout, endPosition, group, loose, declaredNoun, keyed, newRowIdFn, recordGesture]);
+    }, [canEdit, editingState.available, canInsertRows, canInsertGroups, rows, runLayout, endPosition, group, loose, declaredNoun, keyed, takenKeys, mintAmong, failed, recordGesture]);
     /** An insertion — once an open editor has committed. */
-    const insertWhenClosed = useCallback((request: InsertRequest, from?: SheetInsertFrom): boolean => {
-        if (uiRef.current.edit === null) return executeInsertion(request, from);
-        pendingInsertion.current = { request, from };
+    const insertWhenClosed = useCallback((request: InsertRequest, from?: SheetInsertFrom, key?: string): boolean => {
+        if (uiRef.current.edit === null) return executeInsertion(request, from, key);
+        pendingInsertion.current = { request, from, key };
         dispatch({ t: "editor.blur" });
         return true;
     }, [dispatch, executeInsertion]);
@@ -2222,9 +2595,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [anchorFor, insertWhenClosed]);
     useLayoutEffect(() => {
         if (ui.edit !== null || pendingInsertion.current === undefined) return;
-        const { request, from } = pendingInsertion.current;
+        const { request, from, key } = pendingInsertion.current;
         pendingInsertion.current = undefined;
-        executeInsertion(request, from);
+        executeInsertion(request, from, key);
     }, [ui.edit, store.fxSeq, executeInsertion]);
     useLayoutEffect(() => {
         const target = pendingInsertFocus.current;
@@ -2248,6 +2621,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             return;
         }
         if (item?.kind === "group" && item.folded) dispatch({ t: "fold.toggle", r });
+        const keyC = target.key === undefined || item?.kind === "group" ? -1 : columns.list.findIndex(col => col.key === target.key);
+        if (keyC >= 0) {
+            // A host's column (#1533): the ring on it and the view on its row — and a cell that edits out of place opens
+            // where the host edits it, as a press on it does.
+            dispatch({ t: "select.move", r, c: keyC });
+            if (ctxRef.current.opensAt?.(r, keyC) === true) dispatch({ t: "cell.down", r, c: keyC, shift: false });
+            return;
+        }
         const driverC = columns.list.findIndex(col => col.editable && col.key === driverColumn);
         const c = item?.kind === "group" ? 0 : driverC >= 0 ? driverC : Math.max(0, columns.list.findIndex(col => col.editable));
         dispatch({ t: "cell.dbl", r, c });
@@ -2312,6 +2693,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [dispatch, ringGesture]);
     const onCellDouble = useCallback((r: number, c: number) => { ringGesture(); dispatch({ t: "cell.dbl", r, c }); }, [dispatch, ringGesture]);
     const onCellEnter = useCallback((r: number, c: number) => dispatch({ t: "cell.enter", r, c, dragging: dragging.current }), [dispatch]);
+    // The pointer leaving a host's grid (#1531): no cell is hovered, and its strip returns to the ring's cell.
+    const onGridLeave = useCallback(() => dispatch({ t: "cell.leave" }), [dispatch]);
     const onRowPick = useCallback((r: number, e: MouseEvent) => {
         if (e.button !== 0) return;
         e.preventDefault();
@@ -2343,7 +2726,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         if (meta && (e.key === "c" || e.key === "v" || e.key === "x" || e.key === "a")) return;
         // ⏎ on an action cell takes the offer's first case (K2): a button at once, a choice's Menu, a form's Popover.
         const single = store.ui.selEnd === null || (store.ui.selEnd.r === store.ui.sel.r && store.ui.selEnd.c === store.ui.sel.c);
-        if (e.key === "Enter" && !e.shiftKey && !meta && !e.altKey && single) {
+        if (e.key === "Enter" && !e.shiftKey && !meta && !e.altKey && single && !store.ui.ringless) {
             const at = ctxRef.current.kindAt(store.ui.sel.r, store.ui.sel.c) === "action" ? columns.list[store.ui.sel.c] : undefined;
             if (at !== undefined) {
                 takeKey(e);
@@ -2380,11 +2763,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             && sheetReducer(uiRef.current, event, ctxRef.current).effects.some((fx) => fx.t === "seek.step" || fx.t === "seek.edge");
         ringGesture(seeks);
         dispatch(event);
-    }, [dispatch, store.ui.edit, store.ui.sel.r, store.ui.sel.c, store.ui.selEnd, columns, onHistoryAction, onInsert, ringGesture, phoneFrame, slotPx, pagerColumns, phoneColumns]);
+    }, [dispatch, store.ui.edit, store.ui.sel.r, store.ui.sel.c, store.ui.selEnd, store.ui.ringless, columns, onHistoryAction, onInsert, ringGesture, phoneFrame, slotPx, pagerColumns, phoneColumns]);
     // A band never copies (G9): a whole-group selection copies its lines.
     const isBandRow = useCallback((r: number) => { const k = rowAt(r)?.kind; return k === "group"; }, [rowAt]);
     const onCopy = useCallback((e: ClipboardEvent<HTMLDivElement>) => {
-        if (store.ui.edit !== null) return;
+        // With no ring placed, nothing is selected to copy (#1531).
+        if (store.ui.edit !== null || store.ui.ringless) return;
         e.preventDefault();
         const rect = selectionRect(store.ui);
         e.clipboardData.setData("text/plain", exportMatrix(cellAt, columns.list, rect, words, isBandRow));
@@ -2411,40 +2795,46 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         if (edit === null || editMeta === undefined || edit.link !== undefined) return undefined;
         return candidateAt(editMeta, edit.val, edit.hi, candidateCtxFor(edit.r));
     }, [edit, editMeta, candidateCtxFor]);
-    const editGhost = edit !== null ? ghostFor(edit.val, editCand) : "";
-    const editResolve = edit !== null ? resolveFor(edit.val, editCand) : "";
+    const editGhost = edit !== null ? ghostFor(edit.val, editCand?.label) : "";
+    const editResolve = edit !== null ? resolveFor(edit.val, editCand?.label) : "";
     const editBadge = useMemo(() => {
         if (edit === null || editMeta === undefined || edit.val.trim() === "" || edit.link !== undefined) return "";
         const n = candidateList(editMeta, edit.val, candidateCtxFor(edit.r)).length;
         return n > 1 ? words.m.editorBadge({ index: words.number(Math.min(Math.max(edit.hi, 0), n - 1) + 1), total: words.number(n) }) : "";
     }, [edit, editMeta, candidateCtxFor, words]);
     const onEditorChange = useCallback((val: string) => dispatch({ t: "editor.change", val }), [dispatch]);
-    // An enum column's combobox. Two modes over the machine's
-    // buffer: BROWSING — the buffer is empty or a whole option (the cell's own
-    // value on open) — lists every option the row may take with that one
-    // highlighted, and ↑ ↓ step the buffer through them; TYPING — a partial
-    // buffer — lists the machine's candidates with its armed one highlighted,
-    // exactly what the strip shows. ⏎ commits the buffer either way; a click
-    // writes the option and moves on like ⏎.
+    // A combobox column's menu: its register's members, each in the words its
+    // cell shows (#1536). Two modes over the machine's buffer: BROWSING — the
+    // buffer is empty, or holds a member (the cell's own on open, one chosen)
+    // or spells one whole — lists every option the row may take with that one
+    // highlighted, and ↑ ↓ step the buffer through them, member by member;
+    // TYPING — a partial buffer — lists the machine's candidates with its armed
+    // one highlighted, exactly what the strip shows. ⏎ commits the buffer
+    // either way; a click writes the option's member and moves on like ⏎.
     const editCombobox = useMemo<{ options: EditorOption[]; highlighted: number; browse: boolean } | undefined>(() => {
-        if (edit === null || editMeta === undefined || editMeta.kind !== "enum") return undefined;
+        if (edit === null || editMeta === undefined || !isComboboxKind(editMeta.kind)) return undefined;
         const cctx = candidateCtxFor(edit.r);
         const allowed = cctx.allowed?.(editMeta);
-        const all = (registers.byName.get(editMeta.register ?? "") ?? []).map((m) => m.key).filter((k) => allowed === undefined || allowed.has(k));
-        const typed = edit.val.trim();
-        const exact = all.findIndex((k) => k.toLowerCase() === typed.toLowerCase());
-        const browse = typed === "" || exact >= 0;
-        const labels = browse ? all : candidateList(editMeta, edit.val, cctx);
-        const options = labels.map((label) => {
-            const m = resolveRegisterMember(registers, editMeta.register, label);
-            return { key: label, label, meta: m !== undefined ? getSomeorUndefined(m.meta) : undefined, tone: m !== undefined ? getSomeorUndefined(m.tone)?.type : undefined };
+        const members = (registers.byName.get(editMeta.register ?? "") ?? []).filter((m) => allowed === undefined || allowed.has(m.key));
+        const typed = edit.val.trim().toLowerCase();
+        const pick = edit.pick;
+        // The member the buffer holds: the one a gesture chose, else one it spells whole — its key, or the words it shows.
+        const named = pick !== undefined ? members.findIndex((m) => stringEqual(m.key, pick))
+            : typed === "" ? -1 : members.findIndex((m) => stringEqual(m.key.toLowerCase(), typed) || stringEqual(m.label.toLowerCase(), typed));
+        const browse = typed === "" || named >= 0;
+        const shown = browse ? members.map((m) => ({ key: m.key, label: m.label !== "" ? m.label : m.key })) : candidateList(editMeta, edit.val, cctx);
+        const byKey = new Map(members.map((m) => [m.key, m]));
+        const options = shown.map((c): EditorOption => {
+            const m = byKey.get(c.key);
+            return { key: c.key, label: c.label, meta: m !== undefined ? getSomeorUndefined(m.meta) : undefined, tone: m !== undefined ? getSomeorUndefined(m.tone)?.type : undefined };
         });
-        return { options, browse, highlighted: browse ? exact : edit.hi >= 0 ? Math.min(edit.hi, options.length - 1) : options.length > 0 ? 0 : -1 };
+        return { options, browse, highlighted: browse ? named : edit.hi >= 0 ? Math.min(edit.hi, options.length - 1) : options.length > 0 ? 0 : -1 };
     }, [edit, editMeta, candidateCtxFor, registers]);
-    const onEditorPick = useCallback((label: string) => {
-        dispatch({ t: "editor.change", val: label });
+    const onEditorPick = useCallback((option: EditorOption) => {
+        dispatch({ t: "editor.pick", label: option.label, key: option.key });
         dispatch({ t: "editor.key", key: "Enter", shift: false, meta: false, alt: false, atEnd: true });
     }, [dispatch]);
+    const onEditorBrowse = useCallback((option: EditorOption) => dispatch({ t: "editor.pick", label: option.label, key: option.key }), [dispatch]);
     // A date column's buffer is its edit form; the date field shows the date it names.
     const editDate = useMemo(() => {
         if (edit === null || editMeta === undefined || editMeta.kind !== "date") return undefined;
@@ -2477,7 +2867,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const onEditorBlur = useCallback(() => dispatch({ t: "editor.blur" }), [dispatch]);
     const onStripAction = useCallback((a: StripAction) => {
         switch (a.kind) {
-            case "candidate": dispatch({ t: "strip.pick", label: a.label, i: a.i }); break;
+            case "candidate": dispatch({ t: "strip.pick", label: a.label, key: a.key, i: a.i }); break;
             case "members": dispatch({ t: "strip.pick", label: a.label, i: -1, members: a.members }); break;
             case "fill": dispatch({ t: "fill.take", key: a.key }); break;
             case "rows": dispatch({ t: "proposal.take", i: (uiRef.current.sugg?.rows.length ?? 1) - 1 }); break;
@@ -3054,10 +3444,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [edit, ui.sugg, ctx, columns, nextTarget, words]);
 
     // The resting ring's cell detail (#844): the wanted date behind one that has happened, a column's detail text (with an enum member's own meta beside it).
+    // On a host's grid, the cell under the pointer's, else the ring's once it is placed (#1531).
+    const previewed = hostGrid !== undefined && ui.hover !== null ? ui.hover : ui.ringless ? undefined : ui.sel;
     const detail = useMemo(() => {
-        if (edit !== null || ui.selEnd !== null) return undefined;
-        const meta = metaAt(ui.sel.r, ui.sel.c);
-        const it = rowAt(ui.sel.r);
+        if (edit !== null || ui.selEnd !== null || previewed === undefined) return undefined;
+        const meta = metaAt(previewed.r, previewed.c);
+        const it = rowAt(previewed.r);
         if (meta === undefined || it === undefined || it.kind !== "real") return undefined;
         const d = cellDetail(meta, it.row.cells, words);
         if (d === undefined) return undefined;
@@ -3065,7 +3457,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const member = meta.kind === "enum" && cell !== undefined && cell.type === "String" ? resolveRegisterMember(registers, meta.register, cell.value) : undefined;
         const memberMeta = member !== undefined ? getSomeorUndefined(member.meta) ?? "" : "";
         return { label: meta.header.toUpperCase(), chips: d.chips, meta: d.meta !== "" ? d.meta : memberMeta, keys: words.m.stripKeysDetail({ date: meta.kind === "date" }) };
-    }, [edit, ui.selEnd, ui.sel, metaAt, rowAt, registers, words]);
+    }, [edit, ui.selEnd, previewed, metaAt, rowAt, registers, words]);
     const strip = useMemo(() => {
         if (edit === null || editMeta === undefined) return buildStrip({ edit: null, meta: undefined, candidates: undefined, words, today, baseDate: undefined, unit: undefined, customPreview: undefined, suggested, detail });
         const pctx = parseCtxFor(edit.r, editMeta);
@@ -3128,7 +3520,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         return buildStrip({
             edit, meta: editMeta, candidates: pctx, words, today,
             baseDate: pctx.baseDate,
-            unit: driverKey !== undefined ? editMeta.uom?.get(driverKey) : undefined,
+            unit: unitOf(editMeta, driverKey),
             customPreview,
             link,
             whenLevel: editWhenLevel,
@@ -3151,7 +3543,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             : Math.max(total ?? 0, endPosition) + blankRows + 1;
     const ringItem = rowAt(ui.sel.r);
     const ringCol = ringItem?.kind === "group" && group !== undefined && (ui.sel.c < group.titleSpan || !group.cells.has(columns.list[ui.sel.c]?.key ?? "")) ? 0 : ui.sel.c;
-    const activeCell = ringItem !== undefined && colCount > 0 ? `${gridId}-${ui.sel.r}-${ringCol}` : undefined;
+    const activeCell = !ui.ringless && ringItem !== undefined && colCount > 0 ? `${gridId}-${ui.sel.r}-${ringCol}` : undefined;
     // What a keyboard move's reveal reads (below): the ring's cell, and the column it sits under.
     const ringCellRef = useRef<{ id: string | undefined; col: number }>({ id: undefined, col: 0 });
     ringCellRef.current = { id: activeCell, col: ringCol };
@@ -3251,6 +3643,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 highlighted={editCombobox?.highlighted}
                 browse={editCombobox?.browse}
                 onPick={onEditorPick}
+                onBrowse={onEditorBrowse}
                 whenLevel={editWhenLevel}
                 onChange={onEditorChange}
                 onKey={onEditorKey}
@@ -3258,7 +3651,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 onHalfDown={onHalfDown}
             />
         )
-        : null, [edit, editMeta, editDate, styles, editGhost, editResolve, editBadge, editorFocus, onEditorChange, onEditorKey, onEditorBlur, linkView, linkGhostText, onHalfDown, editCombobox, onEditorPick, editWhenLevel]);
+        : null, [edit, editMeta, editDate, styles, editGhost, editResolve, editBadge, editorFocus, onEditorChange, onEditorKey, onEditorBlur, linkView, linkGhostText, onHalfDown, editCombobox, onEditorPick, onEditorBrowse, editWhenLevel]);
     // What a row in the range and the edited row are handed, held still while
     // they are the same — a hover elsewhere renders neither (#858).
     const rangeCols = useMemo(() => ({ c0: rect.c0, c1: rect.c1 }), [rect.c0, rect.c1]);
@@ -3489,8 +3882,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const [insertPreview, setInsertPreview] = useState<{ r: number; kind: "row" | "group"; side: "gutter" | "body" } | undefined>(undefined);
     const canInsert = canEdit && editingState.available && (canInsertRows || canInsertGroups);
     // A drag in flight owns the gutter: no seam offers its chips under it — nor
-    // does a folded gutter, whose rows' menus hold the inserts (#1215).
-    const seamsOn = canInsert && !dragActive && !folded;
+    // does a folded gutter, whose rows' menus hold the inserts (#1215), nor a
+    // host's grid, which has no gutter (#1531).
+    const seamsOn = canInsert && !dragActive && !folded && hostGrid === undefined;
     /** What the seam above row `r` offers, and what each chip previews. */
     const insertActions = useCallback((r: number, side: "gutter" | "body"): InsertionActions => {
         const anchor = anchorFor(r, "before");
@@ -3631,8 +4025,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const [actionPreview, setActionPreview] = useState<{ r: number; key: string; c: ActionCase } | undefined>(undefined);
     const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     useEffect(() => () => { if (previewTimer.current !== undefined) clearTimeout(previewTimer.current); }, []);
-    // Auto mode: each action saved as it is taken, its dot's echo running until the save is acknowledged (T5).
-    const autoSave = value.editing.mode.type === "auto";
     const actionHost = useMemo<SheetActionHost>(() => ({
         subscribe: actionStore.subscribe,
         version: actionStore.version,
@@ -3641,7 +4033,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         startable: (r, key) => actionApi.current?.startable(r, key) ?? false,
         held: (r, key) => actionApi.current?.held(r, key),
         dirty: (r, key) => actionApi.current?.dirty(r, key) ?? false,
-        live: (r, key) => actionApi.current?.live(r, key) ?? false,
         next: (r, key, c, anchor) => actionApi.current?.next(r, key, c, anchor),
         more: (r, key, anchor) => actionApi.current?.more(r, key, anchor),
         preview: (r, key, c) => actionApi.current?.preview(r, key, c),
@@ -3730,8 +4121,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             writeCells(writes, "typed");
             recorded = recordGesture(gestureEvents.current, undefined, "action", edits, undefined, c.label);
         } catch (error) {
-            console.error("Sheet transaction failure", error);
-            dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } });
+            failed(error);
         } finally {
             gestureEvents.current = [];
         }
@@ -3842,7 +4232,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             const was = a.lg !== undefined ? wire?.lines.find((line) => line.key === a.lg!.key)?.cells.get(key) : wire?.cells.get(key);
             return !cellEqual(was ?? NULL_CELL, a.cell ?? NULL_CELL);
         },
-        live: (r, key) => autoSave && (session.status === "applying" || session.status === "reconciling") && (actionApi.current?.dirty(r, key) ?? false),
         next: (r, key, c, anchor) => {
             // Over a range down the column, the case on every row of it (T8); else the ring moves to the cell first (P2–P4).
             const rs = actionRows(r, key);
@@ -3915,7 +4304,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 return { on: true, label: words.m.actionStripLabel({ verb: verbOf(c), name }), chips: [{ key: "v", label: text, on: false, flat: true, title: text }], meta: "", keys: "" };
             }
             const ringMeta = metaAt(ui.sel.r, ui.sel.c);
-            if (ui.selEnd !== null || ringMeta?.kind !== "action") return undefined;
+            if (ui.ringless || ui.selEnd !== null || ringMeta?.kind !== "action") return undefined;
             const a = actionAt(ui.sel.r, ringMeta.key);
             if (a === undefined) return undefined;
             const offer = offerOf(a.column, a.cell, canEdit && editingState.available ? wireContextFor(ui.sel.r) : undefined);
@@ -3931,7 +4320,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // The cells look again as what they read moves: the rows and their drafts, the overlay, the frame's width.
     useLayoutEffect(() => {
         if (hasActions) actionStore.bump();
-    }, [hasActions, actionStore, rows, draftVersion, actionOverlay, canEdit, editingState.available, framePx, session.status]);
+    }, [hasActions, actionStore, rows, draftVersion, actionOverlay, canEdit, editingState.available, framePx]);
     // An overlay whose row went — a narrowing, a new revision — closes.
     useEffect(() => {
         if (actionOverlay !== undefined && actionApi.current?.offer(actionOverlay.r, actionOverlay.key) === undefined) setActionOverlay(undefined);
@@ -3967,7 +4356,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // place, opened by a tap on that cell — never on a row's other cells — and ⌄ closed until the ring moves.
     const ringColumn = columns.list[ui.sel.c];
     const barClosed = barClosedAt !== undefined && barClosedAt.r === ui.sel.r && barClosedAt.c === ui.sel.c;
-    const barKey = phoneFrame && ui.selEnd === null && ringColumn?.kind === "action" && !barClosed ? ringColumn.key : undefined;
+    const barKey = phoneFrame && !ui.ringless && ui.selEnd === null && ringColumn?.kind === "action" && !barClosed ? ringColumn.key : undefined;
     const barRow = barKey !== undefined ? actionAt(ui.sel.r, barKey) : undefined;
     // The bar's head names the step's group too — `WO-1042 · step 20` — as nothing else on a phone's screen may (X5; F17 of the hand test).
     const barHeadOf = (r: number, key: string) => {
@@ -4011,7 +4400,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const ringRow = rowAt(ui.sel.r);
     const ringR = ui.sel.r;
     const ringC = ui.sel.c;
-    const cellEditor = !phoneFrame || hostEditor === undefined || ui.selEnd !== null || barClosed || readOnly || ringMeta === undefined
+    const cellEditor = !phoneFrame || hostEditor === undefined || ui.ringless || ui.selEnd !== null || barClosed || readOnly || ringMeta === undefined
         || !ringMeta.editable || ringMeta.kind === "action" || ringMeta.kind === "stamped" || (ringRow?.kind !== "real" && ringRow?.kind !== "group") ? undefined
         : hostEditor({ r: ringR, columnKey: ringMeta.key, band: ringRow.kind === "group", name: rowActionName(ringR), onClose: () => setBarClosedAt({ r: ringR, c: ringC }) });
     // What the runs of the optimiser left on each row (#1409, R25), by the row's id — a line's by its line id — while the
@@ -4025,9 +4414,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         // A run of rows not drawn yet (#1398, CL2): an unloaded run, a stretch the lens reads, or a failed window.
         if (item.kind === "band" || item.kind === "failed") {
             return (
-                <SheetRunRow styles={styles} band={item.kind === "band" ? item.band : undefined} failure={item.kind === "failed" ? item.failure : undefined}
+                <SheetRunRow styles={hostGrid?.runStyles ?? styles} band={item.kind === "band" ? item.band : undefined} failure={item.kind === "failed" ? item.failure : undefined}
                     loading={item.kind === "band" && runLoading(item.band)} gridTemplate={gridTemplate} columns={columns} rowPx={rowPx}
-                    bandPx={group !== undefined ? bandPx : undefined} dense={size === "sm"} noun={rowsNoun} onRetry={retryRead} ariaRowIndex={ariaRowIndex} />
+                    bandPx={group !== undefined ? bandPx : undefined} dense={size === "sm"} noun={rowsNoun} onRetry={retryRead} ariaRowIndex={ariaRowIndex}
+                    // A host's grid (#1531): its lead's shape in the lead track, where it is laid out.
+                    lead={hostGrid === undefined ? undefined : hostLayout.lead ? hostGrid.leadRun : null} />
             );
         }
         if (item.kind === "subRow") {
@@ -4121,6 +4512,39 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 </SheetRowBoundary>
             );
         }
+        // A host draws the row (#1531): the Sheet's gestures, its cells' content and its editor, in the host's anatomy.
+        if (hostGrid !== undefined) {
+            const HostRow = hostGrid.Row;
+            const real = item.kind === "real" ? item.row : undefined;
+            return (
+                <SheetRowBoundary styles={styles} rowPx={rowPx} number={item.position + 1} resetKey={real}>
+                    <HostRow
+                        styles={styles}
+                        r={r}
+                        row={real}
+                        columns={columns}
+                        registers={registers}
+                        driverColumn={driverColumn}
+                        gridTemplate={gridTemplate}
+                        layout={hostLayout}
+                        rowPx={rowPx}
+                        idPrefix={gridId}
+                        ariaRowIndex={ariaRowIndex}
+                        selC={!ui.ringless && ui.sel.r === r ? ui.sel.c : undefined}
+                        range={inRangeRow ? rangeCols : undefined}
+                        editor={edit !== null && edit.r === r ? editorAt : undefined}
+                        draft={real !== undefined ? draftOf(real.id) : undefined}
+                        changes={real !== undefined ? changesOf(real.id, real) : undefined}
+                        writable={canEdit && editingState.available}
+                        linkCtx={linkCellCtx}
+                        actions={rowActions}
+                        onCellDown={onCellDown}
+                        onCellDouble={onCellDouble}
+                        onCellEnter={onCellEnter}
+                    />
+                </SheetRowBoundary>
+            );
+        }
         const lg = item.group;
         // A line with sub rows: how many, and whether they hang under it now.
         const subRowCount = item.kind === "real" && lg !== undefined ? lg.row.lines[lg.index]?.subRows.length ?? 0 : 0;
@@ -4180,7 +4604,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             />
             </SheetRowBoundary>
         );
-    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows, marks, rowActions]);
+    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.ringless, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows, marks, rowActions, hostGrid, hostLayout, changesOf, canEdit, editingState.available]);
 
     // ── The inspector's reads and gestures (#1188) ────────────────────────
     // Nothing here reads the source until the inspector pane asks for a
@@ -4253,10 +4677,13 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             presentation: draftOf(entry, child),
         };
     }, [placeAt, structOf, versionOf, session, childField, draftOf]);
-    // What the ring and the range hold: a hover, a key, an editor elsewhere leave it as it is.
+    // What the ring and the range hold: a hover, a key, an editor elsewhere leave it as it is — and nothing before the
+    // ring is placed (#1531).
     const selSel = ui.sel;
     const selEnd = ui.selEnd;
+    const ringless = ui.ringless;
     const selected = useMemo((): SheetSelected => {
+        if (ringless) return { kind: "none" };
         const rect = selectionRect({ sel: selSel, selEnd });
         if (rect.r0 === rect.r1) {
             const place = placeAt(rect.r0);
@@ -4274,7 +4701,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             return place === undefined ? { kind: "none" } : { kind: "one", place };
         }
         return { kind: "several", rs, r0: rect.r0, r1: rect.r1 };
-    }, [selSel, selEnd, rowAt, placeAt]);
+    }, [ringless, selSel, selEnd, rowAt, placeAt]);
     const inspectWrite = useCallback((writes: readonly SheetInspectWrite[], joins?: string) => {
         if (!canEdit || !editingState.available) return;
         gestureEvents.current = [];
@@ -4319,7 +4746,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         }
         if (cellWrites.length > 0) writeCells(cellWrites, "typed");
         try { recordGesture(gestureEvents.current, undefined, "typed", draftEdits, undefined, undefined, joins); }
-        catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
+        catch (error) { failed(error); }
         finally { gestureEvents.current = []; }
         // The copilot asks again for a row whose trigger column changed, as typing in it does.
         if (copilotOn) {
@@ -4329,7 +4756,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 if (id !== undefined) requestRun(id, 0);
             }
         }
-    }, [canEdit, editingState.available, rowAt, group, allColumns, parseCtxFor, structOf, draftType, childField, writeCells, recordGesture, copilotOn, triggers, idAt, requestRun]);
+    }, [canEdit, editingState.available, rowAt, group, allColumns, parseCtxFor, structOf, draftType, childField, writeCells, recordGesture, failed, copilotOn, triggers, idAt, requestRun]);
     const editInSheet = useCallback((r: number, key: string): boolean => {
         const c = columns.list.findIndex((col) => stringEqual(col.key, key));
         if (c < 0 || rowAt(r) === undefined) return false;
@@ -4338,73 +4765,91 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         return true;
     }, [columns, rowAt, dispatch]);
     const removeRows = useCallback((r0: number, r1: number) => { runEffects([{ t: "delete.rows", r0, r1 }]); }, [runEffects]);
-    const duplicate = useCallback((rs: readonly number[]) => {
-        if (!canEdit || !editingState.available) return;
+    const duplicate = useCallback((rs: readonly number[], options?: SheetDuplicateOptions): boolean => {
+        if (!canEdit || !editingState.available) return false;
         const idField = getSomeorUndefined(value.editing.idField);
         const events: SheetEditValue[] = [];
         const draftEdits = new Map<string, DraftEdit>();
         const typed = variant("typed", null);
-        const taken = new Set(rows.map((row) => row.id));
-        const mintEntry = () => { const id = newRowIdFn?.() ?? mintId((x) => taken.has(x)); taken.add(id); return id; };
         // A copy's draft: the source's, with its own identity where the struct carries one.
         const withIdentity = (draft: Record<string, unknown>, id: string): Record<string, unknown> =>
             (idField !== undefined && idField in draft ? { ...draft, [idField]: variant("value", id) } : draft);
+        // The field a host's copy leaves empty (#1534) — a Record's title: missing on its draft, and blank under the column
+        // over it, which its key names.
+        const empty = options?.empty;
+        const emptied = (draft: Record<string, unknown>): Record<string, unknown> =>
+            (empty !== undefined && empty in draft ? withFields(draft, new Map([[empty, undefined]])) : draft);
+        const blanked = (cells: SheetRowValue["cells"]): SheetRowValue["cells"] =>
+            (empty === undefined || !cells.has(empty) ? cells : new Map([...cells, [empty, NULL_CELL]]));
+        // The first copy: where a host's ring lands once the body holds it.
+        let first: { id: string; child?: string } | undefined;
         // A group as the layer has it now: lines inserted earlier in this gesture included.
         const groupsNow = new Map<string, SheetRowValue>();
         const groupOf = (g: SheetRowValue) => groupsNow.get(g.id) ?? layerRef.current.edits.get(g.id) ?? layerRef.current.appended.find((x) => x.id === g.id) ?? g;
-        for (const r of rs) {
-            const it = rowAt(r);
-            if (it === undefined || (it.kind !== "real" && it.kind !== "group")) continue;
-            const lg = it.kind === "real" ? it.group : undefined;
-            if (lg !== undefined) {
-                // A line: its copy just after it in its group.
-                if (!canInsertRows) continue;
-                const g0 = groupOf(lg.row);
-                const index = g0.lines.findIndex((line) => stringEqual(line.key, lg.key));
-                const source = structOf(versionOf(lg.row.id), lg.key);
-                if (index < 0 || source === undefined) continue;
-                const key = mintLineKey(g0);
-                const line = g0.lines[index]!;
-                const g: SheetRowValue = { ...g0, lines: [...g0.lines.slice(0, index + 1), { ...line, key }, ...g0.lines.slice(index + 1)] };
-                groupsNow.set(g.id, g);
-                events.push(variant("lineInsert", { rowId: g.id, offset: BigInt(it.position), after: some(lineAddress(index)), line: lineAddress(index + 1), row: g, source: typed }));
-                const prior = draftEdits.get(g.id);
-                const copy = loose ? withIdentity(source.draft, mintLineId()) : source.draft;
-                draftEdits.set(g.id, (version) => {
-                    const before = prior === undefined ? version : prior(version);
-                    const looseDraft = draftType.type === "Variant";
-                    const outer = (looseDraft ? (before.draft as ValueTypeOf<typeof draftType>).value : before.draft) as Record<string, unknown>;
-                    const at = before.wire?.lines.findIndex((l) => stringEqual(l.key, key)) ?? -1;
-                    if (at < 0) return before;
-                    const kids = [...(outer[childField!] as unknown[])];
-                    kids[at] = copy;
-                    const next = { ...outer, [childField!]: kids };
-                    return { ...before, draft: looseDraft ? variant("group", next) : next };
-                });
-                continue;
+        // A copy whose key is refused, or a gesture the session cannot take, duplicates nothing: the footer says why (#1536).
+        try {
+            for (const r of rs) {
+                const it = rowAt(r);
+                if (it === undefined || (it.kind !== "real" && it.kind !== "group")) continue;
+                const lg = it.kind === "real" ? it.group : undefined;
+                if (lg !== undefined) {
+                    // A line: its copy just after it in its group.
+                    if (!canInsertRows) continue;
+                    const g0 = groupOf(lg.row);
+                    const index = g0.lines.findIndex((line) => stringEqual(line.key, lg.key));
+                    const source = structOf(versionOf(lg.row.id), lg.key);
+                    if (index < 0 || source === undefined) continue;
+                    const key = mintLineKey(g0);
+                    const line = g0.lines[index]!;
+                    const g: SheetRowValue = { ...g0, lines: [...g0.lines.slice(0, index + 1), { ...line, key, cells: blanked(line.cells) }, ...g0.lines.slice(index + 1)] };
+                    groupsNow.set(g.id, g);
+                    events.push(variant("lineInsert", { rowId: g.id, offset: BigInt(it.position), after: some(lineAddress(index)), line: lineAddress(index + 1), row: g, source: typed }));
+                    first ??= { id: g.id, child: key };
+                    const prior = draftEdits.get(g.id);
+                    const copy = emptied(loose ? withIdentity(source.draft, mintLineId()) : source.draft);
+                    draftEdits.set(g.id, (version) => {
+                        const before = prior === undefined ? version : prior(version);
+                        const looseDraft = draftType.type === "Variant";
+                        const outer = (looseDraft ? (before.draft as ValueTypeOf<typeof draftType>).value : before.draft) as Record<string, unknown>;
+                        const at = before.wire?.lines.findIndex((l) => stringEqual(l.key, key)) ?? -1;
+                        if (at < 0) return before;
+                        const kids = [...(outer[childField!] as unknown[])];
+                        kids[at] = copy;
+                        const next = { ...outer, [childField!]: kids };
+                        return { ...before, draft: looseDraft ? variant("group", next) : next };
+                    });
+                    continue;
+                }
+                // A row, or a band's group with its lines: a new entry just after it, its draft the source's.
+                if (it.kind === "group" ? !canInsertGroups : !canInsertRows) continue;
+                const version = versionOf(it.row.id);
+                if (version?.draft === undefined) continue;
+                const id = mintAmong(takenKeys());
+                let copy: SheetRowValue = { ...it.row, id, owned: false, lines: [], cells: blanked(it.row.cells) };
+                for (const line of it.row.lines) copy = { ...copy, lines: [...copy.lines, { ...line, key: mintLineKey(copy) }] };
+                events.push(variant("insert", { afterRowId: some(it.row.id), row: copy, source: typed }));
+                first ??= { id };
+                const looseDraft = draftType.type === "Variant";
+                const arm = looseDraft ? (version.draft as ValueTypeOf<typeof draftType>).type as string : undefined;
+                const inner = (looseDraft ? (version.draft as ValueTypeOf<typeof draftType>).value : version.draft) as Record<string, unknown>;
+                let draft = emptied(withIdentity(inner, id));
+                if (childField !== undefined && it.kind === "group" && loose) {
+                    draft = { ...draft, [childField]: (draft[childField] as Record<string, unknown>[]).map((c) => withIdentity(c, mintLineId())) };
+                }
+                const final = looseDraft ? variant(arm!, draft) : draft;
+                draftEdits.set(id, (v) => ({ ...v, draft: final, wire: copy }));
             }
-            // A row, or a band's group with its lines: a new entry just after it, its draft the source's.
-            if (it.kind === "group" ? !canInsertGroups : !canInsertRows) continue;
-            const version = versionOf(it.row.id);
-            if (version?.draft === undefined) continue;
-            const id = mintEntry();
-            let copy: SheetRowValue = { ...it.row, id, owned: false, lines: [] };
-            for (const line of it.row.lines) copy = { ...copy, lines: [...copy.lines, { ...line, key: mintLineKey(copy) }] };
-            events.push(variant("insert", { afterRowId: some(it.row.id), row: copy, source: typed }));
-            const looseDraft = draftType.type === "Variant";
-            const arm = looseDraft ? (version.draft as ValueTypeOf<typeof draftType>).type as string : undefined;
-            const inner = (looseDraft ? (version.draft as ValueTypeOf<typeof draftType>).value : version.draft) as Record<string, unknown>;
-            let draft = withIdentity(inner, id);
-            if (childField !== undefined && it.kind === "group" && loose) {
-                draft = { ...draft, [childField]: (draft[childField] as Record<string, unknown>[]).map((c) => withIdentity(c, mintLineId())) };
-            }
-            const final = looseDraft ? variant(arm!, draft) : draft;
-            draftEdits.set(id, (v) => ({ ...v, draft: final, wire: copy }));
+            if (events.length === 0) return false;
+            const recorded = recordGesture(events, undefined, "insert", draftEdits);
+            // A host's ring lands on its column in the first copy, once the body holds it — opening where the host edits
+            // it, as a host's Add's does (#1534).
+            if (recorded && options?.ring !== undefined && first !== undefined) pendingInsertFocus.current = { ...first, edit: true, key: options.ring };
+            return recorded;
+        } catch (error) {
+            failed(error);
+            return false;
         }
-        if (events.length === 0) return;
-        try { recordGesture(events, undefined, "insert", draftEdits); }
-        catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
-    }, [canEdit, editingState.available, value.editing.idField, rows, newRowIdFn, rowAt, canInsertRows, canInsertGroups, structOf, versionOf, loose, mintLineId, draftType, childField, recordGesture]);
+    }, [canEdit, editingState.available, value.editing.idField, takenKeys, mintAmong, failed, rowAt, canInsertRows, canInsertGroups, structOf, versionOf, loose, mintLineId, draftType, childField, recordGesture]);
     const addLine = useCallback((bandR: number) => {
         const it = rowAt(bandR);
         if (it === undefined || it.kind !== "group") return;
@@ -4420,10 +4865,64 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         setLayer(() => next);
         emitEdit(variant("remove", { rowIds: [it.row.id] }));
         try { recordGesture(gestureEvents.current); }
-        catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
+        catch (error) { failed(error); }
         finally { gestureEvents.current = []; }
         dispatchStore({ t: "patch", patch: { selEnd: null, msg: { id: "deleted", n: 1, what: "groups", noun: declaredNoun?.singular, nouns: declaredNoun?.plural, again: false } } });
-    }, [rowAt, canEdit, editingState.available, capabilities, setLayer, emitEdit, recordGesture, declaredNoun]);
+    }, [rowAt, canEdit, editingState.available, capabilities, setLayer, emitEdit, recordGesture, failed, declaredNoun]);
+    // ── A host's own Add and Delete (#1533) ───────────────────────────────
+    // Read through refs, so what a host's chrome holds of them never changes: each acts on the sheet as it stands.
+    /** Adds a row first in the rows — its key's place, where the rows are keyed — the rail's search cleared first, so it is never hidden. */
+    const addEntry = (column?: string) => {
+        if (chrome !== undefined && narrowing !== undefined && narrowingQuery(narrowing).trim() !== "") {
+            // The sheet's own write: the ring goes to the new row, never back to the top.
+            const cleared = clearSearch(narrowing);
+            expectedNarrowing.current = cleared;
+            writeNarrowing(chrome, cleared);
+        }
+        insertWhenClosed({ kind: "row", anchor: { entry: rows[0]?.id, side: "before" } }, undefined, column);
+    };
+    const addRef = useRef(addEntry);
+    addRef.current = addEntry;
+    const addRow = useCallback((column?: string) => addRef.current(column), []);
+    /** Removes the rows of these ids the sheet draws, as one transaction: a new row is simply dropped, and the ring goes with its row. */
+    const executeRemoval = (ids: readonly string[]) => {
+        if (!canEdit || !editingState.available || !capabilities.removeRows) return;
+        const drawn = new Set(rows.map((row) => row.id));
+        const gone = ids.filter((id) => drawn.has(id));
+        if (gone.length === 0) return;
+        gestureEvents.current = [];
+        const base = layerRef.current;
+        const next: LocalLayer = { ...base, removed: new Set([...base.removed, ...gone]) };
+        layerRef.current = next;
+        setLayer(() => next);
+        emitEdit(variant("remove", { rowIds: gone }));
+        let recorded = false;
+        try { recorded = recordGesture(gestureEvents.current); }
+        catch (error) { failed(error); }
+        finally { gestureEvents.current = []; }
+        if (!recorded) return;
+        const now = uiRef.current;
+        const ring = now.ringless ? undefined : idAt(now.sel.r);
+        dispatchStore({ t: "patch", patch: {
+            selEnd: null, ...(ring !== undefined && gone.includes(ring) ? { ringless: true } : {}),
+            msg: { id: "deleted", n: gone.length, what: "rows", noun: declaredNoun?.singular, nouns: declaredNoun?.plural, again: false },
+        } });
+    };
+    const removalRef = useRef(executeRemoval);
+    removalRef.current = executeRemoval;
+    // A removal waits for an open editor to commit, as an insertion does.
+    const pendingRemoval = useRef<readonly string[] | undefined>(undefined);
+    const removeRowsById = useCallback((ids: readonly string[]) => {
+        if (uiRef.current.edit === null) { removalRef.current(ids); return; }
+        pendingRemoval.current = ids;
+        dispatch({ t: "editor.blur" });
+    }, [dispatch]);
+    useLayoutEffect(() => {
+        const ids = pendingRemoval.current;
+        if (ui.edit !== null || ids === undefined) return;
+        pendingRemoval.current = undefined;
+        removalRef.current(ids);
+    }, [ui.edit, store.fxSeq]);
     // A column, or a band's cell, by its key at a row.
     const columnAt = useCallback((r: number, key: string): SheetColumnMeta | undefined => {
         const it = rowAt(r);
@@ -4437,7 +4936,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const meta = columnAt(r, key);
         const it = rowAt(r);
         const driverKey = driverKeyOf(it !== undefined && it.kind === "real" ? it.row : undefined, driverColumn);
-        return meta?.kind === "quantity" && driverKey !== undefined ? meta.uom?.get(driverKey) : undefined;
+        return meta === undefined ? undefined : unitOf(meta, driverKey);
     }, [columnAt, rowAt, driverColumn]);
     const inspectLevelAt = useCallback((r: number, key: string) => {
         const meta = columnAt(r, key);
@@ -4542,6 +5041,16 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         return ready.type !== "ready" && ready.value.some((raised) => Object.is(raised, issue)) ? kindOfIssue(issue, ready) : "invalid";
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
     }, [session, readiness, draftVersion]);
+    // Where an issue's row stands among the rows drawn (#1534), as Go to issue finds it: a row or a band by its entry, a
+    // line by its place in its group — none where the body does not draw it.
+    const placeOfIssue = useCallback((issue: EditIssue): SheetInspectPlace | undefined => {
+        const line = getSomeorUndefined(issue.row);
+        const index = line === undefined
+            ? body.findIndex((item) => (item.kind === "real" || item.kind === "group") && stringEqual(item.row.id, issue.entry))
+            : body.findIndex((item) => item.kind === "real" && item.group !== undefined && stringEqual(item.group.row.id, issue.entry) && item.group.index === Number(line));
+        const r = index < 0 ? undefined : rowSpace.rowOf[index];
+        return r === undefined || r < 0 ? undefined : placeAt(r);
+    }, [body, rowSpace, placeAt]);
     const inspect = useMemo((): SheetInspect => ({
         selected, targetAt,
         writable: canEdit && editingState.available,
@@ -4554,10 +5063,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         counts: { rows: wholeCount, pending: session.pending, issues: issueList.length },
         issues: issueList,
         kindOf,
-        write: inspectWrite, editInSheet, remove: removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden,
+        write: inspectWrite, editInSheet, remove: removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, placeOf: placeOfIssue,
         columnAt, cellAt: inspectCellAt, unitAt, levelAt: inspectLevelAt, allowedAt, drawCell, drawAction,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks the session's pending count.
-    }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, columnAt, inspectCellAt, unitAt, inspectLevelAt, allowedAt, drawCell, drawAction, draftVersion]);
+    }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, placeOfIssue, columnAt, inspectCellAt, unitAt, inspectLevelAt, allowedAt, drawCell, drawAction, draftVersion]);
 
     // ── Drag and drop: the plans (#1187) ──────────────────────────────────
     // Every drop is planned (`drop.ts`) from the rows as they stand — the
@@ -4636,11 +5145,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const recordEdits = useCallback((origin: Origin, edits: ReadonlyMap<string, DraftEdit>): boolean => {
         try { return recordGesture([], undefined, origin, edits); }
         catch (error) {
-            console.error("Sheet transaction failure", error);
-            dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } });
+            failed(error);
             return false;
         }
-    }, [recordGesture]);
+    }, [recordGesture, failed]);
     /**
      * Runs a drop's plan as one transaction (SB39, SB40, SB44, SB61), the row
      * it made, set or moved selected once the body holds it.
@@ -4663,8 +5171,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     writeCells([...plan.card.sets].map(([key, cell]) => ({ r: plan.r, c: -1, key, cell })), "typed");
                     recorded = recordGesture(gestureEvents.current, undefined, "drop");
                 } catch (error) {
-                    console.error("Sheet transaction failure", error);
-                    dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } });
+                    failed(error);
                 } finally {
                     gestureEvents.current = [];
                 }
@@ -4727,7 +5234,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 return recorded;
             }
         }
-    }, [insertWhenClosed, rowAt, writeCells, recordGesture, copilotOn, triggers, idAt, requestRun, recordEdits, versionOf, withLines, draftType, childField]);
+    }, [insertWhenClosed, rowAt, writeCells, recordGesture, failed, copilotOn, triggers, idAt, requestRun, recordEdits, versionOf, withLines, draftType, childField]);
     dropApi.current = dropHost === undefined ? undefined : {
         canDrop: (event) => {
             const read = readEvent(event);
@@ -4875,7 +5382,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const flash = optimised !== undefined && landing.lit;
 
     // ── The parts' facts: the toolbar's items (§7), the root, the footer ──
-    const toolbarItems = useSheetToolbarItemsFor({
+    const toolbarParts = useSheetToolbarPartsFor({
         styles,
         chrome,
         nouns: railNouns,
@@ -4890,7 +5397,23 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         optimise: optimiseParts.toolbarItem,
         flash,
     });
-    const toolbar = { items: toolbarItems, ref: toolbarRef };
+    const toolbar = { items: sheetToolbarRow(toolbarParts), parts: toolbarParts, ref: toolbarRef };
+    // What a host's own chrome counts and changes (#1533). The record's rows and the narrowing's, the drafts applied:
+    // each new row one more of both — under the lens a planner's row stands among the narrowing's until the record says
+    // otherwise — and each row a draft removes one fewer.
+    const added = layer.appended.length;
+    const removedShown = lensDrawn ? sourceRows.reduce((n, row) => (layer.removed.has(row.id) ? n + 1 : n), 0) : layer.removed.size;
+    const recordTotal = decodedRows !== undefined ? rows.length : total === undefined ? undefined : total + added - layer.removed.size;
+    const narrowedCount = !lensDrawn ? undefined : lensMatches ?? lensLayout?.hits;
+    const entries: SheetEntries = {
+        rows,
+        whole: decodedRows !== undefined || (!unreadRuns && (lensDrawn ? lensLayout !== undefined : paging.exhausted)),
+        count: { shown: !lensDrawn ? recordTotal : narrowedCount === undefined ? undefined : narrowedCount + added - removedShown, total: recordTotal },
+        notice: ui.msg,
+        gestures: gestureCount.current,
+        add: addRow,
+        remove: removeRowsById,
+    };
     const root: SheetRootFacts = {
         partial: pagedSource !== undefined && !exhausted,
         copilot: copilotOn,
@@ -4916,7 +5439,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 <SheetRetry styles={styles} onRetry={retrySource} />
             </Box>
         );
-        return { styles, root, toolbar, grid: null, footer, loading: loadingFacts, history, failure, inspect, enter, optimise, phoneLibrary };
+        return { styles, root, toolbar, grid: null, footer, loading: loadingFacts, history, failure, inspect, enter, optimise, phoneLibrary, entries };
     }
 
     const stickyItem = stickyAt !== undefined ? body[stickyAt] : undefined;
@@ -4925,10 +5448,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const stuckLine = stickyLineAt !== undefined && stuck !== undefined && stuck.kind === "real" && stuck.group !== undefined
         ? { at: stickyLineAt, r: rowSpace.rowOf[stickyLineAt] ?? -1, row: stuck.row, lg: stuck.group, hit: stuck.hit, dropRow: dropText(stuck) }
         : undefined;
+    const HostHeader = hostGrid?.Header;
     const header = (
         <Box ref={headerRef} position="relative">
-            <SheetHeader styles={styles} columns={columns.list} gridTemplate={gridTemplate} picked={wr !== null} foldAll={foldAll} rowNumbers={rowNumbers}
-                selected={phoneFrame && ui.selEnd === null && (ringItem?.kind === "real" || ringItem?.kind === "group") ? ringCol : undefined} />
+            {HostHeader !== undefined
+                // A host's header (#1531): its column cells are `headerCell`s, as the Sheet's, which a key's reveal reads.
+                ? <HostHeader columns={columns.list} gridTemplate={gridTemplate} layout={hostLayout} rowPx={rowPx} rowIds={rows.map((row) => row.id)} />
+                : <SheetHeader styles={styles} columns={columns.list} gridTemplate={gridTemplate} picked={wr !== null} foldAll={foldAll} rowNumbers={rowNumbers}
+                    selected={phoneFrame && ui.selEnd === null && (ringItem?.kind === "real" || ringItem?.kind === "group") ? ringCol : undefined} />}
             {stickyItem !== undefined && stickyItem.kind === "group" && group !== undefined && stickyAt !== undefined && (
                 // The band of the group whose lines scroll under the header (G1) — laid over the rows, so the list never moves.
                 // A copy: the band itself is the grid's row (#860).
@@ -5016,13 +5543,34 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             )}
         </Box>
     );
+    // A host's empty state (#1531): under its header, once every row is read and the narrowing leaves none to show.
+    const HostEmpty = hostGrid?.Empty;
+    const searched = narrowing !== undefined && narrowingQuery(narrowing).trim() !== "";
+    const narrowedAll = narrowing !== undefined && emptyNarrowing !== undefined && !narrowingEqual(narrowing, emptyNarrowing);
+    const empty = HostEmpty !== undefined && narrowing !== undefined && narrowedAll && body.length === 0 && cold !== true && !busy
+        ? <HostEmpty query={searched} onClear={() => { if (chrome !== undefined) writeNarrowing(chrome, searched ? clearSearch(narrowing) : clearNarrowing(narrowing)); }} />
+        : undefined;
+    // The strip docked under the rows: an action's, else the Sheet's — or a host's (#1533), its own words for the cell
+    // under the pointer, else the ring's, and the Sheet's while that speaks of what is in hand.
+    const actionStrip = actionApi.current?.strip();
+    const sheetStrip = actionStrip ?? strip;
+    const HostStrip = hostGrid?.Strip;
+    const stripItem = previewed === undefined ? undefined : rowAt(previewed.r);
+    const stripColumn = previewed === undefined ? undefined : columns.list[previewed.c];
+    const stripAt = previewed !== undefined && stripItem?.kind === "real" && stripColumn !== undefined
+        ? { r: previewed.r, row: stripItem.row, column: stripColumn, changes: changesOf(stripItem.row.id, stripItem.row) } : undefined;
+    const stripNode = HostStrip !== undefined
+        ? <HostStrip styles={styles} model={sheetStrip} onAction={onStripAction} own={edit !== null || ui.selEnd !== null || suggested !== undefined || actionStrip !== undefined}
+            at={stripAt} columns={columns} registers={registers} writable={canEdit && editingState.available} />
+        : <SheetStrip styles={styles} model={sheetStrip} onAction={onStripAction} />;
     // The grid with its strip (SB4): the card — the header, the rows and the
     // insertion layer — the insertion strip, and the strip docked under them.
     const grid = (
         <>
-            {/* A phone's column pager over the grid (SH1): the window of columns beside any pinned one. */}
+            {/* A phone's column pager over the grid (SH1): the window of columns beside any pinned one — its `Row number` the Sheet's own. */}
             {phoneFrame && pagedColumns.length > phoneColumns && (
-                <SheetPager styles={styles} frame={viewport?.frame ?? null} columns={pagerColumns} slotPx={slotPx} inView={phoneColumns} rowNumbers={rowNumbers} onRowNumbers={setRowNumbers} />
+                <SheetPager styles={styles} frame={viewport?.frame ?? null} columns={pagerColumns} slotPx={slotPx} inView={phoneColumns} rowNumbers={rowNumbers}
+                    onRowNumbers={hostGrid === undefined ? setRowNumbers : undefined} />
             )}
             <Box
                 ref={cardRef}
@@ -5042,19 +5590,21 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 // CL10): readable and walked by the keys, the frame's main busy, and taking no edit, drag or drop.
                 aria-disabled={standingIn || keyHeld ? true : undefined}
                 aria-rowcount={ariaRowCount}
-                aria-colcount={colCount + 1}
+                aria-colcount={colCount + (hostGrid !== undefined && gutterPx === 0 ? 0 : 1)}
                 aria-multiselectable
                 aria-activedescendant={activeCell}
                 onKeyDown={onKeyDown}
                 onCopy={onCopy}
                 onPaste={onPaste}
+                onMouseLeave={hostGrid !== undefined ? onGridLeave : undefined}
             >
                 <VirtualRows
                     height={undefined}
                     maxHeight={undefined}
                     fillParent
                     header={header}
-                    footer={<Box height={`${BOTTOM_PAD_PX}px`} />}
+                    // A host's grid has no padding under its rows (#1531): its empty state, when it shows one.
+                    footer={hostGrid === undefined ? <Box height={`${BOTTOM_PAD_PX}px`} /> : empty}
                     count={body.length}
                     estimateSize={sizeOf}
                     getItemKey={itemKey}
@@ -5084,17 +5634,17 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 </Box>
             </Box>
             {/* With rows picked; or, with none, only once a completed read says there are none (#1398, CL13) — never while a paged source is still read. */}
-            {(wr !== null && edit === null || (rows.length === 0 && exhausted)) && canEdit && editingState.available && <SheetInsertStrip styles={styles}
+            {hostGrid === undefined && (wr !== null && edit === null || (rows.length === 0 && exhausted)) && canEdit && editingState.available && <SheetInsertStrip styles={styles}
                 ordered={!keyed || anchorFor(ui.sel.r, "before").child !== undefined}
                 above={canInsertRows ? () => onInsert("row", wr?.r0 ?? ui.sel.r, "before") : undefined}
                 below={canInsertRows && (group === undefined || loose || rows.length > 0) ? () => onInsert("row", wr?.r1 ?? ui.sel.r, "after") : undefined}
                 group={canInsertGroups ? () => onInsert("group", wr?.r1 ?? ui.sel.r, "after") : undefined}
                 noun={noun.singular} />}
-            {cellEditor ?? actionBar ?? <SheetStrip styles={styles} model={actionApi.current?.strip() ?? strip} onAction={onStripAction} />}
+            {cellEditor ?? actionBar ?? stripNode}
             {actionOverlayNode}
         </>
     );
-    return { styles, root, toolbar, grid, footer, loading: loadingFacts, history, failure: undefined, inspect, enter, optimise, phoneLibrary };
+    return { styles, root, toolbar, grid, footer, loading: loadingFacts, history, failure: undefined, inspect, enter, optimise, phoneLibrary, entries };
 }
 
 const SheetContext = createContext<SheetParts | undefined>(undefined);
@@ -5149,6 +5699,14 @@ export type SheetSelected =
     | { kind: "one"; place: SheetInspectPlace }
     | { kind: "several"; rs: readonly number[]; r0: number; r1: number };
 
+/** How a host's Duplicate makes its copies ({@link SheetInspect.duplicate}, #1534) — a Record's: its title left empty, the ring on it. */
+export interface SheetDuplicateOptions {
+    /** A field each copy leaves empty: missing on its draft, and blank under the column over it, which its key names — a Record's title. */
+    empty?: string | undefined;
+    /** The column the ring lands on in the first copy, once the body holds it: a cell that edits out of place opens where the host edits it, as a host's Add's does. */
+    ring?: string | undefined;
+}
+
 /** One row's write from the inspector — beside the others, one transaction (SB52). */
 export interface SheetInspectWrite {
     /** The row-space row it lands on: a row, a line, or a band. */
@@ -5186,8 +5744,8 @@ export interface SheetInspect {
     editInSheet: (r: number, key: string) => boolean;
     /** Delete the rows (or lines) from `r0` to `r1`, as ⌫ on them does. */
     remove: (r0: number, r1: number) => void;
-    /** Duplicate rows, lines or bands — a band with its lines — each just after its source, as one transaction. */
-    duplicate: (rs: readonly number[]) => void;
+    /** Duplicate rows, lines or bands — a band with its lines — each just after its source, as one transaction; a host's copies as its options say. Returns whether the session recorded it. */
+    duplicate: (rs: readonly number[], options?: SheetDuplicateOptions) => boolean;
     /** Add a line at the end of the band's group. */
     addLine: (bandR: number) => void;
     /** Delete a band's group with its lines, as one transaction. */
@@ -5212,6 +5770,8 @@ export interface SheetInspect {
     hiddenNote: (issue: EditIssue) => string | undefined;
     /** Ask e3 whether the rail's filters hide the rows of some issues the sheet does not draw, and by which: what their lines then say. */
     askHidden: (issues: readonly EditIssue[]) => void;
+    /** Where an issue's row stands among the rows drawn — a line by its place in its group — or `undefined` where the sheet does not draw it: hidden by the narrowing, or not read yet (#1534). */
+    placeOf: (issue: EditIssue) => SheetInspectPlace | undefined;
 }
 
 /** One field of a draft, decoded: missing, a value, or the text that could not be read. */
@@ -5280,6 +5840,31 @@ export function SheetProvider({ value, storageKey, host = NO_HOST, children }: S
  */
 export function useSheetToolbarItems(): ReadonlyArray<ToolbarItem | false | undefined> {
     return useSheetParts().toolbar.items;
+}
+
+/**
+ * Reads the toolbar's items as parts (#1533) — the view tabs, the count line,
+ * the key search, the rail, the scope badge, the Elara eye and the history
+ * item, each with its forms and its fold ranks — for a host that lays out a
+ * row of its own from some of them: the Record's title, the rail, its status
+ * line, Add and Delete, and the history.
+ *
+ * @returns The parts, `undefined` for each the sheet has no use for
+ */
+export function useSheetToolbarParts(): SheetToolbarParts {
+    return useSheetParts().toolbar.parts;
+}
+
+/**
+ * Reads the rows as a host's own chrome counts and changes them (#1533): the
+ * rows drawn, how many the narrowing shows of how many the record holds, the
+ * last gesture's notice, the gestures recorded, and the host's Add and
+ * Delete.
+ *
+ * @returns The rows' counts, the notice and the two gestures — the gestures stable
+ */
+export function useSheetEntries(): SheetEntries {
+    return useSheetParts().entries;
 }
 
 /**

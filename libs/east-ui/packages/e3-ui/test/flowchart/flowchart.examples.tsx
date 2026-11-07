@@ -4,8 +4,8 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,
-    example, none, some, variant,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType, VariantType,
+    compareFor, example, none, some, variant,
 } from "@elaraai/east";
 import { Badge, Box, Fields, Reactive, Slice, State, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Flowchart, Record } from "@elaraai/e3-ui";
@@ -48,9 +48,14 @@ import e3 from "@elaraai/e3";
 // - `flowchartTicketMinutes`, a support desk's minutes in state on each card,
 //   counted into the app's own uneven bins, the axis naming the edges it lists;
 // - `flowchartTicketMinutesLinear`, the same bins drawn to scale: each bar as
-//   wide as its span and as tall as its count over it.
+//   wide as its span and as tall as its count over it;
+// - `flowchartBakery`, a bakery's line keyed as the bakery keys it (#1549): its
+//   steps and its stations by number, in their numbers' order, each move by
+//   the two steps it joins, built from the row as Connect makes it; and each
+//   step's portioning a variant, edited in the inspector as a block.
 //
-// Each binds its records from e3, so the showcase draws each on e3-web. A
+// Every record but the bakery's is keyed by String. Each binds its records
+// from e3, so the showcase draws each on e3-web. A
 // flowchart fills its parent, as a ui task's page fills the window: each
 // example gives it a box of its own height, and its own `name`, which keeps
 // its viewer's state apart on a page showing them all. Every figure is made
@@ -1079,6 +1084,75 @@ export const flowchartTicketMinutesLinear = example({
                         transitions={Flowchart.transitions(transitions, { from: "from", to: "to" })}
                         lanes={Flowchart.lanes(stages, { label: "label", order: "seq" })}
                         name="ticketMinutesLinear"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// A bakery's line, keyed as the bakery keys it (#1549): its steps and its stations by number, each move by the two
+// steps it joins. A step names its station by the station's number, and a move its ends by the steps'. How a step
+// portions its dough is a variant whose cases hold data: a whole loaf, a number of slices, or a weight.
+export const BakeryPortion = VariantType({ whole: NullType, sliced: IntegerType, weighed: StructType({ grams: FloatType, tolerance: FloatType }) });
+export const BakeryStep = StructType({ name: StringType, station: IntegerType, seq: FloatType, portion: BakeryPortion });
+export const BakeryStation = StructType({ label: StringType, seq: FloatType });
+export const BakeryMoveKey = StructType({ from: IntegerType, to: IntegerType });
+export const BakeryMove = StructType({ from: IntegerType, to: IntegerType, note: OptionType(StringType) });
+
+export const bakerySteps = e3.record("flowchart_bakery_steps", DictType(IntegerType, BakeryStep), {
+    initial: new Map([
+        [10n, { name: "Mix", station: 1n, seq: 1, portion: variant("whole", null) }],
+        [20n, { name: "Proof", station: 1n, seq: 2, portion: variant("whole", null) }],
+        [30n, { name: "Bake", station: 2n, seq: 1, portion: variant("whole", null) }],
+        [40n, { name: "Cool", station: 3n, seq: 1, portion: variant("sliced", 12n) }],
+    ]),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+export const bakeryStations = e3.record("flowchart_bakery_stations", DictType(IntegerType, BakeryStation), {
+    initial: new Map([[1n, { label: "Bench", seq: 1 }], [2n, { label: "Oven", seq: 2 }], [3n, { label: "Cooling", seq: 3 }]]),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+// Keyed by a struct: East's Dict over struct keys is a SortedMap, in East's order.
+export const bakeryMoves = e3.record("flowchart_bakery_moves", DictType(BakeryMoveKey, BakeryMove), {
+    initial: new SortedMap([
+        [{ from: 10n, to: 20n }, { from: 10n, to: 20n, note: none }],
+        [{ from: 20n, to: 30n }, { from: 20n, to: 30n, note: none }],
+        [{ from: 30n, to: 40n }, { from: 30n, to: 40n, note: none }],
+    ], compareFor(BakeryMoveKey)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+export const flowchartBakery = example({
+    keywords: ["Flowchart", "key type", "IntegerType", "Integer keys", "struct keys", "key", "Flowchart.transitions", "Connect",
+        "Fields.select", "cases", "variant", "block", "inspector", "records", "Record.bind"],
+    description: "A bakery's line over records keyed as the bakery keys them: its steps and its stations by number, a new one numbered one past the largest, and each move by the two steps it joins — Connect makes the move, then its key from its ends, and a second move between the same two steps is refused; each step's portioning a variant whose cases hold data, edited in the inspector as a choice with the chosen case's fields in a block under it",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const steps = $.let(Record.bind(bakerySteps));
+            const moves = $.let(Record.bind(bakeryMoves));
+            const stations = $.let(Record.bind(bakeryStations));
+            return (
+                <Box height="560px">
+                    <Flowchart
+                        states={Flowchart.states(steps, {
+                            label: "name", lane: "station", order: "seq",
+                            fields: {
+                                // A variant whose cases hold data: a choice, and the chosen case's fields in a block under it.
+                                portion: Fields.select({
+                                    labels: { whole: "Whole loaf", sliced: "Sliced", weighed: "By weight" },
+                                    cases: { sliced: Fields.number({ label: "Slices", unit: "slices", min: 1n }), weighed: { grams: Fields.number({ unit: "g", min: 0 }) } },
+                                }),
+                            },
+                        })}
+                        transitions={Flowchart.transitions(moves, {
+                            from: "from", to: "to",
+                            // Connect makes the row, then its key from it: a move is keyed by its two ends.
+                            key: (move) => ({ from: move.from, to: move.to }),
+                        })}
+                        lanes={Flowchart.lanes(stations, { label: "label", order: "seq" })}
+                        name="bakery"
                     />
                 </Box>
             );

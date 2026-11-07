@@ -52,7 +52,6 @@ export {
     FuncBindPrimitives,
 } from './bind/func.js';
 export {
-    Record,
     RecordMutateStatusType,
     RecordErrorType,
     RecordBindingType,
@@ -64,11 +63,35 @@ export {
     recordBindPlatformFn,
     RecordBindPrimitives,
 } from './bind/record.js';
+// The Record: `<Record>` with its namespace, the payload the renderer takes
+// through the `Record` carrier, and the types a Record is written with.
+// `Record` here is the internal namespace — the public one, `Record.Payload`
+// and `Record.Component`.
+export {
+    RecordInternal as Record,
+    RecordTag,
+    RecordComponent,
+    RecordPayloadType,
+    createRecordPayload,
+    type RecordNamespace,
+    type RecordInternalNamespace,
+    type RecordTagType,
+    type RecordColumnSpec,
+    type RecordColumnGroupInput,
+    type RecordNounInput,
+    type RecordCommon,
+} from './record/index.js';
 export { DataManifestType, type DataManifest } from './utils/manifest.js';
 export { deriveManifest, deriveUiAccess, UiAccessType, type UiAccess } from './utils/derive.js';
 export { orderedRowSource } from './utils/ordered-source.js';
 // A builder's narrowing (#1340): the one check of its `slice` every builder's tag makes, of a tab's `source`, and of a templates list's.
 export { recordSources, sliceSourceNames, tabSource, templatesSource, type RecordSources, type RecordSourcesSpec } from './utils/record-sources.js';
+// A kind over the app's own record (#1386, #1500): what the Schematic's kinds and the Flowchart's share — its reads, its
+// accessors and its record's side, each at the record's key type, its keys on the wire as their text (#1549).
+export {
+    KindSideFields, accessorRole, kindWholeRows, readOf, recordSide, rowsReadOf, storedRows,
+    type KindAccessor, type KindBinding, type KindRowsRead, type RecordSide,
+} from './utils/record-kind.js';
 // The `optimise` binding's check every builder's tag makes (#1409): `Func.bind` of a function from the builder's request to its answer.
 export { optimiseBinding, type OptimiseContract, type OptimiseHandle } from './utils/optimise.js';
 
@@ -382,6 +405,15 @@ export {
     type SheetLinkConfig,
     type SheetStampedConfig,
     type SheetCustomConfig,
+    type RecordTitleConfig,
+    type RecordPersonConfig,
+    type RecordBooleanConfig,
+    type RecordToggleConfig,
+    type RecordCycleConfig,
+    type RecordAgeConfig,
+    type RecordAuditConfig,
+    type RecordAgeColumn,
+    RECORD_COLUMN_KINDS,
     type SheetRegisterValue,
     type SheetMembersConfig,
     type SheetDriverConfig,
@@ -667,6 +699,9 @@ export {
     scheduleEntryByKey, scheduleLastKey, type ScheduleWindowProp,
 } from './schedule/window.js';
 export { SchedulePatchTypeFor, schedulePatch, type SchedulePatchInput, type SchedulePatchOf } from './schedule/patch.js';
+// A row's fields written by their paths (#1390), through a variant's case too (#1549): the setters an inspector's edit
+// of a Schedule kind's field and an author's card on a Schematic entity write through.
+export { fieldSetters, type FieldSetter } from './schedule/fields.js';
 // The most events a builder reads and draws of one kind over what it reads at once (#1039): a kind's window through its
 // source is counted first and read only within it; past it, its rows shade from its summary or are hatched.
 export { SCHEDULE_EVENT_CAP } from './schedule/record-window.js';

@@ -16,8 +16,12 @@
  * | `date` | The date field, at the row's date level (the renderer sets its precision) |
  * | `quantity`, `integer` | The number field — a quantity in the driver's unit |
  * | `lookup`, `reference`, `enum` | A select over the register's members (`reference` of the register) |
+ * | `person`, `cycle` | A select over the register's members — a Record draws a cycle's as one line of radios |
+ * | `title` | Text |
+ * | `boolean`, `toggle` | A checkbox — a Record draws a toggle's as one line of radios |
  * | `set`, `link` | Read only here: the renderer draws the members, and edits them in the grid |
- * | `stamped`, a `value` projection, `editable: false` | Read only |
+ * | `stamped`, `audit`, a `value` projection, `editable: false` | Read only |
+ * | `age` | None: it shows no field — the renderer draws its count among the row's facts |
  * | `action` | Its state and summary, its actions taken in the pane (#1474) |
  * | No column | By its type, as `Fields.specs` resolves it |
  *
@@ -52,7 +56,8 @@ import {
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { FIELD_HINT, FieldSpecType, Fields, fieldSpecs, spellOut, type FieldEditorValue, type FieldHints } from "@elaraai/east-ui/internal";
-import { SheetCellsType, buildPatchCells, type SheetBridge, type SheetColumnMeta } from "./bridge.js";
+import { SheetCellsType, buildPatchCells, optionPayload, type SheetBridge, type SheetColumnMeta } from "./bridge.js";
+import type { SheetUnsettableInput } from "./editing-bridge.js";
 import { SheetPatchTypeFor } from "./types.js";
 
 // ============================================================================
@@ -122,6 +127,7 @@ function isHint(value: unknown): value is AnyHint {
 
 /** Why a column's field takes no editor hint, or `undefined` when it does. */
 function readOnlyReason(meta: SheetColumnMeta): string | undefined {
+    if (meta.kind === "audit") return "is an audit column, which shows the change the app keeps";
     if (meta.derived !== undefined) return "is a `value` projection, a derived read";
     if (meta.kind === "stamped") return "is stamped — a code an upstream system owns";
     if (meta.kind === "set" || meta.kind === "link") return `is a ${meta.kind} column, whose members are edited in the sheet`;
@@ -148,7 +154,12 @@ function kindEditor(meta: SheetColumnMeta): FieldEditorValue {
         case "integer": return variant("number", { unit: none, step: none, min: none, max: none });
         case "lookup":
         case "reference":
-        case "enum": return variant("reference", { of: meta.register! });
+        case "enum":
+        case "person":
+        case "cycle": return variant("reference", { of: meta.register! });
+        case "title": return variant("text", { placeholder: none });
+        case "boolean":
+        case "toggle": return variant("checkbox", null);
         default: return variant("readonly", null);
     }
 }
@@ -261,7 +272,8 @@ function formFields(
 function columnFields(metas: readonly SheetColumnMeta[]): { columns: string[]; readonly: string[] } {
     const writes = (m: SheetColumnMeta) => m.editable && m.derived === undefined;
     const columns = new Set(metas.filter(writes).flatMap((m) => (m.otherField !== undefined ? [m.field, m.otherField] : [m.field])));
-    const readonly = new Set(metas.filter((m) => !writes(m) && !columns.has(m.field)).map((m) => m.field));
+    // An age column shows no field of the struct: nothing of it to leave as it is.
+    const readonly = new Set(metas.filter((m) => !writes(m) && m.kind !== "age" && !columns.has(m.field)).map((m) => m.field));
     return { columns: [...columns], readonly: [...readonly] };
 }
 
@@ -319,6 +331,50 @@ export function buildForms(
         encode: encodeOf(SheetPatchTypeFor(groupType) as unknown as StructType, buildPatchCells(groupType, groupHalf.cellMetas, {})),
     }, SheetFormType);
     return East.value({ row, group: some(group) }, SheetFormsType);
+}
+
+/**
+ * The fields a new entry of a struct needs that no person can set in the
+ * sheet (#1536): required — not an `Option`, which a missing draft field
+ * becomes `none` of — and set by no column a person writes, nor, with an
+ * inspector, by its form. A column's actions are not one: a row takes an
+ * action only once its draft is complete, the action's own field among it. A
+ * field no column shows is the form's when the form shows any part of it to
+ * edit — a nested struct is set from its type's default the moment one of its
+ * fields is. Each is named as the form labels it.
+ *
+ * @param struct - The struct a new entry drafts: the row (a grouped sheet's line), or the group
+ * @param metas - The columns its fields are read through: the sheet's, or the band's cells
+ * @param hints - The inspector's hints for the struct (`fields`, `groupFields`); `undefined` with no inspector
+ * @param leave - The fields the session sets itself: an identity field, a group's lines
+ * @returns Each such field and its label, in declared order
+ * @throws Error naming the field, for a hint that does not fit a field no column shows, as the form refuses it
+ * @internal
+ */
+export function unsettableFields(
+    struct: StructType,
+    metas: readonly SheetColumnMeta[],
+    hints: Readonly<Record<string, unknown>> | undefined,
+    leave: ReadonlySet<string>,
+): SheetUnsettableInput[] {
+    const fields = struct.fields as Record<string, EastType>;
+    const byField = new Map(metas.map((m) => [m.field, m]));
+    // A link column's other half is written through that column, never on its own.
+    const halves = new Set(metas.flatMap((m) => (m.otherField !== undefined ? [m.otherField] : [])));
+    const typed = new Set(metas.filter((m) => m.editable && m.derived === undefined && m.action === undefined)
+        .flatMap((m) => (m.otherField !== undefined ? [m.field, m.otherField] : [m.field])));
+    const out: SheetUnsettableInput[] = [];
+    for (const [name, type] of Object.entries(fields)) {
+        if (leave.has(name) || optionPayload(type) !== undefined || typed.has(name)) continue;
+        const hint = hints?.[name];
+        if (hints !== undefined && !byField.has(name) && !halves.has(name)) {
+            const others = Object.keys(fields).filter((f) => f !== name);
+            const specs = fieldSpecs(struct, (hint === undefined ? {} : { [name]: hint }) as FieldHints<Record<string, EastType>>, others);
+            if (specs.some((spec) => spec.editor.type !== "readonly")) continue;
+        }
+        out.push({ field: name, label: (isHint(hint) ? hint.label : undefined) ?? byField.get(name)?.config.header ?? spellOut(name) });
+    }
+    return out;
 }
 
 /**

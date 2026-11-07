@@ -39,15 +39,17 @@ import { actionColumnOf } from "./actions/model.js";
 
 // ── Columns ───────────────────────────────────────────────────────────────
 
-/** The column kinds (the arms of `SheetColumnKindType`). */
+/** The column kinds (the arms of `SheetColumnKindType`); the last seven only a Record draws (#1528). */
 export type SheetKind =
     | "text" | "date" | "quantity" | "integer" | "lookup" | "reference" | "enum"
-    | "set" | "link" | "stamped" | "custom" | "action";
+    | "set" | "link" | "stamped" | "custom" | "action"
+    | "title" | "person" | "boolean" | "toggle" | "cycle" | "age" | "audit";
 
 /** Default column widths per kind (px) when the author declares none. */
 const DEFAULT_WIDTH: Record<SheetKind, number> = {
     text: 200, date: 96, quantity: 112, integer: 72, lookup: 200, reference: 120, enum: 124,
     set: 240, link: 352, stamped: 104, custom: 140, action: 304,
+    title: 184, person: 160, boolean: 72, toggle: 80, cycle: 72, age: 92, audit: 232,
 };
 
 /** The copilot latency class of a kind (B§3): deterministic kinds are instant. */
@@ -72,7 +74,7 @@ export interface SheetColumnMeta {
     kind: SheetKind;
     /** Whether the sheet writes the column. */
     editable: boolean;
-    /** The register the column resolves against (lookup · reference · enum · set · link). */
+    /** The register the column resolves against (lookup · reference · enum · set · link · person · cycle). */
     register: string | undefined;
     /** An enum, lookup or link column's options rule (#844): the member keys a row is OFFERED (`undefined` = the whole register). Typed text still resolves against the whole register. */
     options: ((ctx: SheetContextValue) => readonly string[] | undefined) | undefined;
@@ -88,8 +90,12 @@ export interface SheetColumnMeta {
     dateFormat: string | undefined;
     /** A quantity column's unit per driver key. */
     uom: ReadonlyMap<string, string> | undefined;
+    /** A quantity column's one unit for every row, after the value. */
+    unit: string | undefined;
     /** A quantity column's display format. */
     format: TickFormatOpt;
+    /** A toggle column's words for its two states: what a cell shows, and typed text sets. */
+    states: { on: string; off: string } | undefined;
     /** A stamped column's owner. */
     owner: string | undefined;
     /** A custom kind's "accepts" line. */
@@ -148,7 +154,9 @@ export function indexColumns(columns: readonly SheetColumnValue[]): SheetColumnI
             base: undefined,
             dateFormat: undefined,
             uom: undefined,
+            unit: undefined,
             format: undefined,
+            states: undefined,
             owner: undefined,
             accepts: undefined,
             customParse: undefined,
@@ -165,6 +173,7 @@ export function indexColumns(columns: readonly SheetColumnValue[]): SheetColumnI
                 break;
             case "quantity":
                 meta.uom = getSomeorUndefined(kind.value.uom);
+                meta.unit = getSomeorUndefined(kind.value.unit);
                 meta.format = getSomeorUndefined(kind.value.format);
                 break;
             case "lookup":
@@ -175,7 +184,12 @@ export function indexColumns(columns: readonly SheetColumnValue[]): SheetColumnI
                 break;
             case "reference":
             case "set":
+            case "person":
+            case "cycle":
                 meta.register = kind.value.register;
+                break;
+            case "toggle":
+                meta.states = { on: kind.value.on, off: kind.value.off };
                 break;
             case "stamped":
                 meta.owner = getSomeorUndefined(kind.value.owner);
@@ -350,20 +364,24 @@ export function groupBandPx(size: "sm" | "md" | "lg"): number {
 
 // ── Registers and the driver ───────────────────────────────────────────────
 
-/** The registers by name, with each member indexed by key and by lower-cased alias. */
+/** The registers by name, with each member indexed by key and by lower-cased alias, and by the label it shows. */
 export interface SheetRegisterIndex {
     byName: ReadonlyMap<string, readonly SheetRegisterMemberValue[]>;
     /** Register name → lower-cased key or alias → member. */
     lookup: ReadonlyMap<string, ReadonlyMap<string, SheetRegisterMemberValue>>;
+    /** Register name → lower-cased label → the first member to show it. */
+    labels: ReadonlyMap<string, ReadonlyMap<string, SheetRegisterMemberValue>>;
 }
 
 /** Index the decoded registers. */
 export function indexRegisters(registers: ReadonlyMap<string, { members: readonly SheetRegisterMemberValue[] }>): SheetRegisterIndex {
     const byName = new Map<string, readonly SheetRegisterMemberValue[]>();
     const lookup = new Map<string, ReadonlyMap<string, SheetRegisterMemberValue>>();
+    const labels = new Map<string, ReadonlyMap<string, SheetRegisterMemberValue>>();
     for (const [name, reg] of registers) {
         byName.set(name, reg.members);
         const idx = new Map<string, SheetRegisterMemberValue>();
+        const shown = new Map<string, SheetRegisterMemberValue>();
         for (const m of reg.members) {
             const k = m.key.toLowerCase();
             if (!idx.has(k)) idx.set(k, m);
@@ -371,16 +389,35 @@ export function indexRegisters(registers: ReadonlyMap<string, { members: readonl
                 const al = a.toLowerCase();
                 if (!idx.has(al)) idx.set(al, m);
             }
+            const l = m.label.toLowerCase();
+            if (l !== "" && !shown.has(l)) shown.set(l, m);
         }
         lookup.set(name, idx);
+        labels.set(name, shown);
     }
-    return { byName, lookup };
+    return { byName, lookup, labels };
 }
 
-/** The member a register resolves `text` to — by key or alias, case-insensitively. */
+/** The member a register resolves `text` to — by key or alias, case-insensitively: what a cell's value names. */
 export function resolveMember(index: SheetRegisterIndex, register: string | undefined, text: string): SheetRegisterMemberValue | undefined {
     if (register === undefined) return undefined;
     return index.lookup.get(register)?.get(text.trim().toLowerCase());
+}
+
+/**
+ * The member typed text names whole — by key or alias, else by the label it
+ * shows, the first member to show it — case-insensitively: a register
+ * column is typed in the words its cells show.
+ *
+ * @param index - The registers
+ * @param register - The column's register
+ * @param text - What was typed
+ * @returns The member, or `undefined` where the text names none whole
+ */
+export function resolveTyped(index: SheetRegisterIndex, register: string | undefined, text: string): SheetRegisterMemberValue | undefined {
+    if (register === undefined) return undefined;
+    const t = text.trim().toLowerCase();
+    return index.lookup.get(register)?.get(t) ?? index.labels.get(register)?.get(t);
 }
 
 /** The driver member key a row resolves to — its driver column's String cell. */
@@ -389,6 +426,18 @@ export function driverKeyOf(row: SheetRowValue | undefined, driverColumn: string
     const cell = row.cells.get(driverColumn);
     if (cell === undefined || cell.type !== "String") return undefined;
     return cell.value === "" ? undefined : cell.value;
+}
+
+/**
+ * The unit a quantity cell prints after its value: its row's driver member's,
+ * else the one unit the column gives every row.
+ *
+ * @param meta - The column
+ * @param driverKey - The row's driver member key, if it names one
+ * @returns The unit, or `undefined` for a column with none
+ */
+export function unitOf(meta: SheetColumnMeta, driverKey: string | undefined): string | undefined {
+    return (driverKey !== undefined ? meta.uom?.get(driverKey) : undefined) ?? meta.unit;
 }
 
 // ── Cells ─────────────────────────────────────────────────────────────────
@@ -504,6 +553,9 @@ export function cellText(cell: SheetCellValue | undefined, meta: SheetColumnMeta
         case "action":
             // An action cell reads as its state's word (S4); its summary is a rule cell of its own.
             return cell.type === "Action" ? actionColumnOf(meta)?.cases.get(cell.value.case)?.state ?? cell.value.case : rawCellText(cell);
+        case "toggle":
+            // A toggle reads as its state's word, the word typed back sets it.
+            return cell.type === "Boolean" && meta.states !== undefined ? (cell.value ? meta.states.on : meta.states.off) : rawCellText(cell);
         default:
             return rawCellText(cell);
     }

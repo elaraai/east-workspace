@@ -75,19 +75,29 @@ export function fieldChange(kind: Pick<ValueTypeOf<typeof ScheduleKindType>, "ke
 }
 
 /**
- * A new key, minted unique among the keys given (`crypto.randomUUID()`,
- * retried): a record read whole holds every key, and a key a record read a
- * window at a time holds unread is its Save's own conflict, never an
- * overwrite.
+ * A new key, minted unique among the keys given (a UUID, retried): a record
+ * read whole holds every key, and a key a record read a window at a time holds
+ * unread is its Save's own conflict, never an overwrite. The UUID is
+ * `crypto.randomUUID()`'s, else — a page served over plain HTTP has none — a
+ * version 4 UUID drawn from `crypto.getRandomValues`, which every page has.
  *
  * @param taken - Whether a key is held already
  * @returns The key
  */
 export function mintKey(taken: (key: string) => boolean): string {
     for (;;) {
-        const key = crypto.randomUUID();
+        const key = "randomUUID" in crypto ? crypto.randomUUID() : randomUUID();
         if (!taken(key)) return key;
     }
+}
+
+/** A version 4 UUID from the page's random bytes: its version and variant bits set, printed 8-4-4-4-12. */
+function randomUUID(): string {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+    bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /**
@@ -187,21 +197,23 @@ export function periodRowsRead(periods: SchedulePeriodsValue, from: Date, to: Da
 /**
  * The period's row as Publish writes it: its status the published case, at
  * the time given — over the row as the periods' session last saw it saved,
- * else as the builder read it, else a new one.
+ * else as the builder read it, else a new one, its own fields the periods'
+ * `values` of its start (#1526).
  *
  * @param periods - The builder's periods
  * @param schedule - The editing over the builder's records
  * @param record - What a change names the periods' record by
  * @param id - The period's key's text
+ * @param start - The period's start: its key
  * @param stored - The period's row as the builder read it
  * @param at - When it is published
  * @returns The change
  */
-export function periodPublishChange(periods: SchedulePeriodsValue, schedule: Pick<ScheduleEditing, "held">, record: string, id: string,
+export function periodPublishChange(periods: SchedulePeriodsValue, schedule: Pick<ScheduleEditing, "held">, record: string, id: string, start: Date,
     stored: Uint8Array | undefined, at: Date): ScheduleChange {
     const saved = schedule.held(record, id);
     const row = saved !== undefined ? rowCodec(periods.rowType).encode(saved) : stored;
-    return { kind: record, id, row: periods.publish(row === undefined ? none : some(row), at) };
+    return { kind: record, id, row: periods.publish(start, row === undefined ? none : some(row), at) };
 }
 
 /**

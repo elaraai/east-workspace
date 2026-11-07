@@ -21,15 +21,17 @@ export type SeekQueryValue = ValueTypeOf<SeekQueryType>;
 
 /** The East `SeekQueryType` value for a control query — the inverse of the
  *  runtime's `toFindQuery`, so one vocabulary crosses the whole path, typed by
- *  the East type the source's `seek` declares (#743 item 7). */
+ *  the East type the source's `seek` declares (#743 item 7). A struct key's
+ *  leading fields keep the prefix on the next field with them: they are asked
+ *  before a bare prefix. */
 export function toSeekQuery(query: DatasetKeyQuery): SeekQueryValue {
     if ("key" in query) return variant("key", query.key);
-    if ("prefix" in query) return variant("prefix", query.prefix);
-    if ("from" in query || "to" in query) {
-        return variant("range", { from: [...(query.from ?? [])], to: [...(query.to ?? [])] });
+    if ("fields" in query) {
+        return variant("fields", {
+            values: [...query.fields],
+            prefix: query.prefix !== undefined ? some(query.prefix) : none,
+        });
     }
-    return variant("fields", {
-        values: [...query.fields],
-        prefix: query.prefix !== undefined ? some(query.prefix) : none,
-    });
+    if ("prefix" in query) return variant("prefix", query.prefix);
+    return variant("range", { from: [...(query.from ?? [])], to: [...(query.to ?? [])] });
 }

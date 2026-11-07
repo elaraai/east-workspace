@@ -22,11 +22,17 @@
  * keeps its own check and its own words; what this module holds is the same
  * for every builder.
  *
+ * A kind's record may be keyed by any type a Dict takes. Its keys travel as
+ * text, a String key as itself and any other as East prints it, so the wire is
+ * one type whatever the key; an accessor, a kind's roles and the app's check
+ * hear each key parsed back at the record's key type, and its session writes
+ * a Save at it.
+ *
  * @packageDocumentation
  */
 
 import {
-    ArrayType, BlobType, BooleanType, DictType, East, EastTypeType, Expr, FunctionType, IntegerType, OptionType, StringType, StructType,
+    ArrayType, BlobType, BooleanType, DictType, East, EastTypeType, Expr, FunctionType, IntegerType, OptionType, StringType, StructType, TypeMismatchError,
     isSubtype, isTypeEqual, none, some, toEastTypeValue, variant,
     type EastType, type ExprType, type NullType, type SubtypeExprOrValue,
 } from "@elaraai/east";
@@ -40,7 +46,7 @@ import { scheduleAccessor } from "../schedule/accessor.js";
 import { fieldOf, fieldSetters } from "../schedule/fields.js";
 import { scheduleEntriesSeam, scheduleRecordSession } from "../schedule/session.js";
 import { ScheduleEntriesType, ScheduleFieldWriteType, ScheduleReadyEntryType } from "../schedule/types.js";
-import { optionOf, scheduleEntryByKey, scheduleLastKey, typeText } from "../schedule/window.js";
+import { keyOfText, keyTextOf, optionOf, scheduleEntryByKey, scheduleLastKey, typeText } from "../schedule/window.js";
 import { RowInspectorType, rowInspector } from "./row-inspector.js";
 
 // ============================================================================
@@ -89,18 +95,28 @@ export const KindSideFields = {
 // The binding
 // ============================================================================
 
-/** A kind's record, bound: how, its handle, and its row type. */
+/** A kind's record, bound: how, its handle, its key type and its row type. */
 export interface KindBinding {
     /** `record`: `Record.bind` with its patch door, editable; `data`: `Data.bind`, read whole; `paged`: `Data.bindPaged`, read through a source. */
     readonly form: "record" | "data" | "paged";
     /** The binding's handle. */
     readonly handle: ExprType<EastType>;
+    /** The record's key type: what its accessors and the app's check hear a key at, and what its session writes a Save at. */
+    readonly keyType: EastType;
     /** The record's row type. */
     readonly rowType: StructType;
 }
 
-/** An accessor of a row and its key: what a computed role is. */
-export type KindAccessor<R extends EastType, T extends EastType> = (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<T>;
+/**
+ * An accessor of a row and its key, the key at the record's key type: what a
+ * computed role is.
+ *
+ * @typeParam R - The record's row type
+ * @typeParam T - The type it returns
+ * @typeParam K - The record's key type
+ */
+export type KindAccessor<R extends EastType, T extends EastType, K extends EastType = StringType> =
+    (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<T>;
 
 /** A kind's own Details: an East function over the row and its writer, as the Sheet's are. */
 export type KindRowInspector<R extends StructType> = SubtypeExprOrValue<FunctionType<[R, FunctionType<[R], NullType>], UIComponentType>>;
@@ -109,21 +125,25 @@ export type KindRowInspector<R extends StructType> = SubtypeExprOrValue<Function
 // The reads
 // ============================================================================
 
-/** A kind's rows, by key: what a read of it gives; `none` while it is in flight. */
-export type KindRowsRead = ExprType<FunctionType<[], OptionType<DictType<StringType, EastType>>>>;
+/** A kind's rows, by key at the record's key type: what a read of it gives; `none` while it is in flight. */
+export type KindRowsRead = ExprType<FunctionType<[], OptionType<DictType<EastType, EastType>>>>;
+
+/** A kind's roles, from a row and its key at the record's key type. */
+type KindRolesOf = ExprType<FunctionType<[EastType, EastType], EastType>>;
 
 /**
  * A kind's record read whole: its binding's `read()` — `Record.bind`'s or
  * `Data.bind`'s — by key.
  *
  * @param handle - The record's binding
+ * @param keyType - Its key type
  * @param rowType - Its row type
  * @returns `()` → the record's rows, by key
  */
-export function kindWholeRows(handle: ExprType<EastType>, rowType: StructType): KindRowsRead {
-    const Held = DictType(StringType, rowType);
-    const read = (handle as unknown as { read: () => ExprType<DictType<StringType, StructType>> }).read;
-    return East.function([], OptionType(Held), (_$) => East.value(some(read()), OptionType(Held))) as unknown as KindRowsRead;
+export function kindWholeRows(handle: ExprType<EastType>, keyType: EastType, rowType: StructType): KindRowsRead {
+    const Held = DictType(keyType, rowType);
+    const read = (handle as unknown as { read: () => ExprType<DictType<EastType, StructType>> }).read;
+    return East.function([], OptionType(Held), (_$) => East.value(some(read()) as never, OptionType(Held))) as unknown as KindRowsRead;
 }
 
 /**
@@ -141,14 +161,17 @@ export function kindWholeRows(handle: ExprType<EastType>, rowType: StructType): 
  *
  * @param part - The kind's source of the slice, bound once in the builder's payload (`recordSources(…).bind($)`)
  * @param source - The source's name
+ * @param keyType - The kind's record's key type
  * @param rowType - The kind's record's row type
  * @param where - The kind, as a refusal names it
  * @param every - Whether it reads every row, the narrowing read nowhere: what the narrowing leaves out draws as context
  * @param remedy - How the refusal of a source over another record names the source to give
  * @returns `()` → the rows the narrowing holds — or every row — by key; `none` while a search or a page is in flight
- * @throws {Error} When the source narrows another record, or reads neither its rows nor an index carrying them
+ * @throws {Error} When the source narrows another record — its entries keyed or holding rows of other types — or reads
+ *   neither its rows nor an index carrying them
  */
-export function kindSourceRows(part: ExprType<StructType>, source: string, rowType: StructType, where: string, every: boolean, remedy: string): KindRowsRead {
+export function kindSourceRows(part: ExprType<StructType>, source: string, keyType: EastType, rowType: StructType, where: string, every: boolean,
+    remedy: string): KindRowsRead {
     const type = Expr.type(part as unknown as Expr) as EastType;
     const fields = type.type === "Struct" ? type.fields as Record<string, EastType> : {};
     const data = fields["data"];
@@ -157,7 +180,7 @@ export function kindSourceRows(part: ExprType<StructType>, source: string, rowTy
     const collection = output === undefined ? undefined : optionOf(output);
     const entry = collection?.type === "Array" ? collection.value as EastType : undefined;
     const entryFields = entry?.type === "Struct" ? entry.fields as Record<string, EastType> : undefined;
-    const keyed = entryFields?.["key"] !== undefined && isTypeEqual(entryFields["key"], StringType);
+    const keyed = entryFields?.["key"] !== undefined && isTypeEqual(entryFields["key"], keyType);
     // An entry's row: its `row`, which a joined read fills, or its `value`, when the index carries the whole row.
     const joined = entryFields?.["row"] !== undefined && isTypeEqual(entryFields["row"], OptionType(rowType));
     const carried = entryFields?.["value"] !== undefined && isTypeEqual(entryFields["value"], rowType);
@@ -170,8 +193,8 @@ export function kindSourceRows(part: ExprType<StructType>, source: string, rowTy
         throw new Error(`${where}: the slice's source "${source}" narrows another record — ${remedy}: ` +
             `Data.bindPaged(record, { indexes }), its rows joined or carried by its indexes`);
     }
-    const Held = DictType(StringType, rowType);
-    const Entries = collection as ArrayType<StructType<{ key: StringType; row: OptionType<EastType>; value: EastType }>>;
+    const Held = DictType(keyType, rowType);
+    const Entries = collection as ArrayType<StructType<{ key: EastType; row: OptionType<EastType>; value: EastType }>>;
     const noRows = `${where}: the slice's source "${source}" reads no rows — bind it with Data.bindPaged(record, { indexes, join: true })`;
     return East.function([], OptionType(Held), ($) => {
         // The source as the payload bound it, its members read here: the read captures the source alone.
@@ -204,14 +227,14 @@ export function kindSourceRows(part: ExprType<StructType>, source: string, rowTy
                 $2.for(entries, ($3, e) => {
                     if (joined) {
                         $3.match(e.row, {
-                            some: ($4, row) => { $4(held.insert(e.key, row as never)); },
+                            some: ($4, row) => { $4(held.insert(e.key as never, row as never)); },
                             none: ($4) => {
-                                if (carried) $4(held.insert(e.key, e.value as never));
+                                if (carried) $4(held.insert(e.key as never, e.value as never));
                                 else $4.error(noRows);
                             },
                         });
                     } else {
-                        $3(held.insert(e.key, e.value as never));
+                        $3(held.insert(e.key as never, e.value as never));
                     }
                 });
                 $2.assign(result, some(held));
@@ -264,6 +287,7 @@ export function roleField(rowType: StructType, where: string) {
  * role and what it returns.
  *
  * @typeParam T - The type it returns
+ * @param keyType - The kind's key type: the key the accessor hears
  * @param rowType - The kind's row type
  * @param where - The kind, as a refusal names it
  * @param role - The role, as the refusal names it
@@ -273,11 +297,76 @@ export function roleField(rowType: StructType, where: string) {
  * @returns The accessor, reified; `undefined` when not given
  * @throws {Error} When it is no function, or returns another type
  */
-export function accessorRole<T extends EastType>(rowType: StructType, where: string, role: string, out: T, what: string, fn: unknown) {
+export function accessorRole<T extends EastType>(keyType: EastType, rowType: StructType, where: string, role: string, out: T, what: string, fn: unknown) {
     if (fn === undefined) return undefined;
     if (typeof fn !== "function") throw new Error(`${where}: \`${role}\` is an accessor, (row, key) => ${what}`);
-    return scheduleAccessor(rowType, StringType, out, fn as (row: ExprType<EastType>, key: ExprType<EastType>) => SubtypeExprOrValue<T>,
+    return scheduleAccessor(rowType, keyType, out, fn as (row: ExprType<EastType>, key: ExprType<EastType>) => SubtypeExprOrValue<T>,
         (returns) => `${where}: \`${role}\` returns ${what} — and this one returns ${returns}`);
+}
+
+/**
+ * A new row's key, built from its row by the app (#1549): what a kind's `key`
+ * takes — `(move) => ({ from: move.from, to: move.to })`.
+ *
+ * @typeParam R - The record's row type
+ * @typeParam K - The record's key type
+ */
+export type KindKeyBuilder<R extends EastType, K extends EastType> = (row: ExprType<R>) => SubtypeExprOrValue<K>;
+
+/**
+ * A kind's `key`, reified once and held to the record's key type (#1549): on
+ * the wire, a new row's key's text from the row's bytes — a String key as
+ * itself, any other as East prints it — which the renderer makes a new row
+ * under, and moves the row to as an edit changes what it reads.
+ *
+ * @param keyType - The record's key type
+ * @param rowType - The record's row type
+ * @param where - The kind, as a refusal names it
+ * @param noun - A row of the kind, as the refusal names it (`a transition`)
+ * @param fn - What the kind was given
+ * @returns `(bytes)` → the key's text; `undefined` when not given
+ * @throws {Error} When it is no function, or builds a key of another type than the record's, naming both
+ */
+export function keyBuilderOf(keyType: EastType, rowType: StructType, where: string, noun: string, fn: unknown): ExprType<FunctionType<[BlobType], StringType>> | undefined {
+    if (fn === undefined) return undefined;
+    if (typeof fn !== "function") throw new Error(`${where}: \`key\` builds ${noun}'s key from its row, (row) => …`);
+    const author = fn as (row: ExprType<EastType>) => SubtypeExprOrValue<EastType>;
+    let built: ExprType<FunctionType<[EastType], EastType>>;
+    try {
+        built = East.function([rowType], keyType, (_$, row) => author(row)) as unknown as ExprType<FunctionType<[EastType], EastType>>;
+    } catch (err) {
+        if (!(err instanceof TypeMismatchError)) throw err;
+        // What it builds, as East infers it from its own body.
+        const inferred = East.function([rowType], undefined, (_$, row) => author(row) as ExprType<EastType>);
+        const builds = (Expr.type(inferred as unknown as Expr) as FunctionType).output as EastType;
+        throw new Error(`${where}: \`key\` builds ${noun}'s key, of the record's key type ${typeText(keyType)} — and this one builds ${typeText(builds)}`);
+    }
+    const textOf = keyTextOf(keyType);
+    return East.function([BlobType], StringType, ($, bytes) => {
+        const build = $.const(built);
+        const text = $.const(textOf);
+        return text(build(bytes.decodeBeast(rowType, "v2") as never));
+    }) as unknown as ExprType<FunctionType<[BlobType], StringType>>;
+}
+
+/**
+ * Refuses an editable kind of rows whose key is never typed — a Flowchart's
+ * transitions, a Schematic's links and nets — keyed by neither String nor
+ * Integer and given no `key` (#1549): a String key is made up and an Integer
+ * one counted on, and any other only `key` can build.
+ *
+ * @param bound - The kind's binding
+ * @param keyBuilt - Its `key`, reified; `undefined` for none
+ * @param where - The kind, as a refusal names it
+ * @param noun - Its rows, as the refusal names them (`transitions`)
+ * @param made - What makes a new row of the kind, as the refusal says it (`Connect makes one`)
+ * @throws {Error} For an editable kind keyed by another type than String or Integer, given no `key`
+ */
+export function checkMadeKeys(bound: KindBinding, keyBuilt: unknown, where: string, noun: string, made: string): void {
+    const keyType = bound.keyType;
+    if (bound.form !== "record" || keyBuilt !== undefined || keyType.type === "String" || keyType.type === "Integer") return;
+    throw new Error(`${where}: the ${noun} are keyed by ${typeText(keyType)}, and ${made} with no key typed — give \`key\`, building one's key from its row, ` +
+        "or key them by String or Integer");
 }
 
 /**
@@ -337,24 +426,24 @@ export function called<T extends EastType>(
  * place itself.
  *
  * @param read - The kind's read: whole, or through its source
+ * @param keyType - The record's key type: the rows' roles hear each key at it, and the wire holds each as its text
  * @param rolesOf - A row's roles, from it and its key
  * @param EntryType - A stored row's type: its roles beside its bytes
- * @returns `()` → the rows, by key; `none` while the read is in flight
+ * @returns `()` → the rows, by their keys' text; `none` while the read is in flight
  */
-export function storedRows(
-    read: ExprType<FunctionType<[], OptionType<DictType<StringType, EastType>>>>,
-    rolesOf: ExprType<FunctionType<[EastType, StringType], EastType>>, EntryType: StructType,
-) {
+export function storedRows(read: KindRowsRead, keyType: EastType, rolesOf: KindRolesOf, EntryType: StructType) {
     const Rows = DictType(StringType, EntryType);
+    const textOf = keyTextOf(keyType);
     return East.function([], OptionType(Rows), ($) => {
         const readRows = $.const(read);
         const roles = $.const(rolesOf);
+        const text = $.const(textOf);
         const result = $.let(East.value(none, OptionType(Rows)), OptionType(Rows));
         $.match(readRows(), {
             some: ($2, held) => {
                 const out = $2.let(new Map(), Rows);
                 $2.for(held, ($3, row, key) => {
-                    $3(out.insert(key, East.value({ roles: roles(row as never, key), row: East.Blob.encodeBeast(row as ExprType<EastType>, "v2") } as never, EntryType)));
+                    $3(out.insert(text(key), East.value({ roles: roles(row as never, key), row: East.Blob.encodeBeast(row as ExprType<EastType>, "v2") } as never, EntryType)));
                 });
                 $2.assign(result, some(out));
             },
@@ -367,41 +456,47 @@ export function storedRows(
  * The rows a reader read of a record by area or by key, made its stored rows
  * (#1393): each row's roles, read in the pass that reads it, beside its bytes,
  * as `rows` gives them — from the rows as beast2 bytes of an `Array` of
- * `{ key, row }` at the record's row type, which the reader encodes from what
- * it read.
+ * `{ key, row }` at the record's row type, each key its text, which the
+ * reader encodes from what it read.
  *
+ * @param keyType - The record's key type: each key's text is parsed back at it for the row's roles
  * @param rowType - The record's row type
  * @param rolesOf - A row's roles, from it and its key
  * @param EntryType - A stored row's type: its roles beside its bytes
- * @returns `(bytes)` → the rows, by key
+ * @returns `(bytes)` → the rows, by their keys' text
  */
-export function rowsReadOf(rowType: StructType, rolesOf: ExprType<FunctionType<[EastType, StringType], EastType>>, EntryType: StructType) {
+export function rowsReadOf(keyType: EastType, rowType: StructType, rolesOf: KindRolesOf, EntryType: StructType) {
     const Read = ArrayType(StructType({ key: StringType, row: rowType }));
     const Rows = DictType(StringType, EntryType);
+    const keyOf = keyOfText(keyType);
     return East.function([BlobType], Rows, ($, bytes) => {
         const roles = $.const(rolesOf);
+        const parse = $.const(keyOf);
         const read = $.const(bytes.decodeBeast(Read, "v2"));
         const out = $.let(new Map(), Rows);
         $.for(read, ($2, entry) => {
-            $2(out.insert(entry.key, East.value({ roles: roles(entry.row as never, entry.key), row: East.Blob.encodeBeast(entry.row as ExprType<EastType>, "v2") } as never, EntryType)));
+            $2(out.insert(entry.key, East.value({ roles: roles(entry.row as never, parse(entry.key)), row: East.Blob.encodeBeast(entry.row as ExprType<EastType>, "v2") } as never, EntryType)));
         });
         return out;
     });
 }
 
 /**
- * A drafted row's roles, from its bytes and its key: what `rows` gives a
- * stored one.
+ * A drafted row's roles, from its bytes and its key's text: what `rows` gives
+ * a stored one.
  *
+ * @param keyType - The record's key type: the key's text is parsed back at it for the row's roles
  * @param rowType - The record's row type
  * @param rolesOf - A row's roles, from it and its key
  * @param RolesType - The roles' type
  * @returns `(bytes, key)` → the roles
  */
-export function readOf(rowType: StructType, rolesOf: ExprType<FunctionType<[EastType, StringType], EastType>>, RolesType: StructType) {
-    return East.function([BlobType, StringType], RolesType, ($, bytes, key) => {
+export function readOf(keyType: EastType, rowType: StructType, rolesOf: KindRolesOf, RolesType: StructType) {
+    const keyOf = keyOfText(keyType);
+    return East.function([BlobType, StringType], RolesType, ($, bytes, id) => {
         const roles = $.const(rolesOf);
-        return roles(bytes.decodeBeast(rowType, "v2") as never, key) as never;
+        const parse = $.const(keyOf);
+        return roles(bytes.decodeBeast(rowType, "v2") as never, parse(id)) as never;
     });
 }
 
@@ -409,20 +504,23 @@ export function readOf(rowType: StructType, rolesOf: ExprType<FunctionType<[East
  * The app's check over drafted rows, one result each; a check that throws
  * refuses its own row alone.
  *
+ * @param keyType - The record's key type: each drafted row's key is parsed back at it for the check
  * @param rowType - The record's row type
  * @param ready - The app's check over a row and its key
  * @returns The check over bytes; `undefined` for none
  */
-export function readyOf(rowType: StructType, ready: ((row: ExprType<StructType>, key: ExprType<StringType>) => unknown) | undefined) {
+export function readyOf(keyType: EastType, rowType: StructType, ready: ((row: ExprType<StructType>, key: ExprType<EastType>) => unknown) | undefined) {
     if (ready === undefined) return undefined;
-    const author = East.function([rowType, StringType], EditingReadinessType, ($, row, key) =>
+    const author = East.function([rowType, keyType], EditingReadinessType, ($, row, key) =>
         $.const(ready(row, key) as SubtypeExprOrValue<typeof EditingReadinessType>, EditingReadinessType));
+    const keyOf = keyOfText(keyType);
     return East.function([ArrayType(ScheduleReadyEntryType)], ArrayType(EditingReadinessType), ($, batch) => {
         const check = $.const(author);
+        const parse = $.const(keyOf);
         return batch.map(($2, item) => {
             const result = $2.let(variant("ready", null), EditingReadinessType);
             $2.try(($3) => {
-                $3.assign(result, check(item.entry.decodeBeast(rowType, "v2"), item.id));
+                $3.assign(result, check(item.entry.decodeBeast(rowType, "v2"), parse(item.id)));
             }).catch(($3, message) => {
                 $3.assign(result, variant("invalid", [{ field: "", message: East.str`Readiness check failed: ${message}` }]));
             });
@@ -471,17 +569,18 @@ export function rowSetter(rowType: StructType) {
 
 /**
  * What every kind declares beside its roles, each typed over the record's
- * row, as Schedule's kinds' are (#1391).
+ * row and its key, as Schedule's kinds' are (#1391).
  *
  * @typeParam R - The record's row type
+ * @typeParam K - The record's key type
  */
-export interface RecordSide<R extends StructType = StructType> {
+export interface RecordSide<R extends StructType = StructType, K extends EastType = StringType> {
     /** A paged read of the record's own entries, for an editable record read through its source. */
     entries?: unknown;
     /** Hints for the inspector's form over the fields no role writes (`Fields`). */
     fields?: FieldHints<R["fields"]>;
     /** The app's check on a drafted row, over the row and its key: a refusal holds Save, naming the row and its field. */
-    ready?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<typeof EditingReadinessType>;
+    ready?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<typeof EditingReadinessType>;
     /** The kind's own Details, in place of its form: an East function over the row and its writer. */
     inspector?: KindRowInspector<R>;
 }
@@ -493,6 +592,7 @@ export interface RecordSide<R extends StructType = StructType> {
  * fields through.
  *
  * @typeParam R - The record's row type
+ * @typeParam K - The record's key type
  * @param bound - The record's binding
  * @param entries - Its `entries`, checked
  * @param byKey - The paged read its rows are read by key through, if any
@@ -502,30 +602,30 @@ export interface RecordSide<R extends StructType = StructType> {
  * @returns The fields every kind carries
  * @throws {Error} As `Fields.specs`, `rowInspector` and the patch door's check refuse
  */
-export function recordSide<R extends StructType>(bound: KindBinding, entries: ExprType<EastType> | undefined, byKey: ExprType<EastType> | undefined, config: RecordSide<R>,
-    omitted: readonly (string | undefined)[], where: string): Record<string, unknown> {
+export function recordSide<R extends StructType, K extends EastType>(bound: KindBinding, entries: ExprType<EastType> | undefined, byKey: ExprType<EastType> | undefined,
+    config: RecordSide<R, K>, omitted: readonly (string | undefined)[], where: string): Record<string, unknown> {
     const rowType = bound.rowType;
     const form = Fields.specs(rowType, (config.fields ?? {}) as never,
         [...new Set(omitted.filter((name): name is string => name !== undefined))] as never);
     const inspector = config.inspector === undefined ? undefined : rowInspector(config.inspector, rowType,
         `${where}: \`inspector\` is the kind's own Details — an East.function over the row and its writer: ` +
         "East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …), RowType the record's row");
-    // Typed over the kind's row, as its author wrote it: called over the row the check decodes.
-    const ready = readyOf(rowType, config.ready as never);
+    // Typed over the kind's row and key, as its author wrote it: called over the row the check decodes and its key, read back.
+    const ready = readyOf(bound.keyType, rowType, config.ready as never);
     let editing: unknown = none;
     let seam: unknown;
     let history: unknown = none;
     if (bound.form === "record") {
         // The shared session over the record (Schedule's `session.ts`): whole-entry drafts, keyed batches, Save through
-        // its patch door — its base the record's snapshot, or, read through a source, its revision.
-        const session = scheduleRecordSession(bound.handle, StringType, rowType, byKey === undefined ? undefined : entries);
+        // its patch door at the record's key type — its base the record's snapshot, or, read through a source, its revision.
+        const session = scheduleRecordSession(bound.handle, bound.keyType, rowType, byKey === undefined ? undefined : entries);
         const built = session.build();
         editing = some(built.editing);
         seam = built.entries;
         history = some(session.history);
     } else if (byKey !== undefined) {
         // Read only through `Data.bindPaged`: the record read by key through that binding itself.
-        seam = scheduleEntriesSeam(byKey, scheduleEntryByKey(byKey, StringType, rowType), scheduleLastKey(byKey, StringType));
+        seam = scheduleEntriesSeam(byKey, scheduleEntryByKey(byKey, bound.keyType, rowType), scheduleLastKey(byKey, bound.keyType));
     }
     return {
         editable: bound.form === "record",

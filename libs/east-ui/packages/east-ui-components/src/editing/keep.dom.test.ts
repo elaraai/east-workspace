@@ -39,7 +39,7 @@ const version = (id: string, job: JobValue): EntryVersion<WireValue> => ({ draft
 /** A session over the jobs, its drafts kept under the key. */
 function session(entryType = Job, draftType = JobDraft): EditSession<WireValue> {
     const binding: EditSessionBinding<WireValue> = {
-        sourceId: "jobs", entryType, draftType, keyType: StringType, auto: false,
+        sourceId: "jobs", entryType, draftType, keyType: StringType,
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     };
     const next = new EditSession<WireValue>(binding);

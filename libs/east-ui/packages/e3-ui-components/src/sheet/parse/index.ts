@@ -7,7 +7,10 @@
  * Parse / print dispatch by column kind (`Sheet Spec.md` §6): typed text to
  * a wire cell, and a cell back to its edit form. A custom kind calls the
  * factory's compiled East pair; the register kinds resolve through the
- * scored candidates (exact → top → typed; an enum non-match remains invalid).
+ * scored candidates — a member named whole by its key, an alias or its label,
+ * else the top candidate — and keep the typed text where nothing matches; a
+ * closed register's non-match (an enum's, a person's, a cycle's) remains
+ * invalid. A register member opens for editing in the words its cell shows.
  *
  * @packageDocumentation
  */
@@ -16,10 +19,11 @@ import { variant } from "@elaraai/east";
 import type { Formatters } from "@elaraai/east-ui-components";
 import { parseDate, formatWhenEdit, type WhenLevel } from "./date.js";
 import { parseQuantity, formatNumberBare } from "./quantity.js";
-import { candidateList, type CandidateContext } from "../candidates.js";
+import { candidateFor, type CandidateContext } from "../candidates.js";
 import { cellText, memberLabel, printLinkText, type SheetColumnMeta } from "../model.js";
 import { parseLinkText, type LinkVocabulary } from "../link/grammar.js";
-import type { SheetCellValue, SheetContextValue, SheetLinkValue } from "../values.js";
+import { booleanOf } from "../steps.js";
+import type { SheetCellValue, SheetContextValue, SheetLinkValue, SheetRegisterMemberValue } from "../values.js";
 
 /** The outcome of parsing an editor buffer. */
 export type ParseOutcome =
@@ -62,6 +66,7 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
     switch (meta.kind) {
         case "text":
         case "stamped":
+        case "title":
             return trimmed === "" ? { kind: "blank" } : { kind: "cell", cell: cellOf("String", text) };
         case "date": {
             const d = parseDate(text, { today: ctx.today, base: ctx.baseDate });
@@ -83,18 +88,23 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
         }
         case "lookup":
         case "reference": {
+            // An open register: the member the text names, else its best match, else the text as typed.
             if (trimmed === "") return { kind: "blank" };
-            const list = candidateList(meta, text, ctx);
-            const exact = list.find((l) => l.toLowerCase() === trimmed.toLowerCase());
-            return { kind: "cell", cell: cellOf("String", exact ?? list[0] ?? trimmed) };
+            return { kind: "cell", cell: cellOf("String", candidateFor(meta, text, ctx)?.key ?? trimmed) };
         }
-        case "enum": {
+        case "enum":
+        case "person":
+        case "cycle": {
+            // A closed register: the member the text names, else its best match; an unmatched text stays invalid draft text.
             if (trimmed === "") return { kind: "blank" };
-            const list = candidateList(meta, trimmed.toUpperCase(), ctx);
-            const exact = list.find((l) => l.toLowerCase() === trimmed.toLowerCase());
-            const pick = exact ?? list[0];
-            // Preserve an unmatched enum as invalid draft text.
-            return pick === undefined ? { kind: "unrecognised" } : { kind: "cell", cell: cellOf("String", pick) };
+            const pick = candidateFor(meta, text, ctx);
+            return pick === undefined ? { kind: "unrecognised" } : { kind: "cell", cell: cellOf("String", pick.key) };
+        }
+        case "toggle":
+        case "boolean": {
+            if (trimmed === "") return { kind: "blank" };
+            const on = booleanOf(meta, trimmed);
+            return on === undefined ? { kind: "unrecognised" } : { kind: "cell", cell: cellOf("Boolean", on) };
         }
         case "set":
         case "link": {
@@ -128,26 +138,28 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
 }
 
 /**
- * A cell's EDIT form — what the editor opens with: dates `17/11/26`, numbers
- * bare with the viewer's decimal separator (`1234,5` in German — the grammar
- * reads it back, #852); a date at the time level, or one carrying a time of
- * day, keeps it (`17/11/26 19:00`).
+ * A cell's EDIT form — what the editor opens with: a register member in the
+ * words its cell shows, its label (#1536); dates `17/11/26`, numbers bare
+ * with the viewer's decimal separator (`1234,5` in German — the grammar reads
+ * it back, #852); a date at the time level, or one carrying a time of day,
+ * keeps it (`17/11/26 19:00`).
  *
  * @param cell - The cell
  * @param meta - Its column
  * @param words - The viewer's formatters
  * @param level - A date column's level for the row
+ * @param member - The register member the cell holds the key of, where it holds one
  * @returns The text
  */
-export function editText(cell: SheetCellValue | undefined, meta: SheetColumnMeta, words: Formatters, level?: WhenLevel): string {
+export function editText(cell: SheetCellValue | undefined, meta: SheetColumnMeta, words: Formatters, level?: WhenLevel, member?: SheetRegisterMemberValue): string {
     if (cell === undefined || cell.type === "Null") return "";
     switch (cell.type) {
         case "DateTime": return formatWhenEdit(cell.value, level);
         case "Float": return formatNumberBare(cell.value, words);
         case "Integer": return String(cell.value);
-        case "Invalid":
-        case "String": return cell.value;
-        case "Boolean": return String(cell.value);
+        case "Invalid": return cell.value;
+        case "String": return member !== undefined && member.label !== "" ? member.label : cell.value;
+        case "Boolean": return cellText(cell, meta, words);
         case "Link": return printLinkText(cell.value);
     }
     return cellText(cell, meta, words);

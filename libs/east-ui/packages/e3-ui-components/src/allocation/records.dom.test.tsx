@@ -10,11 +10,12 @@
  * days' door refusing keeping the day's draft while the bins' commit stands
  * (B6); Publish saves, then writes the day's status, and a Save that fails
  * writes no status (B7); a published day is read-only in every layout, phones
- * included (B8); and a new bin's key is minted unique in its record (B15).
+ * included (B8); a new bin's key is minted unique in its record (B15); and a
+ * reservation's own fields are the bin kind's `values` of it (#1526).
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
-import { OptionType, SortedMap, StringType, compareFor, equalFor, some, variant } from "@elaraai/east";
+import { OptionType, SortedMap, StringType, compareFor, equalFor, none, some, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import { dayKey } from "./model.js";
@@ -187,5 +188,17 @@ describe("one history over the Allocation's records (#1372)", () => {
         expect(equalFor(ex.minimalBins.type.value)(after.get("far-1")!, bins.get("far-1")!)).toBe(true);
         const booked = after.get("m-1")!;
         expect([booked.bay, booked.at, sameLoad(booked.load, some("LD-2231"))]).toEqual(["B-1", at(0, 15), true]);
+    });
+
+    test("a reservation saves with the bin kind's `values` of it (#1526): the yard's own fields for a slot held with nothing booked in it", async () => {
+        const { container: c } = await h.mount(ex.allocationKilnYard);
+        await press(toolbar(c).getByRole("radio", { name: "Table" }));
+        await press(freeRow(c, "B-1", at(0, 15)).querySelector("span"));
+        offering(["V1"]);
+        await press(within(slot(c, "end").querySelector<HTMLElement>('[data-allocation-reserve] [data-allocation-option="K-305"]')!).getByRole("button", { name: "Reserve" }));
+        await press(button(c, editingMessages.apply()));
+        const reserved = (await h.read(ex.kilnBins)).get("V1")!;
+        expect([reserved.load, [...reserved.kilns.keys()], reserved.specBooked, reserved.specMeasured, reserved.gradeBooked, reserved.gradeMeasured, reserved.instruction])
+            .toEqual([none, ["K-305"], "", "", "", "", some("Hold for the next load")]);
     });
 });

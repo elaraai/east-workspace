@@ -708,6 +708,10 @@ describe("Issues (R16)", () => {
         // e3's answer to the lanes' write arrives saying the mutation is invalid: the session hears a refusal.
         const refused = encodeBeast2For(ResponseType(MutationResultType))(variant("success", { outcome: variant("invalid", { message: "The lanes are held for review" }) }));
         const stop = h.e3.fail((request) => request.kind === "mutate" && request.record === ex.depotLanes.name, { alter: () => new Uint8Array(refused) });
+        // e3 commits the write whose answer the fault alters: the lanes read again would hold the label saved, and the
+        // draft settle on it before its refusal is listed — where a write e3 refuses leaves the lanes as they were. The
+        // lanes' reads wait until it is.
+        const reads = h.e3.hold((request) => request.kind === "read" && request.dataset === `records.${ex.depotLanes.name}`);
         await press(SAVE);
         await openTab(c, "Issues");
         // The write can reach e3 after the Save's click has settled, as a slow runner sends it: the refusal stays in
@@ -719,6 +723,7 @@ describe("Issues (R16)", () => {
             return [issue?.getAttribute("data-inspector-issue"), issue?.querySelector("[data-kind]")?.textContent, issue?.querySelector("[data-kind]")?.getAttribute("data-kind")];
         };
         await waitFor(() => expect(first(), said()).toEqual(["save", "The lanes are held for review", "invalid"]), { timeout: 15_000 });
+        reads.release();
         stop();
     });
 });

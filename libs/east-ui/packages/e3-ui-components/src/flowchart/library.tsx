@@ -29,6 +29,9 @@
  *   source alone, and while its source resolves holds its cards retained
  *   (#1398, CL8): readable and selectable, aria-disabled, taking no drag, ⏎ or
  *   tap that drops. A tab that follows none lists its cards whole.
+ * - **A kind adding no row** (#1549): the Steps' or the Lanes' cards of a kind
+ *   whose keys the form can't type, and that builds none, take no drag, ⏎ or
+ *   tap that drops, each card's line saying why.
  *
  * Each tab's cards are a `Library`'s, drawn by the shared parts — every icon
  * Font Awesome's solid set, every style the `library` recipe's — and drag
@@ -180,6 +183,8 @@ interface PaneTab {
     readonly name: string;
     readonly icon: string | undefined;
     readonly drops: boolean;
+    /** Why its cards drop nowhere, on each card's line: its kind adds no row (#1549); `undefined` for cards that drop as its tab does. */
+    readonly why: string | undefined;
     /** Whether any of its cards has a group: its Group by. */
     readonly grouped: boolean;
     readonly follow: SourceTab<PaneCard>;
@@ -205,15 +210,18 @@ export interface FlowchartLibraryProps {
     readonly followed: FollowedSources;
     /** Whether main is below 480px: no card drags, and a tap on the selected card is its ⏎, whatever the pointer. */
     readonly narrow?: boolean | undefined;
+    /** Why the states or the lanes add no row (#1549): their keys can't be typed, and they build none — their cards' line. */
+    readonly off?: { readonly states?: string | undefined; readonly lanes?: string | undefined } | undefined;
 }
 
 /**
  * The library pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - The payload, the Flowchart's keys, its words, a card's ⏎, the followed sources and whether main is narrow
+ * @param props - The payload, the Flowchart's keys, its words, a card's ⏎, the followed sources, whether main is narrow and
+ *   why a kind adds no row
  * @returns The pane — its tabs the ones `library` lists, each with its count; 272px wide; its collapsed state kept per viewer — or `undefined`, no pane, when `library` lists none
  */
-export function useFlowchartLibrary({ value, keys, words, enter, followed, narrow = false }: FlowchartLibraryProps): BuilderFrameDock | undefined {
+export function useFlowchartLibrary({ value, keys, words, enter, followed, narrow = false, off }: FlowchartLibraryProps): BuilderFrameDock | undefined {
     const m = words.m;
     const library = value.library;
     // The recipe's styles, resolved once a recipe: the frame renders it again as each read lands.
@@ -241,16 +249,19 @@ export function useFlowchartLibrary({ value, keys, words, enter, followed, narro
 
     // Each tab over the source it follows, by its cards' keys: the cards it shows, its count, its narrowed and its own
     // empty states, and its pane's attributes; a tab that follows none, its cards whole.
+    const offStates = off?.states, offLanes = off?.lanes;
     const tabs = useMemo(() => library.map((tab): PaneTab => {
         const { cards, icon, drops } = tabCards(value, tab);
         const name = flowchartTabName(tab, m);
         const source = flowchartTabSource(value, tab);
         const shown = source === undefined ? WHOLE : followed.get(source)?.shown ?? WHOLE;
+        // A Steps' or a Lanes' card adds a row: none where its kind adds none.
+        const why = tab.type === "states" ? offStates : tab.type === "lanes" ? offLanes : undefined;
         return {
-            word: tab.type, tabKey: flowchartTabKey(tab), name, icon, drops, grouped: cards.some((card) => card.group !== undefined),
+            word: tab.type, tabKey: flowchartTabKey(tab), name, icon, drops: drops && why === undefined, why, grouped: cards.some((card) => card.group !== undefined),
             follow: sourceTab({ cards, keyOf: (card) => card.key, shown, noun: tab.type === "tab" ? name.toLocaleLowerCase(words.locale) : m.libraryNoun({ tab: tab.type, n: 2 }), words }),
         };
-    }), [library, value, followed, m, words]);
+    }), [library, value, followed, m, words, offStates, offLanes]);
 
     // Each tab whose cards drop takes ⏎ on a card: the card, dropped on the canvas's selection — one function per tab, held still.
     const enters = useMemo(() => new Map(tabs.flatMap((tab): [string, (key: string) => void][] => {
@@ -272,13 +283,17 @@ export function useFlowchartLibrary({ value, keys, words, enter, followed, narro
     // Each tab's Library: the cards its source shows, each a drag source where its tab drops and main is wide enough.
     const libraries = useMemo(() => new Map(tabs.map((tab): [string, LibraryValue] => [tab.tabKey, scheduleLibrary({
         id: flowchartLibraryId(keys, tab.tabKey),
-        items: tab.follow.cards.map((card) => scheduleLibraryCard({
-            key: card.key, label: card.label, sublabel: card.meta === undefined ? none : some(card.meta), icon: tab.icon === undefined ? none : some(tab.icon),
-            status: none, trailing: none,
-            draggable: tab.drops && !narrow, filtered: false, placed: isPicked(tab.tabKey, card.key),
-            search: some(card.search),
-            groups: card.group === undefined ? new Map() : new Map([["group", card.group]]),
-        })),
+        items: tab.follow.cards.map((card) => {
+            // A card of a kind adding no row says why on its line (#1549).
+            const line = tab.why ?? card.meta;
+            return scheduleLibraryCard({
+                key: card.key, label: card.label, sublabel: line === undefined ? none : some(line), icon: tab.icon === undefined ? none : some(tab.icon),
+                status: none, trailing: none,
+                draggable: tab.drops && !narrow, filtered: false, placed: isPicked(tab.tabKey, card.key),
+                search: some(card.search),
+                groups: card.group === undefined ? new Map() : new Map([["group", card.group]]),
+            });
+        }),
         groupOptions: tab.grouped ? groupBy : [],
         noun: some({ singular: m.libraryNoun({ tab: tab.word, n: 1 }), plural: m.libraryNoun({ tab: tab.word, n: 2 }) }),
         onCardClick: some((key: string) => { onCard(tab.tabKey, key); return null; }),

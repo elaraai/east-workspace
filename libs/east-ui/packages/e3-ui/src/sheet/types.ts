@@ -41,6 +41,7 @@ import {
     IntegerType,
     NullType,
     OptionType,
+    SetType,
     StringType,
     StructType,
     VariantType,
@@ -124,11 +125,11 @@ export type SheetActionCellType = typeof SheetActionCellType;
  *
  * @property Invalid - Unparseable draft text, retained verbatim until corrected
  * @property Null - The blank cell
- * @property Boolean - A boolean value
+ * @property Boolean - A boolean value (a Record's `boolean` / `toggle` column's cell)
  * @property Integer - An integer value
  * @property Float - A float value (a `quantity` column's cell)
- * @property String - A string value (text · lookup · reference · enum · stamped)
- * @property DateTime - A UTC-midnight date (a `date` column's cell)
+ * @property String - A string value (text · lookup · reference · enum · stamped; a Record's title · person · cycle)
+ * @property DateTime - A UTC-midnight date (a `date` column's cell); the moment an `age` counts from, or an `audit`'s change was made
  * @property Link - A typed link (a `set` / `link` column's cell)
  * @property Action - An action column's case (#1474): its name, and its value encoded (beast2, at the case's type)
  */
@@ -228,11 +229,11 @@ export const SHEET_TITLE_CELL = "$title";
  * date column's `level` / `actual`, a column's `detail`. The `$` prefix keeps
  * it clear of every field name, as {@link SHEET_TITLE_CELL} is.
  *
- * @param rule - The rule (`"level"`, `"actual"`, `"detail"`; an action column's `"summary"`, `"name"`, `"title"`)
+ * @param rule - The rule (`"level"`, `"actual"`, `"detail"`; an action column's `"summary"`, `"name"`, `"title"`; an audit column's `"by"`, `"verb"`)
  * @param column - The column key
  * @returns The cell key (`"$level:start"`)
  */
-export function sheetRuleCell(rule: "level" | "actual" | "detail" | "summary" | "name" | "title", column: string): string {
+export function sheetRuleCell(rule: "level" | "actual" | "detail" | "summary" | "name" | "title" | "by" | "verb", column: string): string {
     return `$${rule}:${column}`;
 }
 
@@ -817,6 +818,68 @@ export const SheetActionKindType = StructType({
 /** Type alias for {@link SheetActionKindType}. */
 export type SheetActionKindType = typeof SheetActionKindType;
 
+// ============================================================================
+// The Record's kinds — a system of records' columns
+// ============================================================================
+
+/**
+ * The last change to a row, as the app keeps it — `Record.Types.Change`, the
+ * type a row field holds for an audit column to show and an age column to
+ * count from.
+ *
+ * @remarks
+ * The app's own processes write it (an import, an integration, a mutation of
+ * its own); a Record reads it and never writes it.
+ *
+ * @property at - When the row last changed, or was confirmed
+ * @property by - Who did it, as the app names them
+ * @property verb - What they did ("changed", "confirmed", "created")
+ */
+export const RecordChangeType = StructType({
+    at:   DateTimeType,
+    by:   StringType,
+    verb: StringType,
+});
+/** Type alias for {@link RecordChangeType}. */
+export type RecordChangeType = typeof RecordChangeType;
+
+/**
+ * How a cycle or toggle cell draws its state.
+ *
+ * @property chip - A chip holding the state's label
+ * @property mark - A quieter mark: pips for a scale, a dot and a word for a tone
+ */
+export const SheetLookType = VariantType({ chip: NullType, mark: NullType });
+/** Type alias for {@link SheetLookType}. */
+export type SheetLookType = typeof SheetLookType;
+/** String-literal shorthand for {@link SheetLookType}. */
+export type SheetLookLiteral = "chip" | "mark";
+
+/**
+ * What an age column counts.
+ *
+ * @property hours - Whole hours
+ * @property days - Whole days
+ * @property weeks - Whole weeks
+ */
+export const SheetAgeUnitType = VariantType({ hours: NullType, days: NullType, weeks: NullType });
+/** Type alias for {@link SheetAgeUnitType}. */
+export type SheetAgeUnitType = typeof SheetAgeUnitType;
+/** String-literal shorthand for {@link SheetAgeUnitType}. */
+export type SheetAgeUnitLiteral = "hours" | "days" | "weeks";
+
+/**
+ * How an audit cell reads its change.
+ *
+ * @property date - The date, its verb and who in the tooltip
+ * @property blame - The date, then the verb and who beside it
+ */
+export const SheetAuditModeType = VariantType({ date: NullType, blame: NullType });
+/** Type alias for {@link SheetAuditModeType}. */
+export type SheetAuditModeType = typeof SheetAuditModeType;
+/** String-literal shorthand for {@link SheetAuditModeType}. */
+export type SheetAuditModeLiteral = "date" | "blame";
+
 /**
  * The column kind — what a column parses, displays and proposes (§3.2).
  *
@@ -836,7 +899,7 @@ export type SheetActionKindType = typeof SheetActionKindType;
  *
  * @property text - Free text
  * @property date - A UTC-midnight date; `base` names the column relative entry counts from, `format` a display pattern, `level` the cell holding the row's {@link SheetDateLevelType} tag, `actual` the cell holding when the work really happened
- * @property quantity - A float with a unit per driver member (`uom`) and a display format
+ * @property quantity - A float with a unit per driver member (`uom`) or one `unit` for every row, and a display format
  * @property integer - A whole number
  * @property lookup - A scored register lookup — the driver column names the driver's register; `options` narrows what a row is offered
  * @property reference - A lookup over a flat member list
@@ -846,6 +909,13 @@ export type SheetActionKindType = typeof SheetActionKindType;
  * @property stamped - A read-only code an upstream system owns
  * @property custom - An author parse / print pair over the field's own payload
  * @property action - A variant's state machine: each case a state and the action into it (#1474)
+ * @property title - A record's title, its initials before it when `avatar`; a Record's
+ * @property person - A person, by a register's key: neutral initials, or no one; a Record's
+ * @property boolean - A checkbox; a Record's
+ * @property toggle - Two states on a Boolean, each a word; a Record's
+ * @property cycle - A register's members, stepped by a click — a `scale` steps up the heat ramp, otherwise each member's tone; a Record's
+ * @property age - Whole units from a moment to the browser's clock: `elapsed(since, now)`, warning at `stale`; read only, a Record's
+ * @property audit - The last change the app kept: the cell its moment, `by` and `verb` the rule cells holding who and what; read only, a Record's
  */
 export const SheetColumnKindType = VariantType({
     text:      NullType,
@@ -855,7 +925,7 @@ export const SheetColumnKindType = VariantType({
         level:  OptionType(StringType),
         actual: OptionType(StringType),
     }),
-    quantity:  StructType({ uom: OptionType(DictType(StringType, StringType)), format: OptionType(TickFormatType) }),
+    quantity:  StructType({ uom: OptionType(DictType(StringType, StringType)), unit: OptionType(StringType), format: OptionType(TickFormatType) }),
     integer:   NullType,
     lookup:    StructType({ register: StringType, options: OptionType(SheetOptionsRuleType) }),
     reference: StructType({ register: StringType }),
@@ -883,13 +953,26 @@ export const SheetColumnKindType = VariantType({
         print:   FunctionType([SheetCellType], StringType),
     }),
     action:    SheetActionKindType,
+    title:     StructType({ avatar: BooleanType }),
+    person:    StructType({ register: StringType, unassigned: OptionType(StringType) }),
+    boolean:   NullType,
+    toggle:    StructType({ on: StringType, off: StringType, look: SheetLookType }),
+    cycle:     StructType({ register: StringType, scale: BooleanType, look: SheetLookType }),
+    age:       StructType({
+        unit:    SheetAgeUnitType,
+        stale:   OptionType(IntegerType),
+        absent:  OptionType(StringType),
+        elapsed: FunctionType([DateTimeType, DateTimeType], IntegerType),
+    }),
+    audit:     StructType({ mode: SheetAuditModeType, absent: OptionType(StringType), by: StringType, verb: StringType }),
 });
 /** Type alias for {@link SheetColumnKindType}. */
 export type SheetColumnKindType = typeof SheetColumnKindType;
 /** String-literal shorthand for the arms of {@link SheetColumnKindType}. */
 export type SheetColumnKindLiteral =
     | "text" | "date" | "quantity" | "integer" | "lookup" | "reference" | "enum"
-    | "set" | "link" | "stamped" | "custom" | "action";
+    | "set" | "link" | "stamped" | "custom" | "action"
+    | "title" | "person" | "boolean" | "toggle" | "cycle" | "age" | "audit";
 
 /**
  * One declared column.
@@ -1147,7 +1230,7 @@ export type SheetNarrowType = typeof SheetNarrowType;
  * @property onViewsChange - Views changed (snapshot, rename, reorder, close)
  * @property onSelect - The ring moved
  * @property selection - Controlled selection when `some`
- * @property newRowId - Overrides the renderer's id minting for inserted rows
+ * @property newKey - A new entry's key from the keys taken, each as its text — the app's `newKey`, a key that is no String read and printed by the factory; with none, an Integer key's one past the largest (#1549); `none`, a UUID the renderer mints
  * @property group - The group declaration (#740); `none` on a flat sheet
  * @property readOnly - The whole sheet is read-only
  * @property blanks - Padding rows below the last real one (default 18)
@@ -1169,7 +1252,7 @@ export const SheetRootType = StructType({
     onViewsChange: OptionType(FunctionType([ArrayType(SheetRecordViewType)], NullType)),
     onSelect:      OptionType(FunctionType([SheetSelectionType], NullType)),
     selection:     OptionType(SheetSelectionType),
-    newRowId:      OptionType(FunctionType([], StringType)),
+    newKey:        OptionType(FunctionType([SetType(StringType)], StringType)),
     group:         OptionType(SheetGroupType),
     readOnly:      OptionType(BooleanType),
     blanks:        OptionType(IntegerType),

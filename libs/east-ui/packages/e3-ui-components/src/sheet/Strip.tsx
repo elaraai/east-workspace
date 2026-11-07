@@ -27,6 +27,7 @@ import { memo, useLayoutEffect, useRef, useState } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
+import { StringType, equalFor } from "@elaraai/east";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import { candidateList, candidateAt, type CandidateContext } from "./candidates.js";
 import { cellText, formatQuantity, memberLabel, type SheetColumnMeta } from "./model.js";
@@ -39,10 +40,12 @@ import { useSheetWords, type SheetWords } from "./words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
+const stringEqual = equalFor(StringType);
+
 /** What a strip chip does when clicked. */
 export type StripAction =
-    /** A candidate — replaces the buffer. */
-    | { kind: "candidate"; label: string; i: number }
+    /** A candidate — its member replaces the buffer, in the words it shows. */
+    | { kind: "candidate"; label: string; key: string; i: number }
     /** A link chip — adds members to the active half. */
     | { kind: "members"; label: string; members: SheetMemberValue[] }
     /** A pending fill — takes it. */
@@ -157,24 +160,26 @@ export function buildStrip(input: StripInput): StripModel {
     switch (meta.kind) {
         case "lookup":
         case "reference":
-        case "enum": {
+        case "enum":
+        case "person": {
             if (input.candidates === undefined) return OFF;
             const list = candidateList(meta, edit.val, input.candidates);
             if (list.length === 0) {
                 return empty ? OFF : { on: true, label: header, chips: flat(m.stripNoMatch()), meta: "", keys: m.stripKeysTyped() };
             }
             const armed = candidateAt(meta, edit.val, edit.hi, input.candidates);
-            const hi = armed === undefined ? -1 : Math.max(0, list.indexOf(armed));
-            // The strip pages, so more than a handful can be offered.
-            const chips: StripChip[] = list.slice(0, 12).map((label, i) => ({
+            const hi = armed === undefined ? -1 : Math.max(0, list.findIndex((c) => stringEqual(c.key, armed.key)));
+            // The strip pages, so more than a handful can be offered; each chip is a member, in the words it shows.
+            const chips: StripChip[] = list.slice(0, 12).map((c, i) => ({
                 key: `a${i}`,
-                label: label.length > 34 ? `${label.slice(0, 33)}…` : label,
+                label: c.label.length > 34 ? `${c.label.slice(0, 33)}…` : c.label,
                 on: i === hi,
                 flat: false,
-                title: label,
-                action: { kind: "candidate", label, i },
+                title: c.label,
+                action: { kind: "candidate", label: c.label, key: c.key, i },
             }));
-            const member = hi >= 0 ? input.candidates.registers.byName.get(meta.register ?? "")?.find((x) => x.key === list[hi]) : undefined;
+            const at = list[hi];
+            const member = at !== undefined ? input.candidates.registers.byName.get(meta.register ?? "")?.find((x) => stringEqual(x.key, at.key)) : undefined;
             const memberMeta = member !== undefined ? getSomeorUndefined(member.meta) ?? "" : "";
             if (hi < 0) {
                 return { on: true, label: m.stripAccepts({ header }), chips, meta: memberMeta, keys: m.stripKeysFilter() };

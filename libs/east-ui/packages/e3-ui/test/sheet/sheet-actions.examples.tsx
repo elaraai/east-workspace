@@ -143,6 +143,8 @@ export const sheetActionsWorkOrders = example({
                     <Sheet
                         slice={{ slice }}
                         name="sheetActionsWorkOrders"
+                        // The orders and their steps come from planning: this sheet takes their actions, and adds neither.
+                        edits={{ insertRows: false, insertGroups: false }}
                         group={Sheet.group(WorkOrder, "steps", {
                             title: "name", sub: o => o.id, noun: { singular: "order", plural: "orders" },
                             // The order's status on its band, under the Action column; the actions write it.
@@ -220,7 +222,6 @@ export const sheetActionsWorkOrders = example({
                         }}
                         inspector
                         onApply={Record.onApply(orders, { keyed: true })}
-                        applyMode="batch"
                     />
                 </Box>
             );
@@ -257,8 +258,8 @@ export const sheetCrews = e3.record("sheet_crews", DictType(StringType, Crew), {
 });
 
 export const sheetActionsTickets = example({
-    keywords: ["Sheet", "Sheet.column.action", "action", "flat", "DateTime", "Sheet.field.date", "form", "initial", "register", "Sheet.action.menu", "of", "updates", "applyMode", "auto"],
-    description: "Maintenance tickets on a flat sheet: Acknowledge, Defer… (a form of one date field, opening on tomorrow, that moves the ticket's due date), Hand over ▾ (a menu of the crews register, that moves its crew) and Close, a final state — each action saved as it is taken",
+    keywords: ["Sheet", "Sheet.column.action", "action", "flat", "DateTime", "Sheet.field.date", "form", "initial", "register", "Sheet.action.menu", "of", "updates"],
+    description: "Maintenance tickets on a flat sheet: Acknowledge, Defer… (a form of one date field, opening on tomorrow, that moves the ticket's due date), Hand over ▾ (a menu of the crews register, that moves its crew) and Close, a final state",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const tickets = $.let(Record.bind(sheetTickets));
@@ -270,6 +271,8 @@ export const sheetActionsTickets = example({
                     <Sheet
                         record={tickets}
                         name="sheetActionsTickets"
+                        // The tickets come from the maintenance log: this sheet takes their actions, and adds none.
+                        edits={{ insertRows: false }}
                         registers={{ crews: Sheet.register.members(crewList, { kind: "crew", key: (_c, k) => k, label: c => c.name }) }}
                         columns={{
                             title: Sheet.column.text(Ticket, { header: "Ticket", width: "220px" }),
@@ -298,7 +301,6 @@ export const sheetActionsTickets = example({
                                 },
                             }),
                         }}
-                        applyMode="auto"
                     />
                 </Box>
             );
@@ -347,8 +349,8 @@ export const sheetActionsReadOnly = example({
 // ============================================================================
 
 export const sheetActionsPhone = example({
-    keywords: ["Sheet", "Sheet.column.action", "action", "phone", "mobile", "touch", "action bar", "cell editor", "Sheet.field.number", "applyMode", "auto"],
-    description: "Example 2's work orders in a phone's box, 390 wide or the screen's width: each action cell shows its state alone, and a tap on an Action cell turns the docked strip into its action bar — the first action full width, the rest in one line, a menu or a form opening inside the bar — while a tap on Good or Done edits it there, the inspector's field at touch size; each change saved as it is made",
+    keywords: ["Sheet", "Sheet.column.action", "action", "phone", "mobile", "touch", "action bar", "cell editor", "Sheet.field.number"],
+    description: "Example 2's work orders in a phone's box, 390 wide or the screen's width: each action cell shows its state alone, and a tap on an Action cell turns the docked strip into its action bar — the first action full width, the rest in one line, a menu or a form opening inside the bar — while a tap on Good or Done edits it there, the inspector's field at touch size",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const orders = $.let(Record.bind(sheetWorkOrders));
@@ -373,6 +375,8 @@ export const sheetActionsPhone = example({
                     <Sheet
                         slice={{ slice }}
                         name="sheetActionsPhone"
+                        // The orders and their steps come from planning: this sheet takes their actions, and adds neither.
+                        edits={{ insertRows: false, insertGroups: false }}
                         group={Sheet.group(WorkOrder, "steps", {
                             title: "name", sub: o => o.id, noun: { singular: "order", plural: "orders" },
                             // The order's status on its band, under the Action column; the actions write it, and a status card sets it.
@@ -457,7 +461,6 @@ export const sheetActionsPhone = example({
                         // Good's field, as a tap on its cell edits it under the grid: counted in parts, never below none.
                         fields={{ good: Sheet.field.number({ unit: "pcs", min: 0n, help: "empty until reported" }) }}
                         onApply={Record.onApply(orders, { keyed: true })}
-                        applyMode="auto"
                     />
                 </Box>
             );
@@ -479,6 +482,8 @@ export const sheetActionsPinned = example({
                     <Sheet
                         record={tickets}
                         name="sheetActionsPinned"
+                        // The tickets come from the maintenance log: this sheet adds none.
+                        edits={{ insertRows: false }}
                         narrow={{ pin: "title", columns: 1 }}
                         registers={{ crews: Sheet.register.members(crewList, { kind: "crew", key: (_c, k) => k, label: c => c.name }) }}
                         columns={{

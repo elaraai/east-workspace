@@ -23,7 +23,9 @@
  * @packageDocumentation
  */
 
-import type { FlowchartDecisionRoles, FlowchartLaneRoles, FlowchartRow, FlowchartRows, FlowchartStateRoles, FlowchartTransitionRoles } from "./model.js";
+import type {
+    FlowchartDecisionRoles, FlowchartKindKeys, FlowchartLaneRoles, FlowchartRow, FlowchartRows, FlowchartStateRoles, FlowchartTransitionRoles,
+} from "./model.js";
 import type { FlowchartHeld, FlowchartSort, FlowchartStored } from "./read.js";
 
 /** A drafted row, as the model takes it: its roles, as its kind reads them, and whether a gesture created it. */
@@ -134,10 +136,12 @@ function merged<R>(stored: FlowchartStored<R>, drafts: KindDrafts<R>, waits: (ke
  * @param held - Each kind's stored rows the read holds
  * @param hiddenWith - The transitions hidden with their far end
  * @param drafts - Every kind's drafts
+ * @param keys - Each kind's keys (#1549), which the model orders each kind's rows by
  * @param dimmed - Which stored rows the narrowing leaves out, under `"dim"`
  * @returns The rows, and the drafts drawn nowhere
  */
-export function draftedRows(held: FlowchartHeld, hiddenWith: ReadonlySet<string>, drafts: FlowchartDrafts, dimmed: FlowchartDimmed = {}): FlowchartDraftedRows {
+export function draftedRows(held: FlowchartHeld, hiddenWith: ReadonlySet<string>, drafts: FlowchartDrafts, keys: FlowchartKindKeys,
+    dimmed: FlowchartDimmed = {}): FlowchartDraftedRows {
     const waiting: FlowchartWaiting[] = [];
     const states = merged(held.states, drafts.states, (key, roles) => ({ sort: "states", key, roles }), dimmed.states ?? LIT, NO_KEYS, waiting);
     const transitions = held.transitions === undefined ? []
@@ -155,5 +159,5 @@ export function draftedRows(held: FlowchartHeld, hiddenWith: ReadonlySet<string>
         const drafted = drafts.transitions.get(key);
         if (drafted !== undefined) hidden.push({ key, roles: drafted.roles, dimmed: false });
     }
-    return { rows: { states, transitions, lanes, decisions }, hidden, waiting };
+    return { rows: { states, transitions, lanes, decisions, keys }, hidden, waiting };
 }

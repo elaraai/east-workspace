@@ -523,7 +523,7 @@ describeEast("Plan", (test) => {
         }))), 'Plan.children: "runs" is an Integer — child rows are a Dict, keyed by an id'));
     });
 
-    test("editing is checked at build — one apply, a live handle for onUpdate, an apply for auto, a revision for a paged apply, and every callback's signature (#880)", $ => {
+    test("editing is checked at build — one apply, a live handle for onUpdate, a revision for a paged apply, and every callback's signature (#880)", $ => {
         const Job = StructType({ start: DateTimeType, end: DateTimeType });
         const Row = StructType({ jobs: DictType(StringType, Job) });
         const Rows = DictType(StringType, Row);
@@ -542,7 +542,6 @@ describeEast("Plan", (test) => {
         const onUpdate = East.function([Rows], NullType, () => null);
         $(Assert.equal(East.value(refusal({ onApply, onUpdate }).includes("not both")), true));
         $(Assert.equal(East.value(refusal({ onUpdate }).includes("editing.onUpdate requires data={liveHandle}")), true));
-        $(Assert.equal(East.value(refusal({ mode: "auto" }).includes("it needs onApply or onUpdate")), true));
         // A paged source without revision and refresh — the shape that
         // predates them — cannot check a batch.
         const paged = East.value({
@@ -563,12 +562,11 @@ describeEast("Plan", (test) => {
         // The right signatures build, and the wire carries them.
         const onPatch = East.function([Plan.Types.PatchEvent(Row)], NullType, () => null);
         const ready = East.function([Row, StringType], Editing.Types.Readiness, () => variant("ready", null));
-        const p = $.let(Plan.Root({ axis, data, series, editing: { onApply, onPatch, ready, mode: "auto" } }));
+        const p = $.let(Plan.Root({ axis, data, series, editing: { onApply, onPatch, ready } }));
         const wire = $.let(p.editing.unwrap("some"));
         $(Assert.equal(wire.onApply.unwrap("some").hasTag("sync"), true));
         $(Assert.equal(wire.onPatch.hasTag("some"), true));
         $(Assert.equal(wire.ready.hasTag("some"), true));
-        $(Assert.equal(wire.mode.hasTag("auto"), true));
         $(Assert.equal(wire.snapshot.unwrap("some").decodeBeast(Rows, "v2"), data));
     });
 

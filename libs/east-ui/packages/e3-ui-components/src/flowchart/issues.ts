@@ -35,12 +35,13 @@
  *
  * A Save's conflict names each side's value as the canvas names that row — a
  * state's lane by the lane's label, a transition's ends by their states' and
- * its decision by the decision's — never a key ({@link conflictValueName}).
+ * its decision by the decision's — never a key ({@link conflictValueName}),
+ * each read at the key type of the kind it names (#1549).
  *
  * @packageDocumentation
  */
 
-import { OptionType, StringType, compareFor, equalFor, isValueOf, type PatchPath, type ValueTypeOf } from "@elaraai/east";
+import { OptionType, StringType, equalFor, fromEastTypeValue, isValueOf, type PatchPath, type option } from "@elaraai/east";
 import type { EditIssue, EditSession } from "@elaraai/east-ui-components";
 import type { FlowchartBinsRefusalWord, FlowchartDetailsFinding } from "./details.js";
 import type { FlowchartWaiting } from "./drafted.js";
@@ -49,7 +50,6 @@ import type { FlowchartSort } from "./read.js";
 import type { FlowchartSelection } from "./selection.js";
 
 const keyEqual = equalFor(StringType);
-const keyCompare = compareFor(StringType);
 
 /** A row of a source of the rail whose narrowing leaves out what an issue names: the source's kind, and the row's key. */
 export interface FlowchartHiding {
@@ -199,8 +199,9 @@ function readerOf(args: FlowchartIssueArgs): IssueReader {
 
 /**
  * The Flowchart's own issues (see the module docs), each a warning: the states
- * standing in *No lane*, in their band's order; then the transitions', in key
- * order — an end no state is keyed by, a decision the Flowchart has none of;
+ * standing in *No lane*, in their band's order; then the transitions', in
+ * their keys' order at their key type — an end no state is keyed by, a decision
+ * the Flowchart has none of;
  * then the details', as the details model finds them — each kind's refused
  * bins, naming the kind and selecting the Flowchart, then its rows' counts no
  * bin holds, each selecting its row; then each draft waiting in its session,
@@ -222,7 +223,9 @@ export function flowchartIssues(args: FlowchartIssueArgs): FlowchartIssue[] {
         warn({ kind: "state", key }, { sort: "states", name: key }, { issue: "lane", state: key, lane: node.lane });
     }
     const ghost = (key: string): boolean => model.nodesByKey.get(key)?.ghost === true;
-    for (const transition of [...transitions].sort((a, b) => keyCompare(a.key, b.key))) {
+    const byKey = new Map(transitions.map((transition) => [transition.key, transition] as const));
+    for (const { text } of model.keys.transitions.order(byKey.keys())) {
+        const transition = byKey.get(text)!;
         if (transition.dimmed) continue;
         const { key } = transition;
         const { from, to } = transition.roles;
@@ -326,10 +329,10 @@ export interface FlowchartKeyFields {
  *
  * @param sort - The kind whose row conflicts
  * @param path - The conflict's path in the row: one field, through the case of an Option
- * @param value - The value on one side: a key, in a `String` or an `Option` of one
+ * @param value - The value on one side: a key at the key type of the kind its field names (#1549), or an `Option` of one
  * @param fields - The fields the kinds' roles name a key in
- * @param model - The flowchart as its drafts stand, which names each row
- * @returns Its name, or the key itself for a row the flowchart holds none of; `undefined` for any other value, which the card reads as it is
+ * @param model - The flowchart as its drafts stand, which names each row and holds each kind's keys
+ * @returns Its name, or the key's text for a row the flowchart holds none of; `undefined` for any other value, which the card reads as it is
  */
 export function conflictValueName(sort: FlowchartSort, path: PatchPath, value: unknown, fields: FlowchartKeyFields, model: FlowchartModel): string | undefined {
     let named: string | undefined;
@@ -340,22 +343,26 @@ export function conflictValueName(sort: FlowchartSort, path: PatchPath, value: u
     }
     const field = named;
     if (field === undefined) return undefined;
-    let key: string | undefined;
-    if (isValueOf(value, StringType)) key = value as string;
-    else if (isValueOf(value, OptionType(StringType))) {
-        const option = value as ValueTypeOf<OptionType<StringType>>;
-        if (option.type === "some") key = option.value;
+    const is = (name: string | undefined): boolean => name !== undefined && keyEqual(name, field);
+    // The kind the field names a row of.
+    const names = sort === "states" ? (is(fields.lane) ? "lanes" : undefined)
+        : sort !== "transitions" ? undefined
+        : fields.ends !== undefined && (is(fields.ends[0]) || is(fields.ends[1])) ? "states"
+        : is(fields.decision) ? "decisions" : undefined;
+    if (names === undefined) return undefined;
+    const keys = model.keys[names];
+    const keyType = fromEastTypeValue(keys.keyType);
+    let key: { readonly at: unknown } | undefined;
+    if (isValueOf(value, keyType)) key = { at: value };
+    else if (isValueOf(value, OptionType(keyType))) {
+        const held = value as option<unknown>;
+        if (held.type === "some") key = { at: held.value };
     }
     if (key === undefined) return undefined;
-    const held = key;
-    const is = (name: string | undefined): boolean => name !== undefined && keyEqual(name, field);
-    switch (sort) {
-        case "states":
-            return is(fields.lane) ? model.lanes.find((lane) => keyEqual(lane.key, held))?.label ?? held : undefined;
-        case "transitions":
-            if (fields.ends !== undefined && (is(fields.ends[0]) || is(fields.ends[1]))) return model.nodesByKey.get(held)?.label ?? held;
-            return is(fields.decision) ? model.triggers.get(held)?.label ?? held : undefined;
-        default:
-            return undefined;
+    const text = keys.textOf(key.at);
+    switch (names) {
+        case "lanes": return model.lanes.find((lane) => keyEqual(lane.key, text))?.label ?? text;
+        case "states": return model.nodesByKey.get(text)?.label ?? text;
+        case "decisions": return model.triggers.get(text)?.label ?? text;
     }
 }

@@ -8,8 +8,9 @@
  * D8): the cards a kind's library tab lists. Cards are records (#1340,
  * ruling 9), as the Schematic's are: the rows are a record of the app's, read
  * whole through `Data.bind(record).read()`, and each card is one of its rows,
- * its key the record's key. A list names its source of the Flowchart's
- * `Slice.bindRecords`, whose shown keys narrow its cards.
+ * its key the record's key — of any type a Dict takes, as its text (#1549). A
+ * list names its source of the Flowchart's `Slice.bindRecords`, whose shown
+ * keys narrow its cards.
  *
  * - A state's card gives every field of the row but its lane and its order:
  *   dropped on a lane, it adds a state there.
@@ -27,6 +28,7 @@ import {
     ArrayType, East, Expr, OptionType, StringType, isTypeEqual, none, printType,
     type DictType, type EastType, type ExprType, type FunctionType, type StructType, type SubtypeExprOrValue,
 } from "@elaraai/east";
+import { keyTextOf } from "../schedule/window.js";
 import { FlowchartTemplateType } from "./types.js";
 
 /** Identifies a list of cards read from a record. */
@@ -49,21 +51,23 @@ export interface FlowchartTemplates<V extends StructType> {
 }
 
 /**
- * How each row of a cards record shows, and what it makes.
+ * How each row of a cards record shows, and what it makes: each callback
+ * hears the card's key at the record's key type.
  *
  * @typeParam C - The cards record's row type
  * @typeParam V - The values' type
+ * @typeParam K - The cards record's key type
  */
-export interface FlowchartTemplatesSpec<C extends EastType, V extends StructType> {
+export interface FlowchartTemplatesSpec<C extends EastType, V extends StructType, K extends EastType = StringType> {
     /** The card's name. */
-    name: (row: ExprType<C>, key: ExprType<StringType>) => SubtypeExprOrValue<StringType>;
+    name: (row: ExprType<C>, key: ExprType<K>) => SubtypeExprOrValue<StringType>;
     /** The tab's group it sits under. */
-    group?: (row: ExprType<C>, key: ExprType<StringType>) => SubtypeExprOrValue<OptionType<StringType>>;
+    group?: (row: ExprType<C>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<StringType>>;
     /**
      * Every field of the row the card makes but what a drop writes: a state's every field but its lane and its order,
      * a transition's every field but its ends, a lane's every field but its order.
      */
-    values: (row: ExprType<C>, key: ExprType<StringType>) => ExprType<V>;
+    values: (row: ExprType<C>, key: ExprType<K>) => ExprType<V>;
     /**
      * The Flowchart's `Slice.bindRecords` source over the cards' record (`stepCards`): its shown keys narrow the cards,
      * each card's key its record's key. A list naming no source of the slice is refused, naming the change.
@@ -76,10 +80,11 @@ export interface FlowchartTemplatesSpec<C extends EastType, V extends StructType
  *
  * @typeParam C - The cards record's row type
  * @typeParam V - The values' struct type
- * @param rows - The cards, keyed by String: a record's rows, `Data.bind(record).read()`
+ * @typeParam K - The cards record's key type: any a Dict may be keyed by (#1549)
+ * @param rows - The cards: a record's rows, `Data.bind(record).read()`, each card's key its row's key, as its text
  * @param spec - Each card's name and group, its values, and its source of the slice
  * @returns The cards, which a kind's `templates` takes
- * @throws {Error} When the rows are not a Dict keyed by String, or `values` returns no struct
+ * @throws {Error} When the rows are not a Dict, or `values` returns no struct
  *
  * @example
  * ```tsx
@@ -640,32 +645,36 @@ export interface FlowchartTemplatesSpec<C extends EastType, V extends StructType
  * ));
  * ```
  */
-export function flowchartTemplates<C extends EastType, V extends StructType>(
-    rows: SubtypeExprOrValue<DictType<StringType, C>>, spec: FlowchartTemplatesSpec<C, V>,
+export function flowchartTemplates<C extends EastType, V extends StructType, K extends EastType = StringType>(
+    rows: SubtypeExprOrValue<DictType<K, C>>, spec: FlowchartTemplatesSpec<C, V, K>,
 ): FlowchartTemplates<V> {
-    const source = East.value(rows) as ExprType<DictType<StringType, C>>;
+    const source = East.value(rows) as ExprType<DictType<K, C>>;
     const type = Expr.type(source as unknown as Expr) as EastType;
-    if (type.type !== "Dict" || !isTypeEqual(type.key as EastType, StringType)) {
-        throw new Error(`Flowchart.templates: the cards are a record's rows, keyed by String — a Dict, Data.bind(record).read() — and these are ${printType(type)}`);
+    if (type.type !== "Dict") {
+        throw new Error(`Flowchart.templates: the cards are a record's rows — a Dict, Data.bind(record).read() — and these are ${printType(type)}`);
     }
+    const keyType = type.key as K;
     const rowType = type.value as C;
-    const values = East.function([rowType, StringType], undefined, (_$, row, key) => spec.values(row, key));
+    const values = East.function([rowType, keyType], undefined, (_$, row, key) => spec.values(row, key as ExprType<K>));
     const valuesType = (Expr.type(values as unknown as Expr) as FunctionType).output as V;
     if (valuesType.type !== "Struct") {
         throw new Error("Flowchart.templates: `values` returns a struct, every field of the row the card makes but what a drop writes");
     }
-    const describe = East.function([rowType, StringType], FlowchartTemplateType, ($, row, key) => {
+    // A card's key, its row's key as its text: what its source's shown keys name it by.
+    const textOf = keyTextOf(keyType);
+    const describe = East.function([rowType, keyType], FlowchartTemplateType, ($, row, key) => {
         const initial = $.const(values);
+        const text = $.const(textOf);
         return {
-            key,
-            name: spec.name(row, key),
-            group: spec.group === undefined ? East.value(none, OptionType(StringType)) : spec.group(row, key),
-            values: East.Blob.encodeBeast(initial(row as never, key) as ExprType<EastType>, "v2"),
+            key: text(key),
+            name: spec.name(row, key as ExprType<K>),
+            group: spec.group === undefined ? East.value(none, OptionType(StringType)) : spec.group(row, key as ExprType<K>),
+            values: East.Blob.encodeBeast(initial(row as never, key as never) as ExprType<EastType>, "v2"),
         };
     });
     const items = source.toArray(($, row, key) => {
         const card = $.const(describe);
-        return card(row as never, key);
+        return card(row as never, key as never);
     });
     return { [FLOWCHART_TEMPLATES]: true, valuesType, items, source: spec.source };
 }

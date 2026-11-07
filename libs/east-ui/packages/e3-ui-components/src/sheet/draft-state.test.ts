@@ -8,10 +8,10 @@
  * which needs one as it loads (#1179).
  */
 
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import { ArrayType, IntegerType, StringType, StructType, none, some, variant } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
-import { discardDraft, draftPresentation } from "./draft-state.js";
+import { discardDraft, draftChanges, draftPresentation } from "./draft-state.js";
 import { liftDraft } from "./draft-values.js";
 import { SheetTransactions, type EntryVersion, type SheetTransactionBinding } from "./transactions.js";
 
@@ -25,7 +25,7 @@ const version = (id: string, qty = 1n): EntryVersion => ({
     place: some(variant("ordered", variant("end", null))),
 });
 const binding = (overrides: Partial<SheetTransactionBinding> = {}): SheetTransactionBinding => ({
-    sourceId: "draft-discard", entryType: Row, draftType: Draft, auto: false,
+    sourceId: "draft-discard", entryType: Row, draftType: Draft,
     apply: () => variant("applied", { revision: some("r2") }), patch: undefined, refresh: undefined,
     ...overrides,
 });
@@ -108,6 +108,21 @@ test("with loose rows between the groups (#846) a child's draft and its discard 
     expect(session.entries.get("l")?.draft).toBeUndefined();
 });
 
+test("a draft's changes count the fields it changes against the draft its entry began from, a field set back to what it held none", () => {
+    const changes = draftChanges(Draft);
+    const began = liftDraft(Draft, row("a"));
+    expect(changes(began, liftDraft(Draft, row("a")))).toBe(0);
+    expect(changes(began, liftDraft(Draft, row("a", 2n)))).toBe(1);
+    expect(changes(began, liftDraft(Draft, { id: "a", qty: 2n, hidden: "moved" }))).toBe(2);
+    // A field cleared is a change, as a value is.
+    expect(changes(began, { id: variant("value", "a"), qty: variant("missing", null), hidden: variant("value", "hidden a") })).toBe(1);
+    // With loose rows between the groups (#846) an entry's draft is a variant, which changes as a whole.
+    const EntryDraft = Sheet.Types.DraftEntry(Sheet.Types.Entry(StructType({ id: StringType, rows: ArrayType(Row) }), "rows"));
+    const loose = (qty: bigint) => liftDraft(EntryDraft, variant("row", row("l", qty)));
+    expect(draftChanges(EntryDraft)(loose(1n), loose(1n))).toBe(0);
+    expect(draftChanges(EntryDraft)(loose(1n), loose(3n))).toBe(1);
+});
+
 test("another Sheet's unresolved request disables draft discard", () => {
     let available = true;
     const session = create({ gate: { available: () => available, acquire: () => {}, release: () => {} } });
@@ -116,20 +131,4 @@ test("another Sheet's unresolved request disables draft discard", () => {
     expect(draftPresentation(session, Draft, undefined, "new").discardable).toBe(false);
     expect(discardDraft(session, Draft, undefined, "new")).toBe(false);
     expect(session.pending).toBe(1);
-});
-
-test.each([true, false])("discard never invokes onApply when removing an incomplete row unblocks automatic mode (queued work drained: %s)", async (drained) => {
-    const apply = vi.fn(() => variant("applied", { revision: some("r2") }));
-    const session = create({ auto: true, apply });
-    const incomplete: EntryVersion = { ...version("new"), draft: {
-        id: variant("value", "new"), qty: variant("value", 1n), hidden: variant("missing", null),
-    } };
-    session.record([{ id: "new", before: absent, after: incomplete }], "insert", "Add incomplete row");
-    session.record([{ id: "a", before: version("a"), after: version("a", 7n) }], "typed", "Edit existing row");
-    if (drained) await Promise.resolve();
-    expect(apply).not.toHaveBeenCalled();
-    expect(discardDraft(session, Draft, undefined, "new")).toBe(true);
-    await Promise.resolve();
-    expect(session.canApply).toBe(true);
-    expect(apply).not.toHaveBeenCalled();
 });

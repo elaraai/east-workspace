@@ -174,8 +174,8 @@ describe("the Allocation's payload over the kiln yard's records", () => {
         assert.ok(statusEqual(periods.status(rows.get(TUE_4)!), variant("published", { at: some(new Date("2027-05-03T17:40:00Z")) })));
         const Day = fromEastTypeValue(periods.rowType);
         const at = new Date("2027-05-11T18:00:00Z");
-        assert.ok(equalFor(Day)(decodeBeast2For(Day)(periods.publish(some(rows.get(TUE)!), at)), { state: variant("issued", { at }) }), "the draft, issued");
-        assert.ok(equalFor(Day)(decodeBeast2For(Day)(periods.publish(none, at)), { state: variant("issued", { at }) }), "a day with no row, a new one issued");
+        assert.ok(equalFor(Day)(decodeBeast2For(Day)(periods.publish(TUE, some(rows.get(TUE)!), at)), { state: variant("issued", { at }) }), "the draft, issued");
+        assert.ok(equalFor(Day)(decodeBeast2For(Day)(periods.publish(WED, none, at)), { state: variant("issued", { at }) }), "a day with no row, a new one issued");
     });
 
     test("the app's columns read a bin's row as bytes", async () => {

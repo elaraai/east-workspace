@@ -63,9 +63,11 @@ export {
     type SchematicDetailsConfig,
     type SchematicEnd,
     type SchematicEndField,
+    type SchematicEndOf,
     type SchematicFloatField,
     type SchematicItems,
     type SchematicItemsConfig,
+    type SchematicKeyRole,
     type SchematicLinks,
     type SchematicLinksConfig,
     type SchematicMembersField,
@@ -278,6 +280,11 @@ const MEMBERS = {
  *   its patch door, `Record.bind(record), its record declaring patch: mutation.patch()`, is
  *   editable; one bound `Data.bind(record)`, or `Data.bindPaged(record)` read
  *   through its source, is read only. `readOnly` makes every kind so.
+ * - **Its keys** (#1549): a kind's record may be keyed by any type a Dict
+ *   takes. A link's end or a net's side holds the keys of the item slot it
+ *   names, of that slot's key type, checked when the surface is built. A
+ *   reference, the selection and the connect veto's candidate name each key by
+ *   its text: a String key as itself, any other as East prints it.
  * - **Its details** (`Schematic.details`): a record keyed as its kind is,
  *   whose status, bar, figure and second line the cards draw.
  * - **Its narrowing** is one `Slice.bindRecords`: a source named after a

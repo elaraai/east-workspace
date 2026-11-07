@@ -5,15 +5,14 @@
  * @vitest-environment jsdom
  *
  * `<Sheet>`'s editing, undo and Save (#1185, #1216, `Sheet Builder Spec.md`
- * SB25–SB31), over the Sheet's records on e3 itself (`harness.test-utils.tsx`,
+ * SB25–SB30), over the Sheet's records on e3 itself (`harness.test-utils.tsx`,
  * #1376): each gesture one transaction, undone and redone from the history
  * item and from the keys anywhere in the frame, never while typing in a field;
  * Save one commit through the record's patch door, the history item naming
  * each state on the way; a conflict and a refusal keeping the drafts; a write
  * with no answer retried under its own request id; the drafts retiring once
  * the rows read back — whatever another write did beside them — and going out
- * of date when the record moves under them; each week its own drafts; and
- * auto mode.
+ * of date when the record moves under them; and each week its own drafts.
  */
 
 import { test, expect } from "vitest";
@@ -24,6 +23,7 @@ import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { Record, Sheet } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { patchRecord } from "../../e3-web.test-utils.js";
+import { offering } from "../../shared/schedule/keys.test-utils.js";
 import { act, sheetHarness, settle, slot } from "./harness.test-utils.js";
 import { conflictCards, reloadPage } from "../../e3-web-mount.test-utils.js";
 
@@ -34,14 +34,6 @@ const PLANS = ex.sheetWeekPlans;
 const JOBS_DATASET = `records.${JOBS.name}`;
 type Jobs = ValueTypeOf<typeof JOBS.type>;
 type Job = ValueTypeOf<typeof ex.SheetJob>;
-
-/** The jobs, saved as each gesture lands (SB31). */
-const autoJobs = {
-    fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
-        return Sheet({ record: jobs, columns: { task: Sheet.column.text(ex.SheetJob, { header: "Task" }) }, applyMode: "auto", name: "auto" });
-    }))),
-};
 
 /** The jobs, given both panes: a library of the columns, with its search, and the inspector. */
 const panedJobs = {
@@ -147,7 +139,8 @@ test("each gesture is one transaction — typing, a paste across rows, an insert
     fireEvent.mouseDown(cells(container, "task")[2]!, { button: 0 });
     await act(async () => { fireEvent.paste(card(container), { clipboardData: { getData: () => "CNC routing, oak\nSpray finish, matt" } }); });
     await settle();
-    // A new job, typed on the blank tail: its minted key sorts after the record's.
+    // A new job, typed on the blank tail, under a key minted where a UUID is — offered here, so it sorts after the record's.
+    offering(["J-0005"]);
     await typeInto(slot(container, "main")!.querySelector('[data-slot="row"][data-blank] [data-key="task"]')!, "Sanding");
     // J-0002 picked by its number and deleted.
     fireEvent.mouseDown(cells(container, "task")[1]!.closest('[data-slot="row"]')!.querySelector('[data-slot="gutter"]')!, { button: 0 });
@@ -422,21 +415,11 @@ test("each week keeps its own drafts across a switch of the entry, and a remount
     expect(drafted(again.container)).toBe(0);
 });
 
-test("auto mode sends each ready gesture as it lands, through the same protocol; Undo then commits the inverse (SB31)", async () => {
-    const { container } = await h.mount(autoJobs);
-    const deployed = await commits(JOBS);
-    await typeInto(cells(container, "task")[3]!, "Spray finish, matt");
-    expect((await readJobs()).get("J-0004")!.task).toBe("Spray finish, matt");
-    expect(drafted(container)).toBe(0);
-    await press(toolbar(container).getByRole("button", { name: "Undo" }));
-    expect((await readJobs()).get("J-0004")!.task).toBe("Spray finish");
-    expect(await commits(JOBS)).toEqual(["patch", "patch", ...deployed]);
-    expect(tasks(container)[3]).toBe("Spray finish");
-});
-
 test("a reload keeps the drafts in this tab: the task typed and the job added are drawn as they were, still to save, and Save saves them", async () => {
     const first = await h.mount(ex.sheetBasic);
     await typeInto(cells(first.container, "task")[0]!, "Panel cutting, maple");
+    // The job added, under a key minted where a UUID is — offered here, so it sorts after the four.
+    offering(["J-0005"]);
     await typeInto(slot(first.container, "main")!.querySelector('[data-slot="row"][data-blank] [data-key="task"]')!, "Sanding");
     expect(drafted(first.container)).toBe(2);
     reloadPage();

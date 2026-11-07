@@ -133,6 +133,9 @@ export function noticeText(notice: SheetNotice, w: SheetWords): string {
         case "newGroup": return m.noticeNewGroup({ noun: noun(notice.noun) });
         case "issue": return m.issueAt({ where: notice.where, message: issueText(notice.issue.message, w) });
         case "dropRefused": return m.dropRefused(notice.word);
+        case "keyTaken": return m.noticeKeyTaken({ key: notice.key });
+        case "keyFailed": return m.noticeKeyFailed({ reason: notice.reason });
+        case "cantAdd": return m.noticeCantAdd({ what: notice.what, noun: noun(notice.noun), label: notice.label });
         case "text": return notice.text;
     }
 }

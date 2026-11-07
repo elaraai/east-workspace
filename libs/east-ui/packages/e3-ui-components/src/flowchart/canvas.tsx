@@ -42,7 +42,8 @@
  *   rename in place, and its × — off while the lane holds states, its tooltip
  *   saying why; the "+ STATE" ghost a hovered band parks under its last state,
  *   which opens the inline editor — its key and its label, a key the Flowchart
- *   holds already refused as it is typed; a state double-clicked into its
+ *   holds already refused as it is typed, or its label alone where the states'
+ *   kind makes their keys (#1549); a state double-clicked into its
  *   rename, its key shown fixed (R9); a state dragged to another lane, or —
  *   where the states carry an `order` — between two cards, a line marking
  *   where it lands (D4); a handle dragged to a state, which `canConnect` may
@@ -186,10 +187,21 @@ export interface FlowchartCanvasEdit {
     readonly renameLane?: ((key: string, label: string) => void) | undefined;
     /** A lane's ×: deleted, while it holds no state. */
     readonly deleteLane?: ((key: string) => void) | undefined;
-    /** The "+ STATE" ghost's editor committed: a state at the end of its band, its key and its label as typed; whether it was recorded. */
-    readonly addState?: ((band: string, key: string, label: string) => boolean) | undefined;
-    /** Whether the Flowchart holds a state of a key already: the "+ STATE" editor refuses it as it is typed. */
+    /**
+     * The "+ STATE" ghost's editor committed: a state at the end of its band, its key and its label as typed — its key
+     * `undefined` where the editor types none, the kind making it (#1549); whether it was recorded.
+     */
+    readonly addState?: ((band: string, key: string | undefined, label: string) => boolean) | undefined;
+    /**
+     * Whether the Flowchart holds a state of a key already: the "+ STATE" editor refuses it as it is typed. The editor
+     * types a key only with it: without, the states' kind makes each one's (#1549).
+     */
     readonly stateKeyTaken?: ((key: string) => boolean) | undefined;
+    /**
+     * Why "+ STATE" or "+ LANE" adds nothing (#1549): its kind's keys are of a type the form can't type, and it builds
+     * none — the control off, its tooltip saying why.
+     */
+    readonly off?: { readonly states?: string | undefined; readonly lanes?: string | undefined } | undefined;
     /** A state's editor committed: its label. */
     readonly renameState?: ((key: string, label: string) => void) | undefined;
     /** States dragged to a band — and, where the states carry an `order`, to a place among its other states. */
@@ -1084,6 +1096,11 @@ export function FlowchartCanvasView({
     const renameLaneEdit = edit?.renameLane;
     const deleteLaneEdit = edit?.deleteLane;
     const addLaneEdit = edit?.addLane;
+    // The "+ STATE" editor types a new state's key only where it can refuse a key taken; else its kind makes it (#1549).
+    const typesKey = edit?.stateKeyTaken !== undefined;
+    // Why "+ STATE" or "+ LANE" adds nothing: off, its tooltip saying so (#1549).
+    const statesOff = edit?.off?.states;
+    const lanesOff = edit?.off?.lanes;
     const body = (
         <Box ref={onBody} css={styles.body} data-flowchart-body=""
             onPointerEnter={() => { hoveredRef.current = true; }} onPointerLeave={() => { hoveredRef.current = false; }}>
@@ -1585,18 +1602,29 @@ export function FlowchartCanvasView({
                             {/* "+ LANE" — the band row's tail, full lane height: Font
                                 Awesome's plus over the word, a lane added on a click */}
                             {addLaneEdit !== undefined && (
-                                <chakra.button
-                                    type="button"
-                                    css={styles.addLane}
-                                    data-flowchart-addlane=""
-                                    data-orientation={layout.orientation}
-                                    aria-label={words.m.addLane()}
-                                    style={{ left: layout.laneTail.x, top: layout.laneTail.y, width: layout.laneTail.w, height: layout.laneTail.h }}
-                                    onClick={() => addLaneEdit()}
-                                >
-                                    <FontAwesomeIcon icon={faPlus} />
-                                    <span>{words.m.laneWord()}</span>
-                                </chakra.button>
+                                <Tooltip.Root openDelay={250} disabled={lanesOff === undefined} positioning={{ placement: "bottom" }}>
+                                    <Tooltip.Trigger asChild>
+                                        <chakra.button
+                                            type="button"
+                                            css={styles.addLane}
+                                            data-flowchart-addlane=""
+                                            data-orientation={layout.orientation}
+                                            data-disabled={lanesOff === undefined ? undefined : ""}
+                                            aria-disabled={lanesOff === undefined ? undefined : true}
+                                            aria-label={words.m.addLane()}
+                                            style={{ left: layout.laneTail.x, top: layout.laneTail.y, width: layout.laneTail.w, height: layout.laneTail.h }}
+                                            onClick={lanesOff === undefined ? () => addLaneEdit() : undefined}
+                                        >
+                                            <FontAwesomeIcon icon={faPlus} />
+                                            <span>{words.m.laneWord()}</span>
+                                        </chakra.button>
+                                    </Tooltip.Trigger>
+                                    <Portal>
+                                        <Tooltip.Positioner>
+                                            <Tooltip.Content>{lanesOff}</Tooltip.Content>
+                                        </Tooltip.Positioner>
+                                    </Portal>
+                                </Tooltip.Root>
                             )}
 
                             {/* "+ STATE" ghost — dashed, exact node footprint, one per
@@ -1606,16 +1634,27 @@ export function FlowchartCanvasView({
                                 const cell = layout.laneGhosts.get(laneHover);
                                 if (!cell) return null;
                                 return (
-                                    <Box
-                                        data-flowchart-ghoststate={laneHover}
-                                        css={styles.stateGhost}
-                                        style={{ left: cell.x, top: cell.y, width: cell.w, height: cell.h }}
-                                        onPointerEnter={() => setLaneHover(laneHover)}
-                                        onClick={() => setStateEditor({ mode: "add", lane: laneHover, code: "", label: "" })}
-                                    >
-                                        <FontAwesomeIcon icon={faPlus} />
-                                        <span>{words.m.stateWord()}</span>
-                                    </Box>
+                                    <Tooltip.Root openDelay={250} disabled={statesOff === undefined} positioning={{ placement: "bottom" }}>
+                                        <Tooltip.Trigger asChild>
+                                            <Box
+                                                data-flowchart-ghoststate={laneHover}
+                                                css={styles.stateGhost}
+                                                data-disabled={statesOff === undefined ? undefined : ""}
+                                                aria-disabled={statesOff === undefined ? undefined : true}
+                                                style={{ left: cell.x, top: cell.y, width: cell.w, height: cell.h }}
+                                                onPointerEnter={() => setLaneHover(laneHover)}
+                                                onClick={statesOff === undefined ? () => setStateEditor({ mode: "add", lane: laneHover, code: "", label: "" }) : undefined}
+                                            >
+                                                <FontAwesomeIcon icon={faPlus} />
+                                                <span>{words.m.stateWord()}</span>
+                                            </Box>
+                                        </Tooltip.Trigger>
+                                        <Portal>
+                                            <Tooltip.Positioner>
+                                                <Tooltip.Content>{statesOff}</Tooltip.Content>
+                                            </Tooltip.Positioner>
+                                        </Portal>
+                                    </Tooltip.Root>
                                 );
                             })()}
 
@@ -1637,8 +1676,10 @@ export function FlowchartCanvasView({
                                     const ed = stateEditor;
                                     if (ed.mode === "add") {
                                         const key = ed.code.trim();
-                                        if (key.length === 0 || addStateEdit === undefined) { setStateEditor(null); return; }
-                                        const added = !taken && addStateEdit(ed.lane, key, ed.label.trim());
+                                        const label = ed.label.trim();
+                                        // Nothing typed — no key, or with none to type no label — dismisses.
+                                        if ((typesKey ? key.length === 0 : label.length === 0) || addStateEdit === undefined) { setStateEditor(null); return; }
+                                        const added = !taken && addStateEdit(ed.lane, typesKey ? key : undefined, label);
                                         if (added || blur) setStateEditor(null);
                                         return;
                                     }
@@ -1663,7 +1704,7 @@ export function FlowchartCanvasView({
                                             commit(true);
                                         }}
                                     >
-                                        {stateEditor.mode === "add" ? (
+                                        {stateEditor.mode === "add" ? typesKey && (
                                             <input
                                                 autoFocus
                                                 data-flowchart-key=""
@@ -1679,7 +1720,7 @@ export function FlowchartCanvasView({
                                             <Box css={styles.nodeCode} data-flowchart-key="">{stateEditor.key}</Box>
                                         )}
                                         <input
-                                            autoFocus={stateEditor.mode === "edit"}
+                                            autoFocus={stateEditor.mode === "edit" || !typesKey}
                                             data-flowchart-label=""
                                             aria-label={words.m.stateLabelField()}
                                             placeholder={words.m.stateLabelPlaceholder()}

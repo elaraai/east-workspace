@@ -20,7 +20,7 @@ import type { FlowchartEdit } from "./editing.js";
 import type { FlowchartHolding, GestureEdits } from "./edits.js";
 import { flowchartMessages, type FlowchartWords } from "./messages.js";
 import {
-    buildModel, type FlowchartDecisionRoles, type FlowchartLaneRoles, type FlowchartModel, type FlowchartRow, type FlowchartRows,
+    STRING_KIND_KEYS, buildModel, type FlowchartDecisionRoles, type FlowchartLaneRoles, type FlowchartModel, type FlowchartRow, type FlowchartRows,
     type FlowchartStateRoles, type FlowchartTransitionRoles,
 } from "./model.js";
 import type { FlowchartSort } from "./read.js";
@@ -117,14 +117,14 @@ export function decisionRow(key: string, label: string, queue: readonly string[]
 }
 
 /**
- * Rows as the read holds them: none of a kind not given, and no lanes — a
- * Flowchart given none — unless given.
+ * Rows as the read holds them: none of a kind not given, no lanes — a
+ * Flowchart given none — and every kind keyed by String, unless given.
  *
- * @param parts - The rows of each kind given
+ * @param parts - The rows of each kind given, and the kinds' keys
  * @returns The rows
  */
 export function rowsOf(parts: Partial<FlowchartRows>): FlowchartRows {
-    return { states: [], transitions: [], lanes: undefined, decisions: [], ...parts };
+    return { states: [], transitions: [], lanes: undefined, decisions: [], keys: STRING_KIND_KEYS, ...parts };
 }
 
 /**
@@ -140,7 +140,9 @@ export function modelOf(rows: FlowchartRows): FlowchartModel {
 /**
  * What a gesture reads over rows: every kind taking gestures, the decisions
  * taking a state's key out of their queues, the lanes' order a Float, a new
- * transition keyed `t-new` — unless given.
+ * transition keyed `t-new`, every kind keyed by String and building no key —
+ * a new row's key the text its gesture makes up, and no row moving — unless
+ * given.
  *
  * @param rows - The rows drawn
  * @param more - What differs
@@ -148,14 +150,19 @@ export function modelOf(rows: FlowchartRows): FlowchartModel {
  */
 export function holdingOf(rows: FlowchartRows, more: Partial<FlowchartHolding> = {}): FlowchartHolding {
     const keys = (sort: FlowchartSort): ReadonlySet<string> => new Set((sort === "lanes" ? rows.lanes ?? [] : rows[sort]).map((row) => row.key));
-    return {
+    // A new row's key is made up unique by what the holding holds, as given.
+    const holding: FlowchartHolding = {
         model: modelOf(rows), rows, hidden: [], waiting: [],
         can: () => true,
         taken: (sort, key) => keys(sort).has(key),
+        stands: (sort, key) => keys(sort).has(key),
         mintTransition: () => "t-new",
         unqueues: true, wholeLaneOrders: false,
+        newKey: (sort, _made, madeUp, minted) => ({ key: madeUp((key) => minted?.has(key) === true || holding.taken(sort, key)) }),
+        moves: () => [],
         ...more,
     };
+    return holding;
 }
 
 const stateWrite = printFor(Flowchart.Types.StateWrite);

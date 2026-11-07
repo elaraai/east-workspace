@@ -10,7 +10,7 @@
  *
  * @packageDocumentation
  */
-import { none, variant, type EastType } from "@elaraai/east";
+import { equalFor, none, variant, type EastType } from "@elaraai/east";
 import { CLEAN_DRAFT, conflictMarks, presentDraft, type DraftPresentation } from "@elaraai/east-ui-components/internal";
 import { type BatchReadiness } from "@elaraai/east-ui-components";
 import type { EntryVersion, SheetTransactions } from "./transactions.js";
@@ -73,6 +73,26 @@ export function draftPresentation(session: SheetTransactions, type: EastType, fi
     // Where it holds a conflict not yet chosen: the cells that wear the warn ring, or the row whole.
     const conflicts = conflictMarks(points, child === undefined || field === undefined || row === undefined ? undefined : { field, index: row });
     return conflicts === undefined ? presented : { ...presented, conflicts };
+}
+
+/**
+ * How many fields a draft changes against the one its entry began from: a
+ * struct's fields counted one by one, any other draft as one field.
+ *
+ * @param type - The entry's draft type
+ * @returns The count, from the draft the entry began from and the draft as it stands
+ */
+export function draftChanges(type: EastType): (before: unknown, current: unknown) => number {
+    if (type.type !== "Struct") {
+        const equal = equalFor(type);
+        return (before, current) => (equal(before, current) ? 0 : 1);
+    }
+    const fields = Object.entries(type.fields).map(([name, field]) => ({ name, equal: equalFor(field) }));
+    return (before, current) => {
+        const was = before as Record<string, unknown>;
+        const now = current as Record<string, unknown>;
+        return fields.reduce((n, field) => (field.equal(was[field.name], now[field.name]) ? n : n + 1), 0);
+    };
 }
 
 /**

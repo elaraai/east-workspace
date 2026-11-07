@@ -22,12 +22,13 @@
  *   one that lands on an entity; or nothing of its kind. The shared drag
  *   grammar's `CellRef` carries it in its `row`, printed.
  * - **What a drop does** ({@link planDrop}, {@link dropEdits}): an item added
- *   at the point, its key minted (SC12); a backlog row placed there (SC4); a
- *   template's values written over the link or the net, never its ends, its
- *   sides or its key (SC11); an author's card's fields set — or refused, with
- *   the reason the ghost says in red: outside the drawing, no entity of the
- *   card's kind under it, its kind read only, or its kind's session taking no
- *   edit now.
+ *   at the point, under the key its kind makes (SC12, #1549); a backlog row
+ *   placed there (SC4); a template's values written over the link or the net,
+ *   never its ends, its sides or its key (SC11); an author's card's fields set
+ *   — or refused, with the reason the ghost says in red: outside the drawing,
+ *   no entity of the card's kind under it, its kind read only, its kind's
+ *   session taking no edit now, or its kind adding no item, its keys of a type
+ *   the form can't type (#1549).
  * - **⏎ on a card** ({@link planEnter}, SC13): a card that adds or places an
  *   item lands at the view's centre — and Details' Place there too (#1394) —
  *   refused where that is off the drawing in words that say what brings the
@@ -46,7 +47,8 @@ import type { DragPayload, DropCellOptions, DropVeto } from "@elaraai/east-ui-co
 import type { BacklogEntry } from "./backlog.js";
 import { entityId, type SchematicRef } from "./canvas/drawn.js";
 import type { SchematicValue } from "./data.js";
-import type { SchematicEdit, SchematicFieldWrite } from "./edits.js";
+import type { SchematicNewKey } from "./editing.js";
+import { keyedRow, type SchematicEdit, type SchematicFieldWrite, type SchematicKeyRefusal } from "./edits.js";
 import type { SchematicDropRefusalWord, SchematicWords } from "./messages.js";
 
 const stringEqual = equalFor(StringType);
@@ -275,6 +277,11 @@ export interface SchematicDropContext {
     readonly kinds: ReadonlyMap<string, SchematicDropKind>;
     /** Whether a kind's session takes a gesture now: its record read, no Save on its way. */
     readonly available: (slot: string) => boolean;
+    /**
+     * Why a kind adds no item (#1549): its keys' type's name, a type the form can't type, where it builds none of its own;
+     * `undefined` for a kind that keys the items it adds.
+     */
+    readonly untyped: (slot: string) => string | undefined;
     /** An entity's name, as the words say it; `undefined` for one the drawing no longer draws. */
     readonly nameOf: (ref: SchematicRef) => string | undefined;
     /** The label of the innermost zone holding a point; `undefined` for none. */
@@ -319,7 +326,7 @@ function writable(card: SchematicDropCard, ctx: SchematicDropContext):
 /**
  * What a drop does where it rests — see the module docs. A card of a kind
  * read only, or whose session takes no gesture now, is refused wherever it
- * rests; a card that lands at a point is refused outside the drawing, and one
+ * rests, and so is a template of a kind that adds no item (#1549); a card that lands at a point is refused outside the drawing, and one
  * that lands on an entity anywhere but on an entity of its kind; one whose
  * entity has left the drawing is refused in no words.
  *
@@ -332,6 +339,8 @@ export function planDrop(card: SchematicDropCard, at: SchematicDropAt, ctx: Sche
     const gate = writable(card, ctx);
     if (!gate.writes) return gate.plan;
     const { slot, kind } = gate;
+    const untyped = card.does === "add" ? ctx.untyped(slot) : undefined;
+    if (untyped !== undefined) return refused({ why: "untyped", kind: kind.name, type: untyped });
     if (landsAtPoint(card)) {
         if (at.type !== "point") return refused({ why: "outside" });
         const point = at.value;
@@ -386,27 +395,35 @@ export function planEnter(card: SchematicDropCard, selection: readonly Schematic
 }
 
 /**
- * The edits a plan writes, one step of the history: a new item under a
- * minted key; a backlog row's centre; a link's or a net's template values;
- * each entity's fields an author's card sets — none for a refusal.
+ * The edits a plan writes, one step of the history: a new item under the key
+ * its kind makes (#1549); a backlog row's centre; a link's or a net's template
+ * values; each entity's fields an author's card sets — none for a refusal.
  *
  * @param plan - The plan
- * @param mint - A new key for a row of a kind, by its slot
- * @returns The edits
+ * @param newKey - A new row's key, as its kind makes one from the edit making it (`editing.ts`' `newKey`)
+ * @returns The edits, or why the drop records nothing — the key its item builds taken; `undefined` while the key is
+ *   still to be read
  */
-export function dropEdits(plan: SchematicDropPlan, mint: (slot: string) => string): SchematicEdit[] {
+export function dropEdits(plan: SchematicDropPlan, newKey: (made: SchematicEdit) => SchematicNewKey | undefined):
+    { readonly edits: SchematicEdit[] } | { readonly refused: SchematicKeyRefusal } | undefined {
     switch (plan.kind) {
-        case "refused": return [];
-        case "add": return [{ op: "item", ref: { kind: plan.slot, key: mint(plan.slot) }, at: some({ x: plan.at.x, y: plan.at.y }), values: some(plan.values) }];
-        case "place": return [{ op: "place", ref: plan.ref, at: some({ x: plan.at.x, y: plan.at.y }) }];
-        case "retype": return [{ op: "retype", ref: plan.ref, values: plan.values }];
-        case "set": return plan.refs.map((ref): SchematicEdit => ({ op: "set", ref, sets: plan.sets }));
+        case "refused": return { edits: [] };
+        case "add": {
+            const at = some({ x: plan.at.x, y: plan.at.y });
+            const values = some(plan.values);
+            const made = keyedRow(plan.slot, newKey({ op: "item", ref: { kind: plan.slot, key: "" }, at, values }));
+            if (made === undefined || "refused" in made) return made;
+            return { edits: [{ op: "item", ref: { kind: plan.slot, key: made.key }, at, values }] };
+        }
+        case "place": return { edits: [{ op: "place", ref: plan.ref, at: some({ x: plan.at.x, y: plan.at.y }) }] };
+        case "retype": return { edits: [{ op: "retype", ref: plan.ref, values: plan.values }] };
+        case "set": return { edits: plan.refs.map((ref): SchematicEdit => ({ op: "set", ref, sets: plan.sets })) };
     }
 }
 
 /**
  * The item a drop brings onto the canvas, which it selects: the one a
- * template added — its key the one its edits minted — or the backlog row it
+ * template added — its key the one its edits made — or the backlog row it
  * placed; none for a drop on an entity.
  *
  * @param plan - The plan
@@ -484,7 +501,7 @@ function whereWords(plan: Exclude<SchematicDropPlan, { kind: "refused" }>, words
  */
 function refusalWords(why: SchematicDropRefusal, words: SchematicWords): string | undefined {
     if (why.why === "gone") return undefined;
-    return words.m.dropRefused(why.why === "outside" || why.why === "offView" ? why : { why: why.why, kind: why.kind.toLocaleLowerCase(words.locale) });
+    return words.m.dropRefused(why.why === "outside" || why.why === "offView" ? why : { ...why, kind: why.kind.toLocaleLowerCase(words.locale) });
 }
 
 /**

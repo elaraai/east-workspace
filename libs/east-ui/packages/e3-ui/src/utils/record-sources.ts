@@ -9,7 +9,9 @@
  * records appear — the main area, the Choosers and the Library tab that lists
  * that record. The one check every builder's tag makes of its `slice`, the one
  * binding of its sources in the builder's payload (#1356), the one check of a
- * tab's `source`, and the one of a templates list's.
+ * tab's `source`, and the one of a templates list's. A source narrows a record
+ * keyed by String — or, for a builder that takes them, by any type, each key
+ * shown as its text (#1549).
  *
  * @packageDocumentation
  */
@@ -33,6 +35,12 @@ export interface RecordSourcesSpec {
     what: string;
     /** Whether it takes a source of this name; by default, one of `names`. A builder whose sources are its own keys (the Calendar's event kinds) says so here. */
     takes?: (name: string) => boolean;
+    /**
+     * Whether a source may narrow a record keyed by any type a Dict takes, each of its shown keys its key's text — a
+     * String key as itself, any other as East prints it (#1549): the Flowchart's and the Schematic's. By default, a
+     * source narrows a record keyed by String.
+     */
+    anyKey?: boolean;
 }
 
 /**
@@ -76,13 +84,14 @@ function quoted(names: readonly string[]): string {
 /**
  * Checks a builder's `slice` and reads its sources (#1340): the slice is
  * `Slice.bindRecords`, every source one the builder takes, each a record with
- * String primary keys. `bind` binds each source once in the builder's payload
- * (#1356).
+ * String primary keys — or, `anyKey`, keys of any type. `bind` binds each
+ * source once in the builder's payload (#1356).
  *
  * @param slice - The builder's `slice` prop, if given
  * @param spec - What the builder takes, and its words
  * @returns The chrome, the sources' names, and the binding of each one's part, data and keys
- * @throws {Error} When `slice` is `Slice.bind` or `Slice.bindRecord`, names a source the builder does not take, or narrows a record whose keys are not Strings
+ * @throws {Error} When `slice` is `Slice.bind` or `Slice.bindRecord`, names a source the builder does not take, or —
+ *   unless `anyKey` — narrows a record whose keys are not Strings
  */
 export function recordSources(slice: RecordSlicesChromeOptions | undefined, spec: RecordSourcesSpec): RecordSources {
     if (slice === undefined) return { chrome: none, names: [], bind: () => ({ parts: {}, data: {}, keys: {} }) };
@@ -99,9 +108,9 @@ export function recordSources(slice: RecordSlicesChromeOptions | undefined, spec
         if (!takes(name)) {
             throw new Error(`${spec.builder}: \`slice\` narrows ${spec.what} — its source '${name}' is none of them; name the sources ${quoted(spec.names)}`);
         }
-        // A source's rows are keyed as its record is: a builder matches them by String key.
+        // A source's rows are keyed as its record is: a builder matches them by String key — or, `anyKey`, by its key's text.
         const resolved = resolveRowSource((handle.sources[name] as unknown as { data: unknown }).data, prop(name));
-        if (resolved.kind !== "ordered" || !isTypeEqual(resolved.keyType, StringType)) throw unkeyed(name);
+        if (resolved.kind !== "ordered" || !(spec.anyKey === true || isTypeEqual(resolved.keyType, StringType))) throw unkeyed(name);
     }
     return {
         chrome: some(recordSlicesChrome(slice)),
@@ -113,8 +122,8 @@ export function recordSources(slice: RecordSlicesChromeOptions | undefined, spec
             for (const name of names) {
                 const part = $.let(handle.sources[name]!);
                 const rows = $.let((part as unknown as { data: ExprType<StructType> }).data);
-                // Its keys page through its own data.
-                const visible = keyVisibility(rows, prop(name));
+                // Its keys page through its own data, each its text.
+                const visible = keyVisibility(rows, prop(name), spec.anyKey === true);
                 if (visible.source === undefined) throw unkeyed(name);
                 const shown = $.let(visible.source);
                 parts[name] = part;

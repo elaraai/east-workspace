@@ -301,7 +301,7 @@ function EditableCalendar(props: Omit<HostProps, "editing" | "onHeld" | "onBackl
         }
         return out;
     }, [value]);
-    const editing = useScheduleEditing({ kinds: value.events, storageKey: props.storageKey, joined: NO_JOINED, applyMode: "batch", range: props.dates.range,
+    const editing = useScheduleEditing({ kinds: value.events, storageKey: props.storageKey, joined: NO_JOINED, range: props.dates.range,
         recordSlices, held, reads });
     return <CalendarFrame {...props} editing={editing} onHeld={setHeld} onBacklog={onBacklog} />;
 }

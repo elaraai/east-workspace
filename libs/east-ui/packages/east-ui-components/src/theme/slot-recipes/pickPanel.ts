@@ -71,6 +71,10 @@ export const pickPanelSlotRecipe = defineSlotRecipe({
         // #1195): a tap anywhere on it but its clear button lands in the box.
         searchPill: {
             _coarse: { minHeight: "44px" },
+            // Its magnifier and its clear's ×, the pill's mono size; in a phone's touch-sized pill, the size of the
+            // magnifier the key search's field row draws beside the text the touch floor sets there.
+            "& > svg, & > button > svg": { fontSize: "10px" },
+            "[data-phone] &": { _coarse: { "& > svg, & > button > svg": { fontSize: "14px" } } },
         },
         // The bare input inside `sliceFrame.searchPill` — the pill owns the
         // border, background and type, so this only has to stop the browser
@@ -187,6 +191,8 @@ export const pickPanelSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             flex: "none",
             "&[data-on='false']": { color: "fg.muted" },
+            /* In a phone's touch-sized row, the size of an icon beside words there (the pane strip's, FR4). */
+            "[data-phone] &": { _coarse: { fontSize: "14px" } },
         },
     },
     variants: {

@@ -56,10 +56,10 @@ export const keySearchPhoneSlotRecipe = defineSlotRecipe({
             _hover: { color: "brandPressed" },
             _focusVisible: { outline: "none", boxShadow: "focusInset" },
         },
-        /* Previous and next match, while a query finds more than one: 44 squares in `--ink-3`. */
+        /* Previous and next match, while a query finds more than one: 44 squares in `--ink-3`, each icon the second row's (FR6). */
         step: {
             width: "44px", height: "44px", flex: "none", display: "inline-flex", alignItems: "center", justifyContent: "center",
-            border: "none", padding: "0", background: "transparent", color: "fg.muted", cursor: "pointer", "& svg": { fontSize: "12px" },
+            border: "none", padding: "0", background: "transparent", color: "fg.muted", cursor: "pointer", "& svg": { fontSize: "16px" },
             _disabled: { color: "fg.faint", cursor: "default" },
             _focusVisible: { outline: "none", boxShadow: "focusInset" },
         },

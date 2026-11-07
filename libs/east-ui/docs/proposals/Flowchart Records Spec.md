@@ -4,7 +4,7 @@
 
 Today the Flowchart draws one flow of a dictionary of flows, each flow kept whole in one record entry or handed over as data. This proposal draws one flowchart over the app's own records, as the Schematic does: a record of states and a record of transitions, each row the app's own type with its fields mapped to the Flowchart's roles, each read through its source of the rail so the indexes narrow both; and beside them two small records, the lanes and the decisions. On top of that, the app can put structured details on each state and transition — figures, tag lists in its own colours, time-in-state histograms over its own bins and axis, and short lists — in one ordered array, drawn on the cards and labels and shown in full in the inspector.
 
-**Spec** for the epic · Four kinds: **states, transitions, lanes, decisions** · The Flow types and the Flows tab: **removed** · **22** rulings · **24** design decisions
+**Spec** for the epic · Four kinds: **states, transitions, lanes, decisions** · The Flow types and the Flows tab: **removed** · **26** rulings · **24** design decisions
 
 - **Records.** States and transitions are each a keyed record of the app's. `Flowchart.states` and `Flowchart.transitions` map their fields to the Flowchart's roles — a state's label, lane and place; a transition's ends and decision — and every other field is the app's, edited in the inspector's form.
 - **The rail.** Each is read through its source of the one `Slice.bindRecords`, named `states` and `transitions`, so each index's choices narrow it — hidden, or dimmed as context — and a preset narrows both at once: one record holding many flows shows one.
@@ -33,13 +33,15 @@ What goes: the Flows tab, and with it opening, renaming, duplicating and deletin
 
 ## 2. Authoring
 
-Four props carry the app's records, each a kind as the Schematic's are: `states={Flowchart.states(binding, { … })}`, `transitions={Flowchart.transitions(binding, { … })}`, `lanes={Flowchart.lanes(binding, { … })}` and `decisions={Flowchart.decisions(binding, { … })}`. Each binding is a record of the app's keyed by String, its rows the app's own type; no record of the app's holds a type of the Flowchart's.
+Four props carry the app's records, each a kind as the Schematic's are: `states={Flowchart.states(binding, { … })}`, `transitions={Flowchart.transitions(binding, { … })}`, `lanes={Flowchart.lanes(binding, { … })}` and `decisions={Flowchart.decisions(binding, { … })}`. Each binding is a record of the app's keyed by any type a Dict may be keyed by — a code, a number, a date, the two ends of a move — its rows the app's own type; no record of the app's holds a type of the Flowchart's.
 
-A role is a field of the row where a gesture writes it or it names another row's key — a state's `label`, `lane` and `order`; a transition's `from`, `to` and `decision`; a lane's `label` and `order`; a decision's `queue` — so the editor checks the field's name and type against the row. Every other role is an accessor over the row and its key — a state's `members`, a transition's `kind` and `evidence`, a decision's `label`, `letter`, `owner` and `outcomes` — turned into one function, as the Schematic's are. A gesture writes only its roles' fields; the inspector's form edits the rest.
+A role is a field of the row where a gesture writes it or it names another row's key — a state's `label`, `lane` and `order`; a transition's `from`, `to` and `decision`; a lane's `label` and `order`; a decision's `queue` — so the editor checks the field's name and type against the row. A role naming another kind's row holds that kind's key: a state's `lane` the lanes', a transition's `from` and `to` the states', both of one type, and its `decision` an Option of the decisions' — or, where they are keyed by String, a String, empty for none — and a decision's `queue` an Array or a Set of the states'; the editor checks each is of a type a Dict may be keyed by, and the Flowchart, as it is built, that it is the other kind's key type. Every other role is an accessor over the row and its key, the key at its record's key type — a state's `members`, a transition's `kind` and `evidence`, a decision's `label`, `letter`, `owner` and `outcomes` — turned into one function, as the Schematic's are. A gesture writes only its roles' fields; the inspector's form edits the rest.
 
 How a kind is bound says how it is read and whether it is edited: `Record.bind(record)`, editable and read whole, or beside it `entries: Data.bindPaged(record)`, read through the kind's source of the rail; `Data.bind(record)`, read only and whole; or `Data.bindPaged(record)` alone, read only, through its source. Anything else is refused, naming the form to use. A state or a transition read through its source is read complete — page by page, every row the narrowing keeps — so the canvas always draws the whole flowchart the rail chooses, never a window of it. Lanes and decisions are small records, read whole.
 
 The rail is one `Slice.bindRecords`. Its sources named `states` and `transitions` are each `Data.bindPaged(record, { indexes })` over that kind's own record, and each index's choices narrow that kind; other sources are named by the lists of cards that follow them. `narrowed` says what a narrowing does: `"hide"`, the default — a row it leaves out is never read, and a transition whose end it hides leaves the canvas — or `"dim"` — every row is read, and those left out are drawn as context and selected by no path. A preset may narrow both sources at once: a record holding many flows, each row naming its flow, shows one through a preset over the field both share.
+
+A new row's key is its kind's `key: (row) => …`, built from the row a gesture makes — a move keyed by its two ends — where it is given; without one, a String key is made up, as before, an Integer key is one past the largest, and any other is typed in the inspector before Save, so an editable transitions kind keyed by any other type needs `key` (R9). A row made with no card takes the fields no role writes from its kind's `values`, an East function from what the gesture decided of it; a card's values win wherever a card is dropped (R8). Every key reaches the renderer and the host as its text — a String as itself, any other as East prints it — and is ordered by its type: a step `9` stands before a step `10`. The rail's sources may be over records keyed by any type (ruling 24).
 
 A state or a transition takes `details`: `Flowchart.details(binding, { details: [ … ] })` over the app's rows keyed as the kind's are, read only, and bound as the kind is read — `Data.bind` whole beside a kind read whole, `Data.bindPaged` by the drawn rows' keys beside one read through its source. Four reads name fields of the details' row:
 
@@ -768,29 +770,108 @@ export const flowchartDepotTopDown = example({
 });
 ```
 
+#### Example — Keyed by number (records · any key type · key)
+
+A bakery's line over records keyed as the bakery keys them (ruling 23): its steps and its stations by number, and each move by the two steps it joins.
+
+A step added with + STATE is keyed `41`, one past `40`, and + LANE makes station `4`; without `order`, the steps would stand in their numbers' order, `9` before `10`, never as text. Connect from Bake to Mix makes the row `{ from: 30, to: 10 }`, then its key from it, `{ from: 30, to: 10 }`, and a second Connect from Bake to Mix is refused: *A transition from Bake to Mix is there already*. In the inspector, a step's portion is a choice — Whole loaf, Sliced, By weight — with the chosen case's fields in a block under it.
+
+```tsx
+// A bakery's line, keyed as the bakery keys it: its steps and its stations by number, each move by the two
+// steps it joins. A step names its station by the station's number, and a move its ends by the steps'. How a step
+// portions its dough is a variant whose cases hold data: a whole loaf, a number of slices, or a weight.
+export const BakeryPortion = VariantType({ whole: NullType, sliced: IntegerType, weighed: StructType({ grams: FloatType, tolerance: FloatType }) });
+export const BakeryStep = StructType({ name: StringType, station: IntegerType, seq: FloatType, portion: BakeryPortion });
+export const BakeryStation = StructType({ label: StringType, seq: FloatType });
+export const BakeryMoveKey = StructType({ from: IntegerType, to: IntegerType });
+export const BakeryMove = StructType({ from: IntegerType, to: IntegerType, note: OptionType(StringType) });
+
+export const bakerySteps = e3.record("flowchart_bakery_steps", DictType(IntegerType, BakeryStep), {
+    initial: new Map([
+        [10n, { name: "Mix", station: 1n, seq: 1, portion: variant("whole", null) }],
+        [20n, { name: "Proof", station: 1n, seq: 2, portion: variant("whole", null) }],
+        [30n, { name: "Bake", station: 2n, seq: 1, portion: variant("whole", null) }],
+        [40n, { name: "Cool", station: 3n, seq: 1, portion: variant("sliced", 12n) }],
+    ]),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+export const bakeryStations = e3.record("flowchart_bakery_stations", DictType(IntegerType, BakeryStation), {
+    initial: new Map([[1n, { label: "Bench", seq: 1 }], [2n, { label: "Oven", seq: 2 }], [3n, { label: "Cooling", seq: 3 }]]),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+// Keyed by a struct: East's Dict over struct keys is a SortedMap, in East's order.
+export const bakeryMoves = e3.record("flowchart_bakery_moves", DictType(BakeryMoveKey, BakeryMove), {
+    initial: new SortedMap([
+        [{ from: 10n, to: 20n }, { from: 10n, to: 20n, note: none }],
+        [{ from: 20n, to: 30n }, { from: 20n, to: 30n, note: none }],
+        [{ from: 30n, to: 40n }, { from: 30n, to: 40n, note: none }],
+    ], compareFor(BakeryMoveKey)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+export const flowchartBakery = example({
+    keywords: ["Flowchart", "key type", "IntegerType", "Integer keys", "struct keys", "key", "Flowchart.transitions", "Connect",
+        "Fields.select", "cases", "variant", "block", "inspector", "records", "Record.bind"],
+    description: "A bakery's line over records keyed as the bakery keys them: its steps and its stations by number, a new one numbered one past the largest, and each move by the two steps it joins — Connect makes the move, then its key from its ends, and a second move between the same two steps is refused; each step's portioning a variant whose cases hold data, edited in the inspector as a choice with the chosen case's fields in a block under it",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const steps = $.let(Record.bind(bakerySteps));
+            const moves = $.let(Record.bind(bakeryMoves));
+            const stations = $.let(Record.bind(bakeryStations));
+            return (
+                <Box height="560px">
+                    <Flowchart
+                        states={Flowchart.states(steps, {
+                            label: "name", lane: "station", order: "seq",
+                            fields: {
+                                // A variant whose cases hold data: a choice, and the chosen case's fields in a block under it.
+                                portion: Fields.select({
+                                    labels: { whole: "Whole loaf", sliced: "Sliced", weighed: "By weight" },
+                                    cases: { sliced: Fields.number({ label: "Slices", unit: "slices", min: 1n }), weighed: { grams: Fields.number({ unit: "g", min: 0 }) } },
+                                }),
+                            },
+                        })}
+                        transitions={Flowchart.transitions(moves, {
+                            from: "from", to: "to",
+                            // Connect makes the row, then its key from it: a move is keyed by its two ends.
+                            key: (move) => ({ from: move.from, to: move.to }),
+                        })}
+                        lanes={Flowchart.lanes(stations, { label: "label", order: "seq" })}
+                        name="bakery"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+```
+
 ## 3. The kinds, the reads and their types
 
 The kinds follow the Schematic's `kinds.ts`: each is a frozen description over the app's row `R`, its field roles typed over `R`, so the editor checks a field's name and type — a role naming a field that isn't there, or holds another type, is a type error naming the fields that fit — and a kind closes the record behind East functions over its rows' bytes, which the renderer calls and never decodes the row for. The reads follow the Plan's `Plan.items` and `Plan.values`: each names a field of the details' row, a mapped type decides which fields fit, and the read is a frozen description behind a phantom brand whose row type is inferred where it is placed.
 
 ```ts
 // e3-ui/src/flowchart/kinds.ts — the kinds over the app's records, as schematic/kinds.ts types the Schematic's.
-// Each takes a binding of a Dict<String, R>: Record.bind(record), editable — read whole, or through its source
-// beside entries: Data.bindPaged(record); Data.bind(record), read only and whole; or Data.bindPaged(record) alone,
-// read only, through its source. Lanes and decisions take the first and the third alone: they are read whole.
+// Each takes a binding of a Dict<K, R>, K any type a Dict may be keyed by: Record.bind(record), editable — read
+// whole, or through its source beside entries: Data.bindPaged(record); Data.bind(record), read only and whole; or
+// Data.bindPaged(record) alone, read only, through its source. Lanes and decisions take the first and the third
+// alone: they are read whole. K is inferred from the binding.
 
 /** Fields of R a name fits: a String, or an Option of one. */
 export type FlowchartTextField<R extends StructType> = {
     [K in keyof R["fields"] & string]: R["fields"][K] extends StringType | OptionType<StringType> ? K : never;
 }[keyof R["fields"] & string];
 
-/** Fields of R that name a row of another kind by its key: a String — or, for a decision, an Option of one. */
+/** Fields of R that name a row of another kind by its key: a field of a type a Dict may be keyed by — the other kind's
+ *  key type, which the Flowchart checks as it is built — or, for a decision, an Option of one, or a String, empty for none. */
 export type FlowchartKeyField<R extends StructType, Optional extends boolean = false> = {
-    [K in keyof R["fields"] & string]: R["fields"][K] extends (Optional extends true ? StringType | OptionType<StringType> : StringType) ? K : never;
+    [K in keyof R["fields"] & string]: R["fields"][K] extends (Optional extends true ? StringType | OptionType<ImmutableType> : ImmutableType) ? K : never;
 }[keyof R["fields"] & string];
 
-/** Fields of R that name several states by their keys: a decision's queue, an Array or a Set of Strings. */
+/** Fields of R that name several states by their keys: a decision's queue, an Array or a Set of the states' keys. */
 export type FlowchartKeysField<R extends StructType> = {
-    [K in keyof R["fields"] & string]: R["fields"][K] extends ArrayType<StringType> | SetType<StringType> ? K : never;
+    [K in keyof R["fields"] & string]: R["fields"][K] extends ArrayType<ImmutableType> | SetType<ImmutableType> ? K : never;
 }[keyof R["fields"] & string];
 
 /** Fields of R that place a row: a state's among its lane's, a Float; a lane's among the lanes, an Integer or a Float. */
@@ -801,75 +882,88 @@ export type FlowchartOrderField<R extends StructType, N extends EastType = Float
 /** R with the fields its roles write left out: the values a card gives a new row. */
 export type FlowchartValuesOf<R extends StructType, F extends string> = StructType<Omit<R["fields"], F>>;
 
-/** An accessor over a row and its key, turned into one function (shared/reify.ts). */
-type Accessor<R extends StructType, T extends EastType> = (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<T>;
+/** An accessor over a row and its key, the key at the record's key type K, turned into one function (shared/reify.ts). */
+type Accessor<R extends StructType, T extends EastType, K extends EastType = StringType> = (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<T>;
 
-export interface FlowchartStatesSpec<R extends StructType, L extends string, O extends string> {
+/** A new row's key, built from the row a gesture makes, of the record's key type K (R9). */
+type KeyBuilder<R extends StructType, K extends EastType> = (row: ExprType<R>) => SubtypeExprOrValue<K>;
+
+export interface FlowchartStatesSpec<R extends StructType, L extends string, O extends string, K extends EastType = StringType> {
     name?: string;                                          // what one is called: "State" unless given
     icon?: string;                                          // a Font Awesome solid icon's name
     label: FlowchartTextField<R>;                           // the card's name: a rename writes it
-    lane?: L & FlowchartKeyField<R>;                        // its lane, by key: a move across lanes writes it
+    lane?: L & FlowchartKeyField<R>;                        // its lane, by the lanes' key: a move across lanes writes it
     order?: O & FlowchartOrderField<R>;                     // its place in its lane: a move between two cards writes it
-    members?: Accessor<R, OptionType<IntegerType>>;         // a class of states: the ×N badge
+    members?: Accessor<R, OptionType<IntegerType>, K>;      // a class of states: the ×N badge
     entries?: unknown;                                      // Data.bindPaged(record): read through the states source
-    details?: FlowchartDetails<StructType, FlowchartDetailsSpec<StructType>>;
+    details?: FlowchartDetails<StructType, FlowchartDetailsSpec<StructType>>;   // keyed as the states are
     templates?: FlowchartTemplates<FlowchartValuesOf<R, L | O>>;   // the Steps tab's cards
+    values?: (made: ExprType<FlowchartStateWriteType>) => ScheduleNewValues<R>;   // + STATE's own fields: all but label, lane, order
+    key?: KeyBuilder<R, K>;                                 // a new state's key, from its row (R9)
     fields?: FieldHints<R["fields"]>;                       // the form over the fields no role writes
-    ready?: Accessor<R, typeof EditingReadinessType>;       // the app's check on a drafted state
+    ready?: Accessor<R, typeof EditingReadinessType, K>;    // the app's check on a drafted state
     inspector?: RowInspector<R>;                            // its own Details, in the form's place
 }
 
-export interface FlowchartTransitionsSpec<R extends StructType, F extends string, T extends string, D extends string> {
+export interface FlowchartTransitionsSpec<R extends StructType, F extends string, T extends string, D extends string, K extends EastType = StringType> {
     name?: string;                                          // "Transition" unless given
     icon?: string;
-    from: F & FlowchartKeyField<R>;                         // the state it leaves, by key: Connect writes both ends
-    to: T & FlowchartKeyField<R>;                           // the state it enters
+    from: F & FlowchartKeyField<R>;                         // the state it leaves, by the states' key: Connect writes both ends
+    to: T & FlowchartKeyField<R>;                           // the state it enters: of from's type, a type error otherwise
     decision?: D & FlowchartKeyField<R, true>;              // the decision that governs it, by key
-    kind?: Accessor<R, FlowchartLinkKindType>;              // planned or observed: planned unless given
-    evidence?: Accessor<R, OptionType<FlowchartEvidenceType>>;   // the label's evidence line and the stroke's weight
+    kind?: Accessor<R, FlowchartLinkKindType, K>;           // planned or observed: planned unless given
+    evidence?: Accessor<R, OptionType<FlowchartEvidenceType>, K>;   // the label's evidence line and the stroke's weight
     entries?: unknown;                                      // Data.bindPaged(record): read through the transitions source
     details?: FlowchartDetails<StructType, FlowchartTransitionDetailsSpec>;
     templates?: FlowchartTemplates<FlowchartValuesOf<R, F | T>>;   // the Transitions tab's cards
+    values?: (made: ExprType<FlowchartTransitionWriteType>) => ScheduleNewValues<R>;   // Connect's own fields: all but the ends and decision
+    key?: KeyBuilder<R, K>;                                 // a new transition's key, from its row: beside Record.bind, needed for a
+                                                            // record keyed by neither String nor Integer (R9)
     fields?: FieldHints<R["fields"]>;
-    ready?: Accessor<R, typeof EditingReadinessType>;
+    ready?: Accessor<R, typeof EditingReadinessType, K>;
     inspector?: RowInspector<R>;
 }
 
-export interface FlowchartLanesSpec<R extends StructType, O extends string> {
+export interface FlowchartLanesSpec<R extends StructType, O extends string, K extends EastType = StringType> {
     name?: string;                                          // "Lane" unless given
     label: FlowchartTextField<R>;                           // its header: + LANE and a rename write it
     order?: O & FlowchartOrderField<R, IntegerType | FloatType>;   // the lanes' order: + LANE writes one past the last
     templates?: FlowchartTemplates<FlowchartValuesOf<R, O>>;         // the Lanes tab's cards
+    values?: (made: ExprType<FlowchartLaneWriteType>) => ScheduleNewValues<R>;   // + LANE's own fields: all but label and order
+    key?: KeyBuilder<R, K>;                                 // a new lane's key, from its row (R9)
     fields?: FieldHints<R["fields"]>;
     inspector?: RowInspector<R>;
 }
 
-export interface FlowchartDecisionsSpec<R extends StructType> {
+export interface FlowchartDecisionsSpec<R extends StructType, K extends EastType = StringType> {
     name?: string;                                          // "Decision" unless given
-    label: Accessor<R, StringType>;
-    letter?: Accessor<R, OptionType<StringType>>;           // the diamond's letter: the label's first unless given
-    owner?: Accessor<R, OptionType<StringType>>;
-    outcomes?: Accessor<R, OptionType<StringType>>;         // its outcomes' summary line
-    queue?: FlowchartKeysField<R>;                          // the states queued at it, by key: Del takes a deleted state out
+    label: Accessor<R, StringType, K>;
+    letter?: Accessor<R, OptionType<StringType>, K>;        // the diamond's letter: the label's first unless given
+    owner?: Accessor<R, OptionType<StringType>, K>;
+    outcomes?: Accessor<R, OptionType<StringType>, K>;      // its outcomes' summary line
+    queue?: FlowchartKeysField<R>;                          // the states queued at it, by the states' key: Del takes a deleted state out
     fields?: FieldHints<R["fields"]>;
     inspector?: RowInspector<R>;
 }
 
-export declare function states<R extends StructType, const L extends string = never, const O extends string = never>(
-    binding: FlowchartBinding<R>, spec: FlowchartStatesSpec<R, L, O>): FlowchartStates<R>;
-export declare function transitions<R extends StructType, const F extends string, const T extends string, const D extends string = never>(
-    binding: FlowchartBinding<R>, spec: FlowchartTransitionsSpec<R, F, T, D>): FlowchartTransitions<R>;
-export declare function lanes<R extends StructType, const O extends string = never>(binding: FlowchartWholeBinding<R>, spec: FlowchartLanesSpec<R, O>): FlowchartLanes<R>;
-export declare function decisions<R extends StructType>(binding: FlowchartWholeBinding<R>, spec: FlowchartDecisionsSpec<R>): FlowchartDecisions<R>;
+// K, the record's key type, is inferred from the binding of a Dict<K, R>.
+export declare function states<R extends StructType, const L extends string = never, const O extends string = never, K extends EastType = StringType>(
+    binding: FlowchartBinding<R, K>, spec: FlowchartStatesSpec<R, L, O, K>): FlowchartStates<R>;
+export declare function transitions<R extends StructType, const F extends string, const T extends string, const D extends string = never,
+    K extends EastType = StringType>(binding: FlowchartBinding<R, K>, spec: FlowchartTransitionsSpec<R, F, T, D, K>): FlowchartTransitions<R>;
+export declare function lanes<R extends StructType, const O extends string = never, K extends EastType = StringType>(
+    binding: FlowchartWholeBinding<R, K>, spec: FlowchartLanesSpec<R, O, K>): FlowchartLanes<R>;
+export declare function decisions<R extends StructType, K extends EastType = StringType>(
+    binding: FlowchartWholeBinding<R, K>, spec: FlowchartDecisionsSpec<R, K>): FlowchartDecisions<R>;
 
-/** A kind's cards: rows of a record the app keeps, read with Data.bind, each a name, a group and the values a new
- *  row takes; source names the rail's source the list follows. */
-export declare function templates<C extends StructType, V extends StructType>(
-    rows: SubtypeExprOrValue<DictType<StringType, C>>,
+/** A kind's cards: rows of a record the app keeps, keyed by any type, read with Data.bind, each a name, a group and
+ *  the values a new row takes; source names the rail's source the list follows. */
+export declare function templates<C extends StructType, V extends StructType, K extends EastType = StringType>(
+    rows: SubtypeExprOrValue<DictType<K, C>>,
     spec: {
-        name: Accessor<C, StringType>;
-        group?: Accessor<C, OptionType<StringType>>;
-        values: Accessor<C, V>;
+        name: Accessor<C, StringType, K>;
+        group?: Accessor<C, OptionType<StringType>, K>;
+        values: Accessor<C, V, K>;
         source: string;
     },
 ): FlowchartTemplates<V>;
@@ -1042,7 +1136,11 @@ As the Schematic's kinds and the Plan's nested reads do, a mistake is a type err
 | Written | Refused with |
 |---|---|
 | Flowchart.states(states, { label: "slots" }) | `slots` is an Option of an Integer: a type error naming the fields that fit — `"name"`, `"phase"`, `"flow"`. |
-| Flowchart.transitions(t, { from: "volume", … }) | `from` names a state by its key, a String: a type error naming the fields that fit — `"src"`, `"dst"`, `"flow"`. |
+| Flowchart.transitions(t, { from: "src", to: "volume" }) | `to` holds a state's key, of `from`'s type, a String: a type error naming the fields that fit — `"src"`, `"dst"`, `"flow"`. A field of a type no Dict is keyed by — an Array, a Set, a Dict — is a type error in `from`, `to`, `lane` and `decision` alike. |
+| Flowchart.states(steps, { lane: "station" }) beside lanes keyed by String | *A state's lane, "station", holds Integer — and the lanes are keyed by String: key the lanes by Integer, or name a field holding String* — and so for a transition's ends, its decision and a decision's queue, each against the kind it names. |
+| key: (s) => s.name on states keyed by Integer | *`key` builds a state's key, of the record's key type Integer — and this one builds String* |
+| Flowchart.transitions(moves, { from: "from", to: "to" }), moves bound with Record.bind and keyed by a struct | Refused, naming the key type: *The transitions are keyed by …, and Connect makes one with no key typed — give `key`, building one's key from its row, or key them by String or Integer* |
+| details keyed by String beside states keyed by Integer | *The details' record is keyed by String, and the states' by Integer — key the details as the states are* |
 | order: "name" | `order` is a Float field on a state, an Integer or a Float on a lane: a type error naming those that fit — `"seq"`. |
 | states: { lane: "phase" } and no lanes | *A state's lane names a lane — give lanes={Flowchart.lanes(…)}, or drop lane* |
 | lanes={…} and no lane on the states | *The lanes are columns: give the states their lane* |
@@ -1084,7 +1182,8 @@ vocabulary: StructType({ planned: StringType, observed: StringType }),   // a tr
 // What every kind carries, as the Schematic's RecordSideFields and KindFields: its name and icon; whether it is
 // editable; its session over the record's patch door; the record read by key, where it is read through its
 // source; its commits, newest first; its form over the fields no role writes; its own Details; the app's ready;
-// set — an author's card's fields written into a row — and the row type.
+// set — an author's card's fields written into a row — and the row type. Every key on the wire is its text — a String
+// key as itself, any other as East prints it — read back at the kind's keyType.
 FlowchartKindFields = {
     name: StringType, icon: StringType,
     editable: BooleanType, editing: OptionType(EditingType), entries: OptionType(ScheduleEntriesType),
@@ -1104,6 +1203,8 @@ FlowchartStateKindType = StructType({
     details: OptionType(FlowchartDetailsType),
     templates: ArrayType(FlowchartTemplateType),
     templatesSource: OptionType(StringType),
+    rowKey: OptionType(FunctionType([BlobType], StringType)),   // the kind's key: a new state's key's text, from its bytes (R9)
+    keyType: EastTypeType,                                      // its record's key type, each key's text printed from it and read back at it
 });
 FlowchartStateRolesType = StructType({ label: StringType, lane: OptionType(StringType), order: OptionType(FloatType), members: OptionType(IntegerType) });
 FlowchartStateWriteType = StructType({ label: OptionType(StringType), lane: OptionType(StringType), order: OptionType(FloatType) });   // none: as it was
@@ -1119,6 +1220,8 @@ FlowchartTransitionKindType = StructType({
     details: OptionType(FlowchartDetailsType),
     templates: ArrayType(FlowchartTemplateType),
     templatesSource: OptionType(StringType),
+    rowKey: OptionType(FunctionType([BlobType], StringType)),   // the kind's key: Connect's new transition's key's text (R9)
+    keyType: EastTypeType,
 });
 FlowchartTransitionRolesType = StructType({
     from: StringType, to: StringType, decision: OptionType(StringType),
@@ -1136,6 +1239,8 @@ FlowchartLaneKindType = StructType({
     create: FunctionType([FlowchartLaneWriteType, OptionType(BlobType)], OptionType(BlobType)),   // over a card's values or its type's defaults
     templates: ArrayType(FlowchartTemplateType),
     templatesSource: OptionType(StringType),
+    rowKey: OptionType(FunctionType([BlobType], StringType)),   // the kind's key: a new lane's key's text (R9)
+    keyType: EastTypeType,
 });
 // none: as it was, or the card's. An Integer order takes a whole number alone: write and create give none for another.
 FlowchartLaneWriteType = StructType({ label: OptionType(StringType), order: OptionType(FloatType) });
@@ -1147,6 +1252,7 @@ FlowchartDecisionKindType = StructType({
         outcomes: OptionType(StringType), queue: ArrayType(StringType),
     })),
     unqueue: OptionType(FunctionType([BlobType, StringType], OptionType(BlobType))),    // a state's key taken out of its queue
+    keyType: EastTypeType,
 });
 
 // The details on a kind: each read described once, and the rows' values, read as the kind is — whole, or by
@@ -1202,7 +1308,7 @@ FlowchartDetailRowType = ArrayType(VariantType({
 | **Label** | h 18 | h 31 | 18, and 13 a line; its width the longest line's (5.8 a character and 14). |
 | **Legend** | pad 122 | pad 210 | The legend's height: 22 a row more for each figure, band and line the cards and labels draw. Its groups of tags stand beside the rows, one over another (ruling 17), 12 apart, so they add height only past the rows'. |
 
-- **Order.** The lanes in their `order`, else by key; each lane's states in theirs, else by key — the order e3 returns a record in, kept under every index the rail picks, though a page of a source comes in its index's order. A state naming no lane stands in a last band, *No lane*; with no lanes record, one band holds every state, as today's does.
+- **Order.** The lanes in their `order`, else by key; each lane's states in theirs, else by key, in the key type's order — the order e3 returns a record in, kept under every index the rail picks, though a page of a source comes in its index's order. A state naming no lane stands in a last band, *No lane*; with no lanes record, one band holds every state, as today's does.
 - **Figures.** A figure is a line where the details put it: its label, and its value in the app's locale with its unit; a value the row lacks, or a row there is none of, says *no data*. On a label, a line under the evidence; in the inspector, figures side by side share the stats grid.
 - **Bars.** One flowchart's histograms share bins — the app's `bins`, else every row's edges merged — so a bar is the same span on every card. On a band axis, the default, a bar is a bin, equal widths whatever its span, as the reference mock draws them; on a linear axis each bar is as wide as its span and as tall as its count over that span, so its area is its count, the open last bin as wide as the one before it. Each card is scaled to its own tallest bar: 28 high on a card, 2 apart on a 1px rule; 64 high across the inspector's pane, where the bar under the pointer or focus darkens. Under a card's bars, as under the inspector's, the axis names the first edge and the edges the app lists; the legend names the read, its range and its scale.
 - **Lines.** On a card, each list under its title: its top items by value, each a row — its name, a bar 56 wide filled to its share of the list's total, and the share. On a label, each its name and its share. A name ellipsizes; a share never does. A list with no items says *none*.
@@ -1218,15 +1324,15 @@ Each rule names where it lives and what tests it. R1 to R17 are the records; R18
 
 #### R1 — One flowchart over the app's records
 
-The Flowchart draws one flowchart from four records of the app's, each a `Dict<String, R>` of its own row type: its states and its transitions, and beside them its lanes and its decisions. No record of the app's holds a type of the Flowchart's: each kind closes its record behind East functions over its rows' bytes — its rows with their roles, `write`, `create`, `set` and a read by key — which the renderer calls without decoding the row. The props `record`, `data`, `flow` and `onApply`, `Flowchart.over`, `values` and `value`, and the Flow types are gone.
+The Flowchart draws one flowchart from four records of the app's, each a `Dict<K, R>` of its own key type and row type, `K` any type a Dict may be keyed by (ruling 23): its states and its transitions, and beside them its lanes and its decisions. No record of the app's holds a type of the Flowchart's: each kind closes its record behind East functions over its rows' bytes — its rows with their roles, `write`, `create`, `set` and a read by key — which the renderer calls without decoding the row, and says its record's key type. Every key on the wire is its text, a String key as itself and any other as East prints it, read back at its type. The props `record`, `data`, `flow` and `onApply`, `Flowchart.over`, `values` and `value`, and the Flow types are gone.
 
-*Where:* e3-ui `flowchart/kinds.ts`, `payload.ts`. *Tested by:* `flowchart.spec.ts`: the examples build and decode; the package exports no Flow type.
+*Where:* e3-ui `flowchart/kinds.ts`, `payload.ts`. *Tested by:* `flowchart.spec.ts`: the examples build and decode; the package exports no Flow type; the bakery's kinds, over records keyed by Integer and by a struct, each saying its key type and naming its rows by their keys' text.
 
 #### R2 — Roles
 
-A role is a field of the row where a gesture writes it or it names another row's key: a state's `label`, `lane` and `order`; a transition's `from`, `to` and `decision`; a lane's `label` and `order`; a decision's `queue`. Each is checked against the row's type, and a field that isn't there, or holds another type, is a type error naming the fields that fit. Every other role is an accessor over the row and its key, turned into one function (`shared/reify.ts`): a state's `members`; a transition's `kind` and `evidence`; a decision's `label`, `letter`, `owner` and `outcomes`.
+A role is a field of the row where a gesture writes it or it names another row's key: a state's `label`, `lane` and `order`; a transition's `from`, `to` and `decision`; a lane's `label` and `order`; a decision's `queue`. Each is checked against the row's type, and a field that isn't there, or holds another type, is a type error naming the fields that fit. A role naming another kind's row holds that kind's key type: a state's `lane` the lanes', a transition's `from` and `to` the states' — of one type, a type error otherwise — and its `decision` an Option of the decisions' key, or, where they are keyed by String, a String, empty for none; a decision's `queue` an Array or a Set of the states'. The editor checks each is a field of a type a Dict may be keyed by; the Flowchart, as it is built, checks it against the other kind's key type, refusing a mismatch in words naming the role, the field and both types. Every other role is an accessor over the row and its key, the key at its record's key type, turned into one function (`shared/reify.ts`): a state's `members`; a transition's `kind` and `evidence`; a decision's `label`, `letter`, `owner` and `outcomes`.
 
-*Where:* e3-ui `kinds.ts`. *Tested by:* type assertions in `flowchart.spec.ts`.
+*Where:* e3-ui `kinds.ts`, `payload.ts`. *Tested by:* type assertions in `flowchart.spec.ts`; its refusals of each role naming another kind's row at another key type.
 
 #### R3 — Bindings
 
@@ -1254,21 +1360,27 @@ A kind read through its source is read page by page until done — every row its
 
 #### R7 — Order
 
-The lanes stand in their `order`, else by key; each lane's states in theirs, else by key — the order e3 returns a record in, kept under every index the rail picks, though a page of a source comes in its index's order. Without an `order`, a move within a lane is not offered. A state whose lane names no lane stands in a last band, *No lane*, and is listed in Issues; with no lanes given, one band holds every state, as today's does.
+The lanes stand in their `order`, else by key; each lane's states in theirs, else by key — in the key type's order, `9` before `10` for numbers, never as text: the order e3 returns a record in, kept under every index the rail picks, though a page of a source comes in its index's order. Without an `order`, a move within a lane is not offered. A state whose lane names no lane stands in a last band, *No lane*, and is listed in Issues; with no lanes given, one band holds every state, as today's does.
 
-*Where:* the renderer's `model.ts`. *Tested by:* `model.test.ts`: the same order under two indexes; a missing lane; no lanes.
+*Where:* the renderer's `model.ts`. *Tested by:* `model.test.ts`: the same order under two indexes; a missing lane; no lanes; `flowchart-keys.dom.test.tsx`: Integer keys `2`, `9` and `10` in that order, in the lanes, in a lane's cards and in Issues.
 
 #### R8 — Gestures write their roles
 
-Each gesture writes its roles' fields alone, every other field as it was, in the record of what it touches: + LANE a lane keyed `lane-<n>` and labelled `Lane <n>`, its order one past the last; a lane's rename its label; × a lane, offered while no state the flowchart holds stands in it; + STATE a state from its lane's editor — its key and its label, its lane, its order one past the lane's last, every other field its type's default; a move its lane and, dropped between two cards, the middle of their orders; a rename its label; Duplicate the row after itself under its key made unique; Connect a transition — its ends, every other field its type's default; a decision's Del clears it from the transitions the flowchart holds; the form the fields no role writes.
+Each gesture writes its roles' fields alone, every other field as it was, in the record of what it touches: + LANE a lane labelled `Lane <n>`, its order one past the last; a lane's rename its label; × a lane, offered while no state the flowchart holds stands in it; + STATE a state from its lane's editor — its label, its lane, its order one past the lane's last; a move its lane and, dropped between two cards, the middle of their orders; a rename its label; Duplicate the row after itself; Connect a transition — its ends; a decision's Del clears it from the transitions the flowchart holds; the form the fields no role writes. A row + LANE, + STATE or Connect makes takes every other field from its kind's `values` — an East function from what the gesture decided of it, a `Flowchart.Types.LaneWrite`, `StateWrite` or `TransitionWrite`, checked once as the Flowchart is built — else its type's default; a card's values win wherever a card is dropped (ruling 26). A new row's key is R9's.
 
 *Where:* the renderer's `edits.ts`. *Tested by:* `edits.test.ts`; `flowchart-editing.dom.test.tsx` on e3: each gesture's commit holds its roles' fields alone.
 
 #### R9 — Keys
 
-A saved row's key is fixed: the form prints it. A new state's key is typed in its lane's editor, as today, or is `state-<n>` for a card dropped, and a duplicate's is its key with `-2`, `-3`, … after it; a new lane's is `lane-<n>`; each is the viewer's to change in the form until Save. A new transition's key is minted unique (`crypto.randomUUID()`) and never drawn: a transition is named by its ends everywhere. A kind read whole knows every key it holds; one read through its source asks e3 for its new keys by key before Save, all in one request, and a key e3 holds already is an issue holding Save off.
+A saved row's key is fixed — the form prints it — but where its kind's `key` builds it (ruling 25). A new row's key is built by its kind's `key: (row) => …` from the row the gesture made, where it is given — held as the Flowchart is built to the record's key type — and otherwise follows the record's key type (ruling 23):
 
-*Where:* the renderer's `edits.ts`, `session.ts`. *Tested by:* `flowchart-editing.dom.test.tsx`: a new key that a state the narrowing hides holds keeps Save off, and changing it in the form clears it.
+- **String** — a new state's is typed in its lane's editor, as today, or is `state-<n>` for a card dropped, and a duplicate's is its key with `-2`, `-3`, … after it; a new lane's is `lane-<n>`; each is the viewer's to change in the form until Save. A new transition's is minted unique (`crypto.randomUUID()`) and never drawn: a transition is named by its ends everywhere.
+- **Integer** — one past the largest: of the keys stored, drafted and made this session, and, for a kind read through its source, of the last key its record holds.
+- **Any other** — a new state or lane waits under a placeholder, a text no key prints as, until the viewer types its key in the inspector's key field, the form's own editor for the key type. Save waits, Issues lists the row at its key field — *Type this lane's key: Save waits for it* — and no gesture names the row in another's field until its key is typed: a Connect to a new state, or a state dropped in a new lane, is refused — *Type the new state's key first*, *Type the new lane's key first*. A transition's key is never typed, so an editable transitions kind keyed so is refused as the Flowchart is built without `key`. A key type the form can't edit — a Blob, a Vector, a Matrix, a recursive type — adds nothing: + LANE, + STATE, Duplicate and the kind's cards are off, each saying why — *Lanes are keyed by Blob, which can't be typed — give the kind `key` to add them*.
+
+A key `key` builds follows its row: an edit that changes the fields it reads — a Retarget, Connect's Shift, an end edited in the inspector, a rename where `key` reads the name — moves the row under the key they now build, through the re-key the transitions and states naming the row follow. A gesture that would make or move a row under a key the rows in hand hold is refused, naming the row that holds it — *A transition from Bake to Mix is there already*. A kind read whole knows every key it holds; one read through its source asks e3 for its new keys by key before Save, all in one request, and a key e3 holds already is an issue holding Save off; a key the record holds that no read has brought is a conflict at Save, never written over. Every key travels as its text and is read back at its field's type, and a text no key prints as is refused.
+
+*Where:* the renderer's `edits.ts`, `session.ts`; e3-ui `utils/record-kind.ts` (`keyBuilderOf`, `checkMadeKeys`). *Tested by:* `flowchart-editing.dom.test.tsx`: a new key that a state the narrowing hides holds keeps Save off, and changing it in the form clears it; `flowchart-keys.dom.test.tsx`: + LANE, Duplicate and Connect one past the largest, `key` building a move's key from its ends and a step's from its station and name, the row following an edit of what `key` reads, a key taken refused, placeholders typed in the inspector, a Blob key adding nothing — and Save on e3 writing each new row under its key.
 
 #### R10 — Del's reach
 
@@ -1296,7 +1408,7 @@ A kind bound with `Data.bind`, or `Data.bindPaged` alone, takes no gesture: read
 
 #### R14 — The library
 
-Each kind's cards are `Flowchart.templates(rows, { name, group?, values, source })` on the kind: rows of a record of the app's bound with `Data.bind`, the list following its source of the rail. `Flowchart.library.states()` is the Steps tab of the states' cards — one dropped on a lane adds a state there from its values, keyed `state-<n>`, its order between the cards it lands between; `Flowchart.library.transitions()` is the Transitions tab — one dropped on a transition gives it its values, its ends kept; `Flowchart.library.lanes()` is the Lanes tab — one dropped between two lanes, or at the band row's tail, adds a lane there from its values, keyed `lane-<n>`, its order between the lanes it lands between. `Flowchart.library.tab(rows, { …, drop })` is the app's own tab: its `drop` a `Flowchart.patch(R, { … })` over one kind's row type, which names the kind its cards land on (the shared `buildScheduleTab`, as the Schematic's tabs are). There is no Flows tab.
+Each kind's cards are `Flowchart.templates(rows, { name, group?, values, source })` on the kind: rows of a record of the app's, keyed by any type, bound with `Data.bind`, the list following its source of the rail. `Flowchart.library.states()` is the Steps tab of the states' cards — one dropped on a lane adds a state there from its values, keyed as R9 says, its order between the cards it lands between; `Flowchart.library.transitions()` is the Transitions tab — one dropped on a transition gives it its values, its ends kept; `Flowchart.library.lanes()` is the Lanes tab — one dropped between two lanes, or at the band row's tail, adds a lane there from its values, keyed as R9 says, its order between the lanes it lands between. `Flowchart.library.tab(rows, { …, drop })` is the app's own tab: its `drop` a `Flowchart.patch(R, { … })` over one kind's row type, which names the kind its cards land on (the shared `buildScheduleTab`, as the Schematic's tabs are). There is no Flows tab.
 
 *Where:* e3-ui `library.ts`; the renderer's `library.tsx`, `drop.ts`. *Tested by:* `flowchart-library.dom.test.tsx` on e3: each card dropped and saved.
 
@@ -1308,15 +1420,15 @@ The inspector names the flowchart, as the Schematic's names its drawing: the lan
 
 #### R16 — A row in the inspector, and Issues
 
-A row selected shows its key, printed; its role fields under the role's word — a state's Label and Lane, a transition's From, To and Decision — edited through the same edits as the canvas's, a lane chosen from the lanes and an end from the states; and its kind's form over the fields no role writes, by the kind's `fields` hints — or, given, its kind's own `inspector` in the form's place. Issues lists an end no state is keyed by, a state whose lane names no lane, a transition whose decision names none, a waiting draft with the choices hiding it, a `ready` refusal and a new key e3 holds; each selects what it names.
+A row selected shows its key, printed — or, waiting under a placeholder, its key field, to be typed (R9); its role fields under the role's word — a state's Label and Lane, a transition's From, To and Decision — edited through the same edits as the canvas's, a lane chosen from the lanes and an end from the states; and its kind's form over the fields no role writes, by the kind's `fields` hints — or, given, its kind's own `inspector` in the form's place. Issues lists an end no state is keyed by, a state whose lane names no lane, a transition whose decision names none, a waiting draft with the choices hiding it, a `ready` refusal, a new key e3 holds and a row whose key is still to be typed, at its key field; each selects what it names.
 
 *Where:* the renderer's `inspector.tsx`, `issues.ts`. *Tested by:* `flowchart-inspector.dom.test.tsx`; `issues.test.ts`.
 
 #### R17 — Find state and the narrow layout
 
-Find state searches the states drawn by key and label and, by key through e3, those the narrowing hides: a hidden pick clears just its choices and selects the state once it is drawn. Below 480px of main nothing drags: the inspector carries the gestures — a state's lane, a transition's ends — through the same edits, and Save stays reachable with a state selected.
+Find state searches the states drawn by key and label and, by key through e3, those the narrowing hides: a hidden pick clears just its choices and selects the state once it is drawn. Over states keyed by another type than String, it reads what is typed at the key type (ruling 23): `10` finds state 10, and `2..11` the states from 2 up to 11, in their keys' order; a text that is no key says the type it reads, *Key is Integer*. Below 480px of main nothing drags: the inspector carries the gestures — a state's lane, a transition's ends — through the same edits, and Save stays reachable with a state selected.
 
-*Where:* the renderer's `find.ts`, `index.tsx`. *Tested by:* `find.test.ts`; the showcase's `flowchart-records.spec.ts` at 390 and 360px and in a 294px parent.
+*Where:* the renderer's `find.ts`, `index.tsx`. *Tested by:* `find.test.ts`; `flowchart-keys.dom.test.tsx`: Integer keys found typed as numbers, read whole and through the rail; the showcase's `flowchart-records.spec.ts` at 390 and 360px and in a 294px parent.
 
 #### R18 — The app's rows, read only
 
@@ -1326,7 +1438,7 @@ Find state searches the states drawn by key and label and, by key through e3, th
 
 #### R19 — Read as the kind is
 
-Beside a kind read whole, the details bind `Data.bind(record)`, read whole; beside one read through its source, `Data.bindPaged(record)`, read by the keys of the rows drawn, every key in one request. Any other binding is refused, naming the one to use.
+Beside a kind read whole, the details bind `Data.bind(record)`, read whole; beside one read through its source, `Data.bindPaged(record)`, read by the keys of the rows drawn, every key in one request. Any other binding is refused, naming the one to use. The details are keyed as their kind is: a record keyed by another type is refused, naming both types.
 
 *Where:* e3-ui `details.ts`; the renderer's `details.ts`. *Tested by:* `flowchart.spec.ts`; `flowchart-details.dom.test.tsx`: the request log holding the drawn rows' keys alone.
 
@@ -1568,6 +1680,7 @@ The reference mock is evidence for what to show, not for how the Flowchart behav
 - **The Chart's scale words** — `"band"` and `"linear"`, as east-ui's `ChartScaleType` names a chart's x scales — for how the bars space the bins; and explicit ticks, as a chart axis's `tickValues` places them.
 - **`rowInspector`** — a kind's own Details, now on its kind.
 - **`shared/reify.ts`** — the accessors, as one function from the row.
+- **The Plan's keys** — a key of any type travelling as its text, a String as itself and any other as East prints it, read back at its type; one past the largest, a kind read through its source asking its record for its last key (`scheduleLastKey`); and Find at the key type (ruling 23).
 - **The Plan's reads** (`plan/reads.ts`) — named fields, frozen descriptions, phantom brands, the row inferred where a read is placed; and its refusal words as types (`plan/nested.ts`).
 - **The Schematic's details rules** — bound as their kind is read, a placeholder until they land, a failed read said once.
 - **The footer's shared loading line**, and the app's formatters for every number and date.
@@ -1598,15 +1711,19 @@ The reference mock is evidence for what to show, not for how the Flowchart behav
 20. **Zoom towards the selection.** With a state selected, each click of Zoom in or Zoom out zooms, then brings it to the view's middle, as finding a state does; a selected link, lane or several states the same way. With nothing selected, the view's middle stays put. The Flowchart only, for now: the Schematic's zoom stays about the view's middle. — *Ruled 5 Nov 2026*
 21. **Lane names a little bigger.** A lane's name draws at 12px, the size of the state code on a card without details, where it drew at 10px, the spacing between its letters scaled to match; its × stays just past the name's end. A card with details draws its code at 10px, in its chip, so there a lane's name stands a little larger than the codes under it: asked again once the hand test found this, the maintainer kept 12px. — *Ruled 5 Nov 2026; kept 6 Nov 2026*
 22. **The rail's picks weigh the details, by kind.** A Dict field of a source's rows — each state's services, in the depot's evidence — sits on the rail, and keys picked there weigh the details of every kind that names the source. Each card still draws one row a state, its counts its picked entries' own, added up by kind with no code from the app: a figure adds, a histogram adds bin by bin, a list adds by name and tags join; a read given `weigh: false` — a share, an average — keeps the row's own. A state holding none of the picks keeps its card, its weighed reads saying *no data*. e3 files the field entry by entry (`index.entries`), so the Flowchart reads only the picked keys' entries, and never a row a category. The depot's own examples show it, in this pull request. — *Ruled 5 Nov 2026*
+23. **Records keyed by any type.** Each of the four records, and the details and the cards beside them, may be keyed by any type a Dict may be keyed by — a step's number, a date, the two ends of a move. A field naming another kind's row holds that kind's key type, checked as the code compiles and as the Flowchart is built; keys are ordered by their type, never their text, and travel as their text. A new row's key is built by its kind's `key: (row) => …` where it is given; otherwise a String key is made up, as before, an Integer key is one past the largest, and any other is typed in the inspector before Save — an editable transitions kind keyed so needs `key`. — *Asked for*
+24. **The rail's sources at any key type.** A source of the Flowchart's slice may be over a record keyed by any type: a kind read through its source, its cards, a library tab with `source`, and details the rail's picks weigh. Its shown keys travel as their text. The Sheet, the Plan, the Calendar, the Roster and the Allocation keep their sources keyed by String. — *Ruled 7 Nov 2026*
+25. **A built key follows its row.** Where a kind has `key`, an edit to the fields it builds from moves the row under the key they now build, through the Flowchart's re-key; the move is refused, naming the row that holds that key, when another does. — *Ruled 7 Nov 2026*
+26. **New rows take the app's values.** A state, a transition or a lane made with no card — + STATE, Connect, + LANE — takes the fields no role writes from its kind's `values`, an East function from what the gesture decided of it, checked once as the Flowchart is built; a card's values win wherever a card is dropped. — *Ruled 7 Nov 2026*
 
 ### The design's decisions
 
 The design takes D1 to D24, each naming what it leaves; the user's rulings above are theirs.
 
-- **D1 — A saved row's key is fixed.** As the Schematic's: the form prints it. Today's rekey of a state or a lane goes — rewriting every transition naming a state would need transitions the narrowing hides. — *Taken: fixed*
-- **D2 — A new row's key.** A state's typed in its lane's editor, as today; one dropped from the library `state-<n>`; a lane's `lane-<n>`, as today — each the viewer's to change in the form until Save. A transition's minted unique and never drawn: it is named by its ends everywhere. — *Taken: as described*
+- **D1 — A saved row's key is fixed.** As the Schematic's: the form prints it. Today's rekey of a state or a lane goes — rewriting every transition naming a state would need transitions the narrowing hides. A key the kind's `key` builds follows its row instead (ruling 25). — *Taken: fixed*
+- **D2 — A new row's key.** A state's typed in its lane's editor, as today; one dropped from the library `state-<n>`; a lane's `lane-<n>`, as today — each the viewer's to change in the form until Save. A transition's minted unique and never drawn: it is named by its ends everywhere. So for a record keyed by String; ruling 23 keys every other. — *Taken: as described*
 - **D3 — A new key e3 holds already.** Checked by key before Save, every new key in one request — an issue holding Save off — rather than learnt from a refused Save. — *Taken: checked*
-- **D4 — Order.** Ruling 2 stacks each lane's states in the order e3 returns them. e3 returns a record by key, but a page of a source in the order of the index the rail picks, which would move a lane's states at every choice — so each lane's states stand by key, the record's order, under every index. An app that gives an optional `order` on the states (a Float) and the lanes (an Integer or a Float) places them by it instead, so a drop between two cards writes the middle of theirs; without it, a move within a lane is not offered. — *Taken: by key, or by order*
+- **D4 — Order.** Ruling 2 stacks each lane's states in the order e3 returns them. e3 returns a record by key, but a page of a source in the order of the index the rail picks, which would move a lane's states at every choice — so each lane's states stand by key, the record's order — its key type's — under every index. An app that gives an optional `order` on the states (a Float) and the lanes (an Integer or a Float) places them by it instead, so a drop between two cards writes the middle of theirs; without it, a move within a lane is not offered. — *Taken: by key, or by order*
 - **D5 — Adding a lane.** Ruling 3 adds a lane from the library: the lanes take cards as the states do, `Flowchart.templates` on the lanes, and `Flowchart.library.lanes()` lists them; one dropped between two lanes, or at the band row's tail, adds a lane there from its values, keyed `lane-<n>`, its order between theirs. + LANE stays on the canvas, as today, and a lane's label is renamed there. — *Taken: the library and the canvas*
 - **D6 — Del's reach.** A state's Del deletes every transition the flowchart holds naming it, and its key in a decision's queue; one the transitions' narrowing hides is left, and Issues lists it once read — the Schematic's cascade. — *Taken: as the Schematic*
 - **D7 — The far end of a transition.** Under `"hide"`, an end the states' narrowing leaves out is read by key, every such end in one request: found, the transition is hidden with it; absent, the ghost. — *Taken: read by key*

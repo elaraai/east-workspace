@@ -27,6 +27,7 @@ import { Button, UIComponentType } from "@elaraai/east-ui/internal";
 import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { formatters } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
+import { offering } from "../../shared/schedule/keys.test-utils.js";
 import { act, sheetHarness, settle, slot, tabs } from "./harness.test-utils.js";
 
 const h = sheetHarness();
@@ -86,7 +87,9 @@ const selectsPayload = East.function([], SheetPayloadType, ($) => {
         columns: {
             activity: Sheet.column.enum(ex.WorkshopOperation, "words", { header: "Activity", options: firstTwo }),
             notes:    Sheet.column.enum(ex.WorkshopOperation, "words", { header: "Notes" }),
-        } });
+        },
+        // The form shows an operation's machines read only (#1536): the sheet adds no lines.
+        edits: { insertRows: false } });
 });
 
 /**
@@ -262,7 +265,8 @@ test("one row: its number and id, each field by its column's kind; an edit is on
     expect(panel(container).querySelector("[data-state]")).toBeNull();
     expect(field(container, "task").hasAttribute("data-dirty")).toBe(false);
 
-    // Duplicate: a copy of the job under a key of its own, where its key sorts — after the four.
+    // Duplicate: a copy of the job under a key of its own, minted where a UUID is — offered here, so it sorts after the four.
+    offering(["J-0005"]);
     await press(within(panel(container)).getByRole("button", { name: "Duplicate" }));
     expect(column(container, "task").slice(0, 5)).toEqual(["Panel cutting", "Edge banding", "CNC routing", "Spray finish", "Panel cutting"]);
     await select(cell(container, 4, "task"));

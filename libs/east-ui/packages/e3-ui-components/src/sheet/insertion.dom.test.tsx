@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { ArrayType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
+import { ArrayType, DictType, East, IntegerType, NullType, OptionType, SetType, StringType, StructType, none, some, variant } from "@elaraai/east";
 import { Paged, State } from "@elaraai/east-ui/internal";
 import { Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { system, StateImpl, UIStore } from "@elaraai/east-ui-components";
@@ -159,7 +159,7 @@ test("a keyed source offers Add row, uses canonical key order and emits no order
     const view = East.function([], SheetPayloadType, ($) => {
         // Pinned: an edited paged source names the snapshot its batches are checked against.
         const data = $.const(KEYED_SOURCE, Paged.Types.PinnedSource(RowsByKey));
-        return Sheet.Payload({ data, columns: { task: Sheet.column.text(Row) }, newRowId: East.function([], StringType, () => "0-new") });
+        return Sheet.Payload({ data, columns: { task: Sheet.column.text(Row) }, newKey: East.function([SetType(StringType)], StringType, () => "0-new") });
     }).toIR().compile(StateImpl);
     const journal = sheetJournal(view());
     const ui = mount(journal.value);

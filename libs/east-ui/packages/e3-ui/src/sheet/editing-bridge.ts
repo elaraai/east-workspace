@@ -27,11 +27,25 @@ export interface SheetEditingInput {
     onPatch?: unknown;
     onApply?: unknown;
     onUpdate?: unknown;
-    applyMode?: "batch" | "auto";
     /** The Apply over the session's keyed batches as they come — e3-ui's record forms only (#1182). */
     applyKeyed?: unknown;
     /** The session's source identity, when e3-ui's record forms name it (#1182). */
     sourceId?: unknown;
+    /** A new row's (a line's) and a new group's required fields no person can set, each with its label (#1536). */
+    unsettable?: { row: readonly SheetUnsettableInput[]; group: readonly SheetUnsettableInput[] };
+}
+
+/**
+ * One field only the app gives a new entry, as the root finds it (#1536) — what
+ * crosses as a `SheetUnsettableType`.
+ *
+ * @internal
+ */
+export interface SheetUnsettableInput {
+    /** The field's name. */
+    field: string;
+    /** What the sheet calls it: a hint's label, a column's header (a literal or an expression), or the name spelled out. */
+    label: SubtypeExprOrValue<StringType>;
 }
 
 /** Validate a behavior prop against its exact East signature. */
@@ -95,7 +109,6 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
     if (input.onUpdate !== undefined && (source.kind !== "inline" || source.live === undefined)) {
         throw new Error("Sheet: onUpdate requires data={liveHandle} so each batch reads the latest collection — pass the handle itself or provide onApply");
     }
-    if (input.applyMode === "auto" && input.onApply === undefined && input.onUpdate === undefined && input.applyKeyed === undefined) throw new Error("Sheet: applyMode auto requires onApply or a live onUpdate binding");
     if (source.kind !== "inline" && !source.pinned && (input.onApply !== undefined || input.applyKeyed !== undefined)) {
         throw new Error("Sheet: editing paged rows needs a pinned source — one that names its snapshot with revision and refresh " +
             "(Data.bindPaged's handle): a batch is checked against the snapshot it was drafted on, and the drafts " +
@@ -236,6 +249,7 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
         driverColumn: driverColumn === undefined ? none : some(driverColumn),
         newRow: newRow === undefined ? none : some(newRow),
         newGroup: newGroup === undefined ? none : some(newGroup),
+        unsettable: { row: [...input.unsettable?.row ?? []], group: [...input.unsettable?.group ?? []] },
         sourceId, entryType: toEastTypeValue(rowType), draftType: toEastTypeValue(draftType),
         idField: idField !== undefined ? some(idField) : none,
         children: field !== undefined ? some(field) : none,
@@ -246,6 +260,5 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
         snapshot: source.kind === "inline" ? some(East.Blob.encodeBeast(source.rows, "v2")) : none,
         readEntry, decode, project, onApply: onApply !== undefined ? some(onApply) : none,
         onPatch: onPatch !== undefined ? some(onPatch) : none,
-        mode: variant(input.applyMode ?? "batch", null),
     }, SheetEditingType);
 }

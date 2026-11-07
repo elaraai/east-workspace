@@ -31,8 +31,8 @@ function ctxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
         editableAt: (_r, c) => c !== 2,
         kindAt: (_r, c) => (c === 0 ? "lookup" : c === 1 ? "date" : "stamped"),
         parse: (_r, _c, text) => text.trim() === "" ? { kind: "blank" } : text === "bad" ? { kind: "unrecognised" } : { kind: "cell", cell: cell("String", text) },
-        candidates: (_r, _c, text) => (text.startsWith("ro") ? ["Routing", "Routing - Nesting"] : []),
-        candidateAt: (_r, _c, text, hi) => (text.startsWith("ro") ? (hi > 0 ? "Routing - Nesting" : "Routing") : undefined),
+        candidates: (_r, _c, text) => (text.startsWith("ro") ? [{ key: "Routing", label: "Routing" }, { key: "Routing - Nesting", label: "Routing - Nesting" }] : []),
+        candidateAt: (_r, _c, text, hi) => (text.startsWith("ro") ? (hi > 0 ? { key: "Routing - Nesting", label: "Routing - Nesting" } : { key: "Routing", label: "Routing" }) : undefined),
         editTextAt: (r, c) => `v${r}${c}`,
         ...over,
     };
@@ -242,6 +242,71 @@ describe("editing", () => {
         const clicked = run(initialSheetState(), [{ t: "cell.down", r: 2, c: 1, shift: false }]);
         expect(clicked.effects.map((e) => e.t)).toEqual(["emit.select", "focus.sheet"]);
         expect(run(initialSheetState(), [key("ArrowDown")]).effects.map((e) => e.t)).toEqual(["emit.select", "scroll.to"]);
+    });
+});
+
+describe("a register member is typed in the words its cell shows (#1536)", () => {
+    // Two people who show one name; the cell at (0, 0) holds the second.
+    const SMITHS = [{ key: "P-7", label: "J. Smith" }, { key: "P-9", label: "J. Smith" }];
+    const listOf = (text: string) => (text.trim() === "" || "j. smith".startsWith(text.trim().toLowerCase()) ? SMITHS : []);
+    const memberCtx = (kind: "lookup" | "reference" | "enum" | "person"): SheetMachineCtx => ctxOf({
+        kindAt: (_r, c) => (c === 0 ? kind : "date"),
+        // The parse as the sheet's: a key names its member, words the first who shows them.
+        parse: (_r, _c, text) => {
+            const t = text.trim().toLowerCase();
+            if (t === "") return { kind: "blank" };
+            const m = SMITHS.find((x) => x.key.toLowerCase() === t) ?? SMITHS.find((x) => x.label.toLowerCase() === t);
+            return m === undefined ? { kind: "unrecognised" } : { kind: "cell", cell: cell("String", m.key) };
+        },
+        candidates: (_r, _c, text) => listOf(text),
+        candidateAt: (_r, _c, text, hi) => {
+            const l = listOf(text);
+            return (text.trim() === "" && hi < 0) || l.length === 0 ? undefined : l[Math.min(Math.max(hi, 0), l.length - 1)];
+        },
+        editTextAt: () => "J. Smith",
+        memberAt: (r, c) => (r === 0 && c === 0 ? "P-9" : undefined),
+    });
+    const KINDS = ["lookup", "reference", "enum", "person"] as const;
+    const writes = (t: { effects: SheetEffect[] }) => t.effects.filter((e) => e.t === "write");
+
+    test.each(KINDS)("%s: opened on the cell's own member, the editor holds that member in its words; closed as it opened, nothing is written", (kind) => {
+        const ctx = memberCtx(kind);
+        const open = run(initialSheetState(), [key("Enter")], ctx).state;
+        expect(open.edit).toMatchObject({ val: "J. Smith", opened: "J. Smith", pick: "P-9", hi: 1 });
+        expect(writes(run(open, [ekey("Enter")], ctx))).toEqual([]);
+        expect(writes(run(open, [{ t: "editor.blur" }], ctx))).toEqual([]);
+    });
+
+    test.each(KINDS)("%s: a namesake chosen in the menu or the strip writes that member; chosen back to the cell's own, nothing", (kind) => {
+        const ctx = memberCtx(kind);
+        const open = run(initialSheetState(), [key("Enter")], ctx).state;
+        const p7 = { t: "write", r: 0, c: 0, cell: cell("String", "P-7"), text: "P-7" };
+        expect(writes(run(open, [{ t: "editor.pick", label: "J. Smith", key: "P-7" }, ekey("Enter")], ctx))).toEqual([p7]);
+        expect(writes(run(open, [{ t: "strip.pick", label: "J. Smith", key: "P-7", i: 0 }, ekey("Enter")], ctx))).toEqual([p7]);
+        expect(writes(run(open, [{ t: "editor.pick", label: "J. Smith", key: "P-7" }, { t: "editor.pick", label: "J. Smith", key: "P-9" }, ekey("Enter")], ctx))).toEqual([]);
+        // The member chosen is the one armed, so the strip, the menu and the badge show it.
+        expect(run(open, [{ t: "editor.pick", label: "J. Smith", key: "P-7" }], ctx).state.edit).toMatchObject({ val: "J. Smith", pick: "P-7", hi: 0 });
+    });
+
+    test.each(KINDS)("%s: typed words commit to the member they name, the first who shows them; typed back to the cell's own words, nothing is written", (kind) => {
+        const ctx = memberCtx(kind);
+        const open = run(initialSheetState(), [key("Enter")], ctx).state;
+        expect(writes(run(open, [{ t: "editor.change", val: "J. Smit" }, { t: "editor.change", val: "J. Smith" }, ekey("Enter")], ctx))).toEqual([]);
+        expect(writes(run(open, [{ t: "editor.change", val: "j. smith" }, ekey("Enter")], ctx))).toEqual([{ t: "write", r: 0, c: 0, cell: cell("String", "P-7"), text: "j. smith" }]);
+        // Typing, or stepping the candidates, lets the chosen member go.
+        expect(run(open, [{ t: "editor.change", val: "J" }], ctx).state.edit?.pick).toBeUndefined();
+        expect(run(open, [ekey("]", { alt: true })], ctx).state.edit?.pick).toBeUndefined();
+    });
+
+    test.each(KINDS)("%s: a candidate ⇥ or ⌘→ takes carries its member", (kind) => {
+        const ctx = memberCtx(kind);
+        // `j`, then the second candidate armed: the ghost completes its words, and the commit writes it.
+        const stepped = run(initialSheetState({ r: 1, c: 0 }), [key("j"), ekey("]", { alt: true })], ctx).state;
+        const p9 = { t: "write", r: 1, c: 0, cell: cell("String", "P-9"), text: "P-9" };
+        const tabbed = run(stepped, [ekey("Tab")], ctx);
+        expect(tabbed.state.edit).toMatchObject({ val: "j. Smith", pick: "P-9" });
+        expect(writes(run(tabbed.state, [ekey("Enter")], ctx))).toEqual([p9]);
+        expect(writes(run(stepped, [ekey("ArrowRight", { meta: true, atEnd: true }), ekey("Enter")], ctx))).toEqual([p9]);
     });
 });
 
@@ -928,5 +993,116 @@ describe("grouped rows", () => {
         expect(run(initialSheetState({ r: 0, c: 2 }), [key("ArrowLeft")], ctx).state.sel).toEqual({ r: 0, c: 1 });
         // A line's columns step one at a time.
         expect(run(initialSheetState({ r: 1, c: 0 }), [key("ArrowRight")], ctx).state.sel).toEqual({ r: 1, c: 1 });
+    });
+});
+
+// ── A grid a host draws (#1531 — the Record's P1–P4, P6, K1–K4) ────────────
+
+/** Two rows of title · cycle (A, B, C) · text · toggle: the title edits out of place, the text in place, the rest step. */
+function hostCtxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
+    const kinds = ["title", "cycle", "text", "toggle"] as const;
+    return ctxOf({
+        rowCount: 2,
+        colCount: 4,
+        canAppend: false,
+        editableAt: () => true,
+        kindAt: (_r, c) => kinds[c]!,
+        stepAt: (_r, c, step) => (c === 1 ? cell("String", step === "first" ? "A" : step === 1 ? "B" : "C")
+            : c === 3 && step !== "first" ? cell("Boolean", true) : undefined),
+        keyAt: (_r, c, k) => (c === 1 && ["A", "B", "C"].includes(k.toUpperCase()) ? cell("String", k.toUpperCase()) : undefined),
+        opensAt: (_r, c) => c === 0,
+        previewsHover: true,
+        ...over,
+    });
+}
+const unplaced = (at?: { r: number; c: number }): SheetUiState => initialSheetState(at, null, undefined, true);
+const stepTo = (r: number, c: number, value: string | boolean): SheetEffect =>
+    ({ t: "write", r, c, cell: cell(typeof value === "string" ? "String" : "Boolean", value), text: "" });
+const writesOf = (t: { effects: SheetEffect[] }) => t.effects.filter((e) => e.t === "write");
+
+describe("a grid a host draws", () => {
+    test("it opens with no ring: no key acts until a move key places it on the first row's first cell that edits in place", () => {
+        const ctx = hostCtxOf();
+        const opened = unplaced();
+        for (const k of ["x", "Enter", "F2", " ", "Backspace", "Delete"]) expect(run(opened, [key(k)], ctx)).toEqual({ state: opened, effects: [] });
+        expect(run(opened, [{ t: "clipboard.copy" }], ctx).effects).toEqual([]);
+        expect(run(opened, [{ t: "clipboard.paste", text: "a" }], ctx).effects).toEqual([]);
+        expect(run(opened, [key("/", { meta: true })], ctx).effects).toEqual([{ t: "focus.search" }]);
+        // The title edits out of place: the first move lands on the cycle beside it, and reports and scrolls as a move does.
+        const placed = run(opened, [key("ArrowDown")], ctx);
+        expect(placed.state).toMatchObject({ sel: { r: 0, c: 1 }, selEnd: null, ringless: false });
+        expect(placed.effects).toEqual([{ t: "emit.select", r: 0, c: 1 }, { t: "scroll.to", r: 0 }]);
+        // Every move key places it so, ⇧ with it too; on a row none of whose cells edits, on its first.
+        expect(run(opened, [key("End", { shift: true })], ctx).state).toMatchObject({ sel: { r: 0, c: 1 }, selEnd: null, ringless: false });
+        expect(run(opened, [key("Tab")], hostCtxOf({ editableAt: () => false })).state.sel).toEqual({ r: 0, c: 0 });
+    });
+
+    test("a press places the ring where it lands — a ⇧ press too, with no range to stretch from", () => {
+        const ctx = hostCtxOf();
+        const pressed = run(unplaced(), [{ t: "cell.down", r: 1, c: 2, shift: true }], ctx);
+        expect(pressed.state).toMatchObject({ sel: { r: 1, c: 2 }, selEnd: null, ringless: false });
+        expect(pressed.effects).toEqual([{ t: "emit.select", r: 1, c: 2 }, { t: "focus.sheet" }]);
+        // Placed, ⇧ stretches a range as ever.
+        expect(run(pressed.state, [{ t: "cell.down", r: 0, c: 2, shift: true }], ctx).state.selEnd).toEqual({ r: 0, c: 2 });
+    });
+
+    test("a cell that steps in place: a press, Space or ⏎ takes its next state, ⇧ the one before, ⌫ a cycle's first, a member's key sets it — never an editor", () => {
+        const ctx = hostCtxOf();
+        const pressed = run(unplaced(), [{ t: "cell.down", r: 1, c: 1, shift: false }], ctx);
+        expect(pressed.state.sel).toEqual({ r: 1, c: 1 });
+        expect(writesOf(pressed)).toEqual([stepTo(1, 1, "B")]);
+        expect(writesOf(run(pressed.state, [{ t: "cell.down", r: 1, c: 1, shift: true }], ctx))).toEqual([stepTo(1, 1, "C")]);
+        const at = pressed.state;
+        expect(writesOf(run(at, [key(" ")], ctx))).toEqual([stepTo(1, 1, "B")]);
+        expect(writesOf(run(at, [key("Enter")], ctx))).toEqual([stepTo(1, 1, "B")]);
+        expect(writesOf(run(at, [key(" ", { shift: true })], ctx))).toEqual([stepTo(1, 1, "C")]);
+        expect(writesOf(run(at, [key("Backspace")], ctx))).toEqual([stepTo(1, 1, "A")]);
+        expect(writesOf(run(at, [key("c")], ctx))).toEqual([stepTo(1, 1, "C")]);
+        // A key that names no member does nothing; nothing opens an editor.
+        expect(run(at, [key("z")], ctx).effects).toEqual([]);
+        for (const e of [key("F2"), key("x"), { t: "cell.dbl", r: 1, c: 1 } as SheetEvent]) expect(run(at, [e], ctx).state.edit).toBeNull();
+        // A toggle flips; a cell no gesture may change takes none of it.
+        expect(writesOf(run(at, [{ t: "cell.down", r: 0, c: 3, shift: false }], ctx))).toEqual([stepTo(0, 3, true)]);
+        const readOnly = hostCtxOf({ editableAt: () => false });
+        expect(writesOf(run(at, [key(" ")], readOnly))).toEqual([]);
+        expect(writesOf(run(at, [{ t: "cell.down", r: 0, c: 1, shift: false }], readOnly))).toEqual([]);
+        // A press that commits an open editor, then steps the cell it lands on, is two undo steps.
+        const editing = run(at, [{ t: "cell.down", r: 0, c: 2, shift: false }, key("x")], ctx).state;
+        expect(run(editing, [{ t: "cell.down", r: 0, c: 1, shift: false }], ctx).effects.filter((e) => e.t === "write" || e.t === "gesture.end")).toEqual([
+            { t: "write", r: 0, c: 2, cell: cell("String", "x"), text: "x" }, { t: "gesture.end" }, stepTo(0, 1, "B"),
+        ]);
+    });
+
+    test("a cell that edits out of place opens through the host on a press, ⏎ or F2 — the ring on it, and never an editor", () => {
+        const ctx = hostCtxOf();
+        const pressed = run(unplaced(), [{ t: "cell.down", r: 1, c: 0, shift: false }], ctx);
+        expect(pressed.state).toMatchObject({ sel: { r: 1, c: 0 }, edit: null, ringless: false });
+        expect(pressed.effects).toEqual([{ t: "emit.select", r: 1, c: 0 }, { t: "focus.sheet" }, { t: "open", r: 1, c: 0 }]);
+        for (const k of ["Enter", "F2"]) expect(run(pressed.state, [key(k)], ctx).effects).toEqual([{ t: "open", r: 1, c: 0 }]);
+        for (const e of [key("x"), { t: "cell.dbl", r: 1, c: 0 } as SheetEvent]) expect(run(pressed.state, [e], ctx).state.edit).toBeNull();
+        // ⇧ with a press stretches a range, and opens nothing.
+        expect(run(pressed.state, [{ t: "cell.down", r: 0, c: 0, shift: true }], ctx).effects.some((e) => e.t === "open")).toBe(false);
+    });
+
+    test("the strip shows the cell under the pointer: a key's move lets the hover go, a press keeps it, and leaving the grid clears it", () => {
+        const ctx = hostCtxOf();
+        const placed = run(unplaced(), [key("ArrowDown")], ctx).state;
+        const hovered = run(placed, [{ t: "cell.enter", r: 1, c: 2, dragging: false }], ctx).state;
+        expect(hovered.hover).toEqual({ r: 1, c: 2 });
+        expect(run(hovered, [key("ArrowRight")], ctx).state.hover).toBeNull();
+        expect(run(hovered, [{ t: "cell.down", r: 0, c: 2, shift: false }], ctx).state.hover).toEqual({ r: 1, c: 2 });
+        expect(run(hovered, [{ t: "cell.leave" }], ctx).state.hover).toBeNull();
+        // The Sheet's own strip keeps the ring's cell: its hover outlives a key's move.
+        expect(run(hovered, [key("ArrowRight")], hostCtxOf({ previewsHover: false })).state.hover).toEqual({ r: 1, c: 2 });
+    });
+
+    test("a narrowing changed underneath leaves no ring placed, and reports none; the host's selection places it", () => {
+        const opened = unplaced({ r: 1, c: 2 });
+        const narrowed = run(opened, [{ t: "narrowing.changed" }], hostCtxOf());
+        expect(narrowed.state).toMatchObject({ sel: { r: 0, c: 2 }, ringless: true });
+        expect(narrowed.effects).toEqual([]);
+        const set = run(opened, [{ t: "select.set", r: 1, c: 2 }], hostCtxOf());
+        expect(set.state).toMatchObject({ sel: { r: 1, c: 2 }, ringless: false });
+        expect(set.effects).toEqual([{ t: "scroll.to", r: 1 }]);
     });
 });

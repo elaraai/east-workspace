@@ -12,7 +12,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DateTimeType, East, IntegerType, compareFor } from "@elaraai/east";
+import { DateTimeType, East, IntegerType, compareFor, none } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { announced } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
@@ -81,6 +81,7 @@ describe("a pattern on a person's week (#1406, D4, P17–P19, P21, P11)", () => 
         const { container: c } = await h.mount(ex.rosterPeople);
         const person = firstPerson(c);
         const before = rowOf(c, person);
+        const held = await h.read(ex.rosterDuties);
         await drop(await pattern(c, "fwd"), day(c, person, 2));
         // Early Sun and Mon, Late Tue and Wed, Night Thu, the weekend off.
         expect(rowOf(c, person)).toEqual(["Early", "Early", "Late", "Late", "Night", null, null]);
@@ -101,6 +102,15 @@ describe("a pattern on a person's week (#1406, D4, P17–P19, P21, P11)", () => 
         ]);
         const team = (await h.read(ex.rosterStaff)).get(person)!.team;
         expect(after.every(duty => duty.team === team)).toBe(true);
+        // The days it made a duty of take the duty kind's `values` of it (#1526): half an hour's break on the eight-hour shift,
+        // the team's cost centre, and the pattern's name; a day it moved keeps its own.
+        const centre = (await h.read(ex.rosterTeams)).get(team)!.costCentre;
+        const theirs = [...weekDuties(await h.read(ex.rosterDuties), START)].filter(([, duty]) => duty.who.type === "staff" && duty.who.value === person);
+        const made = theirs.filter(([key]) => !held.has(key)).map(([, duty]) => [duty.unpaidBreak, duty.agreed, duty.costCentre, duty.note]);
+        expect(made.length).toBeGreaterThan(0);
+        expect(made).toEqual(made.map(() => [30, none, centre, "Forward rotation"]));
+        expect(theirs.filter(([key]) => held.has(key)).map(([, duty]) => [duty.unpaidBreak, duty.costCentre, duty.note]))
+            .toEqual(theirs.filter(([key]) => held.has(key)).map(([key]) => [held.get(key)!.unpaidBreak, held.get(key)!.costCentre, held.get(key)!.note]));
     });
     test("while a pattern hovers a row the caption names the pattern and the person and the row previews its days; applied, the same pattern `Already matches`; the Agency requests row, a tile and a Shifts cell refuse a pattern, and another person's row a tile, each in words", async () => {
         const { container: c } = await h.mount(ex.rosterPeople);

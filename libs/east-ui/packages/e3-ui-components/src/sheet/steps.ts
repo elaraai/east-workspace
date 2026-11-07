@@ -1,0 +1,115 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * How a cell edits by its kind, where a host draws the grid (`Record - DX
+ * Proposal.md` P2–P4, K2–K4). The cells that step in place: a cycle walks
+ * its register's members in their order, a toggle and a boolean flip. A
+ * click, Space or ⏎ takes the next state and ⇧ the one before; ⌫ sets a
+ * cycle's first member; a key that is a member's label, key or alias sets
+ * that member at once. They never open an editor. A title edits out of place:
+ * a click, ⏎ or F2 opens it where the host edits it, never in the cell. The
+ * machine asks by the cell's kind, so the gesture is the shared grid's,
+ * whatever draws it.
+ *
+ * @packageDocumentation
+ */
+
+import { StringType, equalFor, variant } from "@elaraai/east";
+import { resolveTyped, type SheetColumnMeta, type SheetRegisterIndex } from "./model.js";
+import type { SheetCellValue } from "./values.js";
+
+const stringEqual = equalFor(StringType);
+
+/** A step: the next state, the one before, or a cycle's first. */
+export type SheetStep = 1 | -1 | "first";
+
+/**
+ * Whether a column's cells step in place rather than open an editor.
+ *
+ * @param meta - The column
+ * @returns Whether its cell is a cycle, a toggle or a boolean
+ */
+export function stepsInPlace(meta: SheetColumnMeta | undefined): boolean {
+    return meta?.kind === "cycle" || meta?.kind === "toggle" || meta?.kind === "boolean";
+}
+
+/**
+ * Whether a column's cells edit out of place: the host opens them where it
+ * edits them, and no editor, typing, paste or clear reaches them in the grid.
+ *
+ * @param meta - The column
+ * @returns Whether its cell is a title
+ */
+export function editsOutOfPlace(meta: SheetColumnMeta | undefined): boolean {
+    return meta?.kind === "title";
+}
+
+/**
+ * A boolean's or a toggle's typed text as its state: a toggle's own words
+ * first, then the words every checkbox reads.
+ *
+ * @param meta - The boolean or toggle column
+ * @param text - What was typed
+ * @returns The state, or `undefined` for text that names none
+ */
+export function booleanOf(meta: SheetColumnMeta, text: string): boolean | undefined {
+    const typed = text.trim().toLowerCase();
+    if (meta.states !== undefined) {
+        if (stringEqual(typed, meta.states.on.toLowerCase())) return true;
+        if (stringEqual(typed, meta.states.off.toLowerCase())) return false;
+    }
+    if (["true", "yes", "y", "1", "x", "on"].some((word) => stringEqual(word, typed))) return true;
+    if (["false", "no", "n", "0", "off"].some((word) => stringEqual(word, typed))) return false;
+    return undefined;
+}
+
+/**
+ * A stepping cell's next state: a cycle's next member in the register's
+ * order, round to the first — from no member, the first (the last going
+ * back) — or its first; a toggle's or a boolean's other state.
+ *
+ * @param meta - The column
+ * @param cell - The cell as it stands
+ * @param registers - The registers
+ * @param step - Which way, or a cycle's first
+ * @returns The cell after the step; `undefined` for a column that does not step, or a step it does not take
+ */
+export function stepCell(meta: SheetColumnMeta | undefined, cell: SheetCellValue | undefined, registers: SheetRegisterIndex, step: SheetStep): SheetCellValue | undefined {
+    if (meta === undefined) return undefined;
+    switch (meta.kind) {
+        case "cycle": {
+            const members = registers.byName.get(meta.register ?? "") ?? [];
+            const n = members.length;
+            if (n === 0) return undefined;
+            if (step === "first") return variant("String", members[0]!.key);
+            const at = cell?.type === "String" ? members.findIndex((m) => stringEqual(m.key, cell.value)) : -1;
+            const next = at < 0 ? (step > 0 ? 0 : n - 1) : (at + step + n) % n;
+            return variant("String", members[next]!.key);
+        }
+        case "toggle":
+        case "boolean":
+            if (step === "first") return undefined;
+            return variant("Boolean", !(cell?.type === "Boolean" && cell.value));
+        default:
+            return undefined;
+    }
+}
+
+/**
+ * The cell a key sets on a stepping cell (K4): on a cycle, the member the
+ * key names — by its key or an alias, else by its label, as every register
+ * column is typed; nothing on a toggle or a boolean.
+ *
+ * @param meta - The column
+ * @param key - The key pressed
+ * @param registers - The registers
+ * @returns The cell, or `undefined` where the key names no member
+ */
+export function keyedCell(meta: SheetColumnMeta | undefined, key: string, registers: SheetRegisterIndex): SheetCellValue | undefined {
+    if (meta?.kind !== "cycle" || key.trim() === "") return undefined;
+    const member = resolveTyped(registers, meta.register, key);
+    return member === undefined ? undefined : variant("String", member.key);
+}

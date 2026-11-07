@@ -36,7 +36,7 @@ import { scheduleCheck } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { SchedulePeriods } from "../schedule/periods.js";
 import { SCHEDULE_DEF, type ScheduleResourceKind } from "../schedule/resources.js";
-import { ScheduleAllocationKindType, SchedulePeriodsKindType } from "../schedule/types.js";
+import { ScheduleAllocationKindType, ScheduleAllocationNewBinType, SchedulePeriodsKindType } from "../schedule/types.js";
 import { optimiseBinding, type OptimiseContract } from "../utils/optimise.js";
 import { recordSources } from "../utils/record-sources.js";
 import { firstView, viewsProp, type ViewsProp } from "../utils/views.js";
@@ -739,6 +739,8 @@ export interface AllocationNamespace {
         CheckContext: typeof T.AllocationCheckContextTypeFor; SlotStatus: typeof T.AllocationSlotStatusType; Slot: typeof T.AllocationSlotType;
         Layout: typeof T.AllocationLayoutType;
         OptimiseRequest: typeof T.AllocationOptimiseRequestTypeFor; OptimiseResult: typeof T.AllocationOptimiseResultTypeFor;
+        /** A reservation, a bin's roles but its arrival: what the bin kind's `values` gives its own fields from (#1526). */
+        NewBin: typeof ScheduleAllocationNewBinType;
     };
 }
 
@@ -773,6 +775,7 @@ export const Allocation: AllocationNamespace = Object.assign(
             IssueKind: T.AllocationIssueKindType, Issue: T.AllocationIssueType, CheckContext: T.AllocationCheckContextTypeFor,
             SlotStatus: T.AllocationSlotStatusType, Slot: T.AllocationSlotType, Layout: T.AllocationLayoutType,
             OptimiseRequest: T.AllocationOptimiseRequestTypeFor, OptimiseResult: T.AllocationOptimiseResultTypeFor,
+            NewBin: ScheduleAllocationNewBinType,
         },
     },
 );

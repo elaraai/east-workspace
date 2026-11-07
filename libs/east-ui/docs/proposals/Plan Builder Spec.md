@@ -425,7 +425,6 @@ As built (#1191). A prop keeps one meaning: the first design's `view` and
 | `events` | `{ [kind]: Schedule.events(…) }` | The event kinds, at least one when given. |
 | `rows` | hand-built rows, and `Plan.over(data, [series…])` | Rows beside the resources, as today's canvas builds them: a pinned KPI chart (`Plan.chart`), or a block of `Plan.series.*` over a dataset, read only. Pinned rows sit under the ruler; the rest follow the resources' rows and `data`'s. A series that declares `edit` is refused at build with a message naming `Schedule.events`. |
 | `links` | `Array<Plan.Types.Link>` | Quantity ribbons, as today, each end a row and a run on it (`Plan.ref`), or an event, `Plan.eventRef("job", key)`, wherever it draws. A link naming a kind `events` has not is refused at build, or, when its kind is not known there, as the Plan is evaluated. |
-| `applyMode` | `"batch"`, `"auto"` | When the event kinds' ready drafts go: on Save (the default), or as each gesture lands, as the Sheet's does. `data`'s session takes `editing.mode`; `applyMode` with no event kinds is refused. |
 | `slice` | `{ slice, affordances? }` | The bound slice. Its chrome (cohort, filter, search, range, resolution) folds into the one toolbar. |
 | `grain`, `date` | `"group"` or `"resource"`; a `DateTime` | The first grain and the date brought into view. The viewer's own changes persist per Plan. |
 | `canDrop` | `Fn(DragEvent) → Boolean`, or `Fn(Schedule.Types.Candidate) → Option<String>` | The drop veto, its arm read from its type: over a card or an element dragged onto `data`'s rows, or over an event kind's drop, its message on the ghost, as the Calendar's. A candidate's veto with no event kinds is refused. |
@@ -504,7 +503,7 @@ PlanPayloadType = StructType({
                                        OptionType(Plan.Types.Blocks))),   // the resources' rows over a window, every kind's drafts in place (#1192), what the viewer hides left out (#1195)
     paged:     OptionType(PlanEventPagedType),   // a paged resource kind's rows, a window of its resources at a time (#1199)
     canDrop:   OptionType(FunctionType([Schedule.Types.Candidate], OptionType(StringType))),   // the event kinds' drop veto
-    settings:  PlanSettingsType,                 // the event kinds' apply mode, and the date brought into view first
+    settings:  PlanSettingsType,                 // the date brought into view first
     library:   ArrayType(PlanLibraryTabType),    // the library pane's tabs, in the order `library` lists them; empty, no pane (#1195)
     inspector: BooleanType,                      // whether the Plan has its inspector pane (#1197)
 });
@@ -1028,7 +1027,13 @@ As built (#1196):
 
 - **PB38.** One event: its kind, title and state; its resource, its start and
   end (or its instant) and its lane; its quantity; overlaps as a banner; then
-  the kind's fields through `Fields` (#1147); Duplicate and Delete.
+  the kind's fields through `Fields` (#1147); Duplicate and Delete. While the
+  kind's `ready` refuses the event's draft, its refusals holding Save show
+  under the overlaps in one warning banner, `Not saved yet` over
+  `Pallets: Pallets must be positive` (each field by its form's label), as the
+  Calendar's inspector shows an event's, and each field one names is ringed in
+  the form. The history item's warning button selects the first refused
+  event, so its panel shows them.
 - **PB39.** Several events: the list, and a bulk edit of the state, the
   resource and a shift in time (−1 d, −1 h, +1 h, +1 d).
 - **PB40.** A row: the resource's name and meta, its events in the window
@@ -1123,8 +1128,7 @@ with #1194):
   a banner offers Discard.
 - **PB49.** *Removed (#1260):* a Plan approves and rejects nothing, so there
   is no verdict to draft.
-- **PB50.** `applyMode: "auto"` commits each ready gesture as it lands, through
-  the same protocol; drafts outlive a remount, kept in the UI store per record.
+- **PB50.** Drafts outlive a remount, kept in the UI store per record.
 
 As built (#1194):
 
@@ -1381,6 +1385,10 @@ As built (#1199):
   `approval`, a row's `approval` and an event kind's `review` role leave the
   payload, a UI task's output the packages carry: no stored form changes,
   and no repository upgrade step.
+- **Apply mode removed (2026-11-06).** Every edit waits for Save. The
+  settings' `applyMode` and the shared session's `mode` leave the payload, a
+  UI task's output the packages carry: no stored form changes, and no
+  repository upgrade step.
 
 ## 13. Plan's sub-issues, in landing order
 

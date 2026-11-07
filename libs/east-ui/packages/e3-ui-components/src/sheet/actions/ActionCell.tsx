@@ -51,8 +51,6 @@ export interface ActionCellProps {
     selected: boolean;
     /** The control whose overlay is open. */
     held: ActionHeld | undefined;
-    /** An auto save of the cell is in flight: the dot's echo runs (N2). */
-    live: boolean;
     /** The next half pressed: take its case, or open its overlay. */
     onNext: (c: ActionCase, anchor: HTMLElement) => void;
     /** The ▾ part pressed: open the Menu of the rest of the offer. */
@@ -89,7 +87,7 @@ function hold(event: MouseEvent): void {
 }
 
 /** Renders an action column's cell. */
-export const ActionCell = memo(function ActionCell({ column, summary, offer, controls, startable = false, dirty, selected, held, live, onNext, onMore, onPreview }: ActionCellProps) {
+export const ActionCell = memo(function ActionCell({ column, summary, offer, controls, startable = false, dirty, selected, held, onNext, onMore, onPreview }: ActionCellProps) {
     const styles = useSlotStyles("sheetAction");
     const { m } = useSheetWords();
     const slot = useMemo(() => stateSlot(column), [column]);
@@ -115,7 +113,7 @@ export const ActionCell = memo(function ActionCell({ column, summary, offer, con
                 {state !== undefined ? (
                     <>
                         <chakra.span css={styles.state} data-slot="actionState" data-tone={tone} data-dirty={dirty ? "" : undefined} data-case={state.name}>
-                            <chakra.span css={styles.dot} data-slot="actionDot" data-live={live ? "" : undefined} aria-hidden="true" />
+                            <chakra.span css={styles.dot} data-slot="actionDot" aria-hidden="true" />
                             {state.state}
                         </chakra.span>
                         {summary !== "" && <chakra.span css={styles.summary} data-slot="actionSummary" data-dirty={dirty ? "" : undefined}>{summary}</chakra.span>}
@@ -190,7 +188,7 @@ export const ActionCellSlot = memo(function ActionCellSlot({ host, r, columnKey,
     if (offer === undefined) return null;
     return (
         <ActionCell column={column} summary={summary} offer={offer} selected={selected}
-            controls={host.controls(r, columnKey)} startable={host.startable(r, columnKey)} dirty={host.dirty(r, columnKey)} held={host.held(r, columnKey)} live={host.live(r, columnKey)}
+            controls={host.controls(r, columnKey)} startable={host.startable(r, columnKey)} dirty={host.dirty(r, columnKey)} held={host.held(r, columnKey)}
             onNext={onNext} onMore={onMore} onPreview={onPreview} />
     );
 });

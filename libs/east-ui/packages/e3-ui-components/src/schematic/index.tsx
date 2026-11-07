@@ -120,7 +120,12 @@
  * Every gesture is one step of one history over a session per record the
  * Schematic writes (`editing.ts`, #1388): the canvas records each gesture's
  * edits (`edits.ts`), and draws the stored rows with the drafts in place
- * (`drafted.ts`). The history item ends the toolbar while a record is edited —
+ * (`drafted.ts`). A new row is keyed as its kind makes one (#1549), and a row
+ * whose kind builds its key from its fields follows the key a gesture's edit
+ * of them builds, the links and nets naming it with it — every route's edits,
+ * the canvas's, a drop's and the inspector's, recorded so — refused, the
+ * footer naming the row that holds the key; a lone selected entity that moves
+ * stays selected under its new key. The history item ends the toolbar while a record is edited —
  * Undo, Redo, Discard and Save — and ⌘Z, ⇧⌘Z and ⌘Y take it anywhere in the
  * frame but a field typed into.
  *
@@ -142,12 +147,13 @@ import { Schematic, schematicAreaIndexes, schematicKeys } from "@elaraai/e3-ui/i
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
     implementUIComponent, takeKey, typedInto, useContainerBelow, useDataStable, useFormatters, usePersistedState, useSlicesReactivity,
-    type EditIssue, type EditingWords, type HistoryAction,
+    type EditIssue, type EditingWords, type HistoryAction, type Origin,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, loadingLineText, schematicColorTokens, type LoadingLineText, type LoadingLineValue, keptRead } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import type { SourceHiding } from "../shared/schedule/hidden.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
+import { kindKeys as keysOfType } from "../shared/schedule/kind-keys.js";
 import { openFramePane } from "../shared/schedule/open-pane.js";
 import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords, type SourcesChrome } from "../shared/schedule/visibility.js";
@@ -170,8 +176,8 @@ import { draftedAreaCounts, savedRecords, schematicCounts, type SchematicDrawing
 import { draftedDrawing, waitingDrafts, waitingPoint, withWaiting, type DraftedCache } from "./drafted.js";
 import { NO_DRAFTS_NARROWING, SchematicDraftsReader, draftHeld, type SchematicDraftsNarrowing } from "./drafts-narrowing.js";
 import type { SchematicDropContext, SchematicDropKind } from "./drop.js";
-import { connectVeto, type NetLeg, type SchematicEdit } from "./edits.js";
-import { recordSlot, useSchematicEditing } from "./editing.js";
+import { connectVeto, editKinds, followBuiltKeys, type NetLeg, type SchematicEdit, type SchematicKeyRefusal } from "./edits.js";
+import { recordSlot, useSchematicEditing, type SchematicEditing, type SchematicKeyWords } from "./editing.js";
 import { foundMark, useSchematicFind, type FindKind, type FoundItem } from "./find.js";
 import { SchematicFooter, type SchematicNotice } from "./footer.js";
 import { drawnEntities, entityNames, inspectedEqual, inspectedOf, nameOfEntity, type SchematicInspected, type SchematicUnplaced } from "./inspect.js";
@@ -323,10 +329,11 @@ function SchematicFollows(props: SchematicFrameProps) {
     const { sources, nouns } = useMemo(() => followedSources(value, words, chrome, look), [value, words, chrome, look]);
     // What a source's failed narrowing says, in the Schematic's words.
     const said = useCallback((name: string): KeyVisibilityWords => ({ changed: words.m.sourceChanged({ name }), failed: words.m.sourceFailed({ name }) }), [words]);
-    // Every kind read through its source of the rail, in the Schematic's order of its kinds: each one's hidden pick.
+    // Every kind read through its source of the rail, in the Schematic's order of its kinds: each one's hidden pick, which
+    // asks e3 of a row at its kind's key type (#1549).
     const hidden = useMemo(() => [...value.items, ...value.zones, ...value.links, ...value.nets].flatMap((kind): HiddenSource[] => {
         const part = sourcePart(chrome, kind.key);
-        return part === undefined ? [] : [{ key: kind.key, part }];
+        return part === undefined ? [] : [{ key: kind.key, part, keyType: kind.keyType }];
     }), [value.items, value.zones, value.links, value.nets, chrome]);
     return (
         <FollowSources chrome={chrome} narrowed={value.shown} sources={sources} nouns={nouns} said={said}>
@@ -403,7 +410,9 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // kept, and no record takes an edit by any route until the new one lands; the history stays live.
     const stale = data.ready && (data.filtering || narrowingBusy);
     const retained = stale || [...sourced].some((slot) => followed.get(slot)?.error !== undefined);
-    const editing = useSchematicEditing(value, `${storageKey}.${id ?? "schematic"}`, recordSlices, data.held, areas, data.windows, pagedRow, retained);
+    // What the editing says of a new row's key (#1549): its kind's name as running text writes it.
+    const keyWords = useMemo((): SchematicKeyWords => ({ placeholder: ({ name }) => words.m.keyPlaceholder({ name: name.toLocaleLowerCase(words.locale) }) }), [words]);
+    const editing = useSchematicEditing(value, `${storageKey}.${id ?? "schematic"}`, recordSlices, data.held, areas, data.windows, keyWords, pagedRow, retained);
     const editingWords = useMemo((): EditingWords => ({ ...formatters, m: editingMessages }), [formatters]);
     // What the canvas draws: the stored rows, the drafts in place, each drafted row drawn once.
     const draftedCache = useRef<DraftedCache>(new WeakMap());
@@ -418,8 +427,6 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // as their kinds draw them, never drawn: Issues checks and names every unsaved change, drawn or not (ruled 27 Oct 2026,
     // "Checked in view, said so").
     const waiting = useMemo(() => waitingDrafts(data.held, editing.drafts, areas, leftOut), [data.held, editing.drafts, areas, leftOut]);
-    const canvasEditing = useMemo((): SchematicCanvasEditing | undefined => (editing.edits ? { record: editing.record, mint: editing.mint } : undefined),
-        [editing.edits, editing.record, editing.mint]);
 
     // ── The narrowing (#1392, §10.2, §10.3): what each kind's source of the rail leaves out, hidden or dimmed ──
     // Each kind read through its source: its shown keys once they have resolved — a pending one is not empty — `none`
@@ -534,6 +541,9 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         }
     }, []);
     const selected = selection.size > 0;
+    // The selection as a gesture records itself: a lone selected entity that moves follows its key (#1549).
+    const selectionNow = useRef(selection);
+    selectionNow.current = selection;
     // Where the zoom stands, as the canvas tells it: the toolbar's Zoom out and Zoom in take no press past either end (#1393).
     const [zoomRange, setZoomRange] = useState<ZoomRange>(AT_FIT);
     const zoomBy = useCallback((factor: number) => canvasRef.current?.zoomBy(factor), []);
@@ -592,6 +602,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // ── Find (§6.1, #1404): every item kind's record, by key — one read through its source sought through e3 ─────
     const findKinds = useMemo((): FindKind[] => value.items.map((kind) => ({
         slot: kind.key, name: kind.name, part: sourcePart(chrome, kind.key), rows: kind.rows, read: kind.read, codec: rowCodec(kind.rowType),
+        keys: keysOfType(kind.keyType),
     })), [value.items, chrome]);
     const reveal = useCallback((entity: string, avoid?: DOMRectReadOnly) => canvasRef.current?.reveal(entity, undefined, avoid), []);
     const hiddenLayers = useMemo(() => new Set(layersNow.flatMap((layer) => (getSomeorUndefined(layer.visible) === false ? [layer.key] : []))), [layersNow]);
@@ -840,19 +851,57 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // unsaved change the drawing leaves out is named so too, as its draft has it.
     const names = useMemo(() => entityNames(withWaiting(inspectorDrawn, waiting), words), [inspectorDrawn, waiting, words]);
     namesNow.current = names;
+    // Each kind's name, by its slot: what a refusal, a banner and the footer's line name it by.
+    const kindName = useMemo(() => new Map([...value.items, ...value.zones, ...value.links, ...value.nets].map((kind) => [kind.key, kind.name] as const)),
+        [value.items, value.zones, value.links, value.nets]);
+
+    // ── A key built from a row's fields follows the row (#1549) ──────────
+    // What names an item a gesture moves: the links and nets drawn and waiting, the drafts in place.
+    const editsKinds = useMemo(() => editKinds(value), [value]);
+    const heldDrawing = useMemo(() => withWaiting(drawing, waiting), [drawing, waiting]);
+    // Why a gesture records nothing, its new row's key refused: in the footer, the row holding the key by its name.
+    const keyRefused = useCallback((refusal: SchematicKeyRefusal) => {
+        const named = (slot: string) => (kindName.get(slot) ?? slot).toLocaleLowerCase(words.locale);
+        setRefusal(refusal.refusal === "untyped"
+            ? words.m.keyRefused({ refusal: "untyped", kind: named(refusal.kind), type: refusal.type })
+            : words.m.keyRefused({ refusal: "taken", kind: named(refusal.ref.kind), name: namesNow.current.get(entityId(refusal.ref)) ?? refusal.ref.key }));
+    }, [kindName, words]);
+    // Every route's edits recorded with each row whose key its fields build following them: refused where a row holds a
+    // key one builds; recorded, a lone selected entity that moves selected under its new key.
+    const recordEdits = editing.record;
+    const moves = editing.moves, stands = editing.stands, edited = editing.edited;
+    const recordFollowing = useCallback((edits: readonly SchematicEdit[], origin: Origin, label: string): boolean => {
+        const followed = followBuiltKeys({ kinds: editsKinds, moves, stands, edited, drawn: heldDrawing }, edits);
+        if ("refused" in followed) {
+            keyRefused(followed.refused);
+            return false;
+        }
+        if (!recordEdits(followed.edits, origin, label)) return false;
+        const now = selectionNow.current;
+        const lone = now.size === 1 ? [...now][0]! : undefined;
+        const moved = lone === undefined ? undefined : followed.moved.find((move) => stringEqual(entityId(move.ref), lone));
+        if (moved !== undefined) canvasRef.current?.select(entityId({ kind: moved.ref.kind, key: moved.to }));
+        return true;
+    }, [editsKinds, moves, stands, edited, heldDrawing, keyRefused, recordEdits]);
+    const newKey = editing.newKey;
+    const canvasEditing = useMemo((): SchematicCanvasEditing | undefined => (editing.edits ? { record: recordFollowing, newKey, keyRefused } : undefined),
+        [editing.edits, recordFollowing, newKey, keyRefused]);
+    // The inspector's edits are recorded so too.
+    const inspectorEditing = useMemo((): SchematicEditing => ({ ...editing, record: recordFollowing }), [editing, recordFollowing]);
     // The zones a point lands in, smallest first, as the Index files an item: what a drop's words name.
     const hosts = useMemo(() => hostZones(shownZones), [shownZones]);
     // A kind takes a drop while its session takes an edit and nothing the canvas draws is retained (#1398, CL8).
     const takesEdit = editing.available;
+    const untyped = editing.untyped;
     const dropContext = useCallback((): SchematicDropContext => ({
         extent: value.extent,
         kinds: dropKinds,
         available: (slot) => takesEdit(slot),
+        untyped,
         nameOf: (ref) => names.get(entityId(ref)),
         zoneAt: (point) => zoneHolding(hosts, point.x, point.y)?.label,
-    }), [value.extent, dropKinds, takesEdit, names, hosts]);
-    const recordEdits = editing.record;
-    const recordDrop = useCallback((edits: readonly SchematicEdit[], label: string) => recordEdits(edits, "drop", label), [recordEdits]);
+    }), [value.extent, dropKinds, takesEdit, untyped, names, hosts]);
+    const recordDrop = useCallback((edits: readonly SchematicEdit[], label: string) => recordFollowing(edits, "drop", label), [recordFollowing]);
     // What the canvas has selected, each entity by its reference: what a card's ⏎ drops on.
     const selectedRefs = useCallback((): SchematicRef[] => [...selection].flatMap((id) => { const ref = refOfId(id); return ref === undefined ? [] : [ref]; }), [selection]);
     const viewCentre = useCallback(() => canvasRef.current?.centre(), []);
@@ -863,14 +912,19 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         setPlacingId((was) => (was !== undefined && stringEqual(was, id) ? undefined : was));
     }, []);
     const drop = useSchematicDrop({
-        value, backlog, pagedBacklog, keys, context: dropContext, record: recordDrop, mint: editing.mint, selection: selectedRefs, centre: viewCentre,
+        value, backlog, pagedBacklog, keys, context: dropContext, record: recordDrop, newKey, keyRefused, selection: selectedRefs, centre: viewCentre,
         select: selectDropped, notice: setRefusal, words, unit: getSomeorUndefined(value.scaleUnit), drags: !narrow,
     });
+    // Each item kind that writes and adds no item, its keys of a type the form can't type (#1549): why, on its templates' cards.
+    const offKinds = useMemo(() => new Map(value.items.flatMap((kind): [string, string][] => {
+        const type = kind.editable && !value.readOnly ? untyped(kind.key) : undefined;
+        return type === undefined ? [] : [[kind.key, words.m.keysUntyped({ name: kind.name.toLocaleLowerCase(words.locale), type })]];
+    })), [value.items, value.readOnly, untyped, words]);
 
     const library = useSchematicLibrary({
         value, zones: shownZones, items: shownItems, backlog, backlogNarrowing, backlogPages: backlogPaged, indexArea, layers: layerValues, layerCounts, layerView,
         onLayerView: setLayerView,
-        inView, selected: selection, onReveal: reveal, keys, words, followed, picked, onPick, enter: drop.enter, narrow,
+        inView, selected: selection, onReveal: reveal, keys, words, followed, picked, onPick, enter: drop.enter, narrow, off: offKinds,
     });
 
     // ── The drawing's counts and saves: the inspector's Details, with nothing selected (#1391) ──
@@ -912,8 +966,6 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     }), [value.items, value.zones, value.links, value.nets, value.readOnly, chrome, words]);
 
     // ── A read that failed, said once where it happened (#1398, CL11) ──
-    const kindName = useMemo(() => new Map([...value.items, ...value.zones, ...value.links, ...value.nets].map((kind) => [kind.key, kind.name] as const)),
-        [value.items, value.zones, value.links, value.nets]);
     // A kind read through its source asks its source again; one read whole is read again.
     const retry = useCallback((slot: string | undefined) => {
         const part = slot === undefined ? undefined : sourcePart(chrome, slot);
@@ -1073,9 +1125,10 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // Details' Place: the Backlog's card, dropped as its ⏎ drops it — at the canvas's centre, selected (#1394).
     const enterCard = drop.enter;
     const place = useCallback((id: string) => enterCard(schematicLibraryId(keys, "backlog"), id), [enterCard, keys]);
+    const selectEntity = useCallback((entity: string) => canvasRef.current?.select(entity), []);
     const end = schematicInspectorPane({
-        value, inspected, rows: inspectedRows, drawn: inspectorDrawn, names, listed, editing, counts, records, issues, unchecked, waiting: waitingRefs, picks,
-        goToWaiting, zoneAt, reveal: revealEntity, refuse: setRefusal,
+        value, inspected, rows: inspectedRows, drawn: inspectorDrawn, names, listed, editing: inspectorEditing, counts, records, issues, unchecked,
+        waiting: waitingRefs, picks, goToWaiting, zoneAt, reveal: revealEntity, refuse: setRefusal, keyRefused, select: selectEntity,
         tab: inspectorTab.tab, onTab: onInspectorTab, storageKey: keys.frame, words,
         narrow, veto, linkKind: connectKind, onLinkKind: pickConnectKind, connectValues, place,
     });

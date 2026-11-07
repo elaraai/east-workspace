@@ -10,13 +10,17 @@
  * accessors map (D35) — the references, boxes and the connect veto's candidate
  * the Schematic speaks in, and the kinds' wire: each kind closed over the
  * app's record behind East functions over beast2 bytes, so the payload is one
- * type whatever the rows hold.
+ * type whatever the rows hold. A record may be keyed by any type a Dict takes
+ * (#1549), and every key on the wire is its text — a String key as itself, any
+ * other as East prints it — so the payload is one type whatever the rows are
+ * keyed by too: a `Ref` names an entity so, and each kind says its record's key
+ * type.
  *
  * @packageDocumentation
  */
 
 import {
-    ArrayType, BlobType, BooleanType, DictType, FloatType, FunctionType, NullType, OptionType, StringType, StructType, VariantType,
+    ArrayType, BlobType, BooleanType, DictType, EastTypeType, FloatType, FunctionType, NullType, OptionType, StringType, StructType, VariantType,
 } from "@elaraai/east";
 import { StatusTokenType } from "@elaraai/east-ui";
 import { KindSideFields } from "../utils/record-kind.js";
@@ -270,7 +274,7 @@ export type SchematicMeterType = typeof SchematicMeterType;
  * item slot, a fibre run in the `fibre` link slot.
  *
  * @property kind - The kind's slot name
- * @property key - The entity's key
+ * @property key - The entity's key, as its text: a String key as itself, any other as East prints it (#1549)
  */
 export const SchematicRefType = StructType({ kind: StringType, key: StringType });
 
@@ -377,11 +381,11 @@ export type SchematicNarrowedType = typeof SchematicNarrowedType;
 /**
  * What a Connect, a Retarget or an Extend would write, as `canConnect` hears
  * it before the draft snaps (§5, D34): the link or net kind the gesture writes
- * and its two items.
+ * and its two items, each by its slot and its key's text.
  *
  * @property kind - The slot of the link or net kind the gesture writes
- * @property from - The item it would run from: a link's `from`, a net's feeding member
- * @property to - The item it would run to: a link's `to`, a net's fed member
+ * @property from - The item it would run from: a link's `from`, a net's feeding member; its key as its text (#1549)
+ * @property to - The item it would run to: a link's `to`, a net's fed member; its key as its text
  */
 export const SchematicCandidateType = StructType({ kind: StringType, from: SchematicRefType, to: SchematicRefType });
 
@@ -594,7 +598,8 @@ export const SchematicBoxFieldsType = StructType({ x: StringType, y: StringType,
 export type SchematicBoxFieldsType = typeof SchematicBoxFieldsType;
 
 /**
- * A link's ends, as Connect and Retarget write them.
+ * A link's ends, as Connect and Retarget write them: each item by its slot
+ * and its key's text, read back at the end field's type (#1549).
  *
  * @property from - The item it runs from
  * @property to - The item it runs to
@@ -606,7 +611,8 @@ export type SchematicEndsType = typeof SchematicEndsType;
 
 /**
  * A net's sides, as Connect's Shift session, a leg's Delete and Extend write
- * them.
+ * them: each item by its slot and its key's text, read back at the side's key
+ * type (#1549).
  *
  * @property sources - The items on its feeding side
  * @property destinations - The items on its fed side
@@ -619,7 +625,7 @@ export type SchematicSidesType = typeof SchematicSidesType;
 /**
  * One template, as the library lists it and a drop creates from it (§4.6).
  *
- * @property key - Its key: its record's key
+ * @property key - Its key: its record's key, as its text (#1549)
  * @property name - Its card's name
  * @property group - The library's group for it
  * @property icon - Its card's Font Awesome solid icon
@@ -643,8 +649,8 @@ export type SchematicTemplateType = typeof SchematicTemplateType;
 /**
  * What a reader read of a record by key or by area, made its stored rows
  * (#1393): the rows as beast2 bytes of an `Array` of `{ key: String, row: R }`
- * at the record's row type `R`, each row's roles read in one pass beside its
- * bytes.
+ * at the record's row type `R`, each key its text (#1549), each row's roles read
+ * in one pass beside its bytes.
  */
 const RowsRead = <E extends StructType>(entry: E) => FunctionType([BlobType], DictType(StringType, entry));
 
@@ -687,7 +693,7 @@ const KindFields = {
     ...KindSideFields,
 } as const;
 
-/** A kind's stored rows a read holds, by key: each its roles and its row; `none` while the read is in flight. */
+/** A kind's stored rows a read holds, by their keys' text: each its roles and its row; `none` while the read is in flight. */
 const RowsOf = <E extends StructType>(entry: E) => FunctionType([], OptionType(DictType(StringType, entry)));
 
 /**
@@ -706,6 +712,9 @@ const RowsOf = <E extends StructType>(entry: E) => FunctionType([], OptionType(D
  * @property create - A new row at a position, every other field from a template's values or its type's default; `none` as `write` refuses
  * @property templates - Its templates
  * @property templatesSource - The slice's source its templates list names
+ * @property rowKey - A new item's key's text, from its row's bytes — the kind's `key` (#1549): what a drop makes one under, and
+ *   what an item moves to as an edit changes what it reads; `none` without `key`
+ * @property keyType - Its record's key type (#1549): every key on the wire is its text, a String key as itself and any other as East prints it
  */
 export const SchematicItemKindType = StructType({
     ...KindFields,
@@ -720,6 +729,8 @@ export const SchematicItemKindType = StructType({
     create: FunctionType([OptionType(SchematicPointType), OptionType(BlobType)], OptionType(BlobType)),
     templates: ArrayType(SchematicTemplateType),
     templatesSource: OptionType(StringType),
+    rowKey: OptionType(FunctionType([BlobType], StringType)),
+    keyType: EastTypeType,
 });
 
 /** Type representing an item kind. */
@@ -733,6 +744,7 @@ export type SchematicItemKindType = typeof SchematicItemKindType;
  * @property rowsOf - Its rows a reader read by area, as bytes, made its stored zones: a window's (#1393)
  * @property box - The fields its box is, at its corner: what an area index it is read by names (§11.4)
  * @property read - A drafted row's roles, from its bytes and its key
+ * @property keyType - Its record's key type (#1549), as an item kind's
  */
 export const SchematicZoneKindType = StructType({
     ...KindFields,
@@ -740,6 +752,7 @@ export const SchematicZoneKindType = StructType({
     rowsOf: RowsRead(SchematicZoneEntryType),
     box: SchematicBoxFieldsType,
     read: FunctionType([BlobType, StringType], SchematicZoneType),
+    keyType: EastTypeType,
 });
 
 /** Type representing a zone kind. */
@@ -752,9 +765,12 @@ export type SchematicZoneKindType = typeof SchematicZoneKindType;
  * @property rows - Its stored links a read holds, by key, each its roles and its row
  * @property read - A drafted row's roles, from its bytes and its key
  * @property write - The row with its ends written and every other field as it was; `none` for an end of a slot its field holds no keys of
- * @property create - A new link between two items, every other field from a template's values or its type's default; `none` as `write` refuses
+ * @property create - A new link between two items, every other field from a template's values, the kind's `values` of its ends with none selected (#1526), or its type's default; `none` as `write` refuses
  * @property templates - Its templates, which retype a link they are dropped on
  * @property templatesSource - The slice's source its templates list names
+ * @property rowKey - A new link's key's text, from its row's bytes — the kind's `key` (#1549): what Connect makes one under,
+ *   and what a link moves to as a Retarget changes what it reads; `none` without `key`
+ * @property keyType - Its record's key type (#1549), as an item kind's
  */
 export const SchematicLinkKindType = StructType({
     ...KindFields,
@@ -765,6 +781,8 @@ export const SchematicLinkKindType = StructType({
     create: FunctionType([SchematicEndsType, OptionType(BlobType)], OptionType(BlobType)),
     templates: ArrayType(SchematicTemplateType),
     templatesSource: OptionType(StringType),
+    rowKey: OptionType(FunctionType([BlobType], StringType)),
+    keyType: EastTypeType,
 });
 
 /** Type representing a link kind. */
@@ -777,9 +795,12 @@ export type SchematicLinkKindType = typeof SchematicLinkKindType;
  * @property rows - Its stored nets a read holds, by key, each its roles and its row
  * @property read - A drafted row's roles, from its bytes and its key
  * @property write - The row with its sides written and every other field as it was; `none` for a member of a slot a side holds no keys of
- * @property create - A new net, every other field from a template's values or its type's default; `none` as `write` refuses
+ * @property create - A new net, every other field from a template's values, the kind's `values` of its sides with none selected (#1526), or its type's default; `none` as `write` refuses
  * @property templates - Its templates
  * @property templatesSource - The slice's source its templates list names
+ * @property rowKey - A new net's key's text, from its row's bytes — the kind's `key` (#1549): what Connect's Shift session makes
+ *   one under, and what a net moves to as an edit of its sides changes what it reads; `none` without `key`
+ * @property keyType - Its record's key type (#1549), as an item kind's
  */
 export const SchematicNetKindType = StructType({
     ...KindFields,
@@ -790,6 +811,8 @@ export const SchematicNetKindType = StructType({
     create: FunctionType([SchematicSidesType, OptionType(BlobType)], OptionType(BlobType)),
     templates: ArrayType(SchematicTemplateType),
     templatesSource: OptionType(StringType),
+    rowKey: OptionType(FunctionType([BlobType], StringType)),
+    keyType: EastTypeType,
 });
 
 /** Type representing a net kind. */

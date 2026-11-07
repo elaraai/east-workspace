@@ -41,6 +41,7 @@ import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../sh
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import { openFramePane } from "../shared/schedule/open-pane.js";
+import { refusalText, scheduleRefusals } from "../shared/schedule/refusals.js";
 import { readRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
 import { useSourceShown } from "../shared/schedule/source-tab.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
@@ -55,7 +56,7 @@ import { useAllocationFind, type FoundBin } from "./find.js";
 import { useAllocationFit } from "./fit.js";
 import { AllocationFooter } from "./footer.js";
 import { useHiddenBins, type BinShown } from "./hidden.js";
-import { useAllocationInspector } from "./inspector.js";
+import { useAllocationInspector, type AllocationRefusal } from "./inspector.js";
 import { binCode } from "./inspector-model.js";
 import { useAllocationLibrary, type Pick, type ResourceFind } from "./library.js";
 import { allocationMessages, type AllocationWords } from "./messages.js";
@@ -442,13 +443,6 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
             if (bins.length > 1) setPick({ kind: "bins", arrival });
         },
     });
-    // The Inspector (A55–A64): the end pane, its edits the same commands, its fits the same answers.
-    const end = useAllocationInspector({
-        value, domain, context, day, plan, held, loads, lines, slots, issues, layout: window.view.layout, selection, inspect, drag, fit, commands,
-        without, reserving, shown: { lanes: lanesShown.keys, resources: resourcesShown.keys, arrivals: arrivalsShown.keys },
-        refusal, dismissRefusal: () => setRefusal(undefined), chooser, setChooser, book: bookPicked, firstFree,
-        tab: inspectorTab.tab, onTab: tab => setInspectorTab({ tab }), storageKey: key, onFind: findable ? onFind : undefined, finding, m: words.m,
-    });
     // Nothing above the board comes or goes during a drag (A22): a failed fit's banner waits for the drop.
     const [fitError, setFitError] = useState<string>();
     useEffect(() => { if (drag.grip === undefined) setFitError(fit.error); }, [drag.grip, fit.error]);
@@ -549,20 +543,46 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         setGoing(undefined);
         inspect({ type: "bin", id: going.id });
     }, [going, dayEpoch, current, inspect]);
-    // A conflict's Go to: its bin shown on its day and selected, as its issue's Show does — on its own day, where it is a
-    // bin of another; a day's opens the Issues tab.
+    /** A bin of a session's: on the day in view (`here`), else on its own day, as its draft places it; `undefined` for neither. */
+    const binOf = (kind: string | undefined, entry: string): { readonly bin: Bin; readonly here: boolean } | undefined => {
+        if (kind === undefined || keyEqual(kind, PERIODS)) return undefined;
+        const here = plan.bins.get(entry) ?? held.bins.get(entry);
+        if (here !== undefined) return { bin: here, here: true };
+        const there = elsewhere(entry);
+        return there === undefined ? undefined : { bin: there, here: false };
+    };
+    // A bin shown on its day and selected, as its issue's Show does — on its own day, where it is a bin of another: a
+    // conflict's Go to, a refusal's Show, and the warning button's first issue (#1525). A day's, or a bin the board can't
+    // read, opens the Issues tab.
+    const goTo = (kind: string | undefined, entry: string) => {
+        const found = binOf(kind, entry);
+        if (found === undefined) { onIssues(); return; }
+        const on = dayStart(found.bin.at).getTime();
+        window.setView({ ...window.view, date: on });
+        if (found.here) inspect({ type: "bin", id: entry });
+        else setGoing({ id: entry, day: on });
+    };
     const onConflict = (issue: EditIssue) => {
         const key = history?.sourceOf(issue);
-        const part = key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key));
-        const here = part === undefined || part.kind === PERIODS ? undefined : plan.bins.get(issue.entry) ?? held.bins.get(issue.entry);
-        const bin = here ?? (part === undefined || part.kind === PERIODS ? undefined : elsewhere(issue.entry));
-        if (bin === undefined) { onIssues(); return; }
-        const on = dayStart(bin.at).getTime();
-        window.setView({ ...window.view, date: on });
-        if (here !== undefined) inspect({ type: "bin", id: issue.entry });
-        else setGoing({ id: issue.entry, day: on });
+        goTo(key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key))?.kind, issue.entry);
     };
-    const toolbar = useAllocationToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onConflict, where: historyWhere, onAction, onPickerWeeks: setPickerWeeks,
+    // Each refusal holding Save, of every day's drafts, in the board's words (#1525): a bin by its code, or by its key for
+    // one the board can't read, and its field by its form's label.
+    const refusals = scheduleRefusals(editing?.schedule.sessions ?? []).map(({ kind, issue }): AllocationRefusal => {
+        const found = binOf(kind, issue.entry);
+        return { kind, issue, title: found === undefined ? issue.entry : binCode(context, found.bin, nouns),
+            text: refusalText(issue, keyEqual(kind, value.bin.kind.key) ? value.bin.kind.fields : []) };
+    });
+    // The Inspector (A55–A64): the end pane, its edits the same commands, its fits the same answers.
+    const end = useAllocationInspector({
+        value, domain, context, day, plan, held, loads, lines, slots, issues, layout: window.view.layout, selection, inspect, drag, fit, commands,
+        without, reserving, shown: { lanes: lanesShown.keys, resources: resourcesShown.keys, arrivals: arrivalsShown.keys },
+        refusal, dismissRefusal: () => setRefusal(undefined), chooser, setChooser, book: bookPicked, firstFree,
+        tab: inspectorTab.tab, onTab: tab => setInspectorTab({ tab }), storageKey: key, onFind: findable ? onFind : undefined, finding, m: words.m,
+        refusals, onRefusal: refusal => goTo(refusal.kind, refusal.issue.entry),
+    });
+    const toolbar = useAllocationToolbar({ ...window, value, styles, commands, editing, words, issues, refused: refusals.length, onIssues, onIssue: onConflict, onConflict,
+        where: historyWhere, onAction, onPickerWeeks: setPickerWeeks,
         status: value.periods.type === "some" ? statusText(heldPeriod) : undefined, published: heldPeriod.status.type === "published", unread: !current, publishing, picker: data.picker,
         optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,
         focus: focus === undefined ? undefined : { resource: context.resources.get(focus)!, load: loads.get(focus)!, hidden: resourcesShown.keys.type === "some" && !resourcesShown.keys.value.has(focus) },

@@ -154,13 +154,14 @@ export interface EastChakraSheetProps {
 
 /**
  * The record's last commit (SB22, SB51): its newest commit's time, as the
- * day's time when it was today and in full otherwise, and who made it.
+ * day's time when it was today and in full otherwise, and who made it — what
+ * a Sheet's footer and inspector say, and a Record's (#1531).
  *
  * @param history - The payload's `history`: over a record, its commits, newest first; `none` over `data`
  * @param words - The sheet's words
  * @returns The last commit, or `undefined` over `data`, while the commits are unread, or when there are none
  */
-function useLastCommit(history: SheetValue["history"], words: SheetWords): SheetLastCommit | undefined {
+export function useLastCommit(history: SheetValue["history"], words: SheetWords): SheetLastCommit | undefined {
     const commits = getSomeorUndefined(history);
     // Read where the sheet renders, and again when the record moves.
     const read = useCallback(() => (commits === undefined ? none : commits()), [commits]);

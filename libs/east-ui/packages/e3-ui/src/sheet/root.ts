@@ -24,11 +24,13 @@ import {
     ArrayType,
     AsyncFunctionType,
     BooleanType,
+    DateTimeType,
     DictType,
     FunctionType,
     IntegerType,
     NullType,
     OptionType,
+    SetType,
     StringType,
     StructType,
     isTypeEqual,
@@ -74,6 +76,8 @@ import {
     SheetGroupCellType,
     SheetNounType,
     SheetOptionsRuleType,
+    SheetLookType,
+    SheetAuditModeType,
     SHEET_TITLE_CELL,
     sheetLinesOf,
     sheetRuleCell,
@@ -85,6 +89,7 @@ import {
     type SheetEntryOf,
     type SheetHalfLiteral,
     type SheetSidesLiteral,
+    type SheetAgeUnitLiteral,
 } from "./types.js";
 import {
     type SheetColumnMeta,
@@ -103,15 +108,17 @@ import {
     buildPatchCells,
 } from "./bridge.js";
 import { buildActionKind } from "./actions.js";
-import type { SheetColumn, SheetColumnSpec, SheetFieldKey, SheetMemberKindInput, SheetMultipleInput } from "./columns.js";
+import { RECORD_COLUMN_KINDS, type SheetColumn, type SheetColumnSpec, type SheetFieldKey, type SheetMemberKindInput, type SheetMultipleInput } from "./columns.js";
 import type { SheetDriverValue, SheetRegisterValue } from "./registers.js";
 import type { SheetGroupValue } from "./group.js";
 import type { SheetSubRowsValue } from "./sub-rows.js";
 import type { SheetEditsInput } from "./edits.js";
 import { buildSheetEditing } from "./editing-bridge.js";
+import { unsettableFields } from "./fields.js";
 import { SheetApplyResultType, SheetNewRowType, SheetNewGroupType, SheetReadinessType, type SheetDraftOf, type SheetChangeSetTypeFor } from "./transactions.js";
 import type { SheetPatchEventTypeFor, SheetDraftEntryOf } from "./drafts.js";
 import { orderedRowSource, type OrderedRowSource } from "../utils/ordered-source.js";
+import { scheduleLastKey } from "../schedule/window.js";
 import { isExistsCheck, type SheetLocksInput } from "./link.js";
 
 // ============================================================================
@@ -176,6 +183,7 @@ export interface SheetReadyInput<R extends StructType, G extends EastType = neve
  * narrowing, its views and its name.
  *
  * @typeParam R - The host's row type
+ * @typeParam K - The rows' key type: a record's own, else `String` — the keys `newKey` takes and gives
  * @property id - The `String` field that identifies a row of `data` (required on a positional source; a keyed paged source's key is its id)
  * @property owned - Rows the upstream system owns: no copilot, stamped columns read-only — an accessor
  * @property driver - The driver declaration (`Sheet.driver`)
@@ -185,7 +193,7 @@ export interface SheetReadyInput<R extends StructType, G extends EastType = neve
  * @property onUpdate - The whole collection with the edit applied (inline arm only)
  * @property onSelect - The ring moved
  * @property selection - Controlled selection (§3.14)
- * @property newRowId - Overrides the renderer's id minting for inserted rows
+ * @property newKey - A new row's key, the app's: given the keys taken, one that is not
  * @property group - Never on a flat sheet — grouped rows take {@link SheetGroupedOptions}
  * @property subRows - Read-only sub rows under each row, from its array fields (`Sheet.subRows`, #844)
  * @property readOnly - The whole sheet is read-only
@@ -195,7 +203,7 @@ export interface SheetReadyInput<R extends StructType, G extends EastType = neve
  * @property style - The gutter width
  * @property narrow - On a phone: any column it pins at the left, and how many it shows at once ({@link SheetNarrowInput})
  */
-export interface SheetOptions<R extends StructType> {
+export interface SheetOptions<R extends StructType, K extends EastType = StringType> {
     /** Structural capabilities; defaults depend on grouping and source ordering. */
     edits?: SheetEditsInput;
     /** The `String` field that identifies a row. */
@@ -217,8 +225,6 @@ export interface SheetOptions<R extends StructType> {
     /** Submit one checked, idempotent batch to the authoritative source. */
     onApply?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R>>], typeof SheetApplyResultType>>
         | SubtypeExprOrValue<AsyncFunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R>>], typeof SheetApplyResultType>>;
-    /** Batch by default; auto submits complete gestures through the same checked protocol. */
-    applyMode?: "batch" | "auto";
     /** The ring moved. */
     onSelect?: SubtypeExprOrValue<FunctionType<[SheetSelectionType], NullType>>;
     /** Controlled selection. */
@@ -227,8 +233,13 @@ export interface SheetOptions<R extends StructType> {
     ready?: SheetReadyInput<R>;
     /** Explicit defaults for new rows, including required fields without columns. */
     newRow?: SubtypeExprOrValue<FunctionType<[typeof SheetNewRowType], SheetPatchOf<R>>>;
-    /** Overrides the renderer's id minting for inserted rows. */
-    newRowId?: SubtypeExprOrValue<FunctionType<[], StringType>>;
+    /**
+     * A new row's key, in the app's own scheme: given the keys taken — every key the sheet has read, and every one its
+     * batch has drafted — one that is not. Without it a String key is a UUID, and an Integer one one past the largest
+     * (#1549): of the keys taken, and of the last key a source paging the record's own entries serves. Any other key
+     * needs it.
+     */
+    newKey?: SubtypeExprOrValue<FunctionType<[SetType<K>], K>>;
     /** Never on a flat sheet — grouped rows take {@link SheetGroupedOptions}. */
     group?: never;
     /** Read-only sub rows under each row, from its array fields. */
@@ -274,7 +285,7 @@ export interface SheetNarrowInput<K extends string = string> {
 }
 
 /** A secondary-index view edits by original primary identity. */
-export interface SheetIndexedOptions<K extends EastType, R extends StructType> extends Omit<SheetOptions<R>, "onApply"> {
+export interface SheetIndexedOptions<K extends EastType, R extends StructType> extends Omit<SheetOptions<R, K>, "onApply"> {
     /** Checked keyed batch, usually Record.onApply(record, { keyed: true }). */
     onApply?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R, K>>], typeof SheetApplyResultType>>
         | SubtypeExprOrValue<AsyncFunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R, K>>], typeof SheetApplyResultType>>;
@@ -288,12 +299,14 @@ export interface SheetIndexedOptions<K extends EastType, R extends StructType> e
  *
  * @typeParam P - The group's row type
  * @typeParam F - The lines field
+ * @typeParam K - The groups' key type: a record's own, else `String` — the keys `newKey` takes and gives
  * @property group - The group declaration (`Sheet.group`)
  * @property suggest - The row-proposal declaration, over the LINE type
  * @property onUpdate - The whole collection of groups with the edit applied (inline arm only)
  * @property subRows - Read-only sub rows under each LINE, declared over the line type (#844)
  */
-export interface SheetGroupedOptions<P extends StructType, F extends SheetLinesField<P>> extends Omit<SheetOptions<P>, "group" | "suggest" | "onPatch" | "newRow" | "ready" | "subRows" | "narrow"> {
+export interface SheetGroupedOptions<P extends StructType, F extends SheetLinesField<P>, K extends EastType = StringType>
+    extends Omit<SheetOptions<P, K>, "group" | "suggest" | "onPatch" | "newRow" | "ready" | "subRows" | "narrow"> {
     /** On a phone: any line column it pins at the left, and how many it shows at once. */
     narrow?: SheetNarrowInput<SheetFieldKey<SheetLineOf<P, F>>>;
     /** Additional row and group requirements over complete field drafts. */
@@ -378,6 +391,10 @@ export interface SheetInternalOptions {
     /** Binds each of the bridge's functions once in the block the sheet is built in, for every wire function built
      *  from it to refer to (`<Sheet>`'s block); without it each is written where it is used. */
     hold?: SheetHold;
+    /** The columns may be the Record's kinds — title, person, boolean, toggle, cycle, age, audit — which only the Record's grid draws: `<Record>`'s build. */
+    recordKinds?: boolean;
+    /** The inspector's hints, when `<Sheet>` shows the pane — `fields` a row's, `groupFields` a group's: what its form lets a person set on a new entry (#1536). Left out, the sheet has no inspector. */
+    inspector?: { fields?: Readonly<Record<string, unknown>> | undefined; groupFields?: Readonly<Record<string, unknown>> | undefined };
 }
 
 /** A whole-value bind handle (`State.bind` / `Data.bind`) over `Array<R>` — accepted as `data`; `R` a row struct, or an entry `Sheet.Types.Entry(P, "lines")` (#846). */
@@ -474,6 +491,7 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
             }
             return kindOf("quantity", {
                 uom,
+                unit: optionOf(cfg.unit, StringType),
                 format: cfg.format !== undefined
                     ? East.value(some(East.value(cfg.format as SubtypeExprOrValue<TickFormatType>, TickFormatType)), OptionType(TickFormatType))
                     : East.value(none, OptionType(TickFormatType)),
@@ -532,6 +550,32 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
             accepts: cfg.accepts,
             parse:   wrapCustomParse(bridge, meta, cfg.parse),
             print:   wrapCustomPrint(meta, cfg.print),
+        });
+        case "title":   return kindOf("title", { avatar: cfg.avatar === true });
+        case "person":  return kindOf("person", { register: meta.register, unassigned: optionOf(cfg.unassigned, StringType) });
+        case "boolean": return kindOf("boolean", null);
+        case "toggle":  return kindOf("toggle", { on: cfg.on, off: cfg.off, look: resolveTag(cfg.look ?? "chip", SheetLookType) });
+        case "cycle":   return kindOf("cycle", { register: meta.register, scale: cfg.scale === true, look: resolveTag(cfg.look ?? "chip", SheetLookType) });
+        case "age": {
+            const unit = (cfg as { unit?: SheetAgeUnitLiteral }).unit ?? "days";
+            const span = unit === "hours" ? 3_600_000n : unit === "weeks" ? 604_800_000n : 86_400_000n;
+            // Whole units from the moment to the browser's clock, the renderer's to call; a moment ahead of it counts 0.
+            const elapsed = East.function([DateTimeType, DateTimeType], IntegerType, ($, since, now) => {
+                const ms = $.const(since.durationMilliseconds(now));
+                return ms.less(0n).ifElse(() => 0n, () => ms.divide(span));
+            });
+            return kindOf("age", {
+                unit:   variant(unit, null),
+                stale:  optionOf(cfg.stale, IntegerType),
+                absent: optionOf(cfg.absent, StringType),
+                elapsed,
+            });
+        }
+        case "audit":   return kindOf("audit", {
+            mode:   resolveTag(cfg.mode ?? "date", SheetAuditModeType),
+            absent: optionOf(cfg.absent, StringType),
+            by:     sheetRuleCell("by", meta.key),
+            verb:   sheetRuleCell("verb", meta.key),
         });
     }
 }
@@ -749,13 +793,68 @@ function buildSheet(
     }
     const keyed = collectionTag === "Dict" && (resolved.kind === "paged" || keyOrdered);
     const keyType = keyed ? resolved.keyType : undefined;
-    // A new row's key is minted as text, which only a String key is (#1182).
-    if (keyType !== undefined && keyType.type !== "String" && opts.newRowId === undefined && opts.edits?.insertRows !== false) {
+    // Whether the sheet adds entries of a kind: it writes somewhere, the author has not made it read only, and its edits
+    // insert them.
+    const writes = opts.onApply !== undefined || opts.onUpdate !== undefined || internal.applyKeyed !== undefined;
+    const adds = (what: "insertRows" | "insertGroups"): boolean => writes && opts.readOnly !== true && opts.edits?.[what] !== false;
+    // A new entry — a row, or a group, never a group's line, keyed within it — takes the source's key: the app's, from
+    // `newKey`; else a UUID the renderer mints for a String key, and one past the largest for an Integer one (#1182,
+    // #1536, #1549). Any other key needs `newKey`.
+    const entry = groupDecl === undefined ? "row" : "group";
+    if (keyType !== undefined && keyType.type !== "String" && keyType.type !== "Integer" && opts.newKey === undefined
+        && (groupDecl === undefined ? adds("insertRows") : adds("insertGroups"))) {
         throw new Error(
-            `Sheet: the rows are keyed by ${printType(keyType)}, and a new row's key is minted only for a String key — ` +
-            "pass `newRowId`, an East function returning a new row's key as its `.east` text, or `edits={{ insertRows: false }}`",
+            `Sheet: the ${entry}s are keyed by ${printType(keyType)}, and a new ${entry}'s key is made only for a String key or an Integer one — ` +
+            `pass \`newKey\`, an East function from the keys taken to a new one, or \`edits={{ ${groupDecl === undefined ? "insertRows" : "insertGroups"}: false }}\``,
         );
     }
+    // The app's `newKey` on the wire: over the keys' text, as the rows' ids are — a String key's function as it is, any
+    // other key's read from its text and printed back, as `Record.onApply` reads an id.
+    const appKey = opts.newKey === undefined ? undefined : (() => {
+        const key = keyType ?? StringType;
+        const fn = East.value(opts.newKey as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
+        const type = Expr.type(fn as Expr<EastType>) as EastType;
+        if (type.type !== "Function" || type.inputs.length !== 1 || !isTypeEqual(type.inputs[0]!, SetType(key)) || !isTypeEqual(type.output, key)) {
+            throw new Error(`Sheet: \`newKey\` takes the keys taken and gives a new one — an East function from ${printType(SetType(key))} to ${printType(key)}`);
+        }
+        if (key.type === "String") return fn as ExprType<FunctionType<[SetType<StringType>], StringType>>;
+        return East.function([SetType(StringType)], StringType, ($, taken) => {
+            const mint = $.const(fn as ExprType<FunctionType<[SetType<EastType>], EastType>>);
+            return East.print(mint(taken.toSet((_$, id) => id.parse(key))));
+        });
+    })();
+    // With no `newKey`, an Integer key is one past the largest (#1549), as the Plan's is: of every key taken — the rows the
+    // sheet has read, its drafts and what its gesture made — and, paging the record's own entries, of the last key they
+    // hold, once that read lands. A key the record holds unread is a conflict at Save, never written over; with no key at
+    // all, the first is 1.
+    const integerKey = opts.newKey !== undefined || keyType?.type !== "Integer" ? undefined : (() => {
+        // The record's own entries, paged, end at its largest key: an index's window ends at the last of its own order,
+        // and a narrowing at the last it keeps.
+        const lastKey = incoming.kind === "paged" && !incoming.query
+            ? scheduleLastKey(incoming.source as unknown as ExprType<EastType>, IntegerType)
+            : undefined;
+        return East.function([SetType(StringType)], StringType, ($, taken) => {
+            const largest = $.let(taken.reduce(($2, most, id) => {
+                const key = $2.const(id.parse(IntegerType));
+                return East.less(most, key).ifElse(() => key, () => most);
+            }, 0n), IntegerType);
+            if (lastKey !== undefined) {
+                const last = $.const(lastKey);
+                $.match(last(), {
+                    some: ($2, read) => {
+                        $2.match(read, {
+                            some: ($3, text) => {
+                                const key = $3.const(text.parse(IntegerType));
+                                $3.if(East.less(largest, key), ($4) => { $4.assign(largest, key); });
+                            },
+                        });
+                    },
+                });
+            }
+            return East.print(largest.add(1n));
+        });
+    })();
+    const newKey = appKey ?? integerKey;
     const fields = groupType.fields as Record<string, EastType>;
     const idField = opts.id as string | undefined;
     if (!keyed && idField === undefined) {
@@ -778,6 +877,9 @@ function buildSheet(
         .filter((e): e is [string, SheetColumn<StructType, EastType>] => e[1] !== undefined);
     if (columnEntries.length === 0) throw new Error("Sheet: declare at least one column");
     for (const [key, col] of columnEntries) {
+        if (internal.recordKinds !== true && RECORD_COLUMN_KINDS.has(col.kind)) {
+            throw new Error(`Sheet: column "${key}" is a ${col.kind} column, which a Record draws and a Sheet does not — show a system of records' rows with <Record>`);
+        }
         if (col.rowType === undefined || col.rowType === lineType) continue;
         throw new Error(groupDecl !== undefined && col.rowType === groupType
             ? `Sheet: column "${key}" was built over the group's row type — columns are declared over the line type \`${groupDecl.lines}\` holds (Sheet.column.${col.kind}(LineType, …))`
@@ -849,6 +951,31 @@ function buildSheet(
             }
             cellMetas.push(meta);
         }
+    }
+
+    // The fields only the app gives a new entry (#1536), on a sheet that adds that kind of entry: a row's — a line's, a
+    // loose row's — and a group's. The session sets an entry's id field itself (a flat row's, a loose row's, a line's
+    // beside loose rows) and a group's lines. A sheet that applies nothing drafts what it likes.
+    const hinted = internal.inspector;
+    const lineLeave = new Set(idField !== undefined && (groupDecl === undefined || loose) && idField in lineType.fields ? [idField] : []);
+    const unsettable = {
+        row: adds("insertRows") ? unsettableFields(lineType, metas, hinted === undefined ? undefined : hinted.fields ?? {}, lineLeave) : [],
+        group: groupDecl !== undefined && cellMetas !== undefined && adds("insertGroups")
+            ? unsettableFields(groupType, cellMetas, hinted === undefined ? undefined : hinted.groupFields ?? {}, new Set([groupDecl.lines, ...(idField !== undefined ? [idField] : [])]))
+            : [],
+    };
+    const lineWord = groupDecl === undefined ? "row's" : loose ? "line's or loose row's" : "line's";
+    if (unsettable.row[0] !== undefined && opts.newRow === undefined) {
+        throw new Error(
+            `Sheet: a new ${lineWord} "${unsettable.row[0].field}" is required, and no column or form sets it — ` +
+            "give it in `newRow`, make it an Option, or `edits={{ insertRows: false }}`",
+        );
+    }
+    if (unsettable.group[0] !== undefined && opts.newGroup === undefined) {
+        throw new Error(
+            `Sheet: a new group's "${unsettable.group[0].field}" is required, and no band cell or form sets it — ` +
+            "give it in `newGroup`, make it an Option, or `edits={{ insertGroups: false }}`",
+        );
     }
 
     // The bridge.
@@ -958,6 +1085,7 @@ function buildSheet(
         ...(ordered !== undefined && opts.onApply !== undefined ? { onApply: undefined, applyKeyed: opts.onApply } : {}),
         ...(internal.applyKeyed !== undefined ? { applyKeyed: internal.applyKeyed } : {}),
         ...(internal.sourceId !== undefined ? { sourceId: internal.sourceId } : {}),
+        unsettable,
     }, rowOf as unknown as ExprType<FunctionType<[EastType, StringType], typeof SheetRowType>>, driver?.column);
     // The group declaration on the wire (#740).
     const groupValue = groupBridge !== undefined && groupDecl !== undefined && cellMetas !== undefined
@@ -1021,7 +1149,7 @@ function buildSheet(
             ? some(East.value(opts.onSelect, FunctionType([SheetSelectionType], NullType)))
             : none,
         selection:     opts.selection !== undefined ? East.value(opts.selection, OptionType(SheetSelectionType)) : East.value(none, OptionType(SheetSelectionType)),
-        newRowId:      opts.newRowId !== undefined ? some(East.value(opts.newRowId, FunctionType([], StringType))) : none,
+        newKey:        newKey !== undefined ? some(newKey) : none,
         group:         groupValue,
         readOnly:      opts.readOnly !== undefined ? some(opts.readOnly) : none,
         blanks:        opts.blanks !== undefined ? some(typeof opts.blanks === "number" ? BigInt(opts.blanks) : opts.blanks) : none,

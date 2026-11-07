@@ -340,12 +340,11 @@ for (const theme of LAYOUT_THEMES) {
         const assignment = frame.locator('[data-roster-assignment="s37"]');
         await assignment.scrollIntoViewIfNeeded(); await drag(activity, assignment);
         await expect(assignment.getByTitle('Unloading', { exact: true })).toBeVisible();
-        // The warehouse's check holds Save until N. Ochre's new duty has a cost centre: given in the inspector, it saves.
+        // N. Ochre's new duty takes its team's cost centre from the app's `values` (#1526), so the warehouse's check holds
+        // nothing: its inspector shows Inbound's, and it saves at once.
         const save = frame.getByRole('button', { name: 'Save', exact: true });
-        await expect(save).toBeDisabled();
         await frame.locator('[data-roster-assignment][data-drafted]').filter({ hasText: 'N. Ochre' }).click();
-        const centre = frame.locator('[data-frame-slot="end"] [data-field="costCentre"]').getByRole('textbox');
-        await centre.fill('CC-IN'); await centre.press('Enter');
+        await expect(frame.locator('[data-frame-slot="end"] [data-field="costCentre"]').getByRole('textbox')).toHaveValue('CC-IN');
         await expect(save).toBeEnabled();
         await save.click();
         await expect(frame.locator('[data-roster-assignment][data-drafted]')).toHaveCount(0, { timeout: 15_000 });

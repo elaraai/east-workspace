@@ -47,6 +47,23 @@ builder and the query builder are — is laid out with east-ui-components'
 `BuilderFrame`, never by hand. See
 [`docs/conventions/EAST_UI_PROP_PATTERNS.md`](docs/conventions/EAST_UI_PROP_PATTERNS.md).
 
+## HARD RULE: no one-kind special cases in shared machinery
+
+Shared machinery — the path every kind, column or component goes through,
+such as the Sheet's editor, candidates, parse, menu and state machine —
+never gains a branch that changes what it returns or accepts for one kind
+(`meta.kind === "person"` inside a shared path), and never round-trips an
+identity through display text (key → label → member: two members may show
+one label). When a new kind needs behaviour the shared path lacks,
+generalise the shared path for **every** kind; where it is app logic the
+data cannot express, add a developer `FunctionType` prop (a custom kind's
+`parse` / `print`, an `options` rule, `newKey`) — never when the data
+already says it (a register's `label` and `aliases`); otherwise stop and
+ask. An arm per kind in a dispatch that is by kind by design (the parse,
+the text a kind prints, the editor a kind mounts) is fine. Before every
+commit, grep the diff for `kind === "` and justify each hit. See
+[`docs/conventions/EAST_UI_PROP_PATTERNS.md`](docs/conventions/EAST_UI_PROP_PATTERNS.md).
+
 ## What this repo is
 
 The **East monorepo** — a pnpm + uv + cmake workspace containing all

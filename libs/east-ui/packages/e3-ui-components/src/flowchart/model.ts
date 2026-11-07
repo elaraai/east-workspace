@@ -14,6 +14,9 @@
  * - **Each lane's states** stand in their `order`, else by key: the order e3
  *   returns a record in, kept under every index the rail picks, though a page
  *   of a source comes in its index's order (R7).
+ * - **By key** is at the kind's record's key type (#1549): Integer keys stand
+ *   `2`, `9`, `10`, never as their text would, each text read back once
+ *   (`kind-keys.ts`).
  * - **An end no state is keyed by** is a ghost, *No state row*, beside its
  *   other end's lane, and its transition's line is unresolved. A transition
  *   from a state to itself folds into the state's `↻ n`.
@@ -26,9 +29,10 @@
  * @packageDocumentation
  */
 
-import { FloatType, OptionType, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { FloatType, OptionType, StringType, compareFor, equalFor, none, some, variant, type EastTypeValue, type ValueTypeOf } from "@elaraai/east";
 import type { Flowchart } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, type Formatters, type TickFormatOpt } from "@elaraai/east-ui-components";
+import { STRING_KEYS, kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
 import type { FlowchartWords } from "./messages.js";
 
 /** The decoded Flowchart payload — what `<Flowchart>` hands the renderer. */
@@ -58,6 +62,35 @@ export interface FlowchartRow<R> {
     readonly dimmed: boolean;
 }
 
+/** Each kind's keys (#1549): each key's text, read back at its record's key type, and the keys' order by it. */
+export interface FlowchartKindKeys {
+    /** The states'. */
+    readonly states: KindKeys;
+    /** The transitions'. */
+    readonly transitions: KindKeys;
+    /** The lanes'. */
+    readonly lanes: KindKeys;
+    /** The decisions'. */
+    readonly decisions: KindKeys;
+}
+
+/** Every kind's keys, each record keyed by String. */
+export const STRING_KIND_KEYS: FlowchartKindKeys = { states: STRING_KEYS, transitions: STRING_KEYS, lanes: STRING_KEYS, decisions: STRING_KEYS };
+
+/**
+ * Each of a Flowchart's kinds' keys, as its payload says each record is keyed (#1549).
+ *
+ * @param value - The payload
+ * @returns Each kind's keys: a kind the Flowchart is not given, by String
+ */
+export function flowchartKindKeys(value: FlowchartValue): FlowchartKindKeys {
+    const of = (kind: { readonly keyType: EastTypeValue } | undefined): KindKeys => (kind === undefined ? STRING_KEYS : kindKeys(kind.keyType));
+    return {
+        states: of(value.states), transitions: of(getSomeorUndefined(value.transitions)), lanes: of(getSomeorUndefined(value.lanes)),
+        decisions: of(getSomeorUndefined(value.decisions)),
+    };
+}
+
 /** The four records' rows, the drafts in place: what the model is made from. */
 export interface FlowchartRows {
     /** The states. */
@@ -68,6 +101,8 @@ export interface FlowchartRows {
     readonly lanes: readonly FlowchartRow<FlowchartLaneRoles>[] | undefined;
     /** The decisions; none for a flowchart given none. */
     readonly decisions: readonly FlowchartRow<FlowchartDecisionRoles>[];
+    /** Each kind's keys: what each kind's rows are ordered by, by key. */
+    readonly keys: FlowchartKindKeys;
 }
 
 /** Spec line classes (unresolved is derived, never authored). */
@@ -200,6 +235,8 @@ export interface FlowchartModel {
     readonly noLane: ReadonlyArray<string>;
     /** Whether the states carry an `order`: a move within a lane, and a drop between two cards, write the middle of theirs (D4). */
     readonly ordered: boolean;
+    /** Each kind's keys, as the rows gave them: what every list of a kind's rows orders them by, by key (#1549). */
+    readonly keys: FlowchartKindKeys;
 }
 
 /** The key of the last band, *No lane*: a key no lane of the app's is given — an East String holds no lone NUL as a key's text. */
@@ -209,7 +246,6 @@ export const NO_LANE_KEY = "\u0000no-lane";
 export const ALL_LANE_KEY = "";
 
 const keyEqual = equalFor(StringType);
-const compareKey = compareFor(StringType);
 const compareFloat = compareFor(FloatType);
 
 /**
@@ -274,17 +310,17 @@ export function evidenceBadge(evidence: FlowchartEvidenceValue | undefined, word
     return `${fmtVolume(volume, words)}${unit !== undefined ? ` ${unit}` : ""}${count !== undefined ? ` · ${fmtCount(count, words)}` : ""}`;
 }
 
-/** A row as it is placed: its `order`, and its key. */
+/** A row as it is placed: its `order`, and its key's place in its kind's keys' order. */
 interface Placed {
     readonly order: ValueTypeOf<OptionType<FloatType>>;
-    readonly key: string;
+    readonly rank: number;
 }
 
 /**
  * Two rows in their order (D4): by `order` — a row with none after every row
- * with one — then by key, the record's order.
+ * with one — then by key, the record's order at its key type (#1549).
  *
- * @param a - One row's order and key
+ * @param a - One row's order and its key's place
  * @param b - The other's
  * @returns Negative, zero or positive
  */
@@ -295,7 +331,7 @@ function byOrder(a: Placed, b: Placed): number {
     } else if (a.order.type !== b.order.type) {
         return a.order.type === "some" ? -1 : 1;
     }
-    return compareKey(a.key, b.key);
+    return a.rank - b.rank;
 }
 
 /**
@@ -308,8 +344,11 @@ function byOrder(a: Placed, b: Placed): number {
 export function buildModel(rows: FlowchartRows, words: FlowchartWords): FlowchartModel {
     // ── The bands: the lanes in their order, then No lane while a state names none of them ──
     const given = rows.lanes;
+    // Each kind's keys' places in their order at its key type, each key's text read back once (#1549).
+    const laneRanks = rows.keys.lanes.ranks((given ?? []).map((lane) => lane.key));
+    const stateRanks = rows.keys.states.ranks(rows.states.map((state) => state.key));
     const lanes: ModelLane[] = given === undefined ? [] : [...given]
-        .sort((a, b) => byOrder({ order: a.roles.order, key: a.key }, { order: b.roles.order, key: b.key }))
+        .sort((a, b) => byOrder({ order: a.roles.order, rank: laneRanks.get(a.key)! }, { order: b.roles.order, rank: laneRanks.get(b.key)! }))
         .map((lane) => ({
             key: lane.key,
             label: lane.roles.label.length === 0 ? lane.key : lane.roles.label,
@@ -317,7 +356,7 @@ export function buildModel(rows: FlowchartRows, words: FlowchartWords): Flowchar
             band: "lane" as const,
         }));
     const laneIndex = new Map<string, number>(lanes.map((lane, i) => [lane.key, i]));
-    const states = [...rows.states].sort((a, b) => byOrder({ order: a.roles.order, key: a.key }, { order: b.roles.order, key: b.key }));
+    const states = [...rows.states].sort((a, b) => byOrder({ order: a.roles.order, rank: stateRanks.get(a.key)! }, { order: b.roles.order, rank: stateRanks.get(b.key)! }));
     // A state naming no lane the flowchart holds, while lanes are given: the last band's.
     const unplaced = given === undefined ? [] : states.filter((state) => {
         const lane = getSomeorUndefined(state.roles.lane);
@@ -363,7 +402,8 @@ export function buildModel(rows: FlowchartRows, words: FlowchartWords): Flowchar
     }
 
     // ── The transitions: in-place ones fold into `↻ n`; an end no state is keyed by is a ghost ──
-    const transitions = [...rows.transitions].sort((a, b) => compareKey(a.key, b.key));
+    const transitionRanks = rows.keys.transitions.ranks(rows.transitions.map((transition) => transition.key));
+    const transitions = [...rows.transitions].sort((a, b) => transitionRanks.get(a.key)! - transitionRanks.get(b.key)!);
     const volumes = transitions
         .map((t) => { const ev = getSomeorUndefined(t.roles.evidence); return ev === undefined ? undefined : getSomeorUndefined(ev.volume); })
         .filter((v): v is number => v !== undefined && v > 0);
@@ -436,7 +476,8 @@ export function buildModel(rows: FlowchartRows, words: FlowchartWords): Flowchar
 
     // ── The decisions ──
     const triggers = new Map<string, ModelTrigger>();
-    for (const decision of [...rows.decisions].sort((a, b) => compareKey(a.key, b.key))) {
+    const decisionRanks = rows.keys.decisions.ranks(rows.decisions.map((decision) => decision.key));
+    for (const decision of [...rows.decisions].sort((a, b) => decisionRanks.get(a.key)! - decisionRanks.get(b.key)!)) {
         const label = decision.roles.label;
         triggers.set(decision.key, {
             key: decision.key,
@@ -468,5 +509,6 @@ export function buildModel(rows: FlowchartRows, words: FlowchartWords): Flowchar
         standIn: given === undefined,
         noLane: unplaced.map((state) => state.key),
         ordered: states.some((state) => state.roles.order.type === "some"),
+        keys: rows.keys,
     };
 }

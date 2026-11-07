@@ -26,8 +26,11 @@
  * Every word in it is whole or not there at all (3 Nov 2026) — cut by nothing,
  * over no other word, in its chrome against no control — at 324px too, as wide as a 390px phone gives it
  * in the showcase's card; a set Filters button's fill stands clear of its row;
- * the first row's controls reach its end; and the Plan's now line runs behind
- * the ruler's labels.
+ * the first row's controls reach its end; a Schematic's scale and minimap
+ * stand clear of the footer's band laid over main's foot; and the Plan's now
+ * line runs behind the ruler's labels. On a touch screen every field in the
+ * page is set at 16px or more — a builder's key search open, its Library's
+ * search — so iOS Safari never zooms the page into one (the touch floor).
  *
  * And the Flowchart's lane pager (`narrow.lanes`, ruled 3 Nov 2026): over the
  * depot's editing example, whose cards draw no details, its window shows two
@@ -169,6 +172,17 @@ function phoneFaults(entry: Locator, name: string): Promise<string[]> {
                 }
             }
         }
+        // What main keeps at its foot, a Schematic's scale and minimap, stands clear of the footer's band laid over main's
+        // foot (ruled 7 Nov 2026).
+        const footer = slot("footer");
+        if (footer !== null && footer.getBoundingClientRect().height < 0.5) {
+            const parts = [...footer.children].map((part) => part.getBoundingClientRect()).filter((part) => part.height > 0);
+            const band = Math.min(...parts.map((part) => part.top));
+            for (const kept of body.querySelectorAll<HTMLElement>("[data-schematic-scale], [data-schematic-minimap]")) {
+                const k = kept.getBoundingClientRect();
+                if (k.width > 0 && k.bottom > band + 0.5) faults.push(`${kept.hasAttribute("data-schematic-scale") ? "the scale" : "the minimap"} ${round(k.bottom - band)}px under the footer's band`);
+            }
+        }
         // The count line never goes blank while it has room for its first figures (review of #1481, finding 4): a
         // line short of room drops a noun before its figures, so it says `368 of 630` rather than nothing.
         for (const box of frame.querySelectorAll<HTMLElement>("[data-toolbar-count]")) {
@@ -273,6 +287,26 @@ for (const theme of ["light", "dark"] as const) {
             expect(faults).toEqual({});
         });
     }
+}
+
+/** What takes words typed: the fields iOS zooms the page into when one is set under 16px. */
+const TYPED = "input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file], [type=button], [type=submit], [type=reset], [type=image], [type=hidden]), textarea, select, [contenteditable]:not([contenteditable=false])";
+
+for (const [name, route] of PHONES) {
+    test(`${name}: on a touch screen every field in the page — its key search's open, its Library's — is set at 16px or more, so iOS never zooms the page into one @mobile`, async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        const entry = await visitBuilder(page, route, ROOT, "light");
+        const search = entry.locator(ROOT).first().locator("[data-key-search='icon']").first();
+        if (await search.count() > 0) {
+            await search.click();
+            await settled(page);
+        }
+        const small = await page.evaluate((typed) => [...document.querySelectorAll<HTMLElement>(typed)]
+            .map((field) => ({ field, size: Number.parseFloat(getComputedStyle(field).fontSize) }))
+            .filter(({ size }) => size < 16)
+            .map(({ field, size }) => `${field.getAttribute("aria-label") ?? field.getAttribute("placeholder") ?? field.tagName} at ${size}px`), TYPED);
+        expect(small).toEqual([]);
+    });
 }
 
 test("Sheet: narrowed, its Filters set, its tabs and its count stay whole beside the button", async ({ page }) => {

@@ -7,25 +7,28 @@
  * Find over every item kind's record (#1387, #1404, `find.ts`, §6.1): what a
  * query the shared key search's box parsed finds among a kind read whole's
  * keys — a key's start, a quoted key, a range, keys case-sensitive, in East's
- * order — what keeps an item found off the canvas, how an item reads in Find's
- * list — the rail's filters that leave it out last, as every builder's line
- * names them: hidden by them, or dimmed by them where the narrowing draws what
- * it leaves out as context — and the kinds' matches addressed as one list. The
- * choices a line names once e3 has said are asked of e3 itself, the racks'
- * source of the rail narrowed to Harbour Labs' racks; the box's lines, and a
- * pick of one, are `schematic-find.dom.test.tsx`'s.
+ * order at the kind's key type, and as one kind keyed otherwise than the box
+ * parses reads the text typed (#1549) — what keeps an item found off the
+ * canvas, how an item reads in Find's list — the rail's filters that leave it
+ * out last, as every builder's line names them: hidden by them, or dimmed by
+ * them where the narrowing draws what it leaves out as context — and the
+ * kinds' matches addressed as one list. The choices a line names once e3 has
+ * said are asked of e3 itself, the racks' source of the rail narrowed to
+ * Harbour Labs' racks; the box's lines, and a pick of one, are
+ * `schematic-find.dom.test.tsx`'s and `schematic-keys.dom.test.tsx`'s.
  */
 
 import { describe, test, expect } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
-import { East, SortedMap, StringType, compareFor, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
+import { East, IntegerType, SortedMap, StringType, StructType, compareFor, none, printFor, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
 import { RecordSliceWhereType, bindRecord, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { formatters, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { askHiding, hiddenOf, useSourceHidden, type RowHidden } from "../shared/schedule/hidden.js";
-import { foundLine, foundMark, runsAt, wholeMatches, type FindKind, type FindRun, type FoundItem } from "./find.js";
+import { STRING_KEYS, kindKeys } from "../shared/schedule/kind-keys.js";
+import { foundLine, foundMark, kindQuery, runsAt, wholeMatches, type FindKind, type FindRun, type FoundItem } from "./find.js";
 import { schematicMessages, type SchematicWords } from "./messages.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { measure: false });
@@ -97,6 +100,37 @@ describe("wholeMatches", () => {
         expect(wholeMatches(keys, { from: ["\"A02\""], to: ["\"B\""] })).toEqual(["A02", "A03"]);
         expect(wholeMatches(keys, { from: ["\"B\""] })).toEqual(["B02", "a04"]);
     });
+
+    test("a kind keyed by another type is sought at it, its keys in their order there — never their texts' (#1549)", () => {
+        const ovens = kindKeys(toEastTypeValue(IntegerType));
+        const held = ["10", "2", "9"];
+        expect(wholeMatches(held, { key: "10" }, ovens)).toEqual(["10"]);
+        expect(wholeMatches(held, { from: ["2"] }, ovens)).toEqual(["2", "9", "10"]);
+        expect(wholeMatches(held, { from: ["2"], to: ["10"] }, ovens)).toEqual(["2", "9"]);
+        // A key's start is a String key's: it finds no number.
+        expect(wholeMatches(held, { prefix: "1" }, ovens)).toEqual([]);
+    });
+});
+
+describe("kindQuery", () => {
+    const atString = STRING_KEYS.keyType;
+    const ovens = kindKeys(toEastTypeValue(IntegerType));
+    const spots = kindKeys(toEastTypeValue(StructType({ row: IntegerType, col: StringType })));
+
+    test("a kind keyed as the box parses is sought by the query as it parsed", () => {
+        expect(kindQuery({ prefix: "M" }, atString, STRING_KEYS)).toEqual({ prefix: "M" });
+        expect(kindQuery({ key: "10" }, ovens.keyType, ovens)).toEqual({ key: "10" });
+    });
+
+    test("the box at String over kinds keyed by several types: a kind keyed otherwise reads the text as typed, at its own type", () => {
+        expect(kindQuery({ prefix: "10" }, atString, ovens)).toEqual({ key: "10" });
+        expect(kindQuery({ from: ["\"2\""], to: ["\"9\""] }, atString, ovens)).toEqual({ from: ["2"], to: ["9"] });
+        expect(kindQuery({ prefix: "1, M" }, atString, spots)).toEqual({ fields: ["1"], prefix: "M" });
+        // Text that is no key of the kind's — a name, the empty box, a quoted String — finds none of its rows.
+        expect(kindQuery({ prefix: "M1" }, atString, ovens)).toBeUndefined();
+        expect(kindQuery({ prefix: "" }, atString, ovens)).toBeUndefined();
+        expect(kindQuery({ key: "\"10\"" }, atString, ovens)).toBeUndefined();
+    });
 });
 
 describe("foundMark", () => {
@@ -140,6 +174,7 @@ describe("runsAt", () => {
     /** A kind, as a run names it: only its slot is read here. */
     const kind = (slot: string): FindKind => ({
         slot, name: slot, part: undefined, rows: () => none, read: () => { throw new Error("unread"); }, codec: { encode: () => new Uint8Array(), decode: () => null },
+        keys: STRING_KEYS,
     });
     const runs: FindRun[] = [
         { kind: kind("racks"), start: 40, count: 3, keys: undefined },

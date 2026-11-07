@@ -25,7 +25,7 @@ const end = some(variant("ordered", variant("end", null)));
 const absent: EntryVersion = { draft: undefined, wire: undefined, place: none };
 const version = (row: ValueTypeOf<typeof Row>, place: Placement = start): EntryVersion => ({ draft: liftDraft(Draft, row), wire: undefined, place });
 const binding = (overrides: Partial<SheetTransactionBinding> = {}): SheetTransactionBinding => ({
-    sourceId: "test", entryType: Row, draftType: Draft, idField: "id", auto: false,
+    sourceId: "test", entryType: Row, draftType: Draft, idField: "id",
     apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined, ...overrides,
 });
 const create = (overrides: Partial<SheetTransactionBinding> = {}) => {
