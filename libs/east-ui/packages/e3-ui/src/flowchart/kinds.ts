@@ -165,7 +165,7 @@ function boundOf(record: unknown, where: string, noun: string, whole: boolean): 
                 "which Save writes each change through");
         }
     }
-    return { form, handle: record as ExprType<EastType>, rowType };
+    return { form, handle: record as ExprType<EastType>, keyType: recordType.key as EastType, rowType };
 }
 
 /**
@@ -211,7 +211,7 @@ function readsOf(bound: KindBinding, entries: ExprType<EastType> | undefined, pa
                 "or bind Data.bind(record) to read them whole");
         }
         if (entries !== undefined) throw new Error(`${where}: the ${noun} are read through their source of the slice: ${source}, or drop entries`);
-        return { rows: kindWholeRows(bound.handle, bound.rowType), byKey: undefined };
+        return { rows: kindWholeRows(bound.handle, bound.keyType, bound.rowType), byKey: undefined };
     }
     if (bound.form === "data") {
         throw new Error(`${where}: Data.bind(record) reads the ${noun} whole, and the slice's source "${noun}" reads them through it — ` +
@@ -222,7 +222,7 @@ function readsOf(bound: KindBinding, entries: ExprType<EastType> | undefined, pa
             `a gesture's original and Save's confirmation: give entries: Data.bindPaged(record) beside Record.bind, the ${noun}' record's own entries`);
     }
     return {
-        rows: kindSourceRows(part, noun, bound.rowType, where, every, `name it "${noun}", over the ${noun}' own record`),
+        rows: kindSourceRows(part, noun, bound.keyType, bound.rowType, where, every, `name it "${noun}", over the ${noun}' own record`),
         byKey: bound.form === "paged" ? bound.handle : entries,
     };
 }
@@ -393,8 +393,8 @@ export function isFlowchartKind(value: unknown, sort: FlowchartKindSort): boolea
     return typeof value === "object" && value !== null && FLOWCHART_DEF in value && (value as { [FLOWCHART_DEF]: string })[FLOWCHART_DEF] === sort;
 }
 
-/** A kind's roles, from its row and its key, as the record-kind machinery calls them. */
-type RolesOf = ExprType<FunctionType<[EastType, StringType], EastType>>;
+/** A kind's roles, from its row and its key at the record's key type, as the record-kind machinery calls them. */
+type RolesOf = ExprType<FunctionType<[EastType, EastType], EastType>>;
 
 /**
  * A state's or a transition's details, checked where the kind declares them
@@ -606,7 +606,7 @@ export function flowchartStates<R extends StructType, L extends FlowchartKeyFiel
         throw new Error(`${where}: \`label\` and \`lane\` both name "${laneField}" — a state's name and its lane are two fields`);
     }
     // The role the app computes.
-    const membersOf = accessorRole(rowType, where, "members", OptionType(IntegerType), "an Option of an Integer", spec.members);
+    const membersOf = accessorRole(bound.keyType, rowType, where, "members", OptionType(IntegerType), "an Option of an Integer", spec.members);
     // Its details, read as the states are (#1507).
     const details = detailsOf(spec.details, where, "states");
 
@@ -616,7 +616,7 @@ export function flowchartStates<R extends StructType, L extends FlowchartKeyFiel
     const templates = checkedFlowchartTemplates(spec.templates, ValuesType, placed, where);
 
     // One state's roles, from its row and its key.
-    const rolesOf = East.function([rowType, StringType], FlowchartStateRolesType, ($, row, key) => East.value({
+    const rolesOf = East.function([rowType, bound.keyType], FlowchartStateRolesType, ($, row, key) => East.value({
         label: textOf(row, label),
         lane: laneField === undefined ? none : some(fieldOf(row, laneField)),
         order: orderField === undefined ? none : some(fieldOf(row, orderField)),
@@ -658,10 +658,10 @@ export function flowchartStates<R extends StructType, L extends FlowchartKeyFiel
                 ...side,
                 name,
                 icon,
-                rows: storedRows(rows, rolesOf, FlowchartStateEntryType),
+                rows: storedRows(rows, bound.keyType, rolesOf, FlowchartStateEntryType),
                 // Rows a reader read by key through the states' source — a hidden end's, Find's — made stored states (R6, R17).
-                rowsOf: rowsReadOf(rowType, rolesOf, FlowchartStateEntryType),
-                read: readOf(rowType, rolesOf, FlowchartStateRolesType),
+                rowsOf: rowsReadOf(bound.keyType, rowType, rolesOf, FlowchartStateEntryType),
+                read: readOf(bound.keyType, rowType, rolesOf, FlowchartStateRolesType),
                 write,
                 create,
                 templates: templates?.items ?? East.value([], ArrayType(FlowchartTemplateType)),
@@ -756,8 +756,8 @@ export function flowchartTransitions<R extends StructType, F extends FlowchartKe
         throw new Error(`${where}: \`decision\` and \`${decision.field === fromField ? "from" : "to"}\` both name "${decision.field}" — a transition's decision and its ends are three fields`);
     }
     // The roles the app computes.
-    const kindOf = accessorRole(rowType, where, "kind", FlowchartLinkKindType, "a Flowchart.Types.Kind, planned or observed", spec.kind);
-    const evidenceOf = accessorRole(rowType, where, "evidence", OptionType(FlowchartEvidenceType), "an Option of a Flowchart.Types.Evidence", spec.evidence);
+    const kindOf = accessorRole(bound.keyType, rowType, where, "kind", FlowchartLinkKindType, "a Flowchart.Types.Kind, planned or observed", spec.kind);
+    const evidenceOf = accessorRole(bound.keyType, rowType, where, "evidence", OptionType(FlowchartEvidenceType), "an Option of a Flowchart.Types.Evidence", spec.evidence);
     // Its details, read as the transitions are (#1507): what its label draws, checked.
     const details = detailsOf(spec.details, where, "transitions");
 
@@ -767,7 +767,7 @@ export function flowchartTransitions<R extends StructType, F extends FlowchartKe
     const templates = checkedFlowchartTemplates(spec.templates, ValuesType, placed, where);
 
     // One transition's roles, from its row and its key: a decision's String field, empty, names none.
-    const rolesOf = East.function([rowType, StringType], FlowchartTransitionRolesType, ($, row, key) => {
+    const rolesOf = East.function([rowType, bound.keyType], FlowchartTransitionRolesType, ($, row, key) => {
         let named: unknown = none;
         if (decision !== undefined) {
             const held = $.const(fieldOf(row, decision.field));
@@ -824,8 +824,8 @@ export function flowchartTransitions<R extends StructType, F extends FlowchartKe
                 ...side,
                 name,
                 icon,
-                rows: storedRows(rows, rolesOf, FlowchartTransitionEntryType),
-                read: readOf(rowType, rolesOf, FlowchartTransitionRolesType),
+                rows: storedRows(rows, bound.keyType, rolesOf, FlowchartTransitionEntryType),
+                read: readOf(bound.keyType, rowType, rolesOf, FlowchartTransitionRolesType),
                 write,
                 create,
                 templates: templates?.items ?? East.value([], ArrayType(FlowchartTemplateType)),
@@ -907,7 +907,7 @@ export function flowchartLanes<R extends StructType, O extends FlowchartOrderFie
     const templates = checkedFlowchartTemplates(spec.templates, ValuesType, placed, where);
 
     // One lane's roles, from its row and its key: an Integer order read as a Float.
-    const rolesOf = East.function([rowType, StringType], FlowchartLaneRolesType, ($, row, _key) => {
+    const rolesOf = East.function([rowType, bound.keyType], FlowchartLaneRolesType, ($, row, _key) => {
         let order: unknown = none;
         if (orderField !== undefined) {
             const held = $.const(fieldOf(row, orderField));
@@ -958,8 +958,8 @@ export function flowchartLanes<R extends StructType, O extends FlowchartOrderFie
                 ...side,
                 name,
                 icon: "table-columns",
-                rows: storedRows(kindWholeRows(bound.handle, rowType), rolesOf, FlowchartLaneEntryType),
-                read: readOf(rowType, rolesOf, FlowchartLaneRolesType),
+                rows: storedRows(kindWholeRows(bound.handle, bound.keyType, rowType), bound.keyType, rolesOf, FlowchartLaneEntryType),
+                read: readOf(bound.keyType, rowType, rolesOf, FlowchartLaneRolesType),
                 write,
                 create,
                 templates: templates?.items ?? East.value([], ArrayType(FlowchartTemplateType)),
@@ -1014,10 +1014,10 @@ export function flowchartDecisions<R extends StructType>(binding: FlowchartWhole
     if ((spec as { entries?: unknown }).entries !== undefined) throw new Error(`${where}: the decisions are read whole — leave entries out`);
     const name = wordOf(where, "name", spec.name, "Decision");
     if (typeof spec.label !== "function") throw new Error(`${where}: \`label\` is an accessor giving a decision's name, (row, key) => …`);
-    const labelOf = accessorRole(rowType, where, "label", StringType, "a String", spec.label)!;
-    const letterOf = accessorRole(rowType, where, "letter", OptionType(StringType), "an Option of a String", spec.letter);
-    const ownerOf = accessorRole(rowType, where, "owner", OptionType(StringType), "an Option of a String", spec.owner);
-    const outcomesOf = accessorRole(rowType, where, "outcomes", OptionType(StringType), "an Option of a String", spec.outcomes);
+    const labelOf = accessorRole(bound.keyType, rowType, where, "label", StringType, "a String", spec.label)!;
+    const letterOf = accessorRole(bound.keyType, rowType, where, "letter", OptionType(StringType), "an Option of a String", spec.letter);
+    const ownerOf = accessorRole(bound.keyType, rowType, where, "owner", OptionType(StringType), "an Option of a String", spec.owner);
+    const outcomesOf = accessorRole(bound.keyType, rowType, where, "outcomes", OptionType(StringType), "an Option of a String", spec.outcomes);
     // The queue: an Array or a Set of String keys.
     let queue: { readonly field: string; readonly set: boolean } | undefined;
     if (spec.queue !== undefined) {
@@ -1031,7 +1031,7 @@ export function flowchartDecisions<R extends StructType>(binding: FlowchartWhole
     }
 
     // One decision's roles, from its row and its key: a Set queue in its order.
-    const rolesOf = East.function([rowType, StringType], FlowchartDecisionRolesType, ($, row, key) => {
+    const rolesOf = East.function([rowType, bound.keyType], FlowchartDecisionRolesType, ($, row, key) => {
         let queued: unknown = East.value([], ArrayType(StringType));
         if (queue !== undefined) {
             const held = $.const(fieldOf(row, queue.field));
@@ -1078,8 +1078,8 @@ export function flowchartDecisions<R extends StructType>(binding: FlowchartWhole
                 ...side,
                 name,
                 icon: "diamond",
-                rows: storedRows(kindWholeRows(bound.handle, rowType), rolesOf, FlowchartDecisionEntryType),
-                read: readOf(rowType, rolesOf, FlowchartDecisionRolesType),
+                rows: storedRows(kindWholeRows(bound.handle, bound.keyType, rowType), bound.keyType, rolesOf, FlowchartDecisionEntryType),
+                read: readOf(bound.keyType, rowType, rolesOf, FlowchartDecisionRolesType),
                 unqueue: unqueue === undefined ? none : some(unqueue),
             } as never, FlowchartDecisionKindType) as ExprType<typeof FlowchartDecisionKindType>;
         },
