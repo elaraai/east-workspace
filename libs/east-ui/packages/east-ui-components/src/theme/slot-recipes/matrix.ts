@@ -183,7 +183,7 @@ export const matrixSlotRecipe = defineSlotRecipe({
         // Segment fill — the status palette plus the three matrix-native fills.
         // Each arm sets the slice background and its in-bar label colour.
         fill: {
-            brand:   { seg: { background: "{colors.brand.600}",  color: "{colors.white}" } },
+            brand:   { seg: { background: "brand.solid",  color: "brand.contrast" } },
             success: { seg: { background: "{colors.status.pos}", color: "{colors.white}" } },
             warning: { seg: { background: "{colors.status.warn}", color: "{colors.white}" } },
             danger:  { seg: { background: "{colors.status.neg}", color: "{colors.white}" } },

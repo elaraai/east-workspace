@@ -147,7 +147,7 @@ export const blendSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderColor: "border.subtle",
             borderRadius: "{radii.sm}",
-            "&[data-state=added]": { borderStyle: "dashed", borderColor: "{colors.brand.600}" },
+            "&[data-state=added]": { borderStyle: "dashed", borderColor: "brand.solid" },
             "&[data-state=removed]": { opacity: "0.55", textDecoration: "line-through" },
             "&[data-draggable]": { cursor: "grab" },
             "&[data-dragging]": { opacity: "0.4" },

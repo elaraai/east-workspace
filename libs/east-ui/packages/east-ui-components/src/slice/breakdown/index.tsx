@@ -247,7 +247,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                                 const chipBody = (
                                     <>
                                         <Box as="span" width="8px" height="8px" borderRadius="full" background={SLICE_SERIES_PALETTE[i % SLICE_SERIES_PALETTE.length]} />
-                                        <Box as="span" fontWeight="semibold" color={applied ? "{colors.brand.700}" : "fg"}>{g.key}</Box>
+                                        <Box as="span" fontWeight="semibold" color={applied ? "brand.fg" : "fg"}>{g.key}</Box>
                                         <Box as="span" fontFamily="mono" fontVariantNumeric="tabular-nums" color="fg.muted">{words.number(Number(g.count))}</Box>
                                         {applied && (
                                             <Box as="span" color="link" fontSize="9px">

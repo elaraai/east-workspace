@@ -70,7 +70,7 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
         },
         itemDeleteTrigger: {
-            color: "{colors.brand.600}",
+            color: "brand.solid",
             cursor: "pointer",
             fontWeight: "normal",
             display: "inline-flex",

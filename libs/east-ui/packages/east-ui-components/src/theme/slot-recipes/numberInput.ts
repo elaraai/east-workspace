@@ -151,7 +151,7 @@ export const numberInputSlotRecipe = defineSlotRecipe({
             /** Uncommitted edit — brand-tint field, paper steppers. */
             dirty: {
                 root: { background: "bg.brand.subtle" },
-                input: { color: "brand.700" },
+                input: { color: "brand.fg" },
                 incrementTrigger: { background: "bg.surface" },
                 decrementTrigger: { background: "bg.surface" },
             },

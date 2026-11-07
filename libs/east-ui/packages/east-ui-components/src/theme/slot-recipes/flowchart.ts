@@ -290,7 +290,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             "&[data-selected]": {
                 borderWidth: "1.5px",
-                borderColor: "brand.600",
+                borderColor: "brand.solid",
             },
             /* A conflict not yet chosen: the warn ring at the node's edge; a selection keeps its edge inside it. */
             ...conflictRing,
@@ -579,8 +579,8 @@ export const flowchartSlotRecipe = defineSlotRecipe({
              * surface — mirror the selected-node treatment. */
             "&[data-flowchart-inplace]": { cursor: "pointer" },
             "&[data-selected]": {
-                color: "brand.600",
-                borderColor: "brand.600",
+                color: "brand.solid",
+                borderColor: "brand.solid",
                 borderWidth: "1.5px",
             },
         },
@@ -632,7 +632,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             textTransform: "uppercase",
             cursor: "pointer",
             "& svg": { fontSize: "12px" },
-            _hover: { borderColor: "brand.600", color: "fg.muted" },
+            _hover: { borderColor: "brand.solid", color: "fg.muted" },
             "&[data-orientation='TD']": { flexDirection: "row", justifyContent: "center", alignItems: "center", paddingTop: "0" },
             /* Off where the lanes' keys can't be typed (#1549): faded, never a click, its tooltip saying why. */
             "&[data-disabled]": { opacity: 0.4, cursor: "not-allowed", _hover: { borderColor: "border.strong", color: "fg.subtle" } },
@@ -672,7 +672,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             cursor: "pointer",
             background: "bg.surface",
-            _hover: { borderColor: "brand.600", color: "fg.muted" },
+            _hover: { borderColor: "brand.solid", color: "fg.muted" },
             /* Off where the states' keys can't be typed (#1549): faded, never a click, its tooltip saying why. */
             "&[data-disabled]": { opacity: 0.4, cursor: "not-allowed", _hover: { borderColor: "border.strong", color: "fg.subtle" } },
         },
@@ -687,7 +687,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
             borderWidth: "1px",
             borderStyle: "dashed",
-            borderColor: "brand.600",
+            borderColor: "brand.solid",
             borderRadius: "6px",
             padding: "3px 9px",
             display: "flex",
@@ -758,7 +758,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
             opacity: 0.85,
             borderWidth: "1.5px",
-            borderColor: "brand.600",
+            borderColor: "brand.solid",
             borderRadius: "6px",
             padding: "4px 10px",
         },

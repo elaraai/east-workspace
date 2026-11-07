@@ -99,11 +99,11 @@ export const tagSlotRecipe = defineSlotRecipe({
             },
             solid: {
                 root: {
-                    background: "{colors.brand.600}",
-                    borderColor: "{colors.brand.600}",
-                    color: "fg.inverse",
+                    background: "brand.solid",
+                    borderColor: "brand.solid",
+                    color: "brand.contrast",
                 },
-                closeTrigger: { color: "fg.inverse", _hover: { color: "fg.inverse" } },
+                closeTrigger: { color: "brand.contrast", _hover: { color: "brand.contrast" } },
             },
         },
         size: {

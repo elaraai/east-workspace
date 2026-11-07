@@ -333,7 +333,7 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             paddingInlineEnd: "8px",
             "&[data-empty]": { borderStyle: "dashed", color: "fg.subtle" },
             "&[data-error]": { borderColor: "fg.danger", color: "fg.danger" },
-            "&[data-open]": { borderColor: "{colors.brand.600}", boxShadow: "focus" },
+            "&[data-open]": { borderColor: "brand.solid", boxShadow: "focus" },
             "&[data-mono]": { fontFamily: "mono", fontVariantNumeric: "tabular-nums" },
         },
         slotText: {
