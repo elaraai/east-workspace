@@ -190,7 +190,7 @@ function boundOf(record: unknown, where: string): KindBinding {
             throw new Error(`${where}: \`record\` is bound without its patch door — ${FORMS}`);
         }
     }
-    return { form, handle: record as ExprType<EastType>, rowType };
+    return { form, handle: record as ExprType<EastType>, keyType: recordType.key as EastType, rowType };
 }
 
 /**
@@ -216,7 +216,7 @@ function readsOf(bound: KindBinding, entries: ExprType<EastType> | undefined, sl
             throw new Error(`${where}: \`entries\` reads the record by key beside its source of the slice — name one "${slot}", ` +
                 `or leave \`entries\` out: a kind read whole reads its rows from the record`);
         }
-        return { rows: kindWholeRows(bound.handle, bound.rowType), byKey: undefined };
+        return { rows: kindWholeRows(bound.handle, bound.keyType, bound.rowType), byKey: undefined };
     }
     if (bound.form === "data") {
         throw new Error(`${where}: Data.bind(record) reads the record whole, which a source of the slice exists to avoid — ` +
@@ -226,7 +226,7 @@ function readsOf(bound: KindBinding, entries: ExprType<EastType> | undefined, sl
         throw new Error(`${where}: the slice's source "${slot}" reads only its narrowing — and a row is read by its key, the inspector's, a gesture's ` +
             "original and Save's confirmation: give `entries: Data.bindPaged(record)` beside it, the record's own entries");
     }
-    return { rows: kindSourceRows(part, slot, bound.rowType, where, every, "name it after this kind's slot, over the kind's own record"), byKey: bound.form === "paged" ? bound.handle : entries };
+    return { rows: kindSourceRows(part, slot, bound.keyType, bound.rowType, where, every, "name it after this kind's slot, over the kind's own record"), byKey: bound.form === "paged" ? bound.handle : entries };
 }
 
 /**
@@ -285,6 +285,7 @@ function statusShown($: { const: (value: unknown) => unknown }, status: Status |
  * A shape role, an accessor over the row's own fields (D35): refused when it
  * names a field, as the Schematic's own type would then live in the app's row.
  *
+ * @param keyType - The kind's key type: the key the accessor hears
  * @param rowType - The kind's row type
  * @param where - The kind, as a refusal names it
  * @param role - `footprint` or `geometry`
@@ -292,13 +293,13 @@ function statusShown($: { const: (value: unknown) => unknown }, status: Status |
  * @returns The accessor, reified; `undefined` when not given
  * @throws {Error} When it names a field, is no function, or returns another type, naming the accessor to write
  */
-function shapeRole(rowType: StructType, where: string, role: "footprint" | "geometry", fn: unknown) {
+function shapeRole(keyType: EastType, rowType: StructType, where: string, role: "footprint" | "geometry", fn: unknown) {
     const example = role === "footprint" ? "footprint: (unit) => some(Schematic.circle(unit.radius))" : "geometry: (area) => some(Schematic.polygon(area.corners))";
     if (typeof fn === "string") {
         throw new Error(`${where}: \`${role}\` is an accessor over the row's own fields, built with Schematic.circle, polygon, polyline or rect — ` +
             `${example}: a role naming "${fn}", a field that holds Schematic.Types.Geometry, is gone, so the app's record keeps its own types`);
     }
-    return accessorRole(rowType, where, role, OptionType(SchematicGeometryType),
+    return accessorRole(keyType, rowType, where, role, OptionType(SchematicGeometryType),
         `an Option of a Schematic.Types.Geometry, built with Schematic.circle, polygon, polyline or rect (${example})`, fn);
 }
 
@@ -378,15 +379,15 @@ export function schematicDetails<R extends StructType, SF extends ScheduleStatus
     const rowType = bound.rowType;
     const entries = entriesOf(bound, config.entries, where);
     const status = statusOf(rowType, where, config.status as { field: string; cases: unknown } | undefined);
-    const meter = accessorRole(rowType, where, "meter", SchematicMeterType, "a Schematic.Types.Meter, { value, max }", config.meter);
-    const metric = accessorRole(rowType, where, "metric", OptionType(StringType), "an Option of a String", config.metric);
-    const sublabel = accessorRole(rowType, where, "sublabel", StringType, "a String", config.sublabel);
-    const rolesOf = East.function([rowType, StringType], SchematicDetailsRolesType, ($, row, key) => East.value({
+    const meter = accessorRole(bound.keyType, rowType, where, "meter", SchematicMeterType, "a Schematic.Types.Meter, { value, max }", config.meter);
+    const metric = accessorRole(bound.keyType, rowType, where, "metric", OptionType(StringType), "an Option of a String", config.metric);
+    const sublabel = accessorRole(bound.keyType, rowType, where, "sublabel", StringType, "a String", config.sublabel);
+    const rolesOf = East.function([rowType, bound.keyType], SchematicDetailsRolesType, ($, row, key) => East.value({
         status: statusShown($, status, row),
         meter: called($, meter, row, key, (m) => some(m), none),
         metric: called($, metric, row, key, (m) => m, none),
         sublabel: called($, sublabel, row, key, (s) => some(s), none),
-    } as never, SchematicDetailsRolesType)) as unknown as ExprType<FunctionType<[EastType, StringType], EastType>>;
+    } as never, SchematicDetailsRolesType)) as unknown as ExprType<FunctionType<[EastType, EastType], EastType>>;
     return {
         [SCHEMATIC_DEF]: "details",
         roles: CARD_ROLES.filter((role) => (config as Record<string, unknown>)[role] !== undefined),
@@ -415,11 +416,11 @@ export function schematicDetails<R extends StructType, SF extends ScheduleStatus
             const side = recordSide(bound, entries, byKey, config, [], at);
             return East.value({
                 ...side,
-                rows: throughSource ? none : some(storedRows(kindWholeRows(bound.handle, rowType), rolesOf, SchematicDetailsEntryType)),
-                rowsOf: rowsReadOf(rowType, rolesOf, SchematicDetailsEntryType),
+                rows: throughSource ? none : some(storedRows(kindWholeRows(bound.handle, bound.keyType, rowType), bound.keyType, rolesOf, SchematicDetailsEntryType)),
+                rowsOf: rowsReadOf(bound.keyType, rowType, rolesOf, SchematicDetailsEntryType),
                 // The paged read the details are read by key through: a reader asks a window's cards' rows of it, in one request (#1393).
                 paged: byKey === undefined ? none : some(fieldOf(byKey, "id")),
-                read: readOf(rowType, rolesOf, SchematicDetailsRolesType),
+                read: readOf(bound.keyType, rowType, rolesOf, SchematicDetailsRolesType),
                 // The card roles they give: what a card keeps the place of while its details row is read (#1398).
                 roles: { status: status !== undefined, meter: meter !== undefined, metric: metric !== undefined, sublabel: sublabel !== undefined },
             } as never, SchematicKindDetailsType) as ExprType<typeof SchematicKindDetailsType>;
@@ -589,11 +590,11 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
 
     // The roles that are fields.
     const labelField = typeof config.label === "string" ? role("label", config.label, StringType, "a String field") : undefined;
-    const labelOf = typeof config.label === "function" ? accessorRole(rowType, where, "label", StringType, "a String", config.label) : undefined;
+    const labelOf = typeof config.label === "function" ? accessorRole(bound.keyType, rowType, where, "label", StringType, "a String", config.label) : undefined;
     if (labelField === undefined && labelOf === undefined) throw new Error(`${where}: \`label\` names a String field, or is an accessor giving a String`);
     const widthField = role("width", config.width, FloatType, "a Float field");
     const heightField = role("height", config.height, FloatType, "a Float field");
-    const footprintOf = shapeRole(rowType, where, "footprint", (config as { footprint?: unknown }).footprint);
+    const footprintOf = shapeRole(bound.keyType, rowType, where, "footprint", (config as { footprint?: unknown }).footprint);
     // Geometry is drawn about the item's centre, inside its box (D22, SC35): a footprint needs the box.
     if (footprintOf !== undefined && (widthField === undefined || heightField === undefined)) {
         throw new Error(`${where}: \`footprint\` is drawn about the item's centre, inside its box — give \`width\` and \`height\` with it, the box's Float fields`);
@@ -602,14 +603,14 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
     const status = statusOf(rowType, where, config.status as { field: string; cases: unknown } | undefined);
 
     // The roles the app computes.
-    const iconOf = typeof config.icon === "function" ? accessorRole(rowType, where, "icon", StringType, "a String, a Font Awesome solid icon's name", config.icon) : undefined;
-    const sublabelOf = accessorRole(rowType, where, "sublabel", StringType, "a String", config.sublabel);
-    const metricOf = accessorRole(rowType, where, "metric", OptionType(StringType), "an Option of a String", config.metric);
-    const meterOf = accessorRole(rowType, where, "meter", SchematicMeterType, "a Schematic.Types.Meter, { value, max }", config.meter);
-    const toneOf = accessorRole(rowType, where, "tone", OptionType(SchematicToneType), "an Option of a Schematic.Types.Tone", config.tone);
-    const colorOf = accessorRole(rowType, where, "color", OptionType(StringType), "an Option of a String, a theme colour token", config.color);
-    const weightOf = accessorRole(rowType, where, "weight", OptionType(FloatType), "an Option of a Float", config.weight);
-    const fillOf = accessorRole(rowType, where, "fillOpacity", OptionType(FloatType), "an Option of a Float", config.fillOpacity);
+    const iconOf = typeof config.icon === "function" ? accessorRole(bound.keyType, rowType, where, "icon", StringType, "a String, a Font Awesome solid icon's name", config.icon) : undefined;
+    const sublabelOf = accessorRole(bound.keyType, rowType, where, "sublabel", StringType, "a String", config.sublabel);
+    const metricOf = accessorRole(bound.keyType, rowType, where, "metric", OptionType(StringType), "an Option of a String", config.metric);
+    const meterOf = accessorRole(bound.keyType, rowType, where, "meter", SchematicMeterType, "a Schematic.Types.Meter, { value, max }", config.meter);
+    const toneOf = accessorRole(bound.keyType, rowType, where, "tone", OptionType(SchematicToneType), "an Option of a Schematic.Types.Tone", config.tone);
+    const colorOf = accessorRole(bound.keyType, rowType, where, "color", OptionType(StringType), "an Option of a String, a theme colour token", config.color);
+    const weightOf = accessorRole(bound.keyType, rowType, where, "weight", OptionType(FloatType), "an Option of a Float", config.weight);
+    const fillOf = accessorRole(bound.keyType, rowType, where, "fillOpacity", OptionType(FloatType), "an Option of a Float", config.fillOpacity);
     const details = detailsOf(config.details, CARD_ROLES.filter((r) => (config as unknown as Record<string, unknown>)[r] !== undefined), where);
 
     // The templates: every field but the centre.
@@ -619,7 +620,7 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
         : checkedSchematicTemplates(templates, ValuesType, `\`${config.x}\` and \`${config.y}\``, where);
 
     // One item's roles, from its row and its key.
-    const rolesOf = East.function([rowType, StringType], SchematicItemType, ($, row, key) => {
+    const rolesOf = East.function([rowType, bound.keyType], SchematicItemType, ($, row, key) => {
         const PointOption = OptionType(SchematicPointType);
         let position: unknown;
         if (backlog) {
@@ -654,7 +655,7 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
             weight: called($, weightOf, row, key, (w) => w, none),
             fillOpacity: called($, fillOf, row, key, (f) => f, none),
         } as never, SchematicItemType);
-    }) as unknown as ExprType<FunctionType<[EastType, StringType], EastType>>;
+    }) as unknown as ExprType<FunctionType<[EastType, EastType], EastType>>;
 
     // A row with its centre written from a position, every other field from `source`: none, a backlog kind's row
     // unplaced; `none` for no position on a kind with no backlog.
@@ -705,8 +706,8 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
                 details: details === undefined ? none : some(details.build(slot, part !== undefined)),
                 backlog,
                 status: status === undefined ? [] : status.cases.map((c) => ({ case: c, status: fieldOf(status.table, c) })),
-                rows: storedRows(rows, rolesOf, SchematicItemEntryType),
-                rowsOf: rowsReadOf(rowType, rolesOf, SchematicItemEntryType),
+                rows: storedRows(rows, bound.keyType, rolesOf, SchematicItemEntryType),
+                rowsOf: rowsReadOf(bound.keyType, rowType, rolesOf, SchematicItemEntryType),
                 // The paged read the kind's rows are read by key through: a reader asks the far ends of the links and nets
                 // touching its window of it, all of a window's in one request, whether or not its source joins its rows (#1393).
                 paged: byKey === undefined ? none : some(fieldOf(byKey, "id")),
@@ -714,7 +715,7 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
                     x: config.x, y: config.y,
                     width: widthField === undefined ? none : some(widthField), height: heightField === undefined ? none : some(heightField),
                 },
-                read: readOf(rowType, rolesOf, SchematicItemType),
+                read: readOf(bound.keyType, rowType, rolesOf, SchematicItemType),
                 write,
                 create,
                 templates: templateRows,
@@ -804,19 +805,19 @@ export function schematicZones<R extends StructType>(record: SchematicRecord<R>,
         if (name === undefined) throw new Error(`${where}: \`${prop}\` names a Float field of the zone's box`);
     }
     const labelField = typeof config.label === "string" ? role("label", config.label, StringType, "a String field") : undefined;
-    const labelOf = typeof config.label === "function" ? accessorRole(rowType, where, "label", StringType, "a String", config.label) : undefined;
+    const labelOf = typeof config.label === "function" ? accessorRole(bound.keyType, rowType, where, "label", StringType, "a String", config.label) : undefined;
     if (labelField === undefined && labelOf === undefined) throw new Error(`${where}: \`label\` names a String field, or is an accessor giving a String`);
-    const geometryOf = shapeRole(rowType, where, "geometry", (config as { geometry?: unknown }).geometry);
+    const geometryOf = shapeRole(bound.keyType, rowType, where, "geometry", (config as { geometry?: unknown }).geometry);
     const layerField = role("layer", config.layer, StringType, "a String field");
-    const patternOf = accessorRole(rowType, where, "pattern", SchematicZonePatternType, "a Schematic.Types.ZonePattern", config.pattern);
-    const toneOf = accessorRole(rowType, where, "tone", OptionType(SchematicToneType), "an Option of a Schematic.Types.Tone", config.tone);
-    const colorOf = accessorRole(rowType, where, "color", OptionType(StringType), "an Option of a String, a theme colour token", config.color);
-    const fillOf = accessorRole(rowType, where, "fillOpacity", OptionType(FloatType), "an Option of a Float", config.fillOpacity);
-    const weightOf = accessorRole(rowType, where, "weight", OptionType(FloatType), "an Option of a Float", config.weight);
+    const patternOf = accessorRole(bound.keyType, rowType, where, "pattern", SchematicZonePatternType, "a Schematic.Types.ZonePattern", config.pattern);
+    const toneOf = accessorRole(bound.keyType, rowType, where, "tone", OptionType(SchematicToneType), "an Option of a Schematic.Types.Tone", config.tone);
+    const colorOf = accessorRole(bound.keyType, rowType, where, "color", OptionType(StringType), "an Option of a String, a theme colour token", config.color);
+    const fillOf = accessorRole(bound.keyType, rowType, where, "fillOpacity", OptionType(FloatType), "an Option of a Float", config.fillOpacity);
+    const weightOf = accessorRole(bound.keyType, rowType, where, "weight", OptionType(FloatType), "an Option of a Float", config.weight);
     const details = detailsOf(config.details, [], where);
     const outline = East.value(variant("outline", { tone: none }), SchematicZonePatternType);
 
-    const rolesOf = East.function([rowType, StringType], SchematicZoneType, ($, row, key) => East.value({
+    const rolesOf = East.function([rowType, bound.keyType], SchematicZoneType, ($, row, key) => East.value({
         x: fieldOf(row, xField), y: fieldOf(row, yField), width: fieldOf(row, widthField), height: fieldOf(row, heightField),
         label: labelField !== undefined ? fieldOf(row, labelField) : called($, labelOf, row, key, (l) => l, ""),
         pattern: called($, patternOf, row, key, (p) => p, outline),
@@ -826,7 +827,7 @@ export function schematicZones<R extends StructType>(record: SchematicRecord<R>,
         color: called($, colorOf, row, key, (c) => c, none),
         fillOpacity: called($, fillOf, row, key, (f) => f, none),
         weight: called($, weightOf, row, key, (w) => w, none),
-    } as never, SchematicZoneType)) as unknown as ExprType<FunctionType<[EastType, StringType], EastType>>;
+    } as never, SchematicZoneType)) as unknown as ExprType<FunctionType<[EastType, EastType], EastType>>;
 
     return {
         [SCHEMATIC_DEF]: "zones",
@@ -844,10 +845,10 @@ export function schematicZones<R extends StructType>(record: SchematicRecord<R>,
                 name: config.name,
                 icon: config.icon,
                 details: details === undefined ? none : some(details.build(slot, part !== undefined)),
-                rows: storedRows(rows, rolesOf, SchematicZoneEntryType),
-                rowsOf: rowsReadOf(rowType, rolesOf, SchematicZoneEntryType),
+                rows: storedRows(rows, bound.keyType, rolesOf, SchematicZoneEntryType),
+                rowsOf: rowsReadOf(bound.keyType, rowType, rolesOf, SchematicZoneEntryType),
                 box: { x: xField, y: yField, width: some(widthField), height: some(heightField) },
-                read: readOf(rowType, rolesOf, SchematicZoneType),
+                read: readOf(bound.keyType, rowType, rolesOf, SchematicZoneType),
             } as never, SchematicZoneKindType) as ExprType<typeof SchematicZoneKindType>;
         },
     };
@@ -932,17 +933,17 @@ interface EdgeRoles {
 }
 
 /** Checks a link's or a net's drawing roles. */
-function edgeRoles(rowType: StructType, where: string, config: {
+function edgeRoles(keyType: EastType, rowType: StructType, where: string, config: {
     via?: string; layer?: string; label?: unknown; metric?: unknown; style?: unknown; route?: unknown;
 }): EdgeRoles {
     const role = roleField(rowType, where);
     return {
         viaField: role("via", config.via, ArrayType(SchematicPointType), "an Array of { x, y } Floats field"),
         layerField: role("layer", config.layer, StringType, "a String field"),
-        labelOf: accessorRole(rowType, where, "label", OptionType(StringType), "an Option of a String", config.label),
-        metricOf: accessorRole(rowType, where, "metric", OptionType(StringType), "an Option of a String", config.metric),
-        styleOf: accessorRole(rowType, where, "style", SchematicLinkStyleType, "a Schematic.Types.LinkStyle", config.style),
-        routeOf: accessorRole(rowType, where, "route", SchematicRouteType, "a Schematic.Types.Route", config.route),
+        labelOf: accessorRole(keyType, rowType, where, "label", OptionType(StringType), "an Option of a String", config.label),
+        metricOf: accessorRole(keyType, rowType, where, "metric", OptionType(StringType), "an Option of a String", config.metric),
+        styleOf: accessorRole(keyType, rowType, where, "style", SchematicLinkStyleType, "a Schematic.Types.LinkStyle", config.style),
+        routeOf: accessorRole(keyType, rowType, where, "route", SchematicRouteType, "a Schematic.Types.Route", config.route),
     };
 }
 
@@ -994,7 +995,7 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
     const from = end("from", config.from as { field: string; of: unknown });
     const to = end("to", config.to as { field: string; of: unknown });
     if (from.field === to.field) throw new Error(`${where}: \`from\` and \`to\` both name "${from.field}" — a link's ends are two fields`);
-    const edge = edgeRoles(rowType, where, config as never);
+    const edge = edgeRoles(bound.keyType, rowType, where, config as never);
     const details = detailsOf(config.details, [], where);
     const ValuesType = valuesTypeOf(rowType, [from.field, to.field]);
     const templates = templatesOf(config.templates, where);
@@ -1006,7 +1007,7 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
     const fromValue = keyFieldValue(from, fields[from.field]!);
     const toValue = keyFieldValue(to, fields[to.field]!);
 
-    const rolesOf = East.function([rowType, StringType], SchematicLinkType, ($, row, key) => {
+    const rolesOf = East.function([rowType, bound.keyType], SchematicLinkType, ($, row, key) => {
         const fromOf = $.const(fromRef);
         const toOf = $.const(toRef);
         return East.value({
@@ -1014,7 +1015,7 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
             to: toOf(row as never).unwrap(),
             ...edgeShown($, edge, row, key),
         } as never, SchematicLinkType);
-    }) as unknown as ExprType<FunctionType<[EastType, StringType], EastType>>;
+    }) as unknown as ExprType<FunctionType<[EastType, EastType], EastType>>;
 
     // A row with its ends written from `ends`, every other field from `source`; `none` for an end of a slot the field holds no keys of.
     const ended = ($: { const: (value: unknown) => unknown; let: (value: unknown, type?: EastType) => unknown; match: (value: unknown, arms: object) => void },
@@ -1067,8 +1068,8 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
                 icon: config.icon,
                 details: details === undefined ? none : some(details.build(slot, part !== undefined)),
                 ends: { from: keyFieldSlots(from), to: keyFieldSlots(to) },
-                rows: storedRows(rows, rolesOf, SchematicLinkEntryType),
-                read: readOf(rowType, rolesOf, SchematicLinkType),
+                rows: storedRows(rows, bound.keyType, rolesOf, SchematicLinkEntryType),
+                read: readOf(bound.keyType, rowType, rolesOf, SchematicLinkType),
                 write,
                 create,
                 templates: templateRows,
@@ -1182,7 +1183,7 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
     const sources = side("sources", config.sources);
     const destinations = side("destinations", config.destinations);
     if (sources.field === destinations.field) throw new Error(`${where}: \`sources\` and \`destinations\` both name "${sources.field}" — a net's sides are two fields`);
-    const edge = edgeRoles(rowType, where, config as never);
+    const edge = edgeRoles(bound.keyType, rowType, where, config as never);
     const details = detailsOf(config.details, [], where);
     const ValuesType = valuesTypeOf(rowType, [sources.field, destinations.field]);
     const templates = templatesOf(config.templates, where);
@@ -1198,11 +1199,11 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
             ? (held as unknown as ExprType<SetType<StringType>>).toArray((_$, key) => ref(key))
             : (held as unknown as ExprType<ArrayType<StringType>>).map((_$, key) => ref(key));
     };
-    const rolesOf = East.function([rowType, StringType], SchematicNetType, ($, row, key) => East.value({
+    const rolesOf = East.function([rowType, bound.keyType], SchematicNetType, ($, row, key) => East.value({
         sources: membersOf(sources, row),
         destinations: membersOf(destinations, row),
         ...edgeShown($, edge, row, key),
-    } as never, SchematicNetType)) as unknown as ExprType<FunctionType<[EastType, StringType], EastType>>;
+    } as never, SchematicNetType)) as unknown as ExprType<FunctionType<[EastType, EastType], EastType>>;
 
     // A side's field value from its members; `none` when one is of another slot.
     const sideValue = (s: typeof sources) => East.function([ArrayType(SchematicRefType)], OptionType(fields[s.field]!), ($, refs) => {
@@ -1264,8 +1265,8 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
                 icon: config.icon,
                 details: details === undefined ? none : some(details.build(slot, part !== undefined)),
                 sides: { sources: sources.of, destinations: destinations.of },
-                rows: storedRows(rows, rolesOf, SchematicNetEntryType),
-                read: readOf(rowType, rolesOf, SchematicNetType),
+                rows: storedRows(rows, bound.keyType, rolesOf, SchematicNetEntryType),
+                read: readOf(bound.keyType, rowType, rolesOf, SchematicNetType),
                 write,
                 create,
                 templates: templateRows,

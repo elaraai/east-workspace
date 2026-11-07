@@ -86,6 +86,12 @@ export { deriveManifest, deriveUiAccess, UiAccessType, type UiAccess } from './u
 export { orderedRowSource } from './utils/ordered-source.js';
 // A builder's narrowing (#1340): the one check of its `slice` every builder's tag makes, of a tab's `source`, and of a templates list's.
 export { recordSources, sliceSourceNames, tabSource, templatesSource, type RecordSources, type RecordSourcesSpec } from './utils/record-sources.js';
+// A kind over the app's own record (#1386, #1500): what the Schematic's kinds and the Flowchart's share — its reads, its
+// accessors and its record's side, each at the record's key type, its keys on the wire as their text (#1549).
+export {
+    KindSideFields, accessorRole, kindWholeRows, readOf, recordSide, rowsReadOf, storedRows,
+    type KindAccessor, type KindBinding, type KindRowsRead, type RecordSide,
+} from './utils/record-kind.js';
 // The `optimise` binding's check every builder's tag makes (#1409): `Func.bind` of a function from the builder's request to its answer.
 export { optimiseBinding, type OptimiseContract, type OptimiseHandle } from './utils/optimise.js';
 
