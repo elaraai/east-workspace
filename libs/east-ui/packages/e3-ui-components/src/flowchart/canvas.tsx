@@ -650,15 +650,16 @@ export function FlowchartCanvasView({
 
     // A phone's window of lanes, left to right: as many across main's width as the canvas's `narrow.lanes` says, which
     // its pager steps through — as many whole lanes as main holds, each counted at its card's width and 16, so none is
-    // cut however many it is told to show, and the readout says what shows. The lanes fill the window; where the
-    // details draw on the cards a phone holds one, keeping its width — at least the window's — and each step brings
-    // its card to the window's middle (R40, D24). Top down, the lanes stack and the view scrolls down them.
+    // cut however many it is told to show, and the readout says what shows — and never more than the flow has, so the
+    // window never ends at an empty slot: a flow of one lane fills it. The lanes fill the window; where the details
+    // draw on the cards a phone holds one, keeping its width — at least the window's — and each step brings its card
+    // to the window's middle (R40, D24). Top down, the lanes stack and the view scrolls down them.
     const narrow = getSomeorUndefined(canvas.narrow);
     const narrowLanes = narrow === undefined ? undefined : getSomeorUndefined(narrow.lanes);
     const lanesAsked = narrowLanes === undefined ? PHONE_LANES : Number(narrowLanes);
     const laneLeast = (cards?.width ?? NODE_W) + PHONE_LANE_ROOM;
     const windowed = size !== null && size.w > 0 && size.w <= PHONE_MAIN && orientation === "LR";
-    const lanesInView = windowed ? Math.max(1, Math.min(lanesAsked, Math.floor(size.w / laneLeast))) : lanesAsked;
+    const lanesInView = windowed ? Math.max(1, Math.min(lanesAsked, Math.floor(size.w / laneLeast), model.lanes.length)) : lanesAsked;
     const laneWidth = windowed && cards === undefined ? Math.max(laneLeast, Math.floor(size.w / lanesInView)) : undefined;
     // The one lane the window holds where the details draw on the cards: at least the window's width, so no other lane shows beside it.
     const laneWindow = windowed && cards !== undefined ? size.w : undefined;

@@ -43,7 +43,7 @@ import { FlowchartOrientationType, FlowchartFreshnessType } from "./types.js";
  * does nothing. Where the details draw on the cards the window shows one lane,
  * at least its own width, each step bringing the lane's card to its middle.
  *
- * @property lanes - How many lanes the window shows at once, 1 to 3; `none` shows 2
+ * @property lanes - How many lanes the window shows at once, 1 to 3, and never more than the flow has; `none` shows 2
  */
 export const FlowchartNarrowType = StructType({ lanes: OptionType(IntegerType) });
 /** Type alias for {@link FlowchartNarrowType}. */
@@ -153,7 +153,7 @@ export interface FlowchartCanvasOptions {
      */
     canConnect?: SubtypeExprOrValue<FunctionType<[StringType, StringType], BooleanType>>;
 
-    /** On a phone: how many lanes the window shows at once, 1 to 3 (default 2), its pager stepping through them — one where the details draw on the cards, each step bringing its card to the window's middle. */
+    /** On a phone: how many lanes the window shows at once, 1 to 3 (default 2), and never more than the flow has, its pager stepping through them — one where the details draw on the cards, each step bringing its card to the window's middle. */
     narrow?: { lanes?: 1 | 2 | 3 };
 }
 
