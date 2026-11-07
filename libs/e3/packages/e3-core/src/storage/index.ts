@@ -42,6 +42,11 @@ export {
   type GcBackendSweepResult,
   // Dataset refs
   type DatasetRefStore,
+  // Kept function calls
+  type FunctionCallStore,
+  type FunctionCallEnd,
+  type FunctionCallListOptions,
+  type FunctionCallListPage,
   // Repository upgrades
   type RepositoryUpgrade,
   // Combined backend
@@ -57,10 +62,12 @@ export {
   LocalLogStore,
   LocalRepoStore,
   LocalDatasetRefStore,
+  LocalFunctionCallStore,
 } from './local/index.js';
 
 // In-memory implementation (for testing)
 export {
   InMemoryStorage,
   InMemoryRepoStore,
+  InMemoryFunctionCallStore,
 } from './in-memory/index.js';

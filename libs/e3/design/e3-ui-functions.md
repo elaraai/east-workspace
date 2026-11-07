@@ -18,6 +18,30 @@
 > of the inputs, and §5.3's check compares the bound signature with the
 > deployed `argTypes`. The snapshot harness gives an offline function's
 > inputs their declared initial values.
+> **Kept-calls amendment (#1554):** the sync-only surface is gone, and with it
+> the scope framing of §1 and the "no server-side call state" of §1 and §6. A
+> call through a workspace is the server's: it is filed, run on compute that
+> outlives the request (`TransferBackend.functionCalls`), and kept for a
+> lifetime — an hour for a success or a cancel, a week for any other end —
+> with who made it, its arguments, the versions of the inputs it read, its
+> value and its logs (`StorageBackend.calls`). `workspaceFunctionCall`
+> starts it (`POST …/functions/<fn>/calls`), and the start waits up to the
+> server's window (20 s); a call still running is polled
+> (`GET …/calls/<id>/status?wait=…`) to its end, however long its limits let
+> it run: a started call's timeout is the server's ceiling, ten minutes
+> locally, where the sync route's was 60 s. `FunctionApi.call` takes a
+> signal: `cancel()`, and a call that supersedes another on its channel,
+> abort the call in flight, which asks the server to stop it
+> (`POST …/calls/<id>/cancel`), and a call cancelled before it is sent is
+> never sent. The handle's surface and `FuncStatusType` are unchanged:
+> `cancelled` now means the server was asked to stop the call. The page going
+> stops its calls too: the provider's teardown (`FuncRuntime.clear`) and the
+> page closing for good (`pagehide`, unless the page is kept for the back
+> button) cancel every call in flight, each ask sent `keepalive`, so a closing
+> page's reaches the server. The client names each call before it sends it —
+> a UUIDv7 of its own, the start's `?id=` — so a call is asked to stop however
+> soon its page goes, its start's answer or not. A server that keeps no calls
+> answers the sync route alone, which the client falls back to.
 > Audience: e3-ui maintainers + an implementing agent. Companion to
 > `e3-functions.md` (the `e3.function` execution primitive this binds to) and
 > `e3-ui.md` (the `e3.ui()` / `Data.bind` surface this extends). Implementation

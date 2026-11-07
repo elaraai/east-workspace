@@ -170,6 +170,56 @@ const logs = await taskLogs(url, 'production', 'compute', { stream: 'stdout' });
 // { data: '...', offset: 0n, size: 1024n, totalSize: 2048n, complete: false }
 ```
 
+### Function calls
+
+```typescript
+import {
+  workspaceFunctionCall, workspaceFunctionStart, workspaceFunctionCallStatus, workspaceFunctionCallCancel,
+  workspaceCallList, workspaceCallGet,
+} from '@elaraai/e3-api-client';
+import { encodeBeast2For, IntegerType, none, variant } from '@elaraai/east';
+
+// Call a function of the workspace's package and wait for its result,
+// however long it runs
+const stop = new AbortController();
+const result = await workspaceFunctionCall(url, repo, 'production', 'forecast', {
+  args: [variant('value', encodeBeast2For(IntegerType)(12n))], runner: none, limits: none,
+}, options, { signal: stop.signal, onStarted: (id) => console.log(`call ${id} runs on`) });
+// { outcome: <success | failed | invalid | too_large | timed_out>, stdout, stderr, inputs, ... }
+
+// The calls the workspace keeps, the latest first, and one whole
+const page = await workspaceCallList(url, repo, 'production', options, { state: 'failed' });
+// { calls: [{ id, function, caller, startedAt, endedAt, state }, ...], next: <none | some(cursor)> }
+const call = await workspaceCallGet(url, repo, 'production', page.calls[0].id, options);
+// { package, args, inputs, limits, state: <succeeded { value: hash } | …>, stdout, stderr, expiresAt, ... }
+```
+
+A call through a workspace is the server's, and outlives the request that
+starts it. `workspaceFunctionCall` starts it, which waits up to the server's
+window (20 s), and polls a call still running to its end, each poll held by
+the server until the call ends or a while passes, 250 ms apart at first and
+backing off to 2 s: a call runs as long as its timeout allows, the server's
+ceiling unless its `limits` ask for less. The client names the call before it
+sends it, a UUIDv7 of its own, so aborting `signal` stops waiting at once —
+whatever the `fetch` does with the abort — and asks the server to stop the
+call by that id, its start's answer or not; the ask is sent `keepalive`, so
+one a closing page makes still reaches the server. `onStarted` is told the id
+of a call that runs on past its start, and `startWaitMs` tells it sooner. A
+server that predates kept calls is called
+through the sync route, `workspaceFunctionCallSync`, which a caller may also
+name itself to answer within one request.
+
+The pieces apart: `workspaceFunctionStart(…, { waitMs, id })` answers the call's
+id and status (`?wait=0` answers `running` at once; an `id` of the caller's, a
+UUIDv7 of now, names the call, and the server sets aside one far from its
+clock), `workspaceFunctionCallStatus(…,
+id, options, { waitMs, signal })` its status — `running`, `completed` with its
+result, `cancelled` naming who asked, or `lost` — and
+`workspaceFunctionCallCancel` asks a running call to stop. The server keeps
+each call for its lifetime, an hour for a success or a cancel and a week for
+any other end: who made it, its arguments, the versions of the inputs it read,
+its value and its logs, by hash, which `objectGet` reads.
+
 ## Claude Code plugin
 
 The East ecosystem also ships a [Claude Code](https://claude.com/claude-code) plugin — East language skills, example search, and preemptive diagnostics for East code — installed separately from the `elaraai` marketplace:

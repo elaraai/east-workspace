@@ -161,6 +161,7 @@ describe('path-initialised inputs', () => {
       logs: storage.logs,
       repos: storage.repos,
       datasets: storage.datasets,
+      calls: storage.calls,
       runStates: (repo) => storage.runStates(repo),
       validateRepository: (repo) => storage.validateRepository(repo),
     };
@@ -1149,6 +1150,7 @@ describe('path-initialised inputs', () => {
         logs: storage.logs,
         repos: storage.repos,
         datasets: storage.datasets,
+        calls: storage.calls,
         runStates: (repo) => storage.runStates(repo),
         validateRepository: (repo) => storage.validateRepository(repo),
       };
@@ -1380,6 +1382,7 @@ describe('path-initialised inputs', () => {
           logs: inner.logs,
           repos: inner.repos,
           datasets: inner.datasets,
+          calls: inner.calls,
           runStates: (repo) => inner.runStates(repo),
           validateRepository: (repo) => inner.validateRepository(repo),
         },

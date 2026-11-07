@@ -10,6 +10,7 @@ import type {
   RepoMetadata,
   BatchResult,
   DatasetRefStore,
+  FunctionCallStore,
   GcBackendSweepOptions,
   GcBackendSweepResult,
   GcObjectEntry,
@@ -25,7 +26,7 @@ import {
   checkId,
   checkName,
 } from '../../errors.js';
-import { executionRoots, packageRoots, workspaceRoots } from '../../gc-roots.js';
+import { callRoots, executionRoots, packageRoots, workspaceRoots } from '../../gc-roots.js';
 import { newRepositoryRecord } from '../../repository-record.js';
 
 /**
@@ -111,15 +112,17 @@ export class InMemoryRepoStore implements RepoStore {
    * @param refs - The ref store a created repository's record is written to,
    *   and gc's root scans read
    * @param datasets - The dataset ref store gc's root scans read
+   * @param calls - The call store gc's root scan of kept calls reads
    * @param objects - The objects gc's object scan lists and deletes
    * @param upgrades - The backend's own upgrades, which a created repository's
    *   record names
    * @param records - The stores that drop what they keep of a repository
-   *   removed: its refs, dataset refs, logs and locks
+   *   removed: its refs, dataset refs, logs, locks and calls
    */
   constructor(
     private readonly refs: RefStore,
     private readonly datasets: DatasetRefStore,
+    private readonly calls: FunctionCallStore,
     private readonly objects: InMemoryObjectCatalogue,
     private readonly upgrades: readonly RepositoryUpgrade[],
     private readonly records: readonly InMemoryRepositoryRecords[],
@@ -233,6 +236,10 @@ export class InMemoryRepoStore implements RepoStore {
 
   async gcScanExecutionRoots(repo: string, _cursor?: unknown): Promise<GcRootScanResult> {
     return { roots: await executionRoots(this.refs, repo) };
+  }
+
+  async gcScanCallRoots(repo: string, _cursor?: unknown): Promise<GcRootScanResult> {
+    return { roots: await callRoots(this.refs, this.calls, repo) };
   }
 
   async gcScanObjects(repo: string, _cursor?: string): Promise<GcObjectScanResult> {

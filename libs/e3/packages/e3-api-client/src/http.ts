@@ -522,14 +522,24 @@ const STATUS_CODES: Record<number, string> = {
 
 /**
  * Make a GET request and decode BEAST2 response.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param path - The request's path under `/api`
+ * @param successType - The type of the answer's value
+ * @param options - Request options including auth token
+ * @param signal - Aborts the request: a poll the server holds, say, which its
+ *   caller stops waiting for
+ * @returns The answer's value
  * @throws {ApiError} On application-level errors
  * @throws {AuthError} On 401 Unauthorized
+ * @throws The abort's reason, once `signal` aborts
  */
 export async function get<T extends EastType>(
   url: string,
   path: string,
   successType: T,
   options: RequestOptions,
+  signal?: AbortSignal,
 ): Promise<ValueTypeOf<T>> {
   const response = await fetchWithRetry(`${url}/api${path}`, {
     method: 'GET',
@@ -537,6 +547,7 @@ export async function get<T extends EastType>(
       'Accept': BEAST2_CONTENT_TYPE,
       ...(options.token ? { 'Authorization': `Bearer ${options.token}` } : {}),
     },
+    ...(signal !== undefined && { signal }),
   }, { idempotent: true, retry: options.retry, fetch: options.fetch });
 
   return decodeResponse(response, successType);
@@ -601,6 +612,10 @@ export async function getConditional<T extends EastType>(
 /**
  * Make a POST request with BEAST2 body and decode BEAST2 response.
  * @param extraHeaders - Optional additional request headers (e.g. `Idempotency-Key`), merged after the defaults.
+ * @param request - `keepalive` sends a request that outlives the page sending
+ *   it, as `fetch`'s `keepalive` does: one a page sends as it closes still
+ *   reaches the server. Its body must be small, as a browser bounds those
+ *   bodies (64 KiB)
  * @throws {ApiError} On application-level errors
  * @throws {AuthError} On 401 Unauthorized
  */
@@ -612,6 +627,7 @@ export async function post<Req extends EastType, Res extends EastType>(
   successType: Res,
   options: RequestOptions,
   extraHeaders?: Record<string, string>,
+  request: { readonly keepalive?: boolean } = {},
 ): Promise<ValueTypeOf<Res>> {
   const encode = encodeBeast2For(requestType);
   const response = await fetchWithRetry(`${url}/api${path}`, {
@@ -623,6 +639,7 @@ export async function post<Req extends EastType, Res extends EastType>(
       ...extraHeaders,
     },
     body: encode(body),
+    ...(request.keepalive === true && { keepalive: true }),
   }, { idempotent: hasIdempotencyKey(extraHeaders), retry: options.retry, fetch: options.fetch });
 
   return decodeResponse(response, successType);

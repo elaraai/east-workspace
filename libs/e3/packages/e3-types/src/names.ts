@@ -18,8 +18,8 @@ export type NamedKind = 'repository' | 'workspace' | 'package' | 'package versio
 export type HashKind = 'object hash' | 'task hash' | 'inputs hash';
 
 /** What an id e3 makes a path or a key of names: an execution attempt, a
- *  dataflow run, or a gc run in steps. */
-export type IdKind = 'execution id' | 'run id' | 'gc run id';
+ *  dataflow run, a gc run in steps, or a kept function call. */
+export type IdKind = 'execution id' | 'run id' | 'gc run id' | 'call id';
 
 /** What a hash or an id e3 makes a path or a key of names: not a name, so
  *  checked for its form rather than by {@link nameProblem}. */

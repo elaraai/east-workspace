@@ -10,8 +10,13 @@
  * `count_tree`, and `quote`, which reads the workspace's prices and stock),
  * each request through the harness's fetch. A call in flight is
  * one the harness holds on its way to e3, a lost answer or a refused list is a
- * fault there, and a call past e3's deadline is one whose unit the harness
- * holds as it starts while the clock e3 times it by moves on. What a test
+ * fault there, and a call past its timeout is one whose unit the harness
+ * holds as it starts while the clock e3 times it by moves on. A call is e3's
+ * once started, and kept by it: a call cancelled, or superseded, before it is
+ * sent is never sent, and one in flight is asked to stop through e3's client,
+ * whose own specs hold it to that — as is every call in flight once its page
+ * closes for good, or its provider tears down, which e3 then keeps
+ * `cancelled`. What a test
  * counts it reads from the request log, and terminal states are awaited by
  * settling on e3's requests, never by sleeping.
  */
@@ -38,6 +43,7 @@ import {
 } from "@elaraai/east";
 import { FuncBindHandleType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/bind/func/func";
+import { workspaceCallList } from "@elaraai/e3-api-client";
 import { FunctionCallRequestType } from "@elaraai/e3-types";
 import type { E3Request } from "../src/e3-web.test-utils.js";
 import {
@@ -50,8 +56,9 @@ import { e3Spec } from "./fixtures/e3.js";
 
 const h = e3Spec({ "bind/func/func": ex });
 
-/** e3's deadline for a call that names none: what a call's unit runs under. */
-const CALL_DEADLINE_MS = 60_000;
+/** e3's timeout for a call that names none: a call outlives the request that
+ *  starts it, so its timeout is e3's ceiling, ten minutes. */
+const CALL_TIMEOUT_MS = 600_000;
 
 /** A handle bound to `forecast(Integer, Float) -> Float`, typed from its East type. */
 type Handle = ValueTypeOf<ReturnType<typeof FuncBindHandleType<[IntegerType, FloatType], FloatType>>>;
@@ -152,7 +159,7 @@ describe("FuncRuntime — call lifecycle", () => {
         await h.settle();
         const [sent] = callsOf("forecast");
         assert.ok(sent?.body !== undefined, "the call was sent, its body whole");
-        assert.equal(sent.path, `/repos/${h.e3.repo}/workspaces/${h.workspace}/functions/forecast`);
+        assert.equal(sent.path, `/repos/${h.e3.repo}/workspaces/${h.workspace}/functions/forecast/calls`, "started, as a call e3 keeps");
         const body = decodeBeast2For(FunctionCallRequestType)(sent.body);
         const expected = {
             args: [variant("value", encodeBeast2For(IntegerType)(7n)), variant("value", encodeBeast2For(FloatType)(2.5))],
@@ -202,22 +209,22 @@ describe("FuncRuntime — call lifecycle", () => {
         assert.match(err.value!.stderr, /growth must not be negative/);
     });
 
-    test("a call past e3's deadline maps to failed / timed_out", async (t) => {
+    test("a call past its timeout maps to failed / timed_out", async (t) => {
         const { runtime, handle } = bound();
-        // e3 times a call's unit from when it sends it: held as it starts, it runs on past its deadline while the
-        // clock e3 times it by moves on. The clock is e3's until the call has ended: e3 clears its deadline's timer
+        // e3 times a call's unit from when it sends it: held as it starts, it runs on past its timeout while the
+        // clock e3 times it by moves on. The clock is e3's until the call has ended: e3 clears its timeout's timer
         // as the unit stops, which only the clock that set it knows.
         const units = h.e3.holdUnits();
         t.mock.timers.enable({ apis: ["setTimeout"] });
         handle.call(1n, 1.0);
         await units.holding;
-        t.mock.timers.tick(CALL_DEADLINE_MS);
+        t.mock.timers.tick(CALL_TIMEOUT_MS);
         await ended(runtime, "forecast", handle);
         t.mock.timers.reset();
         await h.settle();
         assert.equal(handle.status().type, "failed");
         assert.equal(handle.error().value!.kind.type, "timed_out");
-        assert.match(handle.error().value!.message, new RegExp(`timed out after ${CALL_DEADLINE_MS}ms`));
+        assert.match(handle.error().value!.message, new RegExp(`timed out after ${CALL_TIMEOUT_MS}ms`));
     });
 
     test("a call the network never carries maps to failed / transport", async () => {
@@ -302,6 +309,31 @@ describe("FuncRuntime — latest-wins + cancel", () => {
         assert.equal(handle.status().type, "succeeded");
     });
 
+    test("a call superseded before it is sent is never sent: the call that superseded it is", async () => {
+        const { handle } = bound();
+        // Both calls wait on the workspace's signature list, held on its way to e3
+        const listing = h.e3.hold(lists);
+        handle.call(1n, 1.0);
+        await listing.holding;
+        handle.call(2n, 2.0);
+        listing.release();
+        await h.settle();
+        assert.equal(handle.read().value, 2.0);
+        assert.equal(callsOf("forecast").length, 1, "the superseded call never reached e3");
+    });
+
+    test("a call cancelled before it is sent is never sent", async () => {
+        const { handle } = bound();
+        const listing = h.e3.hold(lists);
+        handle.call(1n, 1.0);
+        await listing.holding;
+        handle.cancel();
+        listing.release();
+        await h.settle();
+        assert.equal(handle.status().type, "cancelled");
+        assert.equal(callsOf("forecast").length, 0, "nothing reached e3");
+    });
+
     test("relaunch after cancel works", async () => {
         const { handle } = bound();
         const first = holdFirst();
@@ -315,6 +347,100 @@ describe("FuncRuntime — latest-wins + cancel", () => {
         first.release();
         await h.settle();
         assert.equal(handle.read().value, 7.0);
+    });
+});
+
+// =============================================================================
+// The page going
+// =============================================================================
+
+describe("FuncRuntime — its page going", () => {
+    /** Whether a request polls a call, by its id. */
+    const isPoll = (request: E3Request) => request.method === "GET" && /\/calls\/[^/]+\/status$/.test(request.path);
+    /** Whether a request asks e3 to stop a call. */
+    const isStop = (request: E3Request) => request.method === "POST" && /\/calls\/[^/]+\/cancel$/.test(request.path);
+
+    /** A page's `pagehide`, as a browser's window says the page is going: for good, or kept for the back button. */
+    const hidden = (persisted: boolean) => Object.assign(new Event("pagehide"), { persisted });
+
+    /** Lets e3's answers in: their messages are a macrotask away. */
+    const turn = () => new Promise<void>((resolve) => { setImmediate(resolve); });
+
+    /**
+     * A runtime whose page the test closes, and a handle of `forecast` calling on e3, running past its start: its
+     * unit held as it starts, and its start told to wait for no end, so it answers with the call's id at once and
+     * the client polls the call.
+     */
+    async function running() {
+        const page = new EventTarget();
+        const runtime = new FuncRuntime({ page });
+        runtime.initialize(createDefaultFunctionApi(h.e3.apiUrl, h.e3.repo, h.options, { startWaitMs: 0 }), h.workspace);
+        const handle = runtime.buildHandle(forecastHandleType(), "forecast") as Handle;
+        const units = h.e3.holdUnits();
+        handle.call(1n, 1.0);
+        await units.holding;
+        while (!h.e3.requests.some(isPoll)) await turn();
+        return { page, runtime, handle };
+    }
+
+    /** Settles once e3 was asked to stop the call, and what that asked of it has run. */
+    async function stopped(): Promise<void> {
+        while (!h.e3.requests.some(isStop)) await turn();
+        await h.settle();
+    }
+
+    /** How e3 keeps the test's calls, the latest first. */
+    async function kept(): Promise<string[]> {
+        const page = await workspaceCallList(h.e3.apiUrl, h.e3.repo, h.workspace, h.e3.direct);
+        return page.calls.map((call) => call.state.type);
+    }
+
+    test("a page that closes for good stops its calls in flight: e3 is asked to stop each, and keeps it cancelled", async () => {
+        const { page, handle } = await running();
+        assert.equal(handle.status().type, "running");
+        page.dispatchEvent(hidden(false));
+        assert.equal(handle.status().type, "cancelled", "at once");
+        await stopped();
+        assert.equal(h.e3.requests.filter(isStop).length, 1);
+        assert.deepEqual(await kept(), ["cancelled"]);
+    });
+
+    test("a page that closes while its call's start waits stops the call on e3 at once, by the id the client named it by", async () => {
+        const page = new EventTarget();
+        const runtime = new FuncRuntime({ page });
+        runtime.initialize(createDefaultFunctionApi(h.e3.apiUrl, h.e3.repo, h.options), h.workspace);
+        const handle = runtime.buildHandle(forecastHandleType(), "forecast") as Handle;
+        const units = h.e3.holdUnits();
+        handle.call(1n, 1.0);
+        await units.holding;
+        // The start waits up to e3's window, 20 s, for the call: the page closes first
+        assert.equal(h.e3.requests.some(isPoll), false, "its start has not answered");
+        const closed = Date.now();
+        page.dispatchEvent(hidden(false));
+        await stopped();
+        assert.ok(Date.now() - closed < 10_000, `stopped ${Date.now() - closed} ms after its page closed, not once its start answered`);
+        assert.deepEqual(await kept(), ["cancelled"]);
+    });
+
+    test("a page kept for the back button leaves its calls running", async () => {
+        const { page, handle } = await running();
+        page.dispatchEvent(hidden(true));
+        assert.equal(handle.status().type, "running");
+        assert.equal(h.e3.requests.some(isStop), false, "nothing asked e3 to stop it");
+        // The call is the page's still: its own cancel stops it
+        handle.cancel();
+        await stopped();
+        assert.deepEqual(await kept(), ["cancelled"]);
+    });
+
+    test("the provider's teardown stops its calls in flight on e3, and the page it watched stops nothing more", async () => {
+        const { page, runtime } = await running();
+        runtime.clear();
+        await stopped();
+        assert.deepEqual(await kept(), ["cancelled"]);
+        page.dispatchEvent(hidden(false));
+        await h.settle();
+        assert.equal(h.e3.requests.filter(isStop).length, 1, "a page closing after its runtime tore down asks nothing");
     });
 });
 

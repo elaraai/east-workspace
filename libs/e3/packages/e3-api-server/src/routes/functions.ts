@@ -8,12 +8,16 @@
  *
  * Functions are callable at the package level (imported in a repo, no
  * workspace) and at the workspace level (resolved from the deployed package).
- * Both mount the same handlers. An argument is a value, or through a workspace
- * one of its datasets, pinned at launch as a one-shot's is; the package level
- * has no workspace to read one from, and answers a dataset argument
- * `invalid`. A function runs on its author's runner for any caller the routes
- * admit; a runner a call names instead is held to the caller's grant, which
- * the routes take as the one-shot routes do.
+ * An argument is a value, or through a workspace one of its datasets, pinned
+ * at launch as a one-shot's is; the package level has no workspace to read one
+ * from, and answers a dataset argument `invalid`. A call through the package
+ * runs within its request and keeps nothing. A call through a workspace is
+ * kept for its lifetime, and runs where the transfer backend runs calls,
+ * outliving its request: its start waits a while and answers `running` with
+ * the call's id, which the calls routes poll (`routes/calls.ts`); the sync
+ * route waits for it within the request. A function runs on its author's
+ * runner for any caller the routes admit; a runner a call names instead is
+ * held to the caller's grant, which the routes take as the one-shot routes do.
  *
  * One-shot is workspace-scoped, caller-supplied IR. Who may run what is the
  * host's to say, since only its auth knows who the caller is: the route takes
@@ -28,12 +32,13 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { ArrayType } from '@elaraai/east';
-import { oneShotExecute, workspaceGetPackage } from '@elaraai/e3-core/portable';
-import type { ExecuteCeilings, OneShotGrant, StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core/portable';
+import { isUuidv7, oneShotExecute, workspaceGetPackage } from '@elaraai/e3-core/portable';
+import type { ExecuteCeilings, FunctionCallLifetimes, OneShotGrant, StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core/portable';
 import { decodeBody, sendError, sendSuccess } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import type { Identity } from '../identity.js';
 import {
+  FunctionCallAnswerType,
   FunctionCallRequestType,
   FunctionSignatureType,
   OneShotRequestType,
@@ -49,6 +54,9 @@ import {
   getSplitCallStatus,
   startSplitCall,
 } from '../handlers/functions.js';
+import { callFunctionInWorkspace, startFunctionCall } from '../handlers/calls.js';
+import { callerOfIdentity, type CallerOf } from './calls.js';
+import { badQuery, wholeQuery } from './query.js';
 
 /**
  * Per-repo TaskRunner accessor — the runner is injected (the local server
@@ -74,6 +82,9 @@ export interface OneShotRoutesOptions {
   ceilings?: ExecuteCeilings;
 }
 
+/** The longest a call's start waits for it to end, unless the host says. */
+export const DEFAULT_CALL_WINDOW_MS = 20_000;
+
 /** Options for the named function routes. */
 export interface FunctionRoutesOptions {
   /** A sync call's deadline, under the host's request timeout (default
@@ -88,6 +99,23 @@ export interface FunctionRoutesOptions {
    * Absent, no caller may add a package.
    */
   access?: OneShotAccess;
+  /**
+   * The most a call through a workspace may ask for. A started call's timeout
+   * is the ceiling's unless it asks for less, since it outlives its request; a
+   * sync call's defaults as before, and is clamped under the sync deadline
+   * too (default: a server's, a 10-minute timeout).
+   */
+  ceilings?: ExecuteCeilings;
+  /** The longest a call's start waits for it to end before it answers
+   *  `running` (default {@link DEFAULT_CALL_WINDOW_MS}): under the host's
+   *  request timeout */
+  windowMs?: number;
+  /** How long a call through a workspace is kept once it ends (default: an
+   *  hour for a success or a cancel, a week for any other end) */
+  lifetimes?: FunctionCallLifetimes;
+  /** Who makes a call, as it is kept (default `callerOfIdentity`: the
+   *  identity's email, else its subject) */
+  callerOf?: CallerOf;
 }
 
 /** The grant of a function call's caller, by the routes' options. */
@@ -161,7 +189,22 @@ export function createPackageFunctionRoutes(
 /**
  * Workspace-scoped function routes, mounted at
  * `/api/repos/:repo/workspaces/:ws/functions`. The package is resolved from
- * what's deployed in the workspace; the handlers are identical.
+ * what's deployed in the workspace.
+ *
+ * - `GET /` lists the deployed package's functions, and `GET /:fn` describes
+ *   one, as the package routes do.
+ * - `POST /:fn/calls[?wait=ms&id=uuidv7]` starts a call: it is filed, run where
+ *   the transfer backend runs calls, and kept for its lifetime. The start
+ *   waits up to `wait` — at most `windowMs`, which it waits when none is
+ *   given — and answers the call's id and its status: its result once it
+ *   ended, or `running`, which the calls routes poll. `?wait=0` answers at
+ *   once. An `id` the client chose, a UUIDv7 of about now, names the call, so
+ *   the client can cancel it before the start answers; one far from the
+ *   server's clock is set aside for the server's own, which the answer names,
+ *   and an id that is no UUIDv7 is refused `400 bad_request`.
+ * - `POST /:fn` calls it synchronously: the same call, filed and kept, waited
+ *   for within the request, its timeout clamped under the sync deadline, and
+ *   answered as its `ExecuteResult`.
  *
  * @remarks
  * A workspace whose package cannot be resolved — none deployed, or no such
@@ -171,18 +214,28 @@ export function createPackageFunctionRoutes(
  *
  * @param storage - Storage backend
  * @param getRepoPath - A repository's identifier from its name
- * @param getRunner - Each repository's task runner
- * @param options - The host's sync deadline, and the grant a runner a call
- *   names is held to
+ * @param transferBackend - Runs the calls where the backend runs them, and
+ *   hears of their ends
+ * @param options - The host's sync deadline, the grant a runner a call names
+ *   is held to, the ceilings, the start's window, the lifetimes, and who calls
  * @returns The routes
  */
 export function createWorkspaceFunctionRoutes(
   storage: StorageBackend,
   getRepoPath: (repo: string) => string,
-  getRunner: GetRunner,
+  transferBackend: TransferBackend,
   options: FunctionRoutesOptions = {}
 ) {
   const app = new Hono();
+  const windowMs = options.windowMs ?? DEFAULT_CALL_WINDOW_MS;
+  const callerOf = options.callerOf ?? callerOfIdentity;
+  const filing = (c: Context, grant: OneShotGrant) => ({
+    caller: callerOf(c),
+    grant,
+    verbose: c.req.query('verbose') === '1',
+    ...(options.ceilings !== undefined && { ceilings: options.ceilings }),
+    ...(options.lifetimes !== undefined && { lifetimes: options.lifetimes }),
+  });
 
   const deployed = async (c: Context): Promise<{ repoPath: string; name: string; version: string }> => {
     const repoPath = getRepoPath(c.req.param('repo')!);
@@ -209,13 +262,38 @@ export function createWorkspaceFunctionRoutes(
     }
   });
 
-  app.post('/:fn', async (c) => {
+  // POST /:fn/calls - Start a call, kept for its lifetime (FunctionCallAnswer)
+  app.post('/:fn/calls', async (c) => {
+    const repo = c.req.param('repo')!;
     try {
-      const { repoPath, name, version } = await deployed(c);
+      const query = wholeQuery(c, { wait: 0 });
+      if (query instanceof Response) return query;
+      // The id the client chose, so it can stop the call before this answers
+      const id = c.req.query('id');
+      if (id !== undefined && !isUuidv7(id)) return badQuery(`id must be a UUIDv7, got ${JSON.stringify(id)}`);
+      const grant = await functionGrant(c, options);
+      const req = await decodeBody(c, FunctionCallRequestType);
+      return await startFunctionCall(storage, transferBackend.functionCalls, repo, getRepoPath(repo), c.req.param('ws')!, c.req.param('fn')!, req, {
+        ...filing(c, grant),
+        waitMs: Math.min(query.wait ?? windowMs, windowMs),
+        ...(id !== undefined && { id }),
+      });
+    } catch (err) {
+      return sendError(FunctionCallAnswerType, errorToVariant(err));
+    }
+  });
+
+  // POST /:fn - Call synchronously, kept as a started call is (ExecuteResult)
+  app.post('/:fn', async (c) => {
+    const repo = c.req.param('repo')!;
+    try {
       const grant = await functionGrant(c, options);
       const req = await decodeBody(c, FunctionCallRequestType);
       // A dataset argument is the workspace's, pinned at launch
-      return await callFunctionSync(storage, repoPath, getRunner(repoPath), name, version, c.req.param('fn')!, req, c.req.query('verbose') === '1', options.syncDeadlineMs, grant, c.req.param('ws')!);
+      return await callFunctionInWorkspace(storage, transferBackend.functionCalls, repo, getRepoPath(repo), c.req.param('ws')!, c.req.param('fn')!, req, {
+        ...filing(c, grant),
+        ...(options.syncDeadlineMs !== undefined && { syncDeadlineMs: options.syncDeadlineMs }),
+      });
     } catch (err) {
       return sendError(ExecuteResultType, errorToVariant(err));
     }

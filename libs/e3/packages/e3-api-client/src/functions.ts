@@ -12,15 +12,24 @@
  * workspace-scoped; the server says who may run what: a caller who may read
  * the workspace runs a platform-free one, and only an elevated grant any other.
  *
- * All call results are inline, bounded values (ExecuteResult) — nothing is
- * persisted server-side by a call. A split call — a caller's program over a
- * dataset's pieces — runs as a job, launched under one-shot's grant and
- * polled for its result.
+ * A call through a package is answered within its request, and nothing of it
+ * is kept. A call through a workspace is kept by the server for its lifetime,
+ * and outlives the request that starts it: {@link workspaceFunctionCall}
+ * starts it and polls it to its end, and the server's workspace keeps it —
+ * who made it, its arguments, the versions of the inputs it read, its value
+ * and its logs — which {@link workspaceCallList} and {@link workspaceCallGet}
+ * read. A split call — a caller's program over a dataset's pieces — runs as a
+ * job, launched under one-shot's grant and polled for its result.
  */
 
 import type {
   FunctionSignature,
+  FunctionCall,
+  FunctionCallAnswer,
+  FunctionCallPage,
   FunctionCallRequest,
+  FunctionCallState,
+  FunctionCallStatus,
   ExecuteResult,
   OneShotRequest,
   SplitCallPlan,
@@ -30,18 +39,57 @@ import type {
 } from './types.js';
 import {
   FunctionSignatureType,
+  FunctionCallAnswerType,
+  FunctionCallPageType,
   FunctionCallRequestType,
+  FunctionCallStatusType,
+  FunctionCallType,
   ExecuteResultType,
   OneShotRequestType,
   SplitCallRequestType,
   SplitCallStatusType,
 } from './types.js';
-import { ArrayType } from '@elaraai/east';
+import { ArrayType, NullType } from '@elaraai/east';
 import { PackageJobResponseType } from '@elaraai/e3-types';
-import { get, post, verboseQuery, type RequestOptions } from './http.js';
+import { ApiError, get, post, verboseQuery, type RequestOptions } from './http.js';
 import { JOB_POLL_MAX_MS, JOB_POLL_MIN_MS } from './packages.js';
+import { uuidv7 } from './uuid.js';
 
 const enc = encodeURIComponent;
+
+function callsBase(repo: string, ws: string, id?: string): string {
+  const base = `/repos/${enc(repo)}/workspaces/${enc(ws)}/calls`;
+  return id !== undefined ? `${base}/${enc(id)}` : base;
+}
+
+/** A path with a query of the parameters given, in order. */
+function withQuery(path: string, params: ReadonlyArray<readonly [string, string | undefined]>): string {
+  const query = new URLSearchParams();
+  for (const [name, value] of params) {
+    if (value !== undefined) query.set(name, value);
+  }
+  const text = query.toString();
+  return text === '' ? path : `${path}?${text}`;
+}
+
+/** A wait as a query gives it: whole milliseconds, zero or more. */
+function waitParam(ms: number | undefined): string | undefined {
+  return ms === undefined ? undefined : String(Math.max(0, Math.trunc(ms)));
+}
+
+/**
+ * How long each poll of a call {@link workspaceFunctionCall} makes asks the
+ * server to wait for it to end, in milliseconds. A server holds a poll at
+ * most as long as it allows — the local server 20 s, a host whose held
+ * requests cost it less — and answers as soon as the call ends.
+ */
+export const CALL_POLL_WAIT_MS = 20_000;
+
+/** The least time between two polls of a call, which doubles to
+ *  {@link CALL_POLL_MAX_MS}: a poll a server answered at once waits it out. */
+const CALL_POLL_MIN_MS = 250;
+/** The most time between two polls of a call. */
+const CALL_POLL_MAX_MS = 2_000;
 
 function pkgBase(repo: string, pkg: string, version: string, fn?: string): string {
   const base = `/repos/${enc(repo)}/packages/${enc(pkg)}/${enc(version)}/functions`;
@@ -172,16 +220,48 @@ export async function workspaceFunctionDescribe(
   return get(url, wsBase(repo, ws, fn), FunctionSignatureType, options);
 }
 
+/** Options for {@link workspaceFunctionCall}. */
+export interface WorkspaceFunctionCallOptions {
+  /**
+   * Stops the call: the client stops waiting for it at once, and asks the
+   * server to stop it, which ends it `cancelled`. The client names the call
+   * itself, so aborted while the call's start waits, the call is asked to stop
+   * at once, by that id, and again once its start answers.
+   */
+  signal?: AbortSignal;
+  /** Told the call's id once its start has answered and the call runs on
+   *  past it: what the call is polled, cancelled and read by elsewhere */
+  onStarted?: (id: string) => void;
+  /**
+   * How long the call's start waits for it to end before it answers with the
+   * call's id, in milliseconds: at most the server's window, which it waits
+   * when unset. A call that ends within it costs one request; a shorter wait
+   * tells `onStarted` of a longer one sooner, at the cost of polling it.
+   */
+  startWaitMs?: number;
+}
+
 /**
- * Call a function of the deployed package synchronously.
+ * Call a function of the deployed package, and wait for its result: the call
+ * is started, kept by the server for its lifetime, and polled to its end.
  *
  * @remarks
  * A runner the request names is held to the caller's grant, as
  * {@link functionCall} says. An argument is a value, or a dataset of the
  * workspace (`variant('dataset', path)`), pinned by its hash at launch as a
- * one-shot's is: the result's `inputs` names each dataset argument's path and
- * the hash it was pinned at, in argument order, and an unassigned one is
- * `invalid`.
+ * one-shot's is: the result's `inputs` names each input the function reads and
+ * each dataset argument, with the hash it was pinned at, in parameter order,
+ * and an unassigned one is `invalid`.
+ *
+ * A call is held to its own timeout, never to a request's, so it may run for
+ * as long as its limits allow: its start waits up to the server's window
+ * ({@link workspaceFunctionStart}), and a call still running is polled — each
+ * poll held by the server until the call ends or a while passes — 250 ms
+ * apart at first, backing off to 2 s. The client names the call, an id of its
+ * own ({@link FunctionCallStartOptions.id}), so an abort reaches the call
+ * however soon it comes. A server that keeps no calls, one that predates
+ * them, has no route to start one, and the call is made through
+ * {@link workspaceFunctionCallSync} instead.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
@@ -191,11 +271,15 @@ export async function workspaceFunctionDescribe(
  * @param req - The arguments (values or dataset paths), a runner to run on
  *   instead of the function's own, and the limits
  * @param options - Request options including auth token
+ * @param call - The signal that stops the call, and who is told its id once
+ *   it runs on past its start
  * @returns The call's terminal result
  * @throws {ApiError} `permission_denied` (`path` `runner`) when the caller may
- *   not run the function on the runner the request names, and
- *   `workspace_not_found` / `workspace_not_deployed`
+ *   not run the function on the runner the request names,
+ *   `workspace_not_found` / `workspace_not_deployed`, and `internal` for a
+ *   call someone cancelled, or the server lost, which has no result
  * @throws {AuthError} On 401 Unauthorized
+ * @throws The abort's reason, once `call.signal` aborts
  */
 export async function workspaceFunctionCall(
   url: string,
@@ -203,9 +287,345 @@ export async function workspaceFunctionCall(
   ws: string,
   fn: string,
   req: FunctionCallRequest,
-  options: RequestOptions
+  options: RequestOptions,
+  call: WorkspaceFunctionCallOptions = {},
+): Promise<ExecuteResult> {
+  const { signal } = call;
+  signal?.throwIfAborted();
+  // The call is named before it is sent, so it can be stopped before its start answers
+  const id = uuidv7();
+  const starting = workspaceFunctionStart(url, repo, ws, fn, req, options, {
+    id,
+    ...(call.startWaitMs !== undefined && { waitMs: call.startWaitMs }),
+  });
+  let answer: FunctionCallAnswer;
+  try {
+    answer = await untilAborted(starting, signal);
+  } catch (err) {
+    if (err instanceof ApiError && (err.code === 'not_found' || err.code === 'method_not_allowed')) {
+      // A server that keeps no calls answers the sync route alone
+      return untilAborted(workspaceFunctionCallSync(url, repo, ws, fn, req, options), signal);
+    }
+    if (signal?.aborted === true) {
+      // Asked to stop at once by its name; and again once the start answers,
+      // for a call filed after that ask reached the server, or filed under a
+      // name of the server's
+      void workspaceFunctionCallCancel(url, repo, ws, id, options).catch(() => undefined);
+      void starting.then((started) => cancelQuietly(url, repo, ws, started, options), () => undefined);
+    }
+    throw err;
+  }
+
+  let status = answer.status;
+  if (status.type === 'running') call.onStarted?.(answer.id);
+  for (let gap = CALL_POLL_MIN_MS; status.type === 'running'; gap = Math.min(gap * 2, CALL_POLL_MAX_MS)) {
+    const asked = Date.now();
+    try {
+      // An abort stops the wait at once, whatever the fetch does with its
+      // signal: a host's own fetch, as e3 in a page answers through, may
+      // answer the held poll in its own time
+      status = await untilAborted(workspaceFunctionCallStatus(url, repo, ws, answer.id, options, {
+        waitMs: CALL_POLL_WAIT_MS,
+        ...(signal !== undefined && { signal }),
+      }), signal);
+      // A poll the server answered before the gap passed waits the rest of it
+      if (status.type === 'running') await pause(gap - (Date.now() - asked), signal);
+    } catch (err) {
+      if (signal?.aborted === true) void cancelQuietly(url, repo, ws, answer, options);
+      throw err;
+    }
+  }
+  return callResult(answer.id, status);
+}
+
+/** Options for {@link workspaceFunctionStart}. */
+export interface FunctionCallStartOptions {
+  /** How long the start waits for the call to end before it answers
+   *  `running`, in milliseconds: at most the server's window, which it waits
+   *  when unset; 0 answers at once */
+  waitMs?: number;
+  /**
+   * The id to file the call under: a UUIDv7 of now, which names the call
+   * before the start answers, so it can be cancelled at once. A server sets
+   * aside one far from its clock for an id of its own, which the answer
+   * names, and refuses one it keeps a call under already. Unset, the server
+   * names the call.
+   */
+  id?: string;
+}
+
+/**
+ * Start a call of a function of the deployed package: the server files it,
+ * runs it where its calls run, and waits a while for it to end.
+ *
+ * @remarks
+ * The call is kept by the server from now until the lifetime its end gives
+ * it: an hour for a success or a cancel, a week for any other end, unless the
+ * server says otherwise. Its timeout is the server's ceiling unless the
+ * request asks for less, since it answers no request. The answer is the
+ * call's id and how it stood when the wait ended: `completed` with its
+ * result for a call that ended within it — a call found wrong among them,
+ * `invalid` — or `running`, which {@link workspaceFunctionCallStatus} polls.
+ * A start is never sent twice, so a call is never filed twice.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param ws - The workspace whose deployed package holds the function
+ * @param fn - Function name
+ * @param req - The arguments, a runner to run on instead of the function's
+ *   own, and the limits
+ * @param options - Request options including auth token
+ * @param start - How long the start waits for the call to end, and the id to
+ *   file it under
+ * @returns The call's id and status
+ * @throws {ApiError} As {@link workspaceFunctionCall} does; `not_found` from a
+ *   server that keeps no calls
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function workspaceFunctionStart(
+  url: string,
+  repo: string,
+  ws: string,
+  fn: string,
+  req: FunctionCallRequest,
+  options: RequestOptions,
+  start: FunctionCallStartOptions = {},
+): Promise<FunctionCallAnswer> {
+  const path = withQuery(`${wsBase(repo, ws, fn)}/calls`, [
+    ['wait', waitParam(start.waitMs)],
+    ['id', start.id],
+    ['verbose', options.verbose === true ? '1' : undefined],
+  ]);
+  return post(url, path, req, FunctionCallRequestType, FunctionCallAnswerType, options);
+}
+
+/** Options for {@link workspaceFunctionCallStatus}. */
+export interface FunctionCallPollOptions {
+  /** How long the server waits for the call to end before it answers
+   *  `running`, in milliseconds: at most as long as it allows; 0, the
+   *  default, answers at once */
+  waitMs?: number;
+  /** Aborts the poll */
+  signal?: AbortSignal;
+}
+
+/**
+ * A call's status: `running`; its result once it ended, its value inline up
+ * to its `maxResultBytes`; `cancelled`, naming who asked; or `lost`, and why.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param ws - The workspace the call was made through
+ * @param id - The call's id
+ * @param options - Request options including auth token
+ * @param poll - How long the server waits for the call to end, and the signal
+ *   that aborts the poll
+ * @returns The status
+ * @throws {ApiError} `internal` when the workspace keeps no such call — none
+ *   was made, or its lifetime has ended — and `permission_denied` (`path`
+ *   `call`) for a caller the server does not let read it
+ * @throws {AuthError} On 401 Unauthorized
+ * @throws The abort's reason, once `poll.signal` aborts
+ */
+export async function workspaceFunctionCallStatus(
+  url: string,
+  repo: string,
+  ws: string,
+  id: string,
+  options: RequestOptions,
+  poll: FunctionCallPollOptions = {},
+): Promise<FunctionCallStatus> {
+  return get(url, withQuery(`${callsBase(repo, ws, id)}/status`, [['wait', waitParam(poll.waitMs)]]), FunctionCallStatusType, options, poll.signal);
+}
+
+/**
+ * Ask a running call to stop: the server stops its runner, and the call ends
+ * `cancelled`, naming who asked. A call that has ended is left as it is.
+ *
+ * @remarks
+ * The request is sent `keepalive`, so it reaches the server though the page
+ * that sends it is closing: a page that stops its calls as it goes away is
+ * heard.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param ws - The workspace the call was made through
+ * @param id - The call's id
+ * @param options - Request options including auth token
+ * @returns The call's status once it stopped, or `running` while it stops
+ * @throws {ApiError} As {@link workspaceFunctionCallStatus} does, and
+ *   `permission_denied` (`path` `call`) for a caller the server does not let
+ *   cancel it
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function workspaceFunctionCallCancel(
+  url: string,
+  repo: string,
+  ws: string,
+  id: string,
+  options: RequestOptions,
+): Promise<FunctionCallStatus> {
+  return post(url, `${callsBase(repo, ws, id)}/cancel`, null, NullType, FunctionCallStatusType, options, undefined, { keepalive: true });
+}
+
+/** Which of a workspace's calls {@link workspaceCallList} answers. */
+export interface FunctionCallListQuery {
+  /** Only the calls of the function of this name */
+  function?: string;
+  /** Only the calls in the state of this tag */
+  state?: FunctionCallState['type'];
+  /** Only the calls before it: the last page's `next` */
+  before?: string;
+  /** At most this many: the server's page unless set, and never more than
+   *  `FUNCTION_CALLS_PAGE_MAX` */
+  limit?: number;
+}
+
+/**
+ * A page of the calls a workspace keeps, the latest first: each by who made
+ * it, when, and how it stands or ended.
+ *
+ * @remarks
+ * A call is kept for its lifetime, an hour for a success or a cancel and a
+ * week for any other end unless the server says otherwise, so the list holds
+ * what is recent however many calls are made. A page's `next` is the next
+ * page's `before`, `none` on the last. A page may hold fewer calls than its
+ * limit, or none, and name a next all the same: a server that reads a bounded
+ * number of calls a request, as the cloud's does, stops where its reads
+ * stopped, which a list of a function's calls, or a state's, may reach first.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param ws - The workspace
+ * @param options - Request options including auth token
+ * @param query - Only a function's calls, or only those in a state, and the
+ *   page's cursor and size
+ * @returns The page
+ * @throws {ApiError} `workspace_not_found`, and `bad_request` for a query
+ *   given wrong
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function workspaceCallList(
+  url: string,
+  repo: string,
+  ws: string,
+  options: RequestOptions,
+  query: FunctionCallListQuery = {},
+): Promise<FunctionCallPage> {
+  const path = withQuery(callsBase(repo, ws), [
+    ['function', query.function],
+    ['state', query.state],
+    ['before', query.before],
+    ['limit', query.limit === undefined ? undefined : String(query.limit)],
+  ]);
+  return get(url, path, FunctionCallPageType, options);
+}
+
+/**
+ * A kept call, whole: the package it ran from, its arguments — values by the
+ * objects they were stored as, datasets by the hashes they were pinned at —
+ * the versions of the inputs it read, its limits, its value by hash once it
+ * succeeded, its log tails, and when it is forgotten.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param ws - The workspace the call was made through
+ * @param id - The call's id
+ * @param options - Request options including auth token
+ * @returns The call
+ * @throws {ApiError} As {@link workspaceFunctionCallStatus} does
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function workspaceCallGet(
+  url: string,
+  repo: string,
+  ws: string,
+  id: string,
+  options: RequestOptions,
+): Promise<FunctionCall> {
+  return get(url, callsBase(repo, ws, id), FunctionCallType, options);
+}
+
+/**
+ * Call a function of the deployed package within one request: the sync route,
+ * which a server that keeps no calls answers alone.
+ *
+ * @remarks
+ * The call's timeout defaults as a sync call's does, and is clamped under the
+ * server's sync deadline, so a call that runs past it is answered `timed_out`.
+ * A server that keeps calls keeps this one too. {@link workspaceFunctionCall}
+ * is held to no request's deadline, and is what a caller makes unless it
+ * wants a single request.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param ws - The workspace whose deployed package holds the function
+ * @param fn - Function name
+ * @param req - The arguments, a runner to run on instead of the function's
+ *   own, and the limits
+ * @param options - Request options including auth token
+ * @returns The call's terminal result
+ * @throws {ApiError} As {@link workspaceFunctionCall} does
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function workspaceFunctionCallSync(
+  url: string,
+  repo: string,
+  ws: string,
+  fn: string,
+  req: FunctionCallRequest,
+  options: RequestOptions,
 ): Promise<ExecuteResult> {
   return post(url, verboseQuery(wsBase(repo, ws, fn), options), req, FunctionCallRequestType, ExecuteResultType, options);
+}
+
+/** A call's result, once it ended: what a cancelled or lost call, which has
+ *  none, is refused as, in the sync route's words. */
+function callResult(id: string, status: FunctionCallStatus): ExecuteResult {
+  switch (status.type) {
+    case 'completed':
+      return status.value;
+    case 'cancelled': {
+      const by = status.value.by.type === 'some' ? ` by ${status.value.by.value}` : '';
+      throw new ApiError('internal', { message: `call ${id} was cancelled${by}, and has no result` });
+    }
+    case 'lost':
+      throw new ApiError('internal', { message: `call ${id} was lost: ${status.value.message}` });
+    case 'running':
+      throw new ApiError('internal', { message: `call ${id} is still running` });
+  }
+}
+
+/** Asks a call that runs on to stop, ignoring the answer: what an abort does. */
+async function cancelQuietly(url: string, repo: string, ws: string, answer: FunctionCallAnswer, options: RequestOptions): Promise<void> {
+  if (answer.status.type !== 'running') return;
+  await workspaceFunctionCallCancel(url, repo, ws, answer.id, options).catch(() => undefined);
+}
+
+/** What a promise settles to, or the abort's reason once `signal` aborts
+ *  first; the promise runs on regardless. */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return promise;
+  return new Promise<T>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const onAbort = (): void => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then((value) => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(value);
+    }, (err: unknown) => {
+      signal.removeEventListener('abort', onAbort);
+      reject(err);
+    });
+  });
+}
+
+/** Waits `ms`, or rejects with the abort's reason once `signal` aborts. */
+function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return untilAborted(new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, ms))), signal);
 }
 
 

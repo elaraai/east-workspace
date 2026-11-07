@@ -5,7 +5,7 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import type { StorageBackend, ObjectStore, RefStore, LockService, LogStore, RepoStore, DatasetRefStore, RepositoryUpgrade } from '../interfaces.js';
+import type { StorageBackend, ObjectStore, RefStore, LockService, LogStore, RepoStore, DatasetRefStore, FunctionCallStore, RepositoryUpgrade } from '../interfaces.js';
 import type { ExecutionStateStore } from '../../dataflow/state-store/interfaces.js';
 import { FileStateStore } from '../../dataflow/state-store/FileStateStore.js';
 import { LocalObjectStore } from './LocalObjectStore.js';
@@ -14,6 +14,7 @@ import { LocalLockService } from './LocalLockService.js';
 import { LocalLogStore } from './LocalLogStore.js';
 import { LocalRepoStore } from './LocalRepoStore.js';
 import { LocalDatasetRefStore } from './LocalDatasetRefStore.js';
+import { LocalFunctionCallStore } from './LocalFunctionCallStore.js';
 import { LOCAL_REPOSITORY_UPGRADES } from './upgrades.js';
 import { RepoNotFoundError } from '../../errors.js';
 
@@ -70,6 +71,10 @@ export class LocalStorage implements StorageBackend {
   /** Per-dataset reference storage (reactive dataflow) */
   public readonly datasets: DatasetRefStore;
 
+  /** The calls of named functions the repository keeps, under each workspace's
+   *  directory (`workspaces/<ws>/calls/<id>.beast2`) */
+  public readonly calls: FunctionCallStore;
+
   /**
    * Create a new LocalStorage instance.
    *
@@ -83,7 +88,9 @@ export class LocalStorage implements StorageBackend {
     this.locks = new LocalLockService();
     this.logs = new LocalLogStore();
     this.datasets = new LocalDatasetRefStore();
-    this.repos = new LocalRepoStore(reposDir ?? null, this.refs, this.datasets);
+    const calls = new LocalFunctionCallStore();
+    this.calls = calls;
+    this.repos = new LocalRepoStore(reposDir ?? null, this.refs, this.datasets, calls);
   }
 
   /**

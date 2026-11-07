@@ -5,16 +5,20 @@
 
 /**
  * The roots gc marks from, read through a backend's ref stores: what each
- * package, deployed workspace and execution a repository records names.
+ * package, deployed workspace, execution and kept call a repository records
+ * names.
  *
  * A `RepoStore` serves its gc root scans from these, or from a scan of its own
  * that finds the same roots.
  */
 
 import { decodeBeast2For } from '@elaraai/east';
-import { WorkspaceRecordType, executionStatusRoots } from '@elaraai/e3-types';
+import { WorkspaceRecordType, executionStatusRoots, functionCallRoots } from '@elaraai/e3-types';
 import { refPathToKeypath } from './dataset-refs.js';
-import type { DatasetRefStore, RefStore } from './storage/interfaces.js';
+import type { DatasetRefStore, FunctionCallStore, RefStore } from './storage/interfaces.js';
+
+/** The calls a scan of a workspace's kept calls reads at a time. */
+const CALL_ROOTS_PAGE = 500;
 
 /**
  * The package object each package ref names.
@@ -100,6 +104,31 @@ export async function executionRoots(refs: RefStore, repo: string): Promise<stri
       const status = await refs.executionGet(repo, taskHash, inputsHash, executionId);
       if (status !== null) roots.push(...executionStatusRoots(status));
     }
+  }
+  return roots;
+}
+
+/**
+ * What each call the repository keeps names, while it is kept: its value
+ * arguments, the versions of the inputs and the dataset arguments it read, and
+ * its value (east-workspace#1554). An expired call is not read, and roots
+ * nothing.
+ *
+ * @param refs - The backend's ref store, whose workspaces the calls are kept
+ *   under
+ * @param calls - The backend's call store
+ * @param repo - Repository identifier
+ * @returns The roots' hashes
+ */
+export async function callRoots(refs: RefStore, calls: FunctionCallStore, repo: string): Promise<string[]> {
+  const roots: string[] = [];
+  for (const workspace of await refs.workspaceList(repo)) {
+    let before: string | undefined;
+    do {
+      const page = await calls.list(repo, workspace, { limit: CALL_ROOTS_PAGE, ...(before !== undefined && { before }) });
+      for (const job of page.calls) roots.push(...functionCallRoots(job));
+      before = page.next;
+    } while (before !== undefined);
   }
   return roots;
 }

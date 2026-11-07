@@ -20,7 +20,7 @@ e3-types' `E3_RELEASE` with them (`scripts/set-npm-version.mjs`, guarded by
 | Kind | Examples | At a change |
 |---|---|---|
 | **Package-borne** — written by the SDK at export and carried in a package | task objects, package objects, function objects, record, mutation and index objects, IR bundles, environment specs and the files they name (each a Blob), and the package zip's package ref and release (each a String) | Packages are re-exported with the new SDK. A package from an older SDK fails with an error that says to re-export it. An import refuses a zip a newer release exported, naming that release. |
-| **Stored state** — written by e3 as it runs and kept in a repository | datasets and their segment manifests, record states, commits and deltas, execution status, the dataflow's execution state and its events, unit plans, and the repository's own records: its repository record and the upgrade under way, package refs, workspace state, dataset refs, execution owners and plan pointers, the adoption memo, locks and run records | The release that changes a stored form ships a repository upgrade step, and a repository an older release wrote is upgraded in place when that release first opens it: its records keep their states and histories. A reader refuses a stored form no step carried forward, naming the release that wrote it. A repository from before repositories recorded their upgrades is re-created: deployed again, and its data imported again. |
+| **Stored state** — written by e3 as it runs and kept in a repository | datasets and their segment manifests, record states, commits and deltas, execution status, the dataflow's execution state and its events, unit plans, kept function calls, and the repository's own records: its repository record and the upgrade under way, package refs, workspace state, dataset refs, execution owners and plan pointers, the adoption memo, locks and run records | The release that changes a stored form ships a repository upgrade step, and a repository an older release wrote is upgraded in place when that release first opens it: its records keep their states and histories. A reader refuses a stored form no step carried forward, naming the release that wrote it. A repository from before repositories recorded their upgrades is re-created: deployed again, and its data imported again. |
 
 No reader keeps a decoder for an earlier form. Readers read the current form,
 as writers write it; an upgrade step carries a repository's records into it,
@@ -671,3 +671,20 @@ Each wire changed under this rule, with the kind it is.
   are of one release. A call's result names the inputs it read before its
   dataset arguments, in `ExecuteResultType`'s `inputs`, whose type does not
   change.
+- **e3 keeps the calls of named functions through a workspace (#1554)** —
+  stored state, new, and new API types beside it. A call is a record of the
+  repository's call store, `FunctionCallJobType` (e3-types `function-call.ts`):
+  the call as the API answers it, `FunctionCallType`, and what its run needs
+  and no reader is shown. The store is new — a repository opens with none — so
+  no earlier release wrote a form of it, and no repository upgrade step ships;
+  a change to its type from here on ships one, as any stored form's does. The
+  API's types for a call (`FunctionCallStateType`, `FunctionCallArgType`,
+  `FunctionCallSummaryType`, `FunctionCallType`, `FunctionCallStatusType`,
+  `FunctionCallAnswerType`, `FunctionCallPageType`) are new, and the routes that
+  answer them too, so no client reads an earlier answer of them: an earlier
+  server has no `…/functions/:fn/calls` route, answers it 404, and
+  e3-api-client calls it through the sync route, whose types do not change.
+  `ErrorType` gains no case: a call the workspace does not keep is `internal`.
+  `FunctionCallStateType` and `FunctionCallStatusType` are kept forms: a case
+  either gains is named to sort after every case before it, so its tag is the
+  last.

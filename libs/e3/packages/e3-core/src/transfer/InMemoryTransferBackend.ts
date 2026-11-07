@@ -28,6 +28,7 @@ import type {
   DatasetPartUpload,
   DatasetUploadStore,
   DatasetDownloadStore,
+  FunctionCallDispatch,
   PackageImportStore,
   PackageExportStore,
   RepoGcStore,
@@ -37,6 +38,7 @@ import type {
 import type { DatasetCommitStatus, DatasetUpload, PackageImport, PackageExport, RepoGcJob, SplitCallJob, WorkspaceDeployJob } from './types.js';
 import { handleProcessDeploy, handleProcessGc, handleProcessSplitCall } from './process.js';
 import { handleProcessExport, handleProcessImport } from './process-files.js';
+import { InProcessFunctionCallDispatch } from './in-process-calls.js';
 
 /** The part size a dataset upload is planned with by default. */
 export const DEFAULT_TRANSFER_PART_BYTES = 64 * 1024 * 1024;
@@ -584,6 +586,22 @@ class InMemorySplitCallStore implements SplitCallStore {
 }
 
 // =============================================================================
+// Function Calls
+// =============================================================================
+
+/**
+ * The function calls of a backend given no storage or runner: it runs none, so
+ * a call dispatched to it is recorded lost, saying why.
+ */
+const NO_FUNCTION_CALLS: FunctionCallDispatch = {
+  execute: async () => {
+    throw new Error('this backend runs no function call: it was given no storage or runner');
+  },
+  wait: async () => null,
+  cancel: async () => {},
+};
+
+// =============================================================================
 // Transfer Backend
 // =============================================================================
 
@@ -611,6 +629,12 @@ export interface InMemoryTransferBackendOptions {
    * object the bytes hash to — what a test of that path runs.
    */
   commitAs?: UploadCommitForm;
+  /**
+   * How often a running function call reads its record for a request to
+   * cancel it, in ms (default a second). A request made through this backend's
+   * dispatch stops the call at once whatever this is.
+   */
+  functionCallWatchMs?: number;
 }
 
 export class InMemoryTransferBackend implements TransferBackend {
@@ -621,6 +645,7 @@ export class InMemoryTransferBackend implements TransferBackend {
   readonly workspaceDeploy: InMemoryWorkspaceDeployStore;
   readonly repoGc: InMemoryRepoGcStore;
   readonly splitCall: InMemorySplitCallStore;
+  readonly functionCalls: FunctionCallDispatch;
 
   constructor(options: InMemoryTransferBackendOptions) {
     const baseUrl = options.baseUrl ?? '';
@@ -635,6 +660,12 @@ export class InMemoryTransferBackend implements TransferBackend {
     this.workspaceDeploy = new InMemoryWorkspaceDeployStore(options.storage, options.getRepoPath, options.getRunner);
     this.repoGc = new InMemoryRepoGcStore(options.storage, options.getRepoPath, options.getRunner);
     this.splitCall = new InMemorySplitCallStore(options.storage, options.getRepoPath, options.getRunner);
+    // A call runs in this process, on the runner every task of the server runs
+    // on, and outlives the request that filed it
+    const { storage, getRepoPath, getRunner, functionCallWatchMs } = options;
+    this.functionCalls = storage === undefined || getRepoPath === undefined || getRunner === undefined
+      ? NO_FUNCTION_CALLS
+      : new InProcessFunctionCallDispatch({ storage, getRepoPath, getRunner, ...(functionCallWatchMs !== undefined && { watchMs: functionCallWatchMs }) });
   }
 
   clear(): void {

@@ -13,6 +13,7 @@
 // Types
 export {
   ApiTypes, TASK_EXECUTIONS_PAGE_DEFAULT, TASK_EXECUTIONS_PAGE_MAX, RECORD_ARG_TEXT_CHARS, RECORD_ARG_TEXT_BYTES, RECORD_ARGS_READ_BYTES,
+  FUNCTION_CALLS_PAGE_DEFAULT, FUNCTION_CALLS_PAGE_MAX,
 } from './types.js';
 export type {
   RepositoryStatus,
@@ -81,6 +82,13 @@ export type {
   SplitCallProgress,
   SplitCallStatus,
   SplitCallPlan,
+  FunctionCallState,
+  FunctionCallArg,
+  FunctionCallSummary,
+  FunctionCall,
+  FunctionCallStatus,
+  FunctionCallAnswer,
+  FunctionCallPage,
   MutationCallRequest,
   MutationResult,
   RecordMigrationApplied,
@@ -193,7 +201,7 @@ export {
 // Tasks
 export { taskList, taskGet, taskExecutionList } from './tasks.js';
 
-// Functions / one-shot
+// Functions / one-shot, and the calls a workspace keeps
 export {
   functionList,
   functionDescribe,
@@ -201,6 +209,17 @@ export {
   workspaceFunctionList,
   workspaceFunctionDescribe,
   workspaceFunctionCall,
+  workspaceFunctionCallSync,
+  workspaceFunctionStart,
+  workspaceFunctionCallStatus,
+  workspaceFunctionCallCancel,
+  workspaceCallList,
+  workspaceCallGet,
+  CALL_POLL_WAIT_MS,
+  type WorkspaceFunctionCallOptions,
+  type FunctionCallStartOptions,
+  type FunctionCallPollOptions,
+  type FunctionCallListQuery,
   oneShotExecute,
   splitCallLaunch,
   splitCallStatus,

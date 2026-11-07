@@ -144,6 +144,14 @@ interface ServerConfig {
 
   // Runner processes (optional)
   budget?: Budget | BudgetSettings;  // Cores and memory every runner the server spawns shares (default: from E3_JOBS / E3_MEMORY, else the machine)
+
+  // Calls of named functions through a workspace (optional)
+  functionCalls?: {
+    windowMs?: number;          // How long a call's start waits for it to end (default: 20000)
+    pollWaitMs?: number;        // The longest a poll is held (default: 20000)
+    ceilings?: ExecuteCeilings; // The most a call may ask for (default: a 10-minute timeout, a 1 MiB result)
+    lifetimes?: { succeededMs: number; failedMs: number };  // How long a call is kept once it ends (default: an hour, a week)
+  };
 }
 ```
 
@@ -242,7 +250,29 @@ A host whose requests have a time limit gives it to the routes that run a
 program for a request, so that each answers its typed outcome before the host
 cuts it off: the function and one-shot routes take `syncDeadlineMs`, and so do
 the record routes, whose mutation and compaction answer `timed_out` or
-`conflict` 2 s under it. The record routes' `historyLimit` is how many commits
+`conflict` 2 s under it. A call through a workspace outlives any request, so
+its start and its poll are held only while the host allows: the workspace
+function routes take `windowMs`, the longest a start waits (20 s), and the call
+routes `pollWaitMs`, the longest a poll is held (20 s), which a host whose held
+requests cost it keeps short. Both take the transfer backend, whose
+`functionCalls` dispatch runs each call where the host runs calls — this
+server in its own process, e3-cloud on its own compute — and the routes read
+the storage backend's call store for whatever the dispatch cannot say, so a
+poll is answered alike by whichever instance it reaches. Who made a call is
+`callerOf` (the identity's email, else its subject), and who may read or cancel
+one the call routes' `access`, unset here, where every caller the routes admit
+may.
+
+```typescript
+app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, getRepoPath, transferBackend, {
+  access, syncDeadlineMs: 25_000, windowMs: 20_000, ceilings: { timeoutMs: 13 * 60_000 },
+}));
+app.route('/api/repos/:repo/workspaces/:ws/calls', createWorkspaceCallRoutes(storage, getRepoPath, transferBackend, {
+  pollWaitMs: 2_000,
+  // An app's users read and cancel the calls they made; an owner any
+  access: (c, call) => isOwner(c) || madeBy(call.caller, c),
+}));
+``` The record routes' `historyLimit` is how many commits
 a history request that names no `limit` is answered with; the client pages on
 from the last one's parent. Unset, as on this server, neither is bounded. A
 limit no request could meet is refused when the routes are mounted.
@@ -491,10 +521,15 @@ and its commit takes it in.
 |--------|----------|-------------|
 | GET | `/api/repos/:repo/packages/:pkg/:version/functions` | A package's functions and their signatures |
 | GET | `/api/repos/:repo/packages/:pkg/:version/functions/:fn` | One function's signature |
-| POST | `/api/repos/:repo/packages/:pkg/:version/functions/:fn` | Call a package's function with values: its result, inline. A dataset argument is `invalid` here, with no workspace to read it from |
+| POST | `/api/repos/:repo/packages/:pkg/:version/functions/:fn` | Call a package's function with values: its result, inline, within the request, keeping nothing. A dataset argument is `invalid` here, with no workspace to read it from |
 | GET | `/api/repos/:repo/workspaces/:ws/functions` | The deployed package's functions |
 | GET | `/api/repos/:repo/workspaces/:ws/functions/:fn` | One function's signature |
-| POST | `/api/repos/:repo/workspaces/:ws/functions/:fn` | Call one of them: each argument a value, or one of the workspace's datasets, pinned at its hash when the call starts; the result names the datasets it read (`inputs`) |
+| POST | `/api/repos/:repo/workspaces/:ws/functions/:fn/calls` | Start a call of one of them, kept for its lifetime: each argument a value, or one of the workspace's datasets, pinned at its hash when the call starts. Waits up to `?wait=` ms for it to end — at most the window, 20 s, which it waits when none is given; `?wait=0` answers at once — and answers its id and status: `completed` with its result, or `running`. `?id=`, a UUIDv7 of now the client chose, names the call, so the client can cancel it before the start answers: one more than five minutes from the server's clock is set aside for an id of the server's, one the workspace keeps a call under already is refused, and one that is no UUIDv7 is refused 400 `bad_request` |
+| POST | `/api/repos/:repo/workspaces/:ws/functions/:fn` | Call one of them within the request: the same call, kept, its timeout clamped under the sync deadline, answered as its result; the result names the inputs and datasets it read (`inputs`) |
+| GET | `/api/repos/:repo/workspaces/:ws/calls` | The workspace's calls, the latest first: `?function=`, `?state=` (a state's tag), `?before=` (the last page's `next`) and `?limit=` (50, at most 200), each with who made it, when, and how it stands or ended |
+| GET | `/api/repos/:repo/workspaces/:ws/calls/:id` | One call whole: its package, its arguments, the inputs it read, its limits, its value's object, its log tails and when it is forgotten |
+| GET | `/api/repos/:repo/workspaces/:ws/calls/:id/status` | A call's status: `running`; `completed` with its result, its value inline; `cancelled`, naming who asked; or `lost`. Held up to `?wait=` ms, at most `pollWaitMs`, until the call ends |
+| POST | `/api/repos/:repo/workspaces/:ws/calls/:id/cancel` | Ask a running call to stop: its runner is stopped, and it ends `cancelled`, naming who asked. Answers its status once it has stopped, or `running` while it stops; a call that has ended is left as it is |
 | POST | `/api/repos/:repo/workspaces/:ws/one-shot` | Run a caller's program over the workspace's datasets: its result, naming the datasets it read (`inputs`) |
 | POST | `/api/repos/:repo/workspaces/:ws/one-shot/split` | Launch a split call — a caller's program over a dataset's pieces — as a job: answers the job's id; with `?explain=1` the job plans the pieces the call would run, and runs nothing |
 | GET | `/api/repos/:repo/workspaces/:ws/one-shot/split/:id` | Poll a split call: how far it has got, its result, the pieces an explain planned, or why it failed |
@@ -512,6 +547,18 @@ function routes take as `access`: a runner on the `custom` runtime is refused,
 function's own runner does not is refused `permission_denied` (path `runner`)
 without the elevated grant. A host that mounts the function routes without
 `access` refuses every caller such a runner.
+
+A call through a workspace is the server's, and outlives the request that
+starts it: it is filed — the function as deployed then, its inputs and dataset
+arguments pinned, each value argument stored as an object — run on the server's
+runner, held to its own timeout (the ceiling, ten minutes here, unless it asks
+for less), and kept until the lifetime its end gives it: an hour for a success
+or a cancel, a week for any other end, with no job run to forget it, since
+every read leaves out a call past its `expiresAt`. A kept call names its
+arguments, the inputs it read and its value by hash, and gc keeps what a live
+call names. A call still recorded running past its deadline and a grace — its
+server stopped before it ended — is answered `lost`. A call found wrong is kept
+`invalid`, answered at once. A workspace's removal removes its calls.
 
 A split call runs as a split task, so each
 piece and merge is cached: a relaunch is served from the cache, and one after
@@ -558,7 +605,7 @@ Error variants include:
 - `package_exists` - Package already exists
 - `dataset_not_found` - Dataset path doesn't exist
 - `task_not_found` - Task doesn't exist
-- `permission_denied` - The caller's grant does not run the request: a one-shot or split call (path `one-shot`), or a function call's runner (path `runner`)
+- `permission_denied` - The caller's grant does not run the request: a one-shot or split call (path `one-shot`), a function call's runner (path `runner`), or a kept call the host's `access` does not let the caller read or cancel (path `call`)
 - `internal` - Internal server error
 
 ## Using with e3-api-client

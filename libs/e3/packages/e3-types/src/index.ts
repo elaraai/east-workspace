@@ -112,6 +112,19 @@ export {
   decodeFunctionObject,
 } from './function.js';
 
+// Kept function calls, as a repository's call store keeps them
+export {
+  FunctionCallCancelType,
+  type FunctionCallCancel,
+  FunctionCallKeepType,
+  type FunctionCallKeep,
+  FunctionCallJobType,
+  type FunctionCallJob,
+  encodeFunctionCallJob,
+  decodeFunctionCallJob,
+  functionCallRoots,
+} from './function-call.js';
+
 // Record objects
 export {
   RecordCommitType,
@@ -443,6 +456,16 @@ export {
   SplitCallProgressType,
   SplitCallStatusType,
   SplitCallPlanType,
+  // Function calls, kept for a lifetime
+  FunctionCallStateType,
+  FunctionCallArgType,
+  FunctionCallSummaryType,
+  FunctionCallType,
+  FunctionCallStatusType,
+  FunctionCallAnswerType,
+  FunctionCallPageType,
+  FUNCTION_CALLS_PAGE_DEFAULT,
+  FUNCTION_CALLS_PAGE_MAX,
   MutationCallRequestType,
   MutationResultType,
   RecordMigrationAppliedType,
@@ -519,6 +542,13 @@ export {
   type SplitCallProgress,
   type SplitCallStatus,
   type SplitCallPlan,
+  type FunctionCallState,
+  type FunctionCallArg,
+  type FunctionCallSummary,
+  type FunctionCall,
+  type FunctionCallStatus,
+  type FunctionCallAnswer,
+  type FunctionCallPage,
   type MutationCallRequest,
   type MutationResult,
   type RecordMigrationApplied,

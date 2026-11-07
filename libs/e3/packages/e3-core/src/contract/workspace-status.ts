@@ -85,6 +85,7 @@ function recordingStores(storage: StorageBackend): { storage: StorageBackend; ca
       logs: storage.logs,
       repos: storage.repos,
       datasets: recording('datasets', storage.datasets),
+      calls: storage.calls,
       runStates: (r) => storage.runStates(r),
       validateRepository: (r) => storage.validateRepository(r),
     },

@@ -1,0 +1,241 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Licensed under BSL 1.1. See LICENSE for details.
+ */
+
+/**
+ * The function call store's contract: what any backend's kept calls do
+ * (east-workspace#1554). A call is filed as it starts, ended once, asked to
+ * stop while it runs, listed the latest first, kept for its lifetime and no
+ * longer, rooted for gc while it is kept, and removed with its workspace.
+ */
+
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { equalFor, none, some, variant } from '@elaraai/east';
+import { FunctionCallJobType, type FunctionCallJob, type FunctionCallState } from '@elaraai/e3-types';
+import { collectAllRoots } from '../gc.js';
+import type { FunctionCallEnd, FunctionCallListOptions, StorageBackend } from '../storage/interfaces.js';
+import { uuidv7 } from '../uuid.js';
+import { workspaceCreate } from '../workspaces.js';
+import { MALFORMED_IDS, MALFORMED_NAMES, idRefusal, nameRefusal } from './malformed.js';
+import type { BackendSetup } from './setup.js';
+
+const WS = 'calls-ws';
+const HOUR_MS = 60 * 60 * 1000;
+const jobEqual = equalFor(FunctionCallJobType);
+
+/** A call as it starts, in a workspace: running, and kept for an hour unless told otherwise. */
+function filed(workspace: string, options: { id?: string; function?: string; expiresAt?: Date; args?: FunctionCallJob['call']['args']; inputs?: FunctionCallJob['call']['inputs'] } = {}): FunctionCallJob {
+  const now = Date.now();
+  return {
+    call: {
+      id: options.id ?? uuidv7(),
+      function: options.function ?? 'quote',
+      caller: some('ada@example.com'),
+      startedAt: new Date(now),
+      endedAt: none,
+      state: variant('running', null),
+      package: { name: 'calls-pkg', version: '1.0.0' },
+      args: options.args ?? [],
+      inputs: options.inputs ?? [],
+      limits: { timeoutMs: 60_000n, maxResultBytes: 1024n, maxLogBytes: 1024n },
+      expiresAt: options.expiresAt ?? new Date(now + HOUR_MS),
+      stdout: '',
+      stderr: '',
+      stdoutTruncated: false,
+      stderrTruncated: false,
+    },
+    workspace,
+    functionObject: 'f'.repeat(64),
+    runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
+    verbose: false,
+    deadline: new Date(now + 60_000),
+    cancel: none,
+    keep: { succeeded: BigInt(HOUR_MS), failed: BigInt(7 * 24 * HOUR_MS) },
+  };
+}
+
+/**
+ * Every call a list finds, by id, page by page, each from the last one's next
+ * until a page names none: a store may stop a page short of its limit, and
+ * name a next. Each page holds at most its limit.
+ */
+async function listAll(storage: StorageBackend, repo: string, workspace: string, options: Omit<FunctionCallListOptions, 'before'>): Promise<string[]> {
+  const found: string[] = [];
+  let before: string | undefined;
+  for (let pages = 1; ; pages++) {
+    const page = await storage.calls.list(repo, workspace, { ...options, ...(before !== undefined && { before }) });
+    assert.ok(page.calls.length <= options.limit, `a page holds at most ${options.limit} calls`);
+    found.push(...page.calls.map((job) => job.call.id));
+    if (page.next === undefined) return found;
+    assert.ok(pages < 100, 'a list of a few calls ends');
+    before = page.next;
+  }
+}
+
+/** How a call ended, kept for `keepMs` from now. */
+function ending(state: FunctionCallState, keepMs: number = HOUR_MS): FunctionCallEnd {
+  const now = Date.now();
+  return {
+    state,
+    endedAt: new Date(now),
+    expiresAt: new Date(now + keepMs),
+    stdout: 'out\n',
+    stderr: 'err\n',
+    stdoutTruncated: false,
+    stderrTruncated: true,
+  };
+}
+
+/**
+ * Registers the function call store's contract suite over a backend.
+ *
+ * @param setup - Makes a fresh backend and a repository in it for each test
+ */
+export function functionCallStoreTests(setup: BackendSetup): void {
+  describe('the function call store', () => {
+    it('files a call and reads it back as filed, and refuses a second call of its id', async (t) => {
+      const { storage, repo } = await setup(t);
+      const job = filed(WS);
+      await storage.calls.create(repo, job);
+      const read = await storage.calls.get(repo, WS, job.call.id);
+      assert.ok(read !== null && jobEqual(read, job), 'read back as filed');
+      await assert.rejects(storage.calls.create(repo, job), /keeps a call/);
+    });
+
+    it('reads no call it does not keep, nor one of another workspace', async (t) => {
+      const { storage, repo } = await setup(t);
+      const job = filed(WS);
+      await storage.calls.create(repo, job);
+      assert.equal(await storage.calls.get(repo, WS, uuidv7()), null);
+      assert.equal(await storage.calls.get(repo, 'other-ws', job.call.id), null);
+    });
+
+    it('records how a call ended once, the first end standing, and ends no call it does not keep', async (t) => {
+      const { storage, repo } = await setup(t);
+      const job = filed(WS);
+      await storage.calls.create(repo, job);
+
+      const succeeded = ending(variant('succeeded', { value: 'a'.repeat(64) }));
+      const ended = await storage.calls.end(repo, WS, job.call.id, succeeded);
+      assert.equal(ended?.call.state.type, 'succeeded');
+      assert.equal(ended?.call.endedAt.type, 'some');
+      assert.equal(ended?.call.expiresAt.getTime(), succeeded.expiresAt.getTime());
+      assert.equal(ended?.call.stdout, 'out\n');
+      assert.equal(ended?.call.stderrTruncated, true);
+
+      const again = await storage.calls.end(repo, WS, job.call.id, ending(variant('failed', { exitCode: 1n })));
+      assert.equal(again?.call.state.type, 'succeeded', 'the first end stands');
+      const read = await storage.calls.get(repo, WS, job.call.id);
+      assert.ok(read !== null && ended !== null && jobEqual(read, ended), 'and is what a read finds');
+
+      assert.equal(await storage.calls.end(repo, WS, uuidv7(), succeeded), null);
+    });
+
+    it('records a request to cancel a running call once, and none of a call that has ended', async (t) => {
+      const { storage, repo } = await setup(t);
+      const running = filed(WS);
+      await storage.calls.create(repo, running);
+      const at = new Date();
+      const asked = await storage.calls.requestCancel(repo, WS, running.call.id, { by: some('grace@example.com'), at });
+      assert.ok(asked?.cancel.type === 'some');
+      assert.equal(asked.cancel.value.by.type === 'some' && asked.cancel.value.by.value, 'grace@example.com');
+      assert.equal(asked.call.state.type, 'running', 'the call runs on until its run stops it');
+      const second = await storage.calls.requestCancel(repo, WS, running.call.id, { by: none, at: new Date() });
+      assert.ok(second?.cancel.type === 'some' && second.cancel.value.by.type === 'some', 'the first request stands');
+
+      const done = filed(WS);
+      await storage.calls.create(repo, done);
+      await storage.calls.end(repo, WS, done.call.id, ending(variant('succeeded', { value: 'a'.repeat(64) })));
+      const late = await storage.calls.requestCancel(repo, WS, done.call.id, { by: none, at: new Date() });
+      assert.equal(late?.cancel.type, 'none', 'an ended call is left as it is');
+      assert.equal(await storage.calls.requestCancel(repo, WS, uuidv7(), { by: none, at: new Date() }), null);
+    });
+
+    it("lists a workspace's calls the latest first, a page at a time, a function's or a state's alone", async (t) => {
+      const { storage, repo } = await setup(t);
+      const jobs = [filed(WS, { function: 'quote' }), filed(WS, { function: 'price' }), filed(WS, { function: 'quote' }), filed(WS, { function: 'quote' })];
+      for (const job of jobs) await storage.calls.create(repo, job);
+      await storage.calls.create(repo, filed('other-ws'));
+      await storage.calls.end(repo, WS, jobs[2]!.call.id, ending(variant('failed', { exitCode: 2n })));
+      const latestFirst = jobs.map((job) => job.call.id).reverse();
+
+      assert.deepEqual(await listAll(storage, repo, WS, { limit: 10 }), latestFirst, 'the latest first, and none of another workspace');
+      assert.deepEqual(await listAll(storage, repo, WS, { limit: 2 }), latestFirst, 'page by page, each from the last one\'s next');
+      const first = await storage.calls.list(repo, WS, { limit: 2 });
+      assert.ok(first.next !== undefined, 'a page that leaves calls before it names its next');
+      assert.deepEqual(await listAll(storage, repo, WS, { limit: 10, function: 'price' }), [jobs[1]!.call.id]);
+      assert.deepEqual(await listAll(storage, repo, WS, { limit: 10, state: 'failed' }), [jobs[2]!.call.id]);
+      assert.deepEqual(await listAll(storage, repo, WS, { limit: 10, function: 'quote', state: 'running' }), [jobs[3]!.call.id, jobs[0]!.call.id]);
+      assert.deepEqual(await listAll(storage, repo, 'empty-ws', { limit: 10 }), []);
+      await assert.rejects(storage.calls.list(repo, WS, { limit: 0 }), RangeError);
+    });
+
+    it('forgets a call once its lifetime has ended, for every read', async (t) => {
+      const { storage, repo } = await setup(t);
+      const gone = filed(WS, { expiresAt: new Date(Date.now() - 1) });
+      await storage.calls.create(repo, gone);
+      assert.equal(await storage.calls.get(repo, WS, gone.call.id), null, 'filed past its expiry, it is gone');
+
+      const kept = filed(WS);
+      await storage.calls.create(repo, kept);
+      await storage.calls.end(repo, WS, kept.call.id, ending(variant('succeeded', { value: 'a'.repeat(64) }), -1));
+      assert.equal(await storage.calls.get(repo, WS, kept.call.id), null, 'ended with a lifetime past, it is gone');
+      assert.deepEqual(await listAll(storage, repo, WS, { limit: 10 }), [], 'and no list finds either');
+      assert.equal(await storage.calls.end(repo, WS, kept.call.id, ending(variant('failed', { exitCode: 1n }))), null, 'nor can it be ended again');
+      await storage.calls.create(repo, gone);
+      assert.ok((await storage.calls.get(repo, WS, gone.call.id)) === null, 'its id is free once it has expired');
+    });
+
+    it('roots what a kept call names for gc: its value arguments, the versions it read and its value, and nothing of an expired call', async (t) => {
+      const { storage, repo } = await setup(t);
+      await workspaceCreate(storage, repo, WS);
+      const [arg, dataset, input, value, expired] = ['1', '2', '3', '4', '5'].map((digit) => digit.repeat(64));
+      const job = filed(WS, {
+        args: [variant('value', arg!), variant('dataset', { path: [variant('field', 'inputs'), variant('field', 'sales')], hash: dataset! })],
+        inputs: [{ path: [variant('field', 'inputs'), variant('field', 'rate')], hash: input! }],
+      });
+      await storage.calls.create(repo, job);
+      await storage.calls.end(repo, WS, job.call.id, ending(variant('succeeded', { value: value! })));
+      await storage.calls.create(repo, filed(WS, { args: [variant('value', expired!)], expiresAt: new Date(Date.now() - 1) }));
+
+      const roots = await collectAllRoots(storage.repos, repo);
+      for (const hash of [arg, dataset, input, value]) assert.ok(roots.has(hash!), `the kept call roots ${hash!.slice(0, 1)}…`);
+      assert.equal(roots.has(expired!), false, 'an expired call roots nothing');
+    });
+
+    it("removes a workspace's calls with it, so a workspace made again under its name has none", async (t) => {
+      const { storage, repo } = await setup(t);
+      await workspaceCreate(storage, repo, WS);
+      const job = filed(WS);
+      await storage.calls.create(repo, job);
+      await storage.calls.create(repo, filed('kept-ws'));
+      await storage.refs.workspaceRemove(repo, WS);
+      await workspaceCreate(storage, repo, WS);
+      assert.equal(await storage.calls.get(repo, WS, job.call.id), null);
+      assert.deepEqual(await listAll(storage, repo, WS, { limit: 10 }), []);
+      assert.equal((await listAll(storage, repo, 'kept-ws', { limit: 10 })).length, 1, 'another workspace keeps its own');
+    });
+
+    it("refuses a workspace's name or a call's id that is not of its form, before it reads or writes anything", async (t) => {
+      const { storage, repo } = await setup(t);
+      for (const name of MALFORMED_NAMES.workspace) {
+        const refused = nameRefusal('workspace', name);
+        await assert.rejects(storage.calls.create(repo, filed(name)), refused);
+        await assert.rejects(storage.calls.get(repo, name, uuidv7()), refused);
+        await assert.rejects(storage.calls.end(repo, name, uuidv7(), ending(variant('failed', { exitCode: 1n }))), refused);
+        await assert.rejects(storage.calls.requestCancel(repo, name, uuidv7(), { by: none, at: new Date() }), refused);
+        await assert.rejects(storage.calls.list(repo, name, { limit: 1 }), refused);
+      }
+      for (const id of MALFORMED_IDS) {
+        const refused = idRefusal('call id', id);
+        await assert.rejects(storage.calls.create(repo, filed(WS, { id })), refused);
+        await assert.rejects(storage.calls.get(repo, WS, id), refused);
+        await assert.rejects(storage.calls.end(repo, WS, id, ending(variant('failed', { exitCode: 1n }))), refused);
+        await assert.rejects(storage.calls.requestCancel(repo, WS, id, { by: none, at: new Date() }), refused);
+        await assert.rejects(storage.calls.list(repo, WS, { limit: 1, before: id }), refused);
+      }
+    });
+  });
+}

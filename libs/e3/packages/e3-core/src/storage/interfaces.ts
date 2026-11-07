@@ -35,7 +35,7 @@
 
 import type {
   ExecutionOwner, ExecutionStatus, LockState, LockOperation, LockHolderVariant, LockProgress, DataflowRun, DatasetRef, RepoMetadata, RepoStatus,
-  RepositoryRecord, RepositoryUpgradeProgress,
+  RepositoryRecord, RepositoryUpgradeProgress, FunctionCallCancel, FunctionCallJob, FunctionCallState,
 } from '@elaraai/e3-types';
 import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
 import type { LockHolderInfo } from '../errors.js';
@@ -1156,6 +1156,152 @@ export interface LogStore {
 }
 
 // =============================================================================
+// Function Call Store
+// =============================================================================
+
+/**
+ * How a call ended, as {@link FunctionCallStore.end} records it.
+ */
+export interface FunctionCallEnd {
+  /** How it ended: any state but `running` */
+  readonly state: FunctionCallState;
+  /** When it ended */
+  readonly endedAt: Date;
+  /** When it is forgotten: the end of the lifetime its end gives it */
+  readonly expiresAt: Date;
+  /** The tail of its stdout */
+  readonly stdout: string;
+  /** The tail of its stderr */
+  readonly stderr: string;
+  /** Whether `stdout` holds less than all of it */
+  readonly stdoutTruncated: boolean;
+  /** Whether `stderr` holds less than all of it */
+  readonly stderrTruncated: boolean;
+}
+
+/**
+ * Which of a workspace's calls {@link FunctionCallStore.list} answers.
+ */
+export interface FunctionCallListOptions {
+  /** Only the calls whose ids sort before it: every call, when absent */
+  readonly before?: string;
+  /** At most this many: a whole number greater than zero */
+  readonly limit: number;
+  /** Only the calls of the function of this name */
+  readonly function?: string;
+  /** Only the calls in the state of this tag */
+  readonly state?: FunctionCallState['type'];
+}
+
+/**
+ * A page of a workspace's calls, as {@link FunctionCallStore.list} answers it.
+ */
+export interface FunctionCallListPage {
+  /** The calls, the latest first, at most the list's `limit` of them */
+  readonly calls: FunctionCallJob[];
+  /**
+   * Where the next page starts, which the next list passes as `before`:
+   * present while the workspace may keep calls before it, absent once the
+   * list has passed the workspace's first call. A page may hold fewer calls
+   * than its `limit`, or none, and name a next all the same: a store that
+   * reads a bounded number of calls a list stops where its reads stopped,
+   * which a list of a function's calls, or a state's, may reach first.
+   */
+  readonly next?: string;
+}
+
+/**
+ * The calls a repository keeps (east-workspace#1554): each call of a named
+ * function through a workspace, from its start to the end of the lifetime its
+ * end gives it.
+ *
+ * @remarks
+ * A call is kept under its workspace by its id, a UUIDv7, so ids order as the
+ * calls started. Every read leaves out a call past its `expiresAt`, so a call
+ * is gone for every reader once its lifetime ends, however its store removes
+ * it: a store whose items expire on their own (a DynamoDB `ttl`) leaves the
+ * removal to them, and the local and in-memory stores remove a call as a read
+ * or a list passes it, and as gc sweeps. A call names its arguments, the
+ * versions of the inputs it read and its value by hash, and gc keeps what a
+ * live call names ({@link RepoStore.gcScanCallRoots}).
+ *
+ * A workspace's calls are kept under its name, and its removal removes them
+ * ({@link RefStore.workspaceRemove}): a workspace made under the name
+ * afterwards has none of them.
+ *
+ * Each method refuses a repository's or a workspace's name, or a call's id,
+ * that is not of its form (`InvalidNameError`), before it reads or writes
+ * anything.
+ */
+export interface FunctionCallStore {
+  /**
+   * File a call, as it starts.
+   *
+   * @param repo - Repository identifier
+   * @param job - The call
+   * @throws {Error} When its workspace has a call of its id already
+   */
+  create(repo: string, job: FunctionCallJob): Promise<void>;
+
+  /**
+   * Read a call.
+   *
+   * @param repo - Repository identifier
+   * @param workspace - The workspace it was called through
+   * @param id - Its id
+   * @returns The call, or null when there is none, or it has expired
+   */
+  get(repo: string, workspace: string, id: string): Promise<FunctionCallJob | null>;
+
+  /**
+   * Record how a call ended, once: the first end recorded stands, and a call
+   * that has ended already is left as it is.
+   *
+   * @param repo - Repository identifier
+   * @param workspace - The workspace it was called through
+   * @param id - Its id
+   * @param end - How it ended
+   * @returns The call as it stands, ended now or before; null when there is
+   *   none, or it has expired
+   */
+  end(repo: string, workspace: string, id: string, end: FunctionCallEnd): Promise<FunctionCallJob | null>;
+
+  /**
+   * Record a request to cancel a running call, which its run acts on. A call
+   * that has ended, or that was asked already, is left as it is.
+   *
+   * @param repo - Repository identifier
+   * @param workspace - The workspace it was called through
+   * @param id - Its id
+   * @param cancel - Who asked, and when
+   * @returns The call as it stands; null when there is none, or it has
+   *   expired
+   */
+  requestCancel(repo: string, workspace: string, id: string, cancel: FunctionCallCancel): Promise<FunctionCallJob | null>;
+
+  /**
+   * List a page of a workspace's calls, the latest first, and where the next
+   * page starts.
+   *
+   * @remarks
+   * A store may read a bounded number of calls a list, so a list costs the
+   * same however many calls the workspace keeps: it then stops where its reads
+   * stopped, short of `limit`, and names where the next page starts
+   * ({@link FunctionCallListPage.next}). So a short page is no last page: one
+   * that names no next is.
+   *
+   * @param repo - Repository identifier
+   * @param workspace - The workspace
+   * @param options - Which calls: those before a cursor, at most a limit, and
+   *   only a function's, or only those in a state
+   * @returns The page: its calls, the latest first, none for a workspace with
+   *   none; and where the next page starts
+   * @throws {RangeError} When `limit` is not a whole number greater than zero
+   */
+  list(repo: string, workspace: string, options: FunctionCallListOptions): Promise<FunctionCallListPage>;
+}
+
+// =============================================================================
 // Repository Store
 // =============================================================================
 
@@ -1276,6 +1422,17 @@ export interface RepoStore {
    * @returns Root hashes and optional cursor for next batch
    */
   gcScanExecutionRoots(repo: string, cursor?: unknown): Promise<GcRootScanResult>;
+
+  /**
+   * Scan the calls the repository keeps for root hashes: what each call that
+   * has not expired names, its value arguments, the versions of the inputs and
+   * the dataset arguments it read, and its value (east-workspace#1554). An
+   * expired call roots nothing.
+   * @param repo - Repository name
+   * @param cursor - Opaque cursor from previous call (undefined for first call)
+   * @returns Root hashes and optional cursor for next batch
+   */
+  gcScanCallRoots(repo: string, cursor?: unknown): Promise<GcRootScanResult>;
 
   /**
    * Scan object catalogue entries for GC, a page at a time, each with the
@@ -1622,6 +1779,9 @@ export interface StorageBackend {
 
   /** Per-dataset reference storage (reactive dataflow) */
   readonly datasets: DatasetRefStore;
+
+  /** The calls of named functions the repository keeps, each for its lifetime */
+  readonly calls: FunctionCallStore;
 
   /**
    * The store of a repository's dataflow runs' states: where an orchestrator

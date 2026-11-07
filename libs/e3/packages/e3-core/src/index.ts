@@ -101,7 +101,7 @@ export {
 
 // The roots gc marks from, read through a backend's ref stores: what a
 // `RepoStore` serves its gc root scans from
-export { packageRoots, workspaceRoots, executionRoots } from './gc-roots.js';
+export { packageRoots, workspaceRoots, executionRoots, callRoots } from './gc-roots.js';
 
 // The history gc keeps: which runs and executions, and the deletion of the rest
 export {

@@ -106,6 +106,10 @@ export async function createRolesPackageZip(
  * - Task: "compute" - multiplies input by 2 (so the package is deployable)
  * - Function: "add" - (Integer, Integer) -> Integer
  * - Function: "slow" - (Integer) -> Integer, sleeps 30s (for timeout/cancel tests)
+ * - Function: "nap" - (Integer) -> Integer, sleeps the milliseconds it is
+ *   given and returns them, writing `napping <ms> ms` to its stdout as it
+ *   starts and `woke after <ms> ms` to its stderr as it ends: a call of a
+ *   known length, which a kept call's poll and logs are checked against
  * - Function: "quote" - reads "value" and "prices" from the workspace, and
  *   is given a String: value + prices[sku]
  * - Function: "scaled" - reads "compute"'s output, which no run has produced
@@ -146,6 +150,15 @@ export async function createFunctionPackageZip(
       return $.return(x);
     })
   );
+  const nap = e3.function(
+    'nap',
+    East.asyncFunction([IntegerType], IntegerType, ($, ms) => {
+      $(Console.log(East.str`napping ${ms} ms`));
+      $(Time.sleep(ms));
+      $(Console.error(East.str`woke after ${ms} ms`));
+      return $.return(ms);
+    })
+  );
   const prices = e3.input('prices', DictType(StringType, IntegerType), variant('value', new Map([['a', 1n], ['b', 2n], ['c', 3n]])));
   const apply = e3.input('apply', FunctionType([IntegerType], IntegerType));
   // Functions that read the workspace: inputs, read at each call, beside the
@@ -174,7 +187,7 @@ export async function createFunctionPackageZip(
     output: IntegerType,
   }, ($, tally, x) => tally.add(x));
   const twice = e3.function('twice', { inputs: [], args: [IntegerType], output: IntegerType }, ($, x) => x.multiply(2n));
-  const pkg = e3.package(name, version, compute, add, slow, prices, apply, quote, scaled, applied, tallied, twice);
+  const pkg = e3.package(name, version, compute, add, slow, nap, prices, apply, quote, scaled, applied, tallied, twice);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

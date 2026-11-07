@@ -66,6 +66,7 @@ import {
   checkHash,
   checkId,
   checkName,
+  callRoots,
   checkPageLimit,
   completeUtf8Length,
   computeHash,
@@ -102,6 +103,7 @@ import { openIndexedDbRecords } from './indexeddb.js';
 import { MemoryBlobs, MemoryFiles, MemoryLockSpace, openMemoryRecords } from './memory.js';
 import { OpfsBlobs, OpfsFiles, opfsDirectory } from './opfs.js';
 import { recordKeys } from './record-keys.js';
+import { WebFunctionCallStore } from './WebFunctionCallStore.js';
 import { WebStateStore } from './WebStateStore.js';
 import { openWebLocks } from './web-locks.js';
 
@@ -617,10 +619,11 @@ class WebRefStore implements RefStore {
 
   /**
    * Removes a workspace's record, and with it everything kept under its name:
-   * its dataset refs, its runs' records, its runs' states and events, and its
-   * revision token, in one transaction, so nothing is left for the sweep. Its
-   * locks are the lock service's, which takes the state a closed tab left for
-   * no one's, and writes over it when the lock is next held.
+   * its dataset refs, its runs' records, its runs' states and events, its
+   * kept calls, and its revision token, in one transaction, so nothing is left
+   * for the sweep. Its locks are the lock service's, which takes the state a
+   * closed tab left for no one's, and writes over it when the lock is next
+   * held.
    */
   async workspaceRemove(repo: string, name: string): Promise<void> {
     checkName('workspace', name);
@@ -631,6 +634,7 @@ class WebRefStore implements RefStore {
       tx.deletePrefix([...recordKeys.kind(repo, 'run'), name]);
       tx.deletePrefix([...recordKeys.kind(repo, 'state'), name]);
       tx.deletePrefix([...recordKeys.kind(repo, 'event'), name]);
+      tx.deletePrefix([...recordKeys.kind(repo, 'call'), name]);
     });
   }
 
@@ -1251,6 +1255,7 @@ class WebRepoStore implements RepoStore {
     private readonly blobs: BlobsAdapter,
     private readonly refs: RefStore,
     private readonly datasets: DatasetRefStore,
+    private readonly calls: WebFunctionCallStore,
     private readonly upgrades: readonly RepositoryUpgrade[],
   ) {}
 
@@ -1331,6 +1336,10 @@ class WebRepoStore implements RepoStore {
 
   async gcScanExecutionRoots(repo: string, _cursor?: unknown): Promise<GcRootScanResult> {
     return { roots: await executionRoots(this.refs, repo) };
+  }
+
+  async gcScanCallRoots(repo: string, _cursor?: unknown): Promise<GcRootScanResult> {
+    return { roots: await callRoots(this.refs, this.calls, repo) };
   }
 
   /** A page of the catalogue, a thousand objects at a time; the cursor is the
@@ -1447,9 +1456,10 @@ class WebRepoStore implements RepoStore {
    * store staged (a tab closed mid-write), a write in flight recorded longer
    * ago than the age gate, with its blob, and the blobs nothing names — a
    * delete cut short between an entry and its blob, or a write's blob that
-   * another write of the same bytes beat to the catalogue — and what transfers
+   * another write of the same bytes beat to the catalogue — what transfers
    * staged ({@link stagedKeys}) that no transfer's record names, past the age
-   * gate, or that is older than {@link TRANSFER_RETENTION_MS}.
+   * gate, or that is older than {@link TRANSFER_RETENTION_MS}, and the kept
+   * calls whose lifetimes have ended.
    *
    * @remarks
    * A write in flight younger than the age gate is left; one older is taken
@@ -1524,6 +1534,10 @@ class WebRepoStore implements RepoStore {
         deletedPartials += count;
       }
     }
+
+    // The calls whose lifetimes have ended, which every read already leaves
+    // out: no objects, so they count as nothing gc frees
+    await this.calls.sweepExpired(repo, dryRun);
     return { deletedPartials, skippedYoung };
   }
 }
@@ -1578,6 +1592,8 @@ export class WebStorage implements StorageBackend {
   readonly logs: LogStore;
   readonly repos: RepoStore;
   readonly datasets: DatasetRefStore;
+  /** The calls of named functions each repository keeps, in the same records */
+  readonly calls: WebFunctionCallStore;
   /** Every repository's runs' states, in the same records */
   private readonly states: WebStateStore;
 
@@ -1591,7 +1607,8 @@ export class WebStorage implements StorageBackend {
     this.locks = new WebLockService(records, locks);
     this.logs = new WebLogStore(records);
     this.datasets = new WebDatasetRefStore(records);
-    this.repos = new WebRepoStore(records, blobs, this.refs, this.datasets, this.upgrades);
+    this.calls = new WebFunctionCallStore(records);
+    this.repos = new WebRepoStore(records, blobs, this.refs, this.datasets, this.calls, this.upgrades);
     this.states = new WebStateStore(records);
   }
 

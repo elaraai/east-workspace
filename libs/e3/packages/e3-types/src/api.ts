@@ -1425,6 +1425,155 @@ export const SplitCallStatusType = VariantType({
   failed:     StructType({ message: StringType }),
 });
 
+// =============================================================================
+// Function calls: started, polled, cancelled, and kept for a lifetime
+// =============================================================================
+// A call of a named function through a workspace is filed, run on compute
+// that outlives the request, and kept once it ends: its arguments, the
+// versions of the inputs it read, its value and its log tails, until the
+// lifetime its end gives it (east-workspace#1554). A kept call names its
+// values by hash, so it stays small whatever the call weighs.
+
+/**
+ * A kept call's state.
+ *
+ * - `running`: it has not ended
+ * - `succeeded`: it returned, and `value` is the object its value was stored as
+ * - `failed`: its runner exited non-zero (see its stderr)
+ * - `invalid`: it was refused before it ran: a wrong arity, a runner the
+ *   caller may not name, an input with no value
+ * - `too_large`: its value was over its `maxResultBytes`, and was not kept
+ * - `timed_out`: it ran past its timeout, and was stopped
+ * - `cancelled`: it was asked to stop, by `by` (`none` without an identity),
+ *   and was stopped
+ * - `lost`: e3 could not run it, or lost it: its host stopped before it ended
+ */
+export const FunctionCallStateType = VariantType({
+  cancelled: StructType({ by: OptionType(StringType) }),
+  failed:    StructType({ exitCode: IntegerType }),
+  invalid:   StructType({ diagnostics: ArrayType(DiagnosticType) }),
+  lost:      StructType({ message: StringType }),
+  running:   NullType,
+  succeeded: StructType({ value: StringType }),
+  timed_out: StructType({ ms: IntegerType }),
+  too_large: StructType({ bytes: IntegerType, limit: IntegerType }),
+});
+
+/**
+ * A kept call's argument: a value, by the object it was stored as through the
+ * store's door; or a dataset of the workspace, by its path and the hash it was
+ * pinned at.
+ */
+export const FunctionCallArgType = VariantType({
+  dataset: StructType({ path: TreePathType, hash: StringType }),
+  value:   StringType,
+});
+
+/**
+ * A kept call, as a workspace's list of calls shows it.
+ *
+ * @property id - The call's id, a UUIDv7, so ids order as the calls started
+ * @property function - The function's name in the deployed package
+ * @property caller - Who made the call, as the host's auth names them; `none`
+ *   for a server without auth
+ * @property startedAt - When it was filed
+ * @property endedAt - When it ended; `none` while it runs
+ * @property state - How it stands, or how it ended
+ */
+export const FunctionCallSummaryType = StructType({
+  id:        StringType,
+  function:  StringType,
+  caller:    OptionType(StringType),
+  startedAt: DateTimeType,
+  endedAt:   OptionType(DateTimeType),
+  state:     FunctionCallStateType,
+});
+
+/**
+ * A kept call, whole: a {@link FunctionCallSummaryType}'s fields, and what the
+ * call ran, took, read and wrote.
+ *
+ * @property package - The package it ran from, as deployed when it started
+ * @property args - Its arguments, in order: values by their objects, datasets
+ *   by the hashes they were pinned at
+ * @property inputs - The function's own inputs, each by its path and the hash
+ *   it was pinned at, in the order the function declares them
+ * @property limits - The limits it ran under
+ * @property expiresAt - When it is forgotten: its lifetime's end, which its
+ *   end sets. A running call's is past its deadline by a grace and then a
+ *   failure's lifetime, so one whose host stopped is still kept when a read
+ *   past the grace records it `lost`
+ * @property stdout - The tail of its stdout
+ * @property stderr - The tail of its stderr
+ * @property stdoutTruncated - Whether `stdout` holds less than all of it
+ * @property stderrTruncated - Whether `stderr` holds less than all of it
+ */
+export const FunctionCallType = StructType({
+  id:              StringType,
+  function:        StringType,
+  caller:          OptionType(StringType),
+  startedAt:       DateTimeType,
+  endedAt:         OptionType(DateTimeType),
+  state:           FunctionCallStateType,
+  package:         StructType({ name: StringType, version: StringType }),
+  args:            ArrayType(FunctionCallArgType),
+  inputs:          ArrayType(StructType({ path: TreePathType, hash: StringType })),
+  limits:          StructType({ timeoutMs: IntegerType, maxResultBytes: IntegerType, maxLogBytes: IntegerType }),
+  expiresAt:       DateTimeType,
+  stdout:          StringType,
+  stderr:          StringType,
+  stdoutTruncated: BooleanType,
+  stderrTruncated: BooleanType,
+});
+
+/**
+ * A call's status, as its caller polls it.
+ *
+ * - `running`: it has not ended; poll again
+ * - `completed`: its result, as a sync call answers it, its value inline up to
+ *   its `maxResultBytes`
+ * - `cancelled`: it was asked to stop, by `by`, and was stopped
+ * - `lost`: e3 could not run it, or lost it, and why
+ */
+export const FunctionCallStatusType = VariantType({
+  cancelled: StructType({ by: OptionType(StringType) }),
+  completed: ExecuteResultType,
+  lost:      StructType({ message: StringType }),
+  running:   NullType,
+});
+
+/**
+ * What a call's start answers: its id, and how it stood when the start
+ * stopped waiting for it, which is `completed` for a call that ended within
+ * the wait.
+ */
+export const FunctionCallAnswerType = StructType({
+  id:     StringType,
+  status: FunctionCallStatusType,
+});
+
+/**
+ * A page of a workspace's kept calls, newest first.
+ *
+ * @property calls - The calls on the page
+ * @property next - The cursor of the next page, which a request passes as
+ *   `before`; `none` on the last page
+ */
+export const FunctionCallPageType = StructType({
+  calls: ArrayType(FunctionCallSummaryType),
+  next:  OptionType(StringType),
+});
+
+/** The calls a page of a workspace's calls holds when its request names no `limit`. */
+export const FUNCTION_CALLS_PAGE_DEFAULT = 50;
+
+/**
+ * The most calls a page holds ({@link FunctionCallPageType}): a request naming
+ * a larger `limit` is served this many, so a page stays within what a host's
+ * response may hold.
+ */
+export const FUNCTION_CALLS_PAGE_MAX = 200;
+
 /**
  * A record mutation call. Positional args (after the implicit current state),
  * one beast2-encoded value per declared parameter.
@@ -1687,6 +1836,13 @@ export type SplitCallRequest = ValueTypeOf<typeof SplitCallRequestType>;
 export type SplitCallProgress = ValueTypeOf<typeof SplitCallProgressType>;
 export type SplitCallStatus = ValueTypeOf<typeof SplitCallStatusType>;
 export type SplitCallPlan = ValueTypeOf<typeof SplitCallPlanType>;
+export type FunctionCallState = ValueTypeOf<typeof FunctionCallStateType>;
+export type FunctionCallArg = ValueTypeOf<typeof FunctionCallArgType>;
+export type FunctionCallSummary = ValueTypeOf<typeof FunctionCallSummaryType>;
+export type FunctionCall = ValueTypeOf<typeof FunctionCallType>;
+export type FunctionCallStatus = ValueTypeOf<typeof FunctionCallStatusType>;
+export type FunctionCallAnswer = ValueTypeOf<typeof FunctionCallAnswerType>;
+export type FunctionCallPage = ValueTypeOf<typeof FunctionCallPageType>;
 export type MutationCallRequest = ValueTypeOf<typeof MutationCallRequestType>;
 export type MutationResult = ValueTypeOf<typeof MutationResultType>;
 export type RecordMigrationApplied = ValueTypeOf<typeof RecordMigrationAppliedType>;

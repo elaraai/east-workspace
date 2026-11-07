@@ -10,7 +10,9 @@
  * Stateless design - clients poll /status endpoint to track execution progress.
  */
 
-export { createServer, type ServerConfig, type Server, type DataflowRunnerFactory, type DataflowRunnerLease, type DataflowRunnerContext } from './server.js';
+export {
+  createServer, type ServerConfig, type Server, type DataflowRunnerFactory, type DataflowRunnerLease, type DataflowRunnerContext, type FunctionCallsConfig,
+} from './server.js';
 export { ApiTypes } from './types.js';
 
 // How `ServerConfig.budget` settings resolve, for an embedder that checks them

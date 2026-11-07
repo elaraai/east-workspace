@@ -62,6 +62,10 @@ export const recordKeys = {
   adoption: (repo: string, source: string): RecordKey => ['repo', repo, 'adoption', source],
   /** A dataflow run's record */
   run: (repo: string, workspace: string, runId: string): RecordKey => ['repo', repo, 'run', workspace, runId],
+  /** A call of a named function through a workspace, kept for its lifetime:
+   *  under its workspace by its id, a UUIDv7, so the keys scan in the order
+   *  the calls started */
+  call: (repo: string, workspace: string, id: string): RecordKey => ['repo', repo, 'call', workspace, id],
   /** A dataset's ref, and the revision its write minted */
   dataset: (repo: string, workspace: string, path: string): RecordKey => ['repo', repo, 'dataset', workspace, path],
   /** A chunk of an execution attempt's log, by the byte of the log it starts

@@ -13,6 +13,7 @@
  * - S3DynamoTransferBackend (AWS cloud, future)
  */
 
+import type { FunctionCallStatus } from '@elaraai/e3-types';
 import type { DatasetCommitStatus, DatasetUpload, PackageImport, PackageExport, RepoGcJob, SplitCallJob, WorkspaceDeployJob } from './types.js';
 
 // =============================================================================
@@ -275,6 +276,69 @@ export interface SplitCallStore {
 }
 
 // =============================================================================
+// Function Call Dispatch
+// =============================================================================
+
+/**
+ * Runs the calls of named functions a server files (east-workspace#1554),
+ * each where the backend runs calls, outliving the request that filed it: a
+ * call is held to its own timeout, never to a request's.
+ *
+ * @remarks
+ * A call is the repository's record (`StorageBackend.calls`), filed by
+ * e3-core's `functionCallStart`. A dispatch runs the job every backend shares,
+ * `handleProcessFunctionCall`, which records the call's end in that store, and
+ * answers what it has of the call's status as it waits for it. A caller reads
+ * the store for anything a dispatch cannot say. Its `repo` is the repository's
+ * name, as every job store's is.
+ *
+ * Flow: the call is filed → execute → poll wait → (cancel)
+ */
+export interface FunctionCallDispatch {
+  /**
+   * Run a filed call where the backend runs calls, and wait up to `waitMs` for
+   * it to end. A call that is running already is not run again.
+   *
+   * Local: runs `handleProcessFunctionCall` in the background, in the server's
+   * process, on its runner.
+   * Cloud: invokes its own compute, which runs `handleProcessFunctionCall`.
+   *
+   * @param repo - The repository's name
+   * @param workspace - The workspace the call was made through
+   * @param id - The call's id
+   * @param options - How long to wait for the call to end, in ms
+   * @returns The call's status once it ended within the wait; `null` while it
+   *   runs, or when the dispatch cannot say, for the store to answer
+   */
+  execute(repo: string, workspace: string, id: string, options: { waitMs: number }): Promise<FunctionCallStatus | null>;
+
+  /**
+   * Wait up to `waitMs` for a running call to end: until it ends, when the
+   * dispatch hears of it, or until the time passes.
+   *
+   * @param repo - The repository's name
+   * @param workspace - The workspace the call was made through
+   * @param id - The call's id
+   * @param options - How long to wait, in ms
+   * @returns The call's status once it ended within the wait, when the
+   *   dispatch has it; `null` otherwise, for the store to answer
+   */
+  wait(repo: string, workspace: string, id: string, options: { waitMs: number }): Promise<FunctionCallStatus | null>;
+
+  /**
+   * Tell a running call it was asked to stop, once the request is recorded in
+   * its store (`FunctionCallStore.requestCancel`). A dispatch whose runs are in
+   * its own process stops one at once; one whose runs look for the request in
+   * the store, as every run does, need do nothing.
+   *
+   * @param repo - The repository's name
+   * @param workspace - The workspace the call was made through
+   * @param id - The call's id
+   */
+  cancel(repo: string, workspace: string, id: string): Promise<void>;
+}
+
+// =============================================================================
 // Transfer Backend
 // =============================================================================
 
@@ -293,4 +357,6 @@ export interface TransferBackend {
   readonly workspaceDeploy: WorkspaceDeployStore;
   readonly repoGc: RepoGcStore;
   readonly splitCall: SplitCallStore;
+  /** Runs the calls of named functions a server files, outliving its requests */
+  readonly functionCalls: FunctionCallDispatch;
 }

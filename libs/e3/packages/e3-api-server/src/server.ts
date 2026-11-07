@@ -10,7 +10,7 @@ import { serve, type ServerType } from '@hono/node-server';
 import {
   Budget, DOOR_FRAME_WORKERS, LocalStorage, LocalTaskRunner, InMemoryTransferBackend, resolveBudget, checkName, repositoryOpen,
 } from '@elaraai/e3-core';
-import type { BudgetSettings, StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core';
+import type { BudgetSettings, ExecuteCeilings, FunctionCallLifetimes, StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core';
 import { createAuthMiddleware, type AuthConfig } from './middleware/auth.js';
 import { createRepositoryGate, createSingleRepositoryGate } from './middleware/repository.js';
 import { createOidcProvider, type OidcProvider, type OidcConfig } from './auth/index.js';
@@ -28,6 +28,7 @@ import { createTransferRoutes } from './routes/transfer.js';
 import { createPackageTransferRoutes } from './routes/package-transfer.js';
 import { createDataEndpoints } from './routes/data.js';
 import { createPackageFunctionRoutes, createWorkspaceFunctionRoutes, createOneShotRoutes, oneShotAccessByRoles } from './routes/functions.js';
+import { createWorkspaceCallRoutes } from './routes/calls.js';
 import { createWorkspaceRecordRoutes } from './routes/records.js';
 import { localDataflow } from './local-dataflow.js';
 import type { DataflowRunnerLease } from './dataflow-runner.js';
@@ -47,6 +48,24 @@ export type DataflowRunnerFactory = (repoPath: string, workspace: string, contex
 
 export type { AuthConfig } from './middleware/auth.js';
 export type { OidcConfig } from './auth/index.js';
+
+/**
+ * How the server runs and keeps the calls of named functions through a
+ * workspace, each of which outlives the request that starts it.
+ */
+export interface FunctionCallsConfig {
+  /** The longest a call's start waits for it to end before it answers
+   *  `running` (default 20 000 ms) */
+  windowMs?: number;
+  /** The longest a poll of a call waits for it to end (default 20 000 ms) */
+  pollWaitMs?: number;
+  /** The most a call may ask for (default: a 10-minute timeout, a 1 MiB
+   *  result and 256 KiB of each log) */
+  ceilings?: ExecuteCeilings;
+  /** How long a call is kept once it ends (default: an hour for a success or
+   *  a cancel, a week for any other end) */
+  lifetimes?: FunctionCallLifetimes;
+}
 
 /**
  * Server configuration options.
@@ -91,6 +110,10 @@ export interface ServerConfig {
   budget?: Budget | BudgetSettings;
   /** Opens a per-run runner attachment, closed when the run ends. */
   dataflowRunner?: DataflowRunnerFactory;
+  /** How the server waits for and keeps the calls of named functions through
+   *  a workspace: its window, its longest poll, its ceilings and the calls'
+   *  lifetimes */
+  functionCalls?: FunctionCallsConfig;
 }
 
 /**
@@ -197,7 +220,8 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   }
 
   // Per-repo task runner for every route that runs user East, and every
-  // delivery a server takes in: dataflows, function and one-shot calls, record
+  // delivery a server takes in: dataflows, function calls (on the transfer
+  // backend) and one-shot calls, record
   // mutations, a deploy job's migrations and index builds, and an upload's
   // intake units, all on the server's one budget (cached — the runner holds its
   // repo anchor, the budget, and which runner it found cannot run an intake)
@@ -298,8 +322,20 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   // Task routes: /api/repos/:repo/workspaces/:ws/tasks/*
   app.route('/api/repos/:repo/workspaces/:ws/tasks', createTaskRoutes(storage, getRepoPath));
 
-  // Workspace-scoped function routes: /api/repos/:repo/workspaces/:ws/functions/*
-  app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, getRepoPath, getRunner, { access }));
+  // Workspace-scoped function routes: /api/repos/:repo/workspaces/:ws/functions/*,
+  // whose calls run on the transfer backend, outliving their requests, and
+  // are kept for their lifetimes; and those calls, polled, cancelled and
+  // listed: /api/repos/:repo/workspaces/:ws/calls/*
+  const calls = config.functionCalls ?? {};
+  app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, getRepoPath, transferBackend, {
+    access,
+    ...(calls.windowMs !== undefined && { windowMs: calls.windowMs }),
+    ...(calls.ceilings !== undefined && { ceilings: calls.ceilings }),
+    ...(calls.lifetimes !== undefined && { lifetimes: calls.lifetimes }),
+  }));
+  app.route('/api/repos/:repo/workspaces/:ws/calls', createWorkspaceCallRoutes(storage, getRepoPath, transferBackend, {
+    ...(calls.pollWaitMs !== undefined && { pollWaitMs: calls.pollWaitMs }),
+  }));
 
   // One-shot routes: /api/repos/:repo/workspaces/:ws/one-shot/*, and the split
   // calls launched under the same grant, run as jobs on the transfer backend.

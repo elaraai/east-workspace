@@ -29,7 +29,8 @@ import {
 import { decodeBeast2For, encodeBeast2For, variant } from '@elaraai/east';
 import { RepoMetadataType } from '@elaraai/e3-types';
 import { OBJECT_CONCURRENCY, eachAtMost } from '../../concurrency.js';
-import { executionRoots, packageRoots, workspaceRoots } from '../../gc-roots.js';
+import { callRoots, executionRoots, packageRoots, workspaceRoots } from '../../gc-roots.js';
+import type { LocalFunctionCallStore } from './LocalFunctionCallStore.js';
 import { newRepositoryRecord } from '../../repository-record.js';
 import {
   GC_ASIDE_SUFFIX,
@@ -87,11 +88,14 @@ export class LocalRepoStore implements RepoStore {
    * @param refs - The ref store a created repository's record is written to,
    *   and gc's root scans read
    * @param datasets - The dataset ref store gc's root scans read
+   * @param calls - The call store gc's root scan of kept calls reads, and its
+   *   sweep removes the expired calls of
    */
   constructor(
     private readonly reposDir: string | null,
     private readonly refs: RefStore,
-    private readonly datasets: DatasetRefStore
+    private readonly datasets: DatasetRefStore,
+    private readonly calls: LocalFunctionCallStore,
   ) {}
 
   /**
@@ -349,6 +353,10 @@ export class LocalRepoStore implements RepoStore {
     return { roots: await executionRoots(this.refs, repo) };
   }
 
+  async gcScanCallRoots(repo: string, _cursor?: unknown): Promise<GcRootScanResult> {
+    return { roots: await callRoots(this.refs, this.calls, repo) };
+  }
+
   /**
    * A page of the object scan: one prefix directory, `objects/<xx>`, with the
    * unreachable notes of `gc/unreachable/<xx>`. The cursor is the prefix last
@@ -497,7 +505,11 @@ export class LocalRepoStore implements RepoStore {
     await fs.rm(gcRunPath(repo, run), { recursive: true, force: true });
   }
 
-  gcSweepBackend(repo: string, reachable: ReadonlySet<string>, options: GcBackendSweepOptions): Promise<GcBackendSweepResult> {
-    return sweepLocalRepository(repo, reachable, options);
+  /** The local repository's own sweep (`sweep.ts`), and its calls past their
+   *  lifetime, which no read has passed since they expired. */
+  async gcSweepBackend(repo: string, reachable: ReadonlySet<string>, options: GcBackendSweepOptions): Promise<GcBackendSweepResult> {
+    const swept = await sweepLocalRepository(repo, reachable, options);
+    await this.calls.sweepExpired(repo, options.dryRun);
+    return swept;
   }
 }
