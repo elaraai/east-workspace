@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1328,
+    "totalEntries": 1330,
     "totalFiles": 222,
     "packages": {
       "east": 584,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 308,
-      "e3-ui": 186,
+      "e3-ui": 188,
       "e3": 24,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -44166,7 +44166,8 @@
         "import {",
         "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
       ],
       "languages": [
         "tsx"
@@ -44196,7 +44197,8 @@
         "import {",
         "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
       ],
       "languages": [
         "tsx"
@@ -44224,7 +44226,8 @@
         "import {",
         "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
       ],
       "languages": [
         "tsx"
@@ -44253,7 +44256,8 @@
         "import {",
         "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
       ],
       "languages": [
         "tsx"
@@ -44278,7 +44282,8 @@
         "import {",
         "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
       ],
       "languages": [
         "tsx"
@@ -44310,7 +44315,8 @@
         "import {",
         "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
       ],
       "languages": [
         "tsx"
@@ -44342,7 +44348,8 @@
         "import {",
         "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
       ],
       "languages": [
         "tsx"
@@ -44369,7 +44376,8 @@
         "import {",
         "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
       ],
       "languages": [
         "tsx"
@@ -44398,7 +44406,8 @@
         "import {",
         "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
       ],
       "languages": [
         "tsx"
@@ -44426,7 +44435,8 @@
         "import {",
         "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
       ],
       "languages": [
         "tsx"
@@ -44461,7 +44471,8 @@
         "import {",
         "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
       ],
       "languages": [
         "tsx"
@@ -44497,12 +44508,81 @@
         "import {",
         "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
       ],
       "languages": [
         "tsx"
       ],
       "source": "// The worked case's preferences page: each person's shift preferences held as dated snapshots, with two families of columns over one field, the standard choices and the peak ones. Each family reads the snapshot in force at the Record's day and writes a new stated one, through the solution's functions. The name notes a person whose choices are guessed or not stated yet, and the page adds no one\n// inputs: []\nexport const Level = VariantType({ not_trained: NullType, trainee: NullType, competent: NullType });\n\nexport const Holding = StructType({\n    skill: StringType,\n    holding: VariantType({ level: Level, licence: BooleanType }),\n    since: DateTimeType,\n    expires: OptionType(DateTimeType),\n    signed_off_by: OptionType(StringType),\n    signed_off_at: OptionType(DateTimeType),\n});\n\nexport const Choice = VariantType({ cant: NullType, can: NullType, prefer: NullType });\n\nexport const PreferenceSnapshot = StructType({\n    since: DateTimeType,\n    basis: VariantType({ guessed: NullType, stated: NullType }),\n    standard: StructType({ day: Choice, afternoon: Choice, night: Choice, saturday: Choice, sunday: Choice, sunday_night: Choice }),\n    peak: StructType({ day: Choice, night: Choice, saturday: Choice, sunday: Choice, four_days: Choice, five_days: Choice, six_days: Choice }),\n});\n\nexport const Employee = StructType({\n    id: StringType,\n    name: OptionType(StringType),\n    home_team: OptionType(StringType),\n    active: BooleanType,\n    skills: ArrayType(Holding),\n    preferences: ArrayType(PreferenceSnapshot),\n});\n\nexport const recordPeople = e3.record(\"record_people\", DictType(StringType, Employee), {\n    initial: new Map([\n        [\"P-0401\", { id: \"P-0401\", name: some(\"A. Morgan\"), home_team: some(\"T-IN\"), active: true,\n            skills: [\n                // Competent since March, signed off; competent until it lapsed on 30 September; a licence held until next May.\n                { skill: \"Counting\", holding: variant(\"level\", variant(\"competent\", null)), since: new Date(\"2026-03-02T00:00:00Z\"), expires: none,\n                    signed_off_by: some(\"M. Hale\"), signed_off_at: some(new Date(\"2026-03-02T00:00:00Z\")) },\n                { skill: \"Receiving\", holding: variant(\"level\", variant(\"competent\", null)), since: new Date(\"2026-03-02T00:00:00Z\"),\n                    expires: some(new Date(\"2026-09-30T00:00:00Z\")), signed_off_by: none, signed_off_at: none },\n                { skill: \"Forklift\", holding: variant(\"licence\", true), since: new Date(\"2026-05-01T00:00:00Z\"),\n                    expires: some(new Date(\"2027-05-01T00:00:00Z\")), signed_off_by: none, signed_off_at: none },\n            ],\n            preferences: [\n                { since: new Date(\"2026-10-01T00:00:00Z\"), basis: variant(\"stated\", null),\n                    standard: { day: variant(\"prefer\", null), afternoon: variant(\"can\", null), night: variant(\"cant\", null),\n                        saturday: variant(\"can\", null), sunday: variant(\"can\", null), sunday_night: variant(\"cant\", null) },\n                    peak: { day: variant(\"can\", null), night: variant(\"can\", null), saturday: variant(\"prefer\", null), sunday: variant(\"can\", null),\n                        four_days: variant(\"prefer\", null), five_days: variant(\"can\", null), six_days: variant(\"cant\", null) } },\n            ] }],\n        [\"P-0408\", { id: \"P-0408\", name: some(\"B. Ellis\"), home_team: some(\"T-OUT\"), active: true,\n            skills: [\n                // A trainee this month, signed off; no forklift licence.\n                { skill: \"Dispatch\", holding: variant(\"level\", variant(\"trainee\", null)), since: new Date(\"2026-11-02T00:00:00Z\"), expires: none,\n                    signed_off_by: some(\"S. Park\"), signed_off_at: some(new Date(\"2026-11-02T00:00:00Z\")) },\n                { skill: \"Forklift\", holding: variant(\"licence\", false), since: new Date(\"2026-05-01T00:00:00Z\"), expires: none,\n                    signed_off_by: none, signed_off_at: none },\n            ],\n            preferences: [\n                { since: new Date(\"2026-02-01T00:00:00Z\"), basis: variant(\"guessed\", null),\n                    standard: { day: variant(\"can\", null), afternoon: variant(\"prefer\", null), night: variant(\"can\", null),\n                        saturday: variant(\"cant\", null), sunday: variant(\"cant\", null), sunday_night: variant(\"cant\", null) },\n                    peak: { day: variant(\"can\", null), night: variant(\"can\", null), saturday: variant(\"can\", null), sunday: variant(\"can\", null),\n                        four_days: variant(\"can\", null), five_days: variant(\"can\", null), six_days: variant(\"can\", null) } },\n            ] }],\n        // No name yet, no skill held and no preference stated.\n        [\"P-0415\", { id: \"P-0415\", name: none, home_team: none, active: true, skills: [], preferences: [] }],\n    ]),\n    mutations: (mutation) => ({\n        // Every Save commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\n/** The preferences in force on a day: the latest snapshot dated on or before it, the later of two dated the same. */\nexport const preferencesOn = East.function([ArrayType(PreferenceSnapshot), DateTimeType], OptionType(PreferenceSnapshot), ($, snapshots, day) => {\n    const found = $.let(none, OptionType(PreferenceSnapshot));\n    $.for(snapshots, ($2, snapshot) => {\n        const later = $2.const(found.match({ none: () => true, some: (_$3, held) => East.lessEqual(held.since, snapshot.since) }));\n        $2.if(East.lessEqual(snapshot.since, day).and(() => later), ($3) => { $3.assign(found, some(snapshot)); });\n    });\n    return found;\n});\n\n/** The standard marks in force on a day; before any snapshot, \"can\" for each. */\nexport const standardOn = East.function([ArrayType(PreferenceSnapshot), DateTimeType], PreferenceSnapshot.fields.standard, ($, snapshots, day) => {\n    const unstated = $.const({ day: variant(\"can\", null), afternoon: variant(\"can\", null), night: variant(\"can\", null),\n        saturday: variant(\"can\", null), sunday: variant(\"can\", null), sunday_night: variant(\"can\", null) }, PreferenceSnapshot.fields.standard);\n    const find = $.const(preferencesOn);\n    return find(snapshots, day).match({ none: () => unstated, some: (_$2, snapshot) => snapshot.standard });\n});\n\n/** The peak marks in force on a day; before any snapshot, \"can\" for each. */\nexport const peakOn = East.function([ArrayType(PreferenceSnapshot), DateTimeType], PreferenceSnapshot.fields.peak, ($, snapshots, day) => {\n    const unstated = $.const({ day: variant(\"can\", null), night: variant(\"can\", null), saturday: variant(\"can\", null), sunday: variant(\"can\", null),\n        four_days: variant(\"can\", null), five_days: variant(\"can\", null), six_days: variant(\"can\", null) }, PreferenceSnapshot.fields.peak);\n    const find = $.const(preferencesOn);\n    return find(snapshots, day).match({ none: () => unstated, some: (_$2, snapshot) => snapshot.peak });\n});\n\n/** A person's note, on the name: \"none stated\" before any snapshot of their preferences, \"guessed\" while the one in force is a guess. */\nexport const statedOn = East.function([Employee, DateTimeType], OptionType(Record.Types.Mark), ($, person, day) => {\n    const noMark = $.const(none, OptionType(Record.Types.Mark));\n    const find = $.const(preferencesOn);\n    return find(person.preferences, day).match({\n        none: () => some(variant(\"note\", \"none stated\")),\n        some: (_$2, snapshot) => snapshot.basis.hasTag(\"guessed\").ifElse(() => some(variant(\"note\", \"guessed\")), () => noMark),\n    });\n});\n\n/**\n * The snapshots with a new one dated today: today's last replaced when it is stated, which the grid could have written,\n * and otherwise the new one appended. Choices the snapshots already read without that stated one write nothing, and drop\n * it: an edit that ends where it started saves none. No earlier one changes.\n */\nexport const withSnapshot = East.function([ArrayType(PreferenceSnapshot), PreferenceSnapshot], ArrayType(PreferenceSnapshot), ($, snapshots, next) => {\n    const standardIn = $.const(standardOn);\n    const peakIn = $.const(peakOn);\n    const day = $.const(East.DateTime.roundDownDay(next.since, 1n));\n    const last = $.let(none, OptionType(IntegerType));\n    $.for(snapshots, ($2, snapshot, index) => {\n        $2.if(East.equal(East.DateTime.roundDownDay(snapshot.since, 1n), day), ($3) => { $3.assign(last, some(index)); });\n    });\n    // Today's last snapshot, when it is stated.\n    const mine = $.const(last.match({\n        none: () => none,\n        some: (_$2, at) => snapshots.get(at).basis.hasTag(\"stated\").ifElse(() => some(at), () => none),\n    }), OptionType(IntegerType));\n    const without = $.const(mine.match({\n        none: () => snapshots,\n        some: (_$2, at) => snapshots.slice(0n, at).concat(snapshots.slice(at.add(1n), snapshots.size())),\n    }));\n    const unchanged = $.const(East.equal(standardIn(without, next.since), next.standard).and(() => East.equal(peakIn(without, next.since), next.peak)));\n    return unchanged.ifElse(\n        () => without,\n        () => mine.match({\n            none: () => snapshots.concat([next]),\n            some: (_$2, at) => snapshots.map((_$3, snapshot, index) => index.equal(at).ifElse(() => next, () => snapshot)),\n        }));\n});\n\n/** The snapshots with the standard marks set today, the peak marks in force copied: a write the person stated. */\nexport const withStandard = East.function([ArrayType(PreferenceSnapshot), PreferenceSnapshot.fields.standard, DateTimeType], ArrayType(PreferenceSnapshot), ($, snapshots, standard, day) => {\n    const peak = $.const(peakOn);\n    const write = $.const(withSnapshot);\n    const next = $.const({ since: day, basis: variant(\"stated\", null), standard, peak: peak(snapshots, day) }, PreferenceSnapshot);\n    return write(snapshots, next);\n});\n\n/** The snapshots with the peak marks set today, the standard marks in force copied: a write the person stated. */\nexport const withPeak = East.function([ArrayType(PreferenceSnapshot), PreferenceSnapshot.fields.peak, DateTimeType], ArrayType(PreferenceSnapshot), ($, snapshots, peak, day) => {\n    const standard = $.const(standardOn);\n    const write = $.const(withSnapshot);\n    const next = $.const({ since: day, basis: variant(\"stated\", null), standard: standard(snapshots, day), peak }, PreferenceSnapshot);\n    return write(snapshots, next);\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const staff = $.let(Record.bind(recordPeople));\n            return (\n                <Box height=\"360px\">\n                    <Record\n                        record={staff}\n                        title=\"Shift preferences\"\n                        noun={{ singular: \"person\", plural: \"people\" }}\n                        // The people come from the staff list: this page edits them, and adds none.\n                        edits={{ insertRows: false }}\n                        columns={{\n                            // The name, noting once a row whether the person's choices are guessed or not stated yet.\n                            name: Record.column.title(Employee, { header: \"Name\", width: \"176px\",\n                                value: (p) => p.name.match({ some: (_$, name) => name, none: () => p.id }), mark: statedOn }),\n                            // The preferences field: a column for each standard choice, then one for each peak choice.\n                            standard: Record.column.cycle(Employee, Choice, {\n                                field: \"preferences\",\n                                each: { day: \"Day\", afternoon: \"Afternoon\", night: \"Night\", saturday: \"Sat\", sunday: \"Sun\", sunday_night: \"Sun night\" },\n                                width: \"80px\",\n                                steps: [\n                                    { case: \"can\",    label: \"can\",    meta: \"Can work\",   tone: \"neutral\" },\n                                    { case: \"prefer\", label: \"prefer\", meta: \"Prefers\",    tone: \"success\" },\n                                    { case: \"cant\",   label: \"can't\",  meta: \"Can't work\", tone: \"danger\" },\n                                ],\n                                read: standardOn,\n                                write: withStandard,\n                            }),\n                            peak: Record.column.cycle(Employee, Choice, {\n                                field: \"preferences\",\n                                each: { day: \"Day\", night: \"Night\", saturday: \"Sat\", sunday: \"Sun\", four_days: \"4 days\", five_days: \"5 days\", six_days: \"6 days\" },\n                                width: \"80px\",\n                                steps: [\n                                    { case: \"can\",    label: \"can\",    meta: \"Can work\",   tone: \"neutral\" },\n                                    { case: \"prefer\", label: \"prefer\", meta: \"Prefers\",    tone: \"success\" },\n                                    { case: \"cant\",   label: \"can't\",  meta: \"Can't work\", tone: \"danger\" },\n                                ],\n                                read: peakOn,\n                                write: withPeak,\n                            }),\n                        }}\n                        columnGroups={[\n                            { label: \"Standard\", columnKeys: [\"standard\"] },\n                            { label: \"Peak\", columnKeys: [\"peak\"] },\n                        ]}\n                        inspector\n                        name=\"preferenceSnapshots\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:record.examples.tsx:recordIndexedWorkOrders",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/record/record.examples.tsx",
+      "suite": "",
+      "test": "50,000 work orders as a Record, the record sheetRecordIndexes edits: the rail's rows source narrows them through the record's maintained indexes — Status, a Due range, a Job search, Quantity, Urgent and Tag, opening on Ready, with Ready and Urgent presets — and the Record reads only the rows near the view. Each order's reference is its title, its status a chip a click steps through Ready, Scheduled and Done, and its urgency a toggle; Save commits by key through the record's patch door, and the page adds no orders",
+      "keywords": [
+        "Record",
+        "Slice.bindRecords",
+        "rows",
+        "Data.bindPaged",
+        "Record.onApply",
+        "indexes",
+        "paging",
+        "large record",
+        "filter",
+        "range",
+        "search",
+        "presets",
+        "lens",
+        "Record.column.cycle",
+        "tone",
+        "Record.column.toggle"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// 50,000 work orders as a Record, the record sheetRecordIndexes edits: the rail's rows source narrows them through the record's maintained indexes — Status, a Due range, a Job search, Quantity, Urgent and Tag, opening on Ready, with Ready and Urgent presets — and the Record reads only the rows near the view. Each order's reference is its title, its status a chip a click steps through Ready, Scheduled and Done, and its urgency a toggle; Save commits by key through the record's patch door, and the page adds no orders\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const orders = $.let(Record.bind(indexedWorkOrders));\n            // One rail over the work orders: its `rows` source narrows them through the record's indexes, and the Record pages the narrowing.\n            const slice = $.let(Slice.bindRecords(\"record.indexedWorkOrders\", {\n                rows: {\n                    source: Data.bindPaged(indexedWorkOrders, { indexes: [\"by_status_due\", \"by_due\", \"by_job\", \"by_quantity\", \"by_urgent\", \"by_tag\"] }),\n                    label: \"Work orders\",\n                    fields: { status: { label: \"Status\", hints: [\"Ready\", \"Scheduled\", \"Done\"] }, due: { label: \"Due\" }, job: { label: \"Job\" }, quantity: { label: \"Quantity\" }, urgent: { label: \"Urgent\" }, tags: { label: \"Tag\", hints: [\"Production\", \"Dispatch\"] } },\n                    range: \"due\", search: [\"job\"], initial: { status: [\"Ready\"] },\n                },\n            }, { presets: [{ id: \"ready\", name: \"Ready\", where: { rows: { status: [\"Ready\"] } } }, { id: \"urgent\", name: \"Urgent\", where: { rows: { urgent: [true] } } }] }));\n            const StatusType = StructType({ key: StringType, tone: StatusValueType });\n            const statuses = $.let([\n                { key: \"Ready\",     tone: variant(\"neutral\", null) },\n                { key: \"Scheduled\", tone: variant(\"info\", null) },\n                { key: \"Done\",      tone: variant(\"success\", null) },\n            ], ArrayType(StatusType));\n            return (\n                <Box height=\"760px\">\n                    <Record\n                        slice={{ slice }}\n                        title=\"Work orders\"\n                        noun={{ singular: \"work order\", plural: \"work orders\" }}\n                        // Work orders are raised where they are planned: this page edits them, and adds none.\n                        edits={{ insertRows: false }}\n                        registers={{ statuses: Record.register.members(statuses, { kind: \"status\", key: s => s.key, label: s => s.key, tone: s => some(s.tone) }) }}\n                        columns={{\n                            reference: Record.column.title(IndexedWork, { header: \"Reference\", width: \"136px\" }),\n                            job:       Record.column.text(IndexedWork, { header: \"Job\", width: \"180px\" }),\n                            status:    Record.column.cycle(IndexedWork, \"statuses\", { header: \"Status\", width: \"112px\" }),\n                            due:       Record.column.date(IndexedWork, { header: \"Due\", width: \"144px\" }),\n                            quantity:  Record.column.integer(IndexedWork, { header: \"Quantity\", width: \"112px\" }),\n                            urgent:    Record.column.toggle(IndexedWork, { header: \"Urgent\", width: \"88px\", on: \"yes\", off: \"no\" }),\n                        }}\n                        inspector\n                        onApply={Record.onApply(orders, { keyed: true })}\n                        name=\"indexedWorkOrders\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:record.examples.tsx:recordIndexedWorkOrdersMobile",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/record/record.examples.tsx",
+      "suite": "",
+      "test": "The same 50,000 indexed work orders as a Record in a phone-width frame: the reference pinned at the left as the pager steps through the other columns, the rail's filters on the toolbar's responsive ladder, a press on a job, a date or a quantity editing it below, and the status and the urgency stepping where they are pressed",
+      "keywords": [
+        "Record",
+        "Slice.bindRecords",
+        "rows",
+        "mobile",
+        "phone",
+        "indexes",
+        "paging",
+        "filters",
+        "presets",
+        "pinned title"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// The same 50,000 indexed work orders as a Record in a phone-width frame: the reference pinned at the left as the pager steps through the other columns, the rail's filters on the toolbar's responsive ladder, a press on a job, a date or a quantity editing it below, and the status and the urgency stepping where they are pressed\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const orders = $.let(Record.bind(indexedWorkOrders));\n            // One rail over the work orders: its `rows` source narrows them through the record's indexes, and the Record pages the narrowing.\n            const slice = $.let(Slice.bindRecords(\"record.indexedWorkOrders.mobile\", {\n                rows: {\n                    source: Data.bindPaged(indexedWorkOrders, { indexes: [\"by_status_due\", \"by_due\", \"by_job\", \"by_quantity\", \"by_urgent\", \"by_tag\"] }),\n                    label: \"Work orders\",\n                    fields: { status: { label: \"Status\", hints: [\"Ready\", \"Scheduled\", \"Done\"] }, due: { label: \"Due\" }, job: { label: \"Job\" }, quantity: { label: \"Quantity\" }, urgent: { label: \"Urgent\" }, tags: { label: \"Tag\", hints: [\"Production\", \"Dispatch\"] } },\n                    range: \"due\", search: [\"job\"], initial: { status: [\"Ready\"] },\n                },\n            }, { presets: [{ id: \"ready\", name: \"Ready\", where: { rows: { status: [\"Ready\"] } } }, { id: \"urgent\", name: \"Urgent\", where: { rows: { urgent: [true] } } }] }));\n            const StatusType = StructType({ key: StringType, tone: StatusValueType });\n            const statuses = $.let([\n                { key: \"Ready\",     tone: variant(\"neutral\", null) },\n                { key: \"Scheduled\", tone: variant(\"info\", null) },\n                { key: \"Done\",      tone: variant(\"success\", null) },\n            ], ArrayType(StatusType));\n            return (\n                <Box width=\"390px\" maxWidth=\"100%\" height=\"760px\">\n                    <Record\n                        slice={{ slice }}\n                        title=\"Work orders\"\n                        noun={{ singular: \"work order\", plural: \"work orders\" }}\n                        // Work orders are raised where they are planned: this page edits them, and adds none.\n                        edits={{ insertRows: false }}\n                        registers={{ statuses: Record.register.members(statuses, { kind: \"status\", key: s => s.key, label: s => s.key, tone: s => some(s.tone) }) }}\n                        columns={{\n                            reference: Record.column.title(IndexedWork, { header: \"Reference\", width: \"136px\" }),\n                            job:       Record.column.text(IndexedWork, { header: \"Job\", width: \"180px\" }),\n                            status:    Record.column.cycle(IndexedWork, \"statuses\", { header: \"Status\", width: \"112px\" }),\n                            due:       Record.column.date(IndexedWork, { header: \"Due\", width: \"144px\" }),\n                            quantity:  Record.column.integer(IndexedWork, { header: \"Quantity\", width: \"112px\" }),\n                            urgent:    Record.column.toggle(IndexedWork, { header: \"Urgent\", width: \"88px\", on: \"yes\", off: \"no\" }),\n                        }}\n                        inspector\n                        onApply={Record.onApply(orders, { keyed: true })}\n                        name=\"indexedWorkOrdersMobile\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:domain.examples.ts:rosterCoverage",

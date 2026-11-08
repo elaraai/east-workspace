@@ -4,8 +4,8 @@
  */
 
 /**
- * The Record (`Record - DX Proposal.md`): the examples; the Record's column
- * kinds on the wire — a title, a person, a boolean, a toggle, a cycle, an age
+ * The Record (`Record - DX Proposal.md`): the examples, the indexed work
+ * orders paged and never read whole; the Record's column kinds on the wire — a title, a person, a boolean, a toggle, a cycle, an age
  * and an audit, and a quantity's unit — their cells, the age's count to a
  * clock and the audit's who and what; a cycle over a variant's steps
  * (`Record Columns From Data - DX Proposal.md` §2.3); columns from data — a
@@ -21,15 +21,18 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
-    decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
+    decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type EastIR, type ValueTypeOf,
 } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
 import { FieldSpecType } from "@elaraai/east-ui/internal";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import e3 from "@elaraai/e3";
 import {
     Data, Record, RecordPayloadType, Sheet, SheetInspectorPaneType, SheetReadFromType, SheetUnsettableType, buildInspectorPane, createSheetBuild, createSheetRootWith,
+    deriveManifest,
 } from "@elaraai/e3-ui/internal";
 import { refusingPlatform } from "../refusing-platform.js";
+import { indexedWorkOrders } from "../sheet/sheet-records.examples.js";
 import * as ex from "./record.examples.js";
 
 describeEast("Record — examples", test => {
@@ -46,8 +49,25 @@ describeEast("Record — examples", test => {
         recordRosterByDay: ex.recordRosterByDay,
         recordSkillHistory: ex.recordSkillHistory,
         recordPreferenceSnapshots: ex.recordPreferenceSnapshots,
+        recordIndexedWorkOrders: ex.recordIndexedWorkOrders,
+        recordIndexedWorkOrdersMobile: ex.recordIndexedWorkOrdersMobile,
     });
 }, { platformFns: TestImpl });
+
+describe("the Record over 50,000 indexed work orders", () => {
+    for (const [frame, example] of [["the desktop", ex.recordIndexedWorkOrders], ["the phone", ex.recordIndexedWorkOrdersMobile]] as const) {
+        test(`${frame}'s pages the record through its indexes, never reading it whole, and commits through its patch door`, () => {
+            const manifest = deriveManifest(example.fn);
+            assert.deepEqual(manifest.pages, [indexedWorkOrders.path]);
+            assert.equal(manifest.paths.length, 0, "the Record never reads the whole record");
+            assert.ok(manifest.records.length > 0, "the record's patch door is declared");
+            const component = (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile([])();
+            // The reactive function and the index definitions it captures survive the UI wire.
+            const roundtrip = decodeBeast2For(UIComponentType)(encodeBeast2For(UIComponentType)(component));
+            assert.equal(roundtrip.type, component.type);
+        });
+    }
+});
 
 // ── Fixtures: one row of every Record kind, inline ──
 

@@ -9,7 +9,8 @@
  * The Record (`Record - DX Proposal.md` §3): the table for a system of
  * records, and its columns from data (`Record Columns From Data - DX
  * Proposal.md` §2). Each example is the proposal's, whole: the record, its
- * binding, the Record.
+ * binding, the Record. The last two page the Sheet's 50,000 work orders
+ * (`sheet/sheet-records.examples.tsx`) through their indexes.
  */
 
 import {
@@ -19,6 +20,7 @@ import {
 import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from "@elaraai/east-ui";
 import { Data, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
+import { IndexedWork, indexedWorkOrders } from "../sheet/sheet-records.examples.js";
 
 // ============================================================================
 // Example 1 — the least: a title, a toggle and a cycle
@@ -1104,6 +1106,108 @@ export const recordPreferenceSnapshots = example({
                         ]}
                         inspector
                         name="preferenceSnapshots"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// Example 12 — 50,000 work orders, narrowed through the record's indexes
+// ============================================================================
+
+export const recordIndexedWorkOrders = example({
+    keywords: ["Record", "Slice.bindRecords", "rows", "Data.bindPaged", "Record.onApply", "indexes", "paging", "large record", "filter", "range", "search", "presets", "lens", "Record.column.cycle", "tone", "Record.column.toggle"],
+    description: "50,000 work orders as a Record, the record sheetRecordIndexes edits: the rail's rows source narrows them through the record's maintained indexes — Status, a Due range, a Job search, Quantity, Urgent and Tag, opening on Ready, with Ready and Urgent presets — and the Record reads only the rows near the view. Each order's reference is its title, its status a chip a click steps through Ready, Scheduled and Done, and its urgency a toggle; Save commits by key through the record's patch door, and the page adds no orders",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const orders = $.let(Record.bind(indexedWorkOrders));
+            // One rail over the work orders: its `rows` source narrows them through the record's indexes, and the Record pages the narrowing.
+            const slice = $.let(Slice.bindRecords("record.indexedWorkOrders", {
+                rows: {
+                    source: Data.bindPaged(indexedWorkOrders, { indexes: ["by_status_due", "by_due", "by_job", "by_quantity", "by_urgent", "by_tag"] }),
+                    label: "Work orders",
+                    fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
+                    range: "due", search: ["job"], initial: { status: ["Ready"] },
+                },
+            }, { presets: [{ id: "ready", name: "Ready", where: { rows: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { rows: { urgent: [true] } } }] }));
+            const StatusType = StructType({ key: StringType, tone: StatusValueType });
+            const statuses = $.let([
+                { key: "Ready",     tone: variant("neutral", null) },
+                { key: "Scheduled", tone: variant("info", null) },
+                { key: "Done",      tone: variant("success", null) },
+            ], ArrayType(StatusType));
+            return (
+                <Box height="760px">
+                    <Record
+                        slice={{ slice }}
+                        title="Work orders"
+                        noun={{ singular: "work order", plural: "work orders" }}
+                        // Work orders are raised where they are planned: this page edits them, and adds none.
+                        edits={{ insertRows: false }}
+                        registers={{ statuses: Record.register.members(statuses, { kind: "status", key: s => s.key, label: s => s.key, tone: s => some(s.tone) }) }}
+                        columns={{
+                            reference: Record.column.title(IndexedWork, { header: "Reference", width: "136px" }),
+                            job:       Record.column.text(IndexedWork, { header: "Job", width: "180px" }),
+                            status:    Record.column.cycle(IndexedWork, "statuses", { header: "Status", width: "112px" }),
+                            due:       Record.column.date(IndexedWork, { header: "Due", width: "144px" }),
+                            quantity:  Record.column.integer(IndexedWork, { header: "Quantity", width: "112px" }),
+                            urgent:    Record.column.toggle(IndexedWork, { header: "Urgent", width: "88px", on: "yes", off: "no" }),
+                        }}
+                        inspector
+                        onApply={Record.onApply(orders, { keyed: true })}
+                        name="indexedWorkOrders"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const recordIndexedWorkOrdersMobile = example({
+    keywords: ["Record", "Slice.bindRecords", "rows", "mobile", "phone", "indexes", "paging", "filters", "presets", "pinned title"],
+    description: "The same 50,000 indexed work orders as a Record in a phone-width frame: the reference pinned at the left as the pager steps through the other columns, the rail's filters on the toolbar's responsive ladder, a press on a job, a date or a quantity editing it below, and the status and the urgency stepping where they are pressed",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const orders = $.let(Record.bind(indexedWorkOrders));
+            // One rail over the work orders: its `rows` source narrows them through the record's indexes, and the Record pages the narrowing.
+            const slice = $.let(Slice.bindRecords("record.indexedWorkOrders.mobile", {
+                rows: {
+                    source: Data.bindPaged(indexedWorkOrders, { indexes: ["by_status_due", "by_due", "by_job", "by_quantity", "by_urgent", "by_tag"] }),
+                    label: "Work orders",
+                    fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
+                    range: "due", search: ["job"], initial: { status: ["Ready"] },
+                },
+            }, { presets: [{ id: "ready", name: "Ready", where: { rows: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { rows: { urgent: [true] } } }] }));
+            const StatusType = StructType({ key: StringType, tone: StatusValueType });
+            const statuses = $.let([
+                { key: "Ready",     tone: variant("neutral", null) },
+                { key: "Scheduled", tone: variant("info", null) },
+                { key: "Done",      tone: variant("success", null) },
+            ], ArrayType(StatusType));
+            return (
+                <Box width="390px" maxWidth="100%" height="760px">
+                    <Record
+                        slice={{ slice }}
+                        title="Work orders"
+                        noun={{ singular: "work order", plural: "work orders" }}
+                        // Work orders are raised where they are planned: this page edits them, and adds none.
+                        edits={{ insertRows: false }}
+                        registers={{ statuses: Record.register.members(statuses, { kind: "status", key: s => s.key, label: s => s.key, tone: s => some(s.tone) }) }}
+                        columns={{
+                            reference: Record.column.title(IndexedWork, { header: "Reference", width: "136px" }),
+                            job:       Record.column.text(IndexedWork, { header: "Job", width: "180px" }),
+                            status:    Record.column.cycle(IndexedWork, "statuses", { header: "Status", width: "112px" }),
+                            due:       Record.column.date(IndexedWork, { header: "Due", width: "144px" }),
+                            quantity:  Record.column.integer(IndexedWork, { header: "Quantity", width: "112px" }),
+                            urgent:    Record.column.toggle(IndexedWork, { header: "Urgent", width: "88px", on: "yes", off: "no" }),
+                        }}
+                        inspector
+                        onApply={Record.onApply(orders, { keyed: true })}
+                        name="indexedWorkOrdersMobile"
                     />
                 </Box>
             );
