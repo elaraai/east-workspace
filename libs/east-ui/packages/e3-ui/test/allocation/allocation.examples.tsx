@@ -8,8 +8,8 @@ import e3 from "@elaraai/e3";
 import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Allocation, Data, Func, Record, Schedule } from "@elaraai/e3-ui";
 import {
-    Bay, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,
-    yardDayRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay,
+    Bay, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,
+    yardDayRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,
 } from "./kiln-yard.js";
 
 // The kiln yard's own records (`Builder Interfaces Spec.md` §6.5): its bins and the days of its plan, which the board
@@ -29,6 +29,13 @@ export const kilnBins = e3.record("kiln_bins", DictType(StringType, KilnBin), {
 /** The days of the yard's plan, what the board publishes: Tue 4 May issued, Tue 11 and Wed 12 drafts. */
 export const yardDays = e3.record("yard_days", DictType(DateTimeType, YardDay), {
     initial: yardDayRows,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+/** The weeks of the yard's plan, for a board publishing a week at a time (#1550): each keyed by its Monday, the week of 3 May issued, the plan day's a draft. */
+export const yardWeeks = e3.record("yard_weeks", DictType(DateTimeType, YardWeek), {
+    initial: yardWeekRows,
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),
@@ -527,6 +534,52 @@ export const allocationPublished = example({
                     tone: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
                 { key: "grade", label: "Grade", text: b => b.gradeMeasured.startsWith(b.gradeBooked).ifElse(() => b.gradeMeasured, () => East.str`booked ${b.gradeBooked} · measured ${b.gradeMeasured}`), table: false },
             ]} />
+        </Box>;
+    }}</Reactive>),
+});
+
+export const allocationWeekly = example({
+    description: "The kiln yard publishing a week at a time (#1550): `periods` over the yard's weeks, `Schedule.periods(weeks, { every: \"week\", status })`, each row keyed by the first day of its week, which `week={{ start }}` names — Monday here, as by default. Publish writes the week holding the day in view, after Save; every day of a published week is read-only under its banner, and the picker marks each day with its week's status. The week of Mon 3 May is issued, the plan day's week a draft.",
+    keywords: ["Allocation", "Schedule.periods", "every", "week", "week.start", "Publish", "published", "readOnly", "Record.bind"], inputs: [],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const bins = $.let(Record.bind(kilnBins));
+        const entries = $.let(Data.bindPaged(kilnBins));
+        const byTime = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
+        // What the board publishes: the yard's weeks, each through the record's patch door.
+        const weeks = $.let(Record.bind(yardWeeks));
+        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
+        const yard = $.let(Data.bind(kilns));
+        const loads = $.let(Data.bind(arrivals));
+        const bays = $.let(Data.bind(yardBays));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: ["yard_bays_by_area"] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: ["kilns_by_group"] }));
+        const slice = $.let(Slice.bindRecords("ex.allocationWeekly", {
+            bin: { source: byTime, range: "at" },
+            bays: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
+            kilns: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+        }));
+        const fit = $.let(Func.bind(yardFit));
+        return <Box width="100%" height="900px"><Allocation id="allocationWeekly" title="Kiln loading" fit={fit} slice={{ slice }} inspector
+            library={[Allocation.library.arrivals(), Allocation.library.resources()]} view={{ layout: "timeline", date: yardDay }} week={{ start: "monday" }}
+            events={{ bin: Schedule.events(bins, {
+                name: "Bin", icon: "box", entries,
+                at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+                quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
+                fields: { specMeasured: Schedule.field.text({ label: "Spec measured" }), instruction: Schedule.field.text({ label: "Loading instruction" }) },
+            }) }}
+            resources={{
+                bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
+                kilns: Schedule.resources(yard.read(), { name: "Kilns", icon: "fire", label: k => k.name, group: k => k.group,
+                    meta: k => some(East.str`${k.group} · ${East.Float.roundHalf(k.max)} m³`), note: k => k.note,
+                    min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges }),
+            }}
+            arrivals={Allocation.arrivals(loads.read(), {
+                label: l => l.code, meta: l => some(East.str`${l.mill} · ${l.grade} · spec ${l.spec}`),
+                quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
+                due: l => some(l.due), window: l => some({ from: l.from, to: l.to }),
+                values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
+            })}
+            periods={Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "draft", published: "issued" } })} />
         </Box>;
     }}</Reactive>),
 });

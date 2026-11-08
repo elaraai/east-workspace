@@ -8,8 +8,9 @@
  * Spec.md` §7.5, §9), in a component of its own, as the Roster's week is
  * (#1343): the day's bins through the bin kind's `rows` — over the day, the
  * range the board's navigation writes into the bins' source of the slice — the
- * day's own row through the periods' `rows`, and the open picker's month's
- * rows through the same, as one span. What it reads is kept by its bytes: a
+ * own row of the period holding the day, the day's or its week's (#1550),
+ * through the periods' `rows`, and the open picker's month's rows through the
+ * same, as one span, a week's row marking each of its days. What it reads is kept by its bytes: a
  * row read again as it was keeps its decoded row, so a render never decodes it
  * again, and the frame is handed what it reads only when that moves. While the
  * day's read is in flight the frame is covered (A80); a day it has not read is
@@ -29,7 +30,7 @@ import { SchedulePeriodStatusType } from "@elaraai/e3-ui/internal";
 import { RecordSliceWhereType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { useReadAhead } from "../shared/schedule/use-read-ahead.js";
-import { DAY, allocationDomain, compareDate, compareString, type AllocationValue, type Day, type StoredBin } from "./model.js";
+import { DAY, allocationDomain, byWeek, compareDate, compareString, periodSpan, type AllocationValue, type Day, type StoredBin } from "./model.js";
 
 const sameBytes = equalFor(BlobType);
 const samePicker = equalFor(DictType(DateTimeType, SchedulePeriodStatusType));
@@ -76,9 +77,9 @@ export interface AllocationData {
     readonly day: Date;
     /** The day's stored bins, by key: what its window read. */
     readonly bins: ReadonlyMap<string, StoredBin>;
-    /** The day's own row's bytes, its period's; `undefined` for a day with no row, or a board with no periods. */
+    /** The own row's bytes of the period holding the day — the day's, or its week's (#1550); `undefined` for one with no row, or a board with no periods. */
     readonly period: Uint8Array | undefined;
-    /** The open picker's days' statuses, by day: a day with no row is not among them. */
+    /** The open picker's days' statuses, by day — each day of a week its week's (#1550): a day whose period has no row is not among them. */
     readonly picker: SortedMap<Date, Status>;
     /** Whether a read the day needs — its bins or its row — is in flight. */
     readonly loading: boolean;
@@ -145,19 +146,27 @@ export function useAllocationData(value: AllocationValue, day: Date, pickerDays:
         let bins: ReadonlyMap<string, StoredBin> | undefined;
         if (rows.type === "some") bins = keptBins(rows.value, held.current.bins, domain.decodeRow);
         else loading = true;
-        // The day's own row, by its start; and the open picker's days, one span from its first day to the day after its last.
+        // The own row of the period holding the day, by its start — the day's, or its week's (#1550); and the open picker's
+        // days, one span from its first day to the day after its last.
         let period: Uint8Array | undefined;
         let picker = NO_STATUSES;
         if (value.periods.type === "some") {
             const periods = value.periods.value;
-            const got = periods.rows(day, next);
-            if (got.type === "some") period = got.value.get(day);
+            const own = periodSpan(value, day);
+            const got = periods.rows(own.from, own.to);
+            if (got.type === "some") period = got.value.get(own.from);
             else loading = true;
             const first = pickerDays[0], last = pickerDays[pickerDays.length - 1];
             if (first !== undefined && last !== undefined) {
                 const span = periods.rows(first, new Date(last.getTime() + DAY));
                 if (span.type === "some") {
-                    const statuses = new SortedMap([...span.value].map(([at, bytes]) => [at, periods.status(bytes)] as const), compareDate);
+                    // A week's row marks each of its days (#1550): the picker shows each day's week as published.
+                    const length = byWeek(value) ? 7 : 1;
+                    const statuses = new SortedMap<Date, Status>([], compareDate);
+                    for (const [at, bytes] of span.value) {
+                        const status = periods.status(bytes);
+                        for (let i = 0; i < length; i++) statuses.set(new Date(at.getTime() + i * DAY), status);
+                    }
                     const was = held.current.picker;
                     picker = was !== undefined && samePicker(was, statuses) ? was : statuses;
                 }
@@ -171,9 +180,9 @@ export function useAllocationData(value: AllocationValue, day: Date, pickerDays:
     const at = day.getTime();
     const neighbours = useMemo(() => [new Date(at + DAY), new Date(at - DAY)], [at]);
     const readNext = useCallback((from: Date) => {
-        const to = new Date(from.getTime() + DAY);
-        value.bin.rows(from, to);
-        if (value.periods.type === "some") value.periods.value.rows(from, to);
+        value.bin.rows(from, new Date(from.getTime() + DAY));
+        // Its period's row, the day's or its week's (#1550): a day of the same week reads the read in hand.
+        if (value.periods.type === "some") { const own = periodSpan(value, from); value.periods.value.rows(own.from, own.to); }
     }, [value]);
     useReadAhead(result.ok && !result.value.loading && result.value.bins !== undefined, neighbours, readNext);
     // The last complete read of a day: a newer one in flight keeps it, so a page landing redraws nothing until the read is whole.

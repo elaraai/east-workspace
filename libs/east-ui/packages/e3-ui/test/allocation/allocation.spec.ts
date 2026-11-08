@@ -29,7 +29,7 @@ import * as ex from "./allocation.examples.js";
 describeEast("Allocation — inline bound examples", test => {
     Assert.examples(test, {
         allocationMinimal: ex.allocationMinimal, allocationViews: ex.allocationViews, allocationKilnYard: ex.allocationKilnYard, allocationTable: ex.allocationTable, allocationLabels: ex.allocationLabels, allocationWording: ex.allocationWording,
-        allocationPublished: ex.allocationPublished, allocationNoPublish: ex.allocationNoPublish, allocationSplit: ex.allocationSplit,
+        allocationPublished: ex.allocationPublished, allocationWeekly: ex.allocationWeekly, allocationNoPublish: ex.allocationNoPublish, allocationSplit: ex.allocationSplit,
         allocationWindowed: ex.allocationWindowed, allocationMobile: ex.allocationMobile, allocationCustomBin: ex.allocationCustomBin,
         allocationFitRule: ex.allocationFitRule, allocationConflicts: ex.allocationConflicts,
     });
@@ -277,11 +277,15 @@ describe("the narrowing, the library and the columns", () => {
         assert.doesNotThrow(() => payload(() => ({ columns: [{ key: "spec", label: "Spec", text: (b: { specBooked: never }) => b.specBooked }] as never })));
     });
 
-    test("`periods` is Schedule.periods over the app's days, and a library tab one of the board's two", () => {
+    test("`periods` is Schedule.periods over the app's days or weeks, and a library tab one of the board's two", () => {
         assert.throws(() => payload(() => ({ periods: {} as never })),
-            /Allocation: `periods` is what the board publishes, the app's days — periods=\{Schedule\.periods\(Record\.bind\(days\), \{ every: "day", status \}\)\}/);
+            /Allocation: `periods` is what the board publishes, the app's days or weeks — periods=\{Schedule\.periods\(Record\.bind\(days\), \{ every: "day", status \}\)\}, or \{ every: "week", … \} over its weeks/);
         assert.doesNotThrow(() => payload(() => ({ periods: Schedule.periods(Record.bind(ex.yardDays), {
             every: "day", status: { field: "state", draft: "draft", published: "issued" },
+        }) })));
+        // A week at a time (#1550): its rows keyed by each week's first day, the week starting where `week` says.
+        assert.doesNotThrow(() => payload(() => ({ week: { start: "sunday" }, periods: Schedule.periods(Record.bind(ex.yardDays), {
+            every: "week", status: { field: "state", draft: "draft", published: "issued" },
         }) })));
         assert.throws(() => payload(() => ({ library: [{ kind: "events" }] as never })),
             /Allocation: a library tab is Allocation\.library\.arrivals\(\) or Allocation\.library\.resources\(\) — and this one is events/);

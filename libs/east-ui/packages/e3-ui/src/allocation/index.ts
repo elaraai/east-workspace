@@ -9,8 +9,8 @@
  * resources with room and time for its hold, over the app's own records, in the
  * renderer's BuilderFrame. It writes the app's bins through the bin kind's roles
  * (`Schedule.events`), reads its lanes and its resources (`Schedule.resources`)
- * and what it books from (`Allocation.arrivals`), and publishes the app's days
- * (`Schedule.periods`). It stores nothing in a shape of its own.
+ * and what it books from (`Allocation.arrivals`), and publishes the app's days,
+ * or its weeks (`Schedule.periods`, #1550). It stores nothing in a shape of its own.
  *
  * The tag validates, builds the lanes, the resources and the arrivals from
  * their accessors, and assembles the closed payload; it composes no East UI
@@ -146,10 +146,11 @@ export type AllocationTableOptionsType = typeof AllocationTableOptionsType;
  * @property horizon - The Timeline's resource axis around the day
  * @property title - The summary's heading
  * @property readOnly - No edits; a published day is always read-only
+ * @property weekStart - The day a week starts on, where the board publishes a week at a time (#1550)
  */
 export const AllocationSettingsType = StructType({
     layout: T.AllocationLayoutType, views: ArrayType(T.AllocationLayoutType), date: OptionType(DateTimeType), horizon: StructType({ before: TimeStepType, after: TimeStepType }),
-    title: StringType, readOnly: BooleanType,
+    title: StringType, readOnly: BooleanType, weekStart: VariantType({ monday: NullType, sunday: NullType }),
 });
 
 /** Type representing {@link AllocationSettingsType}. */
@@ -263,7 +264,11 @@ export interface AllocationProps<R extends EastType = EastType> {
     resources: Readonly<Record<string, ScheduleResourceKind<EastType, EastType>>>;
     /** Every arrival the day may book: `Allocation.arrivals(rows, { label, quantity, hold, … })` over the app's rows. */
     arrivals: AllocationArrivals;
-    /** What the board publishes, the app's days: `Schedule.periods(Record.bind(days), { every: "day", status })`. Omitted, no Publish. */
+    /**
+     * What the board publishes (#1550): the app's days, `Schedule.periods(Record.bind(days), { every: "day", status })`, Publish
+     * writing the day in view's row; or its weeks, `{ every: "week", … }`, each keyed by its first day as `week` says, Publish
+     * writing the week holding the day in view and every day of a published week read-only. Omitted, no Publish.
+     */
     periods?: SchedulePeriods;
     /** The fit: `Func.bind` of the app's `e3.function` from `Allocation.Types.FitRequest(R)` to `Allocation.Types.FitResult`. The board has no fit of its own. */
     fit: BoundFunc<[T.AllocationFitRequestType<R>], T.AllocationFitResultType>;
@@ -307,6 +312,8 @@ export interface AllocationProps<R extends EastType = EastType> {
     title?: string;
     /** No edits; a published day is always read-only. */
     readOnly?: SubtypeExprOrValue<BooleanType>;
+    /** Where a week starts, for a board publishing a week at a time (`periods` every `"week"`); Monday by default. */
+    week?: { start?: "monday" | "sunday" };
     /** Storage keys and drag-source ids, when a surface holds two boards. */
     id?: string;
     /**
@@ -591,7 +598,8 @@ export function createAllocationPayload<R extends EastType>(props: AllocationPro
     const arrivals = given["arrivals"];
     const periods = props.periods;
     if (periods !== undefined && (periods as { [SCHEDULE_DEF]?: unknown })[SCHEDULE_DEF] !== "periods") {
-        throw new Error("Allocation: `periods` is what the board publishes, the app's days — periods={Schedule.periods(Record.bind(days), { every: \"day\", status })}");
+        throw new Error("Allocation: `periods` is what the board publishes, the app's days or weeks — " +
+            "periods={Schedule.periods(Record.bind(days), { every: \"day\", status })}, or { every: \"week\", … } over its weeks");
     }
 
     // The app's functions over the bin row type.
@@ -666,7 +674,7 @@ export function createAllocationPayload<R extends EastType>(props: AllocationPro
             settings: {
                 layout: variant(props.view?.layout ?? firstView(["timeline", "table"] as const, props.views), null), views, date: props.view?.date === undefined ? none : some(props.view.date),
                 horizon: { before: props.horizon?.before ?? variant("days", 3.0), after: props.horizon?.after ?? variant("days", 10.0) },
-                title: props.title ?? "Allocation", readOnly: props.readOnly ?? false,
+                title: props.title ?? "Allocation", readOnly: props.readOnly ?? false, weekStart: variant(props.week?.start ?? "monday", null),
             },
             id: props.id === undefined ? none : some(props.id),
             labels,

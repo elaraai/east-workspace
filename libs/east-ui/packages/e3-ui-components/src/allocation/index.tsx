@@ -66,8 +66,8 @@ import { binCode } from "./inspector-model.js";
 import { useAllocationLibrary, type Pick, type ResourceFind } from "./library.js";
 import { allocationMessages, type AllocationWords } from "./messages.js";
 import {
-    DAY, NARROW_WIDTH, NO_PERIOD, allocationContext, allocationDomain, allocationWords, compareDate, compareFloat, compareString, configError, dayKey, dayStart,
-    editableStatus, focusOf, placeDrafted, placeStored, started, statusText, type AllocationStyles, type AllocationValue, type Bin, type Day, type DraftedBin,
+    DAY, NARROW_WIDTH, NO_PERIOD, allocationContext, allocationDomain, allocationWords, byWeek, compareDate, compareFloat, compareString, configError, dayKey, dayStart,
+    editableStatus, focusOf, periodSpan, placeDrafted, placeStored, started, statusText, type AllocationStyles, type AllocationValue, type Bin, type Day, type DraftedBin,
     type Issue, type PlacedPeriod, type Selection, type StoredBin,
 } from "./model.js";
 import { narrowingPart, narrowingText, useNarrowed } from "./narrowed.js";
@@ -114,7 +114,7 @@ interface FrameProps {
     editing: AllocationEditing | undefined;
 }
 
-/** The day's own row, read: its status. */
+/** The own row of the period holding the day — the day's, or its week's (#1550) — read: its status. */
 function periodOf(value: AllocationValue, bytes: Uint8Array | undefined): PlacedPeriod {
     if (bytes === undefined || value.periods.type !== "some") return NO_PERIOD;
     return { bytes, status: value.periods.value.status(bytes) };
@@ -152,9 +152,14 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const planBins = useMemo(() => current ? placeDrafted(domain, heldBins, editing?.bins ?? NO_BIN_DRAFTS, day) : heldBins,
         [current, domain, heldBins, editing?.bins, day]);
     const dayId = dayKey(day);
+    // The period the board publishes that holds the day — the day, or its week (#1550): its row's drafts are its start's,
+    // its status the day's, and Publish writes it.
+    const weekly = byWeek(value), unit = weekly ? "week" : "day";
+    const periodFrom = periodSpan(value, day).from;
+    const periodId = dayKey(periodFrom);
     const periodDrafts = editing?.periods ?? NO_PERIOD_DRAFTS;
     const heldPeriod = useMemo(() => periodOf(value, current ? data.period : undefined), [value, current, data.period]);
-    const period = useMemo(() => periodDrafts.has(dayId) ? periodOf(value, periodDrafts.get(dayId)) : heldPeriod, [periodDrafts, dayId, value, heldPeriod]);
+    const period = useMemo(() => periodDrafts.has(periodId) ? periodOf(value, periodDrafts.get(periodId)) : heldPeriod, [periodDrafts, periodId, value, heldPeriod]);
     const plan = useMemo((): Day => ({ status: period.status, bins: planBins }), [period.status, planBins]);
     const held = useMemo((): Day => ({ status: heldPeriod.status, bins: heldBins }), [heldPeriod.status, heldBins]);
     const [selection, setSelection] = useState<Selection>();
@@ -299,19 +304,20 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const custom = useTrackedEvaluation(readCheck);
     const issues = useMemo(() => current ? [...builtIn, ...storedBreaches, ...(custom.result.ok ? custom.result.value : [])] : NO_ISSUES,
         [current, builtIn, storedBreaches, custom.result]);
-    // Publish (B7): Save, then once every record reads back as saved, the day's status — over its row as last saved. The
-    // day is the one shown as Publish is pressed: a day stepped to while the Save settles is not the one published.
+    // Publish (B7): Save, then once every record reads back as saved, the status of the period holding the day — the day's,
+    // or its week's (#1550) — over its row as last saved. The period is the one shown as Publish is pressed: a day stepped
+    // to while the Save settles is not the one published.
     const [publishing, setPublishing] = useState(false);
     const publishingNow = useRef(false);
     const latest = useRef({ change: () => undefined as ReturnType<typeof publishChange> });
-    latest.current = { change: () => editing === undefined ? undefined : publishChange(value, editing, day, current ? data.period : undefined, new Date()) };
+    latest.current = { change: () => editing === undefined ? undefined : publishChange(value, editing, periodFrom, current ? data.period : undefined, new Date()) };
     const publish = useCallback(() => {
         if (editing === undefined || publishingNow.current) return;
         publishingNow.current = true; setPublishing(true);
         const { change } = latest.current;
-        void publishPeriod(editing.history, change, changes => editing.schedule.record(changes, "typed", "Publish day"))
+        void publishPeriod(editing.history, change, changes => editing.schedule.record(changes, "typed", `Publish ${unit}`))
             .finally(() => { publishingNow.current = false; setPublishing(false); });
-    }, [editing]);
+    }, [editing, unit]);
     // A narrowing read while the day it filters stands in — the bins' own, the lanes', the resources' or the arrivals' —
     // keeps the day's bins in their cells, stale (#1398, CL5): their words in the third ink, the cells' rules dashed. While a
     // narrowing is read or failed, what main shows is retained (CL8): readable, focusable and selectable, aria-disabled,
@@ -646,7 +652,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     // book one where the day takes edits — never before its read lands, and never as the narrowing's empty state.
     const empty = current && plan.bins.size === 0 && !notStarted
         ? { message: `No ${other(nouns.bin)} on ${dayWords}`, hint: commands.canEdit() ? `Drag ${a(nouns.arrival)} onto ${a(nouns.lane)} hour` : undefined } : undefined;
-    const sessionName = (kind: string) => kind === PERIODS ? "Days" : value.bin.kind.name;
+    const sessionName = (kind: string) => kind === PERIODS ? (weekly ? "Weeks" : "Days") : value.bin.kind.name;
     // Cold load (#1398, CL5): no day read yet, nor a narrowing's first membership — the frame's skeleton covers it, at the
     // board's own row pitch. After it nothing covers: a day step, a narrowing or a new revision leave the frame live.
     const cold = (!data.landed && data.error === undefined) || narrowing.some(n => !n.ready && n.loading);
@@ -683,8 +689,9 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
             {optimiseParts.banner}
             {editing?.schedule.sessions.map(part => <SessionBanners key={part.key} session={part.session} words={words} name={sessionName(part.kind)} where={where(part.kind)}
                 onAction={action => editing.history.actOn(part.key, action)} />)}
-            {current && heldPeriod.status.type === "published" && <BannerView status="info" title="Published day" description="Read-only view of the published plan." />}
-            {current && heldPeriod.status.type === "other" && <BannerView status="info" title={`${heldPeriod.status.value} day`} description="This day is read-only." />}
+            {/* A published period — the day, or its week (#1550): every day of a published week is read-only. */}
+            {current && heldPeriod.status.type === "published" && <BannerView status="info" title={`Published ${unit}`} description="Read-only view of the published plan." />}
+            {current && heldPeriod.status.type === "other" && <BannerView status="info" title={`${heldPeriod.status.value} ${unit}`} description={`This ${unit} is read-only.`} />}
             {notStarted && <BannerView status="info" title="Day not started" description={`Book ${a(nouns.arrival)} or reserve a slot to start this day's plan.`} />}
             {/* A booking onto a resource with no free slot left (A36). */}
             {notice !== undefined && <BannerView status="warning" title={notice.word} description={notice.text} dismissible onDismiss={() => setNotice(undefined)} />}

@@ -40,7 +40,7 @@ import type { AllocationCommands } from "./actions.js";
 import type { AllocationEditing } from "./editing.js";
 import type { AllocationWords } from "./messages.js";
 import type { AllocationWindow } from "./window.js";
-import { DAY, allocationWords, type AllocationStyles, type AllocationValue, type Day, type Issue, type Load, type ResourceRow } from "./model.js";
+import { DAY, allocationWords, byWeek, type AllocationStyles, type AllocationValue, type Day, type Issue, type Load, type ResourceRow } from "./model.js";
 import { counted, other, type Nouns } from "./nouns.js";
 
 /** Table, then Timeline, as the mock orders them. */
@@ -102,9 +102,9 @@ interface ToolbarArgs extends AllocationWindow {
     editing: AllocationEditing | undefined;
     /** The board's words: its message table, the editing session's among them, and the app's formatters. */
     words: AllocationWords;
-    /** The day's status chip's words (A3): Not started, Draft, Published, or the app's own case; `undefined` without periods. */
+    /** The day's status chip's words (A3) — its period's, the day's or its week's (#1550): Not started, Draft, Published, or the app's own case; `undefined` without periods. */
     status: string | undefined;
-    /** Whether the day is published: its chip's tone, whatever its words. */
+    /** Whether the day's period is published: its chip's tone, whatever its words. */
     published: boolean;
     /**
      * Whether the day is not read yet (#1398, CL1): its status, its issues and Publish keep their slots, the status a
@@ -114,7 +114,7 @@ interface ToolbarArgs extends AllocationWindow {
     unread: boolean;
     /** Whether Publish is under way. */
     publishing: boolean;
-    /** The open picker's days' statuses, by day: their marks. */
+    /** The open picker's days' statuses, by day — each day of a week its week's (#1550): their marks, and each week's. */
     picker: SortedMap<Date, Day["status"]>;
     issues: readonly Issue[];
     onIssues: () => void;
@@ -225,10 +225,13 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
             <chakra.button type="button" css={styles.focusClear} aria-label="Show all" title="Show all · Esc" onClick={args.onClearFocus}><FontAwesomeIcon icon={faXmark} /></chakra.button>
         </chakra.span>;
     }
-    const navigation = (compact = false, combined = false, withEye = false) => <TimeNavigator scope="allocation" date={view.date} period="day" sunday={false}
-        onChange={date => setView({ ...view, date })} compact={compact} label={combined ? "View" : "Choose plan day"} initialPanel="day"
-        onWeeks={args.onPickerWeeks} legend="Published · Draft · Not started"
-        dayMarker={date => { const held = args.picker.get(date); return <Box as="span" css={styles.pickerDot} data-state={held === undefined ? "empty" : held.type === "other" ? "draft" : held.type} />; }}
+    // The picker's marks: each day's status, its period's — and, publishing a week at a time (#1550), each week's too, the
+    // picker's weeks starting where the board's do.
+    const marker = (date: Date) => { const held = args.picker.get(date); return <Box as="span" css={styles.pickerDot} data-state={held === undefined ? "empty" : held.type === "other" ? "draft" : held.type} />; };
+    const weekly = byWeek(value);
+    const navigation = (compact = false, combined = false, withEye = false) => <TimeNavigator scope="allocation" date={view.date} period="day"
+        sunday={value.settings.weekStart.type === "sunday"} onChange={date => setView({ ...view, date })} compact={compact} label={combined ? "View" : "Choose plan day"}
+        initialPanel="day" onWeeks={args.onPickerWeeks} legend="Published · Draft · Not started" dayMarker={marker} {...(weekly ? { weekMarker: marker } : {})}
         controls={combined ? controls(withEye) : undefined} />;
     return [
         ...rail,

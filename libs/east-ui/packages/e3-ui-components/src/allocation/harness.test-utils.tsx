@@ -95,15 +95,18 @@ export function allocationHarness(): AllocationHarness {
  * Save while a bin's measured grade is empty (#1525); given `failingValues`,
  * the yard's values for a reservation fail as they run (#1526); given `most`
  * or `least`, a hint holds a bin's m³, its quantity, to at most or at least
- * that many (#1585).
+ * that many (#1585). Given `weeks`, it publishes the yard's weeks in place of
+ * its days (#1550), each row keyed by its week's first day, the week starting
+ * on the day named.
  *
- * @param options - Which of its records is locked, if either, whether the yard checks a draft, whether its values fail, and the most and the least a bin holds
+ * @param options - Which of its records is locked, if either, whether the yard checks a draft, whether its values fail, the most and the least a bin holds, and where its weeks start when it publishes weeks
  * @returns The example
  */
 export function kilnYard(options: {
     readonly locked?: "bins" | "days"; readonly ready?: boolean; readonly failingValues?: boolean; readonly most?: number; readonly least?: number;
+    readonly weeks?: "monday" | "sunday";
 } = {}): Example {
-    const lockedBins = options.locked === "bins", lockedDays = options.locked === "days";
+    const lockedBins = options.locked === "bins", lockedDays = options.locked === "days", weeks = options.weeks;
     // The yard's hint on a bin's quantity: at most `most` m³, at least `least`.
     const bounded = options.most === undefined && options.least === undefined ? {} : { fields: { m3: Schedule.field.number({
         label: "Volume", ...(options.most === undefined ? {} : { max: options.most }), ...(options.least === undefined ? {} : { min: options.least }),
@@ -124,7 +127,7 @@ export function kilnYard(options: {
         // The bins a test needs, the yard's own or its locked ones, each read a day at a time through its interval index.
         const bins = $.let(lockedBins ? Record.bind(ex.kilnLockedBins, ["patch"]) : Record.bind(ex.kilnBins, ["patch"]));
         const entries = $.let(lockedBins ? Data.bindPaged(ex.kilnLockedBins) : Data.bindPaged(ex.kilnBins));
-        const days = $.let(lockedDays ? Record.bind(ex.yardLockedDays, ["patch"]) : Record.bind(ex.yardDays, ["patch"]));
+        const days = $.let(weeks !== undefined ? Record.bind(ex.yardWeeks, ["patch"]) : lockedDays ? Record.bind(ex.yardLockedDays, ["patch"]) : Record.bind(ex.yardDays, ["patch"]));
         const yard = $.let(Data.bind(ex.kilns));
         const loads = $.let(Data.bind(ex.arrivals));
         const bays = $.let(Data.bind(ex.yardBays));
@@ -153,7 +156,8 @@ export function kilnYard(options: {
                 label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
                 values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
             }),
-            periods: Schedule.periods(days, { every: "day", status: { field: "state", draft: "draft", published: "issued" } }),
+            periods: Schedule.periods(days, { every: weeks === undefined ? "day" : "week", status: { field: "state", draft: "draft", published: "issued" } }),
+            ...(weeks === undefined ? {} : { week: { start: weeks } }),
         });
     }))) };
 }

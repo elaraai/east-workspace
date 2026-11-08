@@ -16,7 +16,8 @@
  * key the board holds (B15, `shared/schedule/records.ts`). The inspector's
  * form edits the row's own fields through the kind's `write` of a field, and
  * the kind's own form writes the row whole. Publish runs Save, then writes the
- * day's status once every record reads back as saved (B7, `publishPeriod`).
+ * status of the period holding the day — the day's, or its week's (#1550) —
+ * once every record reads back as saved (B7, `publishPeriod`).
  *
  * @packageDocumentation
  */
@@ -106,7 +107,7 @@ export interface AllocationState {
     /** The day as drafted, and as the records hold it. */
     readonly plan: Day;
     readonly held: Day;
-    /** The day's own row as drafted, and as stored. */
+    /** The own row of the period holding the day — the day's, or its week's (#1550) — as drafted, and as stored. */
     readonly period: PlacedPeriod;
     readonly heldPeriod: PlacedPeriod;
     /** The bins the day's window read, by key: each stored bin's bytes, and what a new key is minted unique among. */
@@ -183,7 +184,7 @@ export interface AllocationCommands {
     restoreInto(id: string, reservation: string): boolean;
     /** Returns a draft booking's arrival to Arrivals (A51): every bin of it the day does not hold yet goes. */
     unbook(arrival: string): void;
-    /** Publishes the day (A4, B7): Save, then its status. */
+    /** Publishes the period holding the day, the day or its week (A4, B7, #1550): Save, then its status. */
     publish(): void;
 }
 
@@ -192,7 +193,7 @@ export interface AllocationCommands {
  *
  * @param state - The day, its rows and the editing
  * @param select - Sets what is selected, keeping the panes as they are
- * @param publish - Publishes the day: Save, then its status
+ * @param publish - Publishes the period holding the day: Save, then its status
  * @returns The commands
  */
 export function allocationCommands(state: AllocationState, select: (next: Selection | undefined, soft?: boolean) => void, publish: () => void): AllocationCommands {
@@ -423,17 +424,18 @@ export function allocationCommands(state: AllocationState, select: (next: Select
 }
 
 /**
- * The day's row as Publish writes it: its status the published case, at the
- * time given (`periodPublishChange`).
+ * The row of the period holding the day as Publish writes it — the day's, or
+ * its week's (#1550): its status the published case, at the time given
+ * (`periodPublishChange`).
  *
  * @param value - The payload: its periods
  * @param editing - The editing
- * @param day - The plan day
- * @param stored - The day's row as the board read it
+ * @param start - The period's first day: the plan day, or its week's first
+ * @param stored - The period's row as the board read it
  * @param at - When it is published
- * @returns The change; `undefined` without periods
+ * @returns The change; `undefined` without periods, or for a new row the periods' `values` fail to make
  */
-export function publishChange(value: AllocationValue, editing: AllocationEditing, day: Date, stored: Uint8Array | undefined, at: Date): ScheduleChange | undefined {
+export function publishChange(value: AllocationValue, editing: AllocationEditing, start: Date, stored: Uint8Array | undefined, at: Date): ScheduleChange | undefined {
     if (value.periods.type !== "some") return undefined;
-    return periodPublishChange(value.periods.value, editing.schedule, PERIODS, dayKey(day), day, stored, at, "Allocation");
+    return periodPublishChange(value.periods.value, editing.schedule, PERIODS, dayKey(start), start, stored, at, "Allocation");
 }

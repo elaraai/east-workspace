@@ -5,12 +5,13 @@
 /**
  * The kiln yard, transcribed from docs/proposals/Allocation Spec.html into
  * records of its own (#1371, `Builder Interfaces Spec.md` §6.5): its bins and
- * the days of its plan, which the board writes, and its kilns, its loads and
- * its bays, which it reads — three unloading bays in two areas, 33 drying
- * kilns in six groups, the day's loads and Tue 11 May 2027's plan. Every name,
- * code and figure is generated. Beside them, the board's reading of the plan
- * day (`Allocation.Types.Day(KilnBin)`), each bin its roles and the yard's own
- * row, which the pure functions' specs hold to the spec's worked facts (§0).
+ * the days of its plan — or its weeks (#1550) — which the board writes, and
+ * its kilns, its loads and its bays, which it reads — three unloading bays in
+ * two areas, 33 drying kilns in six groups, the day's loads and Tue 11 May
+ * 2027's plan. Every name, code and figure is generated. Beside them, the
+ * board's reading of the plan day (`Allocation.Types.Day(KilnBin)`), each bin
+ * its roles and the yard's own row, which the pure functions' specs hold to
+ * the spec's worked facts (§0).
  */
 import {
     ArrayType, DateTimeType, DictType, FloatType, NullType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, none, some, variant,
@@ -35,6 +36,8 @@ export const KilnBin = StructType({
 });
 /** A day of the yard's plan: a draft, or issued and when. */
 export const YardDay = StructType({ state: VariantType({ draft: NullType, issued: StructType({ at: DateTimeType }) }) });
+/** A week of the yard's plan, what a board publishing a week at a time writes (#1550): a draft, or issued and when. */
+export const YardWeek = StructType({ state: VariantType({ draft: NullType, issued: StructType({ at: DateTimeType }) }) });
 /** A bin of the smallest board's: the board's roles alone — its bay, its time, its load, its m³, its split across kilns and how long it dries. */
 export const MinimalBin = StructType({
     bay: StringType, at: DateTimeType, load: OptionType(StringType), m3: FloatType, kilns: DictType(StringType, FloatType), dryFor: TimeStepType,
@@ -189,6 +192,15 @@ export const yardDayRows: SortedMap<Date, ValueTypeOf<typeof YardDay>> = new Sor
     [yardPublishedDay, { state: variant("issued", { at: yardIssuedAt }) }],
     [yardDay, { state: variant("draft", null) }],
     [yardSplitDay, { state: variant("draft", null) }],
+], byDate);
+/** The published day's week, from Mon 3 May 2027. */
+export const yardPublishedWeek: Date = new Date("2027-05-03T00:00:00Z");
+/** The plan day's week, from Mon 10 May 2027. */
+export const yardPlanWeek: Date = new Date("2027-05-10T00:00:00Z");
+/** The weeks of the yard's plan, each keyed by its Monday (#1550): the week of Mon 3 May issued on the Friday before, the plan day's week a draft. */
+export const yardWeekRows: SortedMap<Date, ValueTypeOf<typeof YardWeek>> = new SortedMap<Date, ValueTypeOf<typeof YardWeek>>([
+    [yardPublishedWeek, { state: variant("issued", { at: new Date("2027-04-30T17:40:00Z") }) }],
+    [yardPlanWeek, { state: variant("draft", null) }],
 ], byDate);
 /** The smallest board's bins: the plan day's, their roles alone. */
 export const yardMinimalBinRows: SortedMap<string, ValueTypeOf<typeof MinimalBin>> = new SortedMap<string, ValueTypeOf<typeof MinimalBin>>(planBins.map(([id, row]) => [id, {

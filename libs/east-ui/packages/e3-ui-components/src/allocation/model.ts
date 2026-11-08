@@ -8,7 +8,8 @@
  * (#1372, `Builder Interfaces Spec.md` §6, §9): the pure functions and codecs
  * compiled once per bin row type, as the Roster's domain is — East decides
  * which types are the same; the day assembled from the bins' rows and the
- * day's own row, drafts in place. The renderer reads and writes the bins
+ * own row of the period holding it — the day's, or its week's (#1550) —
+ * drafts in place. The renderer reads and writes the bins
  * through these, and draws every figure and word from e3-ui's own functions —
  * it reimplements none.
  *
@@ -26,6 +27,7 @@ import {
     allocationCandidates, allocationCheck, allocationLoadText, allocationLoads, allocationMilliseconds, allocationQuantityText, allocationResourceLine,
     allocationSlots, type AllocationBinType, type AllocationDayType,
 } from "@elaraai/e3-ui/internal";
+import { DAY, weekStart } from "../shared/schedule/window.js";
 export { DAY, NARROW_WIDTH, dayStart } from "../shared/schedule/window.js";
 
 /** The decoded payload. */
@@ -248,25 +250,45 @@ export function placeDrafted(domain: AllocationDomain, stored: SortedMap<string,
     return bins;
 }
 
-/** The day's own row — its period's — and what it says. */
+/** The own row of the period holding the day — the day's, or its week's (#1550) — and what it says. */
 export interface PlacedPeriod {
-    /** Its row's bytes; `undefined` for a day with no row: Not started. */
+    /** Its row's bytes; `undefined` for a period with no row: Not started. */
     readonly bytes: Uint8Array | undefined;
     /** Its status. */
     readonly status: Day["status"];
 }
 
-/** A day with no row of its own: Not started, a draft. */
+/** A period with no row of its own: Not started, a draft. */
 export const NO_PERIOD: PlacedPeriod = { bytes: undefined, status: variant("draft", null) as Day["status"] };
 
-/** Whether a day's row is its own: what a day with no row reads as Not started for. */
+/** Whether a period's row is its own: what a period with no row reads as Not started for. */
 export function started(period: PlacedPeriod): boolean { return period.bytes !== undefined; }
 
-/** Whether a day is open to edits by its status: a draft — Not started among them — never the published case or another. */
+/** Whether a period is open to edits by its status: a draft — Not started among them — never the published case or another. */
 export function editableStatus(status: Day["status"]): boolean { return status.type === "draft"; }
 
-/** A day's status chip's words: Not started, Draft, Published, or the app's own case by its name. */
+/** A period's status chip's words: Not started, Draft, Published, or the app's own case by its name. */
 export function statusText(period: PlacedPeriod): string {
     if (!started(period)) return "Not started";
     return period.status.type === "draft" ? "Draft" : period.status.type === "published" ? "Published" : period.status.value;
+}
+
+/** Whether the board publishes a week at a time (#1550): its periods every `"week"`; else a day at a time. */
+export function byWeek(value: AllocationValue): boolean {
+    return value.periods.type === "some" && value.periods.value.every.type === "week";
+}
+
+/**
+ * The period the board publishes that holds a day (#1550): the day itself
+ * where it publishes a day at a time — or has no periods — else the week
+ * holding it, from the day its week starts on (`week.start`).
+ *
+ * @param value - The payload: its periods, and the day its week starts on
+ * @param day - A day, at UTC midnight
+ * @returns The period's first day — its row's key — and the day after its last
+ */
+export function periodSpan(value: AllocationValue, day: Date): { readonly from: Date; readonly to: Date } {
+    if (!byWeek(value)) return { from: day, to: new Date(day.getTime() + DAY) };
+    const from = weekStart(day, value.settings.weekStart.type === "sunday");
+    return { from, to: new Date(from.getTime() + 7 * DAY) };
 }

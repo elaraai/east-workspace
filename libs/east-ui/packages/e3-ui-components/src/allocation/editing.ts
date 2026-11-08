@@ -7,9 +7,9 @@
  * The Allocation's editing (#1372, `Builder Interfaces Spec.md` §7): one
  * history over a session per record it writes — the bins (the bin kind's
  * session, read by key through its `entries` when it is given them) and the
- * days (the periods') — through the shared Schedule editing, as the Roster's
- * is: a gesture is one step, and Save sends each record's changes as its own
- * request. Drafts of every day stay in their sessions: navigating, the rail and
+ * periods, its days or its weeks (#1550) — through the shared Schedule
+ * editing, as the Roster's is: a gesture is one step, and Save sends each
+ * record's changes as its own request. Drafts of every day stay in their sessions: navigating, the rail and
  * a remount keep them, and Save includes them. The day's own reads of each
  * record serve a gesture's original and a Save's confirmation, at the revision
  * the Save committed; a row they do not hold is read by its key.
@@ -24,9 +24,9 @@ import { getSomeorUndefined, type EditHistory, type EditSession, type EntryVersi
 import { isBounded } from "../shared/bounds.js";
 import { useScheduleEditing, type ScheduleEditing, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead } from "../shared/schedule/editing.js";
 import { draftedRow, heldInWindow, keptAtRevision, periodRowRead, rowCodec } from "../shared/schedule/records.js";
-import { DAY, allocationDomain, dayKey, type AllocationValue, type DraftedBin } from "./model.js";
+import { DAY, allocationDomain, dayKey, periodSpan, type AllocationValue, type DraftedBin } from "./model.js";
 
-/** What a change names the days' record by in the history: no bin kind's slot. */
+/** What a change names the periods' record by in the history — its days', or its weeks' (#1550): no bin kind's slot. */
 export const PERIODS = "allocation.periods";
 
 const keyEqual = equalFor(StringType);
@@ -58,7 +58,7 @@ export interface AllocationEditing {
     readonly bin: string;
     /** Every drafted bin of every day, by key: its bytes, its roles and its row, or `undefined` for one removed. */
     readonly bins: ReadonlyMap<string, DraftedBin | undefined>;
-    /** Every drafted day's row, by its key's text: its bytes, or `undefined` for one removed. */
+    /** Every drafted period's row — a day's, or a week's (#1550) — by its key's text: its bytes, or `undefined` for one removed. */
     readonly periods: ReadonlyMap<string, Uint8Array | undefined>;
 }
 
@@ -77,19 +77,22 @@ export function useAllocationEditing(value: AllocationValue, storageKey: string,
     const domain = allocationDomain(value.bin.rowType);
     const kinds = useMemo(() => [value.bin.kind], [value.bin.kind]);
     const records = useMemo((): ScheduleEditingRecord[] => value.periods.type === "some"
-        ? [{ key: PERIODS, name: "Days", editing: value.periods.value.editing, entries: value.periods.value.entries }] : [], [value.periods]);
+        ? [{ key: PERIODS, name: value.periods.value.every.type === "week" ? "Weeks" : "Days", editing: value.periods.value.editing, entries: value.periods.value.entries }]
+        : [], [value.periods]);
     const epoch = day.getTime();
     const range = useMemo(() => ({ from: new Date(epoch), to: new Date(epoch + DAY) }), [epoch]);
-    // Each record's rows where the day's own reads hold them — the bins' window and the day's own row: a gesture's original, and
-    // what a Save confirms its entries by at the revision it committed.
+    // The period holding the day — the day, or its week (#1550): its own row is what the day's reads hold of the periods.
+    const own = periodSpan(value, day), ownFrom = own.from.getTime(), ownTo = own.to.getTime();
+    // Each record's rows where the day's own reads hold them — the bins' window and its period's own row: a gesture's original,
+    // and what a Save confirms its entries by at the revision it committed.
     const reads = useMemo((): Record<string, ScheduleRowRead> => {
         const from = new Date(epoch), to = new Date(epoch + DAY);
         const bins = keptAtRevision(value.bin.kind.entries, () => value.bin.rows(from, to));
         const out: Record<string, ScheduleRowRead> = { [value.bin.kind.key]: key => heldInWindow(bins(), key) };
-        // The day's own row, by its start: the day's read holds none of another day's.
-        if (value.periods.type === "some") out[PERIODS] = periodRowRead(value.periods.value, from, to, dayKey(from));
+        // The period's own row, by its start: the day's read holds none of another period's.
+        if (value.periods.type === "some") out[PERIODS] = periodRowRead(value.periods.value, new Date(ownFrom), new Date(ownTo), dayKey(new Date(ownFrom)));
         return out;
-    }, [value.bin, value.periods, epoch]);
+    }, [value.bin, value.periods, epoch, ownFrom, ownTo]);
     // A reservation holds no quantity yet: none of its quantity's bounds hold its Save (#1585).
     const boundsOf = useMemo(() => ({ [value.bin.kind.key]: binBounds(value.bin) }), [value.bin]);
     // A bin's quantity and its split across resources change together: one conflict, under the board's word for a quantity.
