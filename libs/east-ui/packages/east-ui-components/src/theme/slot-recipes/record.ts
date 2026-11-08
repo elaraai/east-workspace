@@ -45,7 +45,8 @@
  *     the left on its row's own paper, behind a `border.strong` rule, and the
  *     header's other cells the window's snap points; the pinned column's
  *     segment of the group row on the paper behind the same rule, and each
- *     group's label held over its columns in view, clear of the pinned column.
+ *     group's label held over its columns in view, clear of the pinned column,
+ *     cut with an ellipsis to them.
  *   - Inspector facts: an audit's and an age's, ruled off as the inspector's
  *     sections are, each value read only on the canvas behind the subtle
  *     rule, at the Input's height, in the mono face at tabular figures; an
@@ -116,6 +117,9 @@ const REQUIRED_WASH = "color-mix(in srgb, {colors.status.warn} 17%, {colors.bg.s
 /** A phone's pinned column's edge, down the group row, the header and the rows: the strong rule the window pages under. */
 const PINNED_EDGE = { borderInlineEndWidth: "1px", borderInlineEndStyle: "solid", borderInlineEndColor: "border.strong" } as const;
 
+/** A column group's inset at each end: its label's and its rule's. */
+const GROUP_INSET = "6px";
+
 export const recordSlotRecipe = defineSlotRecipe({
     className: "elara-record",
     slots: [
@@ -167,7 +171,7 @@ export const recordSlotRecipe = defineSlotRecipe({
         head: { background: "bg.surface", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle" },
         groupRow: { display: "grid", height: "24px" },
         groupSeg: {
-            minWidth: "0", display: "flex", flexDirection: "column", justifyContent: "flex-end", paddingInline: "6px",
+            minWidth: "0", display: "flex", flexDirection: "column", justifyContent: "flex-end", paddingInline: GROUP_INSET,
             /* A phone's pinned column's: at the left on the paper, behind its strong rule, as the columns page under it. */
             "&[data-pinned]": { ...PINNED_EDGE, position: "sticky", left: "0", zIndex: "2", background: "bg.surface" },
         },
@@ -175,9 +179,11 @@ export const recordSlotRecipe = defineSlotRecipe({
             textAlign: "center", fontFamily: "mono", fontSize: "label.xs", fontWeight: 600, letterSpacing: "label", textTransform: "uppercase",
             lineHeight: "18px", color: "fg.subtle", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
             /* On a phone, centred over its group while it is all in view, and held over the part of it in view as the window pages:
-               past the pinned column (`--record-pin`, the renderer's geometry) and the group's own inset. */
+               past the pinned column (`--record-pin`, the renderer's geometry) and the group's own inset, and cut with an ellipsis to
+               that part (`--record-group-shown`, the width of the group's columns in view) less the inset at each end. */
             "[data-phone] &": {
-                alignSelf: "center", maxWidth: "100%", position: "sticky", left: "calc(var(--record-pin, 0px) + 6px)", right: "6px",
+                alignSelf: "center", maxWidth: `min(100%, calc(var(--record-group-shown, 100% + ${GROUP_INSET} * 2) - ${GROUP_INSET} * 2))`,
+                position: "sticky", left: `calc(var(--record-pin, 0px) + ${GROUP_INSET})`, right: GROUP_INSET,
             },
         },
         groupRule: { height: "1px", background: "border.strong", "&[data-unlabelled]": { background: "transparent" } },

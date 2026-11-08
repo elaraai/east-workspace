@@ -35,7 +35,8 @@
  * is picked by its title, and its ticks are not shown — the title held at the
  * left behind a strong rule, and the other columns a window the Sheet's pager
  * pages; over them, the pinned title's segment of the group row its own,
- * drawing nothing, and each group's label held over its columns in view.
+ * drawing nothing, and each group's label held over its columns in view and
+ * cut to them, as the Sheet says which are in view.
  *
  * @packageDocumentation
  */
@@ -268,6 +269,8 @@ interface GroupSegment {
     at: number;
     /** A phone's pinned column's own, held at the left with it: it draws nothing. */
     pinned: boolean;
+    /** Where its first track stands among the columns drawn: the select column's at `-1`, before the first. */
+    from: number;
 }
 
 /**
@@ -288,16 +291,16 @@ function segmentsOf(columns: readonly SheetColumnMeta[], groups: RecordColumnGro
     const groupOf = new Map<string, number>();
     groups.forEach((group, i) => { for (const key of group.columnKeys) groupOf.set(key, i); });
     const out: GroupSegment[] = [];
-    const take = (at: number) => {
+    const take = (at: number, from: number) => {
         const before = out[out.length - 1];
         if (before !== undefined && !before.pinned && before.at === at) { before.span += 1; return; }
         const label = at < 0 ? undefined : groups[at]!.label;
-        out.push({ label: label === undefined || label.trim().length === 0 ? undefined : label, span: 1, at, pinned: false });
+        out.push({ label: label === undefined || label.trim().length === 0 ? undefined : label, span: 1, at, pinned: false, from });
     };
-    if (lead) take(-1);
+    if (lead) take(-1, -1);
     columns.forEach((meta, c) => {
-        if (pinned && c === 0) out.push({ label: undefined, span: 1, at: -1, pinned: true });
-        else take(groupOf.get(meta.key) ?? -1);
+        if (pinned && c === 0) out.push({ label: undefined, span: 1, at: -1, pinned: true, from: 0 });
+        else take(groupOf.get(meta.key) ?? -1, c);
     });
     return out;
 }
@@ -307,7 +310,7 @@ function segmentsOf(columns: readonly SheetColumnMeta[], groups: RecordColumnGro
  * row, its select column's box ticking every row shown. The two stick
  * together over the rows; nothing sorts.
  */
-export function RecordHeader({ columns, gridTemplate, layout, rowPx, rowIds }: SheetHostHeaderProps) {
+export function RecordHeader({ columns, gridTemplate, layout, rowPx, rowIds, columnWindow }: SheetHostHeaderProps) {
     const { styles, ticks, groups } = useRecordGrid();
     const lead = layout.lead;
     const pinned = layout.pinPx > 0;
@@ -317,17 +320,28 @@ export function RecordHeader({ columns, gridTemplate, layout, rowPx, rowIds }: S
     const some = n > 0 && !all;
     const segments = useMemo(() => segmentsOf(columns, groups, lead, pinned), [columns, groups, lead, pinned]);
     const last = columns.length - 1;
+    // A phone's window among the columns drawn: the paged ones start past the pinned one.
+    const shownFrom = columnWindow === undefined ? 0 : columnWindow.first + (pinned ? 1 : 0);
     return (
         // The pinned column's width: on a phone a group's label holds past it, over the group's columns in view.
         <Box css={styles.head} data-slot="head" data-phone={layout.phone ? "" : undefined} style={{ "--record-pin": `${layout.pinPx}px` } as CSSProperties}>
             {segments !== undefined && (
                 <Box css={styles.groupRow} style={{ gridTemplateColumns: gridTemplate }} data-slot="groupRow" aria-hidden="true">
-                    {segments.map((segment, i) => (
-                        <Box key={i} css={styles.groupSeg} style={{ gridColumn: `span ${segment.span}` }} data-slot="groupSeg" data-pinned={segment.pinned ? "" : undefined}>
-                            {segment.label !== undefined && <Box css={styles.groupLabel} title={segment.label}>{segment.label}</Box>}
-                            <Box css={styles.groupRule} data-unlabelled={segment.label === undefined ? "" : undefined} />
-                        </Box>
-                    ))}
+                    {segments.map((segment, i) => {
+                        // How much of the group the window shows: its label is cut to it, so a long one holds clear of the
+                        // pinned column as the window pages part of the group off (#1536).
+                        const shown = columnWindow === undefined ? undefined
+                            : Math.max(0, Math.min(segment.from + segment.span, shownFrom + columnWindow.inView) - Math.max(segment.from, shownFrom)) * columnWindow.slotPx;
+                        return (
+                            <Box key={i} css={styles.groupSeg} style={{ gridColumn: `span ${segment.span}` }} data-slot="groupSeg" data-pinned={segment.pinned ? "" : undefined}>
+                                {segment.label !== undefined && (
+                                    <Box css={styles.groupLabel} data-slot="groupLabel" title={segment.label}
+                                        style={shown === undefined ? undefined : { "--record-group-shown": `${shown}px` } as CSSProperties}>{segment.label}</Box>
+                                )}
+                                <Box css={styles.groupRule} data-unlabelled={segment.label === undefined ? "" : undefined} />
+                            </Box>
+                        );
+                    })}
                 </Box>
             )}
             <Box css={styles.headerRow} style={{ gridTemplateColumns: gridTemplate, height: `${rowPx}px` }} data-slot="headerRow" role="row" aria-rowindex={1}>

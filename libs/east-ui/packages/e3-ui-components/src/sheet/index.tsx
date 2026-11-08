@@ -148,9 +148,9 @@ import type { SheetEntries, SheetHistory, SheetHost, SheetInspect, SheetLoadingF
 
 export type {
     SheetOptimiseParts, SheetParts, SheetEntries, SheetPhoneLibrary, SheetLoadingFacts, SheetHistory, SheetHost,
-    SheetRowChanges, SheetHostRowProps, SheetHostHeaderProps, SheetHostLayout, SheetHostEmptyProps, SheetHostStripCell,
-    SheetHostStripProps, SheetGridHost, SheetCellEditorAt, SheetInspectPlace, SheetInspectTarget, SheetSelected,
-    SheetDuplicateOptions, SheetInspectWrite, SheetInspect,
+    SheetRowChanges, SheetHostRowProps, SheetHostHeaderProps, SheetColumnWindow, SheetHostLayout, SheetHostEmptyProps,
+    SheetHostStripCell, SheetHostStripProps, SheetGridHost, SheetCellEditorAt, SheetInspectPlace, SheetInspectTarget,
+    SheetSelected, SheetDuplicateOptions, SheetInspectWrite, SheetInspect,
 } from "./parts.js";
 
 export type { SheetRootValue, SheetRowValue, SheetCellValue } from "./values.js";

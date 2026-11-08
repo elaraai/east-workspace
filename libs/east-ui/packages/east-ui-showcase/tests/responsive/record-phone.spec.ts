@@ -13,7 +13,8 @@
  * moves a column; ← and → on the grid page it too. A column group's label
  * sits over its columns in view, clear of the pinned title, and the jump
  * menu lists the columns with no `Row number`: a Record's rows have no
- * numbers.
+ * numbers. Columns from data (`Record Columns From Data - DX Proposal.md`
+ * §4) page as any others, each group's label over its columns in view.
  *
  * Run: `pnpm exec playwright test record-phone`.
  */
@@ -26,7 +27,7 @@ import { settled } from "./settle";
 const ROOT = "[data-builder-frame]";
 
 /** Every example of the Record's. */
-const EXAMPLES = ["recordBasic", "recordSkillsMatrix", "recordShiftPreferences", "recordEveryKind", "recordSkillsReadOnly", "recordLooks", "recordFinishes"] as const;
+const EXAMPLES = ["recordBasic", "recordSkillsMatrix", "recordShiftPreferences", "recordEveryKind", "recordSkillsReadOnly", "recordLooks", "recordFinishes", "recordHoursByProject"] as const;
 
 /** An example of the Record's on the phone's page: its grid, the element that takes the keys. */
 async function openRecord(page: Page, name: (typeof EXAMPLES)[number]): Promise<Locator> {
@@ -155,6 +156,42 @@ test.describe("The Record on a phone", () => {
             expect(placed.left, `after ${steps}`).toBeGreaterThanOrEqual(placed.from - 0.5);
             expect(placed.right, `after ${steps}`).toBeLessThanOrEqual(placed.to + 0.5);
         }
+    });
+
+    test("columns from data under their clients: as the window pages to its end, each group's label sits over its columns in view, clear of the pinned title @mobile", async ({ page }) => {
+        const grid = await openRecord(page, "recordHoursByProject");
+        const next = pagerOf(grid).locator('[data-slot="pagerNext"]');
+        const slot = (await layoutOf(grid)).paged[0]!.width;
+        const seen = new Set<string>();
+        // Kitchen fit-out and Stair rebuild under Ashgrove, Shop front under Bellmoor, Training unlabelled after them.
+        for (let steps = 0; steps <= 4; steps++) {
+            if (steps > 0) {
+                // At the window's end the pager's next takes no press.
+                if (await next.getAttribute("aria-disabled") === "true") break;
+                await next.click();
+                await expect.poll(async () => Math.round(await scrollOf(grid) / slot)).toBe(steps);
+                await settled(page);
+            }
+            const labels = await grid.evaluate((el) => {
+                const view = el.getBoundingClientRect();
+                const pin = el.querySelector('[data-slot="headerCell"][data-pinned]')!.getBoundingClientRect();
+                return [...el.querySelectorAll<HTMLElement>('[data-slot="groupSeg"]')].flatMap((segment) => {
+                    const seg = segment.getBoundingClientRect();
+                    const from = Math.max(seg.left, pin.right);
+                    const to = Math.min(seg.right, view.right);
+                    const label = segment.firstElementChild;
+                    if (to - from < 1 || label === null || segment.textContent === "") return [];
+                    const box = label.getBoundingClientRect();
+                    return [{ text: segment.textContent ?? "", from, to, left: box.left, right: box.right }];
+                });
+            });
+            for (const label of labels) {
+                seen.add(label.text);
+                expect(label.left, `${label.text} after ${steps}`).toBeGreaterThanOrEqual(label.from - 0.5);
+                expect(label.right, `${label.text} after ${steps}`).toBeLessThanOrEqual(label.to + 0.5);
+            }
+        }
+        expect([...seen].sort()).toEqual(["Ashgrove Joinery", "Bellmoor Interiors"]);
     });
 
     test("the jump menu lists the window's columns, and offers no Row number: a Record's rows have no numbers @mobile", async ({ page }) => {

@@ -202,7 +202,8 @@ export interface SheetHost {
      * cell under the pointer, and the ring's once the pointer leaves; and it has no gutter — no row numbers, seams,
      * insertion strip or padding under the rows. On a phone's frame it is the Sheet's (#1536): its lead goes as the
      * gutter does, the column the sheet's `narrow.pin` names is held at the left, and the pager pages the rest — its
-     * rows and its header told so ({@link SheetHostLayout}). Absent, the Sheet draws its own.
+     * rows and its header told so ({@link SheetHostLayout}), and its header which columns are in view as the window
+     * pages ({@link SheetColumnWindow}). Absent, the Sheet draws its own.
      */
     grid?: SheetGridHost | undefined;
     /**
@@ -290,6 +291,21 @@ export interface SheetHostHeaderProps {
     rowPx: number;
     /** The rows shown, by id: the resident rows, in order. */
     rowIds: readonly string[];
+    /** A phone's window of columns as it pages (#1536): which are in view; `undefined` off a phone, where every one is. */
+    columnWindow: SheetColumnWindow | undefined;
+}
+
+/**
+ * A phone's window of columns as it rests (`Mobile Sheet Spec.md` SH1, #1536): the first in view among the columns the
+ * pager pages — every one but a pinned one — how many show at once, and a column's slot.
+ */
+export interface SheetColumnWindow {
+    /** The first column in view, counted among the paged columns. */
+    first: number;
+    /** How many columns show at once. */
+    inView: number;
+    /** A column's slot, px: the frame's width less the pinned column, shared by those in view. */
+    slotPx: number;
 }
 
 /**

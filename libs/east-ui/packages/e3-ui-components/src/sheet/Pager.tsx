@@ -78,14 +78,16 @@ export function pageWindow(frame: HTMLElement, slotPx: number, last: number, to:
     return target;
 }
 
-/** Renders a phone's column pager — see the module docs. */
-export const SheetPager = memo(function SheetPager({ styles, frame, columns, slotPx, inView, rowNumbers, onRowNumbers }: SheetPagerProps) {
-    const words = useSheetWords();
-    const { m } = words;
-    const menuStyles = useSlotStyles("menu");
-    const total = columns.length;
-    const last = Math.max(0, total - inView);
-    // The first column in view: where the window rests, read off the frame as it scrolls.
+/**
+ * Reads where the window rests (SH1): its first column, off the frame as it scrolls — what the pager's readout says,
+ * and a host's header cuts its group labels to (#1536).
+ *
+ * @param frame - The element the rows scroll in, sideways too; `null` reads nothing
+ * @param slotPx - A column's slot, px
+ * @param last - The last first column the window can have
+ * @returns The first column in view, and a setter for a step's target, before the frame has moved to it
+ */
+export function useWindowFirst(frame: HTMLElement | null, slotPx: number, last: number): [number, (first: number) => void] {
     const [first, setFirst] = useState(0);
     useEffect(() => {
         if (frame === null || slotPx <= 0) return undefined;
@@ -94,6 +96,17 @@ export const SheetPager = memo(function SheetPager({ styles, frame, columns, slo
         frame.addEventListener("scroll", read, { passive: true });
         return () => frame.removeEventListener("scroll", read);
     }, [frame, slotPx, last]);
+    return [first, setFirst];
+}
+
+/** Renders a phone's column pager — see the module docs. */
+export const SheetPager = memo(function SheetPager({ styles, frame, columns, slotPx, inView, rowNumbers, onRowNumbers }: SheetPagerProps) {
+    const words = useSheetWords();
+    const { m } = words;
+    const menuStyles = useSlotStyles("menu");
+    const total = columns.length;
+    const last = Math.max(0, total - inView);
+    const [first, setFirst] = useWindowFirst(frame, slotPx, last);
     const [open, setOpen] = useState(false);
     const go = (to: number) => {
         if (frame !== null) setFirst(pageWindow(frame, slotPx, last, to));

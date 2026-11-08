@@ -24,7 +24,7 @@ import { noticeText } from "./words.js";
 import { SheetInsertLayer, SheetInsertStrip } from "./Insertion.js";
 import { SheetHeader } from "./Header.js";
 import { SheetRow, SheetGroupRow, SheetRetry } from "./Rows.js";
-import { SheetPager } from "./Pager.js";
+import { SheetPager, useWindowFirst } from "./Pager.js";
 import { SheetStrip } from "./Strip.js";
 import type { SheetFooterProps } from "./Footer.js";
 import { sheetToolbarRow, useSheetToolbarPartsFor } from "./Toolbar.js";
@@ -211,6 +211,10 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     };
     const history: SheetHistory = { session, onAction: onHistoryAction };
     const optimise: SheetOptimiseParts = { banner: optimiseParts.banner, landing: { ref: landingRoot, attributes: landing.attributes, css: landingStyles.main } };
+    // Where a phone's window rests, read as the pager reads it, for a host's header (#1536): a group's label is cut to
+    // its columns in view, so it holds clear of the pinned column as the window pages.
+    const hostPhone = hostGrid !== undefined && phoneFrame;
+    const [windowFirst] = useWindowFirst(hostPhone ? viewport?.frame ?? null : null, slotPx, Math.max(0, pagerColumns.length - phoneColumns));
 
     if (sourceFailure !== undefined) {
         const failure = (
@@ -233,7 +237,8 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
         <Box ref={headerRef} position="relative">
             {HostHeader !== undefined
                 // A host's header (#1531): its column cells are `headerCell`s, as the Sheet's, which a key's reveal reads.
-                ? <HostHeader columns={columns.list} gridTemplate={gridTemplate} layout={hostLayout} rowPx={rowPx} rowIds={rows.map((row) => row.id)} />
+                ? <HostHeader columns={columns.list} gridTemplate={gridTemplate} layout={hostLayout} rowPx={rowPx} rowIds={rows.map((row) => row.id)}
+                    columnWindow={hostPhone && slotPx > 0 ? { first: windowFirst, inView: phoneColumns, slotPx } : undefined} />
                 : <SheetHeader styles={styles} columns={columns.list} gridTemplate={gridTemplate} picked={wr !== null} foldAll={foldAll} rowNumbers={rowNumbers}
                     selected={phoneFrame && ui.selEnd === null && (ringItem?.kind === "real" || ringItem?.kind === "group") ? ringCol : undefined} />}
             {stickyItem !== undefined && stickyItem.kind === "group" && group !== undefined && stickyAt !== undefined && (

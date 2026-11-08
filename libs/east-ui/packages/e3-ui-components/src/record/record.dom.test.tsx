@@ -261,6 +261,26 @@ describe("on a phone", () => {
         }
     });
 
+    test("a group's label is cut to its columns in view as the window pages: Ashgrove's two projects, then the one left, then none, as Bellmoor's comes in (HD1)", async () => {
+        const restore = touchFrame(390);
+        const restoreScroll = frameScrolls();
+        try {
+            const { container } = await h.mount(ex.recordHoursByProject, { storageKey: "record-phone-group-cut" });
+            const next = container.querySelector<HTMLElement>('[data-record] [data-slot="pager"] [data-slot="pagerNext"]')!;
+            // Each label's room: its group's columns in view, a slot of 120 each beside the pinned name.
+            const room = () => [...container.querySelectorAll<HTMLElement>('[data-record] [data-slot="groupLabel"]')]
+                .map((label) => [label.textContent, label.style.getPropertyValue("--record-group-shown")]);
+            expect(room()).toEqual([["Ashgrove Joinery", "240px"], ["Bellmoor Interiors", "0px"]]);
+            await press(next);
+            expect(room()).toEqual([["Ashgrove Joinery", "120px"], ["Bellmoor Interiors", "120px"]]);
+            await press(next);
+            expect(room()).toEqual([["Ashgrove Joinery", "0px"], ["Bellmoor Interiors", "120px"]]);
+        } finally {
+            restoreScroll();
+            restore();
+        }
+    });
+
     test("a row is picked by its title — the ring on it, and the drawer open on the Record's Details at touch size, named by its title, its facts after its fields and no field taking the keyboard unasked — and deleted there, one step Undo takes back (P4, IN2, IN6, IN7, SH12)", async () => {
         const restore = touchFrame(390, { builder: true });
         try {
