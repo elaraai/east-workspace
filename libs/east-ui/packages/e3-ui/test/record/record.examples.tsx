@@ -1008,8 +1008,8 @@ export const withPeak = East.function([ArrayType(PreferenceSnapshot), Preference
 });
 
 export const recordSkillHistory = example({
-    keywords: ["Record", "columns from data", "worked case", "dated history", "each", "groups", "read", "write", "mark", "Record.Types.Mark", "lock", "Record.column.cycle", "steps", "Record.column.title", "value"],
-    description: "The worked case's skills page: each person's skills held as a dated history, one row per change, with a column for each skill under its team. Each cell is the level in force at the Record's day, through the solution's `read`; a licence locks its cell and a lapsed level is noted, through its `mark`; and each step appends or replaces today's row, through its `write`. The name is the person's own, or their id where they have none, and the page adds no one",
+    keywords: ["Record", "columns from data", "worked case", "dated history", "each", "groups", "read", "write", "mark", "Record.Types.Mark", "lock", "Record.column.cycle", "steps", "Record.column.title", "value", "Record.field.hidden", "hidden"],
+    description: "The worked case's skills page: each person's skills held as a dated history, one row per change, with a column for each skill under its team. Each cell is the level in force at the Record's day, through the solution's `read`; a licence locks its cell and a lapsed level is noted, through its `mark`; and each step appends or replaces today's row, through its `write`. The name is the person's own, or their id where they have none, the page adds no one, and its side panel leaves out the preferences, which the preferences page edits",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const staff = $.let(Record.bind(recordPeople));
@@ -1046,6 +1046,8 @@ export const recordSkillHistory = example({
                                 write: withLevel,
                             }),
                         }}
+                        // The preferences are the preferences page's: held as dated snapshots, they would show here as raw data.
+                        fields={{ preferences: Record.field.hidden() }}
                         inspector
                         name="skillHistory"
                     />
@@ -1057,8 +1059,8 @@ export const recordSkillHistory = example({
 });
 
 export const recordPreferenceSnapshots = example({
-    keywords: ["Record", "columns from data", "worked case", "dated snapshots", "each", "field", "read", "write", "mark", "Record.Types.Mark", "note", "Record.column.cycle", "steps", "columnGroups", "Record.column.title", "value"],
-    description: "The worked case's preferences page: each person's shift preferences held as dated snapshots, with two families of columns over one field, the standard choices and the peak ones. Each family reads the snapshot in force at the Record's day and writes a new stated one, through the solution's functions. The name notes a person whose choices are guessed or not stated yet, and the page adds no one",
+    keywords: ["Record", "columns from data", "worked case", "dated snapshots", "each", "field", "read", "write", "mark", "Record.Types.Mark", "note", "Record.column.cycle", "steps", "columnGroups", "Record.column.title", "value", "Record.field.hidden", "hidden"],
+    description: "The worked case's preferences page: each person's shift preferences held as dated snapshots, with two families of columns over one field, the standard choices and the peak ones. Each family reads the snapshot in force at the Record's day and writes a new stated one, through the solution's functions. The name notes a person whose choices are guessed or not stated yet, the page adds no one, and its side panel leaves out the skills, which the skills page edits",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const staff = $.let(Record.bind(recordPeople));
@@ -1104,6 +1106,8 @@ export const recordPreferenceSnapshots = example({
                             { label: "Standard", columnKeys: ["standard"] },
                             { label: "Peak", columnKeys: ["peak"] },
                         ]}
+                        // The skills are the skills page's: held as a dated history, they would show here as raw data.
+                        fields={{ skills: Record.field.hidden() }}
                         inspector
                         name="preferenceSnapshots"
                     />
