@@ -8,13 +8,17 @@
  * pitch; the tiles in the shifts' colour tokens and the ink the shade takes;
  * a pattern dropped on a person's row, saved through e3 and read back after
  * a remount; a month not read drawn at once with its placeholders, the
- * months either side read ahead (#1398); and both densities.
+ * months either side read ahead (#1398); both densities; and a month's marks
+ * drawing a longer code's first letter alone, none cut at any width in either
+ * density (#1569).
  */
 import { expect, type Locator, type Page } from "playwright/test";
+import { PatchType, SortedMap, StringType, compareFor, diffFor, encodeBeast2For } from "@elaraai/east";
+import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import { test } from "./kept-page";
 import { toolbarFaults } from "./builder-frame";
 import { leaveBuilder } from "./builder-page";
-import { RECORD_READS, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
+import { RECORD_READS, holdE3, installE3Faults, mutateE3, releaseE3 } from "./e3-faults";
 import { settled } from "./settle";
 import { LAYOUT_THEMES } from "./themes";
 const FILE = "e3/roster/roster";
@@ -91,6 +95,39 @@ const headerFaults = (header: Locator) => header.evaluate((root) => {
         if (Math.max(a.left, b.left) - Math.min(a.right, b.right) < 1) faults.push(`"${a.text}" touches "${b.text}"`);
     }
     return faults;
+});
+/** The warehouse's shift codes made three letters long, each first letter another than its one-letter code (#1569). */
+const LONG_CODES: Readonly<Record<string, string>> = { E: "MOR", L: "AFT", N: "OVN" };
+/**
+ * Makes the warehouse's shift codes three letters long, as another session would: each shift's code from
+ * {@link LONG_CODES}, patched in through the shift times' patch door.
+ */
+async function lengthenCodes(page: Page): Promise<void> {
+    const { type, name, default: seeded } = ex.rosterShiftTimes;
+    if (seeded === undefined) throw new Error("the warehouse's shift times are seeded");
+    const before = new SortedMap(seeded, compareFor(StringType));
+    const after = new SortedMap([...before].map(([key, shift]) => [key, { ...shift, code: LONG_CODES[shift.code] ?? shift.code }] as const), compareFor(StringType));
+    await mutateE3(page, "roster", name, "patch", [encodeBeast2For(PatchType(type))(diffFor(type)(before, after))]);
+}
+/**
+ * What a month's lettered marks draw that is more than a letter, or cut (#1569): each duty's mark whose letter shows —
+ * one grapheme, its shift's code's first — measured from its text's own box against the mark's, which clips it.
+ */
+const markFaults = (frame: Locator) => frame.locator("[data-roster-mark][data-shift]").evaluateAll((marks) => {
+    const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    const faults = new Set<string>();
+    let lettered = 0;
+    for (const mark of marks) {
+        const text = mark.textContent ?? "";
+        if (text === "") continue;
+        lettered += 1;
+        if ([...graphemes.segment(text)].length !== 1) faults.add(`"${text}" is more than a letter`);
+        const range = document.createRange();
+        range.selectNodeContents(mark);
+        const box = range.getBoundingClientRect(), edge = mark.getBoundingClientRect();
+        if (box.left < edge.left - 0.5 || box.right > edge.right + 0.5) faults.add(`"${text}" is cut`);
+    }
+    return { lettered, faults: [...faults] };
 });
 
 for (const theme of LAYOUT_THEMES) {
@@ -249,6 +286,37 @@ for (const theme of LAYOUT_THEMES) {
             await page.getByRole("menuitem", { name: "Comfortable spacing", exact: true }).click();
             await settled(page);
             expect(new Set(await rowHeights(frame))).toEqual(new Set([36]));
+        }
+    });
+    test(`a month's marks draw a longer code's first letter alone: MOR, AFT and OVN patched in through e3 draw M, A and O, none cut at 1440/1024/768/390/360 or in a 294px parent, in both densities (#1569) (${theme}) @desktop`, async ({ page }) => {
+        await installE3Faults(page);
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const entry = await open(page, "rosterPeopleMonth", theme), frame = entry.locator("[data-roster-frame]").first();
+        const month = frame.locator('[data-roster-main] [data-roster-grid="people-month"]');
+        await size(page, entry, 1440);
+        await lengthenCodes(page);
+        // Once the page has heard the codes, each mark draws its code's first letter.
+        const letters = async () => new Set((await frame.locator("[data-roster-mark][data-shift]").allTextContents()).filter(text => text !== ""));
+        await expect.poll(letters, { timeout: 15_000 }).toEqual(new Set(["M", "A", "O"]));
+        for (const density of ["comfortable", "compact"] as const) {
+            if (density === "compact") {
+                await size(page, entry, 1440);
+                await expect(month).toBeVisible();
+                await frame.getByRole("button", { name: "Display", exact: true }).click();
+                await page.getByRole("menuitem", { name: "Compact spacing", exact: true }).click();
+                await settled(page);
+                expect(new Set(await rowHeights(frame))).toEqual(new Set([32]));
+            }
+            let lettered = 0;
+            for (const width of [1440, 1024, 768, 390, 360, 294]) {
+                await size(page, entry, width);
+                // A phone's People is its cards, by week alone: no month to measure.
+                if (await month.count() === 0) continue;
+                const marks = await markFaults(frame);
+                expect(marks.faults, `${density} ${width}px`).toEqual([]);
+                lettered += marks.lettered;
+            }
+            expect(lettered, `${density}: a width whose marks are lettered`).toBeGreaterThan(0);
         }
     });
 }

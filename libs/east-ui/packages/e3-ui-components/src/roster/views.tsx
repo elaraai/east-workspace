@@ -42,7 +42,7 @@ import { isPatternCard, rosterCoord, rosterPersonWeekCoord, type RosterDrag } fr
 import type { PatternDay, RosterCommands } from "./actions.js";
 import type { RosterDutyOp, RosterOptimised } from "./optimise.js";
 import {
-    DAY, activityOf, costsOf, groupSkills, hourText, ownTimes, sameSlot, shiftColor, shiftHoursText, shiftOf, slotKey, weekKey, weekNumber,
+    DAY, activityOf, costsOf, groupSkills, hourText, ownTimes, sameSlot, shiftColor, shiftHoursText, shiftLetter, shiftOf, slotKey, weekKey, weekNumber,
     type Assignment, type Coverage, type Issue, type Pay, type Person, type PlacedProposal, type RosterDomain, type RosterSpan, type RosterStyles, type RosterValue,
     type RosterView, type Selection, type Shift, type Slot, type Week, type WeekState,
 } from "./model.js";
@@ -1077,13 +1077,16 @@ function useMonthHeadFit(head: RefObject<HTMLElement | null>): MonthHeadFit {
     }, [head, measure]);
     return fit;
 }
-/** A day's mark in a week cell (P13): the shift's letter in its colour, an off day faint; dashed where a pattern previews it; drafted against its own week as held. */
+/**
+ * A day's mark in a week cell (P13): the shift's letter — its code's first, never the whole code, which the mark would
+ * cut (#1569) — in its colour, an off day faint; dashed where a pattern previews it; drafted against its own week as held.
+ */
 function Mark({ ctx, held, day, duties, preview, letters }: { ctx: ViewContext; held: Week; day: number; duties: readonly DayDuty[]; preview: PatternDay | undefined; letters: boolean }) {
     const { value, styles } = ctx;
     // While a pattern hovers the cell its seven marks are the pattern's days, dashed (P15).
     if (preview !== undefined) {
         const shift = preview.shift === undefined ? undefined : shiftOf(value, preview.shift);
-        return <Box as="span" css={styles.mark} data-roster-mark={day} data-preview={preview.kind} data-off={shift === undefined ? "" : undefined} style={fillOf(shift)}>{letters ? shift?.code ?? "" : ""}</Box>;
+        return <Box as="span" css={styles.mark} data-roster-mark={day} data-preview={preview.kind} data-off={shift === undefined ? "" : undefined} style={fillOf(shift)}>{letters ? shiftLetter(shift) : ""}</Box>;
     }
     const live = duties.filter(duty => !duty.removed);
     const first = live[0] ?? duties[0];
@@ -1091,7 +1094,7 @@ function Mark({ ctx, held, day, duties, preview, letters }: { ctx: ViewContext; 
     const shift = shiftOf(value, first.a.slot.shift);
     const drafted = first.removed || (() => { const baseline = held.assignments.get(first.id); return baseline === undefined || !ctx.domain.sameAssignment(baseline, first.a); })();
     return <Box as="span" css={styles.mark} data-roster-mark={day} data-shift={first.a.slot.shift} data-removed={live.length === 0 ? "" : undefined} data-drafted={drafted ? "" : undefined}
-        style={live.length === 0 ? undefined : fillOf(shift)} title={`${shift?.label ?? first.a.slot.shift}${live.length > 1 ? ` +${live.length - 1}` : ""}`}>{letters ? shift?.code ?? "" : ""}</Box>;
+        style={live.length === 0 ? undefined : fillOf(shift)} title={`${shift?.label ?? first.a.slot.shift}${live.length > 1 ? ` +${live.length - 1}` : ""}`}>{letters ? shiftLetter(shift) : ""}</Box>;
 }
 /**
  * A person's week in the month (P13–P15): seven marks, a drop target for a pattern, a click selecting the person-week;

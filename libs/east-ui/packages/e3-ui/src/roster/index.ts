@@ -288,7 +288,7 @@ export interface RosterProps<R extends EastType = EastType> {
     readOnly?: SubtypeExprOrValue<BooleanType>;
     /** Whether a People tile shows the shift's hours (`06–14`) always, or only a duty's own times where they differ from the shift's (#1406); `"always"` by default. */
     tileTimes?: "always" | "different";
-    /** Whether a month's marks carry the shift's letter (#1406); `true` by default. */
+    /** Whether a month's marks carry the shift's letter — its code's first; the week, the Shifts layout and the patterns' cards draw the whole code (#1406, #1569); `true` by default. */
     letters?: boolean;
     /** The Roster's own words for who is on it, each optional: `{ permanent: "Employees", agency: "Contractors", others: "Colleagues" }` (#1516). */
     vocabulary?: RosterVocabulary;

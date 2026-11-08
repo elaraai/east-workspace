@@ -7,7 +7,7 @@
  * and marked by the app's declaration; a pattern dropped on a person's week
  * — its row in Week, its cell in Month — as one step of the history, its
  * preview and caption, and each refusal; the month's columns, marks, letters
- * and column click; the person-week the inspector reads; the phone's
+ * — a shift code's first letter alone (#1569) — and column click; the person-week the inspector reads; the phone's
  * `Apply pattern…` and Week alone; and #1398's rules on a month's read.
  */
 import { describe, expect, test } from "vitest";
@@ -222,6 +222,42 @@ describe("the People month (#1406, D2, D10, P12–P16, P2)", () => {
         expect(columns()[0]!.getAttribute("data-roster-week-column")).toBe(weekKey(MARCH.weeks[4]!));
         await step(c, "[");
         expect(columns()).toHaveLength(5);
+    });
+    test("with three-letter codes each mark draws its shift's code's first letter alone — a duty's, and a previewed pattern's day — its title naming the shift; the Patterns tab's strips and the Shifts layout by week keep the whole code (#1569)", async () => {
+        // The shift times as another session leaves them: a three-letter code each.
+        const codes = new Map([["early", "EAR"], ["late", "LAT"], ["night", "NGT"]]);
+        const labels = new Map([["early", "Early"], ["late", "Late"], ["night", "Night"]]);
+        const times = await h.read(ex.rosterShiftTimes);
+        for (const [key, code] of codes) times.set(key, { ...times.get(key)!, code });
+        await h.patch(ex.rosterShiftTimes, times);
+        const { container: c } = await h.mount(ex.rosterPeopleMonth);
+        const lettered = [...slot(c, "main").querySelectorAll<HTMLElement>("[data-roster-mark][data-shift]")];
+        expect(lettered.length).toBeGreaterThan(0);
+        const first = new Map([["early", "E"], ["late", "L"], ["night", "N"]]);
+        expect(lettered.map(mark => mark.textContent)).toEqual(lettered.map(mark => first.get(mark.getAttribute("data-shift")!)));
+        expect(lettered.every(mark => mark.title.startsWith(labels.get(mark.getAttribute("data-shift")!)!))).toBe(true);
+        // A pattern's days previewed over a cell, a letter each: early Sunday and Monday, late Tuesday and Wednesday, night Thursday.
+        const person = firstPerson(c);
+        await hover(await pattern(c, "fwd"), monthCell(c, person, START));
+        expect([...monthCell(c, person, START).querySelectorAll("[data-roster-mark][data-preview]")].map(mark => mark.textContent)).toEqual(["E", "E", "L", "L", "N", "", ""]);
+        await release();
+        await press(history(c, editingMessages.undo()));
+        // The Patterns tab's cards keep the whole code.
+        const strip = slot(c, "start").querySelector('[data-roster-library="patterns"] [data-library-item="fwd"] [data-roster-pattern-strip]')!;
+        expect([...strip.children].map(mark => mark.textContent)).toEqual(["EAR", "EAR", "LAT", "LAT", "NGT", "", ""]);
+        // The Shifts layout by week heads each day's shifts with the whole code.
+        await press(toolbar(c).getByRole("radio", { name: "Shifts" }));
+        if (toolbar(c).getByRole("radio", { name: "Week" }).getAttribute("aria-checked") !== "true") await press(toolbar(c).getByRole("radio", { name: "Week" }));
+        const heads = [...slot(c, "main").querySelectorAll("[data-roster-column-header][data-week]")].map(head => head.textContent ?? "").filter(text => /^[A-Z]{3}$/u.test(text));
+        expect(heads).toEqual(Array.from({ length: 7 }, () => ["EAR", "LAT", "NGT"]).flat());
+    });
+    test("with `letters={false}` no mark draws a letter (#1569)", async () => {
+        const { container: c } = await h.mount(warehouseRoster({ letters: false }));
+        await press(toolbar(c).getByRole("radio", { name: "People" }));
+        await press(toolbar(c).getByRole("radio", { name: "Month" }));
+        const marks = [...slot(c, "main").querySelectorAll<HTMLElement>("[data-roster-mark][data-shift]")];
+        expect(marks.length).toBeGreaterThan(0);
+        expect(marks.every(mark => mark.textContent === "")).toBe(true);
     });
     test("Month → Week returns to the week Month was opened from while the month holds it; a month stepped to opens on its first week (P3)", async () => {
         const { container: c } = await h.mount(ex.rosterPeople);

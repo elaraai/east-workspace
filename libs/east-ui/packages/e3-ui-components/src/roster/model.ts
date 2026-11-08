@@ -770,6 +770,21 @@ export function shiftHoursText(shift: Shift): string {
     const text = (minutes: number) => { const h = String(Math.floor(minutes / 60)).padStart(2, "0"), m = minutes % 60; return m === 0 ? h : `${h}:${String(m).padStart(2, "0")}`; };
     return `${text(start)}–${text(end)}`;
 }
+/** What a shift's code is cut between: its graphemes, where the page segments them. */
+const GRAPHEMES = typeof Intl.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : undefined;
+/**
+ * The letter a month's mark draws for a shift (#1569): its code's first grapheme — an accented letter whole — or its
+ * first code point where the page has no segmenter. Everything else that draws a shift's code draws it whole.
+ *
+ * @param shift - The shift
+ * @returns Its letter; `""` for no shift, or a shift with no code
+ */
+export function shiftLetter(shift: Shift | undefined): string {
+    const code = shift?.code ?? "";
+    if (GRAPHEMES === undefined) return Array.from(code)[0] ?? "";
+    for (const part of GRAPHEMES.segment(code)) return part.segment;
+    return "";
+}
 /** Checks bound configuration without rejecting ordinary staffing warnings. */
 export function configError(value: RosterPayload): string | undefined {
     if (value.groups.length === 0 || value.shifts.length === 0) return "Roster needs at least one group and one shift.";
