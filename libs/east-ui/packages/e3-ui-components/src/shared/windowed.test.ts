@@ -192,11 +192,13 @@ describe("the store a driver keeps of its source's windows (#577, #811, #821)", 
         store.at("r2");
         const standing = store.read(reader, [0, 1], PAGE);
         expect(standing.stale).toBe(true);
+        expect(standing.standing).toEqual([0, 1]);
         expect(standing.resident).toEqual([{ w: 0, read: [0] }, { w: 1, read: [1] }]);
         expect(standing.inFlight).toEqual([0, 1]);
         // Each lands at r2: nothing stands in, and r1's windows go.
         landed.add(0).add(1);
-        expect(store.read(reader, [0, 1], PAGE).stale).toBe(false);
+        const read = store.read(reader, [0, 1], PAGE);
+        expect([read.stale, read.standing]).toEqual([false, []]);
         expect(store.stale).toBeUndefined();
     });
 
@@ -210,7 +212,7 @@ describe("the store a driver keeps of its source's windows (#577, #811, #821)", 
         // The source finding its revision again, then naming a new one.
         store.at(undefined);
         store.at("r2");
-        expect(store.read(reader, [0], PAGE)).toEqual({ resident: [{ w: 0, read: [0] }], inFlight: [0], failed: [], stale: true });
+        expect(store.read(reader, [0], PAGE)).toEqual({ resident: [{ w: 0, read: [0] }], inFlight: [0], failed: [], stale: true, standing: [0] });
     });
 
     test("what leaves the run leaves the store with it: its rows, a stand-in and a failure record", () => {
