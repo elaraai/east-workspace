@@ -38,6 +38,7 @@ export {
   type WorkspaceDeployStore,
   type RepoGcStore,
   type SplitCallStore,
+  type FunctionCallDispatch,
   type TransferBackend,
 } from './interfaces.js';
 
@@ -48,6 +49,12 @@ export {
   type InMemoryTransferBackendOptions,
   type UploadCommitForm,
 } from './InMemoryTransferBackend.js';
+
+// The calls of named functions, each run in the process that dispatches it
+export {
+  InProcessFunctionCallDispatch,
+  type InProcessFunctionCallDispatchOptions,
+} from './in-process-calls.js';
 
 // Shared processing handlers
 export {

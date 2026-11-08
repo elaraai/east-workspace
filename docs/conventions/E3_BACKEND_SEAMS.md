@@ -36,11 +36,11 @@ rest: the logic, the routes and the tests.
 
 | Seam | Declared in | What it gives | e3-core's and e3-api-server's | e3-web's |
 |---|---|---|---|---|
-| `StorageBackend` | e3-core `storage/interfaces.ts` | objects, and whether placing one is a link on this machine or a download, and their re-reference; refs, the repository record and the upgrade under way among them; locks; logs; the repository lifecycle and gc's primitives, for gc beside running work too; dataset refs; the backend's own upgrade steps; the store a repository's dataflow runs keep their state in (`runStates`) | `LocalStorage`, `InMemoryStorage` | `WebStorage` (`openWebStorage`): objects as OPFS files, records in IndexedDB, locks through Web Locks; placing an object is a download |
+| `StorageBackend` | e3-core `storage/interfaces.ts` | objects, and whether placing one is a link on this machine or a download, and their re-reference; refs, the repository record and the upgrade under way among them; locks; logs; the repository lifecycle and gc's primitives, for gc beside running work too; dataset refs; the calls of named functions a workspace keeps, each until its `expiresAt` (`calls`, a `FunctionCallStore`), and gc's scan of what a live call names (`RepoStore.gcScanCallRoots`); the backend's own upgrade steps; the store a repository's dataflow runs keep their state in (`runStates`) | `LocalStorage`, `InMemoryStorage` | `WebStorage` (`openWebStorage`): objects as OPFS files, records in IndexedDB, locks through Web Locks; placing an object is a download |
 | `TaskRunner` | e3-core `execution/interfaces.ts` | runs a task, a unit of a split task, or a detached call; takes a delivered collection in, or a run of its segments, through an intake unit, and says the largest delivery it takes in whole; says whether an execution recorded `running` can still finish | `LocalTaskRunner`, and `MockTaskRunner` for tests | `WebTaskRunner`: every unit on a pool of Web Workers (`UnitPool`), each running east's `executeUnit` |
 | `ExecutionStateStore` | e3-core `dataflow/state-store/interfaces.ts` | a dataflow run's state, and its events kept apart from it — a write of the state appends the run's new ones, a segment at most rewritten, and a poll reads those past its cursor, never the state — and every run of a repository as stored, which an upgrade step rewrites (`readStored`, `writeEvents`) | `FileStateStore`, `InMemoryStateStore`, over the shared segments (`dataflow/state-store/events.ts`) | `WebStateStore`, in IndexedDB, a record per segment |
 | `DataflowOrchestrator` | e3-core `dataflow/orchestrator/interfaces.ts` | starts, polls, cancels and resumes a run | `LocalOrchestrator`, over the storage, state store and runner it is given | `LocalOrchestrator`, as it is: its host's owner is the tab's session |
-| `TransferBackend` | e3-core `transfer/interfaces.ts` | uploads and downloads, an upload's commit, and the jobs that outlast a request: import, export, deploy, gc, split calls | `InMemoryTransferBackend`, the local server's | `WebTransferBackend`: staging in OPFS, each job's status a record in IndexedDB |
+| `TransferBackend` | e3-core `transfer/interfaces.ts` | uploads and downloads, an upload's commit, and the jobs that outlast a request: import, export, deploy, gc, split calls; and where a call of a named function runs, and what is heard of its end (`functionCalls`, a `FunctionCallDispatch`) | `InMemoryTransferBackend`, the local server's; its calls run in its process (`InProcessFunctionCallDispatch`) | `WebTransferBackend`: staging in OPFS, each job's status a record in IndexedDB; its calls run in the e3 worker (`InProcessFunctionCallDispatch`) |
 | The route factories | e3-api-server `routes/`, `middleware/repository.ts` | every route, and the gate a request to a repository passes; who may run what through one-shot, and load through a function call's runner override (`OneShotAccess`) | `createServer` mounts them over the local seams | `serveE3` mounts them in the e3 worker (`createWebApp`), with the host's `OneShotAccess` |
 
 **What only a backend knows is a method it implements**, never a check in
@@ -182,6 +182,29 @@ re-reference of what an `object` argument names, an earlier call's output of
 thousands of segments, say: the launch checks only the argument's own object
 and records which arguments are objects (`objects`), and the job re-references
 the rest before it runs (`splitCallReference`).
+
+**A call of a named function through a workspace outlives its request.** It
+is a record in the store (`StorageBackend.calls`), filed by e3-core's
+`functionCallStart` — the function as deployed then, its inputs and dataset
+arguments pinned, each value argument stored as an object, all holding the
+repository's running work — and run where the transfer backend's dispatch
+runs calls (`TransferBackend.functionCalls`), by the job every backend shares,
+`handleProcessFunctionCall`, which stores the value and records the end, the
+first end standing. What a poll reads is the store's (`functionCallRead`,
+`functionCallStatus`): a dispatch answers what it hears of a call it runs, and
+a host whose runs are elsewhere answers nothing, so the routes read the store
+for the rest. A request to cancel a call is a field of its record
+(`FunctionCallStore.requestCancel`), which every run looks for in its record,
+and which a dispatch whose runs are in its own process hears of at once
+(`FunctionCallDispatch.cancel`). A call is kept for the lifetime its end gives
+it, an hour for a success or a cancel and a week for any other end, and every
+read leaves out a call past its `expiresAt`, so no job forgets it: a store
+whose items expire on their own (a DynamoDB `ttl`) leaves the removal to them,
+and the local, in-memory and in-page stores remove one as a read passes it and
+as gc sweeps. A call still recorded running past its deadline and a grace is
+recorded `lost` as it is read: its host stopped before it ended, whatever the
+backend. A store's behaviour is `functionCallStoreTests`; a route's, the
+`calls` suite of e3-api-tests.
 
 **A job over compute with a time limit hands over between calls.** Each job's
 processor takes a signal its caller aborts at the deadline, and a call stopped

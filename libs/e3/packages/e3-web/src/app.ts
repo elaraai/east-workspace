@@ -27,6 +27,7 @@ import {
   createRepositoryRoutes,
   createTaskRoutes,
   createTransferRoutes,
+  createWorkspaceCallRoutes,
   createWorkspaceFunctionRoutes,
   createWorkspaceBundleRoutes,
   createWorkspaceRecordRoutes,
@@ -113,8 +114,10 @@ function repositoryOf(repo: string): string {
  *   upgrades it owes in the request, as an in-page request has no time
  *   limit; and the repositories' own routes;
  * - a repository's status, gc, packages and their transfer, workspaces,
- *   datasets and their transfer, tasks, functions and one-shot with its split
- *   calls under the host's `access`, records, the dataflow, and objects.
+ *   datasets and their transfer, tasks, functions — each call through a
+ *   workspace run in this worker and kept for its lifetime, polled, cancelled
+ *   and listed at `…/calls` — and one-shot with its split calls under the
+ *   host's `access`, records, the dataflow, and objects.
  *
  * @param seams - The storage, transfers, runners, orchestrator and state
  *   store the routes run over, and who may run what
@@ -174,9 +177,11 @@ export function createWebApp(seams: WebAppSeams): WebApp {
   app.route('/api/repos/:repo/workspaces/:ws/datasets', datasetTransfer.api);
   app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, repositoryOf, transfer));
 
-  // Tasks, functions, one-shot and its split calls, and records.
+  // Tasks, functions and their kept calls, one-shot and its split calls, and
+  // records.
   app.route('/api/repos/:repo/workspaces/:ws/tasks', createTaskRoutes(storage, repositoryOf));
-  app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, repositoryOf, getRunner, { access }));
+  app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, repositoryOf, transfer, { access }));
+  app.route('/api/repos/:repo/workspaces/:ws/calls', createWorkspaceCallRoutes(storage, repositoryOf, transfer));
   app.route('/api/repos/:repo/workspaces/:ws/one-shot', createOneShotRoutes(storage, repositoryOf, transfer, getRunner, { access }));
   app.route('/api/repos/:repo/workspaces/:ws/records', createWorkspaceRecordRoutes(storage, repositoryOf, getRunner));
 

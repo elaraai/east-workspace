@@ -129,7 +129,7 @@ export class RepositoryUpgradePendingError extends E3Error {
 
 /** The kinds of hash and id, whose refusal names its form rather than a name. */
 const IDENTIFIER_KINDS: ReadonlySet<NamedKind | IdentifierKind> = new Set<IdentifierKind>([
-  'object hash', 'task hash', 'inputs hash', 'execution id', 'run id', 'gc run id',
+  'object hash', 'task hash', 'inputs hash', 'execution id', 'run id', 'gc run id', 'call id',
 ]);
 
 /**

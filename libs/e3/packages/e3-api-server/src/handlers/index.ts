@@ -97,6 +97,22 @@ export {
 } from './functions.js';
 
 export {
+  startFunctionCall,
+  callFunctionInWorkspace,
+  getFunctionCallStatus,
+  cancelFunctionCall,
+  listFunctionCalls,
+  getFunctionCall,
+  type CallAdmit,
+  type FunctionCallFilingOptions,
+  type StartFunctionCallOptions,
+  type CallFunctionInWorkspaceOptions,
+  type FunctionCallStatusOptions,
+  type CancelFunctionCallOptions,
+  type FunctionCallListQuery,
+} from './calls.js';
+
+export {
   describeRecord,
   callMutationSync,
   compactRecord,

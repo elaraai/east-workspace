@@ -9,9 +9,9 @@
  * and which a page opened with `persist: false` keeps its repositories in —
  * and the machine's files, which the suites name.
  *
- * Over `WebStorage`: the object, ref, dataset-ref, lock and log stores, the
- * repository store, the repository record, gc, the execution cache, the
- * workspace status, a deploy's inputs and a workspace's copy. Over
+ * Over `WebStorage`: the object, ref, dataset-ref, lock, log and function call
+ * stores, the repository store, the repository record, gc, the execution
+ * cache, the workspace status, a deploy's inputs and a workspace's copy. Over
  * `WebStateStore`: the execution state store. Over
  * both: the dataflow loop. Then what is `WebStorage`'s own, which no contract
  * suite reaches: what its sweep takes of writes and deletes that never
@@ -33,6 +33,7 @@ import {
   datasetRefStoreTests,
   executionCacheTests,
   executionStateStoreTests,
+  functionCallStoreTests,
   gcTests,
   lockServiceTests,
   logStoreTests,
@@ -114,6 +115,7 @@ describe('WebStorage over the adapters in memory', () => {
   datasetRefStoreTests(backend);
   lockServiceTests(backend);
   logStoreTests(backend);
+  functionCallStoreTests(backend);
   repoStoreTests(repositories);
   repositoryRecordTests(backend);
   gcTests(backend);

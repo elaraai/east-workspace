@@ -118,7 +118,7 @@ Task → What do you need?
     │   ├─ Lifecycle (variant)      → .status() (idle|running|succeeded|failed|cancelled)
     │   ├─ Failure detail           → .error()  (Option — message/kind/stdout/stderr)
     │   ├─ Spinner boolean          → .pending()
-    │   ├─ Stop waiting             → .cancel() (client-side; server still finishes)
+    │   ├─ Stop the call            → .cancel() (asks the server to stop it; a later .call() supersedes one in flight the same way)
     │   └─ A function that reads workspace data too → e3.function(name, { inputs, args, output }, fn); .call(args…) takes the args alone
     │
     ├─ Edit a graph / ontology dataset
@@ -311,12 +311,18 @@ conflict naming the entry, and nothing is overwritten. `Record.onApply(record,
 
 ### `Func.bind(fn)`
 
-A call handle for an `e3.function` (bounded RPC: a server deadline and a
-result-size limit; long compute belongs in dataflow tasks and
-`writeAndStart`). `call(args…)` is fire-and-forget and safe in a sync
-`onClick`, latest-wins; the outcome arrives reactively through `read()`,
-`status()`, `error()` and `pending()`. All handles bound to one function share
-one channel, so one component can launch while another shows the spinner.
+A call handle for an `e3.function`. `call(args…)` is fire-and-forget and safe
+in a sync `onClick`, latest-wins; the outcome arrives reactively through
+`read()`, `status()`, `error()` and `pending()`. All handles bound to one
+function share one channel, so one component can launch while another shows the
+spinner. A call is the server's: it outlives the request that starts it, and
+runs until its timeout — the server's ceiling, ten minutes locally — however
+long that is, so an optimiser of several minutes is called the same way; the
+server keeps it for its lifetime, with its arguments, the inputs it read, its
+value and its logs (the **e3** skill). `cancel()` asks the server to stop the
+call, and `status()` reads `cancelled`; a `call` that supersedes one in flight
+asks the server to stop that one. A result is at most 1 MiB: a large one
+belongs in a task, read with `Data.bind`.
 
 A function that declares `inputs` (`e3.function(name, { inputs, args, output },
 fn)`, the **e3** skill) is bound the same way: its handle's `call` takes the

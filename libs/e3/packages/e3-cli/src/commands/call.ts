@@ -22,8 +22,13 @@
  * A function that declares inputs reads them from the workspace itself, so
  * its caller passes the arguments alone, and calls it with -w.
  *
- * Calls are graph-free and persist nothing: the result is returned inline
- * and printed (or written with -o); the repository is unchanged.
+ * Calls are graph-free: the result is printed (or written with -o), and the
+ * function's stdout and stderr go to the terminal's stderr, so the value can
+ * be piped. A call of a local repository runs in this process and keeps
+ * nothing. A call through a server's workspace is the server's: it runs as
+ * long as its limits allow, whatever any request's deadline, the server keeps
+ * it for its lifetime, and Ctrl-C asks the server to stop it. A call through a
+ * server's package runs within one request and keeps nothing.
  */
 
 import { readFile, writeFile } from 'fs/promises';
@@ -62,6 +67,10 @@ import {
 import { parseRepoLocation, formatError, exitError } from '../utils.js';
 import { parseTaskSpec } from './run.js';
 import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
+
+/** How long a remote call's start waits for it to end before the call is
+ *  named, and polled: a call any longer can be stopped with Ctrl-C at once. */
+const CALL_START_WAIT_MS = 1_000;
 
 // Local calls have no transport ceiling — be generous but still bounded.
 const LOCAL_LIMITS = {
@@ -182,6 +191,18 @@ export async function callArg(raw: string, typeValue: EastTypeValue, index: numb
 }
 
 /**
+ * Writes a log tail of the function's to the terminal's stderr, the value's
+ * stdout left to the value alone.
+ */
+function forwardLog(text: string, truncated: boolean, stream: 'stdout' | 'stderr'): void {
+  if (!text.trim()) return;
+  // A tail cut short begins part way: say so before it
+  if (truncated) console.error(`... (${stream} truncated: its tail)`);
+  process.stderr.write(text);
+  if (!text.endsWith('\n')) process.stderr.write('\n');
+}
+
+/**
  * Render a terminal ExecuteResult: print/write the value on success,
  * report the diagnostic and exit non-zero otherwise.
  */
@@ -190,12 +211,11 @@ async function renderResult(
   outputType: EastTypeValue,
   outputPath?: string
 ): Promise<void> {
-  // Forward the function's captured stderr so runtime warnings are visible.
-  if (result.stderr.trim()) {
-    process.stderr.write(result.stderr);
-    if (!result.stderr.endsWith('\n')) process.stderr.write('\n');
-    if (result.stderrTruncated) console.error('... (stderr truncated)');
-  }
+  // Forward the function's captured logs — its stdout, then its stderr — to
+  // the terminal's stderr, so what it logged and its runtime warnings are
+  // visible, and the value can still be piped.
+  forwardLog(result.stdout, result.stdoutTruncated, 'stdout');
+  forwardLog(result.stderr, result.stderrTruncated, 'stderr');
 
   const outcome = result.outcome;
   switch (outcome.type) {
@@ -359,10 +379,35 @@ async function callRemote(
   }
 
   const request = { args, runner: none, limits: none };
-  const result = workspace
-    ? await workspaceFunctionCall(baseUrl, repo, workspace, spec.fn, request, opts)
-    : await functionCall(baseUrl, repo, spec.name!, version!, spec.fn, request, opts);
+  if (!workspace) {
+    await renderResult(await functionCall(baseUrl, repo, spec.name!, version!, spec.fn, request, opts), signature.outputType, outputPath);
+    return;
+  }
 
+  // A call through a workspace is the server's, and outlives any request: it
+  // is started and polled to its end, and Ctrl-C asks the server to stop it.
+  // A second Ctrl-C stops this process at once.
+  const stop = new AbortController();
+  const interrupt = (): void => stop.abort(new Error('interrupted'));
+  process.once('SIGINT', interrupt);
+  let result: ExecuteResult;
+  try {
+    result = await workspaceFunctionCall(baseUrl, repo, workspace, spec.fn, request, opts, {
+      signal: stop.signal,
+      // A call longer than a second is named then, so Ctrl-C reaches it at once
+      startWaitMs: CALL_START_WAIT_MS,
+      onStarted: (id) => console.error(`Call ${id} runs on; Ctrl-C asks the server to stop it`),
+    });
+  } catch (err) {
+    if (!stop.signal.aborted) throw err;
+    // The client asks the server to stop the call as it gives it up: this
+    // process exits once that request has gone
+    console.error('Interrupted: the server is asked to stop the call');
+    process.exitCode = 130;
+    return;
+  } finally {
+    process.off('SIGINT', interrupt);
+  }
   await renderResult(result, signature.outputType, outputPath);
 }
 

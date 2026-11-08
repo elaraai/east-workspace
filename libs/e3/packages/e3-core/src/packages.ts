@@ -668,7 +668,7 @@ export async function packageZipOpenFrom(
   const view = (storage: StorageBackend): StorageBackend => {
     const refuse = (what: string) => (): Promise<never> =>
       Promise.reject(new Error(`a view of a package zip writes nothing, and was asked to ${what}`));
-    const { objects, refs, logs, repos, datasets } = storage;
+    const { objects, refs, logs, repos, datasets, calls } = storage;
     return {
       upgrades: storage.upgrades,
       objects: {
@@ -769,6 +769,7 @@ export async function packageZipOpenFrom(
         gcScanPackageRoots: refuse('collect garbage'),
         gcScanWorkspaceRoots: refuse('collect garbage'),
         gcScanExecutionRoots: refuse('collect garbage'),
+        gcScanCallRoots: refuse('collect garbage'),
         gcScanObjects: refuse('collect garbage'),
         gcDeleteObjects: refuse('collect garbage'),
         gcNoteUnreachable: refuse('collect garbage'),
@@ -789,6 +790,13 @@ export async function packageZipOpenFrom(
         readMany: datasets.readMany.bind(datasets),
         remove: refuse('remove a dataset ref'),
         removeAll: refuse('remove a workspace\'s dataset refs'),
+      },
+      calls: {
+        create: refuse('file a call'),
+        get: calls.get.bind(calls),
+        end: refuse('record a call\'s end'),
+        requestCancel: refuse('cancel a call'),
+        list: calls.list.bind(calls),
       },
       runStates: (repo) => {
         const states = storage.runStates(repo);

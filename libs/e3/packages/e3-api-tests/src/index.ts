@@ -77,6 +77,7 @@ export { datasetBatchTests } from './suites/dataset-batches.js';
 export { datasetTransferTests } from './suites/dataset-transfer.js';
 export { dataflowTests } from './suites/dataflow.js';
 export { functionTests } from './suites/functions.js';
+export { callTests } from './suites/calls.js';
 export { recordTests } from './suites/records.js';
 export { keyedRecordTests } from './suites/records-keyed.js';
 export { areaRecordTests } from './suites/records-area.js';
@@ -102,6 +103,7 @@ import { datasetBatchTests } from './suites/dataset-batches.js';
 import { datasetTransferTests } from './suites/dataset-transfer.js';
 import { dataflowTests } from './suites/dataflow.js';
 import { functionTests } from './suites/functions.js';
+import { callTests } from './suites/calls.js';
 import { recordTests } from './suites/records.js';
 import { keyedRecordTests } from './suites/records-keyed.js';
 import { areaRecordTests } from './suites/records-area.js';
@@ -133,6 +135,7 @@ export const apiTestSuites: Readonly<Record<string, (setup: TestSetup<TestContex
   datasetTransfer: datasetTransferTests,
   dataflow: dataflowTests,
   functions: functionTests,
+  calls: callTests,
   records: recordTests,
   keyedRecords: keyedRecordTests,
   areaRecords: areaRecordTests,

@@ -67,11 +67,23 @@ export {
   createWorkspaceFunctionRoutes,
   createOneShotRoutes,
   oneShotAccessByRoles,
+  DEFAULT_CALL_WINDOW_MS,
   type GetRunner,
   type OneShotAccess,
   type OneShotRoutesOptions,
   type FunctionRoutesOptions,
 } from './routes/functions.js';
+
+// A workspace's kept calls: polled, cancelled, listed and read whole, by the
+// callers the host's access admits to each
+export {
+  createWorkspaceCallRoutes,
+  callerOfIdentity,
+  DEFAULT_CALL_POLL_WAIT_MS,
+  type CallerOf,
+  type CallAccess,
+  type CallRoutesOptions,
+} from './routes/calls.js';
 
 // Record mutations and history, under the host's deadline and history page
 export { createWorkspaceRecordRoutes, type RecordRoutesOptions } from './routes/records.js';

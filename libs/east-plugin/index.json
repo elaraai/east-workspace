@@ -46658,7 +46658,7 @@
       "package": "e3",
       "file": "e3/test/integration/src/examples/tasks.examples.ts",
       "suite": "e3.input and e3.task",
-      "test": "A named function, called by name with arguments (`e3 call <repo> -w <ws> greet '\"Ada\"'`): not in the dataflow, a call persists nothing",
+      "test": "A named function, called by name with arguments (`e3 call <repo> -w <ws> greet '\"Ada\"'`): not in the dataflow; a server keeps a call through a workspace for its lifetime",
       "keywords": [
         "e3",
         "function",
@@ -46675,7 +46675,7 @@
       "languages": [
         "typescript"
       ],
-      "source": "// A named function, called by name with arguments (`e3 call <repo> -w <ws> greet '\"Ada\"'`): not in the dataflow, a call persists nothing\n() => {\n    const greet = e3.function('greet', East.function([StringType], StringType, ($, n) => East.str`Hello, ${n}!`));\n    return e3.package('hello', '1.0.0', greet);\n  }"
+      "source": "// A named function, called by name with arguments (`e3 call <repo> -w <ws> greet '\"Ada\"'`): not in the dataflow; a server keeps a call through a workspace for its lifetime\n() => {\n    const greet = e3.function('greet', East.function([StringType], StringType, ($, n) => East.str`Hello, ${n}!`));\n    return e3.package('hello', '1.0.0', greet);\n  }"
     },
     {
       "id": "e3:static:input-file-source",

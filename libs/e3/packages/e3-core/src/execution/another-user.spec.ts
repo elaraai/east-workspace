@@ -119,6 +119,7 @@ describe('a local runner whose processes run as another user', {
       logs: storage.logs,
       repos: storage.repos,
       datasets: storage.datasets,
+      calls: storage.calls,
       runStates: (at) => storage.runStates(at),
       validateRepository: (at) => storage.validateRepository(at),
     };

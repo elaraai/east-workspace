@@ -6,15 +6,16 @@
 /**
  * Handlers for named package functions.
  *
- * A call reduces to the graph-free `runDetached` primitive: marshal inputs —
- * through a workspace the function's own inputs and the datasets its caller
- * names, pinned by their hashes as a one-shot's are, and the caller's values
- * — → run a body IR on a runner → return the result inline.
- * Nothing durable is written — no output object, no execution record, no
- * logs, no dataset ref.
+ * A call through a package — the package route's, with no workspace — reduces
+ * to the graph-free `runDetached` primitive: the caller's values → run a body
+ * IR on a runner → return the result inline. Nothing durable is written — no
+ * output object, no execution record, no logs, no dataset ref. A call through
+ * a workspace is kept instead, as the calls handlers file and run it
+ * (`handlers/calls.ts`).
  * Named functions are author-published IR (same trust as a deployed task),
  * which any caller the route admits runs on the function's own runner; a
- * runner the caller names instead is held to its grant (`callFunctionSync`).
+ * runner the caller names instead is held to its grant (e3-core's
+ * `functionRunnerRefusal`).
  * One-shot, whose IR is the caller's, runs through e3-core's `oneShotExecute`
  * under the grant the host gives the caller (routes/functions.ts), and so does
  * a split call's launch, which runs as a job the client polls.
@@ -26,6 +27,7 @@ import {
   PermissionDeniedError,
   TaskNotFoundError,
   detachedToExecuteResult,
+  functionRunnerRefusal,
   invalidExecuteResult,
   pinCallArguments,
   resolveExecuteLimits,
@@ -70,40 +72,6 @@ async function resolveFunction(
     throw new TaskNotFoundError(`function '${fnName}' in ${pkgName}@${version}`);
   }
   return decodeFunctionObject(await storage.objects.read(repoPath, fnHash));
-}
-
-/**
- * The runner a call names in place of the function's own, as the caller's
- * grant allows it: the `invalid` result that refuses it, or `null` when it
- * runs.
- *
- * @remarks
- * A function's body is its author's, and runs on its author's runner as a
- * task's does, so a call that names no runner runs for any caller the route
- * admits. A runner the call names is the caller's:
- * - the `custom` runtime is refused whatever the grant, since it would run a
- *   command of the caller's own;
- * - a stock runtime given a platform package the function's own runner does
- *   not load makes more reachable than the author gave the body, and runs only
- *   under the elevated grant (`any`);
- * - any other — the function's packages, or fewer, on a stock runtime — runs
- *   for any caller.
- *
- * @throws {PermissionDeniedError} When the runner gives a package the
- *   function's does not load, and the grant is not `any` (`path` `runner`).
- */
-function overrideRefusal(stored: RunnerValue, override: RunnerValue, grant: OneShotGrant): ExecuteResult | null {
-  if (override.type === 'custom') {
-    return invalidExecuteResult(
-      'the call names the custom runtime to run the function on, which runs a command of its own: '
-      + 'a function runs on its own runner, or on a stock runtime the call names — east_c, east_node or east_py'
-    );
-  }
-  const loaded = stored.type === 'custom' ? [] : stored.value.platforms;
-  if (grant !== 'any' && override.value.platforms.some((platform) => !loaded.includes(platform))) {
-    throw new PermissionDeniedError('runner');
-  }
-  return null;
 }
 
 /**
@@ -169,8 +137,8 @@ async function executeFunction(
     );
   }
   if (req.runner.type === 'some') {
-    const refused = overrideRefusal(fnObj.runner, req.runner.value, grant);
-    if (refused !== null) return refused;
+    const refusal = functionRunnerRefusal(fnObj.runner, req.runner.value, grant);
+    if (refusal !== null) return invalidExecuteResult(refusal);
   }
   const pinned = await callArguments(storage, repoPath, workspace, fnName, fnObj, req.args);
   if (!('args' in pinned)) return pinned;
@@ -254,7 +222,9 @@ export async function describePackageFunction(
  * Call a named function synchronously: resolve → validate arity → run →
  * 200 ExecuteResult. The call's timeout is clamped under the host's sync
  * deadline, so the caller gets a structured `timed_out` instead of a
- * transport cut.
+ * transport cut. It runs within the request, on `runner`, and keeps nothing:
+ * the package route's. A call through a workspace's routes is kept, and runs
+ * where the host runs calls (`callFunctionInWorkspace`).
  *
  * @remarks
  * A call that names no runner runs the function on its own, whatever the
@@ -284,8 +254,9 @@ export async function describePackageFunction(
  *   may give the function a platform package the function does not load:
  *   only `any` may (default `platform_free`)
  * @param workspace - The workspace the call runs in, whose datasets its
- *   arguments may name: the workspace route's; `null`, the default, for the
- *   package route's, which has none
+ *   arguments may name, for a host that calls a workspace's function within
+ *   its request and keeps nothing; `null`, the default, for the package
+ *   route's, which has none
  * @returns The call's result, or the error that stopped it
  */
 export async function callFunctionSync(

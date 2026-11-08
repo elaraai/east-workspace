@@ -30,6 +30,7 @@ import { completeUtf8Length } from '../utf8.js';
 import { InMemoryStateStore } from '../../dataflow/state-store/InMemoryStateStore.js';
 import type { ExecutionStateStore } from '../../dataflow/state-store/interfaces.js';
 import { InMemoryRepoStore, type InMemoryRepositoryRecords } from './InMemoryRepoStore.js';
+import { InMemoryFunctionCallStore } from './InMemoryFunctionCallStore.js';
 
 /** An object as the in-memory store holds it: its bytes, when it was last
  *  written or re-referenced, and gc's unreachable note, when one stands. */
@@ -300,11 +301,14 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
    *   removes with its records
    * @param revisions - The backend's revision tokens, which the writes of
    *   records move
+   * @param calls - The backend's kept calls, which a workspace's removal
+   *   removes with its records
    */
   constructor(
     private readonly runStates: InMemoryStateStore,
     private readonly datasets: InMemoryDatasetRefStore,
     private readonly revisions: InMemoryRevisions,
+    private readonly calls: InMemoryFunctionCallStore,
   ) {}
 
   private getPackages(repo: string): Map<string, string> {
@@ -467,7 +471,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   }
 
   /** Takes everything under the workspace's name at once: its record, its
-   *  dataset refs, its runs and their states. */
+   *  dataset refs, its runs and their states, and its kept calls. */
   async workspaceRemove(repo: string, name: string): Promise<void> {
     checkName('workspace', name);
     this.getWorkspaces(repo).delete(name);
@@ -476,6 +480,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
       await this.dataflowRunDelete(repo, name, runId);
     }
     this.runStates.removeWorkspace(repo, name);
+    this.calls.removeWorkspace(repo, name);
     this.revisions.dropWorkspace(repo, name);
   }
 
@@ -1184,6 +1189,7 @@ export class InMemoryStorage implements StorageBackend {
   public readonly logs: InMemoryLogStore;
   public readonly repos: InMemoryRepoStore;
   public readonly datasets: InMemoryDatasetRefStore;
+  public readonly calls: InMemoryFunctionCallStore;
   /** Every repository's runs' states, in one store */
   private readonly states: InMemoryStateStore;
   /** The revision tokens the writes of records move */
@@ -1199,10 +1205,12 @@ export class InMemoryStorage implements StorageBackend {
     this.states = new InMemoryStateStore();
     this.revisions = new InMemoryRevisions();
     this.datasets = new InMemoryDatasetRefStore(this.revisions);
-    this.refs = new InMemoryRefStore(this.states, this.datasets, this.revisions);
+    this.calls = new InMemoryFunctionCallStore();
+    this.refs = new InMemoryRefStore(this.states, this.datasets, this.revisions, this.calls);
     this.locks = new InMemoryLockService();
     this.logs = new InMemoryLogStore();
-    this.repos = new InMemoryRepoStore(this.refs, this.datasets, this.objects, this.upgrades, [this.refs, this.datasets, this.logs, this.locks, this.states]);
+    this.repos = new InMemoryRepoStore(this.refs, this.datasets, this.calls, this.objects, this.upgrades,
+      [this.refs, this.datasets, this.logs, this.locks, this.states, this.calls]);
   }
 
   /**
@@ -1234,5 +1242,6 @@ export class InMemoryStorage implements StorageBackend {
     this.repos.clear();
     this.datasets.clear();
     this.states.clear();
+    this.calls.clear();
   }
 }

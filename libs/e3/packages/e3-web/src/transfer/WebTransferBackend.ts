@@ -47,6 +47,7 @@ import {
   DatasetTypeMismatchError,
   DatasetUploadType,
   ExportStoppedError,
+  InProcessFunctionCallDispatch,
   PackageExportType,
   PackageImportType,
   RepoGcJobType,
@@ -68,6 +69,7 @@ import {
   type DatasetPartUpload,
   type DatasetUpload,
   type DatasetUploadStore,
+  type FunctionCallDispatch,
   type LockHandle,
   type PackageExport,
   type PackageExportStore,
@@ -1191,8 +1193,8 @@ export interface WebTransferBackendOptions {
    *  the backend runs */
   readonly storage: WebStorage;
   /** Each repository's runner: what a deploy's migrations and index builds,
-   *  a commit's intake units and a split call's units run on, and whose
-   *  judgement of what still runs gc's history prune takes */
+   *  a commit's intake units, a split call's units and a function's calls run
+   *  on, and whose judgement of what still runs gc's history prune takes */
   readonly getRunner: (repo: string) => TaskRunner;
   /** The size of every part of a dataset upload but the last:
    *  {@link DEFAULT_WEB_PART_BYTES} unless set */
@@ -1223,6 +1225,12 @@ export interface WebTransferBackendOptions {
  * records what closed tabs left failed — never running it again — and forgets
  * what is past its retention, and goes on doing so while the tab lives.
  *
+ * A call of a named function runs in this worker too, on the repository's
+ * runner (e3-core's `InProcessFunctionCallDispatch`), and is kept in the
+ * storage's own call store for its lifetime. One a tab that closed was
+ * running is recorded `lost` once a read finds it past its deadline and a
+ * grace, as a call whose host died is on every backend.
+ *
  * @example
  * ```ts
  * const storage = await openWebStorage();
@@ -1240,6 +1248,7 @@ export class WebTransferBackend implements TransferBackend {
   readonly workspaceDeploy: WebWorkspaceDeployStore;
   readonly repoGc: WebRepoGcStore;
   readonly splitCall: WebSplitCallStore;
+  readonly functionCalls: FunctionCallDispatch;
   private readonly retention: Retention;
   private timer: ReturnType<typeof setInterval> | null = null;
   private sweeping: Promise<void> | null = null;
@@ -1287,6 +1296,9 @@ export class WebTransferBackend implements TransferBackend {
     this.workspaceDeploy = new WebWorkspaceDeployStore(host, running);
     this.repoGc = new WebRepoGcStore(host, running);
     this.splitCall = new WebSplitCallStore(host, running);
+    // A repository's name is its identifier in the storage, as every route
+    // here takes it
+    this.functionCalls = new InProcessFunctionCallDispatch({ storage, getRunner });
   }
 
   /**

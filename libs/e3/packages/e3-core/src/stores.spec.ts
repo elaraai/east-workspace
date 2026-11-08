@@ -14,7 +14,7 @@
 import { describe } from 'node:test';
 import { join } from 'node:path';
 import {
-  datasetRefStoreTests, lockServiceTests, logStoreTests, objectStoreTests, refStoreTests, repoStoreTests,
+  datasetRefStoreTests, functionCallStoreTests, lockServiceTests, logStoreTests, objectStoreTests, refStoreTests, repoStoreTests,
   type BackendSetup, type RepositoriesSetup,
 } from './contract/index.js';
 import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
@@ -52,6 +52,7 @@ for (const [name, setup] of BACKENDS) {
     datasetRefStoreTests(setup);
     lockServiceTests(setup);
     logStoreTests(setup);
+    functionCallStoreTests(setup);
   });
 }
 

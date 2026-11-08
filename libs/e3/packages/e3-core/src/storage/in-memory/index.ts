@@ -11,3 +11,4 @@
 
 export { InMemoryStorage } from './InMemoryStorage.js';
 export { InMemoryRepoStore } from './InMemoryRepoStore.js';
+export { InMemoryFunctionCallStore } from './InMemoryFunctionCallStore.js';

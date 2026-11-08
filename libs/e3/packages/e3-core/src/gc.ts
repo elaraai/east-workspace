@@ -131,7 +131,8 @@ const DEFAULT_MIN_AGE_MS = 60_000;
 // =============================================================================
 
 /**
- * Collect all root hashes from packages, workspaces, and executions.
+ * Collect all root hashes from packages, workspaces, executions and the calls
+ * the repository keeps.
  *
  * Calls each gcScan*Roots method with pagination support.
  * Adding a new root scan method to RepoStore requires updating this function.
@@ -164,6 +165,8 @@ export async function collectAllRoots(store: RepoStore, repo: string, executionR
   } else {
     for (const hash of executionRoots) roots.add(hash);
   }
+  // What each call kept names, while it is kept (east-workspace#1554)
+  await scanAll(store.gcScanCallRoots.bind(store));
 
   return roots;
 }

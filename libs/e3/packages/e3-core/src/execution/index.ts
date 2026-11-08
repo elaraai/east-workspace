@@ -141,6 +141,28 @@ export {
   type SplitCallRunOptions,
 } from './splitCall.js';
 
+// Calls of named functions through a workspace, filed, run where a backend
+// runs them, and kept for a lifetime (east-workspace#1554)
+export {
+  functionCallStart,
+  functionCallRun,
+  functionCallRead,
+  functionCallStatus,
+  functionCallResult,
+  functionCallSummary,
+  functionCallInputs,
+  functionCallLost,
+  functionRunnerRefusal,
+  handleProcessFunctionCall,
+  DEFAULT_FUNCTION_CALL_LIFETIMES,
+  FUNCTION_CALL_GRACE_MS,
+  type FunctionCallLifetimes,
+  type FunctionCallStartOptions,
+  type FunctionCallRunOptions,
+  type FunctionCallRun,
+  type ProcessFunctionCallDeps,
+} from './functionCall.js';
+
 // Persistence-free process helpers (shared by tracked + detached paths), and
 // how every process e3 starts runs: its environment, user and group
 export {

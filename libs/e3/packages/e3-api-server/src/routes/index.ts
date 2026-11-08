@@ -20,10 +20,19 @@ export {
   createWorkspaceFunctionRoutes,
   createOneShotRoutes,
   oneShotAccessByRoles,
+  DEFAULT_CALL_WINDOW_MS,
   type GetRunner,
   type OneShotAccess,
   type OneShotRoutesOptions,
   type FunctionRoutesOptions,
 } from './functions.js';
+export {
+  createWorkspaceCallRoutes,
+  callerOfIdentity,
+  DEFAULT_CALL_POLL_WAIT_MS,
+  type CallerOf,
+  type CallAccess,
+  type CallRoutesOptions,
+} from './calls.js';
 export { createWorkspaceRecordRoutes, type RecordRoutesOptions } from './records.js';
 export { badQuery, wholeQuery, pathsQuery, type QueryLeast } from './query.js';

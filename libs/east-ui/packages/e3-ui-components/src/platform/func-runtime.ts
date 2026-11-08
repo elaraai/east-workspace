@@ -9,9 +9,14 @@
  *
  * A tracked call is an un-awaited `FunctionApi.call` promise tagged with
  * the monotonic `launchSeq` it was issued under; whichever response still
- * holds the current seq writes the terminal state (latest-wins). There is
- * no server-side call state on the sync-only function surface — `cancel`
- * is client-side only (it bumps the seq, orphaning the in-flight wait).
+ * holds the current seq writes the terminal state (latest-wins). A call is
+ * the server's for its lifetime, and outlives the request that starts it:
+ * `cancel`, and a call that supersedes another on its channel, bump the seq
+ * and abort the in-flight call's signal, which asks the server to stop it.
+ * So does its page going: the provider's teardown ({@link FuncRuntime.clear})
+ * and the page closing for good (`pagehide`, unless the page is kept for the
+ * back button) stop every call in flight. e3's client names each call before
+ * it sends it, so a call is asked to stop however soon its page goes.
  *
  * All handles bound to the same function name in the same workspace share
  * one registry entry, mirroring how `Data.bind` handles share the dataset
@@ -73,6 +78,12 @@ export interface FunctionCallArgs {
     args: Uint8Array[];
 }
 
+/** Options for {@link FunctionApi.call}. */
+export interface FunctionCallOptions {
+    /** Stops the call: the call stops waiting, and asks the server to stop it */
+    signal?: AbortSignal;
+}
+
 /**
  * Adapter for the workspace function endpoints. The default wraps
  * `@elaraai/e3-api-client`'s `workspaceFunctionList` /
@@ -81,8 +92,22 @@ export interface FunctionCallArgs {
 export interface FunctionApi {
     /** List the workspace's deployed functions with their signatures. */
     list(workspace: string): Promise<FunctionSignature[]>;
-    /** Call a function synchronously, returning its terminal ExecuteResult. */
-    call(workspace: string, fn: string, req: FunctionCallArgs): Promise<ExecuteResult>;
+    /**
+     * Call a function, returning its terminal ExecuteResult once it ends,
+     * however long it runs. Aborting `options.signal` stops the call: its
+     * promise rejects with the abort, and the server is asked to stop it.
+     */
+    call(workspace: string, fn: string, req: FunctionCallArgs, options?: FunctionCallOptions): Promise<ExecuteResult>;
+}
+
+/** Options for {@link createDefaultFunctionApi}. */
+export interface DefaultFunctionApiOptions {
+    /**
+     * How long a call's start waits for it to end before it answers
+     * `running`, in milliseconds: the server's window unless set. A call that
+     * ends within it costs one request; one that runs on past it is polled.
+     */
+    readonly startWaitMs?: number;
 }
 
 /**
@@ -93,24 +118,31 @@ export interface FunctionApi {
  * @param repo - Repository name
  * @param getOptions - Reads the current request options — the token, and the
  *   `fetch` requests go through — so a rotated one is used at once
+ * @param options - How long a call's start waits for it to end
  * @returns The adapter
  */
 export function createDefaultFunctionApi(
     apiUrl: string,
     repo: string,
     getOptions: () => RequestOptions,
+    options: DefaultFunctionApiOptions = {},
 ): FunctionApi {
     return {
         async list(workspace) {
             return workspaceFunctionList(apiUrl, repo, workspace, getOptions());
         },
-        async call(workspace, fn, req) {
+        async call(workspace, fn, req, call) {
             return workspaceFunctionCall(apiUrl, repo, workspace, fn, {
                 // East values the handle was called with, each a value argument
                 args: req.args.map(arg => variant("value", arg)),
                 runner: none,
                 limits: none,
-            }, getOptions());
+            }, getOptions(), {
+                // The call is started, and polled to its end; an abort asks the
+                // server to stop it
+                ...(call?.signal !== undefined && { signal: call.signal }),
+                ...(options.startWaitMs !== undefined && { startWaitMs: options.startWaitMs }),
+            });
         },
     };
 }
@@ -191,7 +223,7 @@ function errorOfExecuteResult(result: ExecuteResult): FuncError {
         case "timed_out":
             return {
                 kind: variant("timed_out", { ms: outcome.value.ms }),
-                message: `call timed out after ${outcome.value.ms}ms (server deadline)`,
+                message: `call timed out after ${outcome.value.ms}ms`,
                 stdout: result.stdout,
                 stderr: result.stderr,
             };
@@ -223,11 +255,33 @@ interface FuncEntry {
     result?: unknown;
     /** Detail of the last `failed` call. */
     error?: FuncError;
+    /** Stops the call in flight, while one is: a call that supersedes it, and
+     *  `cancel`, abort it, which asks the server to stop it. */
+    inflight?: AbortController;
 }
 
 /** Tracked-channel key. */
 export function funcChannelKey(workspace: string, name: string): string {
     return `func:${workspace}:${name}`;
+}
+
+/** What tells a runtime its page is going: a page's window, or a stand-in. */
+export type FuncPage = Pick<EventTarget, "addEventListener" | "removeEventListener">;
+
+/** Options for {@link FuncRuntime}. */
+export interface FuncRuntimeOptions {
+    /**
+     * The page whose closing stops the calls in flight: its `pagehide`, unless
+     * the page is kept for the back button (`persisted`). Default: the global
+     * object where it has events, a browser's window; none elsewhere.
+     */
+    readonly page?: FuncPage | null;
+}
+
+/** The global object as a page, where it has events: a browser's window. */
+function globalPage(): FuncPage | null {
+    const page: Partial<FuncPage> = globalThis;
+    return typeof page.addEventListener === "function" && typeof page.removeEventListener === "function" ? page as FuncPage : null;
 }
 
 /**
@@ -238,6 +292,19 @@ export function funcChannelKey(workspace: string, name: string): string {
 export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
     private api: FunctionApi | null = null;
     private workspace: string | null = null;
+
+    /** The page whose closing stops the calls in flight; none outside a browser. */
+    private readonly page: FuncPage | null;
+    /** Stops watching the page, while an adapter is installed. */
+    private unwatchPage: (() => void) | null = null;
+
+    /**
+     * @param options - The page whose closing stops the calls in flight
+     */
+    constructor(options: FuncRuntimeOptions = {}) {
+        super();
+        this.page = options.page === undefined ? globalPage() : options.page;
+    }
 
     // Signature lists are fetched once per workspace and cached.
     private signatureLists = new Map<string, Promise<FunctionSignature[]>>();
@@ -255,14 +322,18 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
     // ----- wiring ----------------------------------------------------------
 
     /** Install the API adapter + workspace — called by the React provider
-     *  (or a test, or the snapshot harness) before any handle is used. */
+     *  (or a test, or the snapshot harness) before any handle is used. From
+     *  now until {@link clear}, the page closing for good stops the calls in
+     *  flight. */
     initialize(api: FunctionApi, workspace: string): void {
         this.api = api;
         this.workspace = workspace;
+        this.watchPage();
     }
 
     /**
-     * Tear down the adapter and all call state.
+     * Tear down the adapter and all call state. A call in flight is its
+     * page's, and its page is going: each is asked to stop on the server.
      *
      * @param api - Clear only while this is the installed adapter, so a
      *   provider tearing down after another installed its own leaves that one
@@ -270,11 +341,40 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
      */
     clear(api?: FunctionApi): void {
         if (api !== undefined && this.api !== api) return;
+        this.stopInFlight();
+        this.unwatchPage?.();
+        this.unwatchPage = null;
         this.api = null;
         this.workspace = null;
         this.clearChannels();
         this.signatureLists.clear();
         this.handleCache.clear();
+    }
+
+    /** Stops the calls in flight once the page closes for good: a page kept
+     *  for the back button may come back, its calls with it. */
+    private watchPage(): void {
+        const page = this.page;
+        if (page === null || this.unwatchPage !== null) return;
+        const onHide = (event: Event): void => {
+            if ((event as PageTransitionEvent).persisted === true) return;
+            this.stopInFlight();
+        };
+        page.addEventListener("pagehide", onHide);
+        this.unwatchPage = () => page.removeEventListener("pagehide", onHide);
+    }
+
+    /** Cancels a channel's call in flight: the server is asked to stop it. */
+    private cancelCall(key: string): void {
+        this.cancelChannel(key, entry => {
+            entry.inflight?.abort();
+            delete entry.inflight;
+        });
+    }
+
+    /** Cancels every call in flight, each asked to stop on the server. */
+    private stopInFlight(): void {
+        for (const key of [...this.entries.keys()]) this.cancelCall(key);
     }
 
     /** The deployed signature list for a workspace (fetched once). */
@@ -334,7 +434,17 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
 
     private launch(workspace: string, name: string, sig: FuncHandleSignature, args: unknown[]): void {
         const key = funcChannelKey(workspace, name);
-        const { settle } = this.beginLaunch(key);
+        // The call this one supersedes is stopped on the server (latest-wins)
+        const controller = new AbortController();
+        const { settle: settleLaunch } = this.beginLaunch(key, e => {
+            e.inflight?.abort();
+            e.inflight = controller;
+        });
+        // A call that settles is in flight no longer
+        const settle = (mutate: (entry: FuncEntry) => void): void => settleLaunch(e => {
+            mutate(e);
+            if (e.inflight === controller) delete e.inflight;
+        });
 
         void (async () => {
             const invalid = await this.validate(workspace, name, sig);
@@ -347,10 +457,12 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
                 settle(e => { e.status = "failed"; e.error = transportError("no FunctionApi installed"); });
                 return;
             }
+            // Superseded, or cancelled, while it was validated: nothing is sent
+            if (controller.signal.aborted) return;
             let result: ExecuteResult;
             try {
                 const encoded = args.map((arg, i) => encodeBeast2For(sig.inputs[i]!)(arg));
-                result = await api.call(workspace, name, { args: encoded });
+                result = await api.call(workspace, name, { args: encoded }, { signal: controller.signal });
             } catch (err) {
                 settle(e => {
                     e.status = "failed";
@@ -434,7 +546,8 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
             }),
             FuncBindPrimitives.cancel.implement((nameArg: unknown) => {
                 const { key } = channel(nameArg as string);
-                runtime.cancelChannel(key);
+                // The call in flight is stopped on the server too
+                runtime.cancelCall(key);
                 return null;
             }),
         ];

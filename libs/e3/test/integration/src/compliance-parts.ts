@@ -48,7 +48,7 @@ export const COMPLIANCE_PARTS = {
     'repository', 'packages', 'workspaces', 'datasets', 'datasetPages', 'datasetBatches', 'datasetTransfer',
     'functions', 'areaRecords', 'inputDeploy', 'packageTransfer', 'platform',
   ],
-  dataflow: ['dataflow', 'records', 'keyedRecords', 'recordDeploy'],
+  dataflow: ['dataflow', 'calls', 'records', 'keyedRecords', 'recordDeploy'],
   series: ['seriesRecords', 'placeRecords'],
 } as const satisfies Record<string, readonly string[]>;
 

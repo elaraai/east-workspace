@@ -116,6 +116,16 @@ export {
   SplitCallProgressType,
   SplitCallStatusType,
   SplitCallPlanType,
+  // Function calls, kept for a lifetime
+  FunctionCallStateType,
+  FunctionCallArgType,
+  FunctionCallSummaryType,
+  FunctionCallType,
+  FunctionCallStatusType,
+  FunctionCallAnswerType,
+  FunctionCallPageType,
+  FUNCTION_CALLS_PAGE_DEFAULT,
+  FUNCTION_CALLS_PAGE_MAX,
   MutationCallRequestType,
   MutationResultType,
   RecordMigrationAppliedType,
@@ -193,6 +203,13 @@ export type {
   SplitCallProgress,
   SplitCallStatus,
   SplitCallPlan,
+  FunctionCallState,
+  FunctionCallArg,
+  FunctionCallSummary,
+  FunctionCall,
+  FunctionCallStatus,
+  FunctionCallAnswer,
+  FunctionCallPage,
   MutationCallRequest,
   MutationResult,
   RecordMigrationApplied,
@@ -300,6 +317,13 @@ import {
   SplitCallProgressType as _SplitCallProgressType,
   SplitCallStatusType as _SplitCallStatusType,
   SplitCallPlanType as _SplitCallPlanType,
+  FunctionCallStateType as _FunctionCallStateType,
+  FunctionCallArgType as _FunctionCallArgType,
+  FunctionCallSummaryType as _FunctionCallSummaryType,
+  FunctionCallType as _FunctionCallType,
+  FunctionCallStatusType as _FunctionCallStatusType,
+  FunctionCallAnswerType as _FunctionCallAnswerType,
+  FunctionCallPageType as _FunctionCallPageType,
 } from '@elaraai/e3-types';
 
 export const ApiTypes = {
@@ -423,4 +447,13 @@ export const ApiTypes = {
   SplitCallProgressType: _SplitCallProgressType,
   SplitCallStatusType: _SplitCallStatusType,
   SplitCallPlanType: _SplitCallPlanType,
+
+  // Function calls, kept for a lifetime
+  FunctionCallStateType: _FunctionCallStateType,
+  FunctionCallArgType: _FunctionCallArgType,
+  FunctionCallSummaryType: _FunctionCallSummaryType,
+  FunctionCallType: _FunctionCallType,
+  FunctionCallStatusType: _FunctionCallStatusType,
+  FunctionCallAnswerType: _FunctionCallAnswerType,
+  FunctionCallPageType: _FunctionCallPageType,
 } as const;

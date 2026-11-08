@@ -17,8 +17,10 @@
  * named at their hashes before any dataset argument, never counted among the
  * arguments, an unassigned one refused naming it and why, and refused through
  * the package — and the spec form with no inputs called as the other form is,
- * one-shot with value, dataset and collection-dataset args,
- * the "persists nothing" guarantee, and one-shot for a reader: a platform-free
+ * one-shot with value, dataset and collection-dataset args, the "persists
+ * nothing" guarantee of a call through the package (a call through a
+ * workspace is kept, which the calls suite covers), and one-shot for a reader:
+ * a platform-free
  * one runs and names the datasets it read, and any other is refused. A split
  * call — a program over a dataset's pieces — is launched, explained and polled
  * by a reader, under the same rule; it is found only through the repository
@@ -61,6 +63,8 @@ import {
   functionList,
   functionDescribe,
   functionCall,
+  workspaceCallGet,
+  workspaceCallList,
   workspaceFunctionCall,
   workspaceFunctionDescribe,
   workspaceFunctionList,
@@ -207,7 +211,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
 
       const fns = await functionList(ctx.config.baseUrl, ctx.repoName, PKG, VERSION, opts);
       const names = fns.map((f) => f.name).sort();
-      assert.deepEqual(names, ['add', 'applied', 'quote', 'scaled', 'slow', 'tallied', 'twice']);
+      assert.deepEqual(names, ['add', 'applied', 'nap', 'quote', 'scaled', 'slow', 'tallied', 'twice']);
       const add = fns.find((f) => f.name === 'add')!;
       assert.equal(add.argTypes.length, 2);
       assert.ok(equalFor(PathsType)(add.inputs, []), 'add reads nothing of a workspace');
@@ -472,13 +476,12 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       }
     });
 
-    it('a call through a workspace binds a dataset argument at the hash it holds, names it in the result, and persists nothing', async (t) => {
+    it('a call through a workspace binds a dataset argument at the hash it holds, names it in the result, and keeps it as that hash', async (t) => {
       const ctx = await withFunctions(t);
       const opts = await ctx.opts();
 
       await ctx.createWorkspace('fn-ds-ws');
       await ctx.deployPackage('fn-ds-ws', `${PKG}@${VERSION}`);
-      const before = await repoStatus(ctx.config.baseUrl, ctx.repoName, opts);
 
       // `value` holds 10
       const result = await workspaceFunctionCall(
@@ -487,11 +490,17 @@ export function functionTests(setup: TestSetup<TestContext>): void {
         opts
       );
       assert.equal(successValue(result), 15n);
-      assertInputs(result, [await pinnedAt(ctx, 'fn-ds-ws', VALUE_PATH, opts)]);
+      const pinned = await pinnedAt(ctx, 'fn-ds-ws', VALUE_PATH, opts);
+      assertInputs(result, [pinned]);
 
-      // The dataset is read where it is stored, not stored again
-      const after = await repoStatus(ctx.config.baseUrl, ctx.repoName, opts);
-      assert.equal(after.objectCount, before.objectCount);
+      // The call is kept, and names the dataset where it is stored, by the
+      // hash it was pinned at, rather than storing it again
+      const [call] = (await workspaceCallList(ctx.config.baseUrl, ctx.repoName, 'fn-ds-ws', opts)).calls;
+      if (call === undefined) assert.fail('the workspace keeps the call');
+      const kept = await workspaceCallGet(ctx.config.baseUrl, ctx.repoName, 'fn-ds-ws', call.id, opts);
+      const [dataset] = kept.args;
+      if (dataset?.type !== 'dataset') assert.fail('its first argument is the dataset');
+      assert.equal(dataset.value.hash, pinned.hash);
     });
 
     it('a dataset argument through the package, which has no workspace to read it from, is invalid and names the workspace route', async (t) => {

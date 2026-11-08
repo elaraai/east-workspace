@@ -6,31 +6,37 @@
 /**
  * An app's fit as a builder asks it on e3 (#1376): the example's own
  * `e3.function`, called by name through the shared `Func` runtime
- * (`use-fit.ts`). What the builder asked is each call's body, decoded by the
- * fit's request type; what e3 answered, each answer a tap kept through the
- * test, decoded by its result type; and a fit held or failed is a fault at the
- * harness's fetch. The Roster's Find fixes and the Allocation's board ask
- * through it.
+ * (`use-fit.ts`), which starts each call as one e3 keeps (#1554). What the
+ * builder asked is each start's body, decoded by the fit's request type; what
+ * e3 answered, each start's answer a tap kept through the test, its call ended
+ * within it, decoded by its result type; and a fit held or failed is a fault
+ * at the harness's fetch. The Roster's Find fixes and the Allocation's board
+ * ask through it.
  *
  * @packageDocumentation
  */
 
 import { beforeEach } from "vitest";
 import { decodeBeast2For, type EastType, type ValueTypeOf } from "@elaraai/east";
-import { ExecuteResultType, FunctionCallRequestType, ResponseType } from "@elaraai/e3-types";
+import { FunctionCallAnswerType, FunctionCallRequestType, ResponseType } from "@elaraai/e3-types";
 import type { E3Answer, E3Hold, E3Match, E3Request } from "../../e3-web.test-utils.js";
 import type { E3Harness } from "../../e3-web-mount.test-utils.js";
 
+/** A call's start, by its route: `…/functions/:fn/calls`. */
+const STARTED = /\/functions\/[^/]+\/calls$/;
+
 /**
- * A call of an app's fit: its POST by the function's name, as e3's client
- * sends a builder's question — of any fit when no name is given. A listing of
- * the functions, which the runtime makes first, is none.
+ * A call of an app's fit: its start (`POST …/functions/:fn/calls`), as e3's
+ * client sends a builder's question — of any fit when no name is given. A
+ * listing of the functions, which the runtime makes first, is none, and so
+ * are a call's polls and its cancel, which name it by its id.
  *
  * @param name - The fit's `e3.function` name
  * @returns The match
  */
 export const isFitCall = (name?: string): E3Match => (request) =>
-    request.kind === "call" && request.method === "POST" && request.name !== undefined && (name === undefined || request.name === name);
+    request.kind === "call" && request.method === "POST" && STARTED.test(request.path) && request.name !== undefined
+    && (name === undefined || request.name === name);
 
 /**
  * A builder's fit, as it asks it on e3: each method takes a fit's
@@ -67,7 +73,7 @@ export interface FitCalls<Q, R> {
 export function fitCalls<Q extends EastType, R extends EastType>(h: E3Harness, types: { readonly request: Q; readonly result: R }): FitCalls<ValueTypeOf<Q>, ValueTypeOf<R>> {
     const readCall = decodeBeast2For(FunctionCallRequestType);
     const readRequest = decodeBeast2For(types.request);
-    const readExecuted = decodeBeast2For(ResponseType(ExecuteResultType));
+    const readStarted = decodeBeast2For(ResponseType(FunctionCallAnswerType));
     const readResult = decodeBeast2For(types.result);
     /** The question a call asked: its one argument, sent by value. */
     const questionOf = (request: E3Request): ValueTypeOf<Q> => {
@@ -76,12 +82,21 @@ export function fitCalls<Q extends EastType, R extends EastType>(h: E3Harness, t
         if (arg === undefined || arg.type !== "value") throw new Error(`${request.path} asked no question by value`);
         return readRequest(arg.value);
     };
-    /** An answer e3 gave, decoded; a failure — e3's, or a fault's — is none. */
+    /**
+     * A start's answer, decoded: the call's result, which every fit here has
+     * within its start's wait — e3-web's window, 20 s. A failure — e3's, or a
+     * fault's — is none.
+     */
     const answerOf = (answer: E3Answer): ValueTypeOf<R>[] => {
         if (answer.status !== 200) return [];
-        const response = readExecuted(answer.body);
-        if (response.type !== "success" || response.value.outcome.type !== "success") return [];
-        return [readResult(response.value.outcome.value.value)];
+        const response = readStarted(answer.body);
+        if (response.type !== "success") return [];
+        const status = response.value.status;
+        if (status.type === "running") {
+            throw new Error(`${answer.request.path}: the fit ran on past its start's wait, so its answer came by a poll, which this tap does not keep`);
+        }
+        if (status.type !== "completed" || status.value.outcome.type !== "success") return [];
+        return [readResult(status.value.outcome.value.value)];
     };
     // Every fit's answers through the test, from its start: the harness's own beforeEach has let the last test's taps go.
     let kept: readonly E3Answer[] = [];

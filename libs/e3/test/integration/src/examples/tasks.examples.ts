@@ -86,7 +86,7 @@ export const customTask = example({
 
 export const namedFunction = example({
   keywords: ['e3', 'function', 'rpc', 'call', 'e3 call', 'named function'],
-  description: 'A named function, called by name with arguments (`e3 call <repo> -w <ws> greet \'"Ada"\'`): not in the dataflow, a call persists nothing',
+  description: 'A named function, called by name with arguments (`e3 call <repo> -w <ws> greet \'"Ada"\'`): not in the dataflow; a server keeps a call through a workspace for its lifetime',
   fn: () => {
     const greet = e3.function('greet', East.function([StringType], StringType, ($, n) => East.str`Hello, ${n}!`));
     return e3.package('hello', '1.0.0', greet);

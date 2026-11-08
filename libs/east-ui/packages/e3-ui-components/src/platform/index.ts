@@ -85,6 +85,10 @@ export {
     type InMemoryFunctionDef,
     type FunctionApi,
     type FunctionCallArgs,
+    type FunctionCallOptions,
+    type DefaultFunctionApiOptions,
+    type FuncRuntimeOptions,
+    type FuncPage,
 } from "./func-runtime.js";
 
 // `Data.bindPaged` runtime — windowed reads of a collection dataset.

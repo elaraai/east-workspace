@@ -15,6 +15,7 @@ export { refStoreTests } from './ref-store.js';
 export { datasetRefStoreTests } from './dataset-ref-store.js';
 export { lockServiceTests } from './lock-service.js';
 export { logStoreTests } from './log-store.js';
+export { functionCallStoreTests } from './function-call-store.js';
 export { repoStoreTests, type RepositoriesContext, type RepositoriesSetup } from './repo-store.js';
 export {
   executionStateStoreTests, type ExecutionStateStoreContext, type ExecutionStateStoreSetup,

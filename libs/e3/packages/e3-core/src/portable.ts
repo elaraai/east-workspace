@@ -64,6 +64,10 @@ export type {
   GcBackendSweepOptions,
   GcBackendSweepResult,
   DatasetRefStore,
+  FunctionCallStore,
+  FunctionCallEnd,
+  FunctionCallListOptions,
+  FunctionCallListPage,
   RepositoryUpgrade,
   StorageBackend,
 } from './storage/interfaces.js';
@@ -145,7 +149,7 @@ export {
 
 // The roots gc marks from, read through a backend's ref stores: what a
 // `RepoStore` serves its gc root scans from
-export { packageRoots, workspaceRoots, executionRoots } from './gc-roots.js';
+export { packageRoots, workspaceRoots, executionRoots, callRoots } from './gc-roots.js';
 
 // The history gc keeps: which runs and executions, and the deletion of the rest
 export {
@@ -528,6 +532,28 @@ export {
   type SplitCallRunOptions,
 } from './execution/splitCall.js';
 
+// Calls of named functions through a workspace, filed, run where a backend
+// runs them, and kept for a lifetime (east-workspace#1554)
+export {
+  functionCallStart,
+  functionCallRun,
+  functionCallRead,
+  functionCallStatus,
+  functionCallResult,
+  functionCallSummary,
+  functionCallInputs,
+  functionCallLost,
+  functionRunnerRefusal,
+  handleProcessFunctionCall,
+  DEFAULT_FUNCTION_CALL_LIFETIMES,
+  FUNCTION_CALL_GRACE_MS,
+  type FunctionCallLifetimes,
+  type FunctionCallStartOptions,
+  type FunctionCallRunOptions,
+  type FunctionCallRun,
+  type ProcessFunctionCallDeps,
+} from './execution/functionCall.js';
+
 // =============================================================================
 // Dataflow
 // =============================================================================
@@ -742,8 +768,16 @@ export type {
   WorkspaceDeployStore,
   RepoGcStore,
   SplitCallStore,
+  FunctionCallDispatch,
   TransferBackend,
 } from './transfer/interfaces.js';
+
+// The calls of named functions, each run in the process that dispatches it:
+// the local server's, or a page's worker
+export {
+  InProcessFunctionCallDispatch,
+  type InProcessFunctionCallDispatchOptions,
+} from './transfer/in-process-calls.js';
 
 // The jobs: an import, whose zip is read by ranges where it lies, an export,
 // written to a stream, a deploy, gc, and a split call
