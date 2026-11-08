@@ -81,7 +81,7 @@ export const RosterLibraryTabType = VariantType({
  * @property permanent - People and hours that are not agency: the legend, the inspector, the coverage bar
  * @property permanentShort - Its short form in the coverage detail
  * @property agency - A person whose `agency` accessor is true, and their hours
- * @property agencyShort - Its short form: the coverage detail, and the badge beside an agency person's name in the People layout (#1566)
+ * @property agencyShort - Its short form: the coverage detail, and the badge beside an agency person's name — in the People layout, and on a Shifts chip, a request's too (#1566)
  * @property leads - The group of people in a lead position that day: the People tab, and a Find's needs
  * @property others - The group of the others rostered that day
  * @property trainers - A Find's needs' group of trainers

@@ -94,7 +94,10 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             // Retained while a narrowing is read (#1398, CL5): its words in the third ink, its own edge kept.
             "[data-roster-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
         assignmentName: { textStyle: "body.sm", fontWeight: "medium", flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-        badge: { textStyle: "mono.xs", fontSize: "label.xs", color: "fg.muted", flexShrink: 0, "&[data-lead]": { color: "brand.fg", fontWeight: "bold" } },
+        // A chip's badge: its position's code, a trainer's T, or — an agency person's duty, a request — the app's short word
+        // for agency staff, in capitals as the People layout's badge has it (#1566).
+        badge: { textStyle: "mono.xs", fontSize: "label.xs", color: "fg.muted", flexShrink: 0, "&[data-lead]": { color: "brand.fg", fontWeight: "bold" },
+            "&[data-roster-agency-badge]": { textTransform: "uppercase" } },
         flag: { "& svg": fontAwesomeSize("9px"), maxWidth: "70px", overflow: "hidden", textOverflow: "ellipsis", flexShrink: 1, textStyle: "mono.xs", fontSize: "label.xs", whiteSpace: "nowrap", color: "fg.warning", "&[data-tone=danger]": { color: "fg.danger" } },
         activity: { textStyle: "mono.xs", minWidth: "22px", padding: "0 3px", border: "1px solid", borderColor: "border.subtle", borderRadius: "2px", "&[data-empty]": { borderStyle: "dashed", color: "fg.faint" } },
         fit: { textStyle: "mono.xs", fontSize: "label.xs", color: "fg.subtle", whiteSpace: "nowrap" },

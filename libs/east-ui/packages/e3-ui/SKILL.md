@@ -243,7 +243,7 @@ Task → What do you need?
     │   ├─ People by week or by month                                 → view={{ layout: "people", period: "week" | "month", date }}
     │   ├─ People in one list, no band over each group                → peopleBands={false} — ranked as a group's people are (leads, the rest, agency staff), every group's agency requests one row at its foot; a person keeps their home group for + Assign, a Find, the fit and the optimiser
     │   ├─ Offer only some layouts, no switch with one left           → views={["people"]} or views={expr of Array<Roster.Types.Layout>}
-    │   ├─ The app's own words for who is on it                       → vocabulary={{ permanent: "Employees", agency: "Contractors", agencyShort: "contr", others: "Colleagues", requests: "Contractor requests" }} — agencyShort the People badge, requests its rows of agency requests; a fit's reason: Roster.fit(R, { notALead })
+    │   ├─ The app's own words for who is on it                       → vocabulary={{ permanent: "Employees", agency: "Contractors", agencyShort: "contr", others: "Colleagues", requests: "Contractor requests" }} — agencyShort the agency badge in People and on a Shifts chip, requests its rows of agency requests; a fit's reason: Roster.fit(R, { notALead })
     │   ├─ The shifts' colours, and the app's week patterns           → Roster.shifts(rows, { …, color }) · patterns={Roster.patterns(rows, {…})} · library={[…, Roster.library.patterns()]}
     │   └─ The week's figures in a task                               → Roster.coverage / check / weekHours / rest (R)
     │

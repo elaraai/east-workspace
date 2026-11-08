@@ -400,6 +400,8 @@ const AssignmentChipBody = memo(function AssignmentChipBody({ ctx, id, assignmen
     const name = assignmentName(value, a);
     const enabled = drag.enabled && !removed;
     const person = a.who.type === "person" ? personOf(value, a.who.value) : undefined;
+    // An agency person's duty, or a request: its badge the app's short word for agency staff (#1566).
+    const agency = a.who.type === "request" || person?.agency === true;
     const position = value.positions.find(p => p.key === a.position);
     const issues = removed ? NO_ISSUES : dutyIssues(ctx.issues, id);
     const activity = a.activity.type === "some" ? activityOf(value, a.activity.value) : undefined;
@@ -417,7 +419,7 @@ const AssignmentChipBody = memo(function AssignmentChipBody({ ctx, id, assignmen
         data-tone={issues.some(i => i.tone.type === "danger") ? "danger" : issues.some(i => i.kind.type === "breach") ? "warning" : undefined} data-draggable={enabled ? "" : undefined}
         onClick={event => { event.stopPropagation(); ctx.select({ type: "assignment", key: id }); }} onKeyDown={event => { if (event.key === "Enter") { takeKey(event); ctx.select({ type: "assignment", key: id }); } else handle?.onKeyDown?.(event); }}>
         {enabled && <Box as="span" css={styles.grip} data-roster-grip=""><FontAwesomeIcon icon={faGripVertical} /></Box>}
-        <Box as="span" css={styles.badge} data-lead={position?.lead ? "" : undefined}>{a.who.type === "request" || person?.agency ? "AG" : position?.code || (person?.trainer ? "T" : "")}</Box>
+        <Box as="span" css={styles.badge} data-lead={position?.lead ? "" : undefined} data-roster-agency-badge={agency ? "" : undefined}>{agency ? value.vocabulary.agencyShort : position?.code || (person?.trainer ? "T" : "")}</Box>
         <Box css={styles.assignmentName} data-roster-assignment-name="">{short ? `${value.shifts.find(s => s.key === a.slot.shift)?.code ?? a.slot.shift}${person?.group !== a.slot.group ? ` · ${value.groups.find(g => g.key === a.slot.group)?.label ?? a.slot.group}` : ""}` : name}</Box>
         {issues.filter(i => i.flag.type === "some").map((i, n) => <Box as="span" key={n} css={styles.flag} data-tone={i.tone.type}>{i.flag.type === "some" && i.flag.value}</Box>)}
         {/* A duty's own times, where they differ from its shift's (§5.5, rule 2): just times, no name and no worth. */}
@@ -704,11 +706,11 @@ function Tile(args: TileProps) {
     return <TileBody {...args} selected={selected} handle={handle} attach={attach} />;
 }
 /**
- * A tile a duty (#1406, D5, P7): the shift's label, then its own times where they differ from the shift's, else the
- * group where it is not the row's — the person's home group, a group's requests' group, none in the one row of every
- * group's requests (#1567) — else the shift's hours where `tileTimes` is always; a warning mark where an issue names it;
- * its fill the shift's colour token, its words in the ink the shade takes. Tile state comes from the held week and the
- * domain issues, never from a second draft store.
+ * A tile a duty (#1406, D5, P7): the shift's label — a request's too, its row saying it is one (#1566) — then its own
+ * times where they differ from the shift's, else the group where it is not the row's — the person's home group, a
+ * group's requests' group, none in the one row of every group's requests (#1567) — else the shift's hours where
+ * `tileTimes` is always; a warning mark where an issue names it; its fill the shift's colour token, its words in the ink
+ * the shade takes. Tile state comes from the held week and the domain issues, never from a second draft store.
  */
 const TileBody = memo(function TileBody({ ctx, id, assignment: a, removed, person, home, selected, handle, attach }: TileProps & {
     selected: boolean; handle: ReturnType<typeof useDragEventChip>; attach: (element: HTMLDivElement | null) => void;
@@ -737,7 +739,7 @@ const TileBody = memo(function TileBody({ ctx, id, assignment: a, removed, perso
         data-tone={danger ? "danger" : issues.some(i => i.kind.type === "breach") ? "warning" : undefined} data-draggable={enabled ? "" : undefined}
         onClick={event => { event.stopPropagation(); ctx.select({ type: "assignment", key: id }); }}
         onKeyDown={event => { if (event.key === "Enter") { takeKey(event); ctx.select({ type: "assignment", key: id }); } else handle?.onKeyDown?.(event); }}>
-        <Box as="span" css={styles.tileLabel} data-roster-assignment-name="">{a.who.type === "request" ? `AG · ${shift?.label ?? a.slot.shift}` : shift?.label ?? a.slot.shift}</Box>
+        <Box as="span" css={styles.tileLabel} data-roster-assignment-name="">{shift?.label ?? a.slot.shift}</Box>
         {meta !== undefined && <Box as="span" css={styles.tileMeta} data-own={meta.kind === "own" ? "" : undefined} data-group={meta.kind === "group" ? "" : undefined} data-roster-times={meta.kind === "own" ? "" : undefined}>{meta.text}</Box>}
         {issues.length > 0 && <Box as="span" css={styles.tileWarn} data-tone={danger ? "danger" : undefined} data-roster-tile-warn="" role="img" aria-label={issues[0]!.title}><FontAwesomeIcon icon={faTriangleExclamation} /></Box>}
         {(commands.available || commands.locked !== undefined) && <chakra.button type="button" css={styles.chipAction} data-roster-chip-action="" aria-label={removed ? `Restore ${name}` : `Remove ${name}`}

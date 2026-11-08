@@ -6,7 +6,8 @@
  * The app's own words for who is on the Roster (#1516), on e3: each `vocabulary` entry given replaces its default word
  * wherever the Roster draws it, and the People tab keeps its groups' order whatever they are called. The People layout's
  * badge beside an agency person's name and each group's row of agency requests take theirs too (#1566), by week, by
- * month and on a phone.
+ * month and on a phone; so does a Shifts chip's badge on an agency person's duty or a request, and a request's People
+ * tile names its shift alone, its row saying it is a request.
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
@@ -26,6 +27,8 @@ const weekRead = (request: E3Request) => ["page", "find", "runs", "rows"].includ
     && (request.dataset === "records.roster_rota_weeks" || request.dataset === "records.roster_duties");
 /** The agency badges main has mounted, by their words. */
 const badges = (c: HTMLElement) => [...slot(c, "main").querySelectorAll("[data-roster-agency-badge]")].map(el => el.textContent);
+/** The example's shifts, by their labels: all a request's People tile may say. */
+const SHIFT_LABELS = new Set(["Early", "Late", "Night"]);
 
 describe("a Roster's vocabulary", () => {
     test("the legend, the coverage detail, the inspector and the People tab's groups say the app's words, in the groups' own order", async () => {
@@ -66,6 +69,20 @@ describe("a Roster's vocabulary", () => {
         expect(badges(c).length).toBeGreaterThan(0);
         expect(new Set(badges(c))).toEqual(new Set(["contr"]));
         expect(slot(c, "main").textContent).not.toMatch(PEOPLE_DEFAULTS);
+    });
+    test("a Shifts chip's badge on an agency person's duty or a request is the app's short form, and a request's People tile names its shift alone (#1566)", async () => {
+        const { container: c } = await open(ex.rosterVocabulary);
+        const chips = [...slot(c, "main").querySelectorAll("[data-roster-assignment]")];
+        const agency = chips.filter(chip => chip.hasAttribute("data-agency") || chip.hasAttribute("data-request"));
+        expect(agency.length).toBeGreaterThan(0);
+        expect(agency.map(chip => chip.querySelector("[data-roster-agency-badge]")?.textContent)).toEqual(agency.map(() => "contr"));
+        expect(chips.filter(chip => !agency.includes(chip) && chip.querySelector("[data-roster-agency-badge]") !== null)).toEqual([]);
+        await press(toolbar(c).getByRole("radio", { name: "People" }));
+        // The example's agency requests are the picking group's.
+        const row = await reveal(c, '[data-roster-person-row="requests:picking"]');
+        const names = [...row.querySelectorAll("[data-roster-tile] [data-roster-assignment-name]")].map(el => el.textContent ?? "");
+        expect(names.length).toBeGreaterThan(0);
+        expect(names.filter(name => !SHIFT_LABELS.has(name))).toEqual([]);
     });
     test("a phone's People cards title each group's requests the app's word, read and while a week is read (#1566)", async () => {
         const { container: c } = await open(ex.rosterVocabulary);
