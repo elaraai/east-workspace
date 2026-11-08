@@ -913,9 +913,14 @@ function buildSheet(
         }
     }
 
-    // Registers — by name, plus the driver's under its column name.
+    // Registers — by name, plus the driver's under its column name, and each cycle over a variant's steps under its own.
     const registers: Record<string, SheetRegisterValue> = { ...(opts.registers ?? {}) };
     if (driver !== undefined) registers[driver.column] = driver.members;
+    for (const m of metas) {
+        if (m.steps === undefined) continue;
+        if (registers[m.register!] !== undefined) throw new Error(`Sheet: \`registers\` declares "${m.register}", the name column "${m.key}"'s steps take — name the register another way`);
+        registers[m.register!] = m.steps.members;
+    }
     for (const m of metas) {
         if (m.register !== undefined && registers[m.register] === undefined) {
             throw new Error(`Sheet: column "${m.key}" names register "${m.register}", which \`registers\` does not declare (${Object.keys(registers).join(", ") || "none declared"})`);

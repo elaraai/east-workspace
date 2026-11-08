@@ -100,6 +100,7 @@ import {
     sheetRuleCell,
     type SheetColumnKindLiteral,
 } from "./types.js";
+import { StatusValueType } from "@elaraai/east-ui";
 import { resolveTag } from "@elaraai/east-ui/internal";
 import type { SheetSubRowsValue } from "./sub-rows.js";
 import { SheetMembersType, SheetRegisterMembersType, parseLink, EMPTY_LINK } from "./link.js";
@@ -187,6 +188,25 @@ export interface SheetColumnMeta {
     ruleCells?: SheetRuleCellMeta[];
     /** An action column's cell codec (#1474). */
     action?: SheetActionCodec;
+    /** A cycle over a variant's steps: the register they make, and how a case and its key cross. */
+    steps?: SheetStepsCodec;
+}
+
+/**
+ * A cycle over a variant (`Record.column.cycle(R, V, { steps })`): its steps
+ * as a register keyed by the cases' names, and how a case and its key cross.
+ * The cell holds the key, so the renderer's cycle draws it as it draws any
+ * register's.
+ *
+ * @internal
+ */
+export interface SheetStepsCodec {
+    /** The steps as a register's members, in stepping order. */
+    members: SheetRegisterValue;
+    /** A case → its key. */
+    encode: ExprType<FunctionType<[VariantType], StringType>>;
+    /** A key → its case; `none` for a key no case has. */
+    decode: ExprType<FunctionType<[StringType], OptionType<VariantType>>>;
 }
 
 /** Whether a type is `Option<T>` — a variant of exactly `none: Null` and `some`. */
@@ -337,6 +357,59 @@ function describeAge(key: string, col: SheetColumn<StructType, EastType>, rowTyp
     };
 }
 
+/**
+ * A cycle over a variant, described against its field: the field holds the
+ * variant, no case of it holds data, and `steps` names every case once, in
+ * the order a click steps through them. Its steps become a register keyed by
+ * the cases' names, under a `$` name no register of the author's takes.
+ */
+function describeSteps(key: string, col: SheetColumn<StructType, EastType>, fieldType: EastType): SheetColumnMeta {
+    const variantType = col.variantType!;
+    const cases = variantType.cases as Record<string, EastType>;
+    const names = Object.keys(cases);
+    if (!isTypeEqual(fieldType, variantType)) {
+        throw new Error(`Sheet: cycle column "${key}" steps through a variant's cases, but sits on ${fieldType.type === "Variant" ? "a field holding another variant" : `a ${describeType(fieldType)} field`} — it sits on a field holding the variant it steps through`);
+    }
+    for (const [name, type] of Object.entries(cases)) {
+        if (type.type !== "Null") {
+            throw new Error(`Sheet: cycle column "${key}" steps through a variant whose "${name}" case holds ${describeType(type)} — a step has no value to give a case, so no case of a cycle's variant holds data`);
+        }
+    }
+    const steps = col.config.steps ?? [];
+    const named = new Set<string>();
+    for (const step of steps) {
+        if (cases[step.case] === undefined) {
+            throw new Error(`Sheet: cycle column "${key}" has a step "${step.case}", which is not a case of its variant (${names.join(", ")})`);
+        }
+        if (named.has(step.case)) throw new Error(`Sheet: cycle column "${key}" names the case "${step.case}" twice in its steps — name each case once`);
+        named.add(step.case);
+    }
+    const left = names.filter((name) => !named.has(name));
+    if (left.length > 0) {
+        throw new Error(`Sheet: cycle column "${key}" leaves ${left.map((name) => `"${name}"`).join(", ")} out of its steps — name every case of its variant, in the order a click steps through them`);
+    }
+    const members = East.value(steps.map((step) => ({
+        key:     step.case,
+        label:   step.label,
+        kind:    key,
+        aliases: step.aliases ?? [],
+        meta:    step.meta !== undefined ? some(step.meta) : none,
+        parent:  none,
+        tone:    step.tone !== undefined ? some(resolveTag(step.tone, StatusValueType)) : none,
+    })), SheetRegisterMembersType);
+    const encode = East.function([variantType], StringType, (_$, v) => v.getTag()) as unknown as SheetStepsCodec["encode"];
+    const decode = East.function([StringType], OptionType(variantType), ($, text) => {
+        const byKey = $.const(new Map(names.map((name) => [name, variant(name, null)])), DictType(StringType, variantType));
+        return byKey.tryGet(text);
+    }) as unknown as SheetStepsCodec["decode"];
+    return {
+        key, field: key, kind: "cycle", config: col.config, fieldType, optional: false,
+        payloadType: StringType, cellTag: "String", editable: col.config.editable !== false,
+        register: `$steps:${key}`,
+        steps: { members, encode, decode },
+    };
+}
+
 /** {@link describeColumn}'s kind-by-kind half. */
 function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowType: StructType): SheetColumnMeta {
     if (col.kind === "age") return describeAge(key, col, rowType);
@@ -347,6 +420,7 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
     }
     const cfg = col.config;
     const kind = col.kind;
+    if (kind === "cycle" && col.variantType !== undefined) return describeSteps(key, col, fieldType);
     const payloadOf = optionPayload(fieldType);
     const optional = payloadOf !== undefined;
     const unwrapped = payloadOf ?? fieldType;
@@ -533,6 +607,8 @@ function projectCell(
             ? (fv as unknown as ExprType<OptionType<VariantType>>).match({ some: (_$, v) => encode(v), none: (_$) => NULL_CELL }) as ExprType<SheetCellType>
             : encode(fv as ExprType<VariantType>);
     }
+    // A cycle over a variant: its case's key.
+    if (meta.steps !== undefined) return cellOfPayload("String", meta.steps.encode(fv as ExprType<VariantType>) as ExprType<EastType>);
     if (meta.form === undefined) return cellOfFieldValue(meta.cellTag, fv, meta.optional);
     if (meta.form === "link") return cellOfFieldValue(meta.cellTag, fv, meta.optional);
     if (meta.form === "array") {

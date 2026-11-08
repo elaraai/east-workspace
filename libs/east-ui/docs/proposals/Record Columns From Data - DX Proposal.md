@@ -123,19 +123,20 @@ A literal column group may name a struct's columns by the column's key, because 
 
 ### 2.3 A variant, stepped in order
 
-A status stored as a variant, on an ordinary field. East keeps a variant's cases in alphabetical order, so `steps` gives the order a click steps through them in.
+A status stored as a variant, on an ordinary field. East keeps a variant's cases in alphabetical order (here packed, picked, received, shipped), so `steps` gives the order a click steps through them in.
 
 ```tsx
-export const Status = VariantType({ open: NullType, packed: NullType, shipped: NullType });
+export const Status = VariantType({ received: NullType, picked: NullType, packed: NullType, shipped: NullType });
 export const Order = StructType({ customer: StringType, status: Status });
 
 // In the Record's columns:
 status: Record.column.cycle(Order, Status, {
     header: "Status", width: "96px",
     steps: [
-        { case: "open",    label: "Open",    tone: "neutral" },
-        { case: "packed",  label: "Packed",  tone: "info" },
-        { case: "shipped", label: "Shipped", tone: "success" },
+        { case: "received", label: "Received", tone: "neutral" },
+        { case: "picked",   label: "Picked",   tone: "info" },
+        { case: "packed",   label: "Packed",   tone: "info" },
+        { case: "shipped",  label: "Shipped",  tone: "success" },
     ],
 }),
 ```

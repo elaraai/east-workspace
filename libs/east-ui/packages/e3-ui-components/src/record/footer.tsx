@@ -8,8 +8,9 @@
  * — the rows the narrowing shows, of the record's — and the record's last
  * save after it, the stale note of the first age column with a threshold,
  * and at the right the legend of the register every cycle column names: each
- * member's chip in its look, and its name, or its name alone in the mark
- * look. The shared loading line takes its slot at the trailing end.
+ * member's chip in its look, and its name beside it where it has one — a chip
+ * says its label already — or its name alone in the mark look. The shared
+ * loading line takes its slot at the trailing end.
  *
  * The rail never wraps and never cuts a word: the legend ends at a whole
  * member, then "…", where the rail is short of room (#1398, CL3). On a phone
@@ -44,8 +45,8 @@ export interface RecordLegendItem {
     look: string | undefined;
     /** Its chip's words: the member's label. */
     label: string;
-    /** Its name: the member's `meta`, else its label. */
-    name: string;
+    /** Its name: the member's `meta` — none beside a chip where it has none, the chip saying its label; in the mark look, which draws no chip, its label. */
+    name: string | undefined;
 }
 
 /** The legend: its members, and their chips' least width in characters — the widest label, so the chips line up. */
@@ -82,7 +83,7 @@ export function legendOf(columns: SheetColumnIndex, registers: SheetRegisterInde
         return {
             look: mark ? undefined : scale ? heatOf(at, members.length) : tone === undefined || tone === "neutral" ? "none" : tone,
             label,
-            name: getSomeorUndefined(member.meta) ?? label,
+            name: getSomeorUndefined(member.meta) ?? (mark ? label : undefined),
         };
     });
     return { items, chip: items.reduce((n, item) => Math.max(n, [...item.label].length), 0) };
@@ -194,7 +195,7 @@ export const RecordFooter = memo(function RecordFooter({ styles, count, saved, s
                     {legend.items.map((item, i) => (
                         <Box key={i} as="span" css={styles.legendItem} data-slot="legendItem" data-footer-unit="" data-footer-cut={footerCut(i, fit)}>
                             {item.look !== undefined && <Box as="span" css={styles.legendChip} data-slot="legendChip" data-look={item.look} style={chipStyle}>{item.label}</Box>}
-                            <Box as="span" css={styles.legendName} data-slot="legendName">{item.name}</Box>
+                            {item.name !== undefined && <Box as="span" css={styles.legendName} data-slot="legendName">{item.name}</Box>}
                         </Box>
                     ))}
                 </Box>

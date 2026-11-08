@@ -29,12 +29,14 @@ import {
     type FloatType,
     type FunctionType,
     type IntegerType,
+    type NullType,
     type OptionType,
     type StringType,
     type StructType,
     type VariantType,
 } from "@elaraai/east";
 
+import type { StatusValueLiteral, StatusValueType } from "@elaraai/east-ui";
 import type { TickFormatType } from "@elaraai/east-ui/internal";
 import type {
     SheetLinkType,
@@ -83,7 +85,7 @@ export interface SheetColumn<R extends StructType, A extends EastType> {
     readonly register?: string;
     /** The row type the column was built over — checked against the sheet's at build time. @internal */
     readonly rowType?: StructType;
-    /** An action column's variant (#1474). @internal */
+    /** An action column's variant (#1474), or the variant a cycle steps through. @internal */
     readonly variantType?: VariantType;
     /** Phantom — the row type. @internal */
     readonly __row?: (r: R) => void;
@@ -469,6 +471,52 @@ export interface RecordCycleConfig<R extends StructType> extends SheetColumnBase
 }
 
 /**
+ * One step of a cycle over a variant: a case, and the chip it draws as.
+ *
+ * @typeParam V - The variant the field holds
+ * @property case - The case, by its name
+ * @property label - What the chip prints, and a spelling typed text resolves
+ * @property meta - The case in words, beside the chip
+ * @property aliases - Other spellings typed text resolves
+ * @property tone - The chip's colour, where the cycle is no `scale`
+ */
+export interface RecordCycleStep<V extends VariantType> {
+    /** The case, by its name. */
+    case: Extract<keyof V["cases"], string>;
+    /** What the chip prints. */
+    label: SubtypeExprOrValue<StringType>;
+    /** The case in words. */
+    meta?: SubtypeExprOrValue<StringType>;
+    /** Other spellings typed text resolves. */
+    aliases?: SubtypeExprOrValue<ArrayType<StringType>>;
+    /** The chip's colour. */
+    tone?: StatusValueLiteral | SubtypeExprOrValue<StatusValueType>;
+}
+
+/**
+ * Config for `Record.column.cycle(R, V, { steps })` — a variant's cases,
+ * stepped by a click, on a field holding the variant.
+ *
+ * @remarks
+ * East keeps a variant's cases in alphabetical order, so `steps` gives the
+ * order a click steps through them in: every case once, each with its chip.
+ * A step has no value to give a case, so no case of the variant holds data.
+ *
+ * @typeParam V - The variant the field holds
+ * @property steps - The cases in stepping order, each with its chip
+ * @property scale - The first step draws empty and the rest step up the heat ramp in order; without it each step's `tone` colours it
+ * @property look - A chip (the default), or a mark
+ */
+export interface RecordCycleStepsConfig<R extends StructType, V extends VariantType> extends Omit<SheetColumnBaseConfig<R, StringType>, "fill"> {
+    /** The cases in stepping order. */
+    steps: RecordCycleStep<V>[];
+    /** The steps go up the heat ramp, the first empty. */
+    scale?: boolean;
+    /** A chip (the default), or a mark. */
+    look?: SheetLookLiteral;
+}
+
+/**
  * Config for `Record.column.age` — whole units from a moment to the browser's
  * clock, keyed by a name of its own.
  *
@@ -539,6 +587,7 @@ export type SheetAnyColumnConfig =
     & Partial<Pick<RecordPersonConfig<StructType>, "unassigned">>
     & Partial<Pick<RecordToggleConfig<StructType>, "on" | "off" | "look">>
     & Partial<Pick<RecordCycleConfig<StructType>, "scale">>
+    & Partial<Pick<RecordCycleStepsConfig<StructType, VariantType>, "steps">>
     // An age's `unit` names what it counts, a quantity's the unit it prints: the age's is read by its own name.
     & Partial<Omit<RecordAgeConfig<StructType>, "header" | "sub" | "width" | "unit">>
     & Partial<Pick<RecordAuditConfig, "mode">>;
@@ -731,9 +780,15 @@ export function toggle<R extends StructType>(rowType: R, config: RecordToggleCon
  * members, stepped by a click (⇧-click steps back), a member's label or alias
  * typed in the cell setting it. Sits on a `String` field holding a member's
  * key.
+ *
+ * `Record.column.cycle(R, V, { steps })` steps a variant's cases instead, in
+ * the order `steps` gives, on a field holding the variant.
  */
-export function cycle<R extends StructType>(rowType: R, register: string, config: RecordCycleConfig<R> = {}): SheetColumn<R, StringType> {
-    return column(rowType, "cycle", config, { register });
+export function cycle<R extends StructType, V extends VariantType<{ [K in string]: NullType }>>(rowType: R, variantType: V, config: RecordCycleStepsConfig<R, V>): SheetColumn<R, V>;
+export function cycle<R extends StructType>(rowType: R, register: string, config?: RecordCycleConfig<R>): SheetColumn<R, StringType>;
+export function cycle<R extends StructType>(rowType: R, over: string | VariantType, config: object = {}): SheetColumn<R, EastType> {
+    if (typeof over === "string") return column(rowType, "cycle", config, { register: over });
+    return { kind: "cycle", config: config as SheetAnyColumnConfig, rowType, variantType: over };
 }
 
 /**

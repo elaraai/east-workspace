@@ -7,17 +7,19 @@
  * The Record (`Record - DX Proposal.md`): the examples; the Record's column
  * kinds on the wire — a title, a person, a boolean, a toggle, a cycle, an age
  * and an audit, and a quantity's unit — their cells, the age's count to a
- * clock and the audit's who and what; the columns map's typing; and every
- * refusal, naming the column or the prop — a new row's field no person can
- * set among them (#1526).
+ * clock and the audit's who and what; a cycle over a variant's steps
+ * (`Record Columns From Data - DX Proposal.md` §2.3); the columns map's
+ * typing; and every refusal, naming the column or the prop — a new row's
+ * field no person can set among them (#1526).
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, OptionType, StringType, StructType,
-    equalFor, none, printFor, some, variant, type ValueTypeOf,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, NullType, OptionType, StringType, StructType, VariantType,
+    equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
+import { FieldSpecType } from "@elaraai/east-ui/internal";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import e3 from "@elaraai/e3";
 import {
@@ -35,6 +37,7 @@ describeEast("Record — examples", test => {
         recordSkillsReadOnly: ex.recordSkillsReadOnly,
         recordLooks: ex.recordLooks,
         recordFinishes: ex.recordFinishes,
+        recordOrderStatus: ex.recordOrderStatus,
     });
 }, { platformFns: TestImpl });
 
@@ -172,6 +175,82 @@ describe("the Record's kinds on the wire", () => {
     });
 });
 
+// ── A cycle over a variant: its cases stepped in the order given ──
+
+const Stage = VariantType({ draft: NullType, review: NullType, done: NullType });
+const Order = StructType({ id: StringType, customer: StringType, stage: Stage });
+const ORDERS: ValueTypeOf<typeof Order>[] = [
+    { id: "O-1", customer: "Ashgrove", stage: variant("review", null) },
+    { id: "O-2", customer: "Bellmoor", stage: variant("draft", null) },
+];
+const ORDER_COLUMNS = {
+    customer: Record.column.title(Order, { header: "Customer" }),
+    stage: Record.column.cycle(Order, Stage, {
+        header: "Stage", scale: true,
+        // Not the order East keeps the cases in — done, draft, review — but a click's.
+        steps: [
+            { case: "draft", label: "Draft", tone: "neutral" },
+            { case: "review", label: "In review", meta: "With the checker", aliases: ["checking"] },
+            { case: "done", label: "Done", tone: "success" },
+        ],
+    }),
+};
+const ORDERS_ROOT: Root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+    const rows = $.const(ORDERS, ArrayType(Order));
+    return createSheetRootWith(rows, ORDER_COLUMNS, { id: "id" }, { recordKinds: true });
+}), [])();
+const OrderDraft = Record.Types.Draft(Order);
+
+describe("a cycle over a variant", () => {
+    test("its steps are a register keyed by the cases' names, in the order its steps give, and its cell its case's key", () => {
+        const column = ORDERS_ROOT.columns.find((c) => c.key === "stage");
+        if (column === undefined) assert.fail("no stage column");
+        const kind = variant("cycle", { register: "$steps:stage", scale: true, look: variant("chip", null) });
+        assert.ok(equalFor(Sheet.Types.ColumnKind)(column.kind, kind), printFor(Sheet.Types.ColumnKind)(column.kind));
+        const MembersType = Sheet.Types.Root.fields.registers.value.fields.members;
+        const steps = ORDERS_ROOT.registers.get("$steps:stage");
+        if (steps === undefined) assert.fail("no register of the steps");
+        assert.ok(equalFor(MembersType)(steps.members, [
+            { key: "draft", label: "Draft", kind: "stage", aliases: [], meta: none, parent: none, tone: some(variant("neutral", null)) },
+            { key: "review", label: "In review", kind: "stage", aliases: ["checking"], meta: some("With the checker"), parent: none, tone: none },
+            { key: "done", label: "Done", kind: "stage", aliases: [], meta: none, parent: none, tone: some(variant("success", null)) },
+        ]), printFor(MembersType)(steps.members));
+        if (ORDERS_ROOT.rows.type !== "inline") assert.fail(`expected inline rows, got ${ORDERS_ROOT.rows.type}`);
+        const cell = ORDERS_ROOT.rows.value.find((r) => r.id === "O-1")?.cells.get("stage");
+        assert.ok(cell !== undefined && equalFor(Sheet.Types.Cell)(cell, variant("String", "review")), cell === undefined ? "no cell" : printFor(Sheet.Types.Cell)(cell));
+    });
+
+    test("a step's key decodes to its case, and a key no case has is kept as typed", () => {
+        const decode = East.compile(East.function([StringType], undefined, ($, key) => {
+            const rows = $.const(ORDERS, ArrayType(Order));
+            const built = createSheetBuild(rows, ORDER_COLUMNS, { id: "id" }, { recordKinds: true });
+            const draftRow = $.const(built.bridge.draftRow);
+            const cells = $.let(new Map(), DictType(StringType, Sheet.Types.Cell));
+            $(cells.insert("stage", East.value(variant("String", key), Sheet.Types.Cell)));
+            return draftRow("O-1", cells, none);
+        }), []);
+        const StageDraft = OrderDraft.fields.stage;
+        const done = decode("done").stage;
+        assert.ok(equalFor(StageDraft)(done, variant("value", variant("done", null))), printFor(StageDraft)(done));
+        const lost = decode("lost").stage;
+        assert.ok(equalFor(StageDraft)(lost, variant("invalid", "lost")), printFor(StageDraft)(lost));
+    });
+
+    test("the inspector chooses its field among the variant's cases, in its steps' order and words", () => {
+        const pane = East.compile(East.function([], OptionType(SheetInspectorPaneType), ($) => {
+            const rows = $.const(ORDERS, ArrayType(Order));
+            const built = createSheetBuild(rows, ORDER_COLUMNS, { id: "id" }, { recordKinds: true });
+            return buildInspectorPane(true, built, { fields: undefined, groupFields: undefined, id: "id" });
+        }), [])();
+        if (pane.type !== "some") assert.fail("no inspector pane");
+        const spec = pane.value.forms.row.fields.find((f) => f.spec.path.join(".") === "stage")?.spec;
+        if (spec === undefined) assert.fail("no stage field");
+        const select = variant("select", [{ case: "draft", label: "Draft" }, { case: "review", label: "In review" }, { case: "done", label: "Done" }]);
+        assert.ok(equalFor(FieldSpecType.fields.editor)(spec.editor, select), printFor(FieldSpecType.fields.editor)(spec.editor));
+        assert.ok(equalFor(FieldSpecType.fields.type)(spec.type, toEastTypeValue(Stage)), printFor(FieldSpecType.fields.type)(spec.type));
+    });
+});
+
 // ── Refusals ──
 
 const Row = StructType({ id: StringType, name: StringType, flag: BooleanType, updated: OptionType(Record.Types.Change) });
@@ -204,6 +283,24 @@ describe("the Record's kinds refuse", () => {
             /^Error: Sheet: cycle column "flag" must sit on a String/);
         assert.throws(() => createSheetRootWith(ROWS, { name: Record.column.toggle(Row, { on: "y", off: "n" }) as never }, { id: "id" }, { recordKinds: true }),
             /^Error: Sheet: toggle column "name" must sit on a Boolean/);
+    });
+
+    test("a cycle over a variant on a field not holding it, steps leaving out, repeating or inventing a case, and a register under its steps' name", () => {
+        const rows = East.value(ORDERS, ArrayType(Order));
+        const draft = { case: "draft" as const, label: "Draft" };
+        const review = { case: "review" as const, label: "In review" };
+        const done = { case: "done" as const, label: "Done" };
+        assert.throws(() => createSheetRootWith(rows, { customer: Record.column.cycle(Order, Stage, { steps: [draft, review, done] }) as never }, { id: "id" }, { recordKinds: true }),
+            /^Error: Sheet: cycle column "customer" steps through a variant's cases, but sits on a String field/);
+        assert.throws(() => createSheetRootWith(rows, { stage: Record.column.cycle(Order, Stage, { steps: [draft, done] }) }, { id: "id" }, { recordKinds: true }),
+            /^Error: Sheet: cycle column "stage" leaves "review" out of its steps — name every case of its variant/);
+        assert.throws(() => createSheetRootWith(rows, { stage: Record.column.cycle(Order, Stage, { steps: [draft, review, draft, done] }) }, { id: "id" }, { recordKinds: true }),
+            /^Error: Sheet: cycle column "stage" names the case "draft" twice in its steps/);
+        assert.throws(() => createSheetRootWith(rows, { stage: Record.column.cycle(Order, Stage, { steps: [draft, review, done, { case: "lost" as never, label: "Lost" }] }) }, { id: "id" }, { recordKinds: true }),
+            /^Error: Sheet: cycle column "stage" has a step "lost", which is not a case of its variant \(done, draft, review\)/);
+        const taken = { "$steps:stage": Record.register.members(East.value(["x"], ArrayType(StringType)), { kind: "x", key: (x) => x, label: (x) => x }) };
+        assert.throws(() => createSheetRootWith(rows, { stage: Record.column.cycle(Order, Stage, { steps: [draft, review, done] }) }, { id: "id", registers: taken }, { recordKinds: true }),
+            /^Error: Sheet: `registers` declares "\$steps:stage", the name column "stage"'s steps take/);
     });
 });
 
@@ -308,5 +405,15 @@ describe("the columns map's typing", () => {
                 inducted: Record.column.cycle(ex.Crew, "levels"),
             },
         }), /^Error: Record: cycle column "inducted" must sit on a String/);
+    });
+
+    test("a cycle over a variant one of whose cases holds data", () => {
+        const Held = VariantType({ held: StringType, open: NullType });
+        const Holding = StructType({ id: StringType, state: Held });
+        const rows = East.value([{ id: "a", state: variant("open", null) }], ArrayType(Holding));
+        assert.throws(() => createSheetRootWith(rows, {
+            // @ts-expect-error — a step has no value to give a case, so no case of a cycle's variant holds data
+            state: Record.column.cycle(Holding, Held, { steps: [{ case: "held", label: "Held" }, { case: "open", label: "Open" }] }),
+        }, { id: "id" }, { recordKinds: true }), /^Error: Sheet: cycle column "state" steps through a variant whose "held" case holds String — a step has no value to give a case/);
     });
 });

@@ -567,3 +567,56 @@ export const recordFinishes = example({
     )),
     inputs: [],
 });
+
+// ============================================================================
+// Example 8 — a cycle over a variant, its cases stepped in the order given
+// ============================================================================
+
+/** Where an order is. East keeps a variant's cases in alphabetical order — packed, picked, received, shipped — so the cycle gives its own. */
+export const Status = VariantType({ received: NullType, picked: NullType, packed: NullType, shipped: NullType });
+export const Order = StructType({ customer: StringType, status: Status });
+export const recordOrders = e3.record("record_orders", DictType(StringType, Order), {
+    initial: new Map([
+        ["SO-1041", { customer: "Ashgrove Joinery", status: variant("received", null) }],
+        ["SO-1042", { customer: "Bellmoor Interiors", status: variant("packed", null) }],
+        ["SO-1043", { customer: "Corran Builders", status: variant("shipped", null) }],
+    ]),
+    mutations: (mutation) => ({
+        // The orders' patch door — every Apply commits through it.
+        patch: mutation.patch(),
+    }),
+});
+
+export const recordOrderStatus = example({
+    keywords: ["Record", "Record.column.cycle", "steps", "variant", "VariantType", "cycle over a variant", "status"],
+    description: "A cycle over a variant: an order's status, stepped by a click in the order its `steps` give — received, picked, packed, shipped — rather than the alphabetical order East keeps a variant's cases in, each step a chip with its tone, Details offering the steps in that order as one line, and Apply writing the case",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const orders = $.let(Record.bind(recordOrders));
+            return (
+                <Box height="320px">
+                    <Record
+                        record={orders}
+                        title="Orders"
+                        noun={{ singular: "order", plural: "orders" }}
+                        columns={{
+                            customer: Record.column.title(Order, { header: "Customer", width: "200px" }),
+                            status:   Record.column.cycle(Order, Status, {
+                                header: "Status", width: "96px",
+                                steps: [
+                                    { case: "received", label: "Received", tone: "neutral" },
+                                    { case: "picked",   label: "Picked",   tone: "info" },
+                                    { case: "packed",   label: "Packed",   tone: "info" },
+                                    { case: "shipped",  label: "Shipped",  tone: "success" },
+                                ],
+                            }),
+                        }}
+                        inspector
+                        name="orders"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});

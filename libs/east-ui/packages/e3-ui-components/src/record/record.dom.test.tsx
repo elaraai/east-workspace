@@ -17,8 +17,10 @@
  * one-line field, the facts, Duplicate and Delete, the stats with no row, and
  * the Issues tab (IN2–IN9) — and the app's part (#1527): a refusal of its
  * `ready` listed and reachable (#1525), and a new row's fields its `newRow`
- * gives (#1526) — over the Record's examples deployed to e3 itself, each test
- * a workspace of its own.
+ * gives (#1526) — and a cycle over a variant (`Record Columns From Data - DX
+ * Proposal.md` §2.3): its steps in their order, in the grid and Details, and
+ * Apply writing the case — over the Record's examples deployed to e3 itself,
+ * each test a workspace of its own.
  */
 
 import { describe, expect, test, vi } from "vitest";
@@ -1350,5 +1352,49 @@ describe("the app's part (#1527)", () => {
         expect([cellOf(copy, "name").textContent, part(cellOf(copy, "inducted"), "chip")!.textContent, part(cellOf(copy, "forklift"), "chip")!.textContent])
             .toEqual(["", "no", "0"]);
         expect(status(container)).toBe("Duplicated B. Ellis");
+    });
+});
+
+describe("a cycle over a variant", () => {
+    test("steps through its cases in the order its steps give, not East's, in the grid, the legend and Details' one line, each step a chip in its tone; Apply writes the case", async () => {
+        const { container } = await h.mount(ex.recordOrderStatus, { storageKey: "record-steps" });
+        const chip = (r: number) => part(cellAt(container, r, "status"), "chip")!;
+        expect(rows(container).map((_row, r) => [chip(r).textContent, chip(r).getAttribute("data-look")]))
+            .toEqual([["Received", "none"], ["Packed", "info"], ["Shipped", "success"]]);
+        // The legend: the steps in their order, each its chip alone — a step with no meta has no name to add to its label.
+        const legend = [...slot(container, "footer")!.querySelectorAll('[data-slot="legendItem"]')].map((item) => [
+            item.querySelector('[data-slot="legendChip"]')?.textContent, item.querySelector('[data-slot="legendName"]')?.textContent,
+        ]);
+        expect(legend).toEqual([["Received", undefined], ["Picked", undefined], ["Packed", undefined], ["Shipped", undefined]]);
+        // Received, then each step after it, and back to the first; ⇧ the one before.
+        const stepped: (string | null)[] = [];
+        for (let i = 0; i < 4; i++) {
+            await press(cellAt(container, 0, "status"));
+            stepped.push(chip(0).textContent);
+        }
+        expect(stepped).toEqual(["Picked", "Packed", "Shipped", "Received"]);
+        expect(cellAt(container, 0, "status").hasAttribute("data-dirty")).toBe(false);
+        await press(cellAt(container, 0, "status"), { shiftKey: true });
+        expect(chip(0).textContent).toBe("Shipped");
+        await press(cellAt(container, 0, "status"), { shiftKey: true });
+        expect(chip(0).textContent).toBe("Packed");
+        expect(editor(container)).toBeNull();
+        // Details offers the steps as one line, in their order, Bellmoor's packed checked; a radio drafts as the cell does.
+        await press(cellAt(container, 1, "customer"));
+        await waitFor(() => expect(inspected(container)).toBe("SO-1042"));
+        const line = detailsField(container, "status");
+        expect([line.getAttribute("data-layout"), line.getAttribute("title")]).toEqual(["line", "Status"]);
+        expect(choicesOf(line)).toEqual(["Received", "Picked", "Packed", "Shipped"]);
+        expect(checkedOf(line)).toEqual([false, false, true, false]);
+        fireEvent.click(radiosOf(line)[3]!);
+        await settle();
+        expect(chip(1).textContent).toBe("Shipped");
+        expect(cellAt(container, 1, "status").hasAttribute("data-dirty")).toBe(true);
+        await press(history(container, editingMessages.apply()));
+        await waitFor(() => expect(status(container)).toBe("Applied 2 changes to 2 orders"));
+        const orders = await h.read(ex.recordOrders);
+        const statusEqual = equalFor(ex.Status);
+        expect([...orders].map(([id, order]) => [id, statusEqual(order.status, variant("packed", null)), statusEqual(order.status, variant("shipped", null))]))
+            .toEqual([["SO-1041", true, false], ["SO-1042", false, true], ["SO-1043", false, true]]);
     });
 });

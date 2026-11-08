@@ -17,6 +17,7 @@
  * | `quantity`, `integer` | The number field — a quantity in the driver's unit |
  * | `lookup`, `reference`, `enum` | A select over the register's members (`reference` of the register) |
  * | `person`, `cycle` | A select over the register's members — a Record draws a cycle's as one line of radios |
+ * | `cycle` over a variant's `steps` | A choice among its cases, in its steps' order and words — a Record draws it as one line of radios |
  * | `title` | Text |
  * | `boolean`, `toggle` | A checkbox — a Record draws a toggle's as one line of radios |
  * | `set`, `link` | Read only here: the renderer draws the members, and edits them in the grid |
@@ -55,7 +56,7 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
 } from "@elaraai/east";
-import { FIELD_HINT, FieldSpecType, Fields, fieldSpecs, spellOut, type FieldEditorValue, type FieldHints } from "@elaraai/east-ui/internal";
+import { FIELD_HINT, FieldEditorType, FieldSpecType, Fields, fieldSpecs, spellOut, type FieldEditorValue, type FieldHints } from "@elaraai/east-ui/internal";
 import { SheetCellsType, buildPatchCells, optionPayload, type SheetBridge, type SheetColumnMeta } from "./bridge.js";
 import type { SheetUnsettableInput } from "./editing-bridge.js";
 import { SheetPatchTypeFor } from "./types.js";
@@ -171,7 +172,7 @@ function kindEditor(meta: SheetColumnMeta): FieldEditorValue {
  */
 function columnField(name: string, meta: SheetColumnMeta, hint: AnyHint | undefined, where: string, registers: ReadonlySet<string>): ExprType<SheetFieldType> {
     const kind = hint?.[FIELD_HINT];
-    let editor: FieldEditorValue;
+    let editor: FieldEditorValue | ExprType<typeof FieldEditorType>;
     let type: EastType;
     if (meta.derived !== undefined) {
         // A projection's value is the cell's, never the field's.
@@ -182,7 +183,11 @@ function columnField(name: string, meta: SheetColumnMeta, hint: AnyHint | undefi
     } else {
         type = meta.fieldType;
     }
-    if (kind === undefined || kind === "readonly") {
+    if (kind === undefined && meta.steps !== undefined && meta.editable) {
+        // A cycle over a variant: its field chosen among the cases, in the order and the words of its steps — East keeps
+        // the cases in name order, and a status reads best in its own, as `Fields.select` offers it.
+        editor = East.value(variant("select", meta.steps.members.map((_$, step) => ({ case: step.key, label: step.label }))), FieldEditorType);
+    } else if (kind === undefined || kind === "readonly") {
         editor = kind === "readonly" ? variant("readonly", null) : kindEditor(meta);
     } else {
         const reason = readOnlyReason(meta);

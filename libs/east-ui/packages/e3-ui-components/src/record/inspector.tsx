@@ -39,7 +39,7 @@ import { createContext, memo, useContext, useEffect, useMemo, type ReactNode } f
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLock } from "@fortawesome/free-solid-svg-icons";
-import { defaultValue, equalFor, some, type EastType } from "@elaraai/east";
+import { defaultValue, equalFor, fromEastTypeValue, some, variant, type EastType } from "@elaraai/east";
 import { Field, type FieldSpecValue } from "@elaraai/east-ui/internal";
 import {
     EastChakraComponent, EastChakraField, FieldForm, fieldFormMessages, getSomeorUndefined, type FieldLineChoice,
@@ -226,9 +226,12 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
             if (key === undefined || kind === undefined) continue;
             if (kind.type === "cycle") {
                 const allowed = inspect.allowedAt(r, key);
+                // What a member's choice sets: a String field its key — and a cycle over a variant, whose steps the wire
+                // keys by the cases' names, the case its key names.
+                const ofCases = (fromEastTypeValue(f.spec.type) as EastType).type === "Variant" && !f.spec.optional;
                 out.set(formKey(f.spec.path), (registers.byName.get(kind.value.register) ?? [])
                     .filter((member) => allowed === undefined || allowed.has(member.key))
-                    .map((member) => ({ value: member.key, label: member.label !== "" ? member.label : member.key })));
+                    .map((member) => ({ value: ofCases ? variant(member.key, null) : member.key, label: member.label !== "" ? member.label : member.key })));
             } else if (kind.type === "toggle") {
                 out.set(formKey(f.spec.path), [{ value: true, label: kind.value.on }, { value: false, label: kind.value.off }]);
             } else if (kind.type === "boolean") {
