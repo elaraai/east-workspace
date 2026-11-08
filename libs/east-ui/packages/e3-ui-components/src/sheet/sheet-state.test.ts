@@ -238,6 +238,15 @@ describe("editing", () => {
         expect(picked.state.edit).toMatchObject({ val: "Routing", hi: 0 });
     });
 
+    test("a double press on the cell its editor is open on keeps the edit as it stands; on a closed cell it opens the editor", () => {
+        const open = run(initialSheetState({ r: 1, c: 1 }), [key("Enter"), { t: "editor.change", val: "6" }]).state;
+        const pressed = run(open, [{ t: "cell.dbl", r: 1, c: 1 }]);
+        expect(pressed.state).toBe(open);
+        expect(pressed.effects).toEqual([]);
+        expect(run(pressed.state, [ekey("Enter")]).effects).toContainEqual({ t: "write", r: 1, c: 1, cell: cell("String", "6"), text: "6" });
+        expect(run(initialSheetState({ r: 1, c: 1 }), [{ t: "cell.dbl", r: 1, c: 1 }]).state.edit).toMatchObject({ r: 1, c: 1, val: "v11" });
+    });
+
     test("a click never scrolls — the cell is under the pointer; a keyboard move does", () => {
         const clicked = run(initialSheetState(), [{ t: "cell.down", r: 2, c: 1, shift: false }]);
         expect(clicked.effects.map((e) => e.t)).toEqual(["emit.select", "focus.sheet"]);

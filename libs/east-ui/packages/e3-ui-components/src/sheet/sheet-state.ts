@@ -52,6 +52,8 @@
  *   candidate. Back on the cell's own member, nothing is written.
  * - **A printable key seeds a fresh edit**; ⏎ / F2 edit with the value
  *   selected (⏎ takes a pending suggestion first); esc cancels.
+ * - **A double press opens the editor, never again over it**: on the cell an
+ *   editor is open on it keeps the edit as it stands.
  * - **Whole rows selected + ⌫ deletes the records**; ⌫ on cells clears them
  *   (never a stamped column — the component skips those); ⌫ on the armed
  *   fill or the selected proposal rejects it and remembers.
@@ -576,6 +578,9 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             return { state: moved.gsel === null ? moved : { ...moved, gsel: null }, effects };
         }
         case "cell.dbl":
+            // A double press inside the open editor — its step buttons pressed twice, a word double-clicked — reaches
+            // its cell too: opened afresh there, the editor would drop the edit as it stands for the cell's own text.
+            if (s.edit !== null && same(s.edit, e)) return { state: s, effects: [] };
             return startEdit(s, e.r, e.c, undefined, ctx);
         case "cell.enter": {
             if (e.dragging) return { state: { ...s, selEnd: clamp({ r: e.r, c: e.c }, ctx) }, effects: [] };
