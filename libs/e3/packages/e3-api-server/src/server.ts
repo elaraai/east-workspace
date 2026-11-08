@@ -10,7 +10,7 @@ import { serve, type ServerType } from '@hono/node-server';
 import {
   Budget, DOOR_FRAME_WORKERS, LocalStorage, LocalTaskRunner, InMemoryTransferBackend, resolveBudget, checkName, repositoryOpen,
 } from '@elaraai/e3-core';
-import type { BudgetSettings, ExecuteCeilings, FunctionCallLifetimes, StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core';
+import type { BudgetSettings, StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core';
 import { createAuthMiddleware, type AuthConfig } from './middleware/auth.js';
 import { createRepositoryGate, createSingleRepositoryGate } from './middleware/repository.js';
 import { createOidcProvider, type OidcProvider, type OidcConfig } from './auth/index.js';
@@ -31,6 +31,7 @@ import { createPackageFunctionRoutes, createWorkspaceFunctionRoutes, createOneSh
 import { createWorkspaceCallRoutes } from './routes/calls.js';
 import { createWorkspaceRecordRoutes } from './routes/records.js';
 import { localDataflow } from './local-dataflow.js';
+import { checkCallLimits, type CallLimits } from './call-limits.js';
 import type { DataflowRunnerLease } from './dataflow-runner.js';
 
 export type { DataflowRunnerLease } from './dataflow-runner.js';
@@ -48,24 +49,6 @@ export type DataflowRunnerFactory = (repoPath: string, workspace: string, contex
 
 export type { AuthConfig } from './middleware/auth.js';
 export type { OidcConfig } from './auth/index.js';
-
-/**
- * How the server runs and keeps the calls of named functions through a
- * workspace, each of which outlives the request that starts it.
- */
-export interface FunctionCallsConfig {
-  /** The longest a call's start waits for it to end before it answers
-   *  `running` (default 20 000 ms) */
-  windowMs?: number;
-  /** The longest a poll of a call waits for it to end (default 20 000 ms) */
-  pollWaitMs?: number;
-  /** The most a call may ask for (default: a 10-minute timeout, a 1 MiB
-   *  result and 256 KiB of each log) */
-  ceilings?: ExecuteCeilings;
-  /** How long a call is kept once it ends (default: an hour for a success or
-   *  a cancel, a week for any other end) */
-  lifetimes?: FunctionCallLifetimes;
-}
 
 /**
  * Server configuration options.
@@ -108,12 +91,20 @@ export interface ServerConfig {
    *  `E3_JOBS` and `E3_MEMORY`, else what the process may use); settings
    *  that do not resolve make `createServer` throw a `RangeError`. */
   budget?: Budget | BudgetSettings;
+  /** The limits of the calls the server runs, as `--call-deadline`,
+   *  `--job-timeout`, `--max-result` and `--max-log` give them: a sync call's
+   *  deadline, which the one-shot and function routes take; the most a
+   *  one-shot call, a split call or a call of a function, through its package
+   *  or a workspace, may ask for (default: 120 s; 10 minutes, 1 MiB and
+   *  256 KiB); and how a kept call is waited for and kept: its start's window,
+   *  the longest a poll is held, and its lifetimes (default: 20 s, 20 s; an
+   *  hour for a success or a cancel, a week for any other end). A limit no
+   *  call could meet makes `createServer` throw a `RangeError`, and so does a
+   *  deadline, timeout, window or wait longer than a timer waits, about 24.8
+   *  days. */
+  calls?: CallLimits;
   /** Opens a per-run runner attachment, closed when the run ends. */
   dataflowRunner?: DataflowRunnerFactory;
-  /** How the server waits for and keeps the calls of named functions through
-   *  a workspace: its window, its longest poll, its ceilings and the calls'
-   *  lifetimes */
-  functionCalls?: FunctionCallsConfig;
 }
 
 /**
@@ -142,7 +133,8 @@ export interface Server {
  *
  * @param config - Server configuration
  * @returns Server instance
- * @throws {RangeError} When the budget's settings do not resolve
+ * @throws {RangeError} When the budget's settings do not resolve, or a call
+ *   limit is not positive, or is longer than a timer waits
  * @throws {RepoNotFoundError} When the single repository is none
  * @throws {RepoLayoutError} When this e3 cannot open the single repository
  */
@@ -152,6 +144,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
     transferPartBytes, transferCommitWaitMs,
   } = config;
   const budget = config.budget instanceof Budget ? config.budget : resolveBudget(config.budget);
+  const calls = checkCallLimits(config.calls ?? {});
   // The store door frames on e3's own pool, whose workers take cores too.
   configureFramePool({ workers: Math.min(DOOR_FRAME_WORKERS, budget.cores) });
 
@@ -304,8 +297,13 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   // runs any.
   const access = auth || oidcProvider ? oneShotAccessByRoles() : () => 'any' as const;
 
-  // Package-scoped function routes: /api/repos/:repo/packages/:pkg/:version/functions/*
-  app.route('/api/repos/:repo/packages/:pkg/:version/functions', createPackageFunctionRoutes(storage, getRepoPath, getRunner, { access }));
+  // Package-scoped function routes: /api/repos/:repo/packages/:pkg/:version/functions/*,
+  // whose calls run within their requests, under the server's call limits
+  app.route('/api/repos/:repo/packages/:pkg/:version/functions', createPackageFunctionRoutes(storage, getRepoPath, getRunner, {
+    access,
+    ...(calls.syncDeadlineMs !== undefined && { syncDeadlineMs: calls.syncDeadlineMs }),
+    ...(calls.ceilings !== undefined && { ceilings: calls.ceilings }),
+  }));
 
   // Workspace routes: /api/repos/:repo/workspaces/*
   app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath, transferBackend, getRunner));
@@ -324,11 +322,11 @@ export async function createServer(config: ServerConfig): Promise<Server> {
 
   // Workspace-scoped function routes: /api/repos/:repo/workspaces/:ws/functions/*,
   // whose calls run on the transfer backend, outliving their requests, and
-  // are kept for their lifetimes; and those calls, polled, cancelled and
-  // listed: /api/repos/:repo/workspaces/:ws/calls/*
-  const calls = config.functionCalls ?? {};
+  // are kept for their lifetimes, under the server's call limits; and those
+  // calls, polled, cancelled and listed: /api/repos/:repo/workspaces/:ws/calls/*
   app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, getRepoPath, transferBackend, {
     access,
+    ...(calls.syncDeadlineMs !== undefined && { syncDeadlineMs: calls.syncDeadlineMs }),
     ...(calls.windowMs !== undefined && { windowMs: calls.windowMs }),
     ...(calls.ceilings !== undefined && { ceilings: calls.ceilings }),
     ...(calls.lifetimes !== undefined && { lifetimes: calls.lifetimes }),
@@ -338,8 +336,13 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   }));
 
   // One-shot routes: /api/repos/:repo/workspaces/:ws/one-shot/*, and the split
-  // calls launched under the same grant, run as jobs on the transfer backend.
-  app.route('/api/repos/:repo/workspaces/:ws/one-shot', createOneShotRoutes(storage, getRepoPath, transferBackend, getRunner, { access }));
+  // calls launched under the same grant, run as jobs on the transfer backend,
+  // each under the server's call limits.
+  app.route('/api/repos/:repo/workspaces/:ws/one-shot', createOneShotRoutes(storage, getRepoPath, transferBackend, getRunner, {
+    access,
+    ...(calls.syncDeadlineMs !== undefined && { syncDeadlineMs: calls.syncDeadlineMs }),
+    ...(calls.ceilings !== undefined && { ceilings: calls.ceilings }),
+  }));
 
   // Workspace-scoped record routes: /api/repos/:repo/workspaces/:ws/records/*
   app.route('/api/repos/:repo/workspaces/:ws/records', createWorkspaceRecordRoutes(storage, getRepoPath, getRunner));

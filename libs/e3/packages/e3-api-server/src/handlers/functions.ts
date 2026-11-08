@@ -124,6 +124,7 @@ async function executeFunction(
   req: FunctionCallRequest,
   workspace: string | null,
   syncDeadlineMs: number | undefined,
+  ceilings: ExecuteCeilings | undefined,
   grant: OneShotGrant,
   signal?: AbortSignal,
   verbose?: boolean
@@ -145,7 +146,10 @@ async function executeFunction(
 
   const bodyIr = await storage.objects.read(repoPath, fnObj.bodyIr);
   const runnerValue: RunnerValue = req.runner.type === 'some' ? req.runner.value : fnObj.runner;
-  const limits = resolveExecuteLimits(req.limits, syncDeadlineMs === undefined ? {} : { syncDeadlineMs });
+  const limits = resolveExecuteLimits(req.limits, {
+    ...(syncDeadlineMs !== undefined && { syncDeadlineMs }),
+    ...(ceilings !== undefined && { ceilings }),
+  });
 
   const result = await runner.runDetached(
     {
@@ -220,11 +224,12 @@ export async function describePackageFunction(
 
 /**
  * Call a named function synchronously: resolve → validate arity → run →
- * 200 ExecuteResult. The call's timeout is clamped under the host's sync
- * deadline, so the caller gets a structured `timed_out` instead of a
- * transport cut. It runs within the request, on `runner`, and keeps nothing:
- * the package route's. A call through a workspace's routes is kept, and runs
- * where the host runs calls (`callFunctionInWorkspace`).
+ * 200 ExecuteResult. The call's limits are held to the host's ceilings, and its
+ * timeout under the host's sync deadline too, so the caller gets a structured
+ * `timed_out` instead of a transport cut. It runs within the request, on
+ * `runner`, and keeps nothing: the package route's. A call through a
+ * workspace's routes is kept, and runs where the host runs calls
+ * (`callFunctionInWorkspace`).
  *
  * @remarks
  * A call that names no runner runs the function on its own, whatever the
@@ -257,6 +262,8 @@ export async function describePackageFunction(
  *   arguments may name, for a host that calls a workspace's function within
  *   its request and keeps nothing; `null`, the default, for the package
  *   route's, which has none
+ * @param ceilings - The most the call may ask for (default: a server's, a
+ *   10-minute timeout, a 1 MiB result and 256 KiB of logs)
  * @returns The call's result, or the error that stopped it
  */
 export async function callFunctionSync(
@@ -270,11 +277,12 @@ export async function callFunctionSync(
   verbose?: boolean,
   syncDeadlineMs?: number,
   grant: OneShotGrant = 'platform_free',
-  workspace: string | null = null
+  workspace: string | null = null,
+  ceilings?: ExecuteCeilings,
 ): Promise<Response> {
   try {
     const fnObj = await resolveFunction(storage, repoPath, pkgName, version, fnName);
-    const result = await executeFunction(storage, repoPath, runner, fnName, fnObj, req, workspace, syncDeadlineMs, grant, undefined, verbose);
+    const result = await executeFunction(storage, repoPath, runner, fnName, fnObj, req, workspace, syncDeadlineMs, ceilings, grant, undefined, verbose);
     return sendSuccess(ExecuteResultType, result);
   } catch (err) {
     return sendError(ExecuteResultType, errorToVariant(err));

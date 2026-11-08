@@ -11,13 +11,16 @@
  */
 
 export {
-  createServer, type ServerConfig, type Server, type DataflowRunnerFactory, type DataflowRunnerLease, type DataflowRunnerContext, type FunctionCallsConfig,
+  createServer, type ServerConfig, type Server, type DataflowRunnerFactory, type DataflowRunnerLease, type DataflowRunnerContext,
 } from './server.js';
 export { ApiTypes } from './types.js';
 
 // How `ServerConfig.budget` settings resolve, for an embedder that checks them
 // before it starts a server
 export { resolveBudget, type BudgetSettings } from '@elaraai/e3-core';
+
+// `ServerConfig.calls`, and how the CLI's flags resolve to it
+export { resolveCallLimits, type CallLimits, type CallLimitSettings } from './call-limits.js';
 
 // Export handlers for Lambda reuse
 export * from './handlers/index.js';

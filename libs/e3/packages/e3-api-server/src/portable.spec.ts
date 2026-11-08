@@ -80,6 +80,7 @@ function modulesOf(dir: string): string[] {
 const ROOT_ONLY: Record<string, string> = {
   createServer: 'the local server: local storage, runner processes and an HTTP listener',
   resolveBudget: 'a budget of this machine\'s cores and memory',
+  resolveCallLimits: 'the local server\'s call limits, as its CLI\'s flags give them',
   createDataEndpoints: 'the local server\'s byte endpoints, which stage uploads and downloads as files in the repository',
   createAuthMiddleware: 'auth: it verifies tokens with node:crypto',
   generateKeyPair: 'auth: the keys the built-in OIDC provider signs with',
