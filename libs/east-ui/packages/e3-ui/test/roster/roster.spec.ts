@@ -26,7 +26,7 @@ import * as ex from "./roster.examples.js";
 
 describeEast("Roster — inline bound examples", test => {
     Assert.examples(test, { rosterWarehouse: ex.rosterWarehouse, rosterMobile: ex.rosterMobile, rosterPeople: ex.rosterPeople,
-        rosterPeopleMonth: ex.rosterPeopleMonth,
+        rosterPeopleMonth: ex.rosterPeopleMonth, rosterPeopleNoBands: ex.rosterPeopleNoBands,
         rosterWeek: ex.rosterWeek, rosterWindowed: ex.rosterWindowed, rosterMinimal: ex.rosterMinimal, rosterViews: ex.rosterViews, rosterVocabulary: ex.rosterVocabulary, rosterPublished: ex.rosterPublished,
         rosterCustomInspector: ex.rosterCustomInspector, rosterConflicts: ex.rosterConflicts });
 }, { platformFns: TestImpl });
@@ -251,8 +251,8 @@ describe("the People layout's periods, its patterns and its display props (#1406
         assert.throws(() => payload(() => ({ patterns: patterns(), library: [Roster.library.patterns(), Roster.library.patterns()] })), /Roster: library tab patterns is listed twice/);
     });
 
-    test("`tileTimes` is \"always\" or \"different\", and `letters` a boolean", () => {
-        assert.doesNotThrow(() => payload(() => ({ tileTimes: "different", letters: false })));
+    test("`tileTimes` is \"always\" or \"different\", `letters` a boolean, and `peopleBands` a boolean (#1567)", () => {
+        assert.doesNotThrow(() => payload(() => ({ tileTimes: "different", letters: false, peopleBands: false })));
         assert.throws(() => payload(() => ({ tileTimes: "sometimes" } as never)), /Roster: `tileTimes` is "always" or "different" — .* — and it is sometimes/);
         assert.throws(() => payload(() => ({ letters: "yes" } as never)), /Roster: `letters` is true or false — .* — and it is yes/);
     });

@@ -11,7 +11,7 @@
  * pick clears (the hidden pick); and where the rows rest comes back after a
  * remount.
  */
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StringType, decodeBeast2For, equalFor, printFor, variant } from "@elaraai/east";
@@ -21,7 +21,7 @@ import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { setRosterPeopleCardsProbe } from "./library.js";
 import { setPeopleDrawProbe } from "./views.js";
-import { act, narrow, narrowing, open, press, rosterHarness, settle, slot, type Choice } from "./harness.test-utils.js";
+import { act, narrow, narrowing, open, press, rosterHarness, scrollsAsAPageDoes, settle, slot, type Choice } from "./harness.test-utils.js";
 const h = rosterHarness();
 const text = printFor(StringType);
 
@@ -126,30 +126,6 @@ test("↑ and ↓ on a person's name step to the next person and the one before,
     await settle();
     expect(focusedPerson()).toBe(opening.getAttribute("data-roster-person-head"));
 });
-
-/**
- * jsdom scrolls nothing a frame asks it to — the harness's `scrollTo` does nothing, and a scroll box has no extent to
- * scroll through — so a row a pick brings into view, or a place a remount restores, would never be seen: here the
- * grid's scroll box has room, and it scrolls as a page does, and says so. Its rows and bands measure themselves as the
- * harness measures the boxes the virtualizer places them in, so the grid's floors are what it places the rows by.
- */
-function scrollsAsAPageDoes() {
-    const rect = vi.mocked(Element.prototype.getBoundingClientRect);
-    const harness = rect.getMockImplementation()!;
-    rect.mockImplementation(function (this: Element) {
-        const height = this.hasAttribute("data-roster-person-row") ? 62 : this.hasAttribute("data-roster-group") ? 38 : undefined;
-        return height === undefined ? harness.call(this) : { x: 0, y: 0, top: 0, left: 0, right: 900, bottom: height, width: 900, height, toJSON() {} };
-    });
-    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
-        return this.hasAttribute("data-virtual-rows") ? 1_000_000 : 0;
-    });
-    vi.spyOn(Element.prototype, "scrollTo").mockImplementation(function (this: Element, options?: ScrollToOptions | number) {
-        if (typeof options !== "object") return;
-        if (options.top !== undefined) this.scrollTop = options.top;
-        if (options.left !== undefined) this.scrollLeft = options.left;
-        this.dispatchEvent(new Event("scroll"));
-    } as Element["scrollTo"]);
-}
 
 /** Search Records' box, in the toolbar's row. */
 const searchBox = (c: HTMLElement) => slot(c, "toolbar").querySelector<HTMLElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search']")!;

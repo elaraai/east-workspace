@@ -59,6 +59,29 @@ const resolve = (page: Page, property: "color" | "backgroundColor", token: strin
 const rowHeights = (frame: Locator) => frame.locator("[data-roster-person-row]").evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().height)));
 /** Each day cell's live tile label in a row: the shift, or null for a day off. */
 const rowLabels = (row: Locator) => row.locator("[data-roster-person-day]").evaluateAll(cells => cells.map(c => c.querySelector("[data-roster-tile]:not([data-removed]) [data-roster-assignment-name]")?.textContent ?? null));
+/** The last row main's list has mounted, by its key: a person's row or card by theirs, the requests' by its own. */
+const footOf = (main: Locator) => main.locator("[data-virtual-rows]").first().evaluate((el) => {
+    const items = [...el.querySelectorAll("[data-index]")].sort((a, b) => Number(a.getAttribute("data-index")) - Number(b.getAttribute("data-index")));
+    const foot = items.at(-1);
+    return foot?.querySelector("[data-roster-person-row]")?.getAttribute("data-roster-person-row")
+        ?? foot?.querySelector("[data-roster-person-card]")?.getAttribute("data-roster-person-card") ?? null;
+});
+/**
+ * What the requests' row draws where it doesn't belong: a tile outside its day, a tile naming no group, a group's name
+ * cut by its tile, or a day's `+n` outside it. None may be.
+ */
+const requestFaults = (row: Locator) => row.locator("[data-roster-person-day]").evaluateAll(cells => cells.flatMap((cell) => {
+    const at = cell.getAttribute("data-roster-person-day"), day = cell.getBoundingClientRect();
+    const outside = (box: DOMRect, holder: DOMRect) => box.left < holder.left - 0.5 || box.right > holder.right + 0.5 || box.top < holder.top - 0.5 || box.bottom > holder.bottom + 0.5;
+    const tiles = [...cell.querySelectorAll("[data-roster-tile]")].flatMap((tile) => {
+        const box = tile.getBoundingClientRect(), group = tile.querySelector("[data-group]");
+        return [
+            ...outside(box, day) ? [`a tile outside ${at}`] : [],
+            ...group === null ? [`a tile naming no group in ${at}`] : outside(group.getBoundingClientRect(), box) ? [`"${group.textContent}" cut in ${at}`] : [],
+        ];
+    });
+    return [...tiles, ...[...cell.querySelectorAll("[data-roster-more]")].flatMap(more => outside(more.getBoundingClientRect(), day) ? [`"${more.textContent}" outside ${at}`] : [])];
+}));
 /** The shifts' colour tokens, as the warehouse seeds them (teal 300, orange 300, purple 700), and the ink each shade takes. */
 const SHIFTS = [["Early", "teal-300", "gray-900"], ["Late", "orange-300", "gray-900"], ["Night", "purple-700", "white"]] as const;
 /**
@@ -175,6 +198,31 @@ for (const theme of LAYOUT_THEMES) {
                     await expect(frame.locator("[data-roster-week-hours]")).toHaveCount(0);
                 }
             }
+        }
+    });
+    test(`People without bands (#1567) fits 1440/1024/768/390/360 and a 294px parent: no band, a row one line at the density's pitch, the requests' row last — its tiles 24px, each naming its group whole inside it — and a phone's cards with the requests' card last (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const entry = await open(page, "rosterPeopleNoBands", theme), frame = entry.locator("[data-roster-frame]").first();
+        const main = frame.locator("[data-roster-main]");
+        for (const width of [1440, 1024, 768, 390, 360, 294]) {
+            await size(page, entry, width);
+            expect(await toolbarFaults(frame), `${width}px`).toEqual([]);
+            await expect(main.locator("[data-roster-group]"), `${width}px: no band`).toHaveCount(0);
+            // The list's foot: scrolled to its end, the last row — or card — is every group's requests'.
+            await main.locator("[data-virtual-rows]").first().evaluate(el => { el.scrollTop = el.scrollHeight; });
+            await settled(page);
+            await expect(main.locator("[data-roster-group]"), `${width}px: no band at the foot`).toHaveCount(0);
+            expect(await footOf(main), `${width}px: the requests' last`).toBe("requests");
+            if (await main.evaluate(el => el.getBoundingClientRect().width < 480)) {
+                await expect(main.locator('[data-roster-agenda="people"]'), `${width}px`).toBeVisible();
+                continue;
+            }
+            expect(new Set(await rowHeights(frame)), `${width}px row pitch`).toEqual(new Set([36]));
+            const requests = main.locator('[data-roster-person-row="requests"]');
+            const tiles = await requests.locator("[data-roster-tile]").evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().height)));
+            expect(tiles.length, `${width}px: the requests' tiles`).toBeGreaterThan(0);
+            expect(new Set(tiles), `${width}px: a requests' tile`).toEqual(new Set([24]));
+            expect(await requestFaults(requests), `${width}px`).toEqual([]);
         }
     });
     test(`the month's header and the week's hold every word whole at 1440/1024/768/390/360 and a 294px parent: no week label, day letter or day number cut or touching another — a day's number only where it fits its day, a week's label dropping its month name first (retest R3) (${theme}) @desktop`, async ({ page }) => {

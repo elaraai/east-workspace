@@ -12,7 +12,7 @@ import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { act, open, rosterHarness, settle, slot, width } from "./harness.test-utils.js";
+import { act, open, reveal, rosterHarness, settle, slot, width } from "./harness.test-utils.js";
 
 const h = rosterHarness();
 const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
@@ -24,17 +24,6 @@ const PEOPLE_DEFAULTS = /Agency requests|\bAgency\b/u;
 /** A read of the weeks or of the duties, as the request log names their datasets. */
 const weekRead = (request: E3Request) => ["page", "find", "runs", "rows"].includes(request.kind)
     && (request.dataset === "records.roster_rota_weeks" || request.dataset === "records.roster_duties");
-/** Scrolls main's rows three at a time at their pitch — a People row's 36px, a phone's card's 360 — until what the selector names is mounted. */
-async function reveal(c: HTMLElement, selector: string, pitch = 36): Promise<HTMLElement> {
-    const scroller = slot(c, "main").querySelector<HTMLElement>("[data-virtual-rows]")!;
-    for (let i = 1; i <= 60 && slot(c, "main").querySelector(selector) === null; i++) {
-        await act(async () => { scroller.scrollTop = i * 3 * pitch; fireEvent.scroll(scroller); });
-        await settle();
-    }
-    const found = slot(c, "main").querySelector<HTMLElement>(selector);
-    expect(found, selector).not.toBeNull();
-    return found!;
-}
 /** The agency badges main has mounted, by their words. */
 const badges = (c: HTMLElement) => [...slot(c, "main").querySelectorAll("[data-roster-agency-badge]")].map(el => el.textContent);
 

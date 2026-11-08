@@ -295,12 +295,16 @@ interface PeopleIndex {
     readonly requests: ReadonlyMap<string, WeekDays>;
     /** Each group's agency requests in the week's order, then those the draft removed: what a phone's requests card lists. */
     readonly requestList: ReadonlyMap<string, readonly DayDuty[]>;
+    /** Every group's agency requests' week: the one row of them where the layout draws no bands (#1567). */
+    readonly allRequests: WeekDays;
+    /** Every group's agency requests in the week's order, then those the draft removed: that row's phone card's. */
+    readonly allRequestList: readonly DayDuty[];
     /** Each person's duties in the week as drafted, by their key: what their week's cost totals. */
     readonly duties: ReadonlyMap<string, readonly string[]>;
 }
 /**
- * The week's duties indexed once, by person and by day — each group's requests by day — never scanned a row at a time
- * (#1398, CL9).
+ * The week's duties indexed once, by person and by day — each group's requests by day, and every group's together —
+ * never scanned a row at a time (#1398, CL9).
  *
  * @param week - The week as drafted
  * @param held - The week as the records hold it: what a draft removed shows from
@@ -310,6 +314,8 @@ function peopleIndex(week: Week, held: Week): PeopleIndex {
     const person = new Map<string, DayDuty[][]>();
     const requests = new Map<string, DayDuty[][]>();
     const requestList = new Map<string, DayDuty[]>();
+    const allRequests: DayDuty[][] = Array.from({ length: 7 }, () => []);
+    const allRequestList: DayDuty[] = [];
     const duties = new Map<string, string[]>();
     const add = (id: string, a: Assignment, removed: boolean) => {
         const day = Number(a.slot.day);
@@ -324,6 +330,8 @@ function peopleIndex(week: Week, held: Week): PeopleIndex {
         const duty = { id, a, removed };
         days[day]!.push(duty);
         if (a.who.type === "person") return;
+        allRequests[day]!.push(duty);
+        allRequestList.push(duty);
         const list = requestList.get(key);
         if (list === undefined) requestList.set(key, [duty]);
         else list.push(duty);
@@ -336,7 +344,11 @@ function peopleIndex(week: Week, held: Week): PeopleIndex {
         else keys.push(id);
     }
     for (const [id, a] of held.assignments) if (!week.assignments.has(id)) add(id, a, true);
-    return { person, requests, requestList, duties };
+    return { person, requests, requestList, allRequests, allRequestList, duties };
+}
+/** A row of agency requests' week: its group's, or every group's where the row stands for them all (#1567). */
+function requestDays(index: PeopleIndex, group: Group | undefined): WeekDays | undefined {
+    return group === undefined ? index.allRequests : index.requests.get(group.key);
 }
 
 /** The same coverage bar and skill lines appear in a day cell and the inspector. */
@@ -547,16 +559,33 @@ function Shifts({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
         })}
     </Box></Box>;
 }
-type PeopleRow = { key: string; group: RosterValue["groups"][number] } & (
-    { kind: "group" } | { kind: "person"; person: RosterValue["people"][number] | undefined }
-);
-/** A person's row, or a group's agency requests'. */
+/** One of the Roster's groups. */
+type Group = RosterValue["groups"][number];
+/**
+ * A People row: a group's band; a person's row, `group` their home group — the band they are listed under, where the
+ * layout draws bands; or a row of agency requests — a group's, or, where the layout draws no bands (`peopleBands`,
+ * #1567), every group's in one row at the list's foot, its `group` `undefined`.
+ */
+type PeopleRow = { kind: "group"; key: string; group: Group }
+    | { kind: "person"; key: string; group: Group; person: RosterValue["people"][number] }
+    | { kind: "person"; key: string; group: Group | undefined; person: undefined };
+/** A person's row, or a row of agency requests. */
 type PersonRowValue = Extract<PeopleRow, { kind: "person" }>;
-/** Shared stable rows for desktop People and its explicit-action phone cards. */
+/**
+ * Shared stable rows for desktop People and its explicit-action phone cards: a band a group, its people — its leads,
+ * then the rest, then agency staff — and its agency requests; or, without bands (#1567), every person the narrowing
+ * shows in one list ranked so, each keeping their home group, then every group's agency requests in one row.
+ */
 function usePeopleRows(value: RosterValue, collapsed: readonly string[]): PeopleRow[] {
     return useMemo(() => {
         const people = value.people.filter(p => value.visiblePeople.type === "none" || value.visiblePeople.value.has(p.key));
         const rank = (p: typeof people[number]) => p.agency ? 2 : value.positions.find(pos => pos.key === p.position)?.lead ? 0 : 1;
+        if (!value.settings.peopleBands) {
+            // The people a band would list, in one list: each with a home group of the Roster's, which `+ Assign` reads.
+            const groups = new Map(value.groups.map(group => [group.key, group]));
+            const listed = people.flatMap(person => { const group = groups.get(person.group); return group === undefined ? [] : [{ kind: "person" as const, key: `person:${person.key}`, group, person }]; });
+            return [...listed.sort((a, b) => rank(a.person) - rank(b.person)), { kind: "person" as const, key: "requests", group: undefined, person: undefined }];
+        }
         return value.groups.flatMap(group => [
             { kind: "group" as const, key: `group:${group.key}`, group },
             ...(collapsed.includes(group.key) ? [] : [
@@ -564,7 +593,7 @@ function usePeopleRows(value: RosterValue, collapsed: readonly string[]): People
                 { kind: "person" as const, key: `requests:${group.key}`, group, person: undefined },
             ]),
         ]);
-    }, [value.people, value.visiblePeople, value.positions, value.groups, collapsed]);
+    }, [value.people, value.visiblePeople, value.positions, value.groups, value.settings.peopleBands, collapsed]);
 }
 /**
  * The row a failed week says so in (#1398, CL11): the first person's — or a group's Agency requests' — at or below the
@@ -585,7 +614,9 @@ function selectedPeopleRow(props: RosterViewsProps, rows: readonly PeopleRow[]):
     const selected = props.selection;
     const assignment = selected?.type === "assignment" ? props.week.assignments.get(selected.key) ?? props.held.assignments.get(selected.key) : undefined;
     const person = selected?.type === "person" || selected?.type === "personWeek" ? selected.key : assignment?.who.type === "person" ? assignment.who.value : undefined;
-    const index = rows.findIndex(row => row.kind === "person" && (person !== undefined ? row.person?.key === person : assignment?.who.type === "request" && row.person === undefined && row.group.key === assignment.slot.group));
+    // A request is its group's row's, or the one row of every group's (#1567).
+    const index = rows.findIndex(row => row.kind === "person" && (person !== undefined ? row.person?.key === person
+        : assignment?.who.type === "request" && row.person === undefined && (row.group === undefined || row.group.key === assignment.slot.group)));
     return index < 0 ? undefined : index;
 }
 
@@ -647,7 +678,14 @@ function fillOf(shift: Shift | undefined): CSSProperties | undefined {
     return color === undefined ? undefined : { "--roster-fill": color.fill, "--roster-ink": color.ink } as CSSProperties;
 }
 
-interface TileProps { ctx: ViewContext; id: string; assignment: Assignment; removed: boolean; person: Person | undefined }
+interface TileProps {
+    ctx: ViewContext; id: string; assignment: Assignment; removed: boolean; person: Person | undefined;
+    /**
+     * The group the tile's row stands for: the person's home group, or a group's requests' group; `undefined` in the one
+     * row of every group's requests (#1567). A duty in another group names it.
+     */
+    home: string | undefined;
+}
 /** Keep the shared drag hooks outside the tile body: pointer motion does not repaint its contents. */
 function Tile(args: TileProps) {
     const { ctx, id, assignment: a, removed } = args;
@@ -667,11 +705,12 @@ function Tile(args: TileProps) {
 }
 /**
  * A tile a duty (#1406, D5, P7): the shift's label, then its own times where they differ from the shift's, else the
- * group where it is not the person's, else the shift's hours where `tileTimes` is always; a warning mark where an issue
- * names it; its fill the shift's colour token, its words in the ink the shade takes. Tile state comes from the held
- * week and the domain issues, never from a second draft store.
+ * group where it is not the row's — the person's home group, a group's requests' group, none in the one row of every
+ * group's requests (#1567) — else the shift's hours where `tileTimes` is always; a warning mark where an issue names it;
+ * its fill the shift's colour token, its words in the ink the shade takes. Tile state comes from the held week and the
+ * domain issues, never from a second draft store.
  */
-const TileBody = memo(function TileBody({ ctx, id, assignment: a, removed, person, selected, handle, attach }: TileProps & {
+const TileBody = memo(function TileBody({ ctx, id, assignment: a, removed, person, home, selected, handle, attach }: TileProps & {
     selected: boolean; handle: ReturnType<typeof useDragEventChip>; attach: (element: HTMLDivElement | null) => void;
 }) {
     const { styles, value, commands, drag, format } = ctx;
@@ -681,7 +720,7 @@ const TileBody = memo(function TileBody({ ctx, id, assignment: a, removed, perso
     const issues = removed ? NO_ISSUES : dutyIssues(ctx.issues, id);
     const baseline = ctx.held.assignments.get(id);
     const drafted = removed || baseline === undefined || !ctx.domain.sameAssignment(baseline, a);
-    const group = person !== undefined && person.group !== a.slot.group ? value.groups.find(g => g.key === a.slot.group)?.label ?? a.slot.group : undefined;
+    const group = home !== a.slot.group ? value.groups.find(g => g.key === a.slot.group)?.label ?? a.slot.group : undefined;
     const meta = ownTimes(value, a, ctx.start) ? { kind: "own" as const, text: `${hourText(a.start)}–${hourText(a.end)}` }
         : group !== undefined ? { kind: "group" as const, text: group.toLocaleUpperCase(format.locale) }
             : ctx.tileTimes === "always" && shift !== undefined ? { kind: "hours" as const, text: shiftHoursText(shift) } : undefined;
@@ -753,15 +792,22 @@ function AssignMenu({ ctx, person, group, day }: { ctx: ViewContext; person: Per
  * A person's day in the People grid (#1406, P6–P11): a tile per duty and `+1` for a second, or `+ Assign` on a day off,
  * drawn again only as the day's duties, its person or what the views show changes (#1398, CL9). A drop on it resolves to
  * the dragged person's same or usual shift; a pattern dropped on it lands on the person's week (§11), and while one
- * hovers the row the day previews what the pattern leaves it (P19); another person's duty is refused (P11).
+ * hovers the row the day previews what the pattern leaves it (P19); another person's duty is refused (P11). The one
+ * row of every group's requests (#1567) takes a request along it, in its own group, and refuses a card: it has no
+ * group to place one in.
  *
  * The cell is its drop hooks and its attributes alone; what it shows is {@link PersonDayBody}, its own memo. The shared
  * drag hooks subscribe to the layer, which moves on every change of the cell a drag rests over, so a hundred cells draw
  * again each time one is crossed: a subscriber's draw must cost next to nothing, and the tiles, the `+ Assign` and the
  * preview draw again only as their own props change.
  */
-const PersonDay = memo(function PersonDay({ ctx, person, group, day, duties, current, weekSelected, preview, hovering, onPatternHover, onPatternLeave }: {
-    ctx: ViewContext; person: Person | undefined; group: string; day: number; duties: readonly DayDuty[];
+const PersonDay = memo(function PersonDay({ ctx, person, rowKey, group, day, duties, current, weekSelected, preview, hovering, onPatternHover, onPatternLeave }: {
+    ctx: ViewContext; person: Person | undefined;
+    /** The row's key: the person's, or its requests' (`requests:<group>`, or `requests` for every group's). */
+    rowKey: string;
+    /** The group the row stands for: the person's home group, a group's requests' group; `undefined` for every group's requests. */
+    group: string | undefined;
+    day: number; duties: readonly DayDuty[];
     /** Whether the day is the one the views show: the day a Shifts view steps to. */
     current: boolean;
     /** Whether the person-week is selected: the row's cells outlined (D11). */
@@ -771,14 +817,17 @@ const PersonDay = memo(function PersonDay({ ctx, person, group, day, duties, cur
     onPatternHover: (key: string) => void; onPatternLeave: () => void;
 }) {
     const { drag, value, week, styles, start } = ctx;
-    const key = person?.key ?? `requests:${group}`;
-    const initial = useMemo(() => ({ day: BigInt(day), group, shift: person?.usual.type === "some" ? person.usual.value : value.shifts[0]!.key }), [day, group, person, value.shifts]);
-    // A pattern lands on the person's week, whatever day of it the drag rests over; the requests row refuses it in its words.
+    const key = rowKey;
+    // Where a card lands: the row's group, the person's usual shift or the first; nowhere in every group's requests' row.
+    const initial = useMemo(() => group === undefined ? undefined : { day: BigInt(day), group, shift: person?.usual.type === "some" ? person.usual.value : value.shifts[0]!.key },
+        [day, group, person, value.shifts]);
+    // A pattern lands on the person's week, whatever day of it the drag rests over; the requests rows refuse it in its words.
     const personWeek = useMemo(() => rosterPersonWeekCoord(drag.surface, key, start), [drag.surface, key, start]);
     const resolve = useCallback((_x: number, _y: number, payload: DragPayload): CellCoord => {
         if (isPatternCard(payload, drag.surface)) return personWeek;
         const a = payload.kind === "event" ? week.assignments.get(payload.from.event) : undefined;
-        return rosterCoord(drag.surface, a === undefined ? initial : { ...a.slot, day: BigInt(day) });
+        if (a !== undefined) return rosterCoord(drag.surface, { ...a.slot, day: BigInt(day) });
+        return initial === undefined ? personWeek : rosterCoord(drag.surface, initial);
     }, [week, drag.surface, initial, day, personWeek]);
     /** Whether a dragged duty is another row's: refused, `A duty moves along its own row.` (P11). */
     const crossRow = useCallback((id: string) => {
@@ -794,11 +843,16 @@ const PersonDay = memo(function PersonDay({ ctx, person, group, day, duties, cur
     }, [week, person, drag.surface]);
     const canDrop = useCallback((event: DragEventValue) => {
         if (event.type === "move" && event.value.from.event.type === "some" && crossRow(event.value.from.event.value)) return false;
+        // Every group's requests' row places no card: no group is the row's (#1567).
+        if (event.type === "add" && initial === undefined) return false;
         return drag.run(event, true) === undefined;
-    }, [drag, crossRow]);
-    const caption = useCallback((coord: CellCoord, payload: DragPayload, allowed: boolean) =>
-        payload.kind === "event" && crossRow(payload.from.event) ? "A duty moves along its own row." : drag.caption(coord, payload, allowed), [crossRow, drag]);
-    const coord = useMemo(() => drag.enabled ? rosterCoord(drag.surface, initial) : null, [drag.enabled, drag.surface, initial]);
+    }, [drag, crossRow, initial]);
+    const caption = useCallback((coord: CellCoord, payload: DragPayload, allowed: boolean) => {
+        if (payload.kind === "event" && crossRow(payload.from.event)) return "A duty moves along its own row.";
+        if (payload.kind === "item" && initial === undefined && !isPatternCard(payload, drag.surface)) return "Drop this card onto a group's shift.";
+        return drag.caption(coord, payload, allowed);
+    }, [crossRow, drag, initial]);
+    const coord = useMemo(() => !drag.enabled ? null : initial === undefined ? personWeek : rosterCoord(drag.surface, initial), [drag.enabled, drag.surface, initial, personWeek]);
     const onHover = useCallback((_x: number, _y: number, payload: DragPayload) => { if (payload.kind === "item" && isPatternCard(payload, drag.surface)) onPatternHover(payload.from.key); }, [drag.surface, onPatternHover]);
     const ref = useDropCell(coord, !drag.enabled, canDrop, resolve, { accepts, caption, name: drag.name, onHover, onLeave: onPatternLeave });
     const drafted = useMemo(() => dayDrafted(ctx.domain, ctx.held, duties), [ctx.domain, ctx.held, duties]);
@@ -806,7 +860,7 @@ const PersonDay = memo(function PersonDay({ ctx, person, group, day, duties, cur
     const changes = preview !== undefined && preview.kind !== "keep";
     return <Box ref={ref} css={styles.dayCell} data-roster-person-day={`${key}.${day}`} data-selected={current ? "" : undefined} data-week-selected={weekSelected ? "" : undefined}
         data-drafted={drafted ? "" : undefined} data-pattern-hover={hovering ? "" : undefined} data-pattern-changes={changes ? "" : undefined} data-roster-previewing={preview !== undefined ? "" : undefined}>
-        <PersonDayBody ctx={ctx} person={person} group={group} day={day} duties={duties} preview={preview} />
+        <PersonDayBody ctx={ctx} person={person} rowKey={key} group={group} day={day} duties={duties} preview={preview} />
     </Box>;
 });
 /**
@@ -815,18 +869,19 @@ const PersonDay = memo(function PersonDay({ ctx, person, group, day, duties, cur
  * hooks register with the layer and with dnd-kit, and mounting and unmounting the tiles as the hover moved had every
  * droppable measured again and every subscriber drawn again, row after row.
  */
-const PersonDayBody = memo(function PersonDayBody({ ctx, person, group, day, duties, preview }: {
-    ctx: ViewContext; person: Person | undefined; group: string; day: number; duties: readonly DayDuty[]; preview: PatternDay | undefined;
+const PersonDayBody = memo(function PersonDayBody({ ctx, person, rowKey, group, day, duties, preview }: {
+    ctx: ViewContext; person: Person | undefined; rowKey: string; group: string | undefined; day: number; duties: readonly DayDuty[]; preview: PatternDay | undefined;
 }) {
     const { styles, commands } = ctx;
-    peopleDrawProbe?.("day", `${person?.key ?? `requests:${group}`}.${day}`);
+    peopleDrawProbe?.("day", `${rowKey}.${day}`);
     const { tiles, more } = dayTiles(duties);
     const off = person !== undefined && !duties.some(duty => !duty.removed);
     return <>
         {preview !== undefined && <PreviewTile ctx={ctx} day={preview} />}
-        {tiles.map(({ id, a, removed }) => <Tile key={id} ctx={ctx} id={id} assignment={a} removed={removed} person={person} />)}
+        {tiles.map(({ id, a, removed }) => <Tile key={id} ctx={ctx} id={id} assignment={a} removed={removed} person={person} home={group} />)}
         {more > 0 && <Box as="span" css={styles.tileMore} data-roster-more={more} title={`${more} more`}>+{more}</Box>}
-        {off && (commands.available || commands.locked !== undefined ? <AssignMenu ctx={ctx} person={person} group={group} day={day} /> : <Box css={styles.detail}>Off</Box>)}
+        {/* `+ Assign` places the person in their home group, with or without its band (#1567). */}
+        {off && (commands.available || commands.locked !== undefined ? <AssignMenu ctx={ctx} person={person} group={person.group} day={day} /> : <Box css={styles.detail}>Off</Box>)}
     </>;
 });
 /** A person's name cell (#1406, D8): the name — the requests row's, the vocabulary's `requests` — the agency badge in the vocabulary's `agencyShort` (#1566), and — by week — the week's hours against the contract over the meter. */
@@ -895,7 +950,7 @@ const PersonRow = memo(function PersonRow({ ctx, row, index, rows, days, duties,
     const cost = person === undefined || !costed(value) ? undefined : costsOf(ctx.pay, duties ?? []).total;
     return <Box ref={measure} css={styles.peopleRow} data-roster-person-row={key} data-density={density}>
         <NameCell ctx={ctx} person={person} rowKey={key} weekSelected={weekSelected} nameRef={name} hours={person === undefined ? null : <WeekHours ctx={ctx} person={person} total={total} cost={cost} />} />
-        {SEVEN_DAYS.map(day => <PersonDay key={day} ctx={ctx} person={person} group={row.group.key} day={day} duties={days[day] ?? NO_DUTIES} current={ctx.day === day}
+        {SEVEN_DAYS.map(day => <PersonDay key={day} ctx={ctx} person={person} rowKey={key} group={row.group?.key} day={day} duties={days[day] ?? NO_DUTIES} current={ctx.day === day}
             weekSelected={weekSelected} preview={previewDays?.[day]} hovering={previewKey !== undefined} onPatternHover={onPatternHover} onPatternLeave={onPatternLeave} />)}
     </Box>;
 });
@@ -953,7 +1008,7 @@ function People({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
     const renderRow = useCallback((i: number) => {
         const row = rows[i]!;
         if (row.kind === "group") return <GroupHeading scope="roster" group={row.group} styles={ctx.styles} collapsed={collapsed.includes(row.group.key)} toggle={toggle} measure={measure("group")} />;
-        const days = row.person === undefined ? index.requests.get(row.group.key) : index.person.get(row.person.key);
+        const days = row.person === undefined ? requestDays(index, row.group) : index.person.get(row.person.key);
         return <PersonRow ctx={ctx} row={row} index={i} rows={rows} days={days ?? NO_DAYS} duties={row.person === undefined ? undefined : index.duties.get(row.person.key)}
             measure={measure(row.person === undefined ? "requests" : "person")} />;
     }, [rows, ctx, collapsed, toggle, index, measure]);
@@ -1100,11 +1155,14 @@ function Mark({ ctx, held, day, duties, preview, letters }: { ctx: ViewContext; 
  * A person's week in the month (P13–P15): seven marks, a drop target for a pattern, a click selecting the person-week;
  * tinted while a day of it is drafted; a placeholder strip while the month is not read (P26).
  */
-const MonthCell = memo(function MonthCell({ ctx, person, group, held, days, letters, selected }: {
-    ctx: ViewContext; person: Person | undefined; group: string; held: WeekState; days: WeekDays; letters: boolean; selected: boolean;
+const MonthCell = memo(function MonthCell({ ctx, person, rowKey, held, days, letters, selected }: {
+    ctx: ViewContext; person: Person | undefined;
+    /** The row's key: the person's, or its requests' (`requests:<group>`, or `requests` for every group's, #1567). */
+    rowKey: string;
+    held: WeekState; days: WeekDays; letters: boolean; selected: boolean;
 }) {
     const { drag, styles, commands, value } = ctx;
-    const key = person?.key ?? `requests:${group}`;
+    const key = rowKey;
     const start = held.start;
     const coord = useMemo(() => drag.enabled ? rosterPersonWeekCoord(drag.surface, key, start) : null, [drag.enabled, drag.surface, key, start]);
     const accepts = useCallback((payload: DragPayload) => isPatternCard(payload, drag.surface), [drag.surface]);
@@ -1148,8 +1206,8 @@ const MonthRow = memo(function MonthRow({ ctx, row, index, rows, weeks, indexes,
     return <Box ref={measure} css={styles.monthRow} style={style} data-roster-person-row={key} data-density={value.settings.density.type} data-roster-unread={ctx.read.state !== "held" ? "" : undefined}>
         <NameCell ctx={ctx} person={person} rowKey={key} weekSelected={nameSelected} nameRef={name} hours={null} />
         {says && ctx.read.state === "failed" ? <Box css={styles.readLine} data-roster-read-line=""><ReadFailure read={ctx.read} /></Box>
-            : weeks.map((held, i) => <MonthCell key={held.start.getTime()} ctx={ctx} person={person} group={row.group.key} held={held} letters={letters}
-                days={(person === undefined ? indexes[i]!.requests.get(row.group.key) : indexes[i]!.person.get(person.key)) ?? NO_DAYS}
+            : weeks.map((held, i) => <MonthCell key={held.start.getTime()} ctx={ctx} person={person} rowKey={key} held={held} letters={letters}
+                days={(person === undefined ? requestDays(indexes[i]!, row.group) : indexes[i]!.person.get(person.key)) ?? NO_DAYS}
                 selected={person !== undefined && picked !== undefined && picked.key === person.key && picked.start === held.start.getTime()} />)}
     </Box>;
 });
@@ -1229,10 +1287,13 @@ function AssignmentCard({ ctx, id, assignment, removed }: { ctx: ViewContext; id
 }
 /** The phone's People cards' estimate of each kind before one has mounted: a person's card is its seven days, each a place action. */
 const AGENDA_FLOORS: Readonly<Record<RowKind, number>> = { group: 38, person: 360, requests: 60 };
-/** A person's card on a phone, or a group's requests': drawn again only as what it shows changes (#1398, CL9). */
+/**
+ * A person's card on a phone, or a group's requests' — or every group's, each group's under its name (#1567): drawn
+ * again only as what it shows changes (#1398, CL9).
+ */
 const PersonCard = memo(function PersonCard({ ctx, row, index, rows, days, requests, measure }: {
     ctx: ViewContext; row: PersonRowValue; index: number; rows: readonly PeopleRow[]; days: WeekDays;
-    /** A group's requests, in the week's order: what its card lists. */
+    /** The row's requests, in the week's order: what its card lists. */
     requests: readonly DayDuty[];
     measure: (el: HTMLElement | null) => void;
 }) {
@@ -1253,8 +1314,14 @@ const PersonCard = memo(function PersonCard({ ctx, row, index, rows, days, reque
                 <Box css={styles.detail}>{format.weekday(new Date(start.getTime() + day * DAY))}</Box>
                 <Unread read={ctx.read} kind="chip" index={index + day} /></Box>)}
     </Box>;
+    const card = ({ id, a, removed }: DayDuty) => <AssignmentCard key={id} ctx={ctx} id={id} assignment={a} removed={removed} />;
     return <Box ref={measure} css={styles.card} data-roster-person-card={person?.key ?? row.key}>
-        {person === undefined ? <><Box css={styles.cardHead}><Box css={styles.cardTitle}>{value.vocabulary.requests}</Box></Box>{requests.map(({ id, a, removed }) => <AssignmentCard key={id} ctx={ctx} id={id} assignment={a} removed={removed} />)}</> : <>
+        {person === undefined ? <><Box css={styles.cardHead}><Box css={styles.cardTitle}>{value.vocabulary.requests}</Box></Box>
+            {row.group !== undefined ? requests.map(card) : value.groups.map(group => {
+                // Every group's requests in one card: each group's under its name, in the groups' order.
+                const theirs = requests.filter(duty => duty.a.slot.group === group.key);
+                return theirs.length === 0 ? null : <Box key={group.key} css={styles.agendaGroup} data-roster-requests-group={group.key}><Box css={styles.detail}>{group.label}</Box>{theirs.map(card)}</Box>;
+            })}</> : <>
             <chakra.button ref={head} type="button" css={styles.cardHead} data-roster-person-head={person.key} onClick={() => ctx.select({ type: "personWeek", key: person.key, start: start.getTime() })}>
                 <Box css={styles.cardTitle} data-roster-card-hours="" data-opn={ctx.lit && ctx.optimised?.people.has(person.key) === true ? "" : undefined}>{person.name} · {format.number(ctx.hours.get(person.key) ?? 0)} / {format.number(person.contract)} h</Box></chakra.button>
             {/* A phone's `Apply pattern…` (#1406, P22): the Chooser over the patterns, its choice applied as a drop is. */}
@@ -1262,8 +1329,9 @@ const PersonCard = memo(function PersonCard({ ctx, row, index, rows, days, reque
             {SEVEN_DAYS.map(day => {
                 const duties = days[day] ?? NO_DUTIES;
                 return <Box key={day} css={styles.agendaGroup}><Box css={styles.detail}>{format.weekday(new Date(start.getTime() + day * DAY))}</Box>
-                    {duties.map(({ id, a, removed }) => <AssignmentCard key={id} ctx={ctx} id={id} assignment={a} removed={removed} />)}
-                    {!duties.some(duty => !duty.removed) && (commands.available || commands.locked !== undefined ? <PlaceAction label="Off · assign" source={{ type: "person", key: person.key }} slot={{ day: BigInt(day), group: row.group.key, shift: person.usual.type === "some" ? person.usual.value : value.shifts[0]!.key }} value={value} start={start} commands={commands} styles={styles} /> : <Box css={styles.detail}>Off</Box>)}
+                    {duties.map(card)}
+                    {/* "Off · assign" places the person in their home group, with or without its band (#1567). */}
+                    {!duties.some(duty => !duty.removed) && (commands.available || commands.locked !== undefined ? <PlaceAction label="Off · assign" source={{ type: "person", key: person.key }} slot={{ day: BigInt(day), group: person.group, shift: person.usual.type === "some" ? person.usual.value : value.shifts[0]!.key }} value={value} start={start} commands={commands} styles={styles} /> : <Box css={styles.detail}>Off</Box>)}
                 </Box>;
             })}
         </>}
@@ -1296,8 +1364,9 @@ function PeopleAgenda({ props, ctx }: { props: RosterViewsProps; ctx: ViewContex
     const renderRow = useCallback((i: number) => {
         const row = rows[i]!;
         if (row.kind === "group") return <GroupHeading scope="roster" group={row.group} styles={ctx.styles} collapsed={collapsed.includes(row.group.key)} toggle={toggle} measure={measure("group")} />;
-        const days = row.person === undefined ? index.requests.get(row.group.key) : index.person.get(row.person.key);
-        return <PersonCard ctx={ctx} row={row} index={i} rows={rows} days={days ?? NO_DAYS} requests={row.person === undefined ? index.requestList.get(row.group.key) ?? NO_DUTIES : NO_DUTIES}
+        const days = row.person === undefined ? requestDays(index, row.group) : index.person.get(row.person.key);
+        const requests = row.person !== undefined ? NO_DUTIES : row.group === undefined ? index.allRequestList : index.requestList.get(row.group.key) ?? NO_DUTIES;
+        return <PersonCard ctx={ctx} row={row} index={i} rows={rows} days={days ?? NO_DAYS} requests={requests}
             measure={measure(row.person === undefined ? "requests" : "person")} />;
     }, [rows, ctx, collapsed, toggle, index, measure]);
     // Where the cards' view rests, by its top card's key (#1398): saved as a scroll settles, brought back as they mount.

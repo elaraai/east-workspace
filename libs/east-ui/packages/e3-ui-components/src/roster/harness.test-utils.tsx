@@ -24,6 +24,7 @@
  * @packageDocumentation
  */
 
+import { expect, vi } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import {
     ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, parseFor, printFor, some,
@@ -327,6 +328,49 @@ export async function hover(from: Element, into: Element): Promise<void> {
     await settle();
     await act(async () => { pointAt(into); fireEvent.pointerMove(document, { pointerId: 1, pointerType: "mouse", clientX: 12, clientY: 12 }); });
     await settle();
+}
+/**
+ * jsdom scrolls nothing a frame asks it to — the harness's `scrollTo` does nothing, and a scroll box has no extent to
+ * scroll through — so a row a pick brings into view, or a place a remount restores, would never be seen: here the
+ * People grid's scroll box has room, and it scrolls as a page does, and says so. Its rows and bands measure themselves
+ * as the harness measures the boxes the virtualizer places them in — a row 62px, a band 38 — so the grid's floors are
+ * what it places the rows by.
+ */
+export function scrollsAsAPageDoes(): void {
+    const rect = vi.mocked(Element.prototype.getBoundingClientRect);
+    const harness = rect.getMockImplementation()!;
+    rect.mockImplementation(function (this: Element) {
+        const height = this.hasAttribute("data-roster-person-row") ? 62 : this.hasAttribute("data-roster-group") ? 38 : undefined;
+        return height === undefined ? harness.call(this) : { x: 0, y: 0, top: 0, left: 0, right: 900, bottom: height, width: 900, height, toJSON() {} };
+    });
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+        return this.hasAttribute("data-virtual-rows") ? 1_000_000 : 0;
+    });
+    vi.spyOn(Element.prototype, "scrollTo").mockImplementation(function (this: Element, options?: ScrollToOptions | number) {
+        if (typeof options !== "object") return;
+        if (options.top !== undefined) this.scrollTop = options.top;
+        if (options.left !== undefined) this.scrollLeft = options.left;
+        this.dispatchEvent(new Event("scroll"));
+    } as Element["scrollTo"]);
+}
+/**
+ * Scrolls main's rows three at a time at their pitch — a People row's 36px, a phone's card's 360 — until what the
+ * selector names is mounted.
+ *
+ * @param c - What the example rendered into
+ * @param selector - What to bring into view
+ * @param pitch - The rows' pitch, in px
+ * @returns What the selector names, mounted
+ */
+export async function reveal(c: HTMLElement, selector: string, pitch = 36): Promise<HTMLElement> {
+    const scroller = slot(c, "main").querySelector<HTMLElement>("[data-virtual-rows]")!;
+    for (let i = 1; i <= 60 && slot(c, "main").querySelector(selector) === null; i++) {
+        await act(async () => { scroller.scrollTop = i * 3 * pitch; fireEvent.scroll(scroller); });
+        await settle();
+    }
+    const found = slot(c, "main").querySelector<HTMLElement>(selector);
+    expect(found, selector).not.toBeNull();
+    return found!;
 }
 /** Lets the drag go where it rests. */
 export async function release(): Promise<void> {

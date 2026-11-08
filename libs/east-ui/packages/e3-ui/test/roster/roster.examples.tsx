@@ -535,6 +535,61 @@ export const rosterPeopleMonth = example({
     }}</Reactive>),
 });
 
+export const rosterPeopleNoBands = example({
+    inputs: [], description: "The People layout by week without its groups' bands (peopleBands={false}, #1567): every person the rail shows in one list — the leads, then the rest, then agency staff — with no band to fold, and every group's agency requests in one row at its foot, each request naming its group. A person keeps their home group: `+ Assign` offers its shifts, and a Find's needs, the fit and the optimiser read it. Shifts keeps its bands, which are its slots.",
+    keywords: ["Roster", "peopleBands", "people", "week", "list", "bands", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Roster.shifts", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "Save", "Publish"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const rota = $.let(Record.bind(rosterDuties));
+        const entries = $.let(Data.bindPaged(rosterDuties));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        const weeks = $.let(Record.bind(rosterWeeks));
+        const cover = $.let(Record.bind(rosterCover));
+        // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
+        const people = $.let(Data.bind(rosterStaff));
+        const acts = $.let(Data.bind(rosterActivities));
+        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: ["roster_staff_by_team_name", "roster_staff_by_position", "roster_staff_by_trainer", "roster_staff_by_agency", "roster_staff_by_skill", "roster_staff_by_name"] }));
+        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: ["roster_activities_by_group"] }));
+        const slice = $.let(Slice.bindRecords("ex.rosterPeopleNoBands", {
+            duty: { source: byTime, range: "start" },
+            people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
+                fields: { team: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }] }, position: { label: "Position", hints: [{ value: "lead", label: "Lead" }, { value: "deputy", label: "Deputy" }, { value: "acting", label: "Acting" }, { value: "crew", label: "Crew" }] },
+                    trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
+            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }, null] } } },
+        }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
+        const firms = $.let(Data.bind(rosterAgencies));
+        const times = $.let(Data.bind(rosterShiftTimes));
+        const teams = $.let(Data.bind(rosterTeams));
+        const roles = $.let(Data.bind(rosterPositions));
+        const ideas = $.let(Data.bind(rosterSuggestions));
+        return <Box width="100%" height="760px"><Roster id="rosterPeopleNoBands" week={{ start: "sunday" }} slice={{ slice }} inspector
+            view={{ layout: "people", period: "week", date: new Date("2028-03-09T00:00:00Z") }}
+            // Everyone in one list: no group's band over its people.
+            peopleBands={false}
+            events={{ duty: Schedule.events(rota, {
+                name: "Duty", icon: "user-clock", entries,
+                start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+                shift: "shift", group: "team", position: "role", activity: "task",
+                hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
+            }) }}
+            resources={{
+                people: Schedule.resources(people.read(), { name: "People", icon: "user", label: p => p.name, group: p => p.team,
+                    position: p => p.position, skills: p => p.skills, contract: p => p.contract, agency: p => p.agency,
+                    trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual }),
+                agencies: Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name }),
+            }}
+            periods={Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed" })}
+            targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" })}
+            shifts={Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order, color: s => s.colour })}
+            groups={Roster.groups(teams.read(), { label: t => t.label, order: t => t.order })}
+            positions={Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order })}
+            activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })}
+            proposals={Roster.proposals(ideas.read(), { person: s => s.person, day: s => s.day, group: s => s.team, shift: s => s.shift, reason: s => s.why })}
+            rules={{ rest: 10.0 }}
+            library={[Roster.library.people(), Roster.library.activities()]} />
+        </Box>;
+    }}</Reactive>),
+});
+
 export const rosterWeek = example({
     inputs: [], description: "Seven days of group-by-shift coverage over the warehouse's own records, opening any day for detailed staffing.",
     keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "week", "Save", "Publish", "FieldForm"],
