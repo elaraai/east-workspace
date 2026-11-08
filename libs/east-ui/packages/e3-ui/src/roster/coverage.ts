@@ -8,7 +8,7 @@ import {
     type EastType, type ExprType, type FunctionType,
 } from "@elaraai/east";
 import {
-    RosterContextType, RosterCoverageLineType, RosterCoverageType, RosterPayType, RosterRequirementType,
+    RosterContextType, RosterCoverageLineType, RosterCoverageType, RosterPayType, RosterPlaceType, RosterRequirementType,
     RosterSlotType, RosterWeekTypeFor,
 } from "./types.js";
 
@@ -19,7 +19,7 @@ import {
  * @typeParam R - The app's duty row type
  * @param row - The app's duty row type
  * @returns An East function `(week, context, pay) → Dict<Slot, Coverage>`: coverage keyed by day, group and shift
- * @remarks Pure East: tasks and the renderer compile this same calculation. Each duty counts its own hours; requests fill positions, but never supply skills or a lead. A slot's cost is its duties' pay, every code summed: zero without `pay`.
+ * @remarks Pure East: tasks and the renderer compile this same calculation. Each duty counts its own hours; requests fill positions, but never supply skills or a lead. A slot's cost is its duties' pay, every code summed: zero without `pay`. A duty in no group (#1548) is in no slot: it counts in no group's coverage, its hours its person's alone.
  */
 export function rosterCoverage<R extends EastType>(row: R) {
     return East.function([RosterWeekTypeFor(row as EastType), RosterContextType, RosterPayType], DictType(RosterSlotType, RosterCoverageType), ($, week, context, pay) => {
@@ -33,7 +33,9 @@ export function rosterCoverage<R extends EastType>(row: R) {
                 $.for(context.shifts, ($, shift) => {
                     const slot = $.const({ day, group: group.key, shift: shift.key }, RosterSlotType);
                     const target = $.const(week.requirements.get(slot, $ => $.const({ positions: 0n, hours: new Map() }, RosterRequirementType)));
-                    const assignments = $.const(week.assignments.filter((_$, a) => East.equal(a.slot, slot)));
+                    // The slot's duties: those standing in its group's shift on its day.
+                    const place = $.const({ day, group: some(group.key), shift: shift.key }, RosterPlaceType);
+                    const assignments = $.const(week.assignments.filter((_$, a) => East.equal(a.place, place)));
                     const permanent = $.let(0.0, FloatType);
                     const agency = $.let(0.0, FloatType);
                     const requested = $.let(0.0, FloatType);

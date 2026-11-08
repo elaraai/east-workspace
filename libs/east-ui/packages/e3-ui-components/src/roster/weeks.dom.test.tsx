@@ -65,8 +65,8 @@ describe("Roster week lifecycle", () => {
         // stands, and every other field as it was.
         const shifts = await h.read(ex.rosterShiftTimes);
         const expected = [...ex.warehouseWeek.assignments.values()].map(duty => {
-            const shift = shifts.get(duty.slot.shift)!;
-            return printDuty({ ...duty.row, ...ownTimes(NEXT, duty.slot.day, shift.start, shift.hours) });
+            const shift = shifts.get(duty.place.shift)!;
+            return printDuty({ ...duty.row, ...ownTimes(NEXT, duty.place.day, shift.start, shift.hours) });
         }).sort(byString);
         expect([...copied.values()].map(duty => printDuty(duty)).sort(byString)).toEqual(expected);
         // Copy writes duties alone: the week's row and its targets stand as they were.

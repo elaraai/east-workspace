@@ -17,7 +17,7 @@
  */
 
 import {
-    East, FloatType, FunctionType, StringType, defaultValue, none, variant,
+    East, FloatType, FunctionType, StringType, defaultValue, none, some, variant,
     type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { scheduleNumberText } from "../schedule/words.js";
@@ -114,12 +114,14 @@ export function rosterFit<R extends EastType>(row: R, words?: { notALead?: Subty
             },
         });
         // Not rostered that day: moving them would leave their own shift short.
-        const thatDay = $.const(request.week.assignments.filter((_$2, a) => East.equal(a.slot.day, slot.day)
+        const thatDay = $.const(request.week.assignments.filter((_$2, a) => East.equal(a.place.day, slot.day)
             .and(() => a.who.match({ person: (_$3, key) => East.equal(key, person.key), request: (_$3, _agency) => false }))).toArray((_$2, a) => a));
         $.if(East.greater(thatDay.size(), 0n), ($2) => {
             const held = $2.const(thatDay.get(0n));
+            // Its group, or no group for a duty in none yet (#1548).
+            const where = $2.const(held.place.group.match({ some: (_$3, group) => groups.get(group, () => group), none: (_$3) => East.value("no group", StringType) }));
             $2.return(variant("refused", {
-                group: "Rostered", reason: East.str`rostered on ${groups.get(held.slot.group, () => held.slot.group)} · ${labels.get(held.slot.shift, () => held.slot.shift)}`,
+                group: "Rostered", reason: East.str`rostered on ${where} · ${labels.get(held.place.shift, () => held.place.shift)}`,
                 measure: variant("none", null),
             }));
         });
@@ -128,7 +130,7 @@ export function rosterFit<R extends EastType>(row: R, words?: { notALead?: Subty
             const shift = $2.const(shifts.get(slot.shift));
             const start = $2.const(shiftStart(request.start.addDays(slot.day), shift));
             const candidate = $2.const(East.value({
-                slot, who: variant("person", person.key), position: person.position, activity: none,
+                place: { day: slot.day, group: some(slot.group), shift: slot.shift }, who: variant("person", person.key), position: person.position, activity: none,
                 start, end: start.addHours(shift.hours), hours: shift.hours, row: blank,
             } as never, Assignment));
             const rest = $2.const(restOf(candidate as never, "", request.week, context));

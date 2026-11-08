@@ -1037,7 +1037,7 @@ function rosterWeekOf(weekStart: Date, rows: readonly SeedRow[], targets: readon
             const [key, duty] = dutyOf(weekStart, seed);
             const [, day, group, shift, person, kind, position, activity, , longer] = seed;
             return [key, {
-                slot: { day: BigInt(day), group, shift }, who: kind === "request" ? variant("request", "northside") : variant("person", person!), position,
+                place: { day: BigInt(day), group: some(group), shift }, who: kind === "request" ? variant("request", "northside") : variant("person", person!), position,
                 activity: activity === null ? none : some(activity), start: duty.start, end: duty.end,
                 hours: warehouseShifts.get(shift)!.hours + longer, row: duty,
             }] as const;

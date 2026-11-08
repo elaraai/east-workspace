@@ -28,7 +28,7 @@ describeEast("Roster — inline bound examples", test => {
     Assert.examples(test, { rosterWarehouse: ex.rosterWarehouse, rosterMobile: ex.rosterMobile, rosterPeople: ex.rosterPeople,
         rosterPeopleMonth: ex.rosterPeopleMonth, rosterPeopleNoBands: ex.rosterPeopleNoBands, rosterWorkRequirement: ex.rosterWorkRequirement,
         rosterWeek: ex.rosterWeek, rosterWindowed: ex.rosterWindowed, rosterMinimal: ex.rosterMinimal, rosterViews: ex.rosterViews, rosterVocabulary: ex.rosterVocabulary, rosterPublished: ex.rosterPublished,
-        rosterCustomInspector: ex.rosterCustomInspector, rosterConflicts: ex.rosterConflicts });
+        rosterCustomInspector: ex.rosterCustomInspector, rosterConflicts: ex.rosterConflicts, rosterNoGroup: ex.rosterNoGroup });
 }, { platformFns: TestImpl });
 
 /** What the props over the warehouse's records hold before a test changes them: the duties, the staff and agencies, the shifts and the teams. */

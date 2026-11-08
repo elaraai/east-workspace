@@ -32,8 +32,8 @@ import { PlaceAction } from "./controls.js";
 import type { RosterCommands, RosterSource } from "./actions.js";
 import type { FitResult, Need } from "./fit.js";
 import {
-    DAY, activityOf, patternProblem, patternSummary, shiftColor, shiftOf, type Assignment, type Coverage, type Pattern, type Person, type RosterStyles, type RosterValue,
-    type Selection, type Slot, type Week,
+    DAY, activityOf, patternProblem, patternSummary, placeOf, shiftColor, shiftOf, type Assignment, type Coverage, type Pattern, type Person, type Place, type RosterStyles,
+    type RosterValue, type Selection, type Slot, type Week,
 } from "./model.js";
 
 /**
@@ -141,7 +141,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
     const today = useMemo(() => {
         const by = new Map<string, Assignment[]>();
         for (const a of week.assignments.values()) {
-            if (a.slot.day !== BigInt(day) || a.who.type !== "person") continue;
+            if (a.place.day !== BigInt(day) || a.who.type !== "person") continue;
             const theirs = by.get(a.who.value);
             if (theirs === undefined) by.set(a.who.value, [a]);
             else theirs.push(a);
@@ -158,20 +158,21 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
         // The person's group that day: its words the app's, its place in the tab its kind's, whatever those words.
         const kind: keyof typeof GROUP_RANK = assigned.length === 0 ? "available" : position?.lead ? "leads" : person.agency ? "agency" : "others";
         const place = kind === "available" ? words.available(format.weekday(new Date(start.getTime() + day * DAY))) : words[kind];
-        const shift = assigned.map(a => value.shifts.find(s => s.key === a.slot.shift)?.label ?? a.slot.shift).join(", ");
+        const shift = assigned.map(a => value.shifts.find(s => s.key === a.place.shift)?.label ?? a.place.shift).join(", ");
         const card = libraryCard(rosterSourceKey("person", person.key), person.name, `${group?.label ?? person.group} · ${shift || "Off today"}${position?.code ? ` · ${position.code}` : ""}${person.trainer ? " · trainer" : ""}${person.trainee ? " · trainee" : ""}`, place, undefined, draggable);
         return { person, kind, card: { ...card, avatar: some(person.name), placed: chosenPerson === rosterSourceKey("person", person.key),
-            status: some({ label: assigned.length === 0 ? "OFF" : assigned.map(a => value.shifts.find(s => s.key === a.slot.shift)?.code ?? a.slot.shift).join(" · "), tone: variant(assigned.length === 0 ? "info" : "neutral", null), ring: false }),
+            status: some({ label: assigned.length === 0 ? "OFF" : assigned.map(a => value.shifts.find(s => s.key === a.place.shift)?.code ?? a.place.shift).join(" · "), tone: variant(assigned.length === 0 ? "info" : "neutral", null), ring: false }),
             search: some(`${person.name} ${group?.label} ${position?.label} ${person.agency ? words.agency : ""} ${person.trainer ? "trainer" : ""} ${skills.map(s => s.label).join(" ")}`),
             dims: new Map([["hours", variant("meter", { value: hours.get(person.key) ?? 0, max: person.contract, text: some(`${format.number(hours.get(person.key) ?? 0)} / ${format.number(person.contract)} h`) })]]),
         } };
     }); }, [value.people, value.groups, value.positions, value.activities, value.shifts, words, today, format, start, day, draggable, chosenPerson, hours]);
     if (value.library.length === 0) return undefined;
-    const slot = selection?.type === "slot" || selection?.type === "requirement" ? selection.slot
-        : selection?.type === "assignment" ? week.assignments.get(selection.key)?.slot
-            // A shift's day across the groups (#1568): its day and shift, in the first group.
-            : selection?.type === "shiftDay" ? { day: BigInt(selection.day), group: value.groups[0]!.key, shift: selection.shift } : undefined;
-    const defaultSlot: Slot = slot ?? { day: BigInt(day), group: value.groups[0]!.key, shift: value.shifts[0]!.key };
+    // Where the foot's action places by default: the selected slot, the selected duty's place — in no group, for a duty in
+    // none (#1548) — or a shift's day across the groups' day and shift (#1568), else the day's first shift, in the first group.
+    const selected: Place | undefined = selection?.type === "slot" || selection?.type === "requirement" ? placeOf(selection.slot)
+        : selection?.type === "assignment" ? week.assignments.get(selection.key)?.place
+            : selection?.type === "shiftDay" ? { day: BigInt(selection.day), group: some(value.groups[0]!.key), shift: selection.shift } : undefined;
+    const defaultPlace: Place = selected ?? { day: BigInt(day), group: some(value.groups[0]!.key), shift: value.shifts[0]!.key };
     const make = (key: string, label: string, meta: string, group: string, icon: string | undefined): LibraryItemValue => libraryCard(key, label, meta, group, icon, draggable);
     // What a Find fix looks for: a skill's holders, leads, or trainers.
     const need = find?.need;
@@ -200,7 +201,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
             narrowing = answer === undefined || follows.narrowing?.emptied === true ? follows.narrowing : { empty: NO_ONE_FOUND, emptied: found.length === 0 };
             pane = find?.busy === true ? { ...follows.pane, "aria-busy": true } : follows.pane;
             // Agency requests are actions, not staff: every one shows, whatever the rail narrows.
-            const requests = value.agencies.map(agency => ({ ...make(rosterSourceKey("agency", agency.key), agency.name, `Request · ${format.number(value.shifts.find(s => s.key === defaultSlot.shift)?.hours ?? 0)} h`, words.agency, "building"),
+            const requests = value.agencies.map(agency => ({ ...make(rosterSourceKey("agency", agency.key), agency.name, `Request · ${format.number(value.shifts.find(s => s.key === defaultPlace.shift)?.hours ?? 0)} h`, words.agency, "building"),
                 status: some({ label: "REQ", tone: variant("neutral", null), ring: false }) }));
             if (answer !== undefined) {
                 // Best first, in the fit's order: each group heads where its best card stands, and the requests come last.
@@ -255,7 +256,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
                 const source = readRosterSource(key);
                 if (source.success && source.value.type === "person") {
                     const person = source.value.value;
-                    const assignment = [...week.assignments].find(([, a]) => a.slot.day === BigInt(day) && a.who.type === "person" && a.who.value === person);
+                    const assignment = [...week.assignments].find(([, a]) => a.place.day === BigInt(day) && a.who.type === "person" && a.who.value === person);
                     select(assignment === undefined ? { type: "person", key: person } : { type: "assignment", key: assignment[0] });
                 }
             }
@@ -289,7 +290,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
             <Box css={[styles.paneFoot, styles.paneHint]}>{hint}</Box>
             {/* The foot's actions stay in place, inert, while a run of the optimiser holds the week (#1409, R2). */}
             {(commands.available || commands.locked !== undefined) && !held && chosenKey !== undefined && <Box css={styles.paneFoot}>
-                {source !== undefined && <PlaceAction label={source.type === "agency" ? "Request staff" : "Assign person"} source={source} slot={defaultSlot} value={value} start={start} commands={commands} styles={styles} />}
+                {source !== undefined && <PlaceAction label={source.type === "agency" ? "Request staff" : "Assign person"} source={source} place={defaultPlace} value={value} start={start} commands={commands} styles={styles} />}
                 {patternTarget?.person !== undefined && <Button size="xs" variant="outline" disabled={commands.locked !== undefined} title={commands.locked} onClick={() => setError(commands.applyPattern(patternTarget.person!.key, patternTarget.start, chosenKey))}>Apply to {patternTarget.person.name}</Button>}
                 {tab.type === "activities" && <Button size="xs" variant="outline" disabled={target === undefined || commands.locked !== undefined} title={commands.locked} onClick={() => { if (target !== undefined) setError(commands.activity(target, some(chosenKey))); }}>Set activity on selected duty</Button>}
                 {custom !== undefined && custom.sets.length > 0 && <Button size="xs" variant="outline" disabled={target === undefined || commands.locked !== undefined} title={commands.locked} onClick={() => { if (target !== undefined) setError(commands.sets(target, custom.sets)); }}>Apply to selected duty</Button>}

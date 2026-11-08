@@ -50,6 +50,7 @@ import {
     type RosterGroups, type RosterListKind, type RosterPatterns, type RosterPositions, type RosterProposals, type RosterShifts,
 } from "./lists.js";
 import { rosterCheck, rosterRest } from "./rules.js";
+import { rosterSlotOf } from "./times.js";
 import { isRosterTargets, rosterTargets, type RosterTargets } from "./targets.js";
 import * as T from "./types.js";
 
@@ -90,10 +91,12 @@ export const RosterLibraryTabType = VariantType({
  *   phone's cards (#1566)
  * @property demand - The heading of the People layout's work requirement: each shift's hours needed against those rostered,
  *   over the people (#1568)
+ * @property noGroup - What a duty in no group yet is in (#1548): its tile in the People layout, the Shifts layout's band of
+ *   them, and the inspector's choice of group
  */
 export const RosterVocabularyType = StructType({
     permanent: StringType, permanentShort: StringType, agency: StringType, agencyShort: StringType, leads: StringType, others: StringType, trainers: StringType,
-    available: FunctionType([StringType], StringType), requests: StringType, demand: StringType,
+    available: FunctionType([StringType], StringType), requests: StringType, demand: StringType, noGroup: StringType,
 });
 
 /**
@@ -189,6 +192,8 @@ export interface RosterVocabulary {
     requests?: SubtypeExprOrValue<StringType>;
     /** The heading of the People layout's work requirement, over each shift's hours needed and rostered: "Work requirement". */
     demand?: SubtypeExprOrValue<StringType>;
+    /** What a duty in no group yet is in (#1548) — its tile, the Shifts layout's band, the inspector's choice of group: "No group". */
+    noGroup?: SubtypeExprOrValue<StringType>;
 }
 
 /**
@@ -667,7 +672,7 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
                 agency: props.vocabulary?.agency ?? "Agency staff", agencyShort: props.vocabulary?.agencyShort ?? "agency",
                 leads: props.vocabulary?.leads ?? "Leads", others: props.vocabulary?.others ?? "Associates", trainers: props.vocabulary?.trainers ?? "Trainers",
                 available: props.vocabulary?.available ?? ROSTER_AVAILABLE, requests: props.vocabulary?.requests ?? "Agency requests",
-                demand: props.vocabulary?.demand ?? "Work requirement",
+                demand: props.vocabulary?.demand ?? "Work requirement", noGroup: props.vocabulary?.noGroup ?? "No group",
             },
             id: props.id === undefined ? none : some(props.id),
         } as never, RosterPayloadType);
@@ -718,6 +723,8 @@ export interface RosterNamespace {
     weekHours: typeof rosterWeekHours;
     /** `rest(R)`: computes the rest before and after a duty. */
     rest: typeof rosterRest;
+    /** The slot a duty stands in, from its place: its group's shift on its day; `none` for a duty in no group yet (#1548). */
+    slotOf: typeof rosterSlotOf;
     /** Declares the library's tabs. */
     library: { people: typeof rosterPeopleTab; activities: typeof rosterActivitiesTab; patterns: typeof rosterPatternsTab; tab: typeof rosterLibraryTab };
     /** @deprecated Removed (#1368): the people are `resources={{ people: Schedule.resources(staff.read(), { name, icon, label, group, … }) }}`. */
@@ -726,7 +733,7 @@ export interface RosterNamespace {
     patch: (...args: never[]) => never;
     /** Roster's public domain types; those over a week are constructors of the app's duty row type. */
     Types: {
-        Clock: typeof ScheduleClockType; Slot: T.RosterSlotType; Who: T.RosterWhoType; Assignment: typeof T.RosterAssignmentTypeFor;
+        Clock: typeof ScheduleClockType; Slot: T.RosterSlotType; Place: T.RosterPlaceType; Who: T.RosterWhoType; Assignment: typeof T.RosterAssignmentTypeFor;
         Requirement: T.RosterRequirementType; Requirements: T.RosterRequirementsType; Status: T.RosterStatusType; Week: typeof T.RosterWeekTypeFor;
         Activity: T.RosterActivityType; Skill: T.RosterSkillType; Group: T.RosterGroupType; Shift: T.RosterShiftType; Position: T.RosterPositionType;
         Agency: T.RosterAgencyType; Person: T.RosterPersonType; Rules: T.RosterRulesType; Context: T.RosterContextType;
@@ -756,12 +763,12 @@ export const Roster: RosterNamespace = Object.assign(
         shifts: rosterShifts, groups: rosterGroups, positions: rosterPositions, activities: rosterActivities, proposals: rosterProposals,
         patterns: rosterPatterns,
         targets: rosterTargets, coverage: rosterCoverage, check: rosterCheck, fit: rosterFit, answer: rosterAnswer,
-        weekHours: rosterWeekHours, rest: rosterRest,
+        weekHours: rosterWeekHours, rest: rosterRest, slotOf: rosterSlotOf,
         library: { people: rosterPeopleTab, activities: rosterActivitiesTab, patterns: rosterPatternsTab, tab: rosterLibraryTab },
         people: removed("Roster.people is gone — the people are resources={{ people: Schedule.resources(staff.read(), { name, icon, label, group, … }) }}"),
         patch: removed("Roster.patch is gone — a card's drop returns Schedule.patch(DutyRowType, { … }), the duty's own fields, as Plan's tabs do"),
         Types: {
-            Clock: ScheduleClockType, Slot: T.RosterSlotType, Who: T.RosterWhoType, Assignment: T.RosterAssignmentTypeFor,
+            Clock: ScheduleClockType, Slot: T.RosterSlotType, Place: T.RosterPlaceType, Who: T.RosterWhoType, Assignment: T.RosterAssignmentTypeFor,
             Requirement: T.RosterRequirementType, Requirements: T.RosterRequirementsType, Status: T.RosterStatusType, Week: T.RosterWeekTypeFor,
             Activity: T.RosterActivityType, Skill: T.RosterSkillType, Group: T.RosterGroupType, Shift: T.RosterShiftType, Position: T.RosterPositionType,
             Agency: T.RosterAgencyType, Person: T.RosterPersonType, Rules: T.RosterRulesType, Context: T.RosterContextType,

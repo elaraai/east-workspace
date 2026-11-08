@@ -36,9 +36,10 @@ import { fieldChange, madeFromValues, mintKey, periodPublishChange } from "../sh
 import { PERIODS, TARGETS, type RosterEditing } from "./editing.js";
 import type { RosterFind } from "./fit.js";
 import {
-    activityOf, availableProposals, compareDate, dayOfSlot, editableStatus, patternOf, patternProblem, positionFor, rosterDomain, rosterTimes, sameSlot, shiftTimes,
-    startReach, startingAt, weekKey, type Assignment, type Context, type Issue, type Pattern, type Person, type PlacedDuties, type PlacedPeriod, type PlacedTargets,
-    type Requirement, type Roles, type RosterPayload, type RosterValue, type Selection, type Slot, type StoredDuty, type Week, type WeekState, type Who,
+    activityOf, availableProposals, compareDate, dayOfSlot, editableStatus, patternOf, patternProblem, placeOf, positionFor, rosterDomain, rosterTimes, sameGroup,
+    samePlace, shiftTimes, slotOfPlace, startReach, startingAt, weekKey, type Assignment, type Context, type Issue, type Pattern, type Person, type Place,
+    type PlacedDuties, type PlacedPeriod, type PlacedTargets, type Requirement, type Roles, type RosterPayload, type RosterValue, type Selection, type Slot,
+    type StoredDuty, type Week, type WeekState, type Who,
 } from "./model.js";
 
 /** Where a place command gets its person or request. */
@@ -99,7 +100,11 @@ export interface RosterCommands {
      * week's `Off`.
      */
     readonly locked: string | undefined;
-    place(source: RosterSource, slot: Slot, checkOnly?: boolean): string | undefined;
+    /**
+     * Places a person, a request, a duty or a proposal at a place: a group's shift on a day, or the shift in no group,
+     * where the duty kind's group takes none (#1548).
+     */
+    place(source: RosterSource, place: Place, checkOnly?: boolean): string | undefined;
     update(id: string, change: RolesChange, origin?: Origin, checkOnly?: boolean): string | undefined;
     activity(id: string, activity: option<string>, checkOnly?: boolean): string | undefined;
     sets(id: string, writes: readonly FieldWrite[], checkOnly?: boolean): string | undefined;
@@ -175,6 +180,11 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
         && editableStatus(week.status) && schedule.available(duty);
     const blocked = () => !available ? "This week is not available to edit." : state.retained === true ? "This week is still being read." : undefined;
     const validSlot = (slot: Slot) => slot.day >= 0n && slot.day < 7n && value.groups.some(g => g.key === slot.group) && value.shifts.some(s => s.key === slot.shift);
+    /** A place of the week: a valid slot, or a configured shift on one of its days in no group, where the duty kind's group takes none (#1548). */
+    const validPlace = (place: Place) => {
+        const slot = slotOfPlace(place);
+        return slot !== undefined ? validSlot(slot) : value.duty.roles.noGroup && place.day >= 0n && place.day < 7n && value.shifts.some(s => s.key === place.shift);
+    };
     // Every duty's key the Roster holds: read, drafted, minted by this gesture, or the record's own when it is read whole.
     const takenDuty = (minted: ReadonlySet<string>) => (key: string) => minted.has(key) || state.read.some(read => read.has(key))
         || schedule?.draftsOf(duty).has(key) === true || schedule?.held(duty, key) !== undefined;
@@ -182,13 +192,13 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
     const record = (changes: readonly ScheduleChange[], origin: Origin, label: string) => schedule !== undefined && changes.length > 0 && schedule.record(changes, origin, label);
     const rowOf = (id: string) => state.duties.rows.get(id);
     const personDay = (person: string, day: bigint, except?: string) => [...week.assignments].find(([key, a]) =>
-        key !== except && a.who.type === "person" && a.who.value === person && a.slot.day === day);
+        key !== except && a.who.type === "person" && a.who.value === person && a.place.day === day);
     /**
-     * A duty's roles, held to its shift's times and to what its slot takes: its start to its day by its shift, and its
+     * A duty's roles, held to its shift's times and to what its place takes: its start to its day by its shift, and its
      * activity to its team, each as the write drafts it.
      */
-    const validRoles = (a: Pick<Assignment, "slot" | "who">, roles: Roles): string | undefined => {
-        const reach = startReach(value, { ...a.slot, shift: roles.shift }, start);
+    const validRoles = (a: Pick<Assignment, "place" | "who">, roles: Roles): string | undefined => {
+        const reach = startReach(value, { ...a.place, shift: roles.shift }, start);
         if (reach === undefined) return "Choose a configured shift.";
         // Its reach is half open, as its day is: a start twelve hours after its shift's is the next day's.
         if (compareDate(roles.start, reach.from) < 0 || compareDate(roles.start, reach.to) >= 0) return "A duty starts up to 12 hours before its shift's start, or less than 12 hours after it.";
@@ -197,18 +207,19 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
         if (a.who.type === "request" && roles.activity.type === "some") return "Assign an activity to a named person.";
         if (roles.activity.type === "some") {
             const activity = activityOf(value, roles.activity.value);
-            if (activity === undefined || (activity.group.type === "some" && activity.group.value !== roles.group)) return "Choose an activity for this group, or a shared duty.";
+            // A group's activity is its own duties': a duty in no group takes a shared one alone (#1548).
+            if (activity === undefined || (activity.group.type === "some" && !sameGroup(activity.group, roles.group))) return "Choose an activity for this group, or a shared duty.";
         }
         return undefined;
     };
-    /** A duty moved to a slot: its times kept against the shift's start, its activity cleared off its own group. */
-    const moved = (id: string, slot: Slot): { roles: Roles; bytes: Uint8Array } | string => {
+    /** A duty moved to a place: its times kept against the shift's start, its activity cleared once it leaves its own group. */
+    const moved = (id: string, place: Place): { roles: Roles; bytes: Uint8Array } | string => {
         const row = rowOf(id);
         const a = week.assignments.get(id);
         if (row === undefined || a === undefined) return "This duty is no longer present.";
-        const next = times.move(row.roles, start, slot, context);
+        const next = times.move(row.roles, start, place, context);
         if (next.type !== "some") return "Choose a configured shift.";
-        const roles = a.slot.group === slot.group ? next.value : { ...next.value, activity: none };
+        const roles = sameGroup(a.place.group, place.group) ? next.value : { ...next.value, activity: none };
         const written = value.duty.write(row.bytes, roles);
         return written.type === "some" ? { roles, bytes: written.value } : "This duty cannot be moved there.";
     };
@@ -218,21 +229,21 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
      * shift's start, so it stays on its day; and its activity, cleared across teams, as a move clears it. Times and an
      * activity the write gives are its own, and `validRoles` holds them to the day and the team.
      */
-    const carried = (a: Pick<Assignment, "slot">, row: { bytes: Uint8Array; roles: Roles }, roles: Roles, bytes: Uint8Array): { roles: Roles; bytes: Uint8Array } | string => {
+    const carried = (a: Pick<Assignment, "place">, row: { bytes: Uint8Array; roles: Roles }, roles: Roles, bytes: Uint8Array): { roles: Roles; bytes: Uint8Array } | string => {
         let kept = roles;
         if (roles.shift !== row.roles.shift && compareDate(roles.start, row.roles.start) === 0 && compareDate(roles.end, row.roles.end) === 0) {
-            const next = times.move({ ...roles, shift: row.roles.shift }, start, { ...a.slot, shift: roles.shift }, context);
+            const next = times.move({ ...roles, shift: row.roles.shift }, start, { ...a.place, shift: roles.shift }, context);
             if (next.type !== "some") return "Choose a configured shift.";
             kept = { ...kept, start: next.value.start, end: next.value.end };
         }
-        if (roles.group !== row.roles.group && roles.activity.type === "some" && sameActivity(roles.activity, row.roles.activity)) kept = { ...kept, activity: none };
+        if (!sameGroup(roles.group, row.roles.group) && roles.activity.type === "some" && sameActivity(roles.activity, row.roles.activity)) kept = { ...kept, activity: none };
         if (Object.is(kept, roles)) return { roles, bytes };
         const written = value.duty.write(bytes, kept);
         return written.type === "some" ? { roles: kept, bytes: written.value } : "This duty cannot take that.";
     };
-    /** A new duty on a slot, its key minted: made by no pattern, its own fields the duty kind's `values` of it (#1526). */
-    const created = (who: Who, slot: Slot, minted: Set<string>): { id: string; bytes: Uint8Array } | string => {
-        const roles = times.newDuty(who, slot, start, positionFor(value, who), none, context);
+    /** A new duty at a place, its key minted: made by no pattern, its own fields the duty kind's `values` of it (#1526). */
+    const created = (who: Who, place: Place, minted: Set<string>): { id: string; bytes: Uint8Array } | string => {
+        const roles = times.newDuty(who, place, start, positionFor(value, who), none, context);
         if (roles.type !== "some") return "Choose a configured shift.";
         const bytes = madeFromValues("Roster", "a new duty", () => value.duty.create({ ...roles.value, pattern: none }));
         if (bytes === undefined) return NO_DUTY;
@@ -264,9 +275,9 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
         availableIn,
         editable: available || (state.weeks ?? []).some(held => availableIn(held)),
         locked: undefined,
-        place(source, slot, checkOnly = false) {
+        place(source, place, checkOnly = false) {
             const refused = blocked(); if (refused !== undefined) return refused;
-            if (!validSlot(slot)) return "Choose a configured shift in this week.";
+            if (!validPlace(place)) return "Choose a configured shift in this week.";
             const changes: ScheduleChange[] = [];
             const minted = new Set<string>();
             let id: string | undefined;
@@ -275,14 +286,14 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
                 id = source.key;
                 const held = week.assignments.get(id);
                 if (held === undefined) return "This duty is no longer present.";
-                if (sameSlot(held.slot, slot)) return "Already on this shift.";
-                if (held.who.type === "person" && personDay(held.who.value, slot.day, id) !== undefined) return "This person is already rostered that day.";
-                const next = moved(id, slot);
+                if (samePlace(held.place, place)) return "Already on this shift.";
+                if (held.who.type === "person" && personDay(held.who.value, place.day, id) !== undefined) return "This person is already rostered that day.";
+                const next = moved(id, place);
                 if (typeof next === "string") return next;
                 changes.push({ kind: duty, id, row: next.bytes });
             } else if (source.type === "agency") {
                 if (!value.agencies.some(a => a.key === source.key)) return "This agency is no longer available.";
-                const next = created(variant("request", source.key), slot, minted);
+                const next = created(variant("request", source.key), place, minted);
                 if (typeof next === "string") return next;
                 id = next.id;
                 changes.push({ kind: duty, id, row: next.bytes, created: true });
@@ -291,29 +302,29 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
                 if (source.type === "proposal" && proposal === undefined) return "This proposal is no longer available.";
                 const person = proposal?.person ?? source.key;
                 if (!value.people.some(p => p.key === person)) return "This person is no longer available.";
-                const existing = personDay(person, slot.day);
+                const existing = personDay(person, place.day);
                 if (existing !== undefined) {
-                    if (sameSlot(existing[1].slot, slot)) return "Already on this shift.";
+                    if (samePlace(existing[1].place, place)) return "Already on this shift.";
                     id = existing[0];
-                    const next = moved(id, slot);
+                    const next = moved(id, place);
                     if (typeof next === "string") return next;
                     changes.push({ kind: duty, id, row: next.bytes });
                 } else {
-                    // A stored duty of theirs this draft removed from the slot comes back as it was.
-                    const removed = [...state.held.assignments].find(([key, a]) => !week.assignments.has(key) && sameSlot(a.slot, slot)
+                    // A stored duty of theirs this draft removed from the place comes back as it was.
+                    const removed = [...state.held.assignments].find(([key, a]) => !week.assignments.has(key) && samePlace(a.place, place)
                         && a.who.type === "person" && a.who.value === person);
                     const original = removed === undefined ? undefined : state.heldDuties.rows.get(removed[0]);
                     if (removed !== undefined && original !== undefined) {
                         id = removed[0];
                         changes.push({ kind: duty, id, row: original.bytes });
                     } else {
-                        const next = created(variant("person", person), slot, minted);
+                        const next = created(variant("person", person), place, minted);
                         if (typeof next === "string") return next;
                         id = next.id;
                         changes.push({ kind: duty, id, row: next.bytes, created: true });
                     }
                 }
-                accepted = proposal?.key ?? availableProposals(value, week, start).find(p => p.person === person && sameSlot(p.slot, slot))?.key;
+                accepted = proposal?.key ?? availableProposals(value, week, start).find(p => p.person === person && samePlace(placeOf(p.slot), place))?.key;
             }
             if (checkOnly) return undefined;
             if (accepted !== undefined) {
@@ -388,7 +399,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             if (blocked() !== undefined) return;
             const original = state.held.assignments.get(id), row = state.heldDuties.rows.get(id);
             if (original === undefined || row === undefined || week.assignments.has(id)) return;
-            if (original.who.type === "person" && personDay(original.who.value, original.slot.day) !== undefined) return;
+            if (original.who.type === "person" && personDay(original.who.value, original.place.day) !== undefined) return;
             if (record([{ kind: duty, id, row: row.bytes }], "insert", "Restore duty")) select({ type: "assignment", key: id });
         },
         requirement(slot, target) {
@@ -418,7 +429,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
         },
         accept(key) {
             const proposal = availableProposals(value, week, start).find(p => p.key === key);
-            return proposal === undefined ? "This proposal is no longer available." : api.place({ type: "proposal", key }, proposal.slot);
+            return proposal === undefined ? "This proposal is no longer available." : api.place({ type: "proposal", key }, placeOf(proposal.slot));
         },
         reject(key) {
             if (blocked() !== undefined) return;
@@ -430,11 +441,11 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const fix = issue.fix.value;
             if (fix.type === "find") { if (issue.slot.type === "some") find({ need: fix.value, slot: issue.slot.value }); return undefined; }
             if (fix.type === "accept") return api.accept(fix.value);
-            if (fix.type === "request") return issue.slot.type === "some" ? api.place({ type: "agency", key: fix.value }, issue.slot.value) : undefined;
+            if (fix.type === "request") return issue.slot.type === "some" ? api.place({ type: "agency", key: fix.value }, placeOf(issue.slot.value)) : undefined;
             if (issue.assignment.type !== "some") return undefined;
             const id = issue.assignment.value, a = week.assignments.get(id);
             if (a === undefined) return undefined;
-            if (fix.type === "move") return api.place({ type: "assignment", key: id }, { ...a.slot, shift: fix.value });
+            if (fix.type === "move") return api.place({ type: "assignment", key: id }, { ...a.place, shift: fix.value });
             const later = startingAt(a, fix.value);
             return api.update(id, { start: later.start, end: later.end });
         },
@@ -444,7 +455,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const minted = new Set<string>();
             for (const [key, a] of state.previous.assignments) {
                 const row = state.previous.rows.get(key);
-                const own = shiftTimes(value, a.slot, start);
+                const own = shiftTimes(value, a.place, start);
                 if (row === undefined || own === undefined) continue;
                 // At its shift's own times, every other field as it was.
                 const written = value.duty.write(row.bytes, { ...row.roles, start: own.from, end: own.to });
@@ -475,7 +486,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const theirs = [...held.week.assignments].filter(([, a]) => a.who.type === "person" && a.who.value === person)
                 .sort(([, a], [, b]) => compareDate(a.start, b.start));
             for (let day = 0; day < 7; day++) {
-                const current = theirs.filter(([, a]) => Number(a.slot.day) === day);
+                const current = theirs.filter(([, a]) => Number(a.place.day) === day);
                 const target = pattern.days[day]!;
                 if (target.type === "none") {
                     // A day off: the person's duties that day go, restorable until Save (B56).
@@ -483,27 +494,27 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
                     days.push({ day, shift: undefined, kind: current.length === 0 ? "keep" : "off" });
                     continue;
                 }
-                const slot: Slot = { day: BigInt(day), group: who.group, shift: target.value };
-                const own = shiftTimes(value, slot, at);
+                const place: Place = { day: BigInt(day), group: some(who.group), shift: target.value };
+                const own = shiftTimes(value, place, at);
                 if (own === undefined) return "Choose a configured shift.";
                 const first = current[0];
                 if (first !== undefined) {
                     const [id, a] = first;
                     // The day as the pattern has it already: the shift, in the home group, at the shift's own times.
-                    if (a.slot.group === slot.group && a.slot.shift === slot.shift && compareDate(a.start, own.from) === 0 && compareDate(a.end, own.to) === 0) {
+                    if (samePlace(a.place, place) && compareDate(a.start, own.from) === 0 && compareDate(a.end, own.to) === 0) {
                         candidates.set(id, a);
                         days.push({ day, shift: target.value, kind: "keep" });
                     } else {
                         // Moved to the pattern's shift at the shift's own times, its position kept, its activity kept within the group and cleared across one (B49).
                         const row = held.duties.rows.get(id);
                         if (row === undefined) return "This duty is no longer present.";
-                        const next = times.move(row.roles, at, slot, context);
+                        const next = times.move(row.roles, at, place, context);
                         if (next.type !== "some") return "Choose a configured shift.";
-                        const roles: Roles = { ...next.value, start: own.from, end: own.to, activity: a.slot.group === slot.group ? next.value.activity : none };
+                        const roles: Roles = { ...next.value, start: own.from, end: own.to, activity: sameGroup(a.place.group, place.group) ? next.value.activity : none };
                         const written = value.duty.write(row.bytes, roles);
                         if (written.type !== "some") return "This duty cannot be moved there.";
                         changes.push({ kind: duty, id, row: written.value });
-                        candidates.set(id, { ...a, slot, start: own.from, end: own.to, hours: value.duty.read(written.value, id).hours, activity: roles.activity });
+                        candidates.set(id, { ...a, place, start: own.from, end: own.to, hours: value.duty.read(written.value, id).hours, activity: roles.activity });
                         days.push({ day, shift: target.value, kind: "set" });
                     }
                     // A second duty that day goes: a pattern's day is one shift.
@@ -512,7 +523,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
                 }
                 // A new duty on the pattern's shift, at the shift's start for its hours, in the home group, at the person's position, with no
                 // activity: the pattern's, its own fields the duty kind's `values` of it (#1526).
-                const roles = times.newDuty(whoRef, slot, at, positionFor(value, whoRef), none, context);
+                const roles = times.newDuty(whoRef, place, at, positionFor(value, whoRef), none, context);
                 if (roles.type !== "some") return "Choose a configured shift.";
                 const bytes = madeFromValues("Roster", "a new duty", () => value.duty.create({ ...roles.value, pattern: some(pattern.key) }));
                 if (bytes === undefined) return NO_DUTY;
@@ -520,7 +531,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
                 const id = mintKey(takenDuty(minted));
                 minted.add(id);
                 changes.push({ kind: duty, id, row: bytes.value, created: true });
-                candidates.set(id, { slot, who: whoRef, position: roles.value.position.type === "some" ? roles.value.position.value : "", activity: none,
+                candidates.set(id, { place, who: whoRef, position: roles.value.position.type === "some" ? roles.value.position.value : "", activity: none,
                     start: roles.value.start, end: roles.value.end, hours: roles.value.hours, row: domain.decodeRow(bytes.value) });
                 days.push({ day, shift: target.value, kind: "set" });
             }

@@ -508,7 +508,13 @@ beside its bytes, in one pass — the week's own row through the periods' `rows`
 and its targets through theirs, and places each duty in its slot, its day the
 UTC day whose shift start is nearest its start, with the drafts in place. A
 duty whose shift or group isn't configured, or that names no one, is listed in
-Issues and kept as stored. Coverage, checks and the views read that week, and
+Issues and kept as stored. A duty's group may be an `Option<String>` field, the
+first step of a roster made in two steps (#1548): `none` is a duty in no group
+yet, its place (`Roster.Types.Place`) holding no slot (`Roster.slotOf`), drawn
+on its person's row in People and in Shifts' No group band, counted in its
+person's hours, contract and rest and in no group's targets; a drop in a
+group's slot writes `some(group)`, one back `none`, and the optimiser's request
+and answer carry it as it stands. Coverage, checks and the views read that week, and
 each assignment carries its duty's own row, untouched, for the app's
 functions.
 

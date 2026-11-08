@@ -35,6 +35,17 @@ export const RosterSlotType = StructType({ day: IntegerType, group: StringType, 
 export type RosterSlotType = typeof RosterSlotType;
 
 /**
+ * Where a duty stands in the week (#1548): its day, its shift, and its group —
+ * the slot of that group's shift on that day — or none, a duty in no group yet.
+ * @remarks Place keys compare by East value, as slots do. A duty in no group counts in its person's hours, contract, rest and pay, and in no group's targets or coverage. Only a kind whose `group` is an `Option<String>` field holds one.
+ * @property day - Day within the week, from zero to six, as a slot's
+ * @property group - Its group's key; `none` for a duty in no group yet
+ * @property shift - Its shift's key
+ */
+export const RosterPlaceType = StructType({ day: IntegerType, group: OptionType(StringType), shift: StringType });
+export type RosterPlaceType = typeof RosterPlaceType;
+
+/**
  * Who a duty is: a person, or an agency asked to send someone.
  * @remarks Requests reserve positions without pretending an agency has supplied a named person.
  * @property person - The person's key, of the `people` resource kind
@@ -44,17 +55,17 @@ export const RosterWhoType = VariantType({ person: StringType, request: StringTy
 export type RosterWhoType = typeof RosterWhoType;
 
 /**
- * One duty, as the Roster reads it from the app's row (`R`): its slot, who it
+ * One duty, as the Roster reads it from the app's row (`R`): its place, who it
  * is, and its roles, beside the row itself, every field of it.
  *
  * @typeParam R - The app's duty row type
  * @param row - The app's duty row type
  * @returns The assignment type over it
- * @remarks Its times are the duty's own; the Roster gives them no name and no worth (§5.5). Its `hours` are what the duty counts.
+ * @remarks Its `place` is its day, its shift and its group, none for a duty in no group yet (#1548). Its times are the duty's own; the Roster gives them no name and no worth (§5.5). Its `hours` are what the duty counts.
  */
 export function RosterAssignmentTypeFor<R extends EastType>(row: R) {
     return StructType({
-        slot: RosterSlotType, who: RosterWhoType, position: StringType, activity: OptionType(StringType),
+        place: RosterPlaceType, who: RosterWhoType, position: StringType, activity: OptionType(StringType),
         start: DateTimeType, end: DateTimeType, hours: FloatType, row,
     });
 }

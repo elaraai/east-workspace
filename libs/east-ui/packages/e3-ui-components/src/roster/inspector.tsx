@@ -6,21 +6,21 @@ import { useCallback, useMemo } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faMinus } from "@fortawesome/free-solid-svg-icons";
 import { Box, Button, chakra, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, equalFor } from "@elaraai/east";
+import { StringType, equalFor, some } from "@elaraai/east";
 import { BannerView, EastChakraComponent, FieldForm, useTrackedEvaluation, type BuilderFrameDock, type EditIssue } from "@elaraai/east-ui-components";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { madeFromValues } from "../shared/schedule/records.js";
 import { Seg } from "../shared/schedule/segments.js";
-import { AssignmentActions, AssignmentFields, PlaceAction, RequirementFields, TimesFields, dutyForm, type DutyFormValue } from "./controls.js";
+import { AssignmentActions, AssignmentFields, GroupField, PlaceAction, RequirementFields, TimesFields, dutyForm, type DutyFormValue } from "./controls.js";
 import { CoverageView, ProposalCard, assignmentName, costed, dismissible, money, type RosterViewsProps } from "./views.js";
-import { difference, summedCoverage } from "./demand.js";
+import { difference, looseOf, summedCoverage } from "./demand.js";
 import type { RolesChange } from "./actions.js";
 import type { RosterFind } from "./fit.js";
 import {
-    DAY, costsOf, dayOfSlot, dayStart, groupSkills, issueGoesTo, requirementOf, sameSlot, viewTotals, weekNumber, type Assignment, type Issue, type Person, type PlacedDuties,
-    type PlacedTargets, type RosterStyles, type Slot,
+    DAY, NO_GROUP, costsOf, dayOfSlot, dayStart, groupName, groupSkills, issueGoesTo, placeOf, requirementOf, samePlace, sameSlot, slotOfPlace, viewTotals, weekNumber,
+    type Assignment, type Issue, type Person, type PlacedDuties, type PlacedTargets, type RosterStyles, type Slot,
 } from "./model.js";
 
 /** The Find fixes, as the inspector offers them (#1334): only with the app's fit, and reading `Finding…` while their find is asked. */
@@ -83,7 +83,8 @@ export function RosterIssues({ props, issues }: { props: Args; issues: readonly 
             <Button size="xs" variant="outline" disabled={props.commands.locked !== undefined} title={props.commands.locked} onClick={() => props.onError(props.commands.fix(issue))}>{fixLabel(issue, props)}</Button></Box>}
     </Box>; })}</>;
 }
-function PersonFacts({ props, person, slot }: { props: Args; person: Person; slot?: Slot }) {
+/** A person's facts: their skills in a slot's group — their home group's, for none or a duty in no group (#1548) — and their week. */
+function PersonFacts({ props, person, slot }: { props: Args; person: Person; slot?: Slot | undefined }) {
     const group = props.value.groups.find(g => g.key === (slot?.group ?? person.group));
     const skills = group === undefined ? undefined : groupSkills(props.value, group.key);
     const coverage = slot === undefined ? undefined : props.coverage.get(slot);
@@ -96,12 +97,12 @@ function PersonFacts({ props, person, slot }: { props: Args; person: Person; slo
         {/* A day pressed opens that week — in Week, from Month (#1406, P24) — with the duty selected, or the person where the day is off.
             With Week not offered the month stays: it selects alone, as a day of another month would move the month — the duty, its
             Details read in its own week, or the person's week where the day is off. */}
-        {Array.from({ length: 7 }, (_, day) => { const rows = theirs.filter(([, a]) => a.slot.day === BigInt(day)); return <Button key={day} size="xs" variant={props.day === day ? "outline" : "ghost"} onClick={() => {
+        {Array.from({ length: 7 }, (_, day) => { const rows = theirs.filter(([, a]) => a.place.day === BigInt(day)); return <Button key={day} size="xs" variant={props.day === day ? "outline" : "ghost"} onClick={() => {
             const opens = props.view.period !== "month" || props.opensWeek;
             if (opens) props.setView({ ...props.view, period: props.view.period === "month" ? "week" : props.view.period, date: props.start.getTime() + day * DAY });
             props.select(rows.length > 0 ? { type: "assignment", key: rows[0]![0] } : opens ? { type: "person", key: person.key } : { type: "personWeek", key: person.key, start: props.start.getTime() });
         }}>
-            {props.format.weekday(new Date(props.start.getTime() + day * DAY))} · {rows.map(([, a]) => `${props.value.shifts.find(s => s.key === a.slot.shift)?.code} ${props.format.number(a.hours)} h`).join(" · ") || "Off"}
+            {props.format.weekday(new Date(props.start.getTime() + day * DAY))} · {rows.map(([, a]) => `${props.value.shifts.find(s => s.key === a.place.shift)?.code} ${props.format.number(a.hours)} h`).join(" · ") || "Off"}
         </Button>; })}
     </Box></>;
 }
@@ -158,7 +159,9 @@ function OneAssignment({ props, id, assignment: a }: { props: Args; id: string; 
     const removed = !props.week.assignments.has(id), baseline = props.held.assignments.get(id);
     const changed = baseline === undefined || !props.domain.sameAssignment(baseline, a);
     const person = a.who.type === "person" ? props.value.people.find(p => p.key === a.who.value) : undefined;
-    const state = removed ? "Removed · unsaved" : baseline === undefined ? "Added · unsaved" : !sameSlot(baseline.slot, a.slot) ? "Moved · unsaved" : changed ? "Edited · unsaved" : a.who.type === "request" ? "Requested · awaiting agency" : "Rostered";
+    const state = removed ? "Removed · unsaved" : baseline === undefined ? "Added · unsaved" : !samePlace(baseline.place, a.place) ? "Moved · unsaved" : changed ? "Edited · unsaved" : a.who.type === "request" ? "Requested · awaiting agency" : "Rostered";
+    // A move to another group — or to none, or out of none (#1548) — keeping its day and its shift.
+    const toGroup = (group: Assignment["place"]["group"]) => props.onError(props.commands.place({ type: "assignment", key: id }, { day: a.place.day, group, shift: a.place.shift }));
     const position = props.value.positions.find(p => p.key === a.position);
     // Its refusals holding Save (#1525): over its form, as the Calendar's banner shows an event's, each field named ringed.
     const refusals = props.refusals.filter(r => keyEqual(r.kind, props.value.duty.kind.key) && keyEqual(r.issue.entry, id));
@@ -167,17 +170,21 @@ function OneAssignment({ props, id, assignment: a }: { props: Args; id: string; 
     // A bound its row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change refused, holding
     // Save, it is an error.
     const breaches = refusals.length > 0 ? "error" : "warn";
-    return <><ScheduleInspectorHead styles={props.styles} kind={{ name: `Duty · ${props.value.groups.find(g => g.key === a.slot.group)?.label} · ${props.value.shifts.find(s => s.key === a.slot.shift)?.label}`, icon: a.who.type === "request" ? "building" : "user" }} title={assignmentName(props.value, a)}
-        when={`${position === undefined ? "" : `${position.label} · `}${props.format.weekdayDate(dayOfSlot(props.start, a.slot))}${person?.trainer ? " · trainer" : person?.trainee ? " · trainee" : ""}`} status={{ label: state, tone: { type: removed ? "warning" : "neutral" }, ring: changed }} pending={changed ? baseline === undefined ? "new" : "pending" : undefined} home />
+    return <><ScheduleInspectorHead styles={props.styles} kind={{ name: `Duty · ${groupName(props.value, a.place.group)} · ${props.value.shifts.find(s => s.key === a.place.shift)?.label}`, icon: a.who.type === "request" ? "building" : "user" }} title={assignmentName(props.value, a)}
+        when={`${position === undefined ? "" : `${position.label} · `}${props.format.weekdayDate(dayOfSlot(props.start, a.place))}${person?.trainer ? " · trainer" : person?.trainee ? " · trainee" : ""}`} status={{ label: state, tone: { type: removed ? "warning" : "neutral" }, ring: changed }} pending={changed ? baseline === undefined ? "new" : "pending" : undefined} home />
         {!removed && refusals.length > 0 && <Box css={props.styles.section} data-roster-refusals=""><BannerView status="warning" title="Not saved yet" description={refusals.map(r => r.text).join("; ")} /></Box>}
         {!removed && <RosterIssues props={props} issues={props.issues.filter(issue => issue.assignment.type === "some" && issue.assignment.value === id)} />}
-        {!removed && <Box css={props.styles.fields}><Box css={props.styles.sectionHead}>Shift</Box>
-            <Seg fullWidth label="Duty shift" scope="roster" name="assignment-shift" active={a.slot.shift} items={props.value.shifts.map(s => ({ key: s.key, label: s.label, disabled: !props.commands.available }))} onPick={shift => props.onError(props.commands.place({ type: "assignment", key: id }, { ...a.slot, shift }))} />
+        {!removed && <Box css={props.styles.fields}>
+            {/* Where the duty kind's group takes none (#1548): the groups and No group, a choice moving the duty there. */}
+            {props.value.duty.roles.noGroup && <><Box css={props.styles.sectionHead}>Group</Box>
+                <GroupField value={props.value} group={a.place.group} baseline={baseline?.place.group} readOnly={!props.commands.available} onChange={toGroup} /></>}
+            <Box css={props.styles.sectionHead}>Shift</Box>
+            <Seg fullWidth label="Duty shift" scope="roster" name="assignment-shift" active={a.place.shift} items={props.value.shifts.map(s => ({ key: s.key, label: s.label, disabled: !props.commands.available }))} onPick={shift => props.onError(props.commands.place({ type: "assignment", key: id }, { day: a.place.day, group: a.place.group, shift }))} />
             <Box css={props.styles.detail}>{props.format.time(a.start)}–{props.format.time(a.end)} · {props.format.number(a.hours)} h{props.format.weekday(a.end) !== props.format.weekday(a.start) && " · ends next day"}</Box>
             <DutyForm props={props} assignment={a} id={id} refused={refused} breaches={breaches} />
         </Box>}
         {!removed && <DutyPay props={props} id={id} />}
-        {person !== undefined && <PersonFacts props={props} person={person} slot={a.slot} />}
+        {person !== undefined && <PersonFacts props={props} person={person} slot={slotOfPlace(a.place)} />}
         <Box css={props.styles.section}><AssignmentActions id={id} assignment={a} removed={removed} value={props.value} start={props.start} commands={props.commands} styles={props.styles} /></Box>
     </>;
 }
@@ -210,14 +217,15 @@ function OneSlot({ props, slot }: { props: Args; slot: Slot }) {
             <Box css={props.styles.detail}>{props.value.vocabulary.permanent} · {props.value.vocabulary.agency} · Requested · Open · Needed</Box></Box>
         <Box css={props.styles.fields}><Box css={props.styles.sectionHead}>Targets</Box><Targets props={props} slot={slot} /></Box>
         <Box css={props.styles.section}><Box css={props.styles.sectionHead}>Roster</Box><Box css={props.styles.detail}>{String(c.filled)} filled · {String(c.open)} open · {c.lead ? "Lead assigned" : "No lead"} · {c.trainer ? "Trainer assigned" : "No trainer"}</Box>
-            {costed(props.value) && <Box css={props.styles.detail}>{money(props.format, props.value, c.cost, false)}</Box>}<PlaceAction label="Assign person" slot={slot} value={props.value} start={props.start} commands={props.commands} styles={props.styles} /></Box>
+            {costed(props.value) && <Box css={props.styles.detail}>{money(props.format, props.value, c.cost, false)}</Box>}<PlaceAction label="Assign person" place={placeOf(slot)} value={props.value} start={props.start} commands={props.commands} styles={props.styles} /></Box>
     </>;
 }
 /**
  * A shift's day across the groups (#1568): a day of the work requirement's lane where the People layout draws no bands.
  * Its head says the day's positions and hours over every group's slot of the shift, as the lane's cell sums them, and
  * the hours short, each slot's own summed (K4); then the coverage summed over the groups — the skill lines summed too —
- * and each group's slot as the coverage detail draws one.
+ * and each group's slot as the coverage detail draws one. The day's duties of the shift in no group yet (#1548) count
+ * as the lane counts them: rostered, their hours taken off what the slots are short, under a section of their own.
  */
 function ShiftDay({ props, shift: key, day }: { props: Args; shift: string; day: number }) {
     const shift = props.value.shifts.find(s => s.key === key);
@@ -225,9 +233,12 @@ function ShiftDay({ props, shift: key, day }: { props: Args; shift: string; day:
         const coverage = props.coverage.get({ day: BigInt(day), group: group.key, shift: key });
         return coverage === undefined ? [] : [{ group, coverage }];
     }), [props.value.groups, props.coverage, day, key]);
-    const sum = useMemo(() => summedCoverage(props.value, slots.map(slot => slot.coverage)), [props.value, slots]);
+    const loose = useMemo(() => looseOf(props.value, props.week)[day]?.get(key), [props.value, props.week, day, key]);
+    const sum = useMemo(() => summedCoverage(props.value, slots.map(slot => slot.coverage), loose), [props.value, slots, loose]);
     if (shift === undefined || slots.length === 0) return <Box css={props.styles.empty} {...FOCUS_HOME_PROPS}>This shift is no longer configured.</Box>;
-    const short = slots.reduce((total, { coverage: c }) => total + Math.max(0, -difference(c.hours.rostered, c.hours.needed)), 0);
+    const looseHours = loose === undefined ? 0 : loose.permanent + loose.agency + loose.requested;
+    const slotsShort = slots.reduce((total, { coverage: c }) => total + Math.max(0, -difference(c.hours.rostered, c.hours.needed)), 0);
+    const short = Math.max(0, -difference(looseHours, slotsShort));
     const { format, value, styles } = props;
     return <><ScheduleInspectorHead styles={styles} kind={{ name: `Shift · ${format.weekday(new Date(props.start.getTime() + day * DAY))}`, icon: "clock" }} title={shift.label}
         when={`${format.number(sum.filled)} / ${format.number(sum.positions)} positions · ${format.number(sum.hours.rostered)} of ${format.number(sum.hours.needed)} h`}
@@ -238,15 +249,17 @@ function ShiftDay({ props, shift: key, day }: { props: Args; shift: string; day:
         {slots.map(({ group, coverage: c }) => <Box key={group.key} css={styles.section} data-roster-shift-day={group.key}><Box css={styles.sectionHead}>{group.label}</Box>
             <CoverageView coverage={c} value={value} styles={styles} format={format} compact />
             <Box css={styles.detail}>{format.number(c.filled)} / {format.number(c.positions)} positions · {format.number(c.open)} open</Box></Box>)}
+        {loose !== undefined && <Box css={styles.section} data-roster-shift-day={NO_GROUP}><Box css={styles.sectionHead}>{value.vocabulary.noGroup}</Box>
+            <Box css={styles.detail}>{format.number(looseHours)} h rostered, in no group yet</Box></Box>}
     </>;
 }
 function Summary({ props }: { props: Args }) {
-    const totals = viewTotals(props.coverage, props.view, props.day);
+    const totals = viewTotals(props.coverage, props.view, props.day, props.week);
     const { days } = totals;
     const visible = props.value.visiblePeople;
     const filtered = visible.type === "some" && props.value.people.some(person => !visible.value.has(person.key));
     // The view's duties' costs, by the app's codes: the Summary's cost line under its total.
-    const shown = [...props.week.assignments].flatMap(([id, a]) => days === 7 || Number(a.slot.day) === props.day ? [id] : []);
+    const shown = [...props.week.assignments].flatMap(([id, a]) => days === 7 || Number(a.place.day) === props.day ? [id] : []);
     const costs = costsOf(props.pay, shown);
     const breaches = props.issues.filter(i => i.kind.type === "breach").length, gaps = props.issues.filter(i => i.kind.type === "gap").length;
     const stats = [
@@ -284,7 +297,7 @@ function Details({ props }: { props: Args }) {
         const week = selection.type === "personWeek" ? `W${props.format.number(weekNumber(props.start))} · ${props.format.range(props.start, new Date(props.start.getTime() + 6 * DAY))}` : undefined;
         if (person !== undefined) return <><ScheduleInspectorHead styles={props.styles} kind={{ name: `Person · ${props.value.groups.find(g => g.key === person.group)?.label}`, icon: "user" }} title={person.name}
             when={[when, week].filter(part => part !== undefined).join(" · ")} home />
-            <PersonFacts props={props} person={person} /><Box css={props.styles.section}><PlaceAction label="Assign person" source={{ type: "person", key: person.key }} slot={{ day: BigInt(props.day), group: person.group, shift: person.usual.type === "some" ? person.usual.value : props.value.shifts[0]!.key }} value={props.value} start={props.start} commands={props.commands} styles={props.styles} /></Box></>;
+            <PersonFacts props={props} person={person} /><Box css={props.styles.section}><PlaceAction label="Assign person" source={{ type: "person", key: person.key }} place={{ day: BigInt(props.day), group: some(person.group), shift: person.usual.type === "some" ? person.usual.value : props.value.shifts[0]!.key }} value={props.value} start={props.start} commands={props.commands} styles={props.styles} /></Box></>;
     }
     if (selection?.type === "group" || selection?.type === "shift") {
         const group = props.value.groups.find(g => selection.type === "group" && g.key === selection.key), shift = props.value.shifts.find(s => selection.type === "shift" && s.key === selection.key);

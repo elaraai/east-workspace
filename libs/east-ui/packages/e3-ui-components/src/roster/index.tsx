@@ -57,8 +57,8 @@ import { useRosterInspector, type RosterRefusal } from "./inspector.js";
 import { useRosterLibrary } from "./library.js";
 import { rosterMessages, type RosterWords } from "./messages.js";
 import {
-    DAY, NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, availableProposals, compareDate, configError, dayOfSlot, editableStatus, placeDrafted, placeStored, placeTargets,
-    rosterContext, rosterDomain, selectionWeek, spanWindow, spanWords, started, statusText, weekBefore, weekKey, weekNumber, weekOf, weekStart, type Assignment, type Coverage,
+    DAY, NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, availableProposals, compareDate, configError, dayOfSlot, editableStatus, groupOf, NO_GROUP, placeDrafted, placeStored, placeTargets,
+    rosterContext, rosterDomain, selectionWeek, slotOfPlace, spanWindow, spanWords, started, statusText, weekBefore, weekKey, weekNumber, weekOf, weekStart, type Assignment, type Coverage,
     type DraftedDuty, type Issue, type PlacedDuties, type PlacedPeriod,
     type RosterPayload, type RosterStyles, type RosterValue, type Selection, type Slot, type StoredDuty, type StoredTarget, type WeekState,
 } from "./model.js";
@@ -230,12 +230,15 @@ function RosterFrame(props: FrameProps) {
     const storedBreaches = useDataStable([...draftedDuties.rows].flatMap(([id, row]): Issue[] => {
         const a = week.assignments.get(id);
         if (a === undefined) return [];
+        // A duty in no group yet stands in no slot, and names its shift alone (#1548).
+        const slot = slotOfPlace(a.place);
+        const shift = value.shifts.find(s => keyEqual(s.key, a.place.shift))?.label ?? a.place.shift;
         return breachesOf(row.bytes).flatMap((breach): Issue[] => refused.some(({ kind, issue }) => keyEqual(kind, dutyKind) && keyEqual(issue.entry, id)
             && issue.field.type === "some" && keyEqual(issue.field.value, breach.key)) ? [] : [{
             kind: variant("breach", null), tone: variant("warning", null),
             title: `${assignmentName(value, a)} · ${refusalText(fieldBreachIssue(breach, { entry: id }), dutyFields)}`,
-            detail: `${value.groups.find(g => keyEqual(g.key, a.slot.group))?.label ?? a.slot.group} · ${value.shifts.find(s => keyEqual(s.key, a.slot.shift))?.label ?? a.slot.shift}`,
-            slot: some(a.slot), assignment: some(id), flag: none, fix: none,
+            detail: slot === undefined ? shift : `${value.groups.find(g => keyEqual(g.key, slot.group))?.label ?? slot.group} · ${shift}`,
+            slot: slot === undefined ? none : some(slot), assignment: some(id), flag: none, fix: none,
         }]);
     }), sameIssues);
     const proposals = useMemo(() => availableProposals(value, week, start), [value, week, start]);
@@ -486,9 +489,10 @@ function RosterFrame(props: FrameProps) {
         if (found === undefined) { onIssues(); return; }
         const { a, there } = found;
         const at = there?.start ?? start;
-        const date = at.getTime() + Number(a.slot.day) * DAY;
-        // Its group opened where it is folded: its shift's on the board, its person's in the People layout.
-        groups.open(a.slot.group);
+        const date = at.getTime() + Number(a.place.day) * DAY;
+        // Its group opened where it is folded: its shift's on the board — No group's band for a duty in none (#1548) — its
+        // person's in the People layout.
+        groups.open(groupOf(a) ?? NO_GROUP);
         const person = a.who.type === "person" ? value.people.find((p) => keyEqual(p.key, a.who.value)) : undefined;
         if (person !== undefined) groups.open(person.group);
         const month = window.view.period === "month";
@@ -516,10 +520,10 @@ function RosterFrame(props: FrameProps) {
     // or by its key for one the Roster can't place, and its field by its form's label.
     const refusals = refused.map(({ kind, issue }): RosterRefusal => {
         const found = dutyOf(kind, issue.entry);
-        const shift = found === undefined ? undefined : value.shifts.find((s) => keyEqual(s.key, found.a.slot.shift));
+        const shift = found === undefined ? undefined : value.shifts.find((s) => keyEqual(s.key, found.a.place.shift));
         return { kind, issue,
             title: found === undefined ? issue.entry
-                : `${assignmentName(value, found.a)} · ${format.weekdayDate(dayOfSlot(found.there?.start ?? start, found.a.slot))} · ${shift?.label ?? found.a.slot.shift}`,
+                : `${assignmentName(value, found.a)} · ${format.weekdayDate(dayOfSlot(found.there?.start ?? start, found.a.place))} · ${shift?.label ?? found.a.place.shift}`,
             text: refusalText(issue, keyEqual(kind, dutyKind) ? dutyFields : []) };
     });
     const inspector = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab, find: { offered: fit.offered, finding: isFinding },

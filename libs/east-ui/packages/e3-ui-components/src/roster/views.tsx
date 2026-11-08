@@ -36,7 +36,7 @@ import { Fragment, createContext, memo, useCallback, useContext, useEffect, useL
 import { Box, Button, Menu as ChakraMenu, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faAngleRight, faCheck, faGripVertical, faRotateLeft, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
-import { ArrayType, SortedMap, StringType, none, printFor, variant } from "@elaraai/east";
+import { ArrayType, SortedMap, StringType, none, printFor, some, variant } from "@elaraai/east";
 import { FrameMenuLayer, LoadingFailedLine, PlaceholderShape, VirtualRows, devicePixels, useRevealed, useRowsTop, keptRead, type StickySection } from "@elaraai/east-ui-components/internal";
 import { takeKey, tickFormatOf, useDragEventChip, useDropCell, usePersistedState, type CellCoord, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import type { PeriodRead } from "../shared/loading.js";
@@ -49,11 +49,12 @@ import { readRosterSource } from "./identity.js";
 import { isPatternCard, rosterCoord, rosterPersonWeekCoord, type RosterDrag } from "./drag.js";
 import type { PatternDay, RosterCommands } from "./actions.js";
 import type { RosterDutyOp, RosterOptimised } from "./optimise.js";
-import { demandOf, difference, laneCup, laneMark, signed, skillCup, skillMark, toneOf, type Demand, type DemandCup, type DemandFigures, type DemandLane, type DemandMark, type DemandSkill, type DemandWeek, type SkillFigures } from "./demand.js";
+import { demandOf, difference, laneCup, laneMark, looseOf, signed, skillCup, skillMark, toneOf, type Demand, type DemandCup, type DemandFigures, type DemandLane, type DemandMark, type DemandSkill, type DemandWeek, type SkillFigures } from "./demand.js";
 import {
-    DAY, activityOf, compareSlot, costsOf, groupSkills, hourText, ownTimes, sameSlot, shiftColor, shiftHoursText, shiftLetter, shiftOf, slotKey, weekKey, weekNumber,
-    type Assignment, type Coverage, type Issue, type Pay, type Person, type PlacedProposal, type RosterDomain, type RosterSpan, type RosterStyles, type RosterValue,
-    type RosterView, type Selection, type Shift, type Slot, type Week, type WeekState,
+    DAY, NO_GROUP, activityOf, compareSlot, costsOf, groupName, groupOf, groupSkills, hourText, ownTimes, placeKey, placeOf, samePlace, sameSlot, shiftColor, shiftHoursText,
+    shiftLetter, shiftOf, slotKey, slotOfPlace, weekKey, weekNumber,
+    type Assignment, type Coverage, type Issue, type Pay, type Person, type Place, type PlacedProposal, type RosterDomain, type RosterSpan, type RosterStyles,
+    type RosterValue, type RosterView, type Selection, type Shift, type Slot, type Week, type WeekState,
 } from "./model.js";
 
 export interface RosterViewsProps {
@@ -289,8 +290,9 @@ function matchingAssignments(props: RosterViewsProps, matches: (a: Assignment) =
     for (const [id, a] of props.held.assignments) if (!props.week.assignments.has(id) && matches(a)) rows.push({ id, a, removed: true });
     return rows;
 }
-function assignments(props: RosterViewsProps, slot: Slot) {
-    const rows = matchingAssignments(props, a => sameSlot(a.slot, slot) && visible(props.value, a));
+/** The duties standing in a place — a group's slot, or a shift's day in no group (#1548) — leads first, requests last. */
+function assignments(props: RosterViewsProps, place: Place) {
+    const rows = matchingAssignments(props, a => samePlace(a.place, place) && visible(props.value, a));
     const rank = (a: Assignment) => a.who.type === "request" ? 1000 : personOf(props.value, a.who.value)?.agency ? 999 : props.value.positions.find(p => p.key === a.position)?.lead ? props.value.positions.findIndex(p => p.key === a.position) : props.value.positions.length;
     return rows.sort((a, b) => rank(a.a) - rank(b.a));
 }
@@ -305,7 +307,7 @@ const NO_DAYS: WeekDays = Array.from({ length: 7 }, () => NO_DUTIES);
 interface PeopleIndex {
     /** Each person's week, by their key. */
     readonly person: ReadonlyMap<string, WeekDays>;
-    /** Each group's agency requests' week, by the group's key. */
+    /** Each group's agency requests' week, by the group's key — those in no group yet under {@link NO_GROUP} (#1548). */
     readonly requests: ReadonlyMap<string, WeekDays>;
     /** Each group's agency requests in the week's order, then those the draft removed: what a phone's requests card lists. */
     readonly requestList: ReadonlyMap<string, readonly DayDuty[]>;
@@ -332,10 +334,10 @@ function peopleIndex(week: Week, held: Week): PeopleIndex {
     const allRequestList: DayDuty[] = [];
     const duties = new Map<string, string[]>();
     const add = (id: string, a: Assignment, removed: boolean) => {
-        const day = Number(a.slot.day);
+        const day = Number(a.place.day);
         if (day < 0 || day > 6) return;
         const into = a.who.type === "person" ? person : requests;
-        const key = a.who.type === "person" ? a.who.value : a.slot.group;
+        const key = a.who.type === "person" ? a.who.value : groupOf(a) ?? NO_GROUP;
         let days = into.get(key);
         if (days === undefined) {
             days = Array.from({ length: 7 }, () => []);
@@ -396,7 +398,7 @@ function AssignmentChip(args: AssignmentChipProps) {
     const selection = useContext(SelectionContext);
     const selected = selection?.type === "assignment" && selection.key === id;
     const name = assignmentName(value, a);
-    const coord = useMemo(() => ({ ...rosterCoord(drag.surface, a.slot, id), event: id }), [drag.surface, a.slot, id]);
+    const coord = useMemo(() => ({ ...rosterCoord(drag.surface, a.place, id), event: id }), [drag.surface, a.place, id]);
     const ghost = useMemo(() => <MoveGhost styles={styles} label={name} />, [styles, name]);
     const enabled = drag.enabled && !removed;
     const handle = useDragEventChip(enabled ? coord : null, ghost, !enabled, name);
@@ -422,19 +424,21 @@ const AssignmentChipBody = memo(function AssignmentChipBody({ ctx, id, assignmen
     const baseline = ctx.held.assignments.get(id);
     const drafted = removed || baseline === undefined || !ctx.domain.sameAssignment(baseline, a);
     const times = `${ctx.format.time(a.start)}–${ctx.format.time(a.end)}`;
-    const skills = groupSkills(value, a.slot.group);
+    // A duty in no group yet is held to its person's home group's skills (#1548): where the shift's day takes them.
+    const group = groupOf(a);
+    const skills = groupSkills(value, group ?? person?.group ?? NO_GROUP);
     const label = `${name} · ${times}${removed ? " · removed" : ""}`;
     // What a run of the optimiser did to the duty (#1409): its mark, and its provenance on hover.
     const mark = dutyMark(ctx, id, removed, drafted);
     return <Box {...handle} ref={attach} css={styles.assignment} tabIndex={0} role="button" aria-label={label} title={mark === undefined ? label : `${mark.provenance} · ${label}`} aria-pressed={selected}
-        data-roster-assignment={id} data-layout={short ? "people" : "shifts"} data-added={baseline === undefined ? "" : undefined} data-moved={baseline !== undefined && !sameSlot(baseline.slot, a.slot) ? "" : undefined} data-density={value.settings.density.type} data-selected={selected ? "" : undefined}
+        data-roster-assignment={id} data-layout={short ? "people" : "shifts"} data-added={baseline === undefined ? "" : undefined} data-moved={baseline !== undefined && !samePlace(baseline.place, a.place) ? "" : undefined} data-density={value.settings.density.type} data-selected={selected ? "" : undefined}
         data-drafted={drafted ? "" : undefined} data-conflict={ctx.conflicted(id) ? "" : undefined} data-bounds={ctx.bounded(id) ? "" : undefined} data-removed={removed ? "" : undefined} data-request={a.who.type === "request" ? "" : undefined} data-agency={person?.agency ? "" : undefined}
         data-op={mark?.op} data-fill={mark === undefined ? undefined : "own"}
         data-tone={issues.some(i => i.tone.type === "danger") ? "danger" : issues.some(i => i.kind.type === "breach") ? "warning" : undefined} data-draggable={enabled ? "" : undefined}
         onClick={event => { event.stopPropagation(); ctx.select({ type: "assignment", key: id }); }} onKeyDown={event => { if (event.key === "Enter") { takeKey(event); ctx.select({ type: "assignment", key: id }); } else handle?.onKeyDown?.(event); }}>
         {enabled && <Box as="span" css={styles.grip} data-roster-grip=""><FontAwesomeIcon icon={faGripVertical} /></Box>}
         <Box as="span" css={styles.badge} data-lead={position?.lead ? "" : undefined} data-roster-agency-badge={agency ? "" : undefined}>{agency ? value.vocabulary.agencyShort : position?.code || (person?.trainer ? "T" : "")}</Box>
-        <Box css={styles.assignmentName} data-roster-assignment-name="">{short ? `${value.shifts.find(s => s.key === a.slot.shift)?.code ?? a.slot.shift}${person?.group !== a.slot.group ? ` · ${value.groups.find(g => g.key === a.slot.group)?.label ?? a.slot.group}` : ""}` : name}</Box>
+        <Box css={styles.assignmentName} data-roster-assignment-name="">{short ? `${value.shifts.find(s => s.key === a.place.shift)?.code ?? a.place.shift}${person?.group !== (group ?? NO_GROUP) ? ` · ${groupName(value, a.place.group)}` : ""}` : name}</Box>
         {issues.filter(i => i.flag.type === "some").map((i, n) => <Box as="span" key={n} css={styles.flag} data-tone={i.tone.type}>{i.flag.type === "some" && i.flag.value}</Box>)}
         {/* A duty's own times, where they differ from its shift's (§5.5, rule 2): just times, no name and no worth. */}
         {ownTimes(value, a, ctx.start) && <Box as="span" css={styles.flag} data-roster-times="">{times}</Box>}
@@ -445,18 +449,31 @@ const AssignmentChipBody = memo(function AssignmentChipBody({ ctx, id, assignmen
             onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); if (removed) commands.restore(id); else commands.remove(id); }}><FontAwesomeIcon icon={removed ? faRotateLeft : faXmark} /></chakra.button>}
     </Box>;
 });
-/** No hook in the mobile branch registers a drag source or target. */
-function DropSlot({ props, slot, children, compact = false }: { props: RosterViewsProps; slot: Slot; children: ReactNode; compact?: boolean }) {
+/**
+ * A cell's name for the place it stands for (#1548): a group's slot is its `data-roster-slot`, a shift's day in no group
+ * its `data-roster-place` — each East's print of it.
+ */
+function placeData(place: Place): { "data-roster-slot"?: string; "data-roster-place"?: string } {
+    const slot = slotOfPlace(place);
+    return slot === undefined ? { "data-roster-place": placeKey(place) } : { "data-roster-slot": slotKey(slot) };
+}
+/**
+ * A cell a drop lands in: a group's slot, or a shift's day in No group's band (#1548). No hook in the mobile branch
+ * registers a drag source or target.
+ */
+function DropSlot({ props, place, children, compact = false }: { props: RosterViewsProps; place: Place; children: ReactNode; compact?: boolean }) {
     const ref = useRef<HTMLDivElement>(null);
     const [landing, setLanding] = useState<ReturnType<RosterDrag["preview"]>>();
-    const drop = useDropCell(props.drag.enabled ? rosterCoord(props.drag.surface, slot) : null, !props.drag.enabled,
+    const drop = useDropCell(props.drag.enabled ? rosterCoord(props.drag.surface, place) : null, !props.drag.enabled,
         event => props.drag.run(event, true) === undefined, undefined, { caption: props.drag.caption, name: props.drag.name,
-            onHover: (_x, _y, payload) => setLanding(props.drag.preview(rosterCoord(props.drag.surface, slot), payload, true)) });
+            onHover: (_x, _y, payload) => setLanding(props.drag.preview(rosterCoord(props.drag.surface, place), payload, true)) });
     const attach = useCallback((element: HTMLDivElement | null) => { ref.current = element; drop(element); }, [drop]);
+    // A group's slot is selected as one; No group's cells select nothing.
+    const slot = useMemo(() => slotOfPlace(place), [place]);
     // The shared target subscription can change on pointer motion; its body need not.
-    return useMemo(() => <Box ref={attach} css={compact ? props.styles.weekCell : props.styles.cell} data-roster-slot={slotKey(slot)} data-selected={selectedSlot(props.selection, slot) ? "" : undefined} data-roster-landing-tone={landing?.tone} title={compact ? landing?.label : undefined}>
+    return useMemo(() => <Box ref={attach} css={compact ? props.styles.weekCell : props.styles.cell} {...placeData(place)} data-selected={slot !== undefined && selectedSlot(props.selection, slot) ? "" : undefined} data-roster-landing-tone={landing?.tone} title={compact ? landing?.label : undefined}>
         {children}{!compact && landing !== undefined && <Box css={props.styles.landing} data-roster-landing="" data-tone={landing.tone}>{landing.label}</Box>}
-    </Box>, [attach, compact, props, slot, landing, children]);
+    </Box>, [attach, compact, props, place, slot, landing, children]);
 }
 /** A desktop proposal is the mock's quiet inline chip; phones retain labelled actions. */
 export function ProposalCard({ props, proposal }: { props: RosterViewsProps; proposal: PlacedProposal }) {
@@ -490,16 +507,18 @@ function SlotActions({ props, slot }: { props: RosterViewsProps; slot: Slot }) {
     // While a run of the optimiser holds the week (#1409, R2) the actions stay in place, inert.
     const locked = props.commands.locked !== undefined;
     if (!props.commands.available && !locked) return null;
-    return <Box css={props.styles.actions}><PlaceAction label="Assign person" slot={slot} value={props.value} start={props.start} commands={props.commands} styles={props.styles} />
-        {props.value.agencies.map(agency => <Button key={agency.key} size="xs" variant="outline" disabled={locked} title={props.commands.locked} onClick={() => props.onError(props.commands.place({ type: "agency", key: agency.key }, slot))}>Request {agency.name}</Button>)}
+    const place = placeOf(slot);
+    return <Box css={props.styles.actions}><PlaceAction label="Assign person" place={place} value={props.value} start={props.start} commands={props.commands} styles={props.styles} />
+        {props.value.agencies.map(agency => <Button key={agency.key} size="xs" variant="outline" disabled={locked} title={props.commands.locked} onClick={() => props.onError(props.commands.place({ type: "agency", key: agency.key }, place))}>Request {agency.name}</Button>)}
     </Box>;
 }
 function DayAssignments({ props, ctx, slot }: { props: RosterViewsProps; ctx: ViewContext; slot: Slot }) {
     const c = props.coverage.get(slot)!;
     const issues = props.issues.filter(i => i.slot.type === "some" && sameSlot(i.slot.value, slot) && (i.kind.type === "gap" || i.kind.type === "breach"));
-    return <DropSlot props={props} slot={slot}>
+    const place = placeOf(slot);
+    return <DropSlot props={props} place={place}>
         <chakra.button type="button" css={props.styles.cellHead} data-open={c.open > 0n ? "" : undefined} onClick={() => props.select({ type: "slot", slot })}>{String(c.filled)} / {String(c.positions)} positions{issues.length > 0 && ` · ${issues.length} issues`}</chakra.button>
-        <Box css={props.styles.chips}>{assignments(props, slot).map(({ id, a, removed }) => <AssignmentChip key={id} id={id} assignment={a} removed={removed} ctx={ctx} />)}</Box>
+        <Box css={props.styles.chips}>{assignments(props, place).map(({ id, a, removed }) => <AssignmentChip key={id} id={id} assignment={a} removed={removed} ctx={ctx} />)}</Box>
         {props.proposals.filter(p => sameSlot(p.slot, slot) && (props.value.visiblePeople.type === "none" || props.value.visiblePeople.value.has(p.person))).map(p => <ProposalCard key={p.key} props={props} proposal={p} />)}
         {c.open > 0n && <Box css={props.styles.openPosition}>{String(c.open)} open position{c.open === 1n ? "" : "s"}</Box>}
         <Box css={props.styles.dropStrip}><SlotActions props={props} slot={slot} />{!props.value.inspector && <RequirementAction slot={slot} week={props.week} held={props.held} value={props.value} commands={props.commands} styles={props.styles} />}</Box>
@@ -511,16 +530,65 @@ function DayAssignments({ props, ctx, slot }: { props: RosterViewsProps; ctx: Vi
  * every slot.
  */
 function UnreadSlots({ props, head, columns, group, kind, failure, cell }: {
-    props: RosterViewsProps; head: ReactNode; columns: readonly { day: number; shift: RosterValue["shifts"][number] }[]; group: string;
+    props: RosterViewsProps; head: ReactNode; columns: readonly { day: number; shift: RosterValue["shifts"][number] }[];
+    /** The row's group: a group's, or none for No group's band (#1548). */
+    group: Place["group"];
     kind: "chip" | "number" | "aggregate"; failure: Extract<PeriodRead, { state: "failed" }> | undefined; cell: Record<string, unknown> | undefined;
 }) {
     return <Box css={props.styles.row} data-roster-unread="">{head}
         {failure !== undefined ? <Box css={props.styles.readLine} data-roster-read-line=""><ReadFailure read={failure} /></Box>
             : columns.map(({ day, shift }, c) => {
-                const slot = { day: BigInt(day), group, shift: shift.key };
-                return <Box key={slotKey(slot)} css={cell} data-roster-slot={slotKey(slot)}><Unread read={props.read} kind={kind} index={c} /></Box>;
+                const place: Place = { day: BigInt(day), group, shift: shift.key };
+                return <Box key={placeKey(place)} css={cell} {...placeData(place)}><Unread read={props.read} kind={kind} index={c} /></Box>;
             })}
     </Box>;
+}
+/** The columns of the Shifts layout: a shift a day in view. */
+type ShiftColumns = readonly { day: number; shift: Shift }[];
+/**
+ * The Shifts layout's No group band (#1548): the duties of a kind that takes no group standing in none yet, a cell a
+ * shift's day, after the groups — drawn whenever the kind takes no group, so a duty dragged out of its group has a place
+ * to go. It holds no target and no positions: its band says the hours rostered there, and its cells have no head and no
+ * actions — by day each holds its duties' chips, by week their count. A duty dropped in one stands in no group, and one
+ * dragged from it into a group's slot stands in that group.
+ */
+function NoGroupBand({ props, ctx, days, columns, collapsed, toggle, failure }: {
+    props: RosterViewsProps; ctx: ViewContext; days: readonly number[]; columns: ShiftColumns; collapsed: boolean; toggle: (group: string) => void;
+    /** The failure, where the band's row is the one it is said in. */
+    failure: Extract<PeriodRead, { state: "failed" }> | undefined;
+}) {
+    const { value, styles, format, read } = props;
+    const band = useMemo(() => ({ key: NO_GROUP, label: value.vocabulary.noGroup }), [value.vocabulary.noGroup]);
+    const unread = read.state !== "held";
+    // The days in view's duties in no group, whoever the rail shows: what the band's hours and the week's counts count.
+    const duties = [...props.week.assignments.values()].filter(a => a.place.group.type === "none" && days.includes(Number(a.place.day)));
+    const rostered = duties.reduce((n, a) => n + a.hours, 0);
+    const people = duties.filter(a => a.who.type === "person").length;
+    const head = <Box css={[styles.gutter, styles.rowHead]} data-roster-no-group-head=""><Box css={styles.eyebrow}>Assignment</Box><Box css={styles.title}>Roster</Box>
+        <Box css={styles.detail}>{unread ? <Unread read={read} kind="aggregate" index={1} /> : peopleSaid(format.number, people)}</Box><Box css={styles.detail}>{unread ? null : `${format.number(rostered)} h`}</Box></Box>;
+    const week = days.length > 1;
+    if (unread) return <>
+        <GroupHeading scope="roster" group={band} styles={styles} collapsed={collapsed} toggle={toggle}><Box as="span" css={styles.groupMeta}><Unread read={read} kind="aggregate" index={2} /></Box></GroupHeading>
+        {!collapsed && <UnreadSlots props={props} head={head} columns={columns} group={none} kind={week ? "number" : "chip"} failure={failure} cell={week ? styles.weekCell : styles.cell} />}
+    </>;
+    return <>
+        <GroupHeading scope="roster" group={band} styles={styles} collapsed={collapsed} toggle={toggle}><Box as="span" css={styles.groupMeta}>{format.number(rostered)} h rostered</Box></GroupHeading>
+        {!collapsed && <Box css={styles.row}>{head}
+            {columns.map(({ day, shift }) => {
+                const place: Place = { day: BigInt(day), group: none, shift: shift.key };
+                if (!week) return <DropSlot key={placeKey(place)} props={props} place={place}>
+                    <Box css={styles.chips}>{assignments(props, place).map(({ id, a, removed }) => <AssignmentChip key={id} id={id} assignment={a} removed={removed} ctx={ctx} />)}</Box>
+                </DropSlot>;
+                const count = duties.filter(a => Number(a.place.day) === day && a.place.shift === shift.key).length;
+                const date = new Date(props.start.getTime() + day * DAY);
+                const said = `${value.vocabulary.noGroup} ${format.weekday(date)} ${shift.label}, ${format.number(count)} ${count === 1 ? "duty" : "duties"}`;
+                // A press opens the day; with Day not offered the count is a figure alone.
+                return <DropSlot key={placeKey(place)} props={props} place={place} compact>{props.opensDay
+                    ? <chakra.button type="button" css={styles.weekValue} aria-label={said} onClick={() => props.setView({ ...props.view, period: "day", date: date.getTime() })}>{format.number(count)}</chakra.button>
+                    : <Box css={styles.weekValue}>{format.number(count)}</Box>}</DropSlot>;
+            })}
+        </Box>}
+    </>;
 }
 function Shifts({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
     const { collapsed, toggle } = useGroupCollapse(props.drag.surface);
@@ -528,9 +596,12 @@ function Shifts({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
     const columns = days.flatMap(day => props.value.shifts.map(shift => ({ day, shift })));
     const style = { "--roster-columns": columns.length } as CSSProperties;
     // A week not read, or whose read failed (#1398): the days, shifts and groups, known without it, at once, and a
-    // placeholder where each figure or duty goes; the failure said once, in the first open group's first row.
+    // placeholder where each figure or duty goes; the failure said once, in the first open group's first row — No
+    // group's band's, where every group is folded (#1548).
     const unread = props.read.state !== "held";
-    const failedIn = props.read.state === "failed" ? props.value.groups.find(group => !collapsed.includes(group.key))?.key : undefined;
+    const noGroup = props.value.duty.roles.noGroup;
+    const failedIn = props.read.state === "failed" ? props.value.groups.find(group => !collapsed.includes(group.key))?.key
+        ?? (noGroup && !collapsed.includes(NO_GROUP) ? NO_GROUP : undefined) : undefined;
     const failure = props.read.state === "failed" ? props.read : undefined;
     return <Box css={props.styles.scroll} data-roster-grid="shifts"><Box css={props.styles.grid} data-period={props.view.period} style={style}>
         <Box css={props.styles.head}>
@@ -555,9 +626,9 @@ function Shifts({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
                 const failing = failedIn === group.key ? failure : undefined;
                 return <Fragment key={group.key}><GroupHeading scope="roster" group={group} styles={props.styles} collapsed={collapsed.includes(group.key)} toggle={toggle}><Box as="span" css={props.styles.groupMeta}><Unread read={props.read} kind="aggregate" index={2} /></Box></GroupHeading>
                     {!collapsed.includes(group.key) && <>
-                        {props.value.settings.requirements && <UnreadSlots props={props} head={requirementHead} columns={columns} group={group.key} kind={days.length > 1 ? "number" : "aggregate"} failure={failing}
+                        {props.value.settings.requirements && <UnreadSlots props={props} head={requirementHead} columns={columns} group={some(group.key)} kind={days.length > 1 ? "number" : "aggregate"} failure={failing}
                             cell={days.length > 1 ? props.styles.weekCell : props.styles.requirement} />}
-                        <UnreadSlots props={props} head={assignmentHead} columns={columns} group={group.key} kind={days.length > 1 ? "number" : "chip"}
+                        <UnreadSlots props={props} head={assignmentHead} columns={columns} group={some(group.key)} kind={days.length > 1 ? "number" : "chip"}
                             failure={props.value.settings.requirements ? undefined : failing} cell={days.length > 1 ? props.styles.weekCell : props.styles.cell} />
                     </>}</Fragment>;
             }
@@ -569,14 +640,24 @@ function Shifts({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
                     </chakra.button>; })}</Box>}
                 <Box css={props.styles.row}>{assignmentHead}
                     {columns.map(({ day, shift }) => { const slot = { day: BigInt(day), group: group.key, shift: shift.key }, c = props.coverage.get(slot)!; return days.length === 1 ? <DayAssignments key={slotKey(slot)} props={props} ctx={ctx} slot={slot} />
-                        : <DropSlot key={slotKey(slot)} props={props} slot={slot} compact><chakra.button type="button" css={props.styles.weekValue} data-tone={c.open > 0n ? "warning" : undefined} aria-label={`${group.label} ${props.format.weekday(new Date(props.start.getTime() + day * DAY))} ${shift.label}, ${c.filled} of ${c.positions} positions`} onClick={() => { props.select({ type: "slot", slot }); props.setView({ ...props.view, period: "day", date: props.start.getTime() + day * DAY }); }}>{String(c.filled)}/{String(c.positions)}</chakra.button><Box css={props.styles.weekFill}><Box css={props.styles.weekFillValue} style={{ width: `${Math.min(Number(c.filled) / Math.max(Number(c.positions), 1), 1) * 100}%` }} /></Box>{props.issues.some(i => i.slot.type === "some" && sameSlot(i.slot.value, slot)) && <Box css={props.styles.issueDot} aria-label="Shift has issues" />}</DropSlot>; })}
+                        : <DropSlot key={slotKey(slot)} props={props} place={placeOf(slot)} compact><chakra.button type="button" css={props.styles.weekValue} data-tone={c.open > 0n ? "warning" : undefined} aria-label={`${group.label} ${props.format.weekday(new Date(props.start.getTime() + day * DAY))} ${shift.label}, ${c.filled} of ${c.positions} positions`} onClick={() => { props.select({ type: "slot", slot }); props.setView({ ...props.view, period: "day", date: props.start.getTime() + day * DAY }); }}>{String(c.filled)}/{String(c.positions)}</chakra.button><Box css={props.styles.weekFill}><Box css={props.styles.weekFillValue} style={{ width: `${Math.min(Number(c.filled) / Math.max(Number(c.positions), 1), 1) * 100}%` }} /></Box>{props.issues.some(i => i.slot.type === "some" && sameSlot(i.slot.value, slot)) && <Box css={props.styles.issueDot} aria-label="Shift has issues" />}</DropSlot>; })}
                 </Box>
             </>}</Fragment>;
         })}
+        {noGroup && <NoGroupBand props={props} ctx={ctx} days={days} columns={columns} collapsed={collapsed.includes(NO_GROUP)} toggle={toggle} failure={failedIn === NO_GROUP ? failure : undefined} />}
     </Box></Box>;
 }
 /** One of the Roster's groups. */
 type Group = RosterValue["groups"][number];
+/**
+ * The bands the layouts draw a group's under: a band a group, then — where the duty kind takes no group (#1548) — No
+ * group's, keyed {@link NO_GROUP} and named in the vocabulary's words.
+ */
+function bandsOf(groups: readonly Group[], noGroup: string | undefined): readonly Group[] {
+    return noGroup === undefined ? groups : [...groups, { key: NO_GROUP, label: noGroup }];
+}
+/** No group's band's name, where the duty kind takes no group (#1548); `undefined` where every duty stands in one. */
+function noGroupBand(value: RosterValue): string | undefined { return value.duty.roles.noGroup ? value.vocabulary.noGroup : undefined; }
 /**
  * A row of the People list: a group's band; a person's row, `group` their home group — the band they are listed under,
  * where the layout draws bands; or a row of agency requests — a group's, or, where the layout draws no bands
@@ -607,10 +688,13 @@ type AgendaRow = ListRow | AgendaDemandRow;
 type PersonRowValue = Extract<ListRow, { kind: "person" }>;
 /**
  * Shared stable rows for desktop People and its explicit-action phone cards: a band a group, its people — its leads,
- * then the rest, then agency staff — and its agency requests; or, without bands (#1567), every person the narrowing
- * shows in one list ranked so, each keeping their home group, then every group's agency requests in one row.
+ * then the rest, then agency staff — and its agency requests, then No group's band holding the requests in no group
+ * yet, where the duty kind takes none (#1548): it is nobody's home, so it lists no person, a person's duty in no group
+ * drawn on their own row; or, without bands (#1567), every person the narrowing shows in one list ranked so, each
+ * keeping their home group, then every agency request in one row.
  */
 function usePeopleRows(value: RosterValue, collapsed: readonly string[]): ListRow[] {
+    const noGroup = noGroupBand(value);
     return useMemo(() => {
         const people = value.people.filter(p => value.visiblePeople.type === "none" || value.visiblePeople.value.has(p.key));
         const rank = (p: typeof people[number]) => p.agency ? 2 : value.positions.find(pos => pos.key === p.position)?.lead ? 0 : 1;
@@ -620,14 +704,14 @@ function usePeopleRows(value: RosterValue, collapsed: readonly string[]): ListRo
             const listed = people.flatMap(person => { const group = groups.get(person.group); return group === undefined ? [] : [{ kind: "person" as const, key: `person:${person.key}`, group, person }]; });
             return [...listed.sort((a, b) => rank(a.person) - rank(b.person)), { kind: "person" as const, key: "requests", group: undefined, person: undefined }];
         }
-        return value.groups.flatMap(group => [
+        return bandsOf(value.groups, noGroup).flatMap(group => [
             { kind: "group" as const, key: `group:${group.key}`, group },
             ...(collapsed.includes(group.key) ? [] : [
-                ...people.filter(p => p.group === group.key).sort((a, b) => rank(a) - rank(b)).map(person => ({ kind: "person" as const, key: `person:${person.key}`, group, person })),
+                ...(group.key === NO_GROUP ? [] : people.filter(p => p.group === group.key).sort((a, b) => rank(a) - rank(b)).map(person => ({ kind: "person" as const, key: `person:${person.key}`, group, person }))),
                 { kind: "person" as const, key: `requests:${group.key}`, group, person: undefined },
             ]),
         ]);
-    }, [value.people, value.visiblePeople, value.positions, value.groups, value.settings.peopleBands, collapsed]);
+    }, [value.people, value.visiblePeople, value.positions, value.groups, value.settings.peopleBands, noGroup, collapsed]);
 }
 /**
  * The row a failed week says so in (#1398, CL11): the first person's — or a group's Agency requests' — at or below the
@@ -648,9 +732,9 @@ function selectedPeopleRow(props: RosterViewsProps, rows: readonly PeopleRow[]):
     const selected = props.selection;
     const assignment = selected?.type === "assignment" ? props.week.assignments.get(selected.key) ?? props.held.assignments.get(selected.key) : undefined;
     const person = selected?.type === "person" || selected?.type === "personWeek" ? selected.key : assignment?.who.type === "person" ? assignment.who.value : undefined;
-    // A request is its group's row's, or the one row of every group's (#1567).
+    // A request is its group's row's — No group's band's, for one in no group yet (#1548) — or the one row of every group's (#1567).
     const index = rows.findIndex(row => row.kind === "person" && (person !== undefined ? row.person?.key === person
-        : assignment?.who.type === "request" && row.person === undefined && (row.group === undefined || row.group.key === assignment.slot.group)));
+        : assignment?.who.type === "request" && row.person === undefined && (row.group === undefined || row.group.key === (groupOf(assignment) ?? NO_GROUP))));
     return index < 0 ? undefined : index;
 }
 
@@ -733,7 +817,7 @@ function Tile(args: TileProps) {
     const selection = useContext(SelectionContext);
     const selected = selection?.type === "assignment" && selection.key === id;
     const name = assignmentName(value, a);
-    const coord = useMemo(() => ({ ...rosterCoord(drag.surface, a.slot, id), event: id }), [drag.surface, a.slot, id]);
+    const coord = useMemo(() => ({ ...rosterCoord(drag.surface, a.place, id), event: id }), [drag.surface, a.place, id]);
     const ghost = useMemo(() => <MoveGhost styles={styles} label={name} />, [styles, name]);
     const enabled = drag.enabled && !removed;
     const handle = useDragEventChip(enabled ? coord : null, ghost, !enabled, name);
@@ -756,28 +840,29 @@ const TileBody = memo(function TileBody({ ctx, id, assignment: a, removed, perso
     const { styles, value, commands, drag, format } = ctx;
     const name = assignmentName(value, a);
     const enabled = drag.enabled && !removed;
-    const shift = shiftOf(value, a.slot.shift);
+    const shift = shiftOf(value, a.place.shift);
     const issues = removed ? NO_ISSUES : dutyIssues(ctx.issues, id);
     const baseline = ctx.held.assignments.get(id);
     const drafted = removed || baseline === undefined || !ctx.domain.sameAssignment(baseline, a);
-    const group = home !== a.slot.group ? value.groups.find(g => g.key === a.slot.group)?.label ?? a.slot.group : undefined;
+    // A duty in no group yet names it — No group — on a person's row (#1548), as a duty in another group names that.
+    const group = home !== (groupOf(a) ?? NO_GROUP) ? groupName(value, a.place.group) : undefined;
     const meta = ownTimes(value, a, ctx.start) ? { kind: "own" as const, text: `${hourText(a.start)}–${hourText(a.end)}` }
         : group !== undefined ? { kind: "group" as const, text: group.toLocaleUpperCase(format.locale) }
             : ctx.tileTimes === "always" && shift !== undefined ? { kind: "hours" as const, text: shiftHoursText(shift) } : undefined;
     const danger = issues.some(i => i.tone.type === "danger");
-    const label = `${name} · ${shift?.label ?? a.slot.shift}${meta === undefined ? "" : ` · ${meta.text}`}${removed ? " · removed" : ""}`;
+    const label = `${name} · ${shift?.label ?? a.place.shift}${meta === undefined ? "" : ` · ${meta.text}`}${removed ? " · removed" : ""}`;
     // What a run of the optimiser did to the duty (#1409, R23): its mark — the tile keeps its own fill, the ring and the glow alone — and its provenance on hover.
     const mark = dutyMark(ctx, id, removed, drafted);
     const words = issues.length > 0 ? `${label} · ${issues.map(i => i.title).join(" · ")}` : label;
     return <Box {...handle} ref={attach} css={styles.tile} style={removed ? undefined : fillOf(shift)} tabIndex={0} role="button" aria-label={label} aria-pressed={selected}
         title={mark === undefined ? words : `${mark.provenance} · ${words}`} data-op={mark?.op} data-fill={mark === undefined ? undefined : "own"}
-        data-roster-assignment={id} data-roster-tile="" data-layout="people" data-added={baseline === undefined ? "" : undefined} data-moved={baseline !== undefined && !sameSlot(baseline.slot, a.slot) ? "" : undefined}
+        data-roster-assignment={id} data-roster-tile="" data-layout="people" data-added={baseline === undefined ? "" : undefined} data-moved={baseline !== undefined && !samePlace(baseline.place, a.place) ? "" : undefined}
         data-density={value.settings.density.type} data-selected={selected ? "" : undefined} data-drafted={drafted ? "" : undefined} data-removed={removed ? "" : undefined}
         data-conflict={ctx.conflicted(id) ? "" : undefined} data-bounds={ctx.bounded(id) ? "" : undefined} data-request={a.who.type === "request" ? "" : undefined} data-agency={person?.agency ? "" : undefined}
         data-tone={danger ? "danger" : issues.some(i => i.kind.type === "breach") ? "warning" : undefined} data-draggable={enabled ? "" : undefined}
         onClick={event => { event.stopPropagation(); ctx.select({ type: "assignment", key: id }); }}
         onKeyDown={event => { if (event.key === "Enter") { takeKey(event); ctx.select({ type: "assignment", key: id }); } else handle?.onKeyDown?.(event); }}>
-        <Box as="span" css={styles.tileLabel} data-roster-assignment-name="">{shift?.label ?? a.slot.shift}</Box>
+        <Box as="span" css={styles.tileLabel} data-roster-assignment-name="">{shift?.label ?? a.place.shift}</Box>
         {meta !== undefined && <Box as="span" css={styles.tileMeta} data-own={meta.kind === "own" ? "" : undefined} data-group={meta.kind === "group" ? "" : undefined} data-roster-times={meta.kind === "own" ? "" : undefined}>{meta.text}</Box>}
         {issues.length > 0 && <Box as="span" css={styles.tileWarn} data-tone={danger ? "danger" : undefined} data-roster-tile-warn="" role="img" aria-label={issues[0]!.title}><FontAwesomeIcon icon={faTriangleExclamation} /></Box>}
         {(commands.available || commands.locked !== undefined) && <chakra.button type="button" css={styles.chipAction} data-roster-chip-action="" aria-label={removed ? `Restore ${name}` : `Remove ${name}`}
@@ -805,15 +890,15 @@ function AssignMenu({ ctx, person, group, day }: { ctx: ViewContext; person: Per
     const { locked } = commands;
     useEffect(() => { if (locked !== undefined) setElsewhere(false); }, [locked]);
     const date = new Date(start.getTime() + day * DAY);
-    const slotFor = (shift: string): Slot => ({ day: BigInt(day), group, shift });
+    const placeFor = (shift: string): Place => ({ day: BigInt(day), group: some(group), shift });
     const usual = person.usual.type === "some" ? person.usual.value : value.shifts[0]!.key;
     const trigger = <chakra.button type="button" css={styles.assign} data-roster-assign={`${person.key}.${day}`} data-roster-off="" aria-label={`Assign ${person.name} · ${format.weekday(date)}`}
         disabled={locked !== undefined} title={locked}>+ Assign</chakra.button>;
     if (locked !== undefined) return trigger;
-    if (elsewhere) return <PlacePopover label="Elsewhere…" source={{ type: "person", key: person.key }} slot={slotFor(usual)} value={value} start={start} commands={commands} styles={styles} onClose={() => setElsewhere(false)} />;
+    if (elsewhere) return <PlacePopover label="Elsewhere…" source={{ type: "person", key: person.key }} place={placeFor(usual)} value={value} start={start} commands={commands} styles={styles} onClose={() => setElsewhere(false)} />;
     return <ChakraMenu.Root positioning={{ placement: "bottom-start" }} onSelect={d => {
         if (d.value === "elsewhere") { setElsewhere(true); return; }
-        ctx.onError(commands.place({ type: "person", key: person.key }, slotFor(d.value)));
+        ctx.onError(commands.place({ type: "person", key: person.key }, placeFor(d.value)));
     }}>
         <ChakraMenu.Trigger asChild>
             {trigger}
@@ -858,15 +943,18 @@ const PersonDay = memo(function PersonDay({ ctx, person, rowKey, group, day, dut
 }) {
     const { drag, value, week, styles, start } = ctx;
     const key = rowKey;
-    // Where a card lands: the row's group, the person's usual shift or the first; nowhere in every group's requests' row.
-    const initial = useMemo(() => group === undefined ? undefined : { day: BigInt(day), group, shift: person?.usual.type === "some" ? person.usual.value : value.shifts[0]!.key },
-        [day, group, person, value.shifts]);
+    // Where a card lands: the row's group — no group in No group's band's requests' row (#1548) — the person's usual
+    // shift or the first; nowhere in every group's requests' row.
+    const initial = useMemo((): Place | undefined => group === undefined ? undefined
+        : { day: BigInt(day), group: group === NO_GROUP ? none : some(group), shift: person?.usual.type === "some" ? person.usual.value : value.shifts[0]!.key },
+    [day, group, person, value.shifts]);
     // A pattern lands on the person's week, whatever day of it the drag rests over; the requests rows refuse it in its words.
     const personWeek = useMemo(() => rosterPersonWeekCoord(drag.surface, key, start), [drag.surface, key, start]);
     const resolve = useCallback((_x: number, _y: number, payload: DragPayload): CellCoord => {
         if (isPatternCard(payload, drag.surface)) return personWeek;
         const a = payload.kind === "event" ? week.assignments.get(payload.from.event) : undefined;
-        if (a !== undefined) return rosterCoord(drag.surface, { ...a.slot, day: BigInt(day) });
+        // A duty moved along its row keeps its group, or none, and its shift.
+        if (a !== undefined) return rosterCoord(drag.surface, { day: BigInt(day), group: a.place.group, shift: a.place.shift });
         return initial === undefined ? personWeek : rosterCoord(drag.surface, initial);
     }, [week, drag.surface, initial, day, personWeek]);
     /** Whether a dragged duty is another row's: refused, `A duty moves along its own row.` (P11). */
@@ -1056,9 +1144,13 @@ function useDemands(props: RosterViewsProps): ReadonlyMap<string | undefined, De
     const { value, weeks, spanCoverage, read } = props;
     const made = useMemo((): ReadonlyMap<string | undefined, Demand> => {
         if (!value.settings.requirements || value.targets.type !== "some") return NO_DEMANDS;
-        const span = weeks.map((held, w): DemandWeek => ({ requirements: held.week.requirements, coverage: spanCoverage[w] ?? NO_COVERAGE }));
+        // With no bands the one block counts the duties in no group yet too (#1548): rostered against each shift's day,
+        // filling what its groups' slots are short; a band's group's work counts its own slots alone.
+        const loose = !value.settings.peopleBands && value.duty.roles.noGroup;
+        const span = weeks.map((held, w): DemandWeek => ({ requirements: held.week.requirements, coverage: spanCoverage[w] ?? NO_COVERAGE,
+            loose: loose ? looseOf(value, held.week) : undefined }));
         return value.settings.peopleBands ? new Map(value.groups.map(group => [group.key, demandOf(value, span, [group.key])] as const))
-            : new Map([[undefined, demandOf(value, span, value.groups.map(group => group.key))]]);
+            : new Map([[undefined, demandOf(value, span, value.groups.map(group => group.key), loose)]]);
     }, [value, weeks, spanCoverage]);
     const reads = read.state === "held";
     const held = useRef(made);
@@ -1516,10 +1608,10 @@ function Mark({ ctx, held, day, duties, preview, letters }: { ctx: ViewContext; 
     const live = duties.filter(duty => !duty.removed);
     const first = live[0] ?? duties[0];
     if (first === undefined) return <Box as="span" css={styles.mark} data-roster-mark={day} data-off="" />;
-    const shift = shiftOf(value, first.a.slot.shift);
+    const shift = shiftOf(value, first.a.place.shift);
     const drafted = first.removed || (() => { const baseline = held.assignments.get(first.id); return baseline === undefined || !ctx.domain.sameAssignment(baseline, first.a); })();
-    return <Box as="span" css={styles.mark} data-roster-mark={day} data-shift={first.a.slot.shift} data-removed={live.length === 0 ? "" : undefined} data-drafted={drafted ? "" : undefined}
-        style={live.length === 0 ? undefined : fillOf(shift)} title={`${shift?.label ?? first.a.slot.shift}${live.length > 1 ? ` +${live.length - 1}` : ""}`}>{letters ? shiftLetter(shift) : ""}</Box>;
+    return <Box as="span" css={styles.mark} data-roster-mark={day} data-shift={first.a.place.shift} data-removed={live.length === 0 ? "" : undefined} data-drafted={drafted ? "" : undefined}
+        style={live.length === 0 ? undefined : fillOf(shift)} title={`${shift?.label ?? first.a.place.shift}${live.length > 1 ? ` +${live.length - 1}` : ""}`}>{letters ? shiftLetter(shift) : ""}</Box>;
 }
 /**
  * A person's week in the month (P13–P15): seven marks, a drop target for a pattern, a click selecting the person-week;
@@ -1905,9 +1997,9 @@ const PersonCard = memo(function PersonCard({ ctx, row, index, rows, days, reque
     const card = ({ id, a, removed }: DayDuty) => <AssignmentCard key={id} ctx={ctx} id={id} assignment={a} removed={removed} />;
     return <Box ref={measure} css={styles.card} data-roster-person-card={person?.key ?? row.key}>
         {person === undefined ? <><Box css={styles.cardHead}><Box css={styles.cardTitle}>{value.vocabulary.requests}</Box></Box>
-            {row.group !== undefined ? requests.map(card) : value.groups.map(group => {
-                // Every group's requests in one card: each group's under its name, in the groups' order.
-                const theirs = requests.filter(duty => duty.a.slot.group === group.key);
+            {row.group !== undefined ? requests.map(card) : bandsOf(value.groups, noGroupBand(value)).map(group => {
+                // Every group's requests in one card: each group's under its name, in the groups' order, then those in no group yet (#1548).
+                const theirs = requests.filter(duty => (groupOf(duty.a) ?? NO_GROUP) === group.key);
                 return theirs.length === 0 ? null : <Box key={group.key} css={styles.agendaGroup} data-roster-requests-group={group.key}><Box css={styles.detail}>{group.label}</Box>{theirs.map(card)}</Box>;
             })}</> : <>
             <chakra.button ref={head} type="button" css={styles.cardHead} data-roster-person-head={person.key} onClick={() => ctx.select({ type: "personWeek", key: person.key, start: start.getTime() })}>
@@ -1919,7 +2011,7 @@ const PersonCard = memo(function PersonCard({ ctx, row, index, rows, days, reque
                 return <Box key={day} css={styles.agendaGroup}><Box css={styles.detail}>{format.weekday(new Date(start.getTime() + day * DAY))}</Box>
                     {duties.map(card)}
                     {/* "Off · assign" places the person in their home group, with or without its band (#1567). */}
-                    {!duties.some(duty => !duty.removed) && (commands.available || commands.locked !== undefined ? <PlaceAction label="Off · assign" source={{ type: "person", key: person.key }} slot={{ day: BigInt(day), group: person.group, shift: person.usual.type === "some" ? person.usual.value : value.shifts[0]!.key }} value={value} start={start} commands={commands} styles={styles} /> : <Box css={styles.detail}>Off</Box>)}
+                    {!duties.some(duty => !duty.removed) && (commands.available || commands.locked !== undefined ? <PlaceAction label="Off · assign" source={{ type: "person", key: person.key }} place={{ day: BigInt(day), group: some(person.group), shift: person.usual.type === "some" ? person.usual.value : value.shifts[0]!.key }} value={value} start={start} commands={commands} styles={styles} /> : <Box css={styles.detail}>Off</Box>)}
                 </Box>;
             })}
         </>}
@@ -2054,12 +2146,29 @@ function Agenda({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
                 <chakra.button type="button" css={props.styles.cardHead} onClick={() => props.select({ type: "slot", slot })}><Box css={props.styles.cardTitle}>{group.label} · {shift.label}</Box></chakra.button>
                 <Box css={props.styles.detail}>{String(c.filled)} / {String(c.positions)} positions · {String(c.open)} open</Box>
                 {props.value.settings.requirements && <CoverageView coverage={c} value={props.value} styles={props.styles} format={props.format} compact />}
-                {assignments(props, slot).map(({ id, a, removed }) => <AssignmentCard key={id} ctx={ctx} id={id} assignment={a} removed={removed} />)}
+                {assignments(props, placeOf(slot)).map(({ id, a, removed }) => <AssignmentCard key={id} ctx={ctx} id={id} assignment={a} removed={removed} />)}
                 {props.proposals.filter(p => sameSlot(p.slot, slot) && (props.value.visiblePeople.type === "none" || props.value.visiblePeople.value.has(p.person))).map(p => <ProposalCard key={p.key} props={props} proposal={p} />)}
                 <SlotActions props={props} slot={slot} /><RequirementAction slot={slot} week={props.week} held={props.held} value={props.value} commands={props.commands} styles={props.styles} />
             </Box>; }))}
+            {props.read.state === "held" && props.value.duty.roles.noGroup && props.value.shifts.map(shift => <NoGroupCard key={shift.key} props={props} ctx={ctx} day={day} shift={shift} />)}
         </Box>)}
     </Box></Box>;
+}
+/**
+ * A shift's day's duties in no group yet, on a phone (#1548): a card after the groups' cards, drawn only where the day
+ * holds some — No group has no action of its own; each duty's card moves it into a group. It says the hours rostered
+ * there, whoever the rail shows.
+ */
+function NoGroupCard({ props, ctx, day, shift }: { props: RosterViewsProps; ctx: ViewContext; day: number; shift: Shift }) {
+    const place: Place = { day: BigInt(day), group: none, shift: shift.key };
+    const shown = assignments(props, place);
+    const rostered = [...props.week.assignments.values()].filter(a => samePlace(a.place, place)).reduce((n, a) => n + a.hours, 0);
+    if (shown.length === 0 && rostered === 0) return null;
+    return <Box css={props.styles.card} data-roster-agenda-place={placeKey(place)}>
+        <Box css={props.styles.cardHead}><Box css={props.styles.cardTitle}>{props.value.vocabulary.noGroup} · {shift.label}</Box></Box>
+        <Box css={props.styles.detail}>{props.format.number(rostered)} h rostered</Box>
+        {shown.map(({ id, a, removed }) => <AssignmentCard key={id} ctx={ctx} id={id} assignment={a} removed={removed} />)}
+    </Box>;
 }
 export function RosterViews(props: RosterViewsProps) {
     const ctx = useViewContext(props);

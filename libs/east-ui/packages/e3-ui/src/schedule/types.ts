@@ -608,7 +608,7 @@ export type PlanResourcesType = typeof PlanResourcesType;
  * @property end - When it ends
  * @property resource - Who: a person, or an agency asked to send someone, by the resource kind its field's case names
  * @property shift - Its shift's key
- * @property group - The group it is rostered in
+ * @property group - The group it is rostered in; `none` for a duty in no group yet, of a kind whose `group` is an `Option<String>` field (#1548)
  * @property position - The position held; `none` for a kind with no `position` role
  * @property activity - Its activity; `none` when it has none, or the kind has no `activity` role
  * @property hours - The hours it counts: its kind's `hours` accessor's, or its length
@@ -618,7 +618,7 @@ export const ScheduleRosterRolesType = StructType({
     end: DateTimeType,
     resource: OptionType(ScheduleResourceRefType),
     shift: StringType,
-    group: StringType,
+    group: OptionType(StringType),
     position: OptionType(StringType),
     activity: OptionType(StringType),
     hours: FloatType,
@@ -660,9 +660,9 @@ export type ScheduleRosterEntryType = typeof ScheduleRosterEntryType;
  * @property kind - The Calendar's closed kind: its `editing`, `entries`, `history`, `ready`, `fields` and `inspector`
  * @property rows - Its stored duties overlapping `[from, to)`, by key, each its roles and its row; `none` while a read is in flight
  * @property read - A drafted row's roles, from its bytes and its key: what `rows` gives a stored one
- * @property write - The row with every mapped field written from the roles and every other field as it was; `none` for a resource of a kind it does not take
+ * @property write - The row with every mapped field written from the roles and every other field as it was; `none` for a resource of a kind it does not take, or a duty in no group of a kind whose `group` is a String field
  * @property create - A new row from a new duty: its roles written, every other field the kind's `values` of it (#1526), or its type's default; `none` as `write` refuses
- * @property roles - Which of the optional roles the kind maps
+ * @property roles - Which of the optional roles the kind maps, and whether a duty may stand in no group: its `group` an `Option<String>` field (#1548)
  * @property rowType - The row type
  */
 export const ScheduleRosterKindType = StructType({
@@ -671,7 +671,7 @@ export const ScheduleRosterKindType = StructType({
     read: FunctionType([BlobType, StringType], ScheduleRosterRolesType),
     write: FunctionType([BlobType, ScheduleRosterRolesType], OptionType(BlobType)),
     create: FunctionType([ScheduleRosterNewDutyType], OptionType(BlobType)),
-    roles: StructType({ position: BooleanType, activity: BooleanType }),
+    roles: StructType({ position: BooleanType, activity: BooleanType, noGroup: BooleanType }),
     rowType: EastTypeType,
 });
 

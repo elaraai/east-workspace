@@ -3,7 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import {
-    DateTimeType, East, FloatType, IntegerType, SortedMap, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,
+    ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, example, none, some, variant,
+    type ValueTypeOf,
 } from "@elaraai/east";
 import { Roster } from "@elaraai/e3-ui";
 
@@ -36,17 +37,19 @@ export const context: ValueTypeOf<typeof Roster.Types.Context> = {
 /** The week's first day, Sunday 5 March 2028. */
 export const start = new Date("2028-03-05T00:00:00Z");
 export const slot = { day: 0n, group: "goods", shift: "early" };
+/** Where the slot's duties stand: Goods' Sunday early. */
+export const place = { day: 0n, group: some("goods"), shift: "early" };
 /** Sunday's early shift: the lead in an hour late and on to 17:00, an agency's worker, and a request to the agency. */
 export const week: ValueTypeOf<typeof DomainWeek> = {
     status: variant("draft", null), dismissed: new Set<string>(),
     assignments: new Map([
-        ["a", { slot, who: variant("person", "lead"), position: "lead", activity: some("reach"),
+        ["a", { place, who: variant("person", "lead"), position: "lead", activity: some("reach"),
             start: new Date("2028-03-05T07:00:00Z"), end: new Date("2028-03-05T17:00:00Z"), hours: 10,
             row: { who: variant("staff", "lead"), start: new Date("2028-03-05T07:00:00Z"), end: new Date("2028-03-05T17:00:00Z"), note: "in late, stays on" } }],
-        ["b", { slot, who: variant("person", "agency"), position: "crew", activity: some("general"),
+        ["b", { place, who: variant("person", "agency"), position: "crew", activity: some("general"),
             start: new Date("2028-03-05T06:00:00Z"), end: new Date("2028-03-05T14:00:00Z"), hours: 8,
             row: { who: variant("staff", "agency"), start: new Date("2028-03-05T06:00:00Z"), end: new Date("2028-03-05T14:00:00Z"), note: "" } }],
-        ["c", { slot, who: variant("request", "agency"), position: "crew", activity: none,
+        ["c", { place, who: variant("request", "agency"), position: "crew", activity: none,
             start: new Date("2028-03-05T06:00:00Z"), end: new Date("2028-03-05T14:00:00Z"), hours: 8,
             row: { who: variant("agency", "agency"), start: new Date("2028-03-05T06:00:00Z"), end: new Date("2028-03-05T14:00:00Z"), note: "" } }],
     ]),
@@ -93,11 +96,11 @@ export const rosterRest = example({
         const rest = $.const(Roster.rest(DomainDuty));
         const night = $.const({ who: variant("staff", "lead"), start: new Date("2028-03-05T22:00:00Z"), end: new Date("2028-03-06T08:00:00Z"), note: "" }, DomainDuty);
         const prior = $.const({ status: variant("draft", null), dismissed: new Set<string>(), requirements: new Map(), assignments: new Map([
-            ["night", { slot: { day: 0n, group: "goods", shift: "night" }, who: variant("person", "lead"), position: "lead", activity: none,
+            ["night", { place: { day: 0n, group: some("goods"), shift: "night" }, who: variant("person", "lead"), position: "lead", activity: none,
                 start: new Date("2028-03-05T22:00:00Z"), end: new Date("2028-03-06T08:00:00Z"), hours: 10, row: night }],
         ]) }, DomainWeek);
         const late = $.const({ who: variant("staff", "lead"), start: new Date("2028-03-06T14:00:00Z"), end: new Date("2028-03-06T22:00:00Z"), note: "" }, DomainDuty);
-        const next = $.const({ slot: { day: 1n, group: "goods", shift: "late" }, who: variant("person", "lead"), position: "lead", activity: none,
+        const next = $.const({ place: { day: 1n, group: some("goods"), shift: "late" }, who: variant("person", "lead"), position: "lead", activity: none,
             start: new Date("2028-03-06T14:00:00Z"), end: new Date("2028-03-06T22:00:00Z"), hours: 8, row: late }, Roster.Types.Assignment(DomainDuty));
         return rest(next, "next", prior, context).before;
     }),
@@ -114,6 +117,37 @@ export const rosterFitTrainer = example({
         const request = $.const({ need: variant("trainers", null), slot: { day: 1n, group: "goods", shift: "early" }, start: new Date("2028-03-05T00:00:00Z"),
             week, context, coverage: coverage(week, context, noPay) }, Roster.Types.FitRequest(DomainDuty));
         return fit(request, context.people.get("lead"));
+    }),
+});
+/** The same Sunday with the lead's night in no group yet (#1548): on their week, in no group's targets. */
+export const noGroupWeek: ValueTypeOf<typeof DomainWeek> = {
+    ...week,
+    assignments: new Map([...week.assignments, ["n", { place: { day: 0n, group: none, shift: "night" }, who: variant("person", "lead"), position: "lead",
+        activity: none, start: new Date("2028-03-05T22:00:00Z"), end: new Date("2028-03-06T06:00:00Z"), hours: 8,
+        row: { who: variant("staff", "lead"), start: new Date("2028-03-05T22:00:00Z"), end: new Date("2028-03-06T06:00:00Z"), note: "" } }]]),
+};
+export const rosterNoGroupHours = example({
+    description: "A duty in no group yet counts in its person's week and in no group's coverage: the lead's night in none adds eight hours to their week and nothing to Goods' night",
+    keywords: ["Roster", "Roster.weekHours", "Roster.coverage", "no group", "Option group", "two-step roster"], inputs: [noGroupWeek, context],
+    returns: { lead: 18, early: 26, night: 0n },
+    fn: East.function([DomainWeek, Roster.Types.Context], StructType({ lead: FloatType, early: FloatType, night: IntegerType }), ($, week, context) => {
+        const hours = $.const(Roster.weekHours(DomainDuty));
+        const coverage = $.const(Roster.coverage(DomainDuty));
+        const noPay = $.const(new Map(), Roster.Types.Pay);
+        const slots = $.const(coverage(week, context, noPay));
+        const night = $.const({ day: 0n, group: "goods", shift: "night" }, Roster.Types.Slot);
+        return { lead: hours(week, context).get("lead"), early: slots.get(slot).hours.rostered, night: slots.get(night).filled };
+    }),
+});
+export const rosterSlotOfPlaces = example({
+    description: "Roster.slotOf: a duty in Goods stands in Goods' slot of its shift on its day, and one in no group yet in none — what an app's check names an issue's slot by",
+    keywords: ["Roster", "Roster.slotOf", "place", "slot", "no group", "check", "issue"], inputs: [],
+    returns: [some({ day: 0n, group: "goods", shift: "early" }), none],
+    fn: East.function([], ArrayType(OptionType(Roster.Types.Slot)), ($) => {
+        const slotOf = $.const(Roster.slotOf);
+        const inGoods = $.const({ day: 0n, group: some("goods"), shift: "early" }, Roster.Types.Place);
+        const inNone = $.const({ day: 0n, group: none, shift: "night" }, Roster.Types.Place);
+        return [slotOf(inGoods), slotOf(inNone)];
     }),
 });
 export const rosterAnswerLeads = example({

@@ -367,8 +367,12 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
     overlaps?: ScheduleOverlapsLiteral;
     /** The Roster: the String field naming a duty's shift, a key of its `shifts`. The Roster requires it. */
     shift?: ScheduleStringField<R>;
-    /** The Roster: the String field naming the group a duty is rostered in, a key of its `groups`. The Roster requires it. */
-    group?: ScheduleStringField<R>;
+    /**
+     * The Roster: the field naming the group a duty is rostered in, a key of its `groups`. The Roster requires it: a
+     * String field, or an `Option<String>` one (#1548), whose `none` is a duty in no group yet — drawn on its person's
+     * row, counted in their hours and in no group's targets, and placed in a group later.
+     */
+    group?: ScheduleStringField<R> | ScheduleOptionStringField<R>;
     /** The Roster: the String field naming the position a duty holds, a key of its `positions`, which its lead rule reads. Omitted, no positions and no lead rule. */
     position?: ScheduleStringField<R>;
     /** The Roster: the `Option<String>` field naming a duty's one skill or task, a key of its `activities`. */
@@ -886,7 +890,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             "a kind is the Roster's duties or the Allocation's bins: give it one builder's roles");
     }
     const shiftField = role("shift", config.shift, StringType, "a String field");
-    const groupField = role("group", config.group, StringType, "a String field");
+    // A duty's group (#1548): a String field, or an Option of one, whose `none` is a duty in no group yet.
+    const groupOptional = config.group !== undefined && isTypeEqual(fieldType("group", config.group), OptionType(StringType));
+    const groupField = role("group", config.group, groupOptional ? OptionType(StringType) : StringType, "a String field, or an Option of a String field");
     const positionField = role("position", config.position, StringType, "a String field");
     const activityField = role("activity", config.activity, OptionType(StringType), "an Option of a String field");
     const arrivalField = role("arrival", config.arrival, OptionType(StringType), "an Option of a String field");
@@ -1831,7 +1837,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                             : f === endField ? roles.end
                                 : f === who ? value
                                     : f === shift ? roles.shift
-                                        : f === group ? roles.group
+                                        : f === group ? (groupOptional ? roles.group : roles.group.unwrap("some"))
                                             : f === positionField ? roles.position.match({ some: (_$, held) => held, none: () => fieldOf(source, f) as ExprType<StringType> })
                                                 : f === activityField ? roles.activity
                                                     : fieldOf(source, f)])) as never, rowType) as ExprType<EastType>;
@@ -1850,7 +1856,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                         hours = $.const(count(row as never, key as never));
                     }
                     return East.value({
-                        start, end, resource: ref(row), shift: fieldOf(row, shift), group: fieldOf(row, group),
+                        start, end, resource: ref(row), shift: fieldOf(row, shift), group: groupOptional ? fieldOf(row, group) : some(fieldOf(row, group)),
                         position: positionField === undefined ? none : some(fieldOf(row, positionField)),
                         activity: activityField === undefined ? none : fieldOf(row, activityField),
                         hours,
@@ -1861,18 +1867,26 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     const of = $.const(rolesOf);
                     return of(bytes.decodeBeast(rowType, "v2") as never, key);
                 });
-                // The row with its roles written, and every other field as it was (B1); `none` for a resource the kind refuses.
+                // A String group field holds no duty in no group (#1548): its `none` is refused, as a resource the kind
+                // does not take is.
+                const takes = (roles: ExprType<typeof Roles>): ExprType<BooleanType> =>
+                    groupOptional ? East.value(true) : roles.group.hasTag("some");
+                // The row with its roles written, and every other field as it was (B1); `none` for a resource the kind
+                // refuses, or a duty in no group of a kind whose group is a String field.
                 const write = East.function([BlobType, Roles], OptionType(BlobType), ($, bytes, roles) => {
                     const row = $.const(bytes.decodeBeast(rowType, "v2"));
                     const resolve = $.const(whoOf);
                     const result = $.let(East.value(none, OptionType(BlobType)), OptionType(BlobType));
-                    $.match(resolve(roles.resource), {
-                        some: ($2, value) => { $2.assign(result, East.value(some(East.Blob.encodeBeast(rosterRow(row, roles, value as ExprType<EastType>), "v2")), OptionType(BlobType))); },
+                    $.if(takes(roles), ($2) => {
+                        $2.match(resolve(roles.resource), {
+                            some: ($3, value) => { $3.assign(result, East.value(some(East.Blob.encodeBeast(rosterRow(row, roles, value as ExprType<EastType>), "v2")), OptionType(BlobType))); },
+                        });
                     });
                     return result;
                 });
                 // A new duty: its roles written, and every other field the kind's `values` of it — or, without them, its
-                // type's default. A resource the kind refuses makes none before the app's `values` are asked.
+                // type's default. A resource the kind refuses, or a duty in no group of a kind whose group is a String
+                // field, makes none before the app's `values` are asked.
                 const blank = East.value(defaultValue(rowType) as never, rowType) as ExprType<EastType>;
                 const create = East.function([ScheduleRosterNewDutyType], OptionType(BlobType), ($, duty) => {
                     // Its roles, the pattern aside.
@@ -1880,19 +1894,21 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     const resolve = $.const(whoOf);
                     const ownOf = valuesOf === undefined ? undefined : $.const(valuesOf);
                     const result = $.let(East.value(none, OptionType(BlobType)), OptionType(BlobType));
-                    $.match(resolve(roles.resource), {
-                        some: ($2, value) => {
-                            let row: ExprType<EastType>;
-                            if (ownOf === undefined) {
-                                row = $2.const(blank);
-                            } else {
-                                // The app's fields, and every field a role writes its default: a position the duty holds none of keeps it.
-                                const given = $2.const(ownOf(duty as never));
-                                row = $2.const(East.value(Object.fromEntries(Object.entries(fields).map(([f, type]) =>
-                                    [f, Object.hasOwn(own.fields, f) ? fieldOf(given, f) : East.value(defaultValue(type) as never, type)])) as never, rowType) as ExprType<EastType>);
-                            }
-                            $2.assign(result, East.value(some(East.Blob.encodeBeast(rosterRow(row, roles, value as ExprType<EastType>), "v2")), OptionType(BlobType)));
-                        },
+                    $.if(takes(roles), ($2) => {
+                        $2.match(resolve(roles.resource), {
+                            some: ($3, value) => {
+                                let row: ExprType<EastType>;
+                                if (ownOf === undefined) {
+                                    row = $3.const(blank);
+                                } else {
+                                    // The app's fields, and every field a role writes its default: a position the duty holds none of keeps it.
+                                    const given = $3.const(ownOf(duty as never));
+                                    row = $3.const(East.value(Object.fromEntries(Object.entries(fields).map(([f, type]) =>
+                                        [f, Object.hasOwn(own.fields, f) ? fieldOf(given, f) : East.value(defaultValue(type) as never, type)])) as never, rowType) as ExprType<EastType>);
+                                }
+                                $3.assign(result, East.value(some(East.Blob.encodeBeast(rosterRow(row, roles, value as ExprType<EastType>), "v2")), OptionType(BlobType)));
+                            },
+                        });
                     });
                     return result;
                 });
@@ -1902,7 +1918,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     read,
                     write,
                     create,
-                    roles: { position: positionField !== undefined, activity: activityField !== undefined },
+                    roles: { position: positionField !== undefined, activity: activityField !== undefined, noGroup: groupOptional },
                     rowType: toEastTypeValue(rowType),
                 } as never, ScheduleRosterKindType);
             });

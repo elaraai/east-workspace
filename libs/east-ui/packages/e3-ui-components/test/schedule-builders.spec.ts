@@ -74,9 +74,22 @@ const valuesProgram = East.function([], Schedule.Types.RosterKind, ($) => {
         shift: "shift", group: "team", position: "role", activity: "task",
         values: (d) => ({
             unpaidBreak: d.hours.greaterThan(6.0).ifElse(() => 30.0, () => 0.0),
-            costCentre: East.str`CC-${d.group}`,
+            costCentre: d.group.match({ some: (_$, team) => East.str`CC-${team}`, none: () => "" }),
             note: d.pattern.match({ some: (_$, key) => East.str`pattern ${key}`, none: () => "" }),
         }),
+    }).buildRoster("duty");
+});
+
+/**
+ * A duty kind whose group is an Option field (#1548), its `none` a duty in no group yet: the duty's task here, which no
+ * other role maps, the team left to the row.
+ */
+const looseProgram = East.function([], Schedule.Types.RosterKind, ($) => {
+    const duties = $.let(Record.bind(sx.scheduleDuties, ["patch"]));
+    return Schedule.events(duties, {
+        name: "Duty", icon: "user-clock",
+        start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+        shift: "shift", group: "task",
     }).buildRoster("duty");
 });
 
@@ -139,7 +152,7 @@ describe("Schedule.events — the Roster's roles (buildRoster)", () => {
         const [D1, D2] = [await duty("d1"), await duty("d2")];
         assert.ok(rosterRolesEqual(dutyKind.read(encodeDuty(D1), "d1"), {
             start: D1.start, end: D1.end, resource: some({ kind: "people", key: "w-01" }),
-            shift: "early", group: "inbound", position: some("lead"), activity: some("unloading"), hours: 9.5,
+            shift: "early", group: some("inbound"), position: some("lead"), activity: some("unloading"), hours: 9.5,
         }));
         const agency = dutyKind.read(encodeDuty(D2), "d2");
         assert.ok(equalFor(OptionType(Schedule.Types.ResourceRef))(agency.resource, some({ kind: "agencies", key: "a-1" })), "an agency's request, by the variant's case");
@@ -152,7 +165,7 @@ describe("Schedule.events — the Roster's roles (buildRoster)", () => {
         const D1 = await duty("d1");
         const moved = dutyKind.write(encodeDuty(D1), {
             start: at("2027-03-08T14:00:00Z"), end: at("2027-03-08T22:00:00Z"), resource: some({ kind: "agencies", key: "a-2" }),
-            shift: "late", group: "picking", position: some("crew"), activity: none, hours: 0,
+            shift: "late", group: some("picking"), position: some("crew"), activity: none, hours: 0,
         });
         if (moved.type !== "some") assert.fail("expected the duty written");
         assert.ok(dutyEqual(decodeDuty(moved.value), {
@@ -163,10 +176,33 @@ describe("Schedule.events — the Roster's roles (buildRoster)", () => {
             "a resource of a kind the duty kind does not take is refused");
     });
 
+    test("a group of an Option field (#1548): `some` for a duty in a group and `none` for one in no group yet, each written as the field holds it; a String group refuses `none`", async () => {
+        const looseKind = await builtRoster(looseProgram);
+        assert.equal(looseKind.roles.noGroup, true);
+        const D1 = await duty("d1");
+        const roles = looseKind.read(encodeDuty(D1), "d1");
+        assert.ok(equalFor(OptionType(StringType))(roles.group, D1.task), "the field as the row holds it");
+        const unplaced = looseKind.write(encodeDuty(D1), { ...roles, group: none });
+        if (unplaced.type !== "some") assert.fail("expected the duty written in no group");
+        assert.ok(dutyEqual(decodeDuty(unplaced.value), { ...D1, task: none }), "in no group: none, every other field the row's own");
+        const placed = looseKind.write(unplaced.value, { ...looseKind.read(unplaced.value, "d1"), group: some("picking") });
+        if (placed.type !== "some") assert.fail("expected the duty placed");
+        assert.ok(dutyEqual(decodeDuty(placed.value), { ...D1, task: some("picking") }), "placed in a group");
+        const created = looseKind.create({ ...roles, group: none, pattern: none });
+        if (created.type !== "some") assert.fail("expected a duty created in no group");
+        assert.ok(equalFor(OptionType(StringType))(decodeDuty(created.value).task, none));
+        // A kind whose group is a String field holds every duty in a group: a write or a new duty in none is refused.
+        const dutyKind = await builtRoster(dutyProgram);
+        assert.equal(dutyKind.roles.noGroup, false);
+        const held = dutyKind.read(encodeDuty(D1), "d1");
+        assert.equal(dutyKind.write(encodeDuty(D1), { ...held, group: none }).type, "none");
+        assert.equal(dutyKind.create({ ...held, group: none, pattern: none }).type, "none");
+    });
+
     test("creates a new duty from its roles: every other field its type's default", async () => {
         const created = (await builtRoster(dutyProgram)).create({
             start: at("2027-03-10T06:00:00Z"), end: at("2027-03-10T14:00:00Z"), resource: some({ kind: "people", key: "w-03" }),
-            shift: "early", group: "inbound", position: some("crew"), activity: none, hours: 0, pattern: none,
+            shift: "early", group: some("inbound"), position: some("crew"), activity: none, hours: 0, pattern: none,
         });
         if (created.type !== "some") assert.fail("expected the duty created");
         assert.ok(dutyEqual(decodeDuty(created.value), {
@@ -179,7 +215,7 @@ describe("Schedule.events — the Roster's roles (buildRoster)", () => {
         const dutyKind = await builtRoster(valuesProgram);
         const created = dutyKind.create({
             start: at("2027-03-10T06:00:00Z"), end: at("2027-03-10T14:00:00Z"), resource: some({ kind: "people", key: "w-03" }),
-            shift: "early", group: "inbound", position: some("crew"), activity: none, hours: 8, pattern: none,
+            shift: "early", group: some("inbound"), position: some("crew"), activity: none, hours: 8, pattern: none,
         });
         if (created.type !== "some") assert.fail("expected the duty created");
         assert.ok(dutyEqual(decodeDuty(created.value), {
@@ -188,7 +224,7 @@ describe("Schedule.events — the Roster's roles (buildRoster)", () => {
         }), "an eight-hour duty's break, and its team's cost centre");
         const patterned = dutyKind.create({
             start: at("2027-03-11T14:00:00Z"), end: at("2027-03-11T18:00:00Z"), resource: some({ kind: "people", key: "w-03" }),
-            shift: "late", group: "dispatch", position: none, activity: none, hours: 4, pattern: some("late-4"),
+            shift: "late", group: some("dispatch"), position: none, activity: none, hours: 4, pattern: some("late-4"),
         });
         if (patterned.type !== "some") assert.fail("expected the duty created");
         assert.ok(dutyEqual(decodeDuty(patterned.value), {

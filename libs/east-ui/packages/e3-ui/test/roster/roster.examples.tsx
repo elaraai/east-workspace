@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/e3-ui */
 import {
     ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, StringType, StructType,
-    example, none, some, variant,
+    example, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
@@ -245,12 +245,13 @@ export const rosterWarehouse = example({
         // The warehouse's check sees the pay too (§5.8): overtime on a duty nobody has agreed.
         const check = $.const(East.function([Roster.Types.CheckContext(WarehouseDuty)], ArrayType(Roster.Types.Issue), ($2, cx) => {
             const issues = $2.let([], ArrayType(Roster.Types.Issue));
+            const slotOf = $2.const(Roster.slotOf);
             $2.for(cx.week.assignments, ($3, a, id) => {
                 const costs = $3.const(cx.pay.get(id, () => East.value(new Map(), DictType(StringType, FloatType))));
                 $3.if(costs.has("OT1").and(() => East.notEqual(a.row.agreed, some(true))), ($4) => {
                     $4(issues.pushLast({ kind: variant("breach", null), tone: variant("info", null),
                         title: "Overtime not agreed", detail: East.str`${a.row.team} · ${a.row.shift}`,
-                        slot: some(a.slot), assignment: some(id), flag: some("OT"), fix: none }));
+                        slot: slotOf(a.place), assignment: some(id), flag: some("OT"), fix: none }));
                 });
             });
             return issues;
@@ -269,7 +270,7 @@ export const rosterWarehouse = example({
                 values: d => ({
                     unpaidBreak: d.hours.greaterThan(6.0).ifElse(() => 30.0, () => 0.0),
                     agreed: none,
-                    costCentre: centres.get(d.group, () => ""),
+                    costCentre: d.group.match({ some: (_$2, team) => centres.get(team, () => ""), none: () => "" }),
                     note: "",
                 }),
                 // The app's check on a draft: Save waits while a duty has no cost centre — one a person cleared, or a team's with none.
@@ -453,7 +454,7 @@ export const rosterPeople = example({
                 values: d => ({
                     unpaidBreak: d.hours.greaterThan(6.0).ifElse(() => 30.0, () => 0.0),
                     agreed: none,
-                    costCentre: centres.get(d.group, () => ""),
+                    costCentre: d.group.match({ some: (_$2, team) => centres.get(team, () => ""), none: () => "" }),
                     note: d.pattern.match({ some: (_$2, key) => named.get(key).label, none: () => "" }),
                 }),
             }) }}
@@ -844,6 +845,131 @@ export const rosterViews = example({
                 groups={Roster.groups(groups.read(), { label: t => t.name })} />
             </Box>
         </VStack>;
+    }}</Reactive>),
+});
+
+// A roster made in two steps (#1548): first who works when — each person's shifts for the week, told before anyone knows
+// which team each will work in — then where, each shift placed in a team against the teams' targets. The duty's team is
+// an Option field, none until the second step places it.
+
+/** A duty of a roster made in two steps: who, when and on which shift — and its team, none until it is placed in one. */
+export const NoGroupDuty = StructType({ person: StringType, start: DateTimeType, end: DateTimeType, shift: StringType, team: OptionType(StringType) });
+/** One of its staff: a name, their own team and their contracted hours a week. */
+export const NoGroupWorker = StructType({ name: StringType, team: StringType, contract: FloatType });
+/** One of its targets: a team's heads on a shift of a day, and the hours each activity needs. */
+export const NoGroupCover = StructType({ day: DateTimeType, team: StringType, shift: StringType, heads: IntegerType, hours: DictType(StringType, FloatType) });
+
+const NO_GROUP_MONDAY = new Date("2028-03-06T00:00:00Z").getTime();
+const NO_GROUP_HOUR = 3_600_000;
+const NO_GROUP_DAYS = ["mon", "tue", "wed", "thu", "fri"];
+/** The first step's answer, Monday to Friday: each person's shift a day, an early from 6:00 or a late from 14:00, or a day off. */
+const noGroupWeek: readonly (readonly [string, readonly ("early" | "late" | undefined)[]])[] = [
+    ["w-01", ["early", "early", "early", "early", "early"]],
+    ["w-02", ["early", "early", "early", "early", "early"]],
+    ["w-03", ["early", "early", "late", "late", undefined]],
+    ["w-04", ["late", "late", "late", "late", "late"]],
+    ["w-05", ["late", "late", "late", "late", "late"]],
+    ["w-06", ["late", "late", "late", undefined, "late"]],
+];
+/** The first step's week as rows, by key: the day and the person, every one in no team. */
+export const noGroupShifts: Map<string, ValueTypeOf<typeof NoGroupDuty>> = new Map();
+noGroupWeek.forEach(([person, days]) => days.forEach((shift, day) => {
+    if (shift === undefined) return;
+    const start = NO_GROUP_MONDAY + (day * 24 + (shift === "early" ? 6 : 14)) * NO_GROUP_HOUR;
+    noGroupShifts.set(`${NO_GROUP_DAYS[day]}-${person}`, { person, start: new Date(start), end: new Date(start + 8 * NO_GROUP_HOUR), shift, team: none });
+}));
+/** The duties, every one in no team yet: the first step's week. */
+export const noGroupDuties = e3.record("rota_no_group_duties", DictType(StringType, NoGroupDuty), {
+    initial: noGroupShifts,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+/** The staff as rows, by key: three of Inbound's and three of Dispatch's. */
+export const noGroupStaffRows: Map<string, ValueTypeOf<typeof NoGroupWorker>> = new Map([
+    ["w-01", { name: "Ada Brook", team: "inbound", contract: 40.0 }], ["w-02", { name: "Tom Vale", team: "dispatch", contract: 40.0 }],
+    ["w-03", { name: "Mia Hart", team: "inbound", contract: 40.0 }], ["w-04", { name: "Sam Reed", team: "dispatch", contract: 40.0 }],
+    ["w-05", { name: "Lea Fox", team: "inbound", contract: 40.0 }], ["w-06", { name: "Ben Moss", team: "dispatch", contract: 40.0 }],
+]);
+export const noGroupWorkers = e3.record("rota_no_group_staff", DictType(StringType, NoGroupWorker), { initial: noGroupStaffRows });
+/** Each weekday's targets: Inbound two on the early and one on the late, Dispatch one on the early and two on the late. */
+const noGroupTargets = [["inbound", "early", 2n], ["inbound", "late", 1n], ["dispatch", "early", 1n], ["dispatch", "late", 2n]] as const;
+/** The targets as rows, by key: the day, the team and the shift. */
+export const noGroupCoverRows: Map<string, ValueTypeOf<typeof NoGroupCover>> = new Map(NO_GROUP_DAYS.flatMap((name, day) => noGroupTargets.map(([team, shift, heads]) => [
+    `${name}-${team}-${shift}`, { day: new Date(NO_GROUP_MONDAY + day * 24 * NO_GROUP_HOUR), team, shift, heads, hours: new Map<string, number>() },
+] as const)));
+export const noGroupCover = e3.record("rota_no_group_cover", DictType(StringType, NoGroupCover), {
+    initial: noGroupCoverRows,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+const NoGroupRequest = Roster.Types.OptimiseRequest(NoGroupDuty), NoGroupResult = Roster.Types.OptimiseResult(NoGroupDuty);
+/**
+ * The second step's optimiser: each duty in no team placed in one, against the targets, in two passes over the week as
+ * drafted. First each goes to its person's own team, where that team's target has a head open on its day and shift; then
+ * each still in none to the first team, in the teams' order, with one open. A duty no team needs stays in none, and every
+ * duty already in a team stays where it is.
+ */
+export const rosterPlaceShiftsBody = East.function([NoGroupRequest], NoGroupResult, ($, req) => {
+    // Each slot's open heads: its target, less the duties in its team already.
+    const open = $.let(req.requirements.map(($2, need) => need.positions));
+    $.for(req.duties, ($2, duty) => {
+        $2.match(duty.team, { some: ($3, team) => {
+            const slot = $3.const({ day: req.from.durationMilliseconds(duty.start).divide(86_400_000n), group: team, shift: duty.shift });
+            $3.if(open.has(slot), ($4) => { $4(open.update(slot, open.get(slot).subtract(1n))); });
+        } });
+    });
+    const placed = $.let(req.duties.map(($2, duty) => duty));
+    const home = $.const(req.context.people.map(($2, person) => person.group));
+    const teams = $.const(req.context.groups.map(($2, group) => group.key));
+    // The passes: a person's own team first, then any team.
+    const ownTeamFirst = $.const([true, false], ArrayType(BooleanType));
+    $.for(ownTeamFirst, ($2, own) => {
+        $2.for(req.duties, ($3, duty, key) => {
+            $3.match(placed.get(key).team, { none: ($4) => {
+                const day = $4.const(req.from.durationMilliseconds(duty.start).divide(86_400_000n));
+                const mine = $4.const(home.get(duty.person, () => ""));
+                const choices = $4.const(teams.filter(($5, team) => own.not().or(() => team.equal(mine))
+                    .and(() => open.get({ day, group: team, shift: duty.shift }, () => 0n).greater(0n))));
+                $4.if(choices.size().greater(0n), ($5) => {
+                    const slot = $5.const({ day, group: choices.get(0n), shift: duty.shift });
+                    $5(open.update(slot, open.get(slot).subtract(1n)));
+                    $5(placed.update(key, { person: duty.person, start: duty.start, end: duty.end, shift: duty.shift, team: some(slot.group) }));
+                });
+            } });
+        });
+    });
+    return { duties: placed };
+});
+/** The second step on e3: the week's duties in, each in no team placed in one against the targets. */
+export const rotaPlaceShifts = e3.function("rota_place_shifts", rosterPlaceShiftsBody);
+
+export const rosterNoGroup = example({
+    inputs: [], description: "A roster made in two steps (#1548): the duty's team is an Option<String> field, `none` while it is in no group yet. The first step's week stands in no group — each person's shifts, Monday to Friday — listed under each shift in the No group band after the groups in Shifts, and on its person's row in People, its tile and the inspector saying No group; it counts in its person's hours, contract and rest, and in no group's targets. A drag from the band into a group's slot writes `some(team)`, and one back into the band `none`, each one edit. The Elara eye runs the second step, `optimise` over Roster.Types.OptimiseRequest(NoGroupDuty): each duty in no group to its person's own team where its target has a head open that day and shift, then the rest to any team with one, a duty no team needs left in none — one edit, which one Undo reverts and Save writes through the duties' patch door.",
+    keywords: ["Roster", "No group", "no group", "two steps", "Option", "OptionType", "group", "Schedule.events", "optimise", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "Roster.targets", "place", "unplaced"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const rota = $.let(Record.bind(noGroupDuties));
+        const cover = $.let(Record.bind(noGroupCover));
+        const staff = $.let(Data.bind(noGroupWorkers));
+        const times = $.let(Data.bind(minimalShiftTimes));
+        const groups = $.let(Data.bind(minimalTeams));
+        // The second step: the eye places each duty in no group in a team, against the targets.
+        const optimise = $.let(Func.bind(rotaPlaceShifts));
+        return <Box width="100%" height="760px"><Roster id="rosterNoGroup" inspector optimise={optimise}
+            view={{ layout: "shifts", period: "week", date: new Date("2028-03-06T00:00:00Z") }}
+            events={{ duty: Schedule.events(rota, {
+                name: "Duty", icon: "user-clock",
+                start: "start", end: "end", resource: { field: "person", of: "people" },
+                // An Option<String> field: `none`, a duty in no group yet.
+                shift: "shift", group: "team",
+            }) }}
+            resources={{ people: Schedule.resources(staff.read(), { name: "People", icon: "user", label: w => w.name, group: w => w.team, contract: w => w.contract }) }}
+            targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" })}
+            shifts={Roster.shifts(times.read(), { label: s => s.name, code: s => s.code, start: s => s.starts, hours: s => s.hours, order: s => s.order })}
+            groups={Roster.groups(groups.read(), { label: t => t.name })} />
+        </Box>;
     }}</Reactive>),
 });
 

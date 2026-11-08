@@ -26,7 +26,8 @@ import type { OptimiseCounts } from "../shared/func/use-optimise.js";
 import type { RosterCommands } from "./actions.js";
 import type { RosterEditing } from "./editing.js";
 import {
-    compareString, dayOfSlot, hourText, ownTimes, shiftOf, weekSpan, type Assignment, type Context, type Requirement, type RosterDomain, type RosterValue, type Slot, type Week,
+    compareString, dayOfSlot, groupName, hourText, ownTimes, shiftOf, weekSpan, type Assignment, type Context, type Requirement, type RosterDomain, type RosterValue, type Slot,
+    type Week,
 } from "./model.js";
 
 /** The week's duties by key, as the request and the result carry them: the app's own rows. */
@@ -52,7 +53,7 @@ export interface RosterDutyOp {
     readonly op: "add" | "chg" | "del";
     /** The run's number, formatted. */
     readonly run: string;
-    /** `Added by Elara · run #7`, `Was Mon Early · Elara run #7`, or `Removed by Elara · run #7`. */
+    /** `Added by Elara · run #7`, `Was Mon Early · Inbound · Elara run #7`, or `Removed by Elara · run #7`. */
     readonly provenance: string;
 }
 
@@ -97,19 +98,20 @@ export function rosterOptimiseRequest(start: Date, week: Week, context: Context,
 }
 
 /**
- * Where a duty stands, as its provenance says it: its day and its shift, and
- * its own times where they differ from the shift's — `Mon Early`, `Mon Early
- * 07–15`.
+ * Where a duty stands, as its provenance says it: its day and its shift, its
+ * own times where they differ from the shift's, and its group — or No group,
+ * for a duty in none (#1548), which a run placing it changes alone — `Mon
+ * Early · Inbound`, `Mon Early 07–15 · No group`.
  *
- * @param value - The payload: the shifts
+ * @param value - The payload: the shifts, the groups and the words
  * @param format - The app's formatters
  * @param a - The duty
  * @param start - The week's first day
  * @returns The words
  */
 export function rosterDutyWords(value: RosterValue, format: Pick<Formatters, "weekday">, a: Assignment, start: Date): string {
-    const shift = shiftOf(value, a.slot.shift)?.label ?? a.slot.shift;
-    return `${format.weekday(dayOfSlot(start, a.slot))} ${shift}${ownTimes(value, a, start) ? ` ${hourText(a.start)}–${hourText(a.end)}` : ""}`;
+    const shift = shiftOf(value, a.place.shift)?.label ?? a.place.shift;
+    return `${format.weekday(dayOfSlot(start, a.place))} ${shift}${ownTimes(value, a, start) ? ` ${hourText(a.start)}–${hourText(a.end)}` : ""} · ${groupName(value, a.place.group)}`;
 }
 
 /** What a landing is made over. */

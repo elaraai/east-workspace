@@ -168,12 +168,13 @@ export function warehouseRoster(options: { readonly locked?: boolean; readonly f
         }));
         const check = $.const(East.function([Roster.Types.CheckContext(ex.WarehouseDuty)], ArrayType(Roster.Types.Issue), ($2, cx) => {
             const issues = $2.let([], ArrayType(Roster.Types.Issue));
+            const slotOf = $2.const(Roster.slotOf);
             $2.for(cx.week.assignments, ($3, a, id) => {
                 const costs = $3.const(cx.pay.get(id, () => East.value(new Map(), DictType(StringType, FloatType))));
                 $3.if(costs.has("OT1").and(() => East.notEqual(a.row.agreed, some(true))), ($4) => {
                     $4(issues.pushLast({ kind: variant("breach", null), tone: variant("info", null),
                         title: "Overtime not agreed", detail: East.str`${a.row.team} · ${a.row.shift}`,
-                        slot: some(a.slot), assignment: some(id), flag: some("OT"), fix: none }));
+                        slot: slotOf(a.place), assignment: some(id), flag: some("OT"), fix: none }));
                 });
             });
             return issues;
@@ -192,7 +193,7 @@ export function warehouseRoster(options: { readonly locked?: boolean; readonly f
                 values: d => ({
                     unpaidBreak: d.hours.greaterThan(6.0).ifElse(() => 30.0, () => 0.0),
                     agreed: none,
-                    costCentre: centres.get(d.group, () => ""),
+                    costCentre: d.group.match({ some: (_$2, team) => centres.get(team, () => ""), none: () => "" }),
                     note: "",
                 }),
             }) },

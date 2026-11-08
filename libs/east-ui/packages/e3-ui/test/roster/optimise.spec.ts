@@ -15,7 +15,8 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DateTimeType, DictType, East, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, equalFor, isTypeEqual, type ValueTypeOf,
+    DateTimeType, DictType, East, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, equalFor, isTypeEqual, none, printFor, some,
+    type ValueTypeOf,
 } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import e3 from "@elaraai/e3";
@@ -233,5 +234,86 @@ describe("the warehouse's optimiser over its own week (§3.1)", () => {
             filled += theirs.length;
         }
         assert.ok(filled > 100, "the week fills");
+    });
+});
+
+describe("the second step's optimiser over the first step's week, every duty in no group (#1548)", () => {
+    type Loose = ValueTypeOf<typeof base.NoGroupDuty>;
+    type Slot = ValueTypeOf<typeof RosterSlotType>;
+    const sameLoose = equalFor(base.NoGroupDuty);
+    const sameTeam = equalFor(OptionType(StringType));
+    const bySlot = compareFor(RosterSlotType);
+    const slotText = printFor(RosterSlotType);
+    const monday = new Date("2028-03-06T00:00:00Z");
+    const dayOf = (at: Date) => Math.floor((at.getTime() - monday.getTime()) / DAY);
+    // The context the Roster sends, through its own adapters: the staff, and the example's shifts and teams.
+    const contextOf = East.compile(East.function(
+        [DictType(StringType, base.NoGroupWorker), DictType(StringType, base.MinimalShiftTime), DictType(StringType, base.MinimalTeam)],
+        Roster.Types.Context, ($, staff, shifts, teams) => {
+            const people = $.const(rosterPeopleOf(Schedule.resources(staff, {
+                name: "People", icon: "user", label: w => w.name, group: w => w.team, contract: w => w.contract,
+            })));
+            return {
+                people: people.toDict((_$2, p) => p.key, (_$2, p) => p),
+                groups: Roster.groups(teams, { label: t => t.name }).rows,
+                activities: [],
+                shifts: Roster.shifts(shifts, { label: s => s.name, code: s => s.code, start: s => s.starts, hours: s => s.hours, order: s => s.order }).rows,
+                positions: [],
+                agencies: [],
+                rules: { rest: 10, lead: false, trainer: true, skill: true },
+            };
+        }), []);
+    const context = contextOf(base.noGroupStaffRows,
+        new Map([["early", { name: "Early", code: "E", starts: { hour: 6n, minute: 0n }, hours: 8.0, order: 1n }],
+            ["late", { name: "Late", code: "L", starts: { hour: 14n, minute: 0n }, hours: 8.0, order: 2n }]]),
+        new Map([["inbound", { name: "Inbound" }], ["dispatch", { name: "Dispatch" }]]));
+    // The week's targets by slot, from the example's own rows.
+    const requirements = new SortedMap([...base.noGroupCoverRows.values()].map((row) => [
+        { day: BigInt(dayOf(row.day)), group: row.team, shift: row.shift }, { positions: row.heads, hours: row.hours },
+    ] as const), bySlot);
+    const place = East.compile(base.rosterPlaceShiftsBody, []);
+    // The request the Roster sends it: `Roster.Types.OptimiseRequest` of the duties' row type, as `place` takes it.
+    const request: Parameters<typeof place>[0] = {
+        from: monday, to: new Date(monday.getTime() + 7 * DAY), run: 1n, duties: new SortedMap<string, Loose>([...base.noGroupShifts], byString), requirements, context,
+    };
+    const teamOf = (duties: ReadonlyMap<string, Loose>, key: string) => duties.get(key)!.team;
+
+    test("each duty in no group goes to its person's own team where a head is open, then to any team with one; one no team needs stays in none", () => {
+        const result = place(request);
+        assert.deepEqual([...result.duties.keys()], [...request.duties.keys()], "no duty added or removed");
+        for (const [key, duty] of result.duties) {
+            assert.ok(sameLoose({ ...duty, team: none }, request.duties.get(key)!), `${key}: its person, times and shift as they were`);
+        }
+        // Monday: everyone in their own team.
+        for (const [person, worker] of base.noGroupStaffRows) assert.ok(sameTeam(teamOf(result.duties, `mon-${person}`), some(worker.team)), person);
+        // Wednesday: Mia's late takes Inbound's one late, and Lea's, the one late too many, stays in no group.
+        assert.ok(sameTeam(teamOf(result.duties, "wed-w-03"), some("inbound")));
+        assert.ok(sameTeam(teamOf(result.duties, "wed-w-05"), none));
+        // Thursday, with Ben off: Lea's late goes to Dispatch, the team with a late open.
+        assert.ok(sameTeam(teamOf(result.duties, "thu-w-05"), some("dispatch")));
+    });
+
+    test("no slot holds more duties than its heads", () => {
+        const result = place(request);
+        const held = new SortedMap<Slot, number>([], bySlot);
+        for (const duty of result.duties.values()) {
+            if (duty.team.type !== "some") continue;
+            const slot: Slot = { day: BigInt(dayOf(duty.start)), group: duty.team.value, shift: duty.shift };
+            held.set(slot, (held.get(slot) ?? 0) + 1);
+        }
+        for (const [slot, count] of held) assert.ok(count <= Number(requirements.get(slot)?.positions ?? 0n), slotText(slot));
+    });
+
+    test("a duty in a team stays where it is and holds its head: run again on the answer, nothing moves; a duty moved by hand keeps its team", () => {
+        const once = place(request);
+        const again = place({ ...request, run: 2n, duties: once.duties });
+        for (const [key, duty] of once.duties) assert.ok(sameLoose(again.duties.get(key)!, duty), key);
+        // Ada's Monday early moved to Dispatch by hand, and Tom's taken out to no group.
+        const moved = new SortedMap<string, Loose>([...once.duties], byString);
+        moved.set("mon-w-01", { ...once.duties.get("mon-w-01")!, team: some("dispatch") });
+        moved.set("mon-w-02", { ...once.duties.get("mon-w-02")!, team: none });
+        const after = place({ ...request, run: 3n, duties: moved });
+        assert.ok(sameTeam(teamOf(after.duties, "mon-w-01"), some("dispatch")), "a duty in a team stays there");
+        assert.ok(sameTeam(teamOf(after.duties, "mon-w-02"), some("inbound")), "Ada holds Dispatch's one early, so Tom's goes to Inbound's open one");
     });
 });

@@ -8,19 +8,33 @@
  * and a skill's — summed from the coverage the Shifts layout works out for each slot, so the two layouts never
  * disagree (K1), over the span in view: a week, or a month's weeks. A group's band sums its own slots; where the layout
  * draws no bands (#1567), one block sums every group's. Rostered is every duty's hours — the permanent staff's, agency
- * staff's and the agencies' requests' — as the Shifts layout counts them (ruled 8 Nov 2026).
+ * staff's and the agencies' requests' — as the Shifts layout counts them (ruled 8 Nov 2026). A duty in no group yet
+ * (#1548) stands in no slot: no band counts it, and the one block counts it on its shift's day beside the slots, its
+ * hours going to what they are short — it may yet be placed in any of them.
  *
  * @packageDocumentation
  */
 import { none, some } from "@elaraai/east";
 import type { Coverage, RosterValue, Shift, Slot, Week } from "./model.js";
 
-/** A week of the span, as the work requirement reads it: its targets, and each slot's coverage over it. */
+/** A week of the span, as the work requirement reads it: its targets, each slot's coverage over it, and its duties in no group. */
 export interface DemandWeek {
     /** The week's targets, by slot. */
     readonly requirements: Week["requirements"];
     /** Each slot's coverage over the week. */
     readonly coverage: ReadonlyMap<Slot, Coverage>;
+    /** Its duties in no group yet (#1548): each day's hours by shift's key, the week's first day first ({@link looseOf}). */
+    readonly loose?: readonly ReadonlyMap<string, LooseHours>[] | undefined;
+}
+
+/** A shift's day's duties in no group yet (#1548): their hours, split as a slot's coverage splits its own. */
+export interface LooseHours {
+    /** The permanent staff's. */
+    readonly permanent: number;
+    /** Agency staff's. */
+    readonly agency: number;
+    /** The agencies' requests'. */
+    readonly requested: number;
 }
 
 /** Hours over a set of slots: those needed against those rostered, and what the slots are short, each its own. */
@@ -215,8 +229,11 @@ interface Entry {
     readonly target: boolean;
 }
 
-/** The figures of a set of slots, summed: their hours, and what each is short (K4). */
-function sumOf(slots: readonly Entry[]): DemandFigures {
+/**
+ * The figures of a shift's day — some of its slots, and the duties in no group the scope counts there — summed: their
+ * hours, and what each slot is short (K4), less the hours in no group, which may yet be placed in any of them (#1548).
+ */
+function figuresOf(slots: readonly Entry[], loose: LooseHours | undefined): DemandFigures {
     let target = false, needed = 0, rostered = 0, permanent = 0, agency = 0, requested = 0, short = 0, shortSlots = 0;
     for (const slot of slots) {
         const hours = slot.coverage.hours;
@@ -226,7 +243,47 @@ function sumOf(slots: readonly Entry[]): DemandFigures {
         const d = difference(hours.rostered, hours.needed);
         if (d < 0) { short -= d; shortSlots += 1; }
     }
+    if (loose !== undefined) {
+        const hours = loose.permanent + loose.agency + loose.requested;
+        permanent += loose.permanent; agency += loose.agency; requested += loose.requested; rostered += hours;
+        short = Math.max(0, short - hours);
+        if (short <= EPSILON) { short = 0; shortSlots = 0; }
+    }
     return { target, needed, rostered, permanent, agency, requested, short, shortSlots };
+}
+/** Figures added: their hours, and what each is short, each its own (K4). */
+function addFigures(list: readonly DemandFigures[]): DemandFigures {
+    let target = false, needed = 0, rostered = 0, permanent = 0, agency = 0, requested = 0, short = 0, shortSlots = 0;
+    for (const f of list) {
+        target ||= f.target;
+        needed += f.needed; rostered += f.rostered;
+        permanent += f.permanent; agency += f.agency; requested += f.requested;
+        short += f.short; shortSlots += f.shortSlots;
+    }
+    return { target, needed, rostered, permanent, agency, requested, short, shortSlots };
+}
+/**
+ * A week's duties in no group yet (#1548), as the one block over every group counts them: each day's hours by its
+ * shift's key, the week's first day first, split as a slot's coverage splits its own — an agency person's as agency
+ * staff's, a request's as the agencies'.
+ *
+ * @param value - The payload: its people, each marked agency staff or not
+ * @param week - The week as drafted
+ * @returns Each day's hours, by shift
+ */
+export function looseOf(value: Pick<RosterValue, "people">, week: Week): readonly ReadonlyMap<string, LooseHours>[] {
+    const days: Map<string, LooseHours>[] = Array.from({ length: WEEK_DAYS }, () => new Map());
+    const agencyStaff = new Set(value.people.filter(person => person.agency).map(person => person.key));
+    for (const a of week.assignments.values()) {
+        if (a.place.group.type !== "none") continue;
+        const day = days[Number(a.place.day)];
+        if (day === undefined) continue;
+        const at = day.get(a.place.shift) ?? { permanent: 0, agency: 0, requested: 0 };
+        const who = a.who;
+        day.set(a.place.shift, who.type === "request" ? { ...at, requested: at.requested + a.hours }
+            : agencyStaff.has(who.value) ? { ...at, agency: at.agency + a.hours } : { ...at, permanent: at.permanent + a.hours });
+    }
+    return days;
 }
 
 /** A lane's skill rows: each skill its slots' lines need, summed each day, in the activities' order as the lines are. */
@@ -252,52 +309,66 @@ function skillsOf(value: Pick<RosterValue, "activities">, days: readonly (readon
  * A scope's work requirement over the span (#1568): a lane a shift a target of the scope names in any of the span's
  * weeks, its days' and its span's hours summed over the scope's groups' slots — each slot's as the Shifts layout draws
  * it — and its skill rows; and the scope's days', weeks' and span's over every one of its slots, a shift with no
- * target's included, as the Shifts layout's band sums them.
+ * target's included, as the Shifts layout's band sums them. With `loose`, each shift's day counts the week's duties in
+ * no group there too (#1548): the one block over every group's.
  *
  * @param value - The payload: its shifts and activities, in their orders
- * @param weeks - The span's weeks, its first first: each one's targets and coverage
+ * @param weeks - The span's weeks, its first first: each one's targets, coverage and duties in no group
  * @param groups - The scope's groups: a band's own, or every group where the layout draws no bands
+ * @param loose - Whether the scope counts the duties in no group: the one block's
  * @returns The scope's lanes and figures
  */
-export function demandOf(value: Pick<RosterValue, "shifts" | "activities">, weeks: readonly DemandWeek[], groups: readonly string[]): Demand {
+export function demandOf(value: Pick<RosterValue, "shifts" | "activities">, weeks: readonly DemandWeek[], groups: readonly string[], loose = false): Demand {
     const days = weeks.length * WEEK_DAYS;
-    const scopeDays: Entry[][] = Array.from({ length: days }, () => []);
+    // Each day's figures a shift: what the scope's days, weeks and span add up.
+    const scopeDays: DemandFigures[][] = Array.from({ length: days }, () => []);
     const lanes: DemandLane[] = [];
     for (const shift of value.shifts) {
         const laneDays: Entry[][] = Array.from({ length: days }, () => []);
+        const laneFigures: DemandFigures[] = [];
         let targeted = false;
-        weeks.forEach(({ requirements, coverage }, w) => {
-            for (let day = 0; day < WEEK_DAYS; day++) for (const group of groups) {
-                const slot = { day: BigInt(day), group, shift: shift.key };
-                const slotCoverage = coverage.get(slot);
-                if (slotCoverage === undefined) continue;
-                const entry = { coverage: slotCoverage, target: requirements.has(slot) };
-                targeted ||= entry.target;
-                laneDays[w * WEEK_DAYS + day]!.push(entry);
-                scopeDays[w * WEEK_DAYS + day]!.push(entry);
+        weeks.forEach(({ requirements, coverage, loose: looseDays }, w) => {
+            for (let day = 0; day < WEEK_DAYS; day++) {
+                const entries = laneDays[w * WEEK_DAYS + day]!;
+                for (const group of groups) {
+                    const slot = { day: BigInt(day), group, shift: shift.key };
+                    const slotCoverage = coverage.get(slot);
+                    if (slotCoverage === undefined) continue;
+                    const entry = { coverage: slotCoverage, target: requirements.has(slot) };
+                    targeted ||= entry.target;
+                    entries.push(entry);
+                }
+                const figures = figuresOf(entries, loose ? looseDays?.[day]?.get(shift.key) : undefined);
+                laneFigures.push(figures);
+                scopeDays[w * WEEK_DAYS + day]!.push(figures);
             }
         });
-        if (targeted) lanes.push({ shift, days: laneDays.map(sumOf), total: sumOf(laneDays.flat()), skills: skillsOf(value, laneDays) });
+        if (targeted) lanes.push({ shift, days: laneFigures, total: addFigures(laneFigures), skills: skillsOf(value, laneDays) });
     }
+    const dayFigures = scopeDays.map(addFigures);
     return {
-        lanes, days: scopeDays.map(sumOf),
-        weeks: weeks.map((_, w) => sumOf(scopeDays.slice(w * WEEK_DAYS, (w + 1) * WEEK_DAYS).flat())),
-        total: sumOf(scopeDays.flat()),
+        lanes, days: dayFigures,
+        weeks: weeks.map((_, w) => addFigures(dayFigures.slice(w * WEEK_DAYS, (w + 1) * WEEK_DAYS))),
+        total: addFigures(dayFigures),
     };
 }
 
 /**
  * Coverage summed over slots (#1568): a shift's day across the groups, as the inspector draws it — positions, people,
  * hours and cost added, a lead or a trainer where any slot has one, and each skill's line summed over the slots whose
- * targets need it, in the activities' order, its holders and capacity where any slot counts them.
+ * targets need it, in the activities' order, its holders and capacity where any slot counts them. With `loose`, the
+ * hours of the duties in no group there count as rostered too, as the one block's lane counts them (#1548): they fill
+ * no position.
  *
  * @param value - The payload: its activities, in their order
  * @param list - The slots' coverage
+ * @param loose - The shift's day's duties in no group yet, where the sum counts them
  * @returns Their sum, a coverage the coverage detail draws as it draws a slot's
  */
-export function summedCoverage(value: Pick<RosterValue, "activities">, list: readonly Coverage[]): Coverage {
+export function summedCoverage(value: Pick<RosterValue, "activities">, list: readonly Coverage[], loose?: LooseHours): Coverage {
     let positions = 0n, filled = 0n, open = 0n, people = 0n, cost = 0, lead = false, trainer = false;
-    let permanent = 0, agency = 0, requested = 0, needed = 0, rostered = 0;
+    let permanent = loose?.permanent ?? 0, agency = loose?.agency ?? 0, requested = loose?.requested ?? 0, needed = 0;
+    let rostered = permanent + agency + requested;
     const lines = new Map<string, { needed: number; assigned: number; gap: number; holders: bigint | undefined; capacity: number | undefined }>();
     for (const c of list) {
         positions += c.positions; filled += c.filled; open += c.open; people += c.people; cost += c.cost;
