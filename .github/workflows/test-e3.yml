@@ -114,8 +114,12 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install make --no-progress -y
 
+      # setup-uv 7.6 and later fetch uv from Astral's mirror, not GitHub's
+      # releases, whose downloads time out; its cache stays off, as before.
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
 
       - name: Set up Python 3.11
         run: uv python install 3.11
@@ -199,8 +203,15 @@ jobs:
         run: |
           echo "tools=$(uv tool dir)" >> "$GITHUB_OUTPUT"
           echo "bin=$(uv tool dir --bin)" >> "$GITHUB_OUTPUT"
-          # The interpreter the install takes, uv's default, as the install finds it.
-          echo "python=$("$(uv python find)" -c 'import sys; print(sys.version.split()[0])')" >> "$GITHUB_OUTPUT"
+          # The interpreter the install takes, uv's default, as the install
+          # finds it: its version, and where it is, which the install's
+          # environment links to. setup-uv 7 installs uv's Pythons under the
+          # runner's temporary directory, where v3 left them in uv's own, so an
+          # install keyed by the version alone would link to a Python the job
+          # does not have.
+          python="$(uv python find)"
+          echo "python=$("$python" -c 'import sys; print(sys.version.split()[0])')" >> "$GITHUB_OUTPUT"
+          echo "pythonpath=$(printf '%s' "$python" | tr -c 'A-Za-z0-9._-' '_')" >> "$GITHUB_OUTPUT"
           echo "uv=$(uv --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the East runners
@@ -210,7 +221,7 @@ jobs:
           path: |
             ${{ steps.runners.outputs.tools }}/elaraai-east-py-cli
             ${{ steps.runners.outputs.bin }}/east-py*
-          key: east-runners-${{ runner.os }}${{ matrix.runner }}-py${{ steps.runners.outputs.python }}-uv${{ steps.runners.outputs.uv }}-${{ hashFiles('libs/east-py/**', 'libs/east-c/packages/east-c/**', '!**/node_modules/**', '!**/build/**', '!**/.venv/**', '!**/__pycache__/**', '!**/dist/**') }}
+          key: east-runners-${{ runner.os }}${{ matrix.runner }}-py${{ steps.runners.outputs.python }}-${{ steps.runners.outputs.pythonpath }}-uv${{ steps.runners.outputs.uv }}-${{ hashFiles('libs/east-py/**', 'libs/east-c/packages/east-c/**', '!**/node_modules/**', '!**/build/**', '!**/.venv/**', '!**/__pycache__/**', '!**/dist/**') }}
 
       - name: Install East runners
         if: steps.runners-cache.outputs.cache-hit != 'true'

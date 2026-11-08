@@ -82,7 +82,11 @@ jobs:
       # `Compute target version` bumps the Python pyproject versions and then
       # re-locks libs/east-py/uv.lock via `uv lock` (scripts/set-python-version.mjs),
       # so the `uv` binary must be on PATH in this job too — not just the build jobs.
-      - uses: astral-sh/setup-uv@v3
+      # setup-uv 7.6 and later fetch uv from Astral's mirror, not GitHub's
+      # releases, whose downloads time out; its cache stays off, as before.
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
 
       - name: Preflight — npm auth (OIDC reachable)
         if: ${{ !inputs.dry_run }}
@@ -443,7 +447,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { name: version-bump }
-      - uses: astral-sh/setup-uv@v3
+      # setup-uv 7.6 and later fetch uv from Astral's mirror, not GitHub's
+      # releases, whose downloads time out; its cache stays off, as before.
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
       - name: Set up Python 3.11
         run: uv python install 3.11
       - name: Build sdist + wheel
@@ -538,7 +546,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { name: version-bump }
-      - uses: astral-sh/setup-uv@v3
+      # setup-uv 7.6 and later fetch uv from Astral's mirror, not GitHub's
+      # releases, whose downloads time out; its cache stays off, as before.
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
       - name: Set up Python 3.11
         run: uv python install 3.11
       # Stage east-c (+ east-py .pxd) into _vendor/ so the sdist is

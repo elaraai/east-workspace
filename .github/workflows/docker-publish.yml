@@ -42,8 +42,12 @@ jobs:
         with:
           node-version: 22.x
 
+      # setup-uv 7.6 and later fetch uv from Astral's mirror, not GitHub's
+      # releases, whose downloads time out; its cache stays off, as before.
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
 
       # `finalize` pushes the release tag only after every publish job has
       # succeeded, and a publish job succeeds only once its registry serves

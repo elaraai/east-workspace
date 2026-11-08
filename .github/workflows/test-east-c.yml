@@ -285,7 +285,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      # setup-uv 7.6 and later fetch uv from Astral's mirror, not GitHub's
+      # releases, whose downloads time out; its cache stays off, as before.
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
       - name: Lint
         working-directory: libs/east-c
         run: make lint
