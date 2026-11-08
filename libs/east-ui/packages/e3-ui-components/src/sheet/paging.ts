@@ -145,6 +145,13 @@ export interface SheetPaging {
     /** The windows in flight, ascending: a run is busy while one of its own is (#1398). */
     pending: readonly number[];
     /**
+     * The resident windows whose rows are the previous revision's, standing in until their read at this one lands (#851),
+     * ascending: what a Save's rows are drawn over as it left them, never as they were before it.
+     */
+    standing: readonly number[];
+    /** The revision the source is read at — its `revision()`, as last read (#851); `undefined` while it names none. */
+    revision: string | undefined;
+    /**
      * Whether the view waits for a window it shows (#1398): one in flight, or one not read and not asked yet — the view
      * on its way over rows not read, or resting there before its read is asked (CL6). What the footer's loading line and
      * the grid's busy follow — never a window read ahead of the view, which nothing on screen waits for.
@@ -190,10 +197,12 @@ export interface SheetPaging {
 
 /** No window in flight. */
 const NONE_PENDING: readonly number[] = [];
+/** No window standing in. */
+const NONE_STANDING: readonly number[] = [];
 
 const IDLE: SheetPaging = {
     rows: [], positions: [], rowsOffset: 0, failures: [], head: undefined, tail: undefined, total: undefined,
-    exhausted: true, loading: false, pending: NONE_PENDING, viewLoading: false, reading: undefined, replacing: false, held: false,
+    exhausted: true, loading: false, pending: NONE_PENDING, standing: NONE_STANDING, revision: undefined, viewLoading: false, reading: undefined, replacing: false, held: false,
     sourceError: undefined, error: undefined, landedOnce: false, sizeVersion: 0, jump: undefined,
     reportViewport: () => {}, jumpToElement: () => {}, clearJump: () => {}, retry: () => {},
 };
@@ -425,6 +434,9 @@ export function useSheetPaging(
             loading: reads.inFlight.length > 0,
             sourceError,
             standingIn: reads.stale,
+            // Which windows stand in, and the revision the rest are read at: what a Save's rows are drawn over.
+            standing: reads.standing,
+            revision,
             landedOnce: held.landedOnce,
         };
     }, [source, residency, retries]);
@@ -710,6 +722,8 @@ export function useSheetPaging(
         exhausted,
         loading: value?.loading ?? false,
         pending: allPending,
+        standing: value === undefined || value.standing.length === 0 ? NONE_STANDING : value.standing,
+        revision: value?.revision,
         viewLoading: viewPending.length > 0 || viewAwaits,
         reading,
         replacing: false,

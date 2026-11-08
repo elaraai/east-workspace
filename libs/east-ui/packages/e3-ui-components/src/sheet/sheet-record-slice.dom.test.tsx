@@ -117,6 +117,54 @@ test("indexed Sheet keeps the record's order under its lens, restores saved narr
     expect(ui.container.querySelector('[data-record-save-notice]')).toBeNull();
 });
 
+test("a saved row shows what it saved while its rows are read again at the revision the Save committed — under the narrowing's lens and over the whole sheet a page at a time — never the value it had before", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.row("JOB-10000")).not.toBeNull());
+    await settle();
+    const quantity = (id: string) => ui.row(id)?.querySelector<HTMLElement>('[data-slot="cell"][data-key="quantity"]')?.textContent ?? null;
+    const status = () => ui.container.querySelector('[data-slot="history"] [role="status"]')?.textContent ?? "";
+    /** A new quantity typed into a row and saved, the orders' pages held on their way from the moment its patch lands. */
+    const saved = async (id: string) => {
+        const to = quantity(id) === "7" ? "8" : "7";
+        fireEvent.doubleClick(ui.row(id)!.querySelector('[data-key="quantity"]')!);
+        const editor = await waitFor(() => {
+            const input = ui.container.querySelector<HTMLInputElement>('[data-slot="editorInput"]');
+            expect(input).not.toBeNull(); return input!;
+        });
+        fireEvent.input(editor, { target: { value: to } });
+        // The number field hands its value on a turn after the input.
+        await settle();
+        fireEvent.keyDown(editor, { key: "Enter" });
+        await settle();
+        expect(quantity(id)).toBe(to);
+        // The patch reaches e3, its answer held there; the rows' pages are held from then, so every read of them at the
+        // revision it commits waits — all but a one-row page, the confirmation's read of the saved row by its key.
+        const patch = h.e3.holdAnswers((request) => request.kind === "mutate");
+        await act(async () => { fireEvent.click(ui.getByRole("button", { name: "Save" })); });
+        await patch.holding;
+        const pages = h.e3.hold((request) => request.kind === "page" && request.dataset === ORDERS && request.query.get("limit") !== "1");
+        await act(async () => { patch.release(); });
+        await pages.holding;
+        // Confirmed — the saved row read back by its key at the revision committed — its pages still on their way: the
+        // rows read before the Save stand in, and the saved row shows what it saved.
+        await waitFor(() => expect(status()).not.toMatch(/Saving|reading it back/));
+        expect(pages.held).toBeGreaterThan(0);
+        expect(quantity(id)).toBe(to);
+        // The pages land: the row is the record's, as saved.
+        await act(async () => { pages.release(); });
+        await settle();
+        expect(quantity(id)).toBe(to);
+        expect((await h.read(ui.record)).get(id)?.quantity).toBe(BigInt(to));
+    };
+    // The rail opens on Ready: the lens draws its rows.
+    await saved("JOB-10000");
+    // The whole sheet: every order, a page at a time.
+    fireEvent.mouseDown(ui.tab("all"), { button: 0 });
+    await settle();
+    await waitFor(() => expect(ui.row("JOB-10001")).not.toBeNull());
+    await saved("JOB-10001");
+});
+
 test("a scroll far from the rows, every page it shows on its way, is never covered again: the run drawn where the view is, main busy, and the rows land there (#1398, CL5)", async () => {
     const ui = await setup();
     await waitFor(() => expect(ui.row("JOB-10000")).not.toBeNull());

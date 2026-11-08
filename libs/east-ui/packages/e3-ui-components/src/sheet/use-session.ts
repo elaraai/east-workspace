@@ -17,14 +17,14 @@ import { Sheet, SheetBatchReadinessType } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, useLanding, useLandingStyles, useDataStable, usePersistedState, type BatchReadiness } from "@elaraai/east-ui-components";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { NULL_CELL, drawnPx, isLooseRow, layoutLensRun, layoutRun, type SheetGeometry } from "./model.js";
-import { useSheetPaging } from "./paging.js";
+import { SHEET_PAGE_SIZE, useSheetPaging } from "./paging.js";
 import { NOT_PERSISTED, persistedOf, type SheetPersisted } from "./persisted.js";
 import { useOptimise, type OptimiseCounts } from "../shared/func/use-optimise.js";
 import { sheetOptimiseTypes, type SheetOptimiseRequest, type SheetOptimiseResult, type SheetOptimised } from "./optimise.js";
 import type { LensGeometry, LensWords } from "./lens-layout.js";
 import { useRecordLens } from "./use-lens.js";
 import { initialSheetStore, sheetStoreReducer } from "./sheet-state.js";
-import { useSheetEditing, type LocalLayer } from "./use-editing.js";
+import { useSheetEditing, type LocalLayer, type SheetRowsRead } from "./use-editing.js";
 import { useCellsFromData } from "./cells-from-data.js";
 import { useSheetDay } from "./day.js";
 import { draftChanges, draftPresentation, type DraftPresentation } from "./draft-state.js";
@@ -167,7 +167,18 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     // The rows a key's far jump holds stand in, retained, until its rows replace them (#1398, CL10): the source's own
     // rows still, which the session holds, but they take no gesture.
     const keyHeld = !lensDrawn && paging.held;
-    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular, day);
+    // How the rows drawn were read: a Save's rows are drawn as it left them over those read before it — the pages a window
+    // at a time while a new revision's are read (#851), the lens a layout at a time — until their source reads them again.
+    const pagesStanding = paging.standing;
+    const rowsRead = useMemo((): SheetRowsRead | undefined => {
+        if (decodedRows !== undefined) return undefined;
+        if (lensDrawn) return { revision: lens.revision, before: () => lens.readBefore };
+        return {
+            revision: paging.revision,
+            before: (position) => position === undefined ? pagesStanding.length > 0 : pagesStanding.includes(Math.floor(position / SHEET_PAGE_SIZE)),
+        };
+    }, [decodedRows, lensDrawn, lens.revision, lens.readBefore, paging.revision, pagesStanding]);
+    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular, day, rowsRead);
     const session = editingState.session;
     // ── The app's optimiser (#1409, #1418) ────────────────────────────────
     // One run over the current tab's rows, its result landed on them as one edit (`use-assembled.tsx`, once the rows and their
@@ -226,8 +237,9 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
         return recorded;
     }, [recordSession]);
     const drafts = editingState.drafts;
-    // The session's rows, each with its cells from data read over its draft (#1559).
-    const layer = useMemo(() => fromData.layer(editingState.layer, session.entries, drafts), [fromData, editingState.layer, session, drafts]);
+    // The session's rows, each with its cells from data read over its draft (#1559) — a Save's landed rows over theirs.
+    const layerDrafts = editingState.layerDrafts;
+    const layer = useMemo(() => fromData.layer(editingState.layer, layerDrafts.entries, layerDrafts.drafts), [fromData, editingState.layer, layerDrafts]);
     // A row's draft presentation, derived once per session change (#858): the
     // gutter's decisions and the row read the same one, and between changes a
     // row keeps it by identity, so its memo holds.

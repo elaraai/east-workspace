@@ -71,6 +71,8 @@ export interface WindowReads<R> {
     failed: { w: number; error: string }[];
     /** Whether any resident window was served from `stale`: the previous revision, standing in until this one's rows land. */
     stale: boolean;
+    /** Every window served from `stale`, in the order asked: its rows were read at the previous revision. */
+    standing: number[];
 }
 
 /** One line naming why a read failed. */
@@ -98,7 +100,7 @@ function readFailure(err: unknown): string {
  * @param pageSize - Elements per window
  * @param failures - The caller's failure record (mutated: a new failure is recorded)
  * @param stale - The previous revision's windows, served for a window still in flight at this one
- * @returns The windows resident, in flight and failed, and whether any was served from `stale`
+ * @returns The windows resident, in flight and failed, and those served from `stale`
  */
 export function readWindows<T, R>(
     reader: WindowReader<T, R>,
@@ -111,7 +113,7 @@ export function readWindows<T, R>(
     const resident: { w: number; read: R }[] = [];
     const inFlight: number[] = [];
     const failed: { w: number; error: string }[] = [];
-    let servedStale = false;
+    const standing: number[] = [];
     for (const w of windows) {
         const known = cache.get(w);
         if (known !== undefined) {
@@ -141,7 +143,7 @@ export function readWindows<T, R>(
             const previous = stale?.get(w);
             if (previous !== undefined) {
                 resident.push({ w, read: previous });
-                servedStale = true;
+                standing.push(w);
             }
             continue;
         }
@@ -149,7 +151,7 @@ export function readWindows<T, R>(
         cache.set(w, read);
         resident.push({ w, read });
     }
-    return { resident, inFlight, failed, stale: servedStale };
+    return { resident, inFlight, failed, stale: standing.length > 0, standing };
 }
 
 /**

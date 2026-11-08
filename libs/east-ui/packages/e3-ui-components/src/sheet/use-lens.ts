@@ -39,7 +39,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { equivalentFor, none, printFor, type option, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, equivalentFor, none, printFor, type option, type ValueTypeOf } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
 import type { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import { RecordSliceWhereType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
@@ -60,6 +60,7 @@ export const LENS_BUDGET = 16;
 const LENS_BEYOND = 2;
 
 const printWhere = printFor(RecordSliceWhereType);
+const stringEqual = equalFor(StringType);
 /** Whether two sources serve the same rows: the same id and equivalent functions, as the paged driver asks (#809). */
 const sourceEquivalent = equivalentFor(Sheet.Types.Root.fields.rows.cases.paged);
 
@@ -155,6 +156,11 @@ export interface RecordLens {
     matches: number | undefined;
     /** The record's revision the lens reads at, once known: what the answers of which choices hide a row are kept by. */
     revision: string | undefined;
+    /**
+     * Whether the layout drawn was read before that revision: the last one's, standing in while this one's is read —
+     * what a Save's rows are drawn over as it left them, never as they were before it.
+     */
+    readBefore: boolean;
     /** Whether the narrowing's layout is drawn: its placement begun and the segments near the view read. */
     ready: boolean;
     /** Whether a read is still in flight. */
@@ -459,6 +465,11 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
     const readingHeld = useRef(NOT_READING);
     if (readingNow.length !== readingHeld.current.length || readingNow.some((at, i) => at !== readingHeld.current[i])) readingHeld.current = readingNow;
     const reading = readingHeld.current;
+    // The layout drawn is the last revision's while this one's is read — or while the read fails, its revision unknown.
+    const laidOut = shown?.revision;
+    const readNow = value?.revision;
+    const readBefore = active && shown !== undefined && (value === undefined
+        || (laidOut === undefined || readNow === undefined ? laidOut !== readNow : !stringEqual(laidOut, readNow)));
     return {
         layout,
         rows: drawn.rows,
@@ -466,6 +477,7 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         total: value?.placement?.records,
         matches: value?.placement?.matches,
         revision: active ? value?.revision : undefined,
+        readBefore,
         ready: active && value !== undefined && value.ready && shown !== undefined && shown.query === query && shown.revision === value.revision,
         loading: active && (value === undefined || value.loading),
         reading,

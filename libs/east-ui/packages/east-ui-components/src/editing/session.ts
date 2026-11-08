@@ -310,6 +310,25 @@ export interface HeldRows {
 }
 
 /**
+ * An entry a confirmed Save changed, while the host's rows may still be read
+ * from before it ({@link EditSession.landed}).
+ *
+ * @typeParam W - The collection's projection of an entry
+ */
+export interface LandedEntry<W> {
+    /** The entry as the source held it before the Save: absent for one the Save added. */
+    readonly before: EntryVersion<W>;
+    /**
+     * The entry as the source holds it now: the request's version — or, read
+     * back otherwise (another write beside it), the source's; absent for one
+     * the source no longer holds.
+     */
+    readonly after: EntryVersion<W>;
+    /** The revision the request was drafted at: rows read there hold nothing of it. */
+    readonly from: string;
+}
+
+/**
  * What a session is bound to: its source and schemas, and the callbacks the
  * next request uses.
  *
@@ -366,6 +385,14 @@ export interface EditSessionBinding<W> {
      * the entry had.
      */
     wireOf?: ((id: string, draft: unknown, prior: W | undefined) => W | undefined) | undefined;
+    /**
+     * Whether the host draws what a confirmed Save landed over rows read
+     * before its commit, until they are read again ({@link EditSession.landed}):
+     * a host whose rows are read apart from the confirmation — a paged
+     * source's pages, read again at the revision the Save committed. `false`
+     * by default, and nothing is held.
+     */
+    drawsLanded?: boolean | undefined;
 }
 
 /** An entry a request changes: as its edit began, and as the request leaves it — `none` while it is absent. */
@@ -402,6 +429,12 @@ interface Submission<W> {
     targets: Map<string, Target>;
     /** Confirmed identities and whether their saved value is exact; no source rows. */
     checked: Map<string, boolean>;
+    /**
+     * Each confirmed entry read back otherwise than the request left it, as the
+     * source holds it: what a host that draws a landed Save draws it as
+     * ({@link EditSession.landed}) — never an entry read back exactly.
+     */
+    otherwise: Map<string, option<unknown>>;
     base: Base;
     revision: string | undefined;
     /** A positional snapshot's whole collection as the request leaves it — its target, order included. */
@@ -580,6 +613,8 @@ export class EditSession<W> {
     private conflicted: Conflicted | undefined;
     /** Why the confirmation read last failed, while it is the error shown (#853). */
     private confirmReason: string | undefined;
+    /** What a Save landed that the host's rows may not show yet ({@link EditSession.landed}). */
+    private landedEntries = new Map<string, LandedEntry<W>>();
     /** Each drafted entry's view, by its original and its draft: the same object while both hold (#1437). */
     private draftedViews = new WeakMap<EntryVersion<W>, WeakMap<EntryVersion<W>, DraftedEntry<W>>>();
     /** The drafts as last read, at the session's version and base: the same object while neither moves (#1437). */
@@ -813,6 +848,30 @@ export class EditSession<W> {
     get entries(): ReadonlyMap<string, EntryVersion<W>> { return this.current; }
     /** The same entries as the source last acknowledged them. */
     get originals(): ReadonlyMap<string, EntryVersion<W>> { return this.baseline; }
+    /**
+     * What a Save landed that the host's rows may not show yet, by entry: each
+     * entry the request changed, as the source held it before and holds it
+     * now, and the revision the request was drafted at. A host whose rows are
+     * read apart from the confirmation — a paged source's pages, read again at
+     * the revision the Save committed — draws these over rows read before the
+     * commit, so a saved row never shows its old value meanwhile, and lets each
+     * go once its rows read it again ({@link EditSession.shown}). Held only for
+     * a host that draws them ({@link EditSessionBinding.drawsLanded}).
+     */
+    get landed(): ReadonlyMap<string, LandedEntry<W>> { return this.landedEntries; }
+
+    /**
+     * The host's rows show these entries as the source holds them now — read
+     * again since their Save landed — so what the Save left of them is drawn
+     * over the rows no longer ({@link EditSession.landed}).
+     *
+     * @param ids - The entries
+     */
+    shown(ids: Iterable<string>): void {
+        let moved = false;
+        for (const id of ids) if (this.landedEntries.delete(id)) moved = true;
+        if (moved) this.changed();
+    }
     /** The source's entry schema. */
     get entryType(): EastType { return this.binding.entryType; }
     /** A keyed source's key type; `undefined` for an Array source. */
@@ -1433,7 +1492,7 @@ export class EditSession<W> {
             const payload = this.encodeBatch(batch);
             this.binding.gate?.acquire();
             const placed = batch.changes.filter((change) => change.place.type === "some").map(({ id, place }) => ({ id, place }));
-            this.submission = { prepare: this.binding.prepare, release: this.binding.gate?.release, expected, placed, payload, apply: this.binding.apply, refresh: this.binding.refresh, after: new Map(this.current), targets, checked: new Map(), base: this.cloneBase(this.base), revision: undefined };
+            this.submission = { prepare: this.binding.prepare, release: this.binding.gate?.release, expected, placed, payload, apply: this.binding.apply, refresh: this.binding.refresh, after: new Map(this.current), targets, checked: new Map(), otherwise: new Map(), base: this.cloneBase(this.base), revision: undefined };
         }
         const request = this.submission;
         this.status = "applying"; this.error = undefined; this.conflicted = undefined; this.changed();
@@ -1595,10 +1654,17 @@ export class EditSession<W> {
                 if (request.checked.has(id)) continue;
                 const now = read(id);
                 if (now === undefined) continue;
-                if (this.leftAs(now, target)) request.checked.set(id, this.domainEqual(now, target.after));
+                if (this.leftAs(now, target)) {
+                    const exact = this.domainEqual(now, target.after);
+                    request.checked.set(id, exact);
+                    if (!exact) request.otherwise.set(id, now);
+                }
                 // Another write changed it since the request landed: acknowledged, the newer value the source's. One the
                 // change still applies to was read before the request landed: a later read judges it.
-                else if (!this.applies(now, target)) request.checked.set(id, false);
+                else if (!this.applies(now, target)) {
+                    request.checked.set(id, false);
+                    request.otherwise.set(id, now);
+                }
             }
             if (request.checked.size !== request.targets.size) {
                 // Advancing schedules the next bounded batch, even when the
@@ -1607,6 +1673,17 @@ export class EditSession<W> {
                 return false;
             }
             for (const match of request.checked.values()) exact &&= match;
+        }
+        // What the Save landed, for a host whose rows are read apart from this confirmation to draw until they read it
+        // again: each entry as it began, and as the source holds it now — the request's version, or the one read back.
+        if (this.binding.drawsLanded === true && request.base.type === "revision") {
+            for (const id of request.targets.keys()) {
+                const saved = request.after.get(id) ?? ABSENT;
+                const otherwise = request.otherwise.get(id);
+                const after = otherwise === undefined ? saved
+                    : this.versionOf(id, otherwise.type === "some" ? some(liftDraft(this.binding.draftType, otherwise.value)) : none, saved);
+                this.landedEntries.set(id, { before: this.baseline.get(id) ?? ABSENT, after, from: request.base.value });
+            }
         }
         this.base = this.cloneBase(base); this.baseline = new Map(request.after); this.ancestors.clear(); this.forgetConflicts(); this.moving = undefined;
         this.submission = undefined; request.release?.(); this.status = "idle"; this.error = undefined; this.confirmReason = undefined; this.issues = []; this.stale = false;

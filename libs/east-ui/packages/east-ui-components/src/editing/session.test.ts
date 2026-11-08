@@ -8,7 +8,8 @@
  * An Apply retires its drafts once the source reads back as it left them
  * (#1185): a positional snapshot whole — or, beside another write's, by the
  * batch's own entries where it placed them — a keyed one by the batch's own
- * entries, and at a revision the entries read there.
+ * entries, and at a revision the entries read there; for a host whose rows are
+ * read apart from that confirmation, it holds what it landed until they read it.
  */
 
 import { expect, test } from "vitest";
@@ -297,6 +298,75 @@ test("a move alone confirms at the revision it committed: its entry's value is n
     expect(session.status).toBe("reconciling");
     expect(session.reconcile(variant("revision", "r2"), () => some(a))).toBe(true);
     expect(session.status).toBe("idle");
+});
+
+// ── What a Save landed, for rows read apart from its confirmation ─────────────
+
+/** A keyed session over the jobs at revision r1, for a host that draws what a Save landed over rows read before it. */
+const drawing = (overrides: Partial<EditSessionBinding<Bar>> = {}) => {
+    const session = new EditSession<Bar>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, drawsLanded: true,
+        apply: () => variant("applied", { revision: some("r2") }), patch: undefined, refresh: undefined, ...overrides,
+    });
+    session.observeBase(variant("revision", "r1"));
+    return session;
+};
+
+test("a Save confirmed at a revision holds what it landed for a host that draws it — each entry as it began and as it was saved, and the revision it was drafted at — until the host's rows show each", async () => {
+    const session = drawing();
+    session.record([
+        { id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) },
+        { id: "J4", before: absentJob, after: job(spray) },
+        { id: "J2", before: job(band), after: absentJob },
+    ], "typed", "Edit jobs");
+    await session.apply();
+    // Nothing is held before the source reads back as the Save left it.
+    expect(session.reconcile(variant("revision", "r2"), () => undefined)).toBe(false);
+    expect(session.landed.size).toBe(0);
+    expect(session.reconcile(variant("revision", "r2"), (id) => (id === "J1" ? some({ ...cut, qty: 5n }) : id === "J4" ? some(spray) : none))).toBe(true);
+    expect([...session.landed.keys()].sort()).toEqual(["J1", "J2", "J4"]);
+    expect([...session.landed.values()].every((entry) => entry.from === "r1")).toBe(true);
+    // Read back as the request left it: its version is the session's, and what it began from the source's then.
+    const updated = session.landed.get("J1")!;
+    expect(updated.after).toBe(session.entries.get("J1"));
+    expect(updated.before.wire).toEqual({ key: "Panel cutting", caption: "2" });
+    expect([session.landed.get("J4")!.before.draft, session.landed.get("J2")!.after.wire]).toEqual([undefined, undefined]);
+    // The host's rows read J1 and J4 again: they go, and J2 is held still.
+    session.shown(["J1", "J4"]);
+    expect([...session.landed.keys()]).toEqual(["J2"]);
+    session.shown(["J2"]);
+    expect(session.landed.size).toBe(0);
+});
+
+test("what a Save landed is held only for a host that draws it, and only at a revision: an entry read back otherwise — another write beside it, or since — is held as the source holds it", async () => {
+    // A host that does not draw it holds nothing.
+    const plain = keyed("r1");
+    plain.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    await plain.apply();
+    expect(plain.reconcile(variant("revision", "r2"), () => some({ ...cut, qty: 5n }))).toBe(true);
+    expect(plain.landed.size).toBe(0);
+    // An inline snapshot is the very rows its host draws: nothing is held.
+    const whole = create({ drawsLanded: true });
+    whole.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");
+    await whole.apply();
+    expect(whole.reconcile(variant("snapshot", [{ ...a, end: 5n }]), () => undefined)).toBe(true);
+    expect(whole.landed.size).toBe(0);
+    // Another write renamed J1's task beside the Save, and removed J2 since: the session's versions go, and each is
+    // held as the source holds it — drawn by the collection's own projection.
+    const beside = drawing({ wireOf: (id) => ({ key: id, caption: "as the source holds it" }) });
+    beside.record([
+        { id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) },
+        { id: "J2", before: job(band), after: job({ ...band, qty: 8n }) },
+    ], "typed", "Edit jobs");
+    await beside.apply();
+    const oak = { task: "Panel cutting, oak", qty: 5n };
+    expect(beside.reconcile(variant("revision", "r2"), (id) => (id === "J1" ? some(oak) : none))).toBe(true);
+    expect(beside.entries.size).toBe(0);
+    const renamed = beside.landed.get("J1")!;
+    expect((equalFor(JobDraft) as (a: unknown, b: unknown) => boolean)(renamed.after.draft, liftDraft(JobDraft, oak))).toBe(true);
+    expect(renamed.after.wire).toEqual({ key: "J1", caption: "as the source holds it" });
+    expect(renamed.before.wire).toEqual({ key: "Panel cutting", caption: "2" });
+    expect(beside.landed.get("J2")!.after).toEqual({ draft: undefined, wire: undefined, place: none });
 });
 
 // ── The drafts a preview of the Save reads (#1437) ───────────────────────────

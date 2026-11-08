@@ -645,6 +645,7 @@ export {
     type HeldRows,
     type HistoryAction,
     type HistoryBarProps,
+    type LandedEntry,
     type Origin,
     type Placement,
     type SessionBannersProps,

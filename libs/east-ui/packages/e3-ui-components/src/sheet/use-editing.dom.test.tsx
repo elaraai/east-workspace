@@ -12,7 +12,7 @@ import { Sheet } from "@elaraai/e3-ui/internal";
 import { Paged, State } from "@elaraai/east-ui/internal";
 import { StateImpl, UIStore } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { useSheetEditing } from "./use-editing.js";
+import { useSheetEditing, type SheetRowsRead } from "./use-editing.js";
 import type { SheetCellValue, SheetEditValue, SheetRootValue, SheetRowValue } from "./values.js";
 
 afterEach(cleanup);
@@ -188,6 +188,72 @@ test("paged deletion retires only once read past the revision it was drafted at,
     expect(hook.result.current.session.status).toBe("reconciling");
     loaded = true; hook.rerender();
     expect(hook.result.current.session.status).toBe("idle");
+    expect(hook.result.current.layer.removed.size).toBe(0);
+});
+
+test("a paged Save's rows are drawn as it left them over the rows read before it — its pages standing in, or read still at the revision it was drafted at — and a new edit over them; read again, they are the source's", async () => {
+    initializeStore(new UIStore());
+    let domain = [...rows];
+    let revision = "r0";
+    const compile = East.function([], Sheet.Types.Root, ($) => {
+        const source = $.const(PINNED_ROWS, Paged.Types.PinnedSource(Rows));
+        return Sheet.Root(source, { qty: Sheet.column.integer(Row) }, { id: "id", onApply: East.function([Sheet.Types.ChangeSet(Row)], Sheet.Types.ApplyResult, () => variant("conflict", [])), edits: { insertRows: false } });
+    }).toIR().compile([]);
+    const root = compile();
+    if (root.rows.type !== "pinned") throw new Error("Expected a pinned Sheet");
+    const apply = East.compile(Sheet.apply(Row, "id"), []);
+    const decodeBatch = decodeBeast2For(Sheet.Types.ChangeSet(Row));
+    const encode = encodeBeast2For(Row);
+    const decodeWire = decodeBeast2For(Sheet.Types.Row);
+    // The source's rows as the sheet projects them, at the revision it serves.
+    const projected = () => domain.map((row) => decodeWire(root.editing.project(encode(row), row.id)) as SheetRowValue);
+    const source = {
+        ...root.rows.value,
+        page: (offset: bigint, count: bigint) => some(projected().slice(Number(offset), Number(offset + count))),
+        revision: () => some(revision),
+        refresh: () => null,
+        total: () => some(BigInt(domain.length)),
+    };
+    const editing = { ...root.editing, readEntry: (id: string, offset: bigint) => {
+        const row = domain[Number(offset)];
+        return row?.id === id ? some(encode(row)) : none;
+    }, onApply: some(variant("sync", (payload: Uint8Array) => {
+        const applied = apply(domain, decodeBatch(payload), some(revision));
+        if (applied.type === "conflict") return variant("conflict", applied.value);
+        domain = applied.value;
+        return variant("applied", { revision: some("r1") });
+    })) };
+    // What the sheet draws, and how it was read: the rows read at r0.
+    const before = projected();
+    let drawn: { rows: readonly SheetRowValue[]; read: SheetRowsRead } = { rows: before, read: { revision: "r0", before: () => false } };
+    const hook = renderHook(() => useSheetEditing(editing, { ...source }, drawn.rows, useIndexes(drawn.rows), "paged-landed", undefined, undefined, false, false, undefined, undefined, drawn.read));
+    const qty = () => hook.result.current.layer.edits.get("a")?.cells.get("qty");
+    act(() => hook.result.current.record([commit(before[0]!, 7n), variant("remove", { rowIds: ["b"] })]));
+    await act(async () => { await hook.result.current.session.apply(); });
+    expect(domain.map((row) => [row.id, row.qty])).toEqual([["a", 7n]]);
+    // The source moves to the revision the Save committed, and its rows read back there by position, while the pages
+    // read again there stand in with the rows read at r0.
+    revision = "r1";
+    drawn = { rows: before, read: { revision: "r1", before: () => true } };
+    hook.rerender();
+    expect(hook.result.current.session.status).toBe("idle");
+    expect([...hook.result.current.session.landed.keys()].sort()).toEqual(["a", "b"]);
+    expect(qty()).toEqual(variant("Integer", 7n));
+    expect([...hook.result.current.layer.removed]).toEqual(["b"]);
+    // Rows read still at the revision the Save was drafted at hold nothing of it either.
+    drawn = { rows: before, read: { revision: "r0", before: () => false } };
+    hook.rerender();
+    expect(qty()).toEqual(variant("Integer", 7n));
+    // A new edit over them draws its draft; undone, the Save's value again.
+    act(() => hook.result.current.record([commit(before[0]!, 8n)]));
+    expect(qty()).toEqual(variant("Integer", 8n));
+    act(() => hook.result.current.session.undo());
+    expect(qty()).toEqual(variant("Integer", 7n));
+    // Read again at r1: the rows are the source's, and nothing of the Save is held.
+    drawn = { rows: projected(), read: { revision: "r1", before: () => false } };
+    hook.rerender();
+    expect(hook.result.current.session.landed.size).toBe(0);
+    expect(hook.result.current.layer.edits.size).toBe(0);
     expect(hook.result.current.layer.removed.size).toBe(0);
 });
 

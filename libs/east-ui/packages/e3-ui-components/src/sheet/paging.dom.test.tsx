@@ -397,6 +397,7 @@ describe("sheet paging — a new revision keeps the rows (#851)", () => {
         const { value, state } = revisioned(2_000);
         const { rerender } = render(<Harness src={value} />);
         await waitFor(() => expect(text("rows")).toBe("0+600"));
+        expect([latest!.revision, latest!.standing]).toEqual(["A", []]);
         const before = { first: latest!.rows[0], tail: latest!.tail, sizeVersion: latest!.sizeVersion };
         frames = [];
         // The dataset is written: the source serves revision B, whose windows
@@ -409,10 +410,13 @@ describe("sheet paging — a new revision keeps the rows (#851)", () => {
         expect(latest!.total).toBe(2_000);
         expect(latest!.tail).toEqual(before.tail);
         expect(latest!.exhausted).toBe(false);
+        // Read at B, each window's rows A's while they stand in: what a Save's rows are drawn over as it left them.
+        expect([latest!.revision, latest!.standing]).toEqual(["B", [0, 1, 2]]);
         // B lands: every row takes B's content, in the same place.
         state.open.add("B");
         rerender(<Harness src={{ ...value }} />);
         await waitFor(() => expect(revOf(latest!.rows[0]!)).toBe("B"));
+        expect([latest!.revision, latest!.standing]).toEqual(["B", []]);
         expect(text("rows")).toBe("0+600");
         expect(latest!.rows.every((row) => revOf(row) === "B")).toBe(true);
         expect(latest!.rows[0]!.id).toBe(before.first!.id);
