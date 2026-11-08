@@ -12,7 +12,8 @@
  * drawing a longer code's first letter alone, none cut at any width in either
  * density (#1569); and the work requirement (#1568) at every width — by week
  * its eyebrow and lanes, each day's figures whole over its bar inside its
- * cell; by month each lane's marks holding their figures whole; on a phone
+ * cell; by month each lane's marks cups filled to their hours rostered of
+ * needed, holding their figures whole; on a phone
  * each band's day cards, a line its shift's swatch, label and figures on one
  * row over its bar, every word whole, and on a touch screen each line a 44px
  * target.
@@ -176,22 +177,49 @@ const laneDayFaults = (scope: Locator) => scope.locator("[data-roster-lane] [dat
     ];
 }));
 /**
- * What a lane's marks draw wrongly by month (#1568, A3.5): a mark's figure whose text leaves its mark. Over the marks
- * mounted in `scope`, with how many show a figure.
+ * What a lane's marks draw wrongly by month (#1568, A3.5): a mark's figure whose text leaves its mark, or whose box does
+ * not span its cup's height, which its ink's levels follow the parts by; and a cup (ruled 8 Nov 2026) not filled to its
+ * hours rostered of needed as its label says them, full at them, within a pixel — its parts across its width, each
+ * standing on the one under it from its bottom up — or whose open part is not from its top down to the fill, or is
+ * drawn on a day not short. Over the marks mounted in `scope`, with how many show a figure and how many cups draw each
+ * part.
  */
 const laneMarkFaults = (scope: Locator) => scope.locator("[data-roster-lane-mark]").evaluateAll((marks) => {
-    const faults = new Set<string>();
+    const faults = new Set<string>(), parts: Record<string, number> = {};
     let said = 0;
     for (const mark of marks) {
+        const edge = mark.getBoundingClientRect(), at = mark.getAttribute("data-roster-lane-mark");
         const figure = mark.querySelector("[data-roster-mark-figure]");
-        if (figure === null) continue;
-        said += 1;
-        const range = document.createRange();
-        range.selectNodeContents(figure);
-        const box = range.getBoundingClientRect(), edge = mark.getBoundingClientRect();
-        if (box.left < edge.left - 0.5 || box.right > edge.right + 0.5 || box.top < edge.top - 0.5 || box.bottom > edge.bottom + 0.5) faults.add(`"${figure.textContent}" leaves its mark`);
+        if (figure !== null) {
+            said += 1;
+            const range = document.createRange();
+            range.selectNodeContents(figure);
+            const box = range.getBoundingClientRect(), span = figure.getBoundingClientRect();
+            if (box.left < edge.left - 0.5 || box.right > edge.right + 0.5 || box.top < edge.top - 0.5 || box.bottom > edge.bottom + 0.5) faults.add(`"${figure.textContent}" leaves its mark`);
+            if (Math.abs(span.top - edge.top) > 0.5 || Math.abs(span.bottom - edge.bottom) > 0.5) faults.add(`${at}: its figure's box does not span its cup`);
+        }
+        const [, rostered, needed] = /: (.+) of (.+) hours rostered$/u.exec(mark.getAttribute("aria-label") ?? "") ?? [];
+        const hours = (text: string) => Number(text.replace(/,/gu, ""));
+        const share = rostered === undefined || needed === undefined || hours(needed) <= 0 ? 0 : Math.min(hours(rostered) / hours(needed), 1);
+        let top = edge.bottom, open = false;
+        for (const part of mark.querySelectorAll("[data-roster-cup-part]")) {
+            const kind = part.getAttribute("data-roster-cup-part")!, box = part.getBoundingClientRect();
+            parts[kind] = (parts[kind] ?? 0) + 1;
+            if (Math.abs(box.left - edge.left) > 0.5 || Math.abs(box.right - edge.right) > 0.5) faults.add(`${at}: its ${kind} part is not across its cup`);
+            if (kind === "open") {
+                open = true;
+                if (Math.abs(box.top - edge.top) > 0.5 || Math.abs(box.bottom - top) > 0.5) faults.add(`${at}: what it lacks is not open from its top down to its fill (${box.top - edge.top}px below its top, ${box.bottom - top}px past its fill)`);
+                // Its dashed edge is drawn inside it: clipped to it, a gap thinner than the dashes draws none of them over the fill.
+                if (getComputedStyle(part).overflow !== "hidden") faults.add(`${at}: what it lacks draws its edge past its own box`);
+            } else {
+                if (Math.abs(box.bottom - top) > 0.5) faults.add(`${at}: its ${kind} part does not stand on the part under it`);
+                top = box.top;
+            }
+        }
+        if (Math.abs(edge.bottom - top - share * edge.height) > 1) faults.add(`${at}: filled ${edge.bottom - top}px of ${edge.height}px for ${rostered} of ${needed} hours`);
+        if (open !== (mark.getAttribute("data-state") === "short")) faults.add(`${at}: ${open ? "open" : "not open"} on a day ${mark.getAttribute("data-state")}`);
     }
-    return { said, faults: [...faults] };
+    return { said, parts, faults: [...faults] };
 });
 /**
  * What the work requirement's block of day cards draws wrongly on a phone (#1568): its eyebrow not 28px, its heading
@@ -488,7 +516,7 @@ for (const theme of LAYOUT_THEMES) {
         expect(grids, "a width with the grid").toBeGreaterThan(0);
         expect(phones, "a width with the phone's cards").toBeGreaterThan(0);
     });
-    test(`the work requirement by month fits 1880/1440/1024/900/768/640: its eyebrows 28px, each week's hours whole in the richest form every week holds — with its unit, without, or rostered over needed — a lane's marks holding their figures whole, no word cut or touching another (#1568, A3.5) (${theme}) @desktop`, async ({ page }) => {
+    test(`the work requirement by month fits 1880/1440/1024/900/768/640: its eyebrows 28px, each week's hours whole in the richest form every week holds — with its unit, without, or rostered over needed — a lane's marks cups filled to their hours, holding their figures whole, no word cut or touching another (#1568, A3.5) (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "rosterWorkRequirement", theme), frame = entry.locator("[data-roster-frame]").first();
         const main = frame.locator("[data-roster-main]");
@@ -497,7 +525,7 @@ for (const theme of LAYOUT_THEMES) {
         await settled(page);
         await expect(main.locator('[data-roster-grid="people-month"]')).toBeVisible();
         let said = 0;
-        const forms = new Set<string | null>();
+        const forms = new Set<string | null>(), parts = new Set<string>();
         // 1880px first: a lane's day is 22px or wider beside the panes only there, so its marks say their figures.
         for (const width of [1880, 1440, 1024, 900, 768, 640]) {
             await size(page, entry, width);
@@ -516,8 +544,11 @@ for (const theme of LAYOUT_THEMES) {
             const marks = await laneMarkFaults(main);
             expect(marks.faults, where).toEqual([]);
             said += marks.said;
+            for (const kind of Object.keys(marks.parts)) parts.add(kind);
         }
         expect(said, "a width whose lane marks show figures").toBeGreaterThan(0);
+        // The cups in view fill with the permanent staff's hours, and a short day's is open above them.
+        expect([...parts].filter(kind => kind === "permanent" || kind === "open").sort()).toEqual(["open", "permanent"]);
         // The widths take the eyebrow through each of its forms.
         expect(forms).toEqual(new Set(["full", "short", "stacked"]));
     });

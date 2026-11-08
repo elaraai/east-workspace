@@ -1266,11 +1266,21 @@ unit dropped, then the hours needed under the hours rostered, else none; every
 form laid out, the others unseen, so the fit measures each (`views.tsx`'
 `measureDemandWeeks` over `useLayoutFit`, which the header's fit shares) — and
 a lane's and a skill row's day is a
-mark on the person marks' day columns (`laneMark`, `skillMark`): covered,
-short — dashed in the warning's edge on its wash — requested, dashed teal,
-where the requests make up its hours, or off with no target; its difference
-where a day is 22px or wider, whole or not at all, and no figure in the name
-cells (P16). A mark selects its slot in its week — a selection names its week
+mark on the person marks' day columns, a cup (ruled 8 Nov 2026; `laneCup`,
+`skillCup`, its state `laneMark`'s and `skillMark`'s): filled from the bottom
+to its hours rostered of those needed — a skill's, assigned — full at them, in
+the parts and colours of the day's bar by week, the agencies' requests on top
+in the teal's tint, solid; what a short day lacks open above them on the
+warning's wash, its dashed edge drawn inside it and clipped to it, so a gap
+thinner than the dashes draws none over the fill; an empty cup with no
+target. Each level ends where the bar's part does, at the parts' hours summed
+over the larger of the hours needed and rostered. The cup's levels
+are CSS variables its style sets (`--roster-cup-permanent`, `-agency`,
+`-fill`), which the recipe places its parts by, and its figure's ink follows
+them, each part's ink where that part is under it (the figure's text clipping
+a gradient of the inks). Its difference where a day is 22px or wider, whole or
+not at all, and no figure in the name cells (P16). A mark selects its slot in
+its week — a selection names its week
 (`Selection`'s `start`, `selectionWeek`) — and the inspector and the commands
 work over that week. Deep in a band's people, by week or by month, the band's
 head — the band, its eyebrow and its lanes, an open lane's skill rows with

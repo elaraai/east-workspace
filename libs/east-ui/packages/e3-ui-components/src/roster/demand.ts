@@ -163,6 +163,52 @@ export function skillMark(f: SkillFigures | undefined): DemandMark {
     return { state: d < 0 ? "short" : "covered", difference: d };
 }
 
+/**
+ * How far a day's mark by month fills as a cup (ruled 8 Nov 2026), from the bottom, each level a share of its height:
+ * the permanent staff's hours first, then agency staff's, the agencies' requests' on top — a skill's, its hours
+ * assigned, all three levels its one — full at the hours needed.
+ */
+export interface DemandCup {
+    /** Where the permanent staff's part ends. */
+    readonly permanent: number;
+    /** Where agency staff's part ends. */
+    readonly agency: number;
+    /** Where the fill ends, the agencies' requests' part with it: the hours rostered of those needed, at most the whole. */
+    readonly fill: number;
+}
+
+/** A cup with nothing in it. */
+const EMPTY_CUP: DemandCup = { permanent: 0, agency: 0, fill: 0 };
+
+/**
+ * A lane's day as its cup fills by month (ruled 8 Nov 2026): its parts as the day's bar by week draws them, over the
+ * larger of the hours needed and rostered — so a short day fills to its hours rostered of needed, and a day covered or
+ * over is full, its parts in proportion — and empty with no target, or with no hours of either. Each level ends where
+ * the bar's part does, at the parts' hours summed, so a cup draws a part exactly where its bar does.
+ *
+ * @param f - The lane's day
+ * @returns Its cup's levels
+ */
+export function laneCup(f: DemandFigures): DemandCup {
+    const scale = Math.max(f.needed, f.rostered);
+    if (!f.target || scale < EPSILON) return EMPTY_CUP;
+    const level = (hours: number) => Math.min(hours / scale, 1);
+    return { permanent: level(f.permanent), agency: level(f.permanent + f.agency), fill: level(f.permanent + f.agency + f.requested) };
+}
+
+/**
+ * A skill row's day as its cup fills by month (ruled 8 Nov 2026): its hours assigned of those needed, full at them, as
+ * the day's bar by week draws them; empty where none of the day's slots needs the skill.
+ *
+ * @param f - The skill's day, `undefined` where none of its slots needs it
+ * @returns Its cup's levels, each the one level
+ */
+export function skillCup(f: SkillFigures | undefined): DemandCup {
+    if (f === undefined) return EMPTY_CUP;
+    const fill = f.needed > EPSILON ? Math.min(f.assigned / f.needed, 1) : 1;
+    return { permanent: fill, agency: fill, fill };
+}
+
 /** A slot as the figures read it: its coverage, and whether it has a target. */
 interface Entry {
     readonly coverage: Coverage;

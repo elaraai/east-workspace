@@ -116,8 +116,35 @@ async function shiftsLayout(c: HTMLElement, groups: readonly string[], shifts: r
     return { slots, days, weeks };
 }
 
-/** A lane of the People grid by week, as it is drawn: its band's group, its shift and what each of its days says. */
-interface Lane { readonly group: string | undefined; readonly shift: string; readonly days: readonly string[] }
+/**
+ * The hours a day's bar by week draws, or its cup by month (ruled 8 Nov 2026), as shares of the whole in percent: where
+ * the permanent staff's part ends, then agency staff's, then the agencies' requests' — each where the one before it
+ * ends where the day has none of it — and the parts it draws, in their order: those of the hours, then what is open.
+ */
+interface Fill { readonly ends: readonly number[]; readonly kinds: readonly string[] }
+/** A day's fill with nothing in it: no target, or none of the day's slots needing the skill. */
+const EMPTY: Fill = { ends: [0, 0, 0], kinds: [] };
+/** A lane's day's fill as its bar by week draws it; `undefined` where it draws no bar, the day with no target. */
+function barFill(day: Element): Fill | undefined {
+    const bar = day.querySelector("[data-roster-lane-bar]");
+    if (bar === null) return undefined;
+    const parts = [...bar.querySelectorAll<HTMLElement>("[data-kind]")];
+    const end = (kind: string) => { const part = parts.find(el => el.getAttribute("data-kind") === kind); return part === undefined ? undefined : parseFloat(part.style.left) + parseFloat(part.style.width); };
+    const permanent = end("permanent") ?? 0, agency = end("agency") ?? permanent;
+    return { ends: [permanent, agency, end("requested") ?? agency], kinds: parts.map(el => el.getAttribute("data-kind")!) };
+}
+/** A skill row's day's fill as its bar by week draws it, its hours assigned of needed; `undefined` where none of its slots needs it. */
+function skillBarFill(cell: Element): number | undefined {
+    const fill = cell.querySelector("[data-roster-skill-bar]")?.querySelector<HTMLElement>("*");
+    return fill === null || fill === undefined ? undefined : parseFloat(fill.style.width);
+}
+/** A day's fill as its cup by month draws it: its levels, as its style sets them, and its parts. */
+function cupFill(mark: HTMLElement): Fill {
+    const level = (name: string) => parseFloat(mark.style.getPropertyValue(`--roster-cup-${name}`) || "0");
+    return { ends: [level("permanent"), level("agency"), level("fill")], kinds: [...mark.querySelectorAll("[data-roster-cup-part]")].map(el => el.getAttribute("data-roster-cup-part")!) };
+}
+/** A lane of the People grid by week, as it is drawn: its band's group, its shift, what each of its days says and each one's bar. */
+interface Lane { readonly group: string | undefined; readonly shift: string; readonly days: readonly string[]; readonly bars: readonly (Fill | undefined)[] }
 /**
  * What a skill row's day says, as a skill's mark by month says it: `16 of 24 hours assigned`; `undefined` where none of
  * the day's slots needs the skill.
@@ -134,16 +161,19 @@ function assigned(cell: Element): string | undefined {
  */
 async function strip(c: HTMLElement, foot: string) {
     const lanes = new Map<string, Lane>(), eyebrows = new Map<string, string[]>(), assigns = new Map<string, string>();
-    const skills = new Map<string, (string | undefined)[]>();
+    const skills = new Map<string, (string | undefined)[]>(), skillBars = new Map<string, (number | undefined)[]>();
     const bands = new Map<string, { people: string; said: string; short: string | undefined }>();
     const take = () => {
         const main = slot(c, "main");
         for (const el of main.querySelectorAll<HTMLElement>("[data-roster-lane]")) lanes.set(el.getAttribute("data-roster-lane")!, {
             group: el.getAttribute("data-roster-lane-group") ?? undefined, shift: el.getAttribute("data-roster-lane-shift")!,
             days: [...el.querySelectorAll("[data-roster-lane-day]")].map(day => day.getAttribute("aria-label")!),
+            bars: [...el.querySelectorAll("[data-roster-lane-day]")].map(barFill),
         });
-        for (const el of main.querySelectorAll<HTMLElement>("[data-roster-lane-skill]")) skills.set(el.getAttribute("data-roster-lane-skill")!,
-            [...el.querySelectorAll("[data-roster-lane-skill-day]")].map(assigned));
+        for (const el of main.querySelectorAll<HTMLElement>("[data-roster-lane-skill]")) {
+            skills.set(el.getAttribute("data-roster-lane-skill")!, [...el.querySelectorAll("[data-roster-lane-skill-day]")].map(assigned));
+            skillBars.set(el.getAttribute("data-roster-lane-skill")!, [...el.querySelectorAll("[data-roster-lane-skill-day]")].map(skillBarFill));
+        }
         for (const el of main.querySelectorAll<HTMLElement>("[data-roster-demand]")) eyebrows.set(partsOf(el.getAttribute("data-roster-demand")!)[0] ?? "",
             [...el.querySelectorAll("[data-roster-demand-day]")].map(day => day.textContent!));
         for (const el of main.querySelectorAll<HTMLElement>("[data-roster-assign-head]")) assigns.set(partsOf(el.getAttribute("data-roster-assign-head")!)[0] ?? "", el.textContent!);
@@ -163,7 +193,7 @@ async function strip(c: HTMLElement, foot: string) {
         if (at()) break;
     }
     expect(at(), foot).toBe(true);
-    return { lanes, skills, eyebrows, assigns, bands };
+    return { lanes, skills, skillBars, eyebrows, assigns, bands };
 }
 /** A lane's day cell, by the lane's shift — in the block of no band's — and the day. */
 const laneDay = (c: HTMLElement, shift: string, day: number) =>
@@ -188,8 +218,8 @@ function weekCell(row: Element, attribute: string, key: string, week: Date): HTM
     expect(cell, `${key} ${weekKey(week)}`).toBeDefined();
     return cell!;
 }
-/** A mark by month, as it is drawn: what it says — a lane's its label, a skill's its title — and its state. */
-interface Mark { readonly said: string | undefined; readonly state: string }
+/** A mark by month, as it is drawn: what it says — a lane's its label, a skill's its title — its state, and its cup's fill. */
+interface Mark { readonly said: string | undefined; readonly state: string; readonly fill: Fill }
 /** A lane by month, as it is drawn: its band's group, its shift and each of the month's weeks' seven marks. */
 interface MonthLane { readonly group: string | undefined; readonly shift: string; readonly weeks: readonly (readonly Mark[])[] }
 /** A week's hours on an eyebrow by month, as they are drawn: what the form its row shows says, and each form laid out. */
@@ -206,8 +236,8 @@ async function monthStrip(c: HTMLElement, foot: string, weeks: readonly Date[]) 
     const bands = new Map<string, { people: string; said: string }>();
     const marks = (row: Element, cell: string, mark: string, says: string) => {
         const key = row.getAttribute(cell.replace(/-week$/u, ""))!;
-        return weeks.map(week => [...weekCell(row, cell, key, week).querySelectorAll(`[${mark}]`)]
-            .map((el): Mark => ({ said: el.getAttribute(says) ?? undefined, state: el.getAttribute("data-state")! })));
+        return weeks.map(week => [...weekCell(row, cell, key, week).querySelectorAll<HTMLElement>(`[${mark}]`)]
+            .map((el): Mark => ({ said: el.getAttribute(says) ?? undefined, state: el.getAttribute("data-state")!, fill: cupFill(el) })));
     };
     const take = () => {
         const main = slot(c, "main");
@@ -400,7 +430,7 @@ describe("the People layout's work requirement by week (#1568)", () => {
 });
 
 describe("the People layout's work requirement by month (#1568)", () => {
-    test("each of the month's weeks as the Week layout draws it: the eyebrow's week its band's week, a lane's marks its days — off where the week names none of its shift — and a skill row's its skill's; the band the month's", async () => {
+    test("each of the month's weeks as the Week layout draws it: the eyebrow's week its band's week, a lane's marks its days — off where the week names none of its shift — and a skill row's its skill's, each a cup filled as its day's bar; the band the month's", async () => {
         scrollsAsAPageDoes();
         const { container: c } = await open(ex.rosterWorkRequirement);
         const shifts = ordered(await h.read(ex.rosterShiftTimes)), groups = ordered(await h.read(ex.rosterTeams));
@@ -449,11 +479,34 @@ describe("the People layout's work requirement by month (#1568)", () => {
         });
         // The last two weeks name no target: every lane's marks there are off.
         expect([...month.lanes.values()].flatMap(lane => lane.weeks.slice(3).flat()).filter(mark => mark.state !== "off")).toEqual([]);
+        // Each lane's mark is a cup filled as its day's bar by week (ruled 8 Nov 2026): its parts the bar's, in its order, each
+        // ending where the bar's ends — the permanent staff's, agency staff's, the agencies' requests' on top — full where the
+        // hours rostered reach those needed, what a short day lacks open above them; an off mark empty.
+        const kinds = new Set<string>();
+        for (const [key, lane] of month.lanes) lane.weeks.forEach((marks, w) => {
+            const bars = byWeek[w]!.lanes.get(key)?.bars ?? DAYS.map(() => undefined);
+            marks.forEach((mark, day) => {
+                const at = `${key} ${weekKey(MONTH[w]!)} ${day}`, bar = bars[day] ?? EMPTY;
+                expect(mark.fill.kinds, at).toEqual(bar.kinds);
+                mark.fill.ends.forEach((end, part) => expect(end, `${at} ${part}`).toBeCloseTo(bar.ends[part]!, 6));
+                for (const kind of mark.fill.kinds) kinds.add(kind);
+            });
+        });
+        // The month draws every part somewhere: some day's cup is short, some has agency staff and some the agencies' requests.
+        expect(kinds).toEqual(new Set(["permanent", "agency", "requested", "open"]));
         // The open lane's skill rows: each week's days as its skill rows by week say them, off where none of the day's slots needs the skill.
         expect(month.skills.size).toBeGreaterThan(0);
         for (const [key, weeks] of month.skills) weeks.forEach((marks, w) => {
             expect(marks.map(mark => mark.said === undefined ? undefined : said(mark.said)), `${key} ${weekKey(MONTH[w]!)}`).toEqual(byWeek[w]!.skills.get(key) ?? DAYS.map(() => undefined));
             expect(marks.filter(mark => (mark.said === undefined) !== (mark.state === "off")), `${key} ${weekKey(MONTH[w]!)}`).toEqual([]);
+            // Each a cup filled to its hours assigned of needed, as its day's bar by week, and open above them where short.
+            const bars = byWeek[w]!.skillBars.get(key) ?? DAYS.map(() => undefined);
+            marks.forEach((mark, day) => {
+                const at = `${key} ${weekKey(MONTH[w]!)} ${day}`, width = bars[day];
+                if (width === undefined) { expect(mark.fill, at).toEqual(EMPTY); return; }
+                expect(mark.fill.kinds, at).toEqual([...width > 0 ? ["assigned"] : [], ...width < 100 ? ["open"] : []]);
+                for (const end of mark.fill.ends) expect(end, at).toBeCloseTo(width, 6);
+            });
         });
     });
 

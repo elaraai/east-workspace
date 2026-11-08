@@ -30,6 +30,16 @@ import { schedulePaneBase, schedulePaneSlots } from "./schedule-pane.js";
 import { timeHeaderText } from "./time/axis.js";
 import { moveGhostSlots, moveGhostBase } from "./time/move-ghost.js";
 
+/**
+ * A cup's figure's ink by month (ruled 8 Nov 2026), from the bottom as the cup's parts are: the brand's contrast on the
+ * permanent staff's part, `agency` on agency staff's, the ink on the requests' tint, then the cup's own above the fill.
+ *
+ * @param agency - The ink on agency staff's teal, which is the same in both themes: the dark ink in each
+ * @returns The ink's gradient, which the figure's text clips
+ */
+const cupInk = (agency: string) => "linear-gradient(to top, {colors.brand.contrast} var(--roster-cup-permanent), "
+    + `${agency} var(--roster-cup-permanent) var(--roster-cup-agency), {colors.fg} var(--roster-cup-agency) var(--roster-cup-fill), var(--roster-cup-ink) var(--roster-cup-fill))`;
+
 export const rosterBuilderSlotRecipe = defineSlotRecipe({
     className: "east-roster-builder",
     slots: [...moveGhostSlots, "root", "main", "scroll", "grid", "row", "gutter", "headerGutter", "head", "shiftHead", "shiftHeading", "shiftLabel", "shiftMeta", "time", ...scheduleGroupSlots,
@@ -314,15 +324,31 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         laneBar: { position: "relative", height: "6px", background: "bg.subtle" },
         laneTick: { position: "absolute", top: "-3px", bottom: "-3px", width: "2px", marginLeft: "-1px", background: "fg", pointerEvents: "none" },
         laneNoTarget: { textStyle: "mono.xs", fontSize: "label.md", fontStyle: "italic", fontWeight: "normal", color: "fg.subtle", whiteSpace: "nowrap" },
-        // A lane's or a skill row's day by month (A3.5, A4.4), over the person marks' `mark`: covered on the third paper,
-        // short dashed in the warning's edge on its 6% wash, requested dashed teal, an off mark with no target; its
-        // difference whole or not at all, never cut. A lane's is a button that selects its slot, ringed while selected.
-        laneMark: { ...wholeOrNone("100%"), fontSize: "label.xs", background: "bg.subtle", color: "fg.muted",
+        // A lane's or a skill row's day by month (A3.5, A4.4), over the person marks' `mark`: a cup (ruled 8 Nov 2026),
+        // filled from the bottom to its hours rostered of those needed — a skill's, assigned — full at them, its parts the
+        // week bar's in their colours, placed by the levels its style sets: the permanent staff's first, then agency
+        // staff's, the agencies' requests' on top in the teal's tint, solid, a dash being too small to read in a cup. What
+        // a short day lacks is open above them on the warning's 6% wash, its edge — the cup's top and sides along it —
+        // dashed in the warning's colour, drawn inside it and clipped to it, so a sliver of a gap never draws its dashes
+        // over the fill; an off mark, with no target, is an empty cup. Its difference whole or not at all, never cut, in
+        // each part's ink where that part is under it: its box spans the cup's height, so the ink's levels are the parts'.
+        // A lane's is a button that selects its slot, ringed over its parts while selected.
+        laneMark: { ...wholeOrNone("100%"), position: "relative", borderWidth: 0, fontSize: "label.xs", background: "bg.subtle", color: "fg.muted",
+            "--roster-cup-permanent": "0%", "--roster-cup-agency": "0%", "--roster-cup-fill": "0%", "--roster-cup-ink": "{colors.fg.muted}",
             "&:is(button)": { cursor: "pointer", ...planElementFocus },
-            "&[data-state=short]": { background: "bg.warning.subtle", borderStyle: "dashed", borderColor: "border.warning", color: "fg.warning" },
-            "&[data-state=requested]": { background: "transparent", borderStyle: "dashed", borderColor: "teal.500" },
+            "& > [data-roster-cup-part]": { position: "absolute", left: 0, right: 0, pointerEvents: "none" },
+            "& > [data-roster-cup-part=permanent], & > [data-roster-cup-part=assigned]": { bottom: 0, height: "var(--roster-cup-permanent)", background: "brand.solid" },
+            "& > [data-roster-cup-part=agency]": { bottom: "var(--roster-cup-permanent)", height: "calc(var(--roster-cup-agency) - var(--roster-cup-permanent))", background: "teal.500" },
+            "& > [data-roster-cup-part=requested]": { bottom: "var(--roster-cup-agency)", height: "calc(var(--roster-cup-fill) - var(--roster-cup-agency))",
+                background: "color-mix(in srgb, {colors.teal.500} 40%, {colors.bg.panel})" },
+            "& > [data-roster-cup-part=open]": { top: 0, bottom: "var(--roster-cup-fill)", overflow: "hidden", background: "bg.warning.subtle", borderTopRadius: "inherit",
+                "&::before": { content: '""', position: "absolute", inset: "0 0 -1px 0", borderWidth: "1px", borderStyle: "dashed", borderColor: "border.warning",
+                    borderTopRadius: "inherit" } },
+            "& > [data-roster-mark-figure]": { position: "relative", alignSelf: "stretch", display: "flex", alignItems: "center", color: "transparent",
+                backgroundClip: "text", backgroundImage: { base: cupInk("{colors.fg}"), _dark: cupInk("{colors.bg.surface}") } },
+            "&[data-state=short]": { background: "transparent", "--roster-cup-ink": "{colors.fg.warning}" },
             "&[data-state=off]": { background: "color-mix(in srgb, {colors.fg} 7%, transparent)", color: "transparent" },
-            "&[data-selected]": { boxShadow: "inset 0 0 0 1px {colors.fg}" } },
+            "&[data-selected]::after": { content: '""', position: "absolute", inset: 0, borderRadius: "inherit", boxShadow: "inset 0 0 0 1px {colors.fg}", pointerEvents: "none" } },
         skillTag: { display: "inline-flex", alignItems: "center", height: "16px", flexShrink: 0, padding: "0 4px", borderWidth: "1px", borderColor: "border.strong", borderRadius: "sm",
             textStyle: "mono.xs", fontSize: "label.xs", fontWeight: "semibold", color: "fg.strong" },
         skillName: { textStyle: "body.sm", color: "fg.strong", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },

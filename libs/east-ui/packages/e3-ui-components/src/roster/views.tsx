@@ -49,7 +49,7 @@ import { readRosterSource } from "./identity.js";
 import { isPatternCard, rosterCoord, rosterPersonWeekCoord, type RosterDrag } from "./drag.js";
 import type { PatternDay, RosterCommands } from "./actions.js";
 import type { RosterDutyOp, RosterOptimised } from "./optimise.js";
-import { demandOf, difference, laneMark, signed, skillMark, toneOf, type Demand, type DemandFigures, type DemandLane, type DemandSkill, type DemandWeek, type SkillFigures } from "./demand.js";
+import { demandOf, difference, laneCup, laneMark, signed, skillCup, skillMark, toneOf, type Demand, type DemandCup, type DemandFigures, type DemandLane, type DemandMark, type DemandSkill, type DemandWeek, type SkillFigures } from "./demand.js";
 import {
     DAY, activityOf, compareSlot, costsOf, groupSkills, hourText, ownTimes, sameSlot, shiftColor, shiftHoursText, shiftLetter, shiftOf, slotKey, weekKey, weekNumber,
     type Assignment, type Coverage, type Issue, type Pay, type Person, type PlacedProposal, type RosterDomain, type RosterSpan, type RosterStyles, type RosterValue,
@@ -1636,11 +1636,42 @@ const MonthDemandHead = memo(function MonthDemandHead({ ctx, row, weeks, measure
     </Box>;
 });
 /**
- * A lane's day by month (#1568, A3.5): its mark — off with no target; short, dashed in the warning's colour on its wash;
- * requested, dashed teal, where the agencies' requests make up part of its hours; else covered — saying its difference
- * where a day is wide enough and the figure fits the mark whole, never cut. A press selects its slot in its week
- * (A3.8): a band's group's, or the shift's day across the groups where the layout draws no bands, which the inspector
- * then reads.
+ * A cup's levels by month (ruled 8 Nov 2026), as its recipe draws its parts and its figure's ink: each a share of its
+ * height; none for an empty cup, whose levels are the recipe's nothing.
+ *
+ * @param cup - The cup's levels
+ * @returns Its style
+ */
+function cupStyle(cup: DemandCup): CSSProperties | undefined {
+    return cup.fill === 0 ? undefined
+        : { "--roster-cup-permanent": `${cup.permanent * 100}%`, "--roster-cup-agency": `${cup.agency * 100}%`, "--roster-cup-fill": `${cup.fill * 100}%` } as CSSProperties;
+}
+/**
+ * A cup's parts by month (ruled 8 Nov 2026): each part of the hours that fills it from the bottom — a lane's permanent
+ * staff's, agency staff's and the agencies' requests', or a skill's hours assigned — then, on a short day, what it lacks.
+ *
+ * @param cup - The cup's levels
+ * @param state - Its mark's state
+ * @param skill - Whether it is a skill row's, filled by its hours assigned alone
+ * @returns Its parts, which its recipe places by its levels
+ */
+function cupParts(cup: DemandCup, state: DemandMark["state"], skill: boolean): ReactNode {
+    return <>
+        {skill ? cup.fill > 0 && <span data-roster-cup-part="assigned" /> : <>
+            {cup.permanent > 0 && <span data-roster-cup-part="permanent" />}
+            {cup.agency > cup.permanent && <span data-roster-cup-part="agency" />}
+            {cup.fill > cup.agency && <span data-roster-cup-part="requested" />}
+        </>}
+        {state === "short" && <span data-roster-cup-part="open" />}
+    </>;
+}
+/**
+ * A lane's day by month (#1568, A3.5): its mark, a cup (ruled 8 Nov 2026) filled from the bottom to its hours rostered
+ * of those needed, full at them, in its parts' colours as the day's bar by week draws them — the agencies' requests on
+ * top, solid — what a short day lacks open above them, dashed in the warning's edge on its wash; an empty cup with no
+ * target. It says its difference where a day is wide enough and the figure fits the mark whole, never cut. A press
+ * selects its slot in its week (A3.8): a band's group's, or the shift's day across the groups where the layout draws no
+ * bands, which the inspector then reads.
  */
 const LaneMark = memo(function LaneMark({ ctx, rowKey, group, lane, week, day, figures: f, said }: {
     ctx: ViewContext; rowKey: string; group: Group | undefined; lane: DemandLane; week: Date; day: number; figures: DemandFigures;
@@ -1654,13 +1685,14 @@ const LaneMark = memo(function LaneMark({ ctx, rowKey, group, lane, week, day, f
     // A selection names its week, the one the views then show (`start`): its day's mark in that week alone is selected.
     const selected = ctx.start.getTime() === start
         && (slot !== undefined ? selectedSlot(selection, slot) : selection?.type === "shiftDay" && selection.shift === shift && selection.day === day);
-    const mark = laneMark(f);
+    const mark = laneMark(f), cup = laneCup(f);
     const when = `${lane.shift.label} · ${format.weekdayDate(new Date(start + day * DAY))}${group === undefined ? "" : ` · ${group.label}`}`;
     const figure = said && mark.state !== "off" ? signed(format.number, mark.difference) : "";
     return <chakra.button type="button" css={[styles.mark, styles.laneMark]} data-roster-lane-mark={`${rowKey}.${weekKey(week)}.${day}`} data-state={mark.state}
-        data-selected={selected ? "" : undefined} aria-pressed={selected}
+        data-selected={selected ? "" : undefined} aria-pressed={selected} style={cupStyle(cup)}
         aria-label={f.target ? `${when}: ${format.number(f.rostered)} of ${format.number(f.needed)} hours rostered` : `${when}: no target`}
         onClick={() => ctx.select(slot !== undefined ? { type: "requirement", slot, start } : { type: "shiftDay", shift, day, start })}>
+        {cupParts(cup, mark.state, false)}
         {figure !== "" && <span data-roster-mark-figure="">{figure}</span>}
     </chakra.button>;
 });
@@ -1700,8 +1732,9 @@ const MonthLaneRow = memo(function MonthLaneRow({ ctx, row, weeks, said, toggle,
     </Box>;
 });
 /**
- * A skill row's week by month (A4.4): its seven marks as a lane's are — off where none of the day's slots needs the
- * skill, short or covered by the hours assigned it — none pressable, each its hours on hover.
+ * A skill row's week by month (A4.4): its seven marks as a lane's are, each a cup (ruled 8 Nov 2026) filled to the
+ * hours assigned it of those needed, full at them, what a short day lacks open above them — an empty cup where none of
+ * the day's slots needs the skill — none pressable, each its hours on hover.
  */
 const SkillWeek = memo(function SkillWeek({ ctx, row, week, w, said }: {
     ctx: ViewContext; row: Extract<DemandRow, { kind: "skill" }>; week: Date; w: number; said: boolean;
@@ -1713,10 +1746,12 @@ const SkillWeek = memo(function SkillWeek({ ctx, row, week, w, said }: {
         {read.state === "failed" ? null : <Box css={styles.markStrip}>
             {SEVEN_DAYS.map(day => {
                 if (read.state !== "held") return revealed ? <Box key={day} as="span" css={styles.mark} data-pending="" /> : null;
-                const f = row.skill.days[w * 7 + day], mark = skillMark(f);
+                const f = row.skill.days[w * 7 + day], mark = skillMark(f), cup = skillCup(f);
                 const figure = said && mark.state !== "off" ? signed(format.number, mark.difference) : "";
                 return <Box key={day} as="span" css={[styles.mark, styles.laneMark]} data-roster-lane-skill-mark={`${row.key}.${weekKey(week)}.${day}`} data-state={mark.state}
+                    style={cupStyle(cup)}
                     title={f === undefined ? undefined : `${label} · ${format.weekdayDate(new Date(week.getTime() + day * DAY))}: ${format.number(f.assigned)} of ${format.number(f.needed)} hours assigned`}>
+                    {cupParts(cup, mark.state, true)}
                     {figure !== "" && <span data-roster-mark-figure="">{figure}</span>}
                 </Box>;
             })}

@@ -7,14 +7,14 @@
  * target of the scope names in any week, in the shifts' order; its days' and its span's hours its slots' summed over the
  * scope's groups, what each slot is short summed so that no slot's surplus nets another's shortfall (K4); its skill rows
  * in the activities' order; the scope's figures each day, each week and over the span, every one of its slots counted, a
- * shift with no target's too; a month's marks; a difference's figure and tone; and a shift's day summed across the
- * groups, as the inspector draws it.
+ * shift with no target's too; a month's marks and how far each fills as a cup; a difference's figure and tone; and a
+ * shift's day summed across the groups, as the inspector draws it.
  */
 import { describe, expect, test } from "vitest";
 import { SortedMap, StringType, compareFor, none, printFor, some, type option } from "@elaraai/east";
 import { RosterCoverageType } from "@elaraai/e3-ui/internal";
 import { compareSlot, type Coverage, type Requirement, type RosterValue, type Slot } from "./model.js";
-import { demandOf, difference, laneMark, signed, skillMark, summedCoverage, toneOf } from "./demand.js";
+import { demandOf, difference, laneCup, laneMark, signed, skillCup, skillMark, summedCoverage, toneOf } from "./demand.js";
 
 const byString = compareFor(StringType);
 const printCoverage = printFor(RosterCoverageType);
@@ -148,6 +148,33 @@ describe("a month's marks", () => {
         expect(skillMark({ needed: 16, assigned: 12 })).toEqual({ state: "short", difference: -4 });
         expect(skillMark({ needed: 8, assigned: 14 })).toEqual({ state: "covered", difference: 6 });
         expect(skillMark({ needed: 8, assigned: 8 })).toEqual({ state: "covered", difference: 0 });
+    });
+});
+
+describe("a month's cups (ruled 8 Nov 2026)", () => {
+    const [early] = demandOf(value, [{ requirements, coverage }], ["inbound", "picking"]).lanes;
+    const empty = { permanent: 0, agency: 0, fill: 0 };
+    test("a lane's day: empty with no target, or with no hours; short, filled to its hours rostered of needed, the permanent staff's, agency staff's and the requests' stacked from the bottom; covered or over, full, its parts in proportion", () => {
+        // Sunday: no target. Monday's Late: rostered, but with no target.
+        expect(laneCup(early!.days[0]!)).toEqual(empty);
+        expect(laneCup({ ...NONE, rostered: 8, permanent: 8 })).toEqual(empty);
+        // A target needing no hours, none rostered.
+        expect(laneCup({ ...NONE, target: true })).toEqual(empty);
+        // Monday: 26 hours rostered of 24, every one the permanent staff's.
+        expect(laneCup(early!.days[1]!)).toEqual({ permanent: 1, agency: 1, fill: 1 });
+        // Tuesday: exact, half of it requested: the requests the top half.
+        expect(laneCup(early!.days[2]!)).toEqual({ permanent: 0.5, agency: 0.5, fill: 1 });
+        // Short: 6 permanent, 3 agency and 3 requested of 16 needed.
+        expect(laneCup({ ...early!.days[1]!, needed: 16, rostered: 12, permanent: 6, agency: 3, requested: 3 })).toEqual({ permanent: 0.375, agency: 0.5625, fill: 0.75 });
+        // Over: 10 permanent, 6 agency and 4 requested of 16 needed — full, each part its share of the 20 rostered.
+        expect(laneCup({ ...early!.days[1]!, needed: 16, rostered: 20, permanent: 10, agency: 6, requested: 4 })).toEqual({ permanent: 0.5, agency: 0.8, fill: 1 });
+    });
+    test("a skill's day: empty where none of its slots needs it; filled to its hours assigned of needed, full at them and over; full where its slots need none of it", () => {
+        expect(skillCup(undefined)).toEqual(empty);
+        expect(skillCup({ needed: 16, assigned: 12 })).toEqual({ permanent: 0.75, agency: 0.75, fill: 0.75 });
+        expect(skillCup({ needed: 8, assigned: 8 })).toEqual({ permanent: 1, agency: 1, fill: 1 });
+        expect(skillCup({ needed: 8, assigned: 14 })).toEqual({ permanent: 1, agency: 1, fill: 1 });
+        expect(skillCup({ needed: 0, assigned: 4 })).toEqual({ permanent: 1, agency: 1, fill: 1 });
     });
 });
 
