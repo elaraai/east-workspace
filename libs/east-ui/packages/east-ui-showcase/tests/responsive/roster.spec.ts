@@ -59,6 +59,21 @@ async function remount(page: Page, name: string) {
     await entry.scrollIntoViewIfNeeded(); await expect(entry.locator('[data-roster-frame]').first()).toBeVisible();
     return entry.locator('[data-roster-frame]').first();
 }
+/** Main's rows: the People grid's, or a phone's cards. */
+const mainRows = (frame: Locator) => frame.locator('[data-roster-main] [data-virtual-rows]').first();
+/**
+ * A phone's person card, brought into view: main's cards scrolled down a step at a time until it is drawn, since an open
+ * band's work requirement — a card a day — stands before its people's cards (#1568).
+ */
+async function revealCard(page: Page, frame: Locator, key: string): Promise<Locator> {
+    const card = frame.locator(`[data-roster-person-card="${key}"]`);
+    for (let step = 1; step <= 40 && await card.count() === 0; step++) {
+        await mainRows(frame).evaluate((el, top) => { el.scrollTop = top; }, step * 240);
+        await settled(page);
+    }
+    await card.scrollIntoViewIfNeeded();
+    return card;
+}
 /** Each source a summary names, and what it says of it, by source name: `people: 22 of 69 people`. */
 const namedSources = (summary: Locator) => summary.locator('[data-record-slice-source]').evaluateAll(els => els
     .map(el => `${el.getAttribute('data-record-slice-source')}: ${(el.textContent ?? '').replace(/\s+/g, ' ').trim()}`).sort());
@@ -485,7 +500,8 @@ for (const theme of LAYOUT_THEMES) {
             await group.click();
             await expect(group).toHaveAttribute('aria-expanded', 'false');
         }
-        await expect(frame.locator('[data-roster-person-row]')).toHaveCount(0);
+        // Each band's people and its work requirement's lanes fold with it.
+        await expect(frame.locator('[data-roster-person-row], [data-roster-lane]')).toHaveCount(0);
         await view(page, frame, 'Shifts');
         await expect(frame.locator('[data-roster-group][aria-expanded="false"]')).toHaveCount(3);
         await expect(frame.locator('[data-roster-slot], [data-roster-requirement]')).toHaveCount(0);
@@ -497,15 +513,17 @@ for (const theme of LAYOUT_THEMES) {
         await expect(inbound).toHaveAttribute('aria-expanded', 'true');
         await expect(frame.locator(`[data-roster-person-row="${firstPerson}"]`)).toBeVisible();
         await size(page, entry, 360);
-        await expect(frame.locator(`[data-roster-person-card="${firstPerson}"]`)).toBeVisible();
+        await expect(await revealCard(page, frame, firstPerson!)).toBeVisible();
+        await mainRows(frame).evaluate(el => { el.scrollTop = 0; }); await settled(page);
         await inbound.click();
-        await expect(frame.locator('[data-roster-person-card]')).toHaveCount(0);
+        // Folded, the band's people's cards go, and its work requirement's cards with them.
+        await expect(frame.locator('[data-roster-person-card], [data-roster-demand-cards]')).toHaveCount(0);
         const again = await remount(page, 'rosterWarehouse'); await size(page, entry, 360);
         await expect(again.locator('[data-roster-group][aria-expanded="false"]')).toHaveCount(3);
         const reopen = again.locator('[data-roster-group="inbound"]');
         await reopen.focus(); await page.keyboard.press('Space');
         await expect(reopen).toHaveAttribute('aria-expanded', 'true');
-        await expect(again.locator(`[data-roster-person-card="${firstPerson}"]`)).toBeVisible();
+        await expect(await revealCard(page, again, firstPerson!)).toBeVisible();
         expect(await again.locator('[data-roster-person-card]').count()).toBeLessThan(10);
         await expect(again.locator('[aria-roledescription="draggable"], [data-roster-person-day]')).toHaveCount(0);
     });
