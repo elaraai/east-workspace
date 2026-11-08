@@ -9,11 +9,12 @@
  *
  * A call of a named function through a workspace is filed when it starts,
  * runs where its backend runs calls, and is kept once it ends, until the
- * lifetime its end gives it. The store keeps what readers are shown, the call
- * as the API answers it ({@link FunctionCallType}). Beside it, it keeps what
- * the call's run needs and no reader is shown: the function object it runs,
- * the runner it runs on, whether it runs verbose, its deadline, and a request
- * to cancel it.
+ * lifetime its end gives it; so is a one-shot started as a call, its caller's
+ * program run as an anonymous function. The store keeps what readers are
+ * shown, the call as the API answers it ({@link FunctionCallType}). Beside it,
+ * it keeps what the call's run needs and no reader is shown: the function
+ * object it runs, the runner it runs on, whether it runs verbose, its
+ * deadline, and a request to cancel it.
  *
  * It is stored state (`WIRE_MIGRATION.md`): a change to its type ships a
  * repository upgrade step.
@@ -65,9 +66,11 @@ export type FunctionCallKeep = ValueTypeOf<typeof FunctionCallKeepType>;
  * @property call - The call as readers are shown it
  * @property workspace - The workspace it was called through
  * @property functionObject - The hash of the function object it runs: the one
- *   the deployed package named when it started, whatever is deployed since
+ *   the deployed package named when it started, whatever is deployed since;
+ *   for a one-shot call, the anonymous one its start stored, naming the
+ *   caller's program, its types and its runner, and no inputs
  * @property runner - The runner it runs on: the function's own, or one the
- *   call named and its caller's grant allowed
+ *   call named and its caller's grant allowed; a one-shot call's own
  * @property verbose - Whether a stock runner runs it with `-v`
  * @property deadline - When its timeout ends: a call still recorded running
  *   once its deadline and a grace have passed is lost
@@ -114,17 +117,20 @@ export function decodeFunctionCallJob(bytes: Uint8Array): FunctionCallJob {
 }
 
 /**
- * What a kept call names, which gc keeps while the call is kept: each value
- * argument's object, the version of each dataset argument and each input it
- * read, and its value once it succeeded.
+ * What a kept call names, which gc keeps while the call is kept: the function
+ * object it runs, and with it the program the object names; each value
+ * argument's object; the version of each dataset argument and each input it
+ * read; and its value once it succeeded. A one-shot call's function object is
+ * its own, which no package names, so the call alone keeps it, and its
+ * program, for as long as it runs and is kept.
  *
  * @param job - The call
- * @returns The hashes it names, in its arguments' order, then its inputs', then
- *   its value's
+ * @returns The hashes it names: its function object's, then its arguments' in
+ *   order, then its inputs', then its value's
  */
 export function functionCallRoots(job: FunctionCallJob): string[] {
   const { call } = job;
-  const roots = call.args.map((arg) => (arg.type === 'value' ? arg.value : arg.value.hash));
+  const roots = [job.functionObject, ...call.args.map((arg) => (arg.type === 'value' ? arg.value : arg.value.hash))];
   for (const input of call.inputs) roots.push(input.hash);
   if (call.state.type === 'succeeded') roots.push(call.state.value.value);
   return roots;

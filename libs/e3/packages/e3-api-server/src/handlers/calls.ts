@@ -4,17 +4,19 @@
  */
 
 /**
- * Handlers for the calls of named functions through a workspace
- * (east-workspace#1554).
+ * Handlers for the calls of named functions through a workspace, and of
+ * one-shots started as calls (east-workspace#1554).
  *
- * A call is filed by e3-core's `functionCallStart`, run where the transfer
- * backend's dispatch runs calls (`FunctionCallDispatch`), and kept in the
- * repository's call store (`StorageBackend.calls`) for the lifetime its end
- * gives it. So a call outlasts the request that starts it: its start waits a
- * while for it and answers its result, or `running` with its id, which its
- * caller polls until it ends. The sync call is the same call, waited for
- * within its request. Each handler reads the store for whatever the dispatch
- * cannot say, so a poll is answered alike by whichever instance it reaches.
+ * A call is filed by e3-core's `functionCallStart` — a one-shot's by
+ * `oneShotCallStart`, its caller's program run as an anonymous function — run
+ * where the transfer backend's dispatch runs calls (`FunctionCallDispatch`),
+ * and kept in the repository's call store (`StorageBackend.calls`) for the
+ * lifetime its end gives it. So a call outlasts the request that starts it:
+ * its start waits a while for it and answers its result, or `running` with its
+ * id, which its caller polls until it ends. The sync call is the same call,
+ * waited for within its request. Each handler reads the store for whatever the
+ * dispatch cannot say, so a poll is answered alike by whichever instance it
+ * reaches.
  */
 
 import { none, some, variant } from '@elaraai/east';
@@ -28,6 +30,7 @@ import {
   functionCallStart,
   functionCallStatus,
   functionCallSummary,
+  oneShotCallStart,
 } from '@elaraai/e3-core/portable';
 import type {
   ExecuteCeilings, FunctionCallDispatch, FunctionCallLifetimes, FunctionCallStartOptions, OneShotGrant, StorageBackend,
@@ -48,6 +51,7 @@ import {
   type FunctionCallState,
   type FunctionCallStatus,
   type FunctionCallSummary,
+  type OneShotRequest,
 } from '../types.js';
 
 /** How long a wait holds between its looks at the store, for a call whose end
@@ -173,6 +177,59 @@ export async function startFunctionCall(
   try {
     const job = await functionCallStart(storage, repoPath, workspace, fnName, request, {
       ...filingOf(options),
+      ...(options.id !== undefined && { id: options.id }),
+    });
+    const status = await runAndWait(storage, dispatch, repo, repoPath, job, options.waitMs);
+    return sendSuccess(FunctionCallAnswerType, { id: job.call.id, status });
+  } catch (err) {
+    return sendError(FunctionCallAnswerType, errorToVariant(err));
+  }
+}
+
+/**
+ * Start a one-shot as a call through a workspace: file it, run it where the
+ * backend runs calls, and wait up to `waitMs` for it to end — what a named
+ * function's start does, for its caller's program.
+ *
+ * @remarks
+ * The request is held to its caller's grant, as a one-shot run within a
+ * request is, before anything is read; its program is filed as an anonymous
+ * function, its dataset arguments pinned and its value arguments stored, as
+ * e3-core's `oneShotCallStart` does; and it is kept from now until its
+ * lifetime ends, listed among the workspace's calls naming no function. A
+ * call found wrong is filed ended `invalid`, and answered `completed` with
+ * that result. A call is held to its own timeout, never to the request's: one
+ * still running when the wait passes is answered `running`, and its caller
+ * polls it by its id, and cancels it, through the calls routes. A call the
+ * dispatch cannot hand to the compute that runs calls is recorded `lost`, and
+ * answered so.
+ *
+ * @param storage - Storage backend
+ * @param dispatch - Runs the call where the backend runs calls
+ * @param repo - The repository's name, which the dispatch takes
+ * @param repoPath - The repository's identifier, which the store takes
+ * @param workspace - The workspace whose datasets the call reads
+ * @param request - The program, its arguments, its runner and its limits
+ * @param options - Who calls, their grant, the ceilings, the lifetimes and how
+ *   long to wait
+ * @returns The response: the call's id and how it stood when the wait ended;
+ *   or the error that stopped its start — `permission_denied` (`path`
+ *   `one-shot`) for a request the caller's grant does not run, and the
+ *   workspace not found or not deployed
+ */
+export async function startOneShotCall(
+  storage: StorageBackend,
+  dispatch: FunctionCallDispatch,
+  repo: string,
+  repoPath: string,
+  workspace: string,
+  request: OneShotRequest,
+  options: StartFunctionCallOptions,
+): Promise<Response> {
+  try {
+    const job = await oneShotCallStart(storage, repoPath, workspace, request, {
+      ...filingOf(options),
+      grant: options.grant,
       ...(options.id !== undefined && { id: options.id }),
     });
     const status = await runAndWait(storage, dispatch, repo, repoPath, job, options.waitMs);

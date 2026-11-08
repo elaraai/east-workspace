@@ -86,4 +86,6 @@ export {
     type InMemorySplitCallOptions,
 } from "./in-memory-call.js";
 // The calls' shapes, as the builder's seams take them: types only, so nothing of React is reached.
-export type { QueryCall, QuerySplitCall, QuerySplitCallOptions, QuerySplitExplain, QuerySourceStatus, SourceStatus } from "./hooks.js";
+export type {
+    QueryCall, QueryCallOptions, QuerySplitCall, QuerySplitCallOptions, QuerySplitExplain, QuerySourceStatus, SourceStatus,
+} from "./hooks.js";

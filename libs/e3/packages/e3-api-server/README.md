@@ -62,7 +62,7 @@ e3-api-server --repo /path/to/repo --job-timeout 1h --max-result 8M
 | `-j, --jobs <n>` | Cores: runner processes in flight at once, across every run and call the server serves and every upload it takes in (default: `E3_JOBS`, else the CPUs available) |
 | `--memory <size>` | Memory those runner processes may reserve between them, as `8G` or `512M` (default: `E3_MEMORY`, else the memory available, less a reserve for e3 and the OS) |
 | `--call-deadline <duration>` | How long a one-shot call, or a function called through its sync route, may run before it answers, as `90s` or `15m` (default: 120s). A call that names no timeout of its own gets 60s within it |
-| `--job-timeout <duration>` | How long a split call's job, or a kept call of a workspace's function, may run, as `30m` or `2h`, which is also the longest timeout a one-shot call may ask for (default: 10m) |
+| `--job-timeout <duration>` | How long a split call's job, or a kept call — of a workspace's function, or a one-shot started as a call — may run, as `30m` or `2h`, which is also the longest timeout a one-shot call may ask for (default: 10m) |
 | `--max-result <size>` | The largest result a one-shot, split or kept call answers, as `8M` (default: 1M). The server holds a result in memory while it answers it, so a larger limit takes more of it; a split call's larger result is read from its stored output, by its hash |
 | `--max-log <size>` | The most of each of a call's stdout and stderr its answer may carry, as `1M` (default: 256K; a call that names no limit gets 64K) |
 
@@ -163,7 +163,8 @@ interface ServerConfig {
 `calls` sets the limits the one-shot, function and split calls run under, as
 the CLI's `--call-deadline`, `--job-timeout`, `--max-result` and `--max-log`
 do (`resolveCallLimits` turns those flags into it), and how the server waits
-for and keeps a call of a workspace's function, which outlives its request:
+for and keeps a call through a workspace — of one of its functions, or a
+one-shot started as a call — which outlives its request:
 
 ```typescript
 const server = await createServer({
@@ -183,8 +184,8 @@ const server = await createServer({
 ```
 
 The deadline applies to one-shot calls and to a function's sync route, and the
-ceilings to one-shot calls, split calls and kept calls of a workspace's
-functions. A limit no call could meet — a deadline, ceiling or lifetime that
+ceilings to one-shot calls, split calls and kept calls, a workspace function's
+or a one-shot's. A limit no call could meet — a deadline, ceiling or lifetime that
 is not positive, or a negative window or wait — makes `createServer` throw a
 `RangeError`.
 
@@ -285,27 +286,36 @@ cuts it off: the function and one-shot routes take `syncDeadlineMs`, and so do
 the record routes, whose mutation and compaction answer `timed_out` or
 `conflict` 2 s under it. A call through a workspace outlives any request, so
 its start and its poll are held only while the host allows: the workspace
-function routes take `windowMs`, the longest a start waits (20 s), and the call
-routes `pollWaitMs`, the longest a poll is held (20 s), which a host whose held
-requests cost it keeps short. Both take the transfer backend, whose
-`functionCalls` dispatch runs each call where the host runs calls — this
-server in its own process, e3-cloud on its own compute — and the routes read
-the storage backend's call store for whatever the dispatch cannot say, so a
-poll is answered alike by whichever instance it reaches. Who made a call is
-`callerOf` (the identity's email, else its subject), and who may read or cancel
-one the call routes' `access`, unset here, where every caller the routes admit
-may.
+function routes and the one-shot routes take `windowMs`, the longest a start
+waits (20 s), and the call routes `pollWaitMs`, the longest a poll is held
+(20 s), which a host whose held requests cost it keeps short. Each takes the
+transfer backend, whose `functionCalls` dispatch runs each call where the host
+runs calls — this server in its own process, e3-cloud on its own compute — and
+the routes read the storage backend's call store for whatever the dispatch
+cannot say, so a poll is answered alike by whichever instance it reaches. A
+one-shot started as a call is held to the one-shot routes' `callCeilings`, the
+most it may ask for, which are their `ceilings` unless the host gives others:
+a host that runs its calls on other compute than its one-shots and split calls
+gives that compute's. Who made a call is `callerOf` (the identity's email, else
+its subject), and who may read or cancel one the call routes' `access`, unset
+here, where every caller the routes admit may.
 
 ```typescript
 app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, getRepoPath, transferBackend, {
   access, syncDeadlineMs: 25_000, windowMs: 20_000, ceilings: { timeoutMs: 13 * 60_000 },
+}));
+// A one-shot started as a call runs where the calls above run, under their ceilings
+app.route('/api/repos/:repo/workspaces/:ws/one-shot', createOneShotRoutes(storage, getRepoPath, transferBackend, getRunner, {
+  access, syncDeadlineMs: 25_000, windowMs: 20_000, callCeilings: { timeoutMs: 13 * 60_000 },
 }));
 app.route('/api/repos/:repo/workspaces/:ws/calls', createWorkspaceCallRoutes(storage, getRepoPath, transferBackend, {
   pollWaitMs: 2_000,
   // An app's users read and cancel the calls they made; an owner any
   access: (c, call) => isOwner(c) || madeBy(call.caller, c),
 }));
-``` The record routes' `historyLimit` is how many commits
+```
+
+The record routes' `historyLimit` is how many commits
 a history request that names no `limit` is answered with; the client pages on
 from the last one's parent. Unset, as on this server, neither is bounded. A
 limit no request could meet is refused when the routes are mounted.
@@ -559,11 +569,12 @@ and its commit takes it in.
 | GET | `/api/repos/:repo/workspaces/:ws/functions/:fn` | One function's signature |
 | POST | `/api/repos/:repo/workspaces/:ws/functions/:fn/calls` | Start a call of one of them, kept for its lifetime: each argument a value, or one of the workspace's datasets, pinned at its hash when the call starts. Waits up to `?wait=` ms for it to end — at most the window, 20 s, which it waits when none is given; `?wait=0` answers at once — and answers its id and status: `completed` with its result, or `running`. `?id=`, a UUIDv7 of now the client chose, names the call, so the client can cancel it before the start answers: one more than five minutes from the server's clock is set aside for an id of the server's, one the workspace keeps a call under already is refused, and one that is no UUIDv7 is refused 400 `bad_request` |
 | POST | `/api/repos/:repo/workspaces/:ws/functions/:fn` | Call one of them within the request: the same call, kept, its timeout clamped under the sync deadline, answered as its result; the result names the inputs and datasets it read (`inputs`) |
-| GET | `/api/repos/:repo/workspaces/:ws/calls` | The workspace's calls, the latest first: `?function=`, `?state=` (a state's tag), `?before=` (the last page's `next`) and `?limit=` (50, at most 200), each with who made it, when, and how it stands or ended |
-| GET | `/api/repos/:repo/workspaces/:ws/calls/:id` | One call whole: its package, its arguments, the inputs it read, its limits, its value's object, its log tails and when it is forgotten |
+| GET | `/api/repos/:repo/workspaces/:ws/calls` | The workspace's calls, the latest first: `?function=` (a one-shot call names none), `?state=` (a state's tag), `?before=` (the last page's `next`) and `?limit=` (50, at most 200), each with who made it, when, and how it stands or ended |
+| GET | `/api/repos/:repo/workspaces/:ws/calls/:id` | One call whole: its function and package (none for a one-shot), its arguments, the inputs it read, its limits, its value's object, its log tails and when it is forgotten |
 | GET | `/api/repos/:repo/workspaces/:ws/calls/:id/status` | A call's status: `running`; `completed` with its result, its value inline; `cancelled`, naming who asked; or `lost`. Held up to `?wait=` ms, at most `pollWaitMs`, until the call ends |
 | POST | `/api/repos/:repo/workspaces/:ws/calls/:id/cancel` | Ask a running call to stop: its runner is stopped, and it ends `cancelled`, naming who asked. Answers its status once it has stopped, or `running` while it stops; a call that has ended is left as it is |
-| POST | `/api/repos/:repo/workspaces/:ws/one-shot` | Run a caller's program over the workspace's datasets: its result, naming the datasets it read (`inputs`) |
+| POST | `/api/repos/:repo/workspaces/:ws/one-shot` | Run a caller's program over the workspace's datasets within the request, keeping nothing: its result, naming the datasets it read (`inputs`) |
+| POST | `/api/repos/:repo/workspaces/:ws/one-shot/calls` | Start a caller's program as a call, under the same grant: kept for its lifetime among the workspace's calls, naming no function or package, its dataset arguments pinned at their hashes when it starts. Waits up to `?wait=` ms and takes the client's `?id=` as a function's start does, and answers as it does: its id and status, `completed` with its result, or `running`, which the call routes poll and cancel |
 | POST | `/api/repos/:repo/workspaces/:ws/one-shot/split` | Launch a split call — a caller's program over a dataset's pieces — as a job: answers the job's id; with `?explain=1` the job plans the pieces the call would run, and runs nothing |
 | GET | `/api/repos/:repo/workspaces/:ws/one-shot/split/:id` | Poll a split call: how far it has got, its result, the pieces an explain planned, why it failed, or that it was cancelled |
 | POST | `/api/repos/:repo/workspaces/:ws/one-shot/split/:id/cancel` | Cancel a split call: one still running ends `cancelled`, and its units are stopped; one that has ended is left as it is. Answers its status after, as a poll does |
@@ -594,6 +605,15 @@ arguments, the inputs it read and its value by hash, and gc keeps what a live
 call names. A call still recorded running past its deadline and a grace — its
 server stopped before it ended — is answered `lost`. A call found wrong is kept
 `invalid`, answered at once. A workspace's removal removes its calls.
+
+A one-shot started as a call (`…/one-shot/calls`) is kept the same way, under
+the caller's one-shot grant: its program is stored and filed with the call as
+an anonymous function, which no package holds and the call alone keeps from
+gc, and the call names no function or package. It runs on the server's runner,
+under the job limit unless it asks for less, and is polled, cancelled and
+listed as a function's call is. e3-ui's query builder runs its queries so,
+through e3-api-client's `oneShotCall`, which runs one within a request
+(`…/one-shot`) on a server that has no such route.
 
 A split call runs as a split task, so each
 piece and merge is cached: a relaunch is served from the cache, and one after

@@ -23,8 +23,8 @@
  */
 
 import {
-  IMPORT_PLATFORM, decodeAsyncEastIR, decodeEastIR, literalValueOf, none, some, variant, walkIR, type AsyncFunctionIR, type FunctionIR, type IR,
-  type ValueIR,
+  IMPORT_PLATFORM, decodeAsyncEastIR, decodeEastIR, literalValueOf, none, some, variant, walkIR, type AsyncFunctionIR, type EastTypeValue, type FunctionIR,
+  type IR, type ValueIR,
 } from '@elaraai/east';
 import { pathToString, type CallArg, type ExecuteLimits, type ExecuteResult, type OneShotRequest, type RunnerValue, type TreePath } from '@elaraai/e3-types';
 import { PermissionDeniedError } from '../errors.js';
@@ -230,6 +230,21 @@ function decodeBody(bodyIr: Uint8Array): FunctionIR | AsyncFunctionIR {
  */
 export function programArity(ir: Uint8Array): number {
   return decodeBody(ir).value.parameters.length;
+}
+
+/**
+ * A program's signature: its parameters' types, in order, and its return
+ * type, as a function object names them.
+ *
+ * @param ir - The program's IR bundle
+ * @returns Its argument types and its output type
+ * @throws {Error} When the IR does not decode as a function.
+ * @internal
+ */
+export function programSignature(ir: Uint8Array): { argTypes: EastTypeValue[]; outputType: EastTypeValue } {
+  const type: EastTypeValue = decodeBody(ir).value.type;
+  if (type.type !== 'Function' && type.type !== 'AsyncFunction') throw new Error(`its type is ${type.type}, not a function's`);
+  return { argTypes: [...type.value.inputs], outputType: type.value.output };
 }
 
 /**

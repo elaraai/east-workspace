@@ -40,8 +40,10 @@ import { Data, Query, Record, queryKeys } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/query/query";
 import { datasetGetStatus, oneShotExecute, splitCallExplain, splitCallStatus } from "@elaraai/e3-api-client";
 import {
-    ExecuteResultType, OneShotRequestType, PackageJobResponseType, ResponseType, SplitCallRequestType, SplitCallStatusType,
-    type DatasetStatusDetail, type ExecuteResult, type OneShotRequest, type SplitCallPlan, type SplitCallRequest, type SplitCallStatus,
+    ExecuteResultType, FunctionCallAnswerType, FunctionCallStatusType, OneShotRequestType, PackageJobResponseType, ResponseType, SplitCallRequestType,
+    SplitCallStatusType,
+    type DatasetStatusDetail, type ExecuteResult, type FunctionCallStatus, type OneShotRequest, type SplitCallPlan, type SplitCallRequest,
+    type SplitCallStatus,
 } from "@elaraai/e3-types";
 import { act, e3Harness, settle, type E3Harness } from "../e3-web-mount.test-utils.js";
 import type { E3Answer, E3Dataset, E3Match } from "../e3-web.test-utils.js";
@@ -59,8 +61,17 @@ export { act, settle };
 /** The State a query library's `onOpen` writes the name it opened to, in the surface {@link QueryHarness.mountLibrary} mounts. */
 export const TOLD = "query-library-test.told";
 
-/** A one-shot call: what a run of one call, or a summary, sends. */
+/**
+ * A one-shot call: what a run of one call sends, started as a call of the
+ * workspace (`…/one-shot/calls`), or a summary within one request
+ * (`…/one-shot`).
+ */
 export const isRun: E3Match = (request) => request.kind === "one-shot";
+/** A run's one-shot call's start: what a run of one call sends, kept as a call of the workspace. */
+export const isRunStart: E3Match = (request) => request.kind === "one-shot" && request.path.endsWith("/one-shot/calls");
+/** A poll of a kept call: what a run of one call asks until its call ends. */
+export const isCallPoll: E3Match = (request) =>
+    request.method === "GET" && /^\/repos\/[^/]+\/workspaces\/[^/]+\/calls\/[^/]+\/status$/.test(request.path);
 /** A split call's launch (#941): a POST that names no job. */
 export const isSplitLaunch: E3Match = (request) => request.kind === "split" && request.method === "POST" && request.name === undefined && request.query.get("explain") !== "1";
 /** The launch of a split call's explain (#1132). */
@@ -86,7 +97,14 @@ export const HISTORY_ROOT: QueryRoot = queryRoot([
 const readOneShot = decodeBeast2For(OneShotRequestType);
 const readSplit = decodeBeast2For(SplitCallRequestType);
 const readExecuted = decodeBeast2For(ResponseType(ExecuteResultType));
+const readStarted = decodeBeast2For(ResponseType(FunctionCallAnswerType));
+const readCallStatus = decodeBeast2For(ResponseType(FunctionCallStatusType));
 const readJob = decodeBeast2For(ResponseType(PackageJobResponseType));
+
+/** A kept call's result, once its status says it completed. */
+function completedResult(status: FunctionCallStatus): ExecuteResult[] {
+    return status.type === "completed" ? [status.value] : [];
+}
 const readSplitStatus = decodeBeast2For(ResponseType(SplitCallStatusType));
 
 /** The body a request sent, which the route's type decodes. */
@@ -339,8 +357,13 @@ export function queryHarness(): QueryHarness {
         refuseRuns: () => h.e3.fail(isRun, { status: 500, type: "internal", message: "the test refused the run" }),
         oneShots: () => h.requests("one-shot").map((request) => readOneShot(sent(request))),
         oneShotResults: () => {
-            const answers = h.e3.answers(isRun);
-            return () => successes(readExecuted, answers);
+            // A summary's result is its answer; a run's, its start's when the call ended within it, else its poll's
+            const answers = h.e3.answers((request) => isRun(request) || isCallPoll(request));
+            return () => answers.flatMap((answer) => {
+                if (isCallPoll(answer.request)) return successes(readCallStatus, [answer]).flatMap(completedResult);
+                if (isRunStart(answer.request)) return successes(readStarted, [answer]).flatMap((started) => completedResult(started.status));
+                return successes(readExecuted, [answer]);
+            });
         },
         splitCalls: () => h.requests("split").filter(isSplitLaunch).map((request) => readSplit(sent(request))),
         explains: () => h.requests("split").filter(isExplain).map((request) => readSplit(sent(request))),

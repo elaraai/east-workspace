@@ -752,7 +752,7 @@ describe("<Query.Builder> — under its E3Provider, whose fetch is e3's in the p
         await ran(1);
         const pieces = await piecesOf(h.splitCalls()[0]!);
         await waitFor(() => expect([footer().count, footer().plan]).toEqual(["3 rows", `Split call · ${pieces} pieces`]));
-        // One call: a query that runs as one unit.
+        // One call: a query that runs as one unit, started as a call of the workspace under the id the client named it by.
         await runJq(".order_history | length");
         await ran(2);
         expect(footer().plan).toBe("One call");
@@ -762,7 +762,7 @@ describe("<Query.Builder> — under its E3Provider, whose fetch is e3's in the p
             `GET /repos/default/workspaces/${ws}/datasets/tasks/order_history/output?status=true`,
             `POST /repos/default/workspaces/${ws}/one-shot/split`,
             `GET /repos/default/workspaces/${ws}/one-shot/split/${jobs()[0]}`,
-            `POST /repos/default/workspaces/${ws}/one-shot`,
+            expect.stringMatching(new RegExp(`^POST /repos/default/workspaces/${ws}/one-shot/calls\\?id=`)),
         ]));
         expect(h.explains()).toEqual([]);
         expect(h.requests().filter((request) => request.authorization !== "Bearer tok").map((request) => request.path)).toEqual([]);

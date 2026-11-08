@@ -190,9 +190,9 @@ const result = await workspaceFunctionCall(url, repo, 'production', 'forecast', 
 
 // The calls the workspace keeps, the latest first, and one whole
 const page = await workspaceCallList(url, repo, 'production', options, { state: 'failed' });
-// { calls: [{ id, function, caller, startedAt, endedAt, state }, ...], next: <none | some(cursor)> }
+// { calls: [{ id, function: <some(name) | none for a one-shot>, caller, startedAt, endedAt, state }, ...], next: <none | some(cursor)> }
 const call = await workspaceCallGet(url, repo, 'production', page.calls[0].id, options);
-// { package, args, inputs, limits, state: <succeeded { value: hash } | …>, stdout, stderr, expiresAt, ... }
+// { function, package: <some({ name, version }) | none>, args, inputs, limits, state: <succeeded { value: hash } | …>, stdout, stderr, expiresAt, ... }
 ```
 
 A call through a workspace is the server's, and outlives the request that
@@ -220,6 +220,33 @@ result, `cancelled` naming who asked, or `lost` — and
 each call for its lifetime, an hour for a success or a cancel and a week for
 any other end: who made it, its arguments, the versions of the inputs it read,
 its value and its logs, by hash, which `objectGet` reads.
+
+### One-shot calls
+
+```typescript
+import { oneShotCall, oneShotExecute } from '@elaraai/e3-api-client';
+
+// Run a program of the caller's over the workspace's datasets, kept among the
+// workspace's calls, and wait for its result however long it runs
+const result = await oneShotCall(url, repo, 'production', request, options, { signal: stop.signal });
+// { outcome: <success | failed | invalid | too_large | timed_out>, stdout, stderr, inputs, ... }
+
+// Or within one request, its timeout clamped under the server's sync
+// deadline, keeping nothing
+const quick = await oneShotExecute(url, repo, 'production', request, options);
+```
+
+A one-shot is held to the caller's grant: one who may read the workspace runs
+a platform-free program, a stock runner given no platform and a body that calls
+none, and only an elevated grant any other. `oneShotCall` starts it as a call
+(`oneShotStart`) and follows it as `workspaceFunctionCall` follows a
+function's: its timeout the server's ceiling unless its `limits` ask for less,
+polled to its end, stopped by `signal` through the id the client named it by,
+and `onStarted` told its id. The workspace keeps it, naming no function or
+package, so `workspaceCallList` lists it and `workspaceCallGet` reads it, and
+its status and cancel are a function call's (`workspaceFunctionCallStatus`,
+`workspaceFunctionCallCancel`). A server that predates kept one-shots runs it
+within one request, as `oneShotExecute` does.
 
 ### Split calls
 
