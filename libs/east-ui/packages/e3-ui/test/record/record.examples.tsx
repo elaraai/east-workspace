@@ -750,3 +750,364 @@ export const recordRosterByDay = example({
     )),
     inputs: [],
 });
+
+// ============================================================================
+// Example 11 — the worked case: skills held as a dated history and preferences
+// as dated snapshots, each read and written through the solution's functions
+// ============================================================================
+
+export const Level = VariantType({ not_trained: NullType, trainee: NullType, competent: NullType });
+export const Holding = StructType({
+    skill: StringType,
+    holding: VariantType({ level: Level, licence: BooleanType }),
+    since: DateTimeType,
+    expires: OptionType(DateTimeType),
+    signed_off_by: OptionType(StringType),
+    signed_off_at: OptionType(DateTimeType),
+});
+export const Choice = VariantType({ cant: NullType, can: NullType, prefer: NullType });
+export const PreferenceSnapshot = StructType({
+    since: DateTimeType,
+    basis: VariantType({ guessed: NullType, stated: NullType }),
+    standard: StructType({ day: Choice, afternoon: Choice, night: Choice, saturday: Choice, sunday: Choice, sunday_night: Choice }),
+    peak: StructType({ day: Choice, night: Choice, saturday: Choice, sunday: Choice, four_days: Choice, five_days: Choice, six_days: Choice }),
+});
+export const Employee = StructType({
+    id: StringType,
+    name: OptionType(StringType),
+    home_team: OptionType(StringType),
+    active: BooleanType,
+    skills: ArrayType(Holding),
+    preferences: ArrayType(PreferenceSnapshot),
+});
+export const Skill = StructType({ team: OptionType(StringType) });
+export const Team = StructType({ name: StringType });
+
+export const recordPeople = e3.record("record_people", DictType(StringType, Employee), {
+    initial: new Map([
+        ["P-0401", { id: "P-0401", name: some("A. Morgan"), home_team: some("T-IN"), active: true,
+            skills: [
+                // Competent since March, signed off; competent until it lapsed on 30 September; a licence held until next May.
+                { skill: "Counting", holding: variant("level", variant("competent", null)), since: new Date("2026-03-02T00:00:00Z"), expires: none,
+                    signed_off_by: some("M. Hale"), signed_off_at: some(new Date("2026-03-02T00:00:00Z")) },
+                { skill: "Receiving", holding: variant("level", variant("competent", null)), since: new Date("2026-03-02T00:00:00Z"),
+                    expires: some(new Date("2026-09-30T00:00:00Z")), signed_off_by: none, signed_off_at: none },
+                { skill: "Forklift", holding: variant("licence", true), since: new Date("2026-05-01T00:00:00Z"),
+                    expires: some(new Date("2027-05-01T00:00:00Z")), signed_off_by: none, signed_off_at: none },
+            ],
+            preferences: [
+                { since: new Date("2026-10-01T00:00:00Z"), basis: variant("stated", null),
+                    standard: { day: variant("prefer", null), afternoon: variant("can", null), night: variant("cant", null),
+                        saturday: variant("can", null), sunday: variant("can", null), sunday_night: variant("cant", null) },
+                    peak: { day: variant("can", null), night: variant("can", null), saturday: variant("prefer", null), sunday: variant("can", null),
+                        four_days: variant("prefer", null), five_days: variant("can", null), six_days: variant("cant", null) } },
+            ] }],
+        ["P-0408", { id: "P-0408", name: some("B. Ellis"), home_team: some("T-OUT"), active: true,
+            skills: [
+                // A trainee this month, signed off; no forklift licence.
+                { skill: "Dispatch", holding: variant("level", variant("trainee", null)), since: new Date("2026-11-02T00:00:00Z"), expires: none,
+                    signed_off_by: some("S. Park"), signed_off_at: some(new Date("2026-11-02T00:00:00Z")) },
+                { skill: "Forklift", holding: variant("licence", false), since: new Date("2026-05-01T00:00:00Z"), expires: none,
+                    signed_off_by: none, signed_off_at: none },
+            ],
+            preferences: [
+                { since: new Date("2026-02-01T00:00:00Z"), basis: variant("guessed", null),
+                    standard: { day: variant("can", null), afternoon: variant("prefer", null), night: variant("can", null),
+                        saturday: variant("cant", null), sunday: variant("cant", null), sunday_night: variant("cant", null) },
+                    peak: { day: variant("can", null), night: variant("can", null), saturday: variant("can", null), sunday: variant("can", null),
+                        four_days: variant("can", null), five_days: variant("can", null), six_days: variant("can", null) } },
+            ] }],
+        // No name yet, no skill held and no preference stated.
+        ["P-0415", { id: "P-0415", name: none, home_team: none, active: true, skills: [], preferences: [] }],
+    ]),
+    mutations: (mutation) => ({
+        // Every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
+export const recordSkillList = e3.record("record_skill_list", DictType(StringType, Skill), {
+    initial: new Map([
+        ["Counting", { team: some("T-IN") }],
+        ["Dispatch", { team: some("T-OUT") }],
+        ["First aid", { team: none }],
+        ["Forklift", { team: some("T-YARD") }],
+        ["Receiving", { team: some("T-IN") }],
+    ]),
+});
+export const recordTeams = e3.record("record_teams", DictType(StringType, Team), {
+    initial: new Map([["T-IN", { name: "Inbound" }], ["T-OUT", { name: "Outbound" }], ["T-YARD", { name: "Yard" }]]),
+});
+
+/** The holding of a skill in force on a day: the latest dated on or before it, the later of two dated the same. */
+export const holdingOn = East.function([ArrayType(Holding), StringType, DateTimeType], OptionType(Holding), ($, holdings, skill, day) => {
+    const found = $.let(none, OptionType(Holding));
+    $.for(holdings, ($2, holding) => {
+        const later = $2.const(found.match({ none: () => true, some: (_$3, held) => East.lessEqual(held.since, holding.since) }));
+        $2.if(holding.skill.equal(skill).and(() => East.lessEqual(holding.since, day)).and(() => later), ($3) => {
+            $3.assign(found, some(holding));
+        });
+    });
+    return found;
+});
+
+/** A skill's level on a day, as every reader plans with it: none once its holding has expired, a licence held competent. */
+export const levelOn = East.function([ArrayType(Holding), StringType, DateTimeType], OptionType(Level), ($, holdings, skill, day) => {
+    const notHeld = $.const(none, OptionType(Level));
+    const competent = $.const(some(variant("competent", null)), OptionType(Level));
+    const find = $.const(holdingOn);
+    const inForce = $.const(find(holdings, skill, day));
+    return inForce.match({
+        none: () => notHeld,
+        some: ($2, holding) => {
+            const expired = $2.const(holding.expires.match({ none: () => false, some: (_$3, end) => East.lessEqual(end, day) }));
+            return expired.ifElse(() => notHeld, () => holding.holding.match({
+                level: (_$3, level) => some(level),
+                licence: (_$3, held) => held.ifElse(() => competent, () => notHeld),
+            }));
+        },
+    });
+});
+
+/** A cell's mark: a licence row in force locks it, held or not; an expired level says what lapsed. */
+export const markOn = East.function([ArrayType(Holding), StringType, DateTimeType], OptionType(Record.Types.Mark), ($, holdings, skill, day) => {
+    const noMark = $.const(none, OptionType(Record.Types.Mark));
+    const find = $.const(holdingOn);
+    const inForce = $.const(find(holdings, skill, day));
+    return inForce.match({
+        none: () => noMark,
+        some: ($2, holding) => {
+            const expired = $2.const(holding.expires.match({ none: () => false, some: (_$3, end) => East.lessEqual(end, day) }));
+            return holding.holding.match({
+                licence: (_$3, held) => held.ifElse(
+                    () => expired.ifElse(() => some(variant("lock", "licence: expired")), () => some(variant("lock", "licence"))),
+                    () => some(variant("lock", "no licence"))),
+                level: ($3, level) => {
+                    const name = $3.const(level.match({ not_trained: () => "not trained", trainee: () => "trainee", competent: () => "competent" }));
+                    return expired.ifElse(() => some(variant("note", East.str`expired: ${name}`)), () => noMark);
+                },
+            });
+        },
+    });
+});
+
+/**
+ * The holdings with a skill set to a level today. Today's last row of the skill is replaced when the grid could have
+ * written it — a level, with no expiry and no sign-off — and otherwise a row is appended. A level the holdings already
+ * read without the grid's row writes nothing, and drops that row: an edit that ends where it started saves none. No
+ * earlier row changes.
+ */
+export const withLevel = East.function([ArrayType(Holding), StringType, Level, DateTimeType], ArrayType(Holding), ($, holdings, skill, level, today) => {
+    const read = $.const(levelOn);
+    const day = $.const(East.DateTime.roundDownDay(today, 1n));
+    const written = $.const({ skill, holding: variant("level", level), since: today, expires: none, signed_off_by: none, signed_off_at: none }, Holding);
+    const last = $.let(none, OptionType(IntegerType));
+    $.for(holdings, ($2, holding, index) => {
+        $2.if(holding.skill.equal(skill).and(() => East.equal(East.DateTime.roundDownDay(holding.since, 1n), day)), ($3) => { $3.assign(last, some(index)); });
+    });
+    // Today's last row of the skill, when the grid could have written it.
+    const mine = $.const(last.match({
+        none: () => none,
+        some: (_$2, at) => holdings.get(at).holding.hasTag("level").and(() => holdings.get(at).expires.hasTag("none")).and(() => holdings.get(at).signed_off_by.hasTag("none"))
+            .ifElse(() => some(at), () => none),
+    }), OptionType(IntegerType));
+    const without = $.const(mine.match({
+        none: () => holdings,
+        some: (_$2, at) => holdings.slice(0n, at).concat(holdings.slice(at.add(1n), holdings.size())),
+    }));
+    return East.equal(read(without, skill, today), some(level)).ifElse(
+        () => without,
+        () => mine.match({
+            none: () => holdings.concat([written]),
+            some: (_$2, at) => holdings.map((_$3, holding, index) => index.equal(at).ifElse(() => written, () => holding)),
+        }));
+});
+
+/** The preferences in force on a day: the latest snapshot dated on or before it, the later of two dated the same. */
+export const preferencesOn = East.function([ArrayType(PreferenceSnapshot), DateTimeType], OptionType(PreferenceSnapshot), ($, snapshots, day) => {
+    const found = $.let(none, OptionType(PreferenceSnapshot));
+    $.for(snapshots, ($2, snapshot) => {
+        const later = $2.const(found.match({ none: () => true, some: (_$3, held) => East.lessEqual(held.since, snapshot.since) }));
+        $2.if(East.lessEqual(snapshot.since, day).and(() => later), ($3) => { $3.assign(found, some(snapshot)); });
+    });
+    return found;
+});
+
+/** The standard marks in force on a day; before any snapshot, "can" for each. */
+export const standardOn = East.function([ArrayType(PreferenceSnapshot), DateTimeType], PreferenceSnapshot.fields.standard, ($, snapshots, day) => {
+    const unstated = $.const({ day: variant("can", null), afternoon: variant("can", null), night: variant("can", null),
+        saturday: variant("can", null), sunday: variant("can", null), sunday_night: variant("can", null) }, PreferenceSnapshot.fields.standard);
+    const find = $.const(preferencesOn);
+    return find(snapshots, day).match({ none: () => unstated, some: (_$2, snapshot) => snapshot.standard });
+});
+
+/** The peak marks in force on a day; before any snapshot, "can" for each. */
+export const peakOn = East.function([ArrayType(PreferenceSnapshot), DateTimeType], PreferenceSnapshot.fields.peak, ($, snapshots, day) => {
+    const unstated = $.const({ day: variant("can", null), night: variant("can", null), saturday: variant("can", null), sunday: variant("can", null),
+        four_days: variant("can", null), five_days: variant("can", null), six_days: variant("can", null) }, PreferenceSnapshot.fields.peak);
+    const find = $.const(preferencesOn);
+    return find(snapshots, day).match({ none: () => unstated, some: (_$2, snapshot) => snapshot.peak });
+});
+
+/** A person's note, on the name: "none stated" before any snapshot of their preferences, "guessed" while the one in force is a guess. */
+export const statedOn = East.function([Employee, DateTimeType], OptionType(Record.Types.Mark), ($, person, day) => {
+    const noMark = $.const(none, OptionType(Record.Types.Mark));
+    const find = $.const(preferencesOn);
+    return find(person.preferences, day).match({
+        none: () => some(variant("note", "none stated")),
+        some: (_$2, snapshot) => snapshot.basis.hasTag("guessed").ifElse(() => some(variant("note", "guessed")), () => noMark),
+    });
+});
+
+/**
+ * The snapshots with a new one dated today: today's last replaced when it is stated, which the grid could have written,
+ * and otherwise the new one appended. Choices the snapshots already read without that stated one write nothing, and drop
+ * it: an edit that ends where it started saves none. No earlier one changes.
+ */
+export const withSnapshot = East.function([ArrayType(PreferenceSnapshot), PreferenceSnapshot], ArrayType(PreferenceSnapshot), ($, snapshots, next) => {
+    const standardIn = $.const(standardOn);
+    const peakIn = $.const(peakOn);
+    const day = $.const(East.DateTime.roundDownDay(next.since, 1n));
+    const last = $.let(none, OptionType(IntegerType));
+    $.for(snapshots, ($2, snapshot, index) => {
+        $2.if(East.equal(East.DateTime.roundDownDay(snapshot.since, 1n), day), ($3) => { $3.assign(last, some(index)); });
+    });
+    // Today's last snapshot, when it is stated.
+    const mine = $.const(last.match({
+        none: () => none,
+        some: (_$2, at) => snapshots.get(at).basis.hasTag("stated").ifElse(() => some(at), () => none),
+    }), OptionType(IntegerType));
+    const without = $.const(mine.match({
+        none: () => snapshots,
+        some: (_$2, at) => snapshots.slice(0n, at).concat(snapshots.slice(at.add(1n), snapshots.size())),
+    }));
+    const unchanged = $.const(East.equal(standardIn(without, next.since), next.standard).and(() => East.equal(peakIn(without, next.since), next.peak)));
+    return unchanged.ifElse(
+        () => without,
+        () => mine.match({
+            none: () => snapshots.concat([next]),
+            some: (_$2, at) => snapshots.map((_$3, snapshot, index) => index.equal(at).ifElse(() => next, () => snapshot)),
+        }));
+});
+
+/** The snapshots with the standard marks set today, the peak marks in force copied: a write the person stated. */
+export const withStandard = East.function([ArrayType(PreferenceSnapshot), PreferenceSnapshot.fields.standard, DateTimeType], ArrayType(PreferenceSnapshot), ($, snapshots, standard, day) => {
+    const peak = $.const(peakOn);
+    const write = $.const(withSnapshot);
+    const next = $.const({ since: day, basis: variant("stated", null), standard, peak: peak(snapshots, day) }, PreferenceSnapshot);
+    return write(snapshots, next);
+});
+
+/** The snapshots with the peak marks set today, the standard marks in force copied: a write the person stated. */
+export const withPeak = East.function([ArrayType(PreferenceSnapshot), PreferenceSnapshot.fields.peak, DateTimeType], ArrayType(PreferenceSnapshot), ($, snapshots, peak, day) => {
+    const standard = $.const(standardOn);
+    const write = $.const(withSnapshot);
+    const next = $.const({ since: day, basis: variant("stated", null), standard: standard(snapshots, day), peak }, PreferenceSnapshot);
+    return write(snapshots, next);
+});
+
+export const recordSkillHistory = example({
+    keywords: ["Record", "columns from data", "worked case", "dated history", "each", "groups", "read", "write", "mark", "Record.Types.Mark", "lock", "Record.column.cycle", "steps", "Record.column.title", "value"],
+    description: "The worked case's skills page: each person's skills held as a dated history, one row per change, with a column for each skill under its team. Each cell is the level in force at the Record's day, through the solution's `read`; a licence locks its cell and a lapsed level is noted, through its `mark`; and each step appends or replaces today's row, through its `write`. The name is the person's own, or their id where they have none, and the page adds no one",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const staff = $.let(Record.bind(recordPeople));
+            const teamRows = $.let(Data.bind(recordTeams));
+            const skillRows = $.let(Data.bind(recordSkillList));
+            return (
+                <Box height="360px">
+                    <Record
+                        record={staff}
+                        title="Skills"
+                        noun={{ singular: "person", plural: "people" }}
+                        // The people come from the staff list: this page edits them, and adds none.
+                        edits={{ insertRows: false }}
+                        registers={{
+                            teams: Record.register.members(teamRows.read(), { kind: "team", key: (_t, code) => code, label: (t) => t.name }),
+                            skills: Record.register.members(skillRows.read(), {
+                                kind: "skill", key: (_s, name) => name, label: (_s, name) => name, parent: (s) => s.team,
+                            }),
+                        }}
+                        columns={{
+                            name: Record.column.title(Employee, { header: "Name", width: "176px",
+                                value: (p) => p.name.match({ some: (_$, name) => name, none: () => p.id }) }),
+                            // The skills field: a column for each skill, under its team.
+                            skills: Record.column.cycle(Employee, Level, {
+                                each: "skills", groups: "teams",
+                                width: "72px", scale: true,
+                                steps: [
+                                    { case: "not_trained", label: "0", meta: "Not trained" },
+                                    { case: "trainee",     label: "1", meta: "Trainee" },
+                                    { case: "competent",   label: "2", meta: "Competent" },
+                                ],
+                                read: levelOn,
+                                mark: markOn,
+                                write: withLevel,
+                            }),
+                        }}
+                        inspector
+                        name="skillHistory"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const recordPreferenceSnapshots = example({
+    keywords: ["Record", "columns from data", "worked case", "dated snapshots", "each", "field", "read", "write", "mark", "Record.Types.Mark", "note", "Record.column.cycle", "steps", "columnGroups", "Record.column.title", "value"],
+    description: "The worked case's preferences page: each person's shift preferences held as dated snapshots, with two families of columns over one field, the standard choices and the peak ones. Each family reads the snapshot in force at the Record's day and writes a new stated one, through the solution's functions. The name notes a person whose choices are guessed or not stated yet, and the page adds no one",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const staff = $.let(Record.bind(recordPeople));
+            return (
+                <Box height="360px">
+                    <Record
+                        record={staff}
+                        title="Shift preferences"
+                        noun={{ singular: "person", plural: "people" }}
+                        // The people come from the staff list: this page edits them, and adds none.
+                        edits={{ insertRows: false }}
+                        columns={{
+                            // The name, noting once a row whether the person's choices are guessed or not stated yet.
+                            name: Record.column.title(Employee, { header: "Name", width: "176px",
+                                value: (p) => p.name.match({ some: (_$, name) => name, none: () => p.id }), mark: statedOn }),
+                            // The preferences field: a column for each standard choice, then one for each peak choice.
+                            standard: Record.column.cycle(Employee, Choice, {
+                                field: "preferences",
+                                each: { day: "Day", afternoon: "Afternoon", night: "Night", saturday: "Sat", sunday: "Sun", sunday_night: "Sun night" },
+                                width: "80px",
+                                steps: [
+                                    { case: "can",    label: "can",    meta: "Can work",   tone: "neutral" },
+                                    { case: "prefer", label: "prefer", meta: "Prefers",    tone: "success" },
+                                    { case: "cant",   label: "can't",  meta: "Can't work", tone: "danger" },
+                                ],
+                                read: standardOn,
+                                write: withStandard,
+                            }),
+                            peak: Record.column.cycle(Employee, Choice, {
+                                field: "preferences",
+                                each: { day: "Day", night: "Night", saturday: "Sat", sunday: "Sun", four_days: "4 days", five_days: "5 days", six_days: "6 days" },
+                                width: "80px",
+                                steps: [
+                                    { case: "can",    label: "can",    meta: "Can work",   tone: "neutral" },
+                                    { case: "prefer", label: "prefer", meta: "Prefers",    tone: "success" },
+                                    { case: "cant",   label: "can't",  meta: "Can't work", tone: "danger" },
+                                ],
+                                read: peakOn,
+                                write: withPeak,
+                            }),
+                        }}
+                        columnGroups={[
+                            { label: "Standard", columnKeys: ["standard"] },
+                            { label: "Peak", columnKeys: ["peak"] },
+                        ]}
+                        inspector
+                        name="preferenceSnapshots"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});

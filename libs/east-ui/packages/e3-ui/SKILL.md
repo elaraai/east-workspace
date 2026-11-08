@@ -180,9 +180,12 @@ Task → What do you need?
     ├─ Keep a system of records — people, skills, certificates — the Record
     │   ├─ A record's rows, each field a typed cell           → <Record record={Record.bind(r)} columns={{ name: Record.column.title(R, {…}), … }} />
     │   ├─ Click-stepped states, two words, a checkbox        → Record.column.cycle(R, register, { scale? }) · toggle(R, { on, off }) · boolean(R, {…})
+    │   ├─ A variant's cases, stepped in their order          → Record.column.cycle(R, Variant, { steps: [{ case, label, tone? }] })
     │   ├─ Who, and the row's last change                     → Record.column.person(R, register, {…}) · audit(R, { mode }) on a Record.Types.Change field
     │   ├─ Time since a moment, to the viewer's clock         → days_since: Record.column.age(R, { since, unit?, stale? }), keyed by a name no field has
     │   ├─ Column groups over adjacent columns                → columnGroups={[{ label, columnKeys }]}
+    │   ├─ Columns from data: a member's each, a struct field's → any kind's { each: "<register>", groups?: "<register>" } over a Dict keyed by the member · { each: { field: "Header" } } · a field stored its own way: field, read, write, each given the day
+    │   ├─ Words or a lock on a cell; a cell read off the row → mark: (…, day) → Option<Record.Types.Mark>, a note or a lock the grid won't edit · value: (row) => … on title, text, date, quantity, integer
     │   └─ Narrow it — one rail — and Apply through the door  → slice={{ slice: Slice.bindRecords(key, { rows }) }} + onApply={Record.onApply(record, { keyed: true })}
     │
     ├─ Schedule bound records on a calendar — the Calendar
@@ -412,7 +415,7 @@ is the example.
 |---|---|---|
 | `<Plan>` | Heterogeneous rows on one time / number / ordinal axis: series over data, event kinds over records, read-only rows | `e3-ui:plan-events.examples.tsx:planEvents` (smallest), `e3-ui:plan.examples.tsx:planTargetState`, `e3-ui:plan-windows.examples.tsx:planWindows`, `e3-ui:plan-records.examples.tsx:planRecordIndexes` |
 | `<Sheet>` | A planning spreadsheet over a record, the host's rows or a paged source: typed columns, registers, groups, copilot, Excel round-trip | `e3-ui:sheet.examples.tsx:sheetBasic` (smallest), `e3-ui:sheet.examples.tsx:sheetWorkshop`, `e3-ui:sheet.examples.tsx:sheetPaged`, `e3-ui:sheet-records.examples.tsx:sheetRecordIndexes` |
-| `<Record>` | A system of records' rows as a table: the Sheet's kinds with title, person, boolean, toggle, cycle, age and audit; column groups, Add and Delete | `e3-ui:record.examples.tsx:recordBasic` (smallest), `e3-ui:record.examples.tsx:recordSkillsMatrix`, `e3-ui:record.examples.tsx:recordEveryKind`, `e3-ui:record.examples.tsx:recordFinishes` |
+| `<Record>` | A system of records' rows as a table: the Sheet's kinds with title, person, boolean, toggle, cycle, age and audit; column groups, columns from data, marks and locks, Add and Delete | `e3-ui:record.examples.tsx:recordBasic` (smallest), `e3-ui:record.examples.tsx:recordSkillsMatrix`, `e3-ui:record.examples.tsx:recordEveryKind`, `e3-ui:record.examples.tsx:recordFinishes`, `e3-ui:record.examples.tsx:recordHoursByProject` (columns from data), `e3-ui:record.examples.tsx:recordSkillHistory` (a dated history, read and written at the day) |
 | `<Calendar>` | Calendar, Resources and Timeline layouts over event records with a backlog | `e3-ui:calendar.examples.tsx:calendarMinimal` (smallest), `e3-ui:calendar.examples.tsx:calendarOperations`, `e3-ui:calendar-records.examples.tsx:calendarRecordIndexes` |
 | `<Roster>` | Weekly staffing: duties over people by shift, cover targets, pay, fit, publish | `e3-ui:roster.examples.tsx:rosterMinimal` (smallest), `e3-ui:roster.examples.tsx:rosterWarehouse`, `e3-ui:roster.examples.tsx:rosterPeople` |
 | `<Allocation>` | A day's arrivals booked into lane slots, each bin on resources | `e3-ui:allocation.examples.tsx:allocationMinimal` (smallest), `e3-ui:allocation.examples.tsx:allocationKilnYard`, `e3-ui:allocation.examples.tsx:allocationFitRule` |

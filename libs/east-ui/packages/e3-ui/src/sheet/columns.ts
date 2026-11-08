@@ -907,11 +907,13 @@ export interface RecordAgeColumn<R extends StructType> extends SheetColumn<R, ne
 /**
  * A title column — `Record.column.title(R, cfg)`: a record's title, its
  * initials before it with `avatar`. Sits on a `String` field. A click selects
- * the row and opens it in the inspector; it is edited there. With `each`, a
- * column per member of a register or per field of a struct
+ * the row and opens it in the inspector; it is edited there. With `value`, a
+ * read-only projection on any field — a name that falls back to the row's id;
+ * with `each`, a column per member of a register or per field of a struct
  * ({@link SheetFromDataInput}).
  */
 export function title<R extends StructType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, config: SheetFromDataConfig<RecordTitleConfig<R>, StringType, F>): SheetFromDataColumn<R, F>;
+export function title<R extends StructType>(rowType: R, config: RecordTitleConfig<R> & SheetValueConfig<R, StringType>): SheetColumn<R, EastType>;
 export function title<R extends StructType>(rowType: R, config?: RecordTitleConfig<R>): SheetColumn<R, StringType>;
 export function title<R extends StructType>(rowType: R, config: object = {}): SheetColumn<R, EastType> {
     return column(rowType, "title", config);

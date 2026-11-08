@@ -165,24 +165,24 @@ export const Holding = StructType({
     signed_off_at: OptionType(DateTimeType),
 });
 export const Choice = VariantType({ cant: NullType, can: NullType, prefer: NullType });
-export const Preferences = StructType({
+export const PreferenceSnapshot = StructType({
     since: DateTimeType,
     basis: VariantType({ guessed: NullType, stated: NullType }),
     standard: StructType({ day: Choice, afternoon: Choice, night: Choice, saturday: Choice, sunday: Choice, sunday_night: Choice }),
     peak: StructType({ day: Choice, night: Choice, saturday: Choice, sunday: Choice, four_days: Choice, five_days: Choice, six_days: Choice }),
 });
-export const Person = StructType({
+export const Employee = StructType({
     id: StringType,
     name: OptionType(StringType),
     home_team: OptionType(StringType),
     active: BooleanType,
     skills: ArrayType(Holding),
-    preferences: ArrayType(Preferences),
+    preferences: ArrayType(PreferenceSnapshot),
 });
 export const Skill = StructType({ team: OptionType(StringType) });
 export const Team = StructType({ name: StringType });
 
-export const people = e3.record("people", DictType(StringType, Person), {
+export const people = e3.record("people", DictType(StringType, Employee), {
     mutations: (mutation) => ({
         // Every Save commits through it.
         patch: mutation.patch(),
@@ -276,8 +276,8 @@ export const withLevel = East.function([ArrayType(Holding), StringType, Level, D
 });
 
 /** The preferences in force on a day: the latest snapshot dated on or before it, the later of two dated the same. */
-export const preferencesOn = East.function([ArrayType(Preferences), DateTimeType], OptionType(Preferences), ($, snapshots, day) => {
-    const found = $.let(none, OptionType(Preferences));
+export const preferencesOn = East.function([ArrayType(PreferenceSnapshot), DateTimeType], OptionType(PreferenceSnapshot), ($, snapshots, day) => {
+    const found = $.let(none, OptionType(PreferenceSnapshot));
     $.for(snapshots, ($2, snapshot) => {
         const later = $2.const(found.match({ none: () => true, some: (_$3, held) => East.lessEqual(held.since, snapshot.since) }));
         $2.if(East.lessEqual(snapshot.since, day).and(() => later), ($3) => { $3.assign(found, some(snapshot)); });
@@ -286,23 +286,23 @@ export const preferencesOn = East.function([ArrayType(Preferences), DateTimeType
 });
 
 /** The standard marks in force on a day; before any snapshot, "can" for each. */
-export const standardOn = East.function([ArrayType(Preferences), DateTimeType], Preferences.fields.standard, ($, snapshots, day) => {
+export const standardOn = East.function([ArrayType(PreferenceSnapshot), DateTimeType], PreferenceSnapshot.fields.standard, ($, snapshots, day) => {
     const unstated = $.const({ day: variant("can", null), afternoon: variant("can", null), night: variant("can", null),
-        saturday: variant("can", null), sunday: variant("can", null), sunday_night: variant("can", null) }, Preferences.fields.standard);
+        saturday: variant("can", null), sunday: variant("can", null), sunday_night: variant("can", null) }, PreferenceSnapshot.fields.standard);
     const find = $.const(preferencesOn);
     return find(snapshots, day).match({ none: () => unstated, some: (_$2, snapshot) => snapshot.standard });
 });
 
 /** The peak marks in force on a day; before any snapshot, "can" for each. */
-export const peakOn = East.function([ArrayType(Preferences), DateTimeType], Preferences.fields.peak, ($, snapshots, day) => {
+export const peakOn = East.function([ArrayType(PreferenceSnapshot), DateTimeType], PreferenceSnapshot.fields.peak, ($, snapshots, day) => {
     const unstated = $.const({ day: variant("can", null), night: variant("can", null), saturday: variant("can", null), sunday: variant("can", null),
-        four_days: variant("can", null), five_days: variant("can", null), six_days: variant("can", null) }, Preferences.fields.peak);
+        four_days: variant("can", null), five_days: variant("can", null), six_days: variant("can", null) }, PreferenceSnapshot.fields.peak);
     const find = $.const(preferencesOn);
     return find(snapshots, day).match({ none: () => unstated, some: (_$2, snapshot) => snapshot.peak });
 });
 
 /** A person's note, on the name: "none stated" before any snapshot of their preferences, "guessed" while the one in force is a guess. */
-export const statedOn = East.function([Person, DateTimeType], OptionType(Record.Types.Mark), ($, person, day) => {
+export const statedOn = East.function([Employee, DateTimeType], OptionType(Record.Types.Mark), ($, person, day) => {
     const noMark = $.const(none, OptionType(Record.Types.Mark));
     const find = $.const(preferencesOn);
     return find(person.preferences, day).match({
@@ -316,7 +316,7 @@ export const statedOn = East.function([Person, DateTimeType], OptionType(Record.
  * and otherwise the new one appended. Choices the snapshots already read without that stated one write nothing, and drop
  * it: an edit that ends where it started saves none. No earlier one changes.
  */
-export const withSnapshot = East.function([ArrayType(Preferences), Preferences], ArrayType(Preferences), ($, snapshots, next) => {
+export const withSnapshot = East.function([ArrayType(PreferenceSnapshot), PreferenceSnapshot], ArrayType(PreferenceSnapshot), ($, snapshots, next) => {
     const standardIn = $.const(standardOn);
     const peakIn = $.const(peakOn);
     const day = $.const(East.DateTime.roundDownDay(next.since, 1n));
@@ -343,18 +343,18 @@ export const withSnapshot = East.function([ArrayType(Preferences), Preferences],
 });
 
 /** The snapshots with the standard marks set today, the peak marks in force copied: a write the person stated. */
-export const withStandard = East.function([ArrayType(Preferences), Preferences.fields.standard, DateTimeType], ArrayType(Preferences), ($, snapshots, standard, day) => {
+export const withStandard = East.function([ArrayType(PreferenceSnapshot), PreferenceSnapshot.fields.standard, DateTimeType], ArrayType(PreferenceSnapshot), ($, snapshots, standard, day) => {
     const peak = $.const(peakOn);
     const write = $.const(withSnapshot);
-    const next = $.const({ since: day, basis: variant("stated", null), standard, peak: peak(snapshots, day) }, Preferences);
+    const next = $.const({ since: day, basis: variant("stated", null), standard, peak: peak(snapshots, day) }, PreferenceSnapshot);
     return write(snapshots, next);
 });
 
 /** The snapshots with the peak marks set today, the standard marks in force copied: a write the person stated. */
-export const withPeak = East.function([ArrayType(Preferences), Preferences.fields.peak, DateTimeType], ArrayType(Preferences), ($, snapshots, peak, day) => {
+export const withPeak = East.function([ArrayType(PreferenceSnapshot), PreferenceSnapshot.fields.peak, DateTimeType], ArrayType(PreferenceSnapshot), ($, snapshots, peak, day) => {
     const standard = $.const(standardOn);
     const write = $.const(withSnapshot);
-    const next = $.const({ since: day, basis: variant("stated", null), standard: standard(snapshots, day), peak }, Preferences);
+    const next = $.const({ since: day, basis: variant("stated", null), standard: standard(snapshots, day), peak }, PreferenceSnapshot);
     return write(snapshots, next);
 });
 ```
@@ -393,6 +393,8 @@ export const skillsPage = East.function([], UIComponentType, (_$) => (
                 record={staff}
                 title="Skills"
                 noun={{ singular: "person", plural: "people" }}
+                // The people come from the staff list: this page edits them, and adds none.
+                edits={{ insertRows: false }}
                 registers={{
                     teams: Record.register.members(teamRows.read(), { kind: "team", key: (_t, code) => code, label: (t) => t.name }),
                     skills: Record.register.members(skillRows.read(), {
@@ -400,10 +402,10 @@ export const skillsPage = East.function([], UIComponentType, (_$) => (
                     }),
                 }}
                 columns={{
-                    name: Record.column.title(Person, { header: "Name", width: "176px",
+                    name: Record.column.title(Employee, { header: "Name", width: "176px",
                         value: (p) => p.name.match({ some: (_$, name) => name, none: () => p.id }) }),
                     // The skills field: a column for each skill, under its team.
-                    skills: Record.column.cycle(Person, Level, {
+                    skills: Record.column.cycle(Employee, Level, {
                         each: "skills", groups: "teams",
                         width: "72px", scale: true,
                         steps: [
@@ -435,12 +437,14 @@ export const preferencesPage = East.function([], UIComponentType, (_$) => (
                 record={staff}
                 title="Shift preferences"
                 noun={{ singular: "person", plural: "people" }}
+                // The people come from the staff list: this page edits them, and adds none.
+                edits={{ insertRows: false }}
                 columns={{
                     // The name, noting once a row whether the person's choices are guessed or not stated yet.
-                    name: Record.column.title(Person, { header: "Name", width: "176px",
+                    name: Record.column.title(Employee, { header: "Name", width: "176px",
                         value: (p) => p.name.match({ some: (_$, name) => name, none: () => p.id }), mark: statedOn }),
                     // The preferences field: a column for each standard choice, then one for each peak choice.
-                    standard: Record.column.cycle(Person, Choice, {
+                    standard: Record.column.cycle(Employee, Choice, {
                         field: "preferences",
                         each: { day: "Day", afternoon: "Afternoon", night: "Night", saturday: "Sat", sunday: "Sun", sunday_night: "Sun night" },
                         width: "80px",
@@ -452,7 +456,7 @@ export const preferencesPage = East.function([], UIComponentType, (_$) => (
                         read: standardOn,
                         write: withStandard,
                     }),
-                    peak: Record.column.cycle(Person, Choice, {
+                    peak: Record.column.cycle(Employee, Choice, {
                         field: "preferences",
                         each: { day: "Day", night: "Night", saturday: "Sat", sunday: "Sun", four_days: "4 days", five_days: "5 days", six_days: "6 days" },
                         width: "80px",
@@ -531,6 +535,7 @@ The **day** the functions get is the Record's clock: the browser's local calenda
 ### 5.1 The factory (e3-ui)
 
 - **`sheet/columns.ts`** — every builder takes `each`, `groups`, `field`, `read`, `write` and `mark`, and `cycle(R, V, { steps })` sits beside `cycle(R, register, …)`. A Record's `columns` map takes a key of its own when the column names its `field`.
+- **A title's `value`** — `Record.column.title` takes `value`, a projection over the row shown read only, as `text`, `date`, `quantity` and `integer` do. The worked case's name is a person's name, or their id when they have none.
 - **`sheet/bridge.ts`** — `describeColumn` describes a column made from data: its field, its members' key, its functions' signatures checked against them, the defaults for a `Dict` and a struct, and every refusal above.
 - **`sheet/root.ts`** — the payload's columns become an East expression: the fixed columns, and each register's members mapped to wire columns where their column stands. A struct's columns are fixed at build.
 - **`record/record.ts`** — `columnGroups` becomes the literal groups plus each column's computed groups. The literal groups keep the build's checks.
@@ -550,13 +555,13 @@ The **day** the functions get is the Record's clock: the browser's local calenda
 - **The Sheet's model** reads a row's cells from data at the Record's day: when the row arrives, whenever its draft changes, and again when the day turns.
 - **A lock** makes its cell read only. Today each gesture checks its column's `editable` on its own, in the grid, the strip and the side panel, for steps, typing, paste, clear and fill. Those checks become one check per cell, which reads the lock, so no gesture can miss it. The clear's check also refuses a clear where `from` says the cell takes none.
 - **The cells** draw a mark's words in the record recipe's slots.
-- **The column groups** already match each column to its group by key, in the header and on a phone, so they need no change.
+- **The column groups** already match each column to its group by key, in the header and on a phone. On a phone, though, a long group name slid under the pinned title once the window had paged part of its group off. The Sheet now tells the Record's header which columns are in view, and each group's name is cut to its columns in view, ending in "…", as a name over narrow columns already is.
 - **The side panel** draws the columns from data as lines, in their groups' sections, each written as its cell is. A mark's words are its line's help, and a lock reads the line only. `FieldForm` draws a one-line field's help line under it, as it does every other field's.
 
 ## 6. Tests and examples
 
-- **e3-ui specs**: every refusal in §3, the Sheet's refusal of a column from data, and the payload's columns and groups as built from members.
-- **e3-ui-components DOM tests**: the columns, their order and their groups; a `Dict` field with no functions; a struct; two families chaining writes on one field; Undo; Save's patch, with an insert, an update and a delete; an edit that ends where it started saving nothing; a note and a lock, and a lock refusing every gesture; a clear refused where the cell's value isn't an option; a plain column's mark; a register's change; the day's turn; the side panel's lines.
+- **e3-ui specs**: every refusal in §3, the Sheet's refusal of a column from data, the payload's columns and groups as built from members, and a title's `value`, shown read only.
+- **e3-ui-components DOM tests**: the columns, their order and their groups; a `Dict` field with no functions; a struct; two families chaining writes on one field; Undo; Save's patch, with an insert, an update and a delete; an edit that ends where it started saving nothing; a note and a lock, and a lock refusing every gesture; a clear refused where the cell's value isn't an option; a plain column's mark; a register's change; the day's turn; the side panel's lines; on a phone, a group's name cut to its columns in view.
 - **Examples** in `record.examples.tsx`: the hours, the roster, the order status and the worked case, each the same code as above. The plugin index is regenerated, and the e3-ui skill's Record section gains the options.
 - **The showcase**: each example's page, and a phone spec over the hours.
 

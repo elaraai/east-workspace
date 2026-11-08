@@ -44,6 +44,8 @@ describeEast("Record — examples", test => {
         recordOrderStatus: ex.recordOrderStatus,
         recordHoursByProject: ex.recordHoursByProject,
         recordRosterByDay: ex.recordRosterByDay,
+        recordSkillHistory: ex.recordSkillHistory,
+        recordPreferenceSnapshots: ex.recordPreferenceSnapshots,
     });
 }, { platformFns: TestImpl });
 
@@ -122,6 +124,24 @@ describe("the Record's kinds on the wire", () => {
         assert.deepEqual(kindOf("lead"), variant("person", { register: "leads", unassigned: some("No lead") }));
         assert.deepEqual(kindOf("inducted"), variant("boolean", null));
         assert.deepEqual(kindOf("night"), variant("toggle", { on: "yes", off: "no", look: variant("mark", null) }));
+    });
+
+    test("a title's `value` is a projection shown read only — a name, or the row's id where it has none", () => {
+        const Named = StructType({ id: StringType, name: OptionType(StringType) });
+        const root: Root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const rows = $.const([{ id: "P-1", name: some("A. Morgan") }, { id: "P-2", name: none }], ArrayType(Named));
+            return createSheetRootWith(rows, {
+                name: Record.column.title(Named, { header: "Name", value: (p) => p.name.match({ some: (_$, name) => name, none: () => p.id }) }),
+            }, { id: "id" }, { recordKinds: true });
+        }), [])();
+        const column = root.columns.find((c) => c.key === "name") ?? assert.fail("no name column");
+        const Kind = Sheet.Types.ColumnKind;
+        assert.ok(equalFor(Kind)(column.kind, variant("title", { avatar: false })), printFor(Kind)(column.kind));
+        assert.equal(column.editable, false);
+        if (root.rows.type !== "inline") assert.fail(`expected inline rows, got ${root.rows.type}`);
+        const Titles = ArrayType(Sheet.Types.Cell);
+        const titles = root.rows.value.map((r) => r.cells.get("name") ?? variant("Null", null));
+        assert.ok(equalFor(Titles)(titles, [variant("String", "A. Morgan"), variant("String", "P-2")]), printFor(Titles)(titles));
     });
 
     test("a cycle names its register, and a scale steps up the ramp", () => {
