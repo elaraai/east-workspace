@@ -15,6 +15,7 @@ import { madeFromValues } from "../shared/schedule/records.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { AssignmentActions, AssignmentFields, PlaceAction, RequirementFields, TimesFields, dutyForm, type DutyFormValue } from "./controls.js";
 import { CoverageView, ProposalCard, assignmentName, costed, dismissible, money, type RosterViewsProps } from "./views.js";
+import { difference, summedCoverage } from "./demand.js";
 import type { RolesChange } from "./actions.js";
 import type { RosterFind } from "./fit.js";
 import {
@@ -212,6 +213,33 @@ function OneSlot({ props, slot }: { props: Args; slot: Slot }) {
             {costed(props.value) && <Box css={props.styles.detail}>{money(props.format, props.value, c.cost, false)}</Box>}<PlaceAction label="Assign person" slot={slot} value={props.value} start={props.start} commands={props.commands} styles={props.styles} /></Box>
     </>;
 }
+/**
+ * A shift's day across the groups (#1568): a day of the work requirement's lane where the People layout draws no bands.
+ * Its head says the day's positions and hours over every group's slot of the shift, as the lane's cell sums them, and
+ * the hours short, each slot's own summed (K4); then the coverage summed over the groups — the skill lines summed too —
+ * and each group's slot as the coverage detail draws one.
+ */
+function ShiftDay({ props, shift: key, day }: { props: Args; shift: string; day: number }) {
+    const shift = props.value.shifts.find(s => s.key === key);
+    const slots = useMemo(() => props.value.groups.flatMap(group => {
+        const coverage = props.coverage.get({ day: BigInt(day), group: group.key, shift: key });
+        return coverage === undefined ? [] : [{ group, coverage }];
+    }), [props.value.groups, props.coverage, day, key]);
+    const sum = useMemo(() => summedCoverage(props.value, slots.map(slot => slot.coverage)), [props.value, slots]);
+    if (shift === undefined || slots.length === 0) return <Box css={props.styles.empty} {...FOCUS_HOME_PROPS}>This shift is no longer configured.</Box>;
+    const short = slots.reduce((total, { coverage: c }) => total + Math.max(0, -difference(c.hours.rostered, c.hours.needed)), 0);
+    const { format, value, styles } = props;
+    return <><ScheduleInspectorHead styles={styles} kind={{ name: `Shift · ${format.weekday(new Date(props.start.getTime() + day * DAY))}`, icon: "clock" }} title={shift.label}
+        when={`${format.number(sum.filled)} / ${format.number(sum.positions)} positions · ${format.number(sum.hours.rostered)} of ${format.number(sum.hours.needed)} h`}
+        status={{ label: short > 0 ? `${format.number(short)} h short` : "Covered", tone: { type: short > 0 ? "warning" : "success" }, ring: false }} home />
+        <RosterIssues props={props} issues={props.issues.filter(i => i.slot.type === "some" && i.slot.value.shift === key && Number(i.slot.value.day) === day)} />
+        <Box css={styles.section} data-roster-shift-day="across"><Box css={styles.sectionHead}>Across groups</Box><CoverageView coverage={sum} value={value} styles={styles} format={format} />
+            <Box css={styles.detail}>{value.vocabulary.permanent} · {value.vocabulary.agency} · Requested · Open · Needed</Box></Box>
+        {slots.map(({ group, coverage: c }) => <Box key={group.key} css={styles.section} data-roster-shift-day={group.key}><Box css={styles.sectionHead}>{group.label}</Box>
+            <CoverageView coverage={c} value={value} styles={styles} format={format} compact />
+            <Box css={styles.detail}>{format.number(c.filled)} / {format.number(c.positions)} positions · {format.number(c.open)} open</Box></Box>)}
+    </>;
+}
 function Summary({ props }: { props: Args }) {
     const totals = viewTotals(props.coverage, props.view, props.day);
     const { days } = totals;
@@ -240,6 +268,7 @@ function Details({ props }: { props: Args }) {
     const selection = props.selection;
     if (selection?.type === "assignment") { const a = props.week.assignments.get(selection.key) ?? props.held.assignments.get(selection.key); if (a !== undefined) return <OneAssignment key={selection.key} props={props} id={selection.key} assignment={a} />; }
     if (selection?.type === "slot" || selection?.type === "requirement") return <OneSlot props={props} slot={selection.slot} />;
+    if (selection?.type === "shiftDay") return <ShiftDay props={props} shift={selection.shift} day={selection.day} />;
     if (selection?.type === "proposal") {
         const p = props.proposals.find(p => p.key === selection.key);
         if (p !== undefined) return <><ScheduleInspectorHead styles={props.styles} kind={{ name: "Model proposal", icon: "wand-magic-sparkles" }} title={props.value.people.find(person => person.key === p.person)?.name ?? p.person}

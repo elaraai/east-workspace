@@ -38,10 +38,15 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         "readLine", "heldSlot", "unreadValue",
         "peopleRow", "peopleName", "nameLine", "personName", "agencyBadge", "hoursCell", "hoursText", "meter", "meterFill", "dayCell", "tile", "tileLabel", "tileMeta", "tileWarn", "tileMore",
         "assign", "assignMenuHead", "assignItem", "swatch", "monthRow", "monthHead", "monthGutter", "weekHead", "weekNumber", "weekRange", "dayTicks", "dayTick", "monthCell",
-        "markStrip", "mark", "patternStrip", "patternMark"],
+        "markStrip", "mark", "patternStrip", "patternMark",
+        "demandRow", "demandName", "demandFigure", "laneName", "laneToggle", "laneSwatch", "laneLabel", "laneHours", "laneWeek", "laneCell", "laneLine", "laneFigure", "laneDiff",
+        "laneBar", "laneTick", "laneNoTarget", "skillTag", "skillName", "skillBar", "assignRow", "assignLabel"],
     base: {
         ...moveGhostBase,
         ...scheduleGroupBase,
+        // A People band's work requirement (#1568, A1): the count of its people in the subtle ink, and how many shifts are
+        // short in the warning's.
+        groupMeta: { ...scheduleGroupBase.groupMeta, "&[data-count]": { color: "fg.subtle" }, "& [data-tone=warning]": { color: "fg.warning" } },
         ...schedulePaneBase,
         root: { height: "100%", minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", background: "bg.surface", color: "fg" },
         main: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column", "&[data-roster-grid=people]": { "--roster-columns": "8", "--roster-people-width": "1100px" } },
@@ -257,5 +262,50 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         patternMark: { display: "flex", alignItems: "center", justifyContent: "center", minWidth: 0, overflow: "hidden", borderRadius: "2px", textStyle: "mono.xs", fontWeight: "semibold",
             background: "var(--roster-fill, {colors.bg.panel})", color: "var(--roster-ink, {colors.fg})",
             "&[data-off]": { background: "color-mix(in srgb, {colors.fg} 7%, transparent)", color: "transparent" } },
+
+        // ── The People layout's work requirement (#1568, `People Work Requirements` 2a) ──────────────────────────────
+        // Its eyebrow under a band (A2): the heading in the name cell, then each day's hours rostered against needed, no
+        // valence, 28px on the canvas paper. Its lanes and skill rows are People rows (`peopleRow`), at the density's pitch.
+        demandRow: { display: "grid", gridTemplateColumns: "232px repeat(7, minmax(0, 1fr))", height: "28px", background: "bg.canvas", borderBottomWidth: "1px", borderColor: "border.subtle" },
+        demandName: { position: "sticky", left: 0, zIndex: 3, display: "flex", alignItems: "center", minWidth: 0, padding: "0 12px 0 20px", background: "bg.canvas",
+            borderRightWidth: "1px", borderColor: "border.subtle", textStyle: "mono.xs", fontWeight: "semibold", letterSpacing: "label", textTransform: "uppercase", color: "fg.subtle",
+            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+        demandFigure: { display: "flex", alignItems: "center", minWidth: 0, padding: "0 10px", borderLeftWidth: "1px", borderColor: "border.subtle", textStyle: "mono.xs", color: "fg.muted",
+            whiteSpace: "nowrap", overflow: "hidden" },
+        // A lane's name cell (A3.2): its chevron, the shift's swatch, its label and hours, and by week its week's figures at
+        // the end; a skill row's (A4.2) its code tag and name, indented under the lane's.
+        laneName: { position: "sticky", left: 0, zIndex: 3, display: "flex", alignItems: "center", gap: "8px", minWidth: 0, padding: "0 12px 0 20px", background: "bg.surface",
+            borderRightWidth: "1px", borderColor: "border.subtle", whiteSpace: "nowrap", overflow: "hidden", textAlign: "left", "&[data-skill]": { paddingLeft: "40px" } },
+        // The lane's name cell is its disclosure (A3.7): the chevron turns a quarter as its skill rows open.
+        laneToggle: { cursor: "pointer", ...planRowFocus,
+            "& > svg": { flexShrink: 0, color: "fg.muted", transition: "transform {durations.fast} {easings.inOut}", ...fontAwesomeSize("12px") },
+            "&[aria-expanded=true] > svg": { transform: "rotate(90deg)" } },
+        laneSwatch: { width: "8px", height: "8px", flexShrink: 0, borderRadius: "2px", background: "var(--roster-fill, {colors.bg.subtle})" },
+        laneLabel: { textStyle: "body.md", fontWeight: "semibold", color: "fg", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
+        laneHours: { textStyle: "mono.xs", color: "fg.subtle", flexShrink: 0 },
+        laneWeek: { marginLeft: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px", flexShrink: 0, textStyle: "mono.xs", fontSize: "label.md", lineHeight: 1 },
+        // A lane's or a skill row's day (A3.3, A4.3): its figures over its bar, centred in the row; a lane's is a button
+        // that selects its slot, ringed while selected.
+        laneCell: { display: "flex", flexDirection: "column", justifyContent: "center", gap: "6px", minWidth: 0, padding: "0 10px", borderLeftWidth: "1px", borderColor: "border.subtle",
+            textAlign: "left", "&:is(button)": { cursor: "pointer", ...planRowFocus }, "&[data-selected]": { boxShadow: "inset 0 0 0 1px {colors.fg}" } },
+        laneLine: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "4px", minWidth: 0, textStyle: "mono.xs", fontSize: "label.md", lineHeight: 1, whiteSpace: "nowrap" },
+        // The hours rostered — or a skill's assigned — against those needed: the first in the ink, the warning's where a
+        // skill is short; the second subtle.
+        laneFigure: { display: "inline-flex", gap: "4px", "& > [data-rostered]": { fontWeight: "medium", color: "fg", "&[data-tone=warning]": { color: "fg.warning" } },
+            "& > [data-needed]": { color: "fg.subtle" }, "&[data-skill] > [data-rostered]": { color: "fg.strong" } },
+        // A difference (K3): the warning's ink where short, muted where over, the positive's where exact.
+        laneDiff: { fontWeight: "semibold", "&[data-tone=short]": { color: "fg.warning" }, "&[data-tone=over]": { color: "fg.muted" }, "&[data-tone=exact]": { color: "fg.success" } },
+        // A lane's 6px bar: its parts the coverage's segments, the needed tick crossing it.
+        laneBar: { position: "relative", height: "6px", background: "bg.subtle" },
+        laneTick: { position: "absolute", top: "-3px", bottom: "-3px", width: "2px", marginLeft: "-1px", background: "fg", pointerEvents: "none" },
+        laneNoTarget: { textStyle: "mono.xs", fontSize: "label.md", fontStyle: "italic", fontWeight: "normal", color: "fg.subtle", whiteSpace: "nowrap" },
+        skillTag: { display: "inline-flex", alignItems: "center", height: "16px", flexShrink: 0, padding: "0 4px", borderWidth: "1px", borderColor: "border.strong", borderRadius: "sm",
+            textStyle: "mono.xs", fontSize: "label.xs", fontWeight: "semibold", color: "fg.strong" },
+        skillName: { textStyle: "body.sm", color: "fg.strong", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
+        skillBar: { position: "relative", height: "3px", background: "bg.subtle", overflow: "hidden" },
+        // The eyebrow before a band's people (A5): `Assignment · n people`, its words kept in view as the grid pans.
+        assignRow: { display: "flex", alignItems: "center", height: "28px", background: "bg.canvas", borderBottomWidth: "1px", borderColor: "border.subtle" },
+        assignLabel: { position: "sticky", left: 0, padding: "0 20px", textStyle: "mono.xs", fontWeight: "semibold", letterSpacing: "label", textTransform: "uppercase", color: "fg.subtle",
+            whiteSpace: "nowrap" },
     },
 });

@@ -24,7 +24,7 @@ import userEvent from "@testing-library/user-event";
 import { OptionType, StringType, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import { readRosterSource, rosterSourceKey } from "./identity.js";
-import { act, assignment, narrow, narrowing, open, programOf, rosterHarness, settle, slot, width, type Choice } from "./harness.test-utils.js";
+import { act, assignment, narrow, narrowing, open, programOf, reveal, rosterHarness, settle, slot, width, type Choice } from "./harness.test-utils.js";
 import { countBuilds } from "../shared/builds.test-utils.js";
 
 const h = rosterHarness();
@@ -186,7 +186,8 @@ describe("each source narrows every place its rows appear (#1342)", () => {
         // The rows start with the first group's people, none of them Dispatch's.
         expect(rows().filter(key => keys.includes(key)).some(key => !dispatch.includes(key))).toBe(true);
         await narrow(store, "rosterPeople", "people", values("team", [text("dispatch")]));
-        await waitFor(() => expect(rows().filter(key => keys.includes(key)).length).toBeGreaterThan(0));
+        // Dispatch's people under its band, below each band's work requirement (#1568): scrolled into view.
+        await reveal(c, dispatch.map(key => `[data-roster-person-row="${key}"]`).join(", "));
         expect(rows().filter(key => keys.includes(key)).every(key => dispatch.includes(key))).toBe(true);
         // On a phone each group's agency requests head its cards, a card filling the window: narrow to R. Birch, an Inbound
         // person after its leads, so the person card that shows is the narrowing's, not the leads' that show first.

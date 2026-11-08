@@ -93,7 +93,7 @@ async function toSecondBand(c: HTMLElement): Promise<HTMLElement> {
 /** The key of the person whose name holds the focus. */
 const focusedPerson = () => document.activeElement?.getAttribute("data-roster-person-head") ?? null;
 
-test("↑ and ↓ on a person's name step to the next person and the one before, past a group's band and its agency requests, selecting them and focusing their name (#1398)", async () => {
+test("↑ and ↓ on a person's name step to the next person and the one before, past a group's band, its work requirement and its agency requests, selecting them and focusing their name (#1398, #1568)", async () => {
     const { container } = await open(ex.rosterWarehouse);
     await press(within(slot(container, "toolbar")).getByRole("radio", { name: "People" }));
     // Down the first group, a person at a time.
@@ -104,20 +104,32 @@ test("↑ and ↓ on a person's name step to the next person and the one before,
     await settle();
     expect(focusedPerson()).toBe(next!.getAttribute("data-roster-person-head"));
     expect(within(slot(container, "end")).getByText(next!.textContent!, { selector: "[data-inspector-title]" })).toBeTruthy();
-    // Across the boundary: the first person of the next group, ↑ — the first group's agency requests and the band passed
-    // over — the last person of the group before; ↓ back again.
+    // Across the boundary: the first person of the next group, ↑ — its band's work requirement, the band and the first
+    // group's agency requests passed over — the last person of the group before; ↓ back again.
     const band = await toSecondBand(container);
     const bandAt = Number(band.closest("[data-index]")!.getAttribute("data-index"));
     /** The row at a place of the grid, mounted. */
     const row = (i: number) => slot(container, "main").querySelector<HTMLElement>(`[data-index="${i}"]`);
-    for (let step = 1; step <= 5 && row(bandAt + 1) === null; step++) {
+    /** The first place past the band holding a person's name, once the rows down to it are mounted. */
+    const personAt = (): number | undefined => {
+        for (let i = bandAt + 1; row(i) !== null; i++) if (row(i)!.querySelector("[data-roster-person-head]") !== null) return i;
+        return undefined;
+    };
+    for (let step = 1; step <= 10 && personAt() === undefined; step++) {
         await act(async () => { scroller(container).scrollTop += 62; fireEvent.scroll(scroller(container)); });
         await settle();
     }
-    // The rows about the band: the first group's last person, its agency requests, the band, the next group's first person.
+    // The rows about the band: the first group's last person, its agency requests, the band, the band's work requirement
+    // (#1568) — its heading, a lane a shift its targets name, the assignment's heading — and the next group's first person.
     expect(row(bandAt - 1)!.querySelector("[data-roster-person-row]")!.getAttribute("data-roster-person-row")).toMatch(/^requests:/);
     const last = row(bandAt - 2)!.querySelector<HTMLElement>("[data-roster-person-head]")!.getAttribute("data-roster-person-head");
-    const opening = row(bandAt + 1)!.querySelector<HTMLElement>("[data-roster-person-head]")!;
+    const openingAt = personAt()!;
+    const between = Array.from({ length: openingAt - bandAt - 1 }, (_, k) => row(bandAt + 1 + k)!);
+    expect(between.length).toBeGreaterThan(2);
+    expect(between[0]!.querySelector("[data-roster-demand]")).not.toBeNull();
+    expect(between.slice(1, -1).every(el => el.querySelector("[data-roster-lane]") !== null)).toBe(true);
+    expect(between.at(-1)!.querySelector("[data-roster-assign-head]")).not.toBeNull();
+    const opening = row(openingAt)!.querySelector<HTMLElement>("[data-roster-person-head]")!;
     opening.focus();
     await act(async () => { fireEvent.keyDown(opening, { key: "ArrowUp" }); });
     await settle();

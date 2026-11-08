@@ -7,7 +7,8 @@
  * wherever the Roster draws it, and the People tab keeps its groups' order whatever they are called. The People layout's
  * badge beside an agency person's name and each group's row of agency requests take theirs too (#1566), by week, by
  * month and on a phone; so does a Shifts chip's badge on an agency person's duty or a request, and a request's People
- * tile names its shift alone, its row saying it is a request.
+ * tile names its shift alone, its row saying it is a request. The People layout's work requirement is headed its
+ * `demand` word (#1568).
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
@@ -83,6 +84,14 @@ describe("a Roster's vocabulary", () => {
         const names = [...row.querySelectorAll("[data-roster-tile] [data-roster-assignment-name]")].map(el => el.textContent ?? "");
         expect(names.length).toBeGreaterThan(0);
         expect(names.filter(name => !SHIFT_LABELS.has(name))).toEqual([]);
+    });
+    test("the People layout's work requirement is headed the app's word under every band (#1568)", async () => {
+        const { container: c } = await open(ex.rosterVocabulary);
+        await press(toolbar(c).getByRole("radio", { name: "People" }));
+        const headings = [...slot(c, "main").querySelectorAll("[data-roster-demand-heading]")].map(el => el.textContent);
+        expect(headings.length).toBeGreaterThan(0);
+        expect(new Set(headings)).toEqual(new Set(["Hours needed"]));
+        expect(slot(c, "main").textContent).not.toContain("Work requirement");
     });
     test("a phone's People cards title each group's requests the app's word, read and while a week is read (#1566)", async () => {
         const { container: c } = await open(ex.rosterVocabulary);

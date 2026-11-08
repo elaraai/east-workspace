@@ -88,10 +88,12 @@ export const RosterLibraryTabType = VariantType({
  * @property available - The group of people not rostered that day, from the weekday's short name
  * @property requests - The name of the People layout's row of agency requests: its name cell, its month cells' label and the
  *   phone's cards (#1566)
+ * @property demand - The heading of the People layout's work requirement: each shift's hours needed against those rostered,
+ *   over the people (#1568)
  */
 export const RosterVocabularyType = StructType({
     permanent: StringType, permanentShort: StringType, agency: StringType, agencyShort: StringType, leads: StringType, others: StringType, trainers: StringType,
-    available: FunctionType([StringType], StringType), requests: StringType,
+    available: FunctionType([StringType], StringType), requests: StringType, demand: StringType,
 });
 
 /**
@@ -185,6 +187,8 @@ export interface RosterVocabulary {
     available?: SubtypeExprOrValue<FunctionType<[StringType], StringType>>;
     /** The name of the People layout's row of agency requests (its name cell, its month cells, the phone's cards): "Agency requests". */
     requests?: SubtypeExprOrValue<StringType>;
+    /** The heading of the People layout's work requirement, over each shift's hours needed and rostered: "Work requirement". */
+    demand?: SubtypeExprOrValue<StringType>;
 }
 
 /**
@@ -282,7 +286,11 @@ export interface RosterProps<R extends EastType = EastType> {
     density?: "compact" | "comfortable";
     /** Shows held skill codes on assignment chips. */
     chipSkills?: SubtypeExprOrValue<BooleanType>;
-    /** Shows requirement rows in the shift grid. */
+    /**
+     * Shows the targets against what is rostered (on by default): the Shifts layout's requirement rows, and the People
+     * layout's work requirement — a lane a shift with a target, each day's hours rostered against those needed, opening to
+     * its skills, under each group's band, or once over every group without bands (#1568).
+     */
     requirements?: SubtypeExprOrValue<BooleanType>;
     /** Disables edits; published weeks are always read-only. */
     readOnly?: SubtypeExprOrValue<BooleanType>;
@@ -659,6 +667,7 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
                 agency: props.vocabulary?.agency ?? "Agency staff", agencyShort: props.vocabulary?.agencyShort ?? "agency",
                 leads: props.vocabulary?.leads ?? "Leads", others: props.vocabulary?.others ?? "Associates", trainers: props.vocabulary?.trainers ?? "Trainers",
                 available: props.vocabulary?.available ?? ROSTER_AVAILABLE, requests: props.vocabulary?.requests ?? "Agency requests",
+                demand: props.vocabulary?.demand ?? "Work requirement",
             },
             id: props.id === undefined ? none : some(props.id),
         } as never, RosterPayloadType);

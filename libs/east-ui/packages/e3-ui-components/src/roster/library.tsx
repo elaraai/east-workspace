@@ -168,7 +168,9 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
     }); }, [value.people, value.groups, value.positions, value.activities, value.shifts, words, today, format, start, day, draggable, chosenPerson, hours]);
     if (value.library.length === 0) return undefined;
     const slot = selection?.type === "slot" || selection?.type === "requirement" ? selection.slot
-        : selection?.type === "assignment" ? week.assignments.get(selection.key)?.slot : undefined;
+        : selection?.type === "assignment" ? week.assignments.get(selection.key)?.slot
+            // A shift's day across the groups (#1568): its day and shift, in the first group.
+            : selection?.type === "shiftDay" ? { day: BigInt(selection.day), group: value.groups[0]!.key, shift: selection.shift } : undefined;
     const defaultSlot: Slot = slot ?? { day: BigInt(day), group: value.groups[0]!.key, shift: value.shifts[0]!.key };
     const make = (key: string, label: string, meta: string, group: string, icon: string | undefined): LibraryItemValue => libraryCard(key, label, meta, group, icon, draggable);
     // What a Find fix looks for: a skill's holders, leads, or trainers.

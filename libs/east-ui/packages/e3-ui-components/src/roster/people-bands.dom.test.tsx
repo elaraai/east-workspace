@@ -11,8 +11,9 @@
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { DateTimeType, IntegerType, SortedSet, StringType, compareFor } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
-import { act, assignment, at, drop, history, hover, libraryCard, open, press, release, reveal, rosterHarness, scrollsAsAPageDoes, settle, slot, width } from "./harness.test-utils.js";
+import { NEXT, START, act, assignment, at, drop, history, hover, libraryCard, open, press, release, reveal, rosterHarness, scrollsAsAPageDoes, settle, slot, width } from "./harness.test-utils.js";
 
 const h = rosterHarness();
 const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
@@ -23,13 +24,18 @@ const requestsDay = (c: HTMLElement, d: number) => slot(c, "main").querySelector
 /**
  * Every People row, by its place in the list: the grid scrolled from its top to its foot a few rows at a time, each
  * row mounted on the way taken by its index — a person's row by their key, a band by its group's, the requests' row by
- * its own.
+ * its own, and the work requirement's (#1568) by its kind: `demand`, a lane by its shift, `assign`.
  */
 async function listed(c: HTMLElement): Promise<string[]> {
     const rows = new Map<number, string>();
+    const keyOf = (el: Element): string | null | undefined => el.querySelector("[data-roster-person-row]")?.getAttribute("data-roster-person-row")
+        ?? el.querySelector("[data-roster-group]")?.getAttribute("data-roster-group")
+        ?? (el.querySelector("[data-roster-demand]") !== null ? "demand" : undefined)
+        ?? (el.querySelector("[data-roster-lane]") === null ? undefined : `lane.${el.querySelector("[data-roster-lane]")!.getAttribute("data-roster-lane-shift")}`)
+        ?? (el.querySelector("[data-roster-assign-head]") !== null ? "assign" : undefined);
     const take = () => {
         for (const el of slot(c, "main").querySelectorAll<HTMLElement>("[data-index]")) {
-            const key = el.querySelector("[data-roster-person-row]")?.getAttribute("data-roster-person-row") ?? el.querySelector("[data-roster-group]")?.getAttribute("data-roster-group");
+            const key = keyOf(el);
             if (key !== null && key !== undefined) rows.set(Number(el.getAttribute("data-index")), key);
         }
     };
@@ -52,6 +58,13 @@ async function ranked(): Promise<string[]> {
     const rank = (person: { agency: boolean; position: string }) => person.agency ? 2 : positions.get(person.position)?.lead === true ? 0 : 1;
     return [...staff].map(([key, person]) => ({ key, rank: rank(person) })).sort((a, b) => a.rank - b.rank).map(person => person.key);
 }
+const byString = compareFor(StringType), byDate = compareFor(DateTimeType), byOrder = compareFor(IntegerType);
+/** The shifts a target of the open week names, in the shifts' order, as e3 holds the targets: the work requirement's lanes (#1568). */
+async function lanes(): Promise<string[]> {
+    const cover = await h.read(ex.rosterCover), times = await h.read(ex.rosterShiftTimes);
+    const named = new SortedSet([...cover.values()].filter(target => byDate(target.day, START) >= 0 && byDate(target.day, NEXT) < 0).map(target => target.shift), byString);
+    return [...times].sort(([a, x], [b, y]) => byOrder(x.order, y.order) || byString(a, b)).map(([key]) => key).filter(key => named.has(key));
+}
 /** Another session's request for agency cover in Inbound on Monday's Early, beside the warehouse's two in Picking on Thursday. */
 async function requestInbound(): Promise<void> {
     const newer = await h.read(ex.rosterDuties);
@@ -64,9 +77,11 @@ describe("the People layout without bands (#1567)", () => {
         scrollsAsAPageDoes();
         const { container: c } = await open(ex.rosterPeopleNoBands);
         expect(slot(c, "main").querySelector('[data-roster-grid="people"]')).not.toBeNull();
-        const people = await ranked();
+        const people = await ranked(), shifts = await lanes();
         expect(people.length).toBeGreaterThan(0);
-        expect(await listed(c)).toEqual([...people, "requests"]);
+        expect(shifts.length).toBeGreaterThan(0);
+        // The work requirement's one block heads the list (#1568), then the people, then the requests.
+        expect(await listed(c)).toEqual(["demand", ...shifts.map(shift => `lane.${shift}`), "assign", ...people, "requests"]);
         expect(slot(c, "main").querySelector("[data-roster-group]")).toBeNull();
         // The requests' row, named by the vocabulary's word, holds every group's: Picking's two on Thursday, the first
         // tile and `+1`, and — once another session asks for cover in Inbound — Inbound's on Monday, each tile naming its group.

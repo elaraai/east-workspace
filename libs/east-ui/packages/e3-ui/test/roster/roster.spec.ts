@@ -26,7 +26,7 @@ import * as ex from "./roster.examples.js";
 
 describeEast("Roster — inline bound examples", test => {
     Assert.examples(test, { rosterWarehouse: ex.rosterWarehouse, rosterMobile: ex.rosterMobile, rosterPeople: ex.rosterPeople,
-        rosterPeopleMonth: ex.rosterPeopleMonth, rosterPeopleNoBands: ex.rosterPeopleNoBands,
+        rosterPeopleMonth: ex.rosterPeopleMonth, rosterPeopleNoBands: ex.rosterPeopleNoBands, rosterWorkRequirement: ex.rosterWorkRequirement,
         rosterWeek: ex.rosterWeek, rosterWindowed: ex.rosterWindowed, rosterMinimal: ex.rosterMinimal, rosterViews: ex.rosterViews, rosterVocabulary: ex.rosterVocabulary, rosterPublished: ex.rosterPublished,
         rosterCustomInspector: ex.rosterCustomInspector, rosterConflicts: ex.rosterConflicts });
 }, { platformFns: TestImpl });

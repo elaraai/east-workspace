@@ -359,7 +359,7 @@ export const rosterMobile = example({
 });
 
 export const rosterVocabulary = example({
-    inputs: [], description: "The app's own words for who is on the Roster (#1516): `vocabulary` replaces Permanent, Agency staff, Leads, Associates, Trainers and Off Mon · available wherever the Roster draws them, its coverage detail's short forms too, and the People tab keeps its groups' order whatever they are called; the badge beside an agency person's name — in the People layout, and on a Shifts chip, a request's too — is its `agencyShort`, and each group's row of agency requests its `requests` (#1566).",
+    inputs: [], description: "The app's own words for who is on the Roster (#1516): `vocabulary` replaces Permanent, Agency staff, Leads, Associates, Trainers and Off Mon · available wherever the Roster draws them, its coverage detail's short forms too, and the People tab keeps its groups' order whatever they are called; the badge beside an agency person's name — in the People layout, and on a Shifts chip, a request's too — is its `agencyShort`, each group's row of agency requests its `requests` (#1566), and the People layout's work requirement heading its `demand` (#1568).",
     keywords: ["Roster", "vocabulary", "words", "rename", "Employees", "Contractors", "labels", "Slice", "Slice.bindRecords", "Data.bindPaged"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const rota = $.let(Record.bind(rosterDuties));
@@ -380,6 +380,7 @@ export const rosterVocabulary = example({
             vocabulary={{
                 permanent: "Employees", permanentShort: "empl", agency: "Contractors", agencyShort: "contr", leads: "Supervisors", others: "Colleagues", trainers: "Mentors",
                 available: East.function([StringType], StringType, (_$2, weekday) => East.str`Not rostered ${weekday}`), requests: "Contractor requests",
+                demand: "Hours needed",
             }}
             view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
             events={{ duty: Schedule.events(rota, {
@@ -584,6 +585,58 @@ export const rosterPeopleNoBands = example({
             positions={Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order })}
             activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })}
             proposals={Roster.proposals(ideas.read(), { person: s => s.person, day: s => s.day, group: s => s.team, shift: s => s.shift, reason: s => s.why })}
+            rules={{ rest: 10.0 }}
+            library={[Roster.library.people(), Roster.library.activities()]} />
+        </Box>;
+    }}</Reactive>),
+});
+
+export const rosterWorkRequirement = example({
+    inputs: [], description: "The People layout by week with the warehouse's cover targets (#1568): under each group's band, its work requirement — a lane a shift with a target, its week's hours rostered against those needed, and each day's figures over a bar in the coverage marks, `no target` where none of the day's slots has one — each lane opening to its skill rows, then its people. A lane's day opens its slot in the inspector. Rostered counts every duty, agency requests included; the band sums its group's week. The heading is `vocabulary.demand`; `requirements={false}` draws the People layout without it.",
+    keywords: ["Roster", "requirements", "work requirement", "demand", "targets", "cover", "lanes", "skills", "hours", "people", "week", "Roster.targets", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.shifts", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "Save", "Publish"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const rota = $.let(Record.bind(rosterDuties));
+        const entries = $.let(Data.bindPaged(rosterDuties));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        const weeks = $.let(Record.bind(rosterWeeks));
+        // The warehouse's cover targets: what each lane's hours needed, and its skill rows, are summed from.
+        const cover = $.let(Record.bind(rosterCover));
+        // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
+        const people = $.let(Data.bind(rosterStaff));
+        const acts = $.let(Data.bind(rosterActivities));
+        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: ["roster_staff_by_team_name", "roster_staff_by_position", "roster_staff_by_trainer", "roster_staff_by_agency", "roster_staff_by_skill", "roster_staff_by_name"] }));
+        const slice = $.let(Slice.bindRecords("ex.rosterWorkRequirement", {
+            duty: { source: byTime, range: "start" },
+            people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
+                fields: { team: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }] }, position: { label: "Position", hints: [{ value: "lead", label: "Lead" }, { value: "deputy", label: "Deputy" }, { value: "acting", label: "Acting" }, { value: "crew", label: "Crew" }] },
+                    trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
+        }));
+        const firms = $.let(Data.bind(rosterAgencies));
+        const times = $.let(Data.bind(rosterShiftTimes));
+        const teams = $.let(Data.bind(rosterTeams));
+        const roles = $.let(Data.bind(rosterPositions));
+        return <Box width="100%" height="760px"><Roster id="rosterWorkRequirement" week={{ start: "sunday" }} slice={{ slice }} inspector
+            view={{ layout: "people", period: "week", date: new Date("2028-03-09T00:00:00Z") }}
+            // The targets against what is rostered: on by default, said here as the layout's work requirement.
+            requirements
+            events={{ duty: Schedule.events(rota, {
+                name: "Duty", icon: "user-clock", entries,
+                start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+                shift: "shift", group: "team", position: "role", activity: "task",
+                hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
+            }) }}
+            resources={{
+                people: Schedule.resources(people.read(), { name: "People", icon: "user", label: p => p.name, group: p => p.team,
+                    position: p => p.position, skills: p => p.skills, contract: p => p.contract, agency: p => p.agency,
+                    trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual }),
+                agencies: Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name }),
+            }}
+            periods={Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed" })}
+            targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" })}
+            shifts={Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order, color: s => s.colour })}
+            groups={Roster.groups(teams.read(), { label: t => t.label, order: t => t.order })}
+            positions={Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order })}
+            activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })}
             rules={{ rest: 10.0 }}
             library={[Roster.library.people(), Roster.library.activities()]} />
         </Box>;

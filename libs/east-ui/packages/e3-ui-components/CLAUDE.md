@@ -1235,6 +1235,31 @@ duty by whose it is and a shift by its group, each with its day and its shift
 palette variables (`model.ts`' `colorTokenCss`), the words on it in the ink
 the shade takes, the same in both colour modes.
 
+The People layout by week draws the work requirement over its people (#1568,
+`People Work Requirements` 2a), its figures pure in `roster/demand.ts`: each
+slot's coverage as the Shifts layout works it out, summed — a lane's day, a
+lane's week, a skill's, a band's — and what each slot is short summed on its
+own, so no slot's surplus nets another's shortfall (K4); rostered is every
+duty's hours, the agencies' requests' included (ruled 8 Nov 2026). Under each
+open band, or with `peopleBands={false}` one block over every group at the
+list's head: the eyebrow, headed the vocabulary's `demand`, each day's hours
+rostered of needed; a lane a shift a target of the scope names in the week, in
+the shifts' order, each day's figures over a bar in the coverage marks — `no
+target` where none of the day's slots has one — its name cell the disclosure of
+its skill rows, kept open under the Roster's surface as the bands' folds are
+(`open-lanes`); then `Assignment · n people`. Each is a `VirtualRows` item keyed
+by its kind and its parts as East prints them (`demand:`, `lane:`, `skill:`,
+`assign:`). A lane's day selects its slot, the band's group's, or with no bands
+the shift's day across the groups (`Selection`'s `shiftDay`), which the
+inspector draws as their sum (`demand.ts`' `summedCoverage`) above each group's
+slot. The band says the people it lists and the week's hours in the Shifts
+band's words, with how many of its shifts are short. The eyebrows stand whenever
+requirements are on and the Roster has targets, a week naming none drawing no
+lane, so the list's first row never changes as a week lands — rows landing
+above the view would scroll it; while a week is read the last read's lanes
+stand in, each figure a placeholder. `requirements={false}`, Hide requirements
+and a Roster without targets draw none of it.
+
 The People tab has no filter of its own: leads, trainers, agency and skill are
 rail fields of the staff record (#1342). A Find fix asks the app's fit
 (`roster/fit.ts`, #1334) through the shared fit (`shared/func/use-fit.ts`), as

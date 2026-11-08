@@ -78,11 +78,13 @@ export type RosterPeriod = RosterPayload["settings"]["period"]["type"];
 export interface RosterView { layout: RosterLayout; period: RosterPeriod; date: number; held?: Partial<Record<RosterLayout, RosterPeriod>> | undefined }
 /**
  * The inspector's selection is separate from edits and library filtering. A `personWeek` is a person's week (#1406,
- * D11): the inspector's person Details read that week, and a pattern applies to it.
+ * D11): the inspector's person Details read that week, and a pattern applies to it. A `shiftDay` is a shift's day
+ * across the groups (#1568): a day of a work requirement lane where the People layout draws no bands, whose Details
+ * draw each group's slot and the skill lines summed over them.
  */
 export type Selection = { type: "assignment" | "proposal" | "person"; key: string }
     | { type: "slot" | "requirement"; slot: Slot } | { type: "group"; key: string } | { type: "shift"; key: string }
-    | { type: "personWeek"; key: string; start: number };
+    | { type: "personWeek"; key: string; start: number } | { type: "shiftDay"; shift: string; day: number };
 
 /**
  * A period a layout takes (#1406, D1): the one given where the layout takes it, else the layout's first — Shifts a

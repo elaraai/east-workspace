@@ -22,15 +22,22 @@
  * Records gives its person's name the keyboard the same way (#1398) — their
  * row's, or on a phone their card's — where the view shows them.
  *
+ * The People grid by week draws the work requirement over the people (#1568):
+ * under each band — or once, at the list's head, where it draws no bands — an
+ * eyebrow of each day's hours, a lane a shift with a target, each day's hours
+ * rostered against needed, opening to its skill rows, and an eyebrow before
+ * the people; its figures are the Shifts layout's coverage summed
+ * ({@link demandOf}).
+ *
  * @packageDocumentation
  */
 import { Fragment, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Box, Button, Menu as ChakraMenu, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCheck, faGripVertical, faRotateLeft, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
-import { none, variant } from "@elaraai/east";
+import { faAngleRight, faCheck, faGripVertical, faRotateLeft, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { ArrayType, StringType, none, printFor, variant } from "@elaraai/east";
 import { FrameMenuLayer, LoadingFailedLine, PlaceholderShape, VirtualRows, devicePixels, useRevealed, useRowsTop, keptRead } from "@elaraai/east-ui-components/internal";
-import { takeKey, tickFormatOf, useDragEventChip, useDropCell, type CellCoord, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
+import { takeKey, tickFormatOf, useDragEventChip, useDropCell, usePersistedState, type CellCoord, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import type { PeriodRead } from "../shared/loading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
@@ -41,6 +48,7 @@ import { readRosterSource } from "./identity.js";
 import { isPatternCard, rosterCoord, rosterPersonWeekCoord, type RosterDrag } from "./drag.js";
 import type { PatternDay, RosterCommands } from "./actions.js";
 import type { RosterDutyOp, RosterOptimised } from "./optimise.js";
+import { demandOf, difference, signed, toneOf, type Demand, type DemandFigures, type DemandLane, type DemandSkill, type SkillFigures } from "./demand.js";
 import {
     DAY, activityOf, costsOf, groupSkills, hourText, ownTimes, sameSlot, shiftColor, shiftHoursText, shiftLetter, shiftOf, slotKey, weekKey, weekNumber,
     type Assignment, type Coverage, type Issue, type Pay, type Person, type PlacedProposal, type RosterDomain, type RosterSpan, type RosterStyles, type RosterValue,
@@ -547,7 +555,7 @@ function Shifts({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
                             failure={props.value.settings.requirements ? undefined : failing} cell={days.length > 1 ? props.styles.weekCell : props.styles.cell} />
                     </>}</Fragment>;
             }
-            return <Fragment key={group.key}><GroupHeading scope="roster" group={group} styles={props.styles} collapsed={collapsed.includes(group.key)} toggle={toggle}><Box as="span" css={props.styles.groupMeta}>{props.format.number(needed)} h needed · {props.format.number(rostered)} h rostered · {rostered >= needed ? "+" : ""}{props.format.number(rostered - needed)} h{costed(props.value) && ` · ${money(props.format, props.value, coverage.reduce((n, c) => n + c.cost, 0))}`}</Box>{issues.length > 0 && <Box as="span" css={props.styles.flag} data-tone={issues.some(i => i.tone.type === "danger") ? "danger" : "warning"}>{issues.length} issues</Box>}
+            return <Fragment key={group.key}><GroupHeading scope="roster" group={group} styles={props.styles} collapsed={collapsed.includes(group.key)} toggle={toggle}><Box as="span" css={props.styles.groupMeta}>{props.format.number(needed)} h needed · {props.format.number(rostered)} h rostered · {signed(props.format.number, difference(rostered, needed), "+0")} h{costed(props.value) && ` · ${money(props.format, props.value, coverage.reduce((n, c) => n + c.cost, 0))}`}</Box>{issues.length > 0 && <Box as="span" css={props.styles.flag} data-tone={issues.some(i => i.tone.type === "danger") ? "danger" : "warning"}>{issues.length} issues</Box>}
             </GroupHeading>{!collapsed.includes(group.key) && <>
                 {props.value.settings.requirements && <Box css={props.styles.row}>{requirementHead}
                     {columns.map(({ day, shift }) => { const slot = { day: BigInt(day), group: group.key, shift: shift.key }, c = props.coverage.get(slot)!; return <chakra.button type="button" key={slotKey(slot)} css={days.length > 1 ? props.styles.weekCell : props.styles.requirement} data-roster-requirement={slotKey(slot)} onClick={() => { props.select({ type: "requirement", slot }); if (days.length > 1) props.setView({ ...props.view, period: "day", date: props.start.getTime() + day * DAY }); }}>
@@ -564,21 +572,32 @@ function Shifts({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
 /** One of the Roster's groups. */
 type Group = RosterValue["groups"][number];
 /**
- * A People row: a group's band; a person's row, `group` their home group — the band they are listed under, where the
- * layout draws bands; or a row of agency requests — a group's, or, where the layout draws no bands (`peopleBands`,
- * #1567), every group's in one row at the list's foot, its `group` `undefined`.
+ * A row of the People list: a group's band; a person's row, `group` their home group — the band they are listed under,
+ * where the layout draws bands; or a row of agency requests — a group's, or, where the layout draws no bands
+ * (`peopleBands`, #1567), every group's in one row at the list's foot, its `group` `undefined`.
  */
-type PeopleRow = { kind: "group"; key: string; group: Group }
+type ListRow = { kind: "group"; key: string; group: Group }
     | { kind: "person"; key: string; group: Group; person: RosterValue["people"][number] }
     | { kind: "person"; key: string; group: Group | undefined; person: undefined };
+/**
+ * A row of the work requirement by week (#1568): its eyebrow under a band (`demand`, A2), a lane a shift (A3), a skill
+ * row under an open lane (A4), and the eyebrow before the band's people (`assign`, A5) — a band's, its `group`, or the
+ * one block over every group's at the list's head where the layout draws no bands, its `group` `undefined`.
+ */
+type DemandRow = { kind: "demand"; key: string; group: Group | undefined; demand: Demand }
+    | { kind: "lane"; key: string; group: Group | undefined; lane: DemandLane; open: boolean }
+    | { kind: "skill"; key: string; group: Group | undefined; lane: DemandLane; skill: DemandSkill }
+    | { kind: "assign"; key: string; group: Group | undefined; people: number };
+/** A People row: the list's, or, by week, the work requirement's. */
+type PeopleRow = ListRow | DemandRow;
 /** A person's row, or a row of agency requests. */
-type PersonRowValue = Extract<PeopleRow, { kind: "person" }>;
+type PersonRowValue = Extract<ListRow, { kind: "person" }>;
 /**
  * Shared stable rows for desktop People and its explicit-action phone cards: a band a group, its people — its leads,
  * then the rest, then agency staff — and its agency requests; or, without bands (#1567), every person the narrowing
  * shows in one list ranked so, each keeping their home group, then every group's agency requests in one row.
  */
-function usePeopleRows(value: RosterValue, collapsed: readonly string[]): PeopleRow[] {
+function usePeopleRows(value: RosterValue, collapsed: readonly string[]): ListRow[] {
     return useMemo(() => {
         const people = value.people.filter(p => value.visiblePeople.type === "none" || value.visiblePeople.value.has(p.key));
         const rank = (p: typeof people[number]) => p.agency ? 2 : value.positions.find(pos => pos.key === p.position)?.lead ? 0 : 1;
@@ -622,8 +641,11 @@ function selectedPeopleRow(props: RosterViewsProps, rows: readonly PeopleRow[]):
     return index < 0 ? undefined : index;
 }
 
-/** A kind of People row, as its estimate is measured: a group's band, a person's row, or a group's agency requests'. */
-type RowKind = "group" | "person" | "requests";
+/**
+ * A kind of People row, as its estimate is measured: a group's band, a person's row, or a group's agency requests' —
+ * and by week the work requirement's eyebrows, lanes and skill rows (#1568).
+ */
+type RowKind = "group" | "person" | "requests" | DemandRow["kind"];
 /** How many rows of a kind are measured for its floor: the first to mount. */
 const FLOOR_SAMPLES = 8;
 /** Every People row may anchor the view: none is a placeholder whose edge moves as rows land beside it. */
@@ -642,7 +664,7 @@ function useRowFloors(initial: Readonly<Record<RowKind, number>>): {
 } {
     const [floors, setFloors] = useState(initial);
     const [measured, setMeasured] = useState(false);
-    const samples = useRef<Record<RowKind, number>>({ group: 0, person: 0, requests: 0 });
+    const samples = useRef<Record<RowKind, number>>({ group: 0, person: 0, requests: 0, demand: 0, lane: 0, skill: 0, assign: 0 });
     const report = useCallback((kind: RowKind, px: number) => {
         const taken = samples.current[kind];
         if (taken >= FLOOR_SAMPLES || !(px > 0)) return;
@@ -653,14 +675,17 @@ function useRowFloors(initial: Readonly<Record<RowKind, number>>): {
     }, []);
     const refs = useMemo(() => {
         const of = (kind: RowKind) => (el: HTMLElement | null) => { if (el !== null && samples.current[kind] < FLOOR_SAMPLES) report(kind, devicePixels(el.getBoundingClientRect().height)); };
-        return { group: of("group"), person: of("person"), requests: of("requests") };
+        return { group: of("group"), person: of("person"), requests: of("requests"), demand: of("demand"), lane: of("lane"), skill: of("skill"), assign: of("assign") };
     }, [report]);
     const measure = useCallback((kind: RowKind) => refs[kind], [refs]);
     return { floors, measured, measure };
 }
 
-/** The People grids' estimate of each kind before one has mounted: a row one line at the density's pitch (#1406, P30), the theme's band. */
-const PEOPLE_FLOORS: Readonly<Record<RowKind, number>> = { group: 38, person: 36, requests: 36 };
+/**
+ * The People grids' estimate of each kind before one has mounted: a row one line at the density's pitch (#1406, P30),
+ * the theme's band, and the work requirement's 28px eyebrows (#1568).
+ */
+const PEOPLE_FLOORS: Readonly<Record<RowKind, number>> = { group: 38, person: 36, requests: 36, demand: 28, lane: 36, skill: 36, assign: 28 };
 const SEVEN_DAYS: readonly number[] = Array.from({ length: 7 }, (_, d) => d);
 /** The selected person-week, read by the rows it marks (#1406, D11): its own context, so a duty picked draws no row again. */
 const PersonWeekContext = createContext<{ readonly key: string; readonly start: number } | undefined>(undefined);
@@ -996,24 +1021,259 @@ function usePeopleArrows(rows: readonly PeopleRow[], select: (next: Selection) =
     }, [rows, select, stepTo, start]);
     return { focus, onKeyDown };
 }
-/** The People grid by week (#1406, §8): a sticky header, a group band a group, a row a person. */
+// ── The work requirement by week (#1568, `People Work Requirements` 2a) ───────────────────────────────────────────────
+
+/** No work requirement: `requirements` off, or a Roster with no targets. */
+const NO_DEMANDS: ReadonlyMap<string | undefined, Demand> = new Map();
+/**
+ * The work requirement of each scope the People grid draws by week (#1568): each band's group's, by its key, or —
+ * where the layout draws no bands — every group's as one, keyed `undefined`; none while `requirements` is off or the
+ * Roster has no targets. A scope's eyebrows stand whatever the week's targets — a week naming none has no lane — so
+ * the first row of the list is the same from the first render on: the lanes a read brings land under it, and a view at
+ * the top stays there, never pushed down by rows landing above it. While the week is not read, the last read's stand
+ * in, so no lane comes or goes as the week lands, and each figure is a placeholder until it has (K5, K6).
+ *
+ * @param props - The views' props: the payload, the week and its coverage, and the week's read
+ * @returns Each scope's work requirement
+ */
+function useDemands(props: RosterViewsProps): ReadonlyMap<string | undefined, Demand> {
+    const { value, week, coverage, read } = props;
+    const made = useMemo((): ReadonlyMap<string | undefined, Demand> => !value.settings.requirements || value.targets.type !== "some" ? NO_DEMANDS
+        : value.settings.peopleBands ? new Map(value.groups.map(group => [group.key, demandOf(value, week, coverage, [group.key])] as const))
+            : new Map([[undefined, demandOf(value, week, coverage, value.groups.map(group => group.key))]]), [value, week, coverage]);
+    const reads = read.state === "held";
+    const held = useRef(made);
+    useEffect(() => { if (reads) held.current = made; }, [reads, made]);
+    return reads || made === NO_DEMANDS ? made : held.current;
+}
+/**
+ * Which of the People grid's lanes are open, by their rows' keys (#1568, A4.5): the viewer's, kept as the bands' folds
+ * are. Its `toggle` is the same function while the store is.
+ *
+ * @param surface - The Roster's surface, which its folds are kept under
+ * @returns The open lanes' keys, and what opens or closes one
+ */
+function useOpenLanes(surface: string): { open: readonly string[]; toggle: (lane: string) => void } {
+    const { state: open, setState } = usePersistedState<string[]>(`${surface}.open-lanes`, [], keptRead.array(keptRead.string));
+    const toggle = useCallback((lane: string) => setState(current => current.includes(lane) ? current.filter(key => key !== lane) : [...current, lane]), [setState]);
+    return { open, toggle };
+}
+/** A work requirement row's parts — its band's group, its shift and its skill — printed by East, so no two rows' keys are alike. */
+const printParts = printFor(ArrayType(StringType));
+function demandKey(kind: DemandRow["kind"], group: Group | undefined, ...parts: string[]): string {
+    return `${kind}:${printParts(group === undefined ? parts : [group.key, ...parts])}`;
+}
+/** How many people each band lists (#1568, A1): those of its group the narrowing shows, by the group's key. */
+function bandPeople(value: RosterValue): ReadonlyMap<string, number> {
+    const counts = new Map<string, number>();
+    for (const person of value.people) {
+        if (value.visiblePeople.type === "some" && !value.visiblePeople.value.has(person.key)) continue;
+        counts.set(person.group, (counts.get(person.group) ?? 0) + 1);
+    }
+    return counts;
+}
+/**
+ * The People rows by week with the work requirement's (#1568): under each open band its eyebrow, its lanes — each open
+ * one's skill rows under it — and the eyebrow before its people; where the layout draws no bands, the one block at the
+ * list's head. A scope whose week names no target has its eyebrows and no lane.
+ *
+ * @param list - The People list's rows
+ * @param value - The payload
+ * @param demands - Each scope's work requirement
+ * @param open - The open lanes' keys
+ * @param people - How many people each band lists
+ * @returns The rows the grid draws
+ */
+function withDemand(list: readonly ListRow[], value: RosterValue, demands: ReadonlyMap<string | undefined, Demand>, open: readonly string[],
+    people: ReadonlyMap<string, number>): readonly PeopleRow[] {
+    if (demands.size === 0) return list;
+    const block = (group: Group | undefined, count: number): DemandRow[] => {
+        const demand = demands.get(group?.key);
+        if (demand === undefined) return [];
+        return [
+            { kind: "demand", key: demandKey("demand", group), group, demand },
+            ...demand.lanes.flatMap((lane): DemandRow[] => {
+                const key = demandKey("lane", group, lane.shift.key), opened = open.includes(key);
+                return [{ kind: "lane", key, group, lane, open: opened },
+                    ...(opened ? lane.skills.map((skill): DemandRow => ({ kind: "skill", key: demandKey("skill", group, lane.shift.key, skill.skill), group, lane, skill })) : [])];
+            }),
+            { kind: "assign", key: demandKey("assign", group), group, people: count },
+        ];
+    };
+    if (!value.settings.peopleBands) return [...block(undefined, list.filter(row => row.kind === "person" && row.person !== undefined).length), ...list];
+    // An open band's rows follow it — its requests' row at least — and a folded band's do not.
+    return list.flatMap((row, i): PeopleRow[] => row.kind !== "group" || list[i + 1] === undefined || list[i + 1]!.kind === "group" ? [row]
+        : [row, ...block(row.group, people.get(row.group.key) ?? 0)]);
+}
+/**
+ * A band's work requirement (#1568, A1): the people it lists, then the week's hours needed, rostered and their
+ * difference in the Shifts band's words, and how many of its shifts are short.
+ */
+function BandDemand({ ctx, demand, people }: { ctx: ViewContext; demand: Demand; people: number }) {
+    const { styles, format, read } = ctx;
+    const { needed, rostered, shortSlots } = demand.week;
+    return <>
+        <Box as="span" css={styles.groupMeta} data-count="">{format.number(people)} people</Box>
+        <Box as="span" css={styles.groupMeta} data-roster-band-demand="">{read.state !== "held" ? <Unread read={read} kind="aggregate" index={2} />
+            : <>{format.number(needed)} h needed · {format.number(rostered)} h rostered · {signed(format.number, difference(rostered, needed), "+0")} h{shortSlots > 0
+                && <Box as="span" data-tone="warning"> · {format.number(shortSlots)} {shortSlots === 1 ? "shift" : "shifts"} short</Box>}</>}</Box>
+    </>;
+}
+/** The work requirement's eyebrow (#1568, A2): the vocabulary's heading, then each day's hours rostered against needed, no valence. */
+const DemandHead = memo(function DemandHead({ ctx, row, measure }: {
+    ctx: ViewContext; row: Extract<DemandRow, { kind: "demand" }>; measure: (el: HTMLElement | null) => void;
+}) {
+    const { styles, format, read, value } = ctx;
+    return <Box ref={measure} css={styles.demandRow} data-roster-demand={row.key}>
+        <Box css={styles.demandName} data-roster-demand-heading="">{value.vocabulary.demand}</Box>
+        {SEVEN_DAYS.map(day => { const figures = row.demand.days[day]!; return <Box key={day} css={styles.demandFigure} data-roster-demand-day={day}>
+            {read.state !== "held" ? <Unread read={read} kind="number" index={day} /> : `${format.number(figures.rostered)} / ${format.number(figures.needed)} h`}</Box>; })}
+    </Box>;
+});
+/**
+ * Hours rostered — or a skill's assigned — against those needed (A3.3, A4.3): `292 / 294`, the first in the ink, a
+ * skill's in the second ink, and the warning's where a skill's day is short.
+ */
+function Figure({ ctx, rostered, needed, skill = false, short = false }: { ctx: ViewContext; rostered: number; needed: number; skill?: boolean; short?: boolean }) {
+    return <Box as="span" css={ctx.styles.laneFigure} data-skill={skill ? "" : undefined}>
+        <span data-rostered="" data-tone={short ? "warning" : undefined}>{ctx.format.number(rostered)}</span><span data-needed="">/ {ctx.format.number(needed)}</span>
+    </Box>;
+}
+/**
+ * A lane's day's figures (A3.3): the hours rostered against needed and their difference, where there is one, over the
+ * bar — the permanent staff's, agency staff's and the requests' parts from its start, what is open dashed after them to
+ * the needed tick — scaled to the larger of the two (A3.4).
+ */
+function LaneFigures({ ctx, figures: f }: { ctx: ViewContext; figures: DemandFigures }) {
+    const { styles, format } = ctx;
+    const d = difference(f.rostered, f.needed);
+    const max = Math.max(f.needed, f.rostered, 1);
+    let left = 0;
+    const parts: { kind: "permanent" | "agency" | "requested" | "open"; width: number; left: number }[] = (["permanent", "agency", "requested"] as const).map(kind => { const width = f[kind]; const part = { kind, width, left }; left += width; return part; });
+    if (f.needed > left) parts.push({ kind: "open", left, width: f.needed - left });
+    return <>
+        <Box as="span" css={styles.laneLine}><Figure ctx={ctx} rostered={f.rostered} needed={f.needed} /><Box as="span" css={styles.laneDiff} data-tone={toneOf(d)}>{signed(format.number, d)}</Box></Box>
+        <Box as="span" css={styles.laneBar} data-roster-lane-bar="">
+            {parts.filter(part => part.width > 0).map(part => <Box as="span" key={part.kind} css={styles.coverageSegment} data-kind={part.kind} style={{ left: `${part.left / max * 100}%`, width: `${part.width / max * 100}%` }} />)}
+            <Box as="span" css={styles.laneTick} style={{ left: `${f.needed / max * 100}%` }} />
+        </Box>
+    </>;
+}
+/**
+ * A lane's day (#1568, A3.3): its figures, or — none of the day's slots with a target — `no target`, no bar (A3.6); a
+ * press selects its slot, a band's group's, or the shift's day across the groups where the layout draws no bands (A3.8),
+ * which the inspector shows.
+ */
+const LaneDay = memo(function LaneDay({ ctx, rowKey, group, lane, day }: { ctx: ViewContext; rowKey: string; group: Group | undefined; lane: DemandLane; day: number }) {
+    const { styles, format, read, start } = ctx;
+    const selection = useContext(SelectionContext);
+    const shift = lane.shift.key;
+    const slot = useMemo(() => group === undefined ? undefined : { day: BigInt(day), group: group.key, shift }, [group, day, shift]);
+    const selected = slot !== undefined ? selectedSlot(selection, slot) : selection?.type === "shiftDay" && selection.shift === shift && selection.day === day;
+    const f = lane.days[day]!;
+    const when = `${lane.shift.label} · ${format.weekday(new Date(start.getTime() + day * DAY))}${group === undefined ? "" : ` · ${group.label}`}`;
+    const label = read.state !== "held" ? when : f.target ? `${when}: ${format.number(f.rostered)} of ${format.number(f.needed)} hours rostered` : `${when}: no target`;
+    return <chakra.button type="button" css={styles.laneCell} data-roster-lane-day={`${rowKey}.${day}`} data-selected={selected ? "" : undefined} aria-pressed={selected} aria-label={label}
+        onClick={() => ctx.select(slot !== undefined ? { type: "requirement", slot } : { type: "shiftDay", shift, day })}>
+        {read.state !== "held" ? <Unread read={read} kind="aggregate" index={day} /> : f.target ? <LaneFigures ctx={ctx} figures={f} /> : <Box as="span" css={styles.laneNoTarget}>no target</Box>}
+    </chakra.button>;
+});
+/**
+ * A lane (#1568, A3): a shift's row of the work requirement — its name cell the disclosure of its skill rows (A3.7),
+ * holding the shift's swatch, label and hours and the week's hours rostered against needed over their difference — then
+ * a day a cell.
+ */
+const LaneRow = memo(function LaneRow({ ctx, row, toggle, measure }: {
+    ctx: ViewContext; row: Extract<DemandRow, { kind: "lane" }>; toggle: (lane: string) => void; measure: (el: HTMLElement | null) => void;
+}) {
+    const { styles, format, read, value } = ctx;
+    const { lane } = row;
+    const d = difference(lane.week.rostered, lane.week.needed);
+    return <Box ref={measure} css={styles.peopleRow} data-roster-lane={row.key} data-roster-lane-group={row.group?.key} data-roster-lane-shift={lane.shift.key} data-density={value.settings.density.type}>
+        <chakra.button type="button" css={[styles.laneName, styles.laneToggle]} aria-expanded={row.open} data-roster-lane-head="" onClick={() => toggle(row.key)}>
+            <FontAwesomeIcon icon={faAngleRight} />
+            <Box as="span" css={styles.laneSwatch} style={fillOf(lane.shift)} />
+            <Box as="span" css={styles.laneLabel}>{lane.shift.label}</Box>
+            <Box as="span" css={styles.laneHours}>{shiftHoursText(lane.shift)}</Box>
+            <Box as="span" css={styles.laneWeek} data-roster-lane-week="">{read.state !== "held" ? <Unread read={read} kind="number" index={0} /> : <>
+                <Figure ctx={ctx} rostered={lane.week.rostered} needed={lane.week.needed} />
+                <Box as="span" css={styles.laneDiff} data-tone={toneOf(d)}>{signed(format.number, d)}</Box></>}</Box>
+        </chakra.button>
+        {SEVEN_DAYS.map(day => <LaneDay key={day} ctx={ctx} rowKey={row.key} group={row.group} lane={lane} day={day} />)}
+    </Box>;
+});
+/** A skill row's day's figures (A4.3): the hours assigned against needed, the warning's where short, their difference, and a 3px bar. */
+function SkillFigures({ ctx, figures: f }: { ctx: ViewContext; figures: SkillFigures }) {
+    const { styles, format } = ctx;
+    const d = difference(f.assigned, f.needed);
+    return <>
+        <Box css={styles.laneLine}><Figure ctx={ctx} rostered={f.assigned} needed={f.needed} skill short={d < 0} /><Box as="span" css={styles.laneDiff} data-tone={toneOf(d)}>{signed(format.number, d)}</Box></Box>
+        <Box css={styles.skillBar} data-roster-skill-bar=""><Box css={styles.weekFillValue} style={{ width: `${f.needed > 0 ? Math.min(f.assigned, f.needed) / f.needed * 100 : 100}%` }} /></Box>
+    </>;
+}
+/**
+ * A skill row under an open lane (#1568, A4): its code tag and name, the week's hours assigned against needed, then a day
+ * a cell — empty where none of the day's slots needs the skill.
+ */
+const SkillRow = memo(function SkillRow({ ctx, row, measure }: { ctx: ViewContext; row: Extract<DemandRow, { kind: "skill" }>; measure: (el: HTMLElement | null) => void }) {
+    const { styles, read, value } = ctx;
+    const activity = activityOf(value, row.skill.skill);
+    return <Box ref={measure} css={styles.peopleRow} data-roster-lane-skill={row.key} data-density={value.settings.density.type}>
+        <Box css={styles.laneName} data-skill="">
+            {activity?.code && <Box as="span" css={styles.skillTag}>{activity.code}</Box>}
+            <Box as="span" css={styles.skillName}>{activity?.label ?? row.skill.skill}</Box>
+            <Box as="span" css={styles.laneWeek}>{read.state !== "held" ? <Unread read={read} kind="number" index={1} /> : <Figure ctx={ctx} rostered={row.skill.week.assigned} needed={row.skill.week.needed} skill />}</Box>
+        </Box>
+        {SEVEN_DAYS.map(day => { const figures = row.skill.days[day]; return <Box key={day} css={styles.laneCell} data-roster-lane-skill-day={`${row.key}.${day}`}>
+            {read.state !== "held" ? <Unread read={read} kind="number" index={day} /> : figures === undefined ? null : <SkillFigures ctx={ctx} figures={figures} />}</Box>; })}
+    </Box>;
+});
+/** The eyebrow before a band's people (#1568, A5): `Assignment · n people`, the people the band lists. */
+const AssignHead = memo(function AssignHead({ ctx, row, measure }: { ctx: ViewContext; row: Extract<DemandRow, { kind: "assign" }>; measure: (el: HTMLElement | null) => void }) {
+    return <Box ref={measure} css={ctx.styles.assignRow} data-roster-assign-head={row.key}>
+        <Box as="span" css={ctx.styles.assignLabel}>Assignment · {ctx.format.number(row.people)} people</Box>
+    </Box>;
+});
+
+/**
+ * The People grid by week (#1406, §8): a sticky header, a group band a group, a row a person — and with targets the
+ * work requirement over each band's people, or over everyone where it draws no bands (#1568).
+ */
 function People({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
     const { collapsed, toggle } = useGroupCollapse(props.drag.surface);
-    const rows = usePeopleRows(props.value, collapsed);
+    const list = usePeopleRows(props.value, collapsed);
+    // The work requirement's rows (#1568): each band's, or the one block over every group's, their lanes opened by the viewer.
+    const demands = useDemands(props);
+    const { open, toggle: toggleLane } = useOpenLanes(props.drag.surface);
+    const people = useMemo(() => bandPeople(props.value), [props.value]);
+    const rows = useMemo(() => withDemand(list, props.value, demands, open, people), [list, props.value, demands, open, people]);
     const index = useMemo(() => peopleIndex(props.week, props.held), [props.week, props.held]);
     const { floors, measured, measure } = useRowFloors(PEOPLE_FLOORS);
     // A new floor places every row again at it, the rows measured kept: a new key function is what has the rows' places
     // worked out again.
     const getItemKey = useCallback((i: number) => rows[i]!.key, [rows, floors]); // eslint-disable-line react-hooks/exhaustive-deps -- the floors re-key the places
-    const estimateSize = useCallback((i: number) => { const row = rows[i]!; return row.kind === "group" ? floors.group : row.person === undefined ? floors.requests : floors.person; }, [rows, floors]);
+    const estimateSize = useCallback((i: number) => { const row = rows[i]!; return row.kind !== "person" ? floors[row.kind] : row.person === undefined ? floors.requests : floors.person; }, [rows, floors]);
     // A row drawn again only as what it shows changes: the same function while the rows, the week and the views hold (CL9).
     const renderRow = useCallback((i: number) => {
         const row = rows[i]!;
-        if (row.kind === "group") return <GroupHeading scope="roster" group={row.group} styles={ctx.styles} collapsed={collapsed.includes(row.group.key)} toggle={toggle} measure={measure("group")} />;
-        const days = row.person === undefined ? requestDays(index, row.group) : index.person.get(row.person.key);
-        return <PersonRow ctx={ctx} row={row} index={i} rows={rows} days={days ?? NO_DAYS} duties={row.person === undefined ? undefined : index.duties.get(row.person.key)}
-            measure={measure(row.person === undefined ? "requests" : "person")} />;
-    }, [rows, ctx, collapsed, toggle, index, measure]);
+        switch (row.kind) {
+            case "group": {
+                const demand = demands.get(row.group.key);
+                return <GroupHeading scope="roster" group={row.group} styles={ctx.styles} collapsed={collapsed.includes(row.group.key)} toggle={toggle} measure={measure("group")}>
+                    {demand !== undefined && <BandDemand ctx={ctx} demand={demand} people={people.get(row.group.key) ?? 0} />}
+                </GroupHeading>;
+            }
+            case "demand": return <DemandHead ctx={ctx} row={row} measure={measure("demand")} />;
+            case "lane": return <LaneRow ctx={ctx} row={row} toggle={toggleLane} measure={measure("lane")} />;
+            case "skill": return <SkillRow ctx={ctx} row={row} measure={measure("skill")} />;
+            case "assign": return <AssignHead ctx={ctx} row={row} measure={measure("assign")} />;
+            case "person": {
+                const days = row.person === undefined ? requestDays(index, row.group) : index.person.get(row.person.key);
+                return <PersonRow ctx={ctx} row={row} index={i} rows={rows} days={days ?? NO_DAYS} duties={row.person === undefined ? undefined : index.duties.get(row.person.key)}
+                    measure={measure(row.person === undefined ? "requests" : "person")} />;
+            }
+        }
+    }, [rows, ctx, collapsed, toggle, index, measure, demands, people, toggleLane]);
     const density = props.value.settings.density.type;
     const header = <Box css={props.styles.peopleRow} data-roster-people-head="" data-density={density}>
         <Box css={props.styles.peopleName} data-head=""><Box css={props.styles.shiftLabel}>People · Week</Box><Box css={props.styles.shiftLabel}>Hours</Box></Box>
@@ -1288,7 +1548,7 @@ function AssignmentCard({ ctx, id, assignment, removed }: { ctx: ViewContext; id
     </Box>;
 }
 /** The phone's People cards' estimate of each kind before one has mounted: a person's card is its seven days, each a place action. */
-const AGENDA_FLOORS: Readonly<Record<RowKind, number>> = { group: 38, person: 360, requests: 60 };
+const AGENDA_FLOORS: Readonly<Record<RowKind, number>> = { group: 38, person: 360, requests: 60, demand: 28, lane: 36, skill: 36, assign: 28 };
 /**
  * A person's card on a phone, or a group's requests' — or every group's, each group's under its name (#1567): drawn
  * again only as what it shows changes (#1398, CL9).
