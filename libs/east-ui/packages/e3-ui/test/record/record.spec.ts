@@ -8,7 +8,9 @@
  * kinds on the wire — a title, a person, a boolean, a toggle, a cycle, an age
  * and an audit, and a quantity's unit — their cells, the age's count to a
  * clock and the audit's who and what; a cycle over a variant's steps
- * (`Record Columns From Data - DX Proposal.md` §2.3); the columns map's
+ * (`Record Columns From Data - DX Proposal.md` §2.3); columns from data — a
+ * column per member of a register or per field of a struct, their groups and
+ * the functions their cells read and write through (§2); the columns map's
  * typing; and every refusal, naming the column or the prop — a new row's
  * field no person can set among them (#1526).
  */
@@ -16,7 +18,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, NullType, OptionType, StringType, StructType, VariantType,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
     equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { FieldSpecType } from "@elaraai/east-ui/internal";
@@ -38,6 +40,8 @@ describeEast("Record — examples", test => {
         recordLooks: ex.recordLooks,
         recordFinishes: ex.recordFinishes,
         recordOrderStatus: ex.recordOrderStatus,
+        recordHoursByProject: ex.recordHoursByProject,
+        recordRosterByDay: ex.recordRosterByDay,
     });
 }, { platformFns: TestImpl });
 
@@ -415,5 +419,323 @@ describe("the columns map's typing", () => {
             // @ts-expect-error — a step has no value to give a case, so no case of a cycle's variant holds data
             state: Record.column.cycle(Holding, Held, { steps: [{ case: "held", label: "Held" }, { case: "open", label: "Open" }] }),
         }, { id: "id" }, { recordKinds: true }), /^Error: Sheet: cycle column "state" steps through a variant whose "held" case holds String — a step has no value to give a case/);
+    });
+});
+
+// ── Columns from data (`Record Columns From Data - DX Proposal.md` §2) ──
+
+/** A person's hours on each project, by the project's code. */
+const Staff = StructType({ id: StringType, name: StringType, hours: DictType(StringType, FloatType) });
+const STAFF: ValueTypeOf<typeof Staff>[] = [
+    { id: "H-1", name: "A. Morgan", hours: new Map([["P-100", 12.5], ["P-200", 4.0]]) },
+    { id: "H-2", name: "B. Ellis", hours: new Map([["P-101", 30.0]]) },
+];
+const Hours = Staff.fields.hours;
+const Project = StructType({ code: StringType, name: StringType, client: StringType });
+const Client = StructType({ code: StringType, name: StringType });
+/** The projects in an order that is not their clients': P-900's client is none of the clients, and C-03 has no project. */
+const STAFF_OPTIONS = {
+    id: "id" as const,
+    registers: {
+        projects: Record.register.members(East.value([
+            { code: "P-200", name: "Shop front", client: "C-02" },
+            { code: "P-100", name: "Kitchen fit-out", client: "C-01" },
+            { code: "P-900", name: "Training", client: "" },
+            { code: "P-101", name: "Stair rebuild", client: "C-01" },
+        ], ArrayType(Project)), { kind: "project", key: p => p.code, label: p => p.name, parent: p => some(p.client) }),
+        clients: Record.register.members(East.value([
+            { code: "C-01", name: "Ashgrove" }, { code: "C-02", name: "Bellmoor" }, { code: "C-03", name: "Corran" },
+        ], ArrayType(Client)), { kind: "client", key: c => c.code, label: c => c.name }),
+    },
+};
+/** A rota's week: a day it always staffs, one it may not, and a note. */
+const Week = StructType({ mon: IntegerType, sat: OptionType(IntegerType), note: StringType });
+const Rostered = StructType({ id: StringType, week: Week });
+const ROSTERED = East.value([{ id: "S-1", week: { mon: 4n, sat: some(2n), note: "" } }], ArrayType(Rostered));
+const ColumnType = Sheet.Types.Root.fields.columns.value;
+const Keys = ArrayType(StringType);
+const Mark = OptionType(Record.Types.Mark);
+
+describe("columns from data", () => {
+    test("a register's members make the columns: in its order, each keyed by the column and the member, headed by the member's label, and holding the kind's value or none", () => {
+        const root: Root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const rows = $.const(STAFF, ArrayType(Staff));
+            return createSheetRootWith(rows, {
+                name: Record.column.title(Staff, { header: "Name" }),
+                hours: Record.column.quantity(Staff, { each: "projects", unit: "hrs", width: "88px" }),
+            }, STAFF_OPTIONS, { recordKinds: true });
+        }), [])();
+        const keys = root.columns.map((c) => c.key);
+        assert.ok(equalFor(Keys)(keys, ["name", "hours:P-200", "hours:P-100", "hours:P-900", "hours:P-101"]), printFor(Keys)(keys));
+        const headers = root.columns.map((c) => c.header);
+        assert.ok(equalFor(Keys)(headers, ["Name", "Shop front", "Kitchen fit-out", "Training", "Stair rebuild"]), printFor(Keys)(headers));
+        const column = root.columns.find((c) => c.key === "hours:P-100");
+        if (column === undefined) assert.fail("no column for P-100");
+        const quantity = variant("quantity", { uom: none, unit: some("hrs"), format: none });
+        assert.ok(equalFor(ColumnType.fields.kind)(column.kind, quantity), printFor(ColumnType.fields.kind)(column.kind));
+        assert.ok(equalFor(ColumnType.fields.dataType)(column.dataType, toEastTypeValue(OptionType(FloatType))), printFor(ColumnType.fields.dataType)(column.dataType));
+        assert.ok(equalFor(ColumnType.fields.payloadType)(column.payloadType, toEastTypeValue(FloatType)), printFor(ColumnType.fields.payloadType)(column.payloadType));
+        assert.ok(equalFor(ColumnType.fields.width)(column.width, some("88px")), printFor(ColumnType.fields.width)(column.width));
+        assert.equal(column.editable, true);
+    });
+
+    test("a row carries no member's cell — each is read at the Record's day — but the row's own rules of a column from data", () => {
+        const root: Root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const rows = $.const(STAFF, ArrayType(Staff));
+            return createSheetRootWith(rows, {
+                name: Record.column.title(Staff, { header: "Name" }),
+                hours: Record.column.quantity(Staff, { each: "projects", detail: p => p.name }),
+            }, STAFF_OPTIONS, { recordKinds: true });
+        }), [])();
+        if (root.rows.type !== "inline") assert.fail(`expected inline rows, got ${root.rows.type}`);
+        const cells = [...root.rows.value[0]!.cells.keys()];
+        assert.ok(equalFor(Keys)(cells, ["$detail:hours", "name"]), printFor(Keys)(cells));
+        const column = root.columns.find((c) => c.key === "hours:P-200");
+        if (column === undefined) assert.fail("no column for P-200");
+        assert.ok(equalFor(ColumnType.fields.detailCell)(column.detailCell, some("$detail:hours")), printFor(ColumnType.fields.detailCell)(column.detailCell));
+    });
+
+    test("`groups` heads the columns by each member's parent, in its own order — the members whose parent it lacks after them, unlabelled, and a member heading none drawing nothing — beside the author's groups, in column order", () => {
+        const payload = East.compile(East.function([], RecordPayloadType, () => Record.Payload({
+            record: Record.bind(ex.recordHours), window: Data.bindPaged(ex.recordHours), registers: STAFF_OPTIONS.registers,
+            columns: {
+                name: Record.column.title(ex.Person, { header: "Name" }),
+                hours: Record.column.quantity(ex.Person, { each: "projects", groups: "clients", unit: "hrs" }),
+            },
+            columnGroups: [{ label: "Who", columnKeys: ["name"] }],
+        })), refusingPlatform)();
+        const keys = payload.sheet.columns.map((c) => c.key);
+        assert.ok(equalFor(Keys)(keys, ["name", "hours:P-100", "hours:P-101", "hours:P-200", "hours:P-900"]), printFor(Keys)(keys));
+        const Groups = RecordPayloadType.fields.columnGroups;
+        assert.ok(equalFor(Groups)(payload.columnGroups, [
+            { label: "Who", columnKeys: ["name"] },
+            { label: "Ashgrove", columnKeys: ["hours:P-100", "hours:P-101"] },
+            { label: "Bellmoor", columnKeys: ["hours:P-200"] },
+            { label: "", columnKeys: ["hours:P-900"] },
+        ]), printFor(Groups)(payload.columnGroups));
+    });
+
+    test("a struct's fields make the columns, fixed as the page is built: in the order `each` gives, headed as it says, and a column group naming the column holds them all", () => {
+        const payload = East.compile(East.function([], RecordPayloadType, () => Record.Payload({
+            record: Record.bind(ex.recordRoster), window: Data.bindPaged(ex.recordRoster),
+            columns: {
+                name: Record.column.title(ex.Shift, { header: "Shift" }),
+                week: Record.column.integer(ex.Shift, { each: { sat: "Sat", sun: "Sun", mon: "Mon" } }),
+            },
+            columnGroups: [{ label: "Weekend first", columnKeys: ["week"] }],
+        })), refusingPlatform)();
+        const keys = payload.sheet.columns.map((c) => c.key);
+        assert.ok(equalFor(Keys)(keys, ["name", "week:sat", "week:sun", "week:mon"]), printFor(Keys)(keys));
+        const headers = payload.sheet.columns.map((c) => c.header);
+        assert.ok(equalFor(Keys)(headers, ["Shift", "Sat", "Sun", "Mon"]), printFor(Keys)(headers));
+        const Groups = RecordPayloadType.fields.columnGroups;
+        assert.ok(equalFor(Groups)(payload.columnGroups, [{ label: "Weekend first", columnKeys: ["week:sat", "week:sun", "week:mon"] }]), printFor(Groups)(payload.columnGroups));
+        const sat = payload.sheet.columns.find((c) => c.key === "week:sat");
+        if (sat === undefined) assert.fail("no column for Saturday");
+        assert.ok(equalFor(ColumnType.fields.dataType)(sat.dataType, toEastTypeValue(IntegerType)), printFor(ColumnType.fields.dataType)(sat.dataType));
+        assert.equal(sat.editable, true);
+    });
+
+    test("with no functions, a Dict keyed by the member reads its entry, an edit setting it and a clear removing it; a struct reads itself, an edit writing the new one", () => {
+        const day = new Date("2026-11-08T00:00:00Z");
+        const register = createSheetBuild(East.value(STAFF, ArrayType(Staff)), { hours: Record.column.quantity(Staff, { each: "projects" }) }, STAFF_OPTIONS, { recordKinds: true }).data[0]?.data;
+        if (register?.from !== "register" || register.write === undefined) assert.fail("no register's columns, or none written");
+        assert.equal(register.clears, true);
+        const Logged = OptionType(FloatType);
+        const read = East.compile(register.read as never, []) as (hours: ValueTypeOf<typeof Hours>, project: string, day: Date) => ValueTypeOf<typeof Logged>;
+        const write = East.compile(register.write as never, []) as (hours: ValueTypeOf<typeof Hours>, project: string, logged: ValueTypeOf<typeof Logged>, day: Date) => ValueTypeOf<typeof Hours>;
+        const hours = new Map([["P-100", 12.5]]);
+        assert.ok(equalFor(Logged)(read(hours, "P-100", day), some(12.5)));
+        assert.ok(equalFor(Logged)(read(hours, "P-200", day), none));
+        const set = write(hours, "P-200", some(4.0), day);
+        assert.ok(equalFor(Hours)(set, new Map([["P-100", 12.5], ["P-200", 4.0]])), printFor(Hours)(set));
+        const cleared = write(hours, "P-100", none, day);
+        assert.ok(equalFor(Hours)(cleared, new Map()), printFor(Hours)(cleared));
+        assert.ok(equalFor(Hours)(hours, new Map([["P-100", 12.5]])), "the field given is left as it was");
+
+        const fields = createSheetBuild(ROSTERED, { week: Record.column.integer(Rostered, { each: { mon: "Mon", sat: "Sat" } }) }, { id: "id" }, { recordKinds: true }).data[0]?.data;
+        if (fields?.from !== "fields" || fields.write === undefined) assert.fail("no struct's columns, or none written");
+        // A clear writes none where the struct's field is an Option, and is refused where it isn't.
+        assert.deepEqual(fields.members.map((m) => [m.name, m.header, m.clears]), [["mon", "Mon", false], ["sat", "Sat", true]]);
+        const readWeek = East.compile(fields.read as never, []) as (week: ValueTypeOf<typeof Week>, day: Date) => ValueTypeOf<typeof Week>;
+        const writeWeek = East.compile(fields.write as never, []) as (week: ValueTypeOf<typeof Week>, next: ValueTypeOf<typeof Week>, day: Date) => ValueTypeOf<typeof Week>;
+        const week: ValueTypeOf<typeof Week> = { mon: 4n, sat: some(2n), note: "" };
+        const next: ValueTypeOf<typeof Week> = { mon: 5n, sat: none, note: "" };
+        assert.ok(equalFor(Week)(readWeek(week, day), week));
+        assert.ok(equalFor(Week)(writeWeek(week, next, day), next));
+    });
+
+    test("builds over the functions it is given, and every kind but an action takes them — an action column takes a `mark` over its row", () => {
+        const read = East.function([Hours, StringType, DateTimeType], OptionType(FloatType), (_$, hours, project) => hours.tryGet(project));
+        const write = East.function([Hours, StringType, OptionType(FloatType), DateTimeType], Hours, ($, hours, project, logged) => {
+            const next = $.let(hours.copy());
+            $.match(logged, {
+                some: ($2, value) => { $2(next.insertOrUpdate(project, value)); },
+                none: ($2) => { $2(next.tryDelete(project)); },
+            });
+            return next;
+        });
+        const mark = East.function([Hours, StringType, DateTimeType], Mark, ($, _hours, project) => {
+            $.if(project.equal("P-900"), ($2) => { $2.return(some(variant("lock", "Booked centrally"))); });
+            return none;
+        });
+        const root: Root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const rows = $.const(STAFF, ArrayType(Staff));
+            return createSheetRootWith(rows, {
+                name: Record.column.title(Staff, { header: "Name", mark: East.function([Staff, DateTimeType], Mark, () => none) }),
+                hours: Record.column.quantity(Staff, { each: "projects", read, write, mark }),
+            }, STAFF_OPTIONS, { recordKinds: true });
+        }), [])();
+        const editable = root.columns.map((c) => c.editable);
+        assert.ok(equalFor(ArrayType(BooleanType))(editable, [true, true, true, true, true]), printFor(ArrayType(BooleanType))(editable));
+        // Without a `write`, read only.
+        const readOnly: Root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const rows = $.const(STAFF, ArrayType(Staff));
+            return createSheetRootWith(rows, { hours: Record.column.quantity(Staff, { each: "projects", read, editable: false }) }, STAFF_OPTIONS, { recordKinds: true });
+        }), [])();
+        const shown = readOnly.columns.map((c) => c.editable);
+        assert.ok(equalFor(ArrayType(BooleanType))(shown, [false, false, false, false]), printFor(ArrayType(BooleanType))(shown));
+        // Keyed by a name of its own, a column names the field it reads.
+        const named: Root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const rows = $.const(STAFF, ArrayType(Staff));
+            return createSheetRootWith(rows, { logged: Record.column.quantity(Staff, { each: "projects", field: "hours" }) }, STAFF_OPTIONS, { recordKinds: true });
+        }), [])();
+        const keys = named.columns.map((c) => c.key);
+        assert.ok(equalFor(Keys)(keys, ["logged:P-200", "logged:P-100", "logged:P-900", "logged:P-101"]), printFor(Keys)(keys));
+        assert.doesNotThrow(() => createSheetRootWith(East.value(ORDERS, ArrayType(Order)), {
+            stage: Record.column.action(Order, Stage, {
+                cases: { draft: { label: "Draft", state: "Drafted" }, review: { label: "Review", state: "In review" }, done: { label: "Finish", state: "Done" } },
+                mark: East.function([Order, DateTimeType], Mark, () => none),
+            }),
+        }, { id: "id" }, { recordKinds: true }));
+    });
+});
+
+describe("a column from data refuses", () => {
+    const rows = East.value(STAFF, ArrayType(Staff));
+    const read = East.function([Hours, StringType, DateTimeType], OptionType(FloatType), (_$, hours, project) => hours.tryGet(project));
+    const write = East.function([Hours, StringType, OptionType(FloatType), DateTimeType], Hours, (_$, hours) => hours);
+
+    test("an option only a column from data takes, without `each`", () => {
+        for (const option of ["groups", "field", "read", "write"]) {
+            assert.throws(() => createSheetRootWith(rows, { name: Record.column.text(Staff, { [option]: "x" } as never) }, STAFF_OPTIONS, { recordKinds: true }),
+                new RegExp(`^Error: Sheet: column "name" has \`${option}\`, which a column from data takes — give it \`each\``));
+        }
+    });
+
+    test("`each` or `groups` naming a register `registers` does not declare", () => {
+        assert.throws(() => createSheetRootWith(rows, { hours: Record.column.quantity(Staff, { each: "projets" }) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "hours" names register "projets" in `each`, which `registers` does not declare \(projects, clients\)/);
+        assert.throws(() => createSheetRootWith(rows, { hours: Record.column.quantity(Staff, { each: "projects", groups: "customers" }) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "hours" names register "customers" in `groups`, which `registers` does not declare/);
+    });
+
+    test("a field of a shape with no default, given no `read` and `write`", () => {
+        assert.throws(() => createSheetRootWith(rows, { name: Record.column.quantity(Staff, { each: "projects" }) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "name" makes a column for each member of "projects" from its field "name" \(String\) — a field that is no Dict keyed by the member, of Float, takes a `read` and a `write`/);
+        assert.throws(() => createSheetRootWith(rows, { hours: Record.column.text(Staff, { each: "projects" }) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "hours" makes a column for each member of "projects" from its field "hours" \(Dict\) — a field that is no Dict keyed by the member, of String/);
+        assert.throws(() => createSheetRootWith(rows, { name: Record.column.text(Staff, { each: { first: "First" } }) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "name" makes a column for each field of a struct from its field "name" \(String\) — a field that is no struct takes a `read` giving one, and a `write`/);
+    });
+
+    test("a `read`, `write` or `mark` over values other than the field's, the member's key, the kind's value and the day — or no East function", () => {
+        assert.throws(() => createSheetRootWith(rows, {
+            hours: Record.column.quantity(Staff, { each: "projects", write, read: East.function([Hours, StringType], OptionType(FloatType), (_$, hours, project) => hours.tryGet(project)) as never }),
+        }, STAFF_OPTIONS, { recordKinds: true }), /^Error: Sheet: column "hours" has a `read` over \(Dict, String\) — it reads its field "hours" \(Dict\), the member's key \(String\) and the day \(DateTime\)/);
+        assert.throws(() => createSheetRootWith(rows, {
+            hours: Record.column.quantity(Staff, { each: "projects", write, read: East.function([Hours, StringType, DateTimeType], StringType, () => "") as never }),
+        }, STAFF_OPTIONS, { recordKinds: true }), /^Error: Sheet: column "hours" has a `read` returning String — it returns Float, or an Option of it, for each member/);
+        assert.throws(() => createSheetRootWith(rows, {
+            hours: Record.column.quantity(Staff, { each: "projects", read, write: East.function([Hours, StringType, IntegerType, DateTimeType], Hours, (_$, hours) => hours) as never }),
+        }, STAFF_OPTIONS, { recordKinds: true }), /^Error: Sheet: column "hours" has a `write` over \(Dict, String, Integer, DateTime\) — it writes its field "hours" \(Dict\) given the member's key \(String\), the value its `read` gives \(Float, or an Option of it\) and the day \(DateTime\)/);
+        assert.throws(() => createSheetRootWith(rows, {
+            hours: Record.column.quantity(Staff, { each: "projects", read, write: East.function([Hours, StringType, OptionType(FloatType), DateTimeType], StringType, () => "") as never }),
+        }, STAFF_OPTIONS, { recordKinds: true }), /^Error: Sheet: column "hours" has a `write` returning String — it returns the field's new value, Dict/);
+        assert.throws(() => createSheetRootWith(rows, {
+            hours: Record.column.quantity(Staff, { each: "projects", read, write, mark: East.function([Hours, StringType], Mark, () => none) as never }),
+        }, STAFF_OPTIONS, { recordKinds: true }), /^Error: Sheet: column "hours" has a `mark` over \(Dict, String\) returning Option<Variant> — it marks a cell over its field "hours" \(Dict\), the member's key \(String\) and the day \(DateTime\), returning Option<Record\.Types\.Mark>/);
+        assert.throws(() => createSheetRootWith(rows, {
+            name: Record.column.title(Staff, { mark: East.function([Staff], Mark, () => none) as never }),
+        }, STAFF_OPTIONS, { recordKinds: true }), /^Error: Sheet: column "name" has a `mark` over \(\{ id: String, name: String, hours: Dict \}\) returning Option<Variant> — it marks a cell over the row and the day: an East function from \(RowType, DateTime\) to Option<Record\.Types\.Mark>/);
+        assert.throws(() => createSheetRootWith(rows, { hours: Record.column.quantity(Staff, { each: "projects", write, read: 5n as never }) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "hours" has a `read` that is an Integer — give it an East\.function/);
+        assert.throws(() => createSheetRootWith(rows, {
+            hours: Record.column.quantity(Staff, { each: "projects", write, read: East.asyncFunction([Hours, StringType, DateTimeType], OptionType(FloatType), (_$, hours, project) => hours.tryGet(project)) as never }),
+        }, STAFF_OPTIONS, { recordKinds: true }), /^Error: Sheet: column "hours" has a `read` that is an East\.asyncFunction, and a cell is read and written as it is drawn and edited — give it an East\.function/);
+    });
+
+    test("a `read` with no `write`, unless read only; a `write` with no `read`; and a `write` on a kind that is never written", () => {
+        assert.throws(() => createSheetRootWith(rows, { hours: Record.column.quantity(Staff, { each: "projects", read }) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "hours" reads its field "hours" \(Dict\) through its `read` — give it a `write` too, or `editable: false` to show it read only/);
+        assert.throws(() => createSheetRootWith(rows, { hours: Record.column.quantity(Staff, { each: "projects", write }) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "hours" has a `write` and no `read` — a write sets what its read reads, so give the column a `read` too/);
+        assert.throws(() => createSheetRootWith(rows, { hours: Record.column.audit(Staff, { each: "projects", write: write as never }) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "hours" is an audit column, which is read only — it takes no `write`/);
+    });
+
+    test("an option a column from data takes none of, and a kind that makes no columns from data", () => {
+        assert.throws(() => createSheetRootWith(rows, { hours: Record.column.quantity(Staff, { each: "projects", fill: [] } as never) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "hours" makes its columns from data, which take no `fill` — the first version takes none/);
+        assert.throws(() => createSheetRootWith(rows, { hours: Record.column.enum(Staff, "projects", { each: "projects", options: none } as never) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "hours" makes its columns from data, which take no `options`/);
+        assert.throws(() => createSheetRootWith(rows, { hours: Record.column.text(Staff, { each: "projects", value: () => "" } as never) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "hours" makes its columns from data, which take no `value` — each cell reads its member's value through `read`/);
+        assert.throws(() => createSheetRootWith(East.value(ORDERS, ArrayType(Order)), { stage: Record.column.action(Order, Stage, { each: "projects" } as never) }, { id: "id" }, { recordKinds: true }),
+            /^Error: Sheet: column "stage" is an action column, whose buttons, forms and side-panel entry follow one field — it makes no columns from data, so give it no `each`/);
+        assert.throws(() => createSheetRootWith(rows, { name: Sheet.column.lookup(Staff, { each: "projects" } as never) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "name" is a lookup column, the sheet's driver and one column of its own — it makes no columns from data, so give it no `each`/);
+    });
+
+    test("`field` on a column keyed by the field, naming a field the row lacks, or left out where the key is no field — an age's always", () => {
+        assert.throws(() => createSheetRootWith(rows, { hours: Record.column.quantity(Staff, { each: "projects", field: "hours" }) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "hours" is keyed by the row's "hours" field, and reads and writes it — key it by a name of its own to read "hours" with `field`/);
+        assert.throws(() => createSheetRootWith(rows, { logged: Record.column.quantity(Staff, { each: "projects", field: "hourz" as never }) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "logged" reads "hourz", which `field` names and the row type lacks \(id, name, hours\)/);
+        assert.throws(() => createSheetRootWith(rows, { logged: Record.column.quantity(Staff, { each: "projects" }) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "logged" is not a field of the row type — key a column from data by the field it reads, or by a name of its own with `field` naming it \(id, name, hours\)/);
+        assert.throws(() => createSheetRootWith(rows, { seen: Record.column.age(Staff, { each: "projects" } as never) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "seen" is an age column, which shows no field — keyed by a name of its own, it names the field its columns read with `field`/);
+        assert.throws(() => createSheetRootWith(rows, { seen: Record.column.age(Staff, { each: "projects", field: "hours", since: () => none } as never) }, STAFF_OPTIONS, { recordKinds: true }),
+            /^Error: Sheet: column "seen" is an age column from data, which counts from each member's value — it takes no `since`/);
+    });
+
+    test("over a struct's fields: `groups`, an `each` naming no field or one the struct lacks, a field of the wrong value, and a `read` or `write` over other values", () => {
+        assert.throws(() => createSheetRootWith(ROSTERED, { week: Record.column.integer(Rostered, { each: { mon: "Mon" }, groups: "clients" }) }, { id: "id" }, { recordKinds: true }),
+            /^Error: Sheet: column "week" makes a column for each field of a struct, and `groups` heads a register's members — group a struct's columns with `columnGroups`, by the column's key/);
+        assert.throws(() => createSheetRootWith(ROSTERED, { week: Record.column.integer(Rostered, { each: {} }) }, { id: "id" }, { recordKinds: true }),
+            /^Error: Sheet: column "week" has an `each` naming no field — name each field of the struct it makes a column for, with its header/);
+        assert.throws(() => createSheetRootWith(ROSTERED, { week: Record.column.integer(Rostered, { each: { mon: "Mon", sun: "Sun" } }) }, { id: "id" }, { recordKinds: true }),
+            /^Error: Sheet: column "week" names "sun" in `each`, which is not a field of its struct \(mon, sat, note\)/);
+        assert.throws(() => createSheetRootWith(ROSTERED, { week: Record.column.integer(Rostered, { each: { note: "Note" } }) }, { id: "id" }, { recordKinds: true }),
+            /^Error: Sheet: column "week" makes a column of its struct's "note", which holds String — an integer column's value is Integer, or an Option of it/);
+        assert.throws(() => createSheetRootWith(ROSTERED, {
+            week: Record.column.integer(Rostered, { each: { mon: "Mon" }, read: East.function([Week], Week, (_$, w) => w) as never }),
+        }, { id: "id" }, { recordKinds: true }), /^Error: Sheet: column "week" has a `read` over \(\{ mon: Integer, sat: Option<Integer>, note: String \}\) — over a struct's fields it reads its field "week"/);
+        assert.throws(() => createSheetRootWith(ROSTERED, {
+            week: Record.column.integer(Rostered, { each: { mon: "Mon" }, read: East.function([Week, DateTimeType], IntegerType, (_$, w) => w.mon) as never }),
+        }, { id: "id" }, { recordKinds: true }), /^Error: Sheet: column "week" has a `read` returning Integer — over a struct's fields it gives the struct whose fields `each` names/);
+        assert.throws(() => createSheetRootWith(ROSTERED, {
+            week: Record.column.integer(Rostered, {
+                each: { mon: "Mon" },
+                read: East.function([Week, DateTimeType], Week, (_$, w) => w),
+                write: East.function([Week, DateTimeType], Week, (_$, w) => w) as never,
+            }),
+        }, { id: "id" }, { recordKinds: true }), /^Error: Sheet: column "week" has a `write` over \(.*\) — over a struct's fields it writes its field "week"/);
+    });
+
+    test("a Sheet refuses `each` and `mark`, naming the column", () => {
+        assert.throws(() => Sheet.Root(rows, { hours: Sheet.column.quantity(Staff, { each: "projects" }) } as never, STAFF_OPTIONS),
+            /^Error: Sheet: column "hours" makes its columns from data, with `each`, which a Record draws and a Sheet does not yet — show a system of records' rows with <Record>/);
+        assert.throws(() => Sheet.Root(rows, { name: Sheet.column.text(Staff, { mark: East.function([Staff, DateTimeType], Mark, () => none) }) } as never, { id: "id" }),
+            /^Error: Sheet: column "name" has a `mark`, which a Record draws and a Sheet does not yet/);
+    });
+
+    test("<Record> refuses a column group naming a column made from a register's members, and says the Sheet's refusals in its words", () => {
+        const columns = { name: Record.column.title(ex.Person, { header: "Name" }), hours: Record.column.quantity(ex.Person, { each: "projects" }) };
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordHours), columns, registers: STAFF_OPTIONS.registers, columnGroups: [{ label: "Logged", columnKeys: ["hours"] }] }),
+            /^Error: Record: column group "Logged" names "hours", whose columns are the members of "projects", known only once the page runs — head them with its `groups`/);
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordHours), columns: { hours: Record.column.quantity(ex.Person, { each: "projets" }) }, registers: STAFF_OPTIONS.registers }),
+            /^Error: Record: column "hours" names register "projets" in `each`, which `registers` does not declare/);
     });
 });

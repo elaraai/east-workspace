@@ -844,6 +844,24 @@ export const RecordChangeType = StructType({
 export type RecordChangeType = typeof RecordChangeType;
 
 /**
+ * A cell's mark — `Record.Types.Mark`, what a column's `mark` returns: words
+ * drawn in the cell, or a lock.
+ *
+ * @remarks
+ * A locked cell takes no gesture — the grid won't step it, type into it,
+ * paste into it or clear it — and its line in the side panel is read only.
+ *
+ * @property note - Words drawn in the cell
+ * @property lock - Words drawn in a cell the grid then won't edit
+ */
+export const RecordMarkType = VariantType({
+    note: StringType,
+    lock: StringType,
+});
+/** Type alias for {@link RecordMarkType}. */
+export type RecordMarkType = typeof RecordMarkType;
+
+/**
  * How a cycle or toggle cell draws its state.
  *
  * @property chip - A chip holding the state's label

@@ -69,8 +69,14 @@ export interface SheetMembersConfig<T extends EastType> {
     tone?: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<OptionType<StatusValueType>>;
 }
 
-/** Fold duplicate keys, keeping the FIRST occurrence in declaration order. */
-const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMembersType, ($, ms) => {
+/**
+ * Fold duplicate keys, keeping the FIRST occurrence in declaration order — a
+ * register's members as `Sheet.register.members` gives them, and a column from
+ * data's columns, one per key.
+ *
+ * @internal
+ */
+export const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMembersType, ($, ms) => {
     const out = $.let([], SheetRegisterMembersType);
     const seen = $.let(new Set<string>(), SetType(StringType));
     $.for(ms, ($2, m, _i, _label) => {
@@ -79,6 +85,39 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
             $3(out.pushLast(m));
         });
     });
+    return out;
+});
+
+/**
+ * A column from data's members in their groups, by its `groups` register:
+ * each label, and the members under it, in their columns' order.
+ *
+ * @internal
+ */
+export const SheetMemberGroupsType = ArrayType(StructType({ label: StringType, members: SheetRegisterMembersType }));
+
+/**
+ * A column from data's members under the members of its `groups` register:
+ * each group in that register's order, with the members whose `parent` is its
+ * key, in their own order; then, unlabelled, the members with no parent or
+ * one the groups lack. A group with no members is left out, and a key met
+ * twice — a member's or a group's — stands for its first. The columns follow
+ * these groups, so each group is a run of adjacent columns.
+ *
+ * @internal
+ */
+export const groupMembers = East.function([SheetRegisterMembersType, SheetRegisterMembersType], SheetMemberGroupsType, ($, members, groups) => {
+    const dedupe = $.const(dedupeMembers);
+    const all = $.const(dedupe(members));
+    const heads = $.const(dedupe(groups));
+    const known = $.const(heads.toSet((_$, group) => group.key));
+    const out = $.let([], SheetMemberGroupsType);
+    $.for(heads, ($2, group) => {
+        const under = $2.const(all.filter((_$3, member) => member.parent.match({ some: (_$4, parent) => parent.equal(group.key), none: () => false })));
+        $2.if(under.size().greater(0n), ($3) => { $3(out.pushLast({ label: group.label, members: under })); });
+    });
+    const loose = $.const(all.filter((_$2, member) => member.parent.match({ some: (_$3, parent) => known.has(parent).not(), none: () => true })));
+    $.if(loose.size().greater(0n), ($2) => { $2(out.pushLast({ label: "", members: loose })); });
     return out;
 });
 

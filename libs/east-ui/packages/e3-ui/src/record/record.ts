@@ -31,6 +31,7 @@
 
 import {
     ArrayType,
+    East,
     Expr,
     OptionType,
     StringType,
@@ -49,7 +50,8 @@ import {
     type SheetCommon, type SheetRecordHandle,
 } from "../sheet/sheet.js";
 import type { SheetOptions, SheetIndexedOptions } from "../sheet/root.js";
-import type { RecordAgeColumn, SheetColumn, SheetFieldKey } from "../sheet/columns.js";
+import type { RecordAgeColumn, RecordNamedColumn, SheetColumn, SheetFieldKey } from "../sheet/columns.js";
+import { groupMembers } from "../sheet/registers.js";
 
 /** The Sheet's payload, as the Record reads the parts it keeps. */
 type SheetPayloadParts = ExprType<StructType<{
@@ -67,7 +69,7 @@ type SheetPayloadParts = ExprType<StructType<{
  * @property sheet - The Sheet's root — the grid, the rows, the narrowing's chrome and the session, its columns the Record's, its title column the one a phone pins (`narrow.pin`)
  * @property title - The toolbar's lead, before the count of the record's rows
  * @property noun - What a row is called (`person`, `people`); `none`, the renderer's own word
- * @property columnGroups - The column-group row: each group a run of adjacent columns under one label, `""` drawing none — the Table's own type
+ * @property columnGroups - The column-group row: each group a run of adjacent columns under one label, `""` drawing none — the Table's own type; a column from data's `groups`, one per member of that register with columns under it
  * @property inspector - The inspector pane: the selected row's every field, and the batch's issues; `none`, no pane
  * @property history - Over `record`, its commits; `none` over the rail's rows
  * @property missing - The entry's key while the record does not hold it — never, for a Record over the record's own entries
@@ -100,13 +102,14 @@ export const RecordComponent = EastUI.component("Record", RecordPayloadType, { o
 
 /**
  * A Record's `columns`: a row field's key holds a column over that field, as
- * the Sheet's do, and any other key an age column, which shows no field.
+ * the Sheet's do, and any other key an age column, which shows no field, or a
+ * column from data naming the field it reads with `field`.
  *
  * @typeParam R - The record's row type
  * @typeParam C - The columns given
  */
 export type RecordColumnSpec<R extends StructTypeOf, C> = {
-    [K in keyof C]: K extends SheetFieldKey<R> ? SheetColumn<R, R["fields"][K]> : RecordAgeColumn<R>;
+    [K in keyof C]: K extends SheetFieldKey<R> ? SheetColumn<R, R["fields"][K]> : RecordAgeColumn<R> | RecordNamedColumn<R>;
 };
 
 /** Where a Record's row type is read from its columns: each one's row type. */
@@ -155,7 +158,11 @@ export interface RecordCommon<R extends StructTypeOf, C> {
     title?: string;
     /** What a row is called; left out, the renderer's own word. */
     noun?: RecordNounInput;
-    /** The column-group row: each group a run of adjacent columns under one label, `""` drawing none. The inspector's sections follow them. */
+    /**
+     * The column-group row: each group a run of adjacent columns under one label, `""` drawing none. The inspector's
+     * sections follow them. A group may name a column made from a struct's fields, whose columns are known when the page
+     * is built, and never one made from a register's members: those are grouped by its `groups`.
+     */
     columnGroups?: RecordColumnGroupInput<Extract<keyof C, string>>[];
     /** The inspector pane: Details, the selected row's every field, and the batch's Issues; given the author's own Details for one row, those. */
     inspector?: SheetCommon<R>["inspector"];
@@ -208,7 +215,7 @@ const NOT_A_RECORD_PROP: Readonly<Record<string, string>> = {
  *
  * @param props - The Record's props, as `<Record>` takes them
  * @returns An East expression of {@link RecordPayloadType}
- * @throws Error naming the prop and the remedy: a Sheet's prop a Record has no use for; a column group naming a key that is not a column, holding no columns, or columns that are not adjacent, and a column in two groups; and everything the Sheet's root refuses of the rows, the columns and the registers
+ * @throws Error naming the prop and the remedy: a Sheet's prop a Record has no use for; a column group naming a key that is not a column or a column made from a register's members, holding no columns, or columns that are not adjacent, and a column in two groups; and everything the Sheet's root refuses of the rows, the columns and the registers
  * @internal
  */
 export function createRecordPayload(props: { columns: unknown } & { [prop: string]: unknown }): ExprType<RecordPayloadType> {
@@ -226,6 +233,11 @@ export function createRecordPayload(props: { columns: unknown } & { [prop: strin
         const at = group.columnKeys.map((key) => {
             const index = keys.indexOf(key);
             if (index < 0) throw new Error(`Record: column ${name} names "${key}", which is not a column (${keys.join(", ")})`);
+            // A register's members are its columns, and they are known only once the page runs.
+            const each = columns[index]![1].config.each;
+            if (typeof each === "string") {
+                throw new Error(`Record: column ${name} names "${key}", whose columns are the members of "${each}", known only once the page runs — head them with its \`groups\``);
+            }
             const other = grouped.get(key);
             if (other !== undefined) throw new Error(`Record: column "${key}" is in ${other} and ${name} — a column sits in one group at most`);
             grouped.set(key, name);
@@ -237,7 +249,7 @@ export function createRecordPayload(props: { columns: unknown } & { [prop: strin
         }
     }
     // On a phone the title column is pinned at the left, the Sheet's pager stepping through the rest: a row is picked by its title.
-    const titleKey = columns.find(([, col]) => col.kind === "title")?.[0];
+    const titleKey = columns.find(([, col]) => col.kind === "title" && col.config.each === undefined)?.[0];
     let built: SheetPayloadParts;
     try {
         // A Record draws its own rows alone: Add drafts a new one, and no blank row invites it.
@@ -249,12 +261,40 @@ export function createRecordPayload(props: { columns: unknown } & { [prop: strin
     const own = {
         title: title === undefined ? none : some(title),
         noun: noun === undefined ? none : some({ singular: noun.singular, plural: noun.plural }),
-        columnGroups: (columnGroups ?? []).map((group) => ({ label: group.label, columnKeys: [...group.columnKeys] })),
     };
+    const startsAt = new Map((columnGroups ?? []).map((group) => [group.columnKeys[0]!, group]));
+    const GroupsType = RecordPayloadType.fields.columnGroups;
     return Expr.block(($) => {
         const payload = $.const(built);
+        const registers = $.const(payload.sheet.registers);
+        // The column groups, in column order: the author's, a struct's columns named by their column's key; and each column
+        // from data's own, one for each member of its `groups` register that heads any of its columns.
+        const parts: ExprType<typeof GroupsType>[] = [];
+        let fixed: { label: string; columnKeys: string[] }[] = [];
+        for (const [key, col] of columns) {
+            const group = startsAt.get(key);
+            if (group !== undefined) {
+                fixed.push({
+                    label: group.label,
+                    columnKeys: group.columnKeys.flatMap((named) => {
+                        const each = columns.find(([k]) => k === named)![1].config.each;
+                        return each !== undefined && typeof each !== "string" ? Object.keys(each).map((field) => `${named}:${field}`) : [named];
+                    }),
+                });
+            }
+            const { each, groups } = col.config;
+            if (typeof each !== "string" || groups === undefined) continue;
+            if (fixed.length > 0) parts.push(East.value(fixed, GroupsType));
+            fixed = [];
+            parts.push(groupMembers(registers.get(each).members, registers.get(groups).members).map((_$2, heads) => East.value({
+                label: heads.label,
+                columnKeys: heads.members.map((_$3, member) => East.str`${key}:${member.key}`),
+            }, GroupsType.value)));
+        }
+        if (fixed.length > 0 || parts.length === 0) parts.push(East.value(fixed, GroupsType));
         return $.const({
             sheet: payload.sheet, ...own,
+            columnGroups: parts.slice(1).reduce((all, part) => all.concat(part), parts[0]!),
             inspector: payload.inspector, history: payload.history, missing: payload.missing, name: payload.name,
         }, RecordPayloadType);
     }) as ExprType<RecordPayloadType>;

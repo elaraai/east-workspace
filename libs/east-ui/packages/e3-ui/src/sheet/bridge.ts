@@ -96,6 +96,7 @@ import {
     SheetSubRowType,
     SheetOptionsRuleType,
     RecordChangeType,
+    RecordMarkType,
     sheetLinesOf,
     sheetRuleCell,
     type SheetColumnKindLiteral,
@@ -190,7 +191,69 @@ export interface SheetColumnMeta {
     action?: SheetActionCodec;
     /** A cycle over a variant's steps: the register they make, and how a case and its key cross. */
     steps?: SheetStepsCodec;
+    /** The column's `mark` over the row and the Record's day — words on its cells, or a lock; a column from data's is its {@link SheetFromDataMeta}'s. */
+    mark?: ExprType<FunctionType<[StructType, DateTimeType], OptionType<typeof RecordMarkType>>>;
+    /** A column from data: where its columns come from, and how each cell reads and writes the field. */
+    data?: SheetFromDataMeta;
 }
+
+/**
+ * One column of a family made from a struct's fields: the field it shows, its
+ * header, and the value it holds.
+ *
+ * @internal
+ */
+export interface SheetStructMember {
+    /** The struct's field. */
+    name: string;
+    /** The column's header, as `each` gives it. */
+    header: string;
+    /** The value the column's cells hold: the kind's, or an `Option` of it. */
+    valueType: EastType;
+    /** Whether a clear writes `none`: the struct's field is an `Option`. */
+    clears: boolean;
+}
+
+/**
+ * A column from data, described: where its columns come from — a register's
+ * members, or a struct's fields — and the functions each cell is read and
+ * written through, the author's or the defaults its field's shape makes
+ * obvious, each checked against the field, the members' key, the kind's value
+ * and the day.
+ *
+ * @internal
+ */
+export type SheetFromDataMeta = {
+    /** Its columns are a register's members. */
+    from: "register";
+    /** The register, by name. */
+    register: string;
+    /** The register whose members head the columns' groups, through each member's `parent`. */
+    groups: string | undefined;
+    /** The value a cell holds: the kind's, or an `Option` of it. */
+    valueType: EastType;
+    /** Whether a clear writes `none`: the value `write` takes is an `Option`. */
+    clears: boolean;
+    /** `(field, member, day) → value`. */
+    read: ExprType<FunctionType>;
+    /** `(field, member, value, day) → field`; none for read-only columns. */
+    write: ExprType<FunctionType> | undefined;
+    /** `(field, member, day) → Option<Record.Types.Mark>`. */
+    mark: ExprType<FunctionType> | undefined;
+} | {
+    /** Its columns are a struct's fields. */
+    from: "fields";
+    /** The struct `read` gives. */
+    structType: StructType;
+    /** The columns, in the order `each` gives them. */
+    members: readonly SheetStructMember[];
+    /** `(field, day) → struct`. */
+    read: ExprType<FunctionType>;
+    /** `(field, struct, day) → field`; none for read-only columns. */
+    write: ExprType<FunctionType> | undefined;
+    /** `(field, day) → Option<Record.Types.Mark>`. */
+    mark: ExprType<FunctionType> | undefined;
+};
 
 /**
  * A cycle over a variant (`Record.column.cycle(R, V, { steps })`): its steps
@@ -267,8 +330,8 @@ function ruleCellsOf(key: string, col: SheetColumn<StructType, EastType>, rowTyp
     if (cfg.detail !== undefined) out.push(ruleCell(key, "detail", rowType, cfg.detail, "String"));
     // An action column's summary, name and title (#1474).
     if (kind === "action") out.push(...actionRuleCells(key, col, rowType));
-    // An audit column's who and what, beside the moment its cell holds.
-    if (kind === "audit") {
+    // An audit column's who and what, beside the moment its cell holds — a column from data's are each member's.
+    if (kind === "audit" && cfg.each === undefined) {
         const optional = optionPayload((rowType.fields as Record<string, EastType>)[key]!) !== undefined;
         for (const rule of ["by", "verb"] as const) {
             const fn = East.function([rowType], OptionType(StringType), ($, r) => {
@@ -314,12 +377,302 @@ function ruleCellsOf(key: string, col: SheetColumn<StructType, EastType>, rowTyp
  * @throws Error naming the column when the kind cannot sit on the field
  */
 export function describeColumn(key: string, col: SheetColumn<StructType, EastType>, rowType: StructType): SheetColumnMeta {
-    const meta = describeKind(key, col, rowType);
+    const cfg = col.config;
+    if (cfg.each === undefined) {
+        for (const option of ["groups", "field", "read", "write"] as const) {
+            if (cfg[option] !== undefined) {
+                throw new Error(`Sheet: column "${key}" has \`${option}\`, which a column from data takes — give it \`each\`: the register whose members it makes a column for, or the struct's fields`);
+            }
+        }
+    }
+    const meta = cfg.each !== undefined ? describeFromData(key, col, rowType) : describeKind(key, col, rowType);
     const ruleCells = ruleCellsOf(key, col, rowType);
-    if (col.config.options !== undefined && col.kind !== "enum" && col.kind !== "lookup" && col.kind !== "link") {
+    if (cfg.options !== undefined && col.kind !== "enum" && col.kind !== "lookup" && col.kind !== "link") {
         throw new Error(`Sheet: column "${key}" is a ${col.kind} column — an \`options\` rule narrows an enum, lookup or link column's members`);
     }
-    return ruleCells.length > 0 ? { ...meta, ruleCells } : meta;
+    // A column from data's mark is its members' (`SheetFromDataMeta`); any other's reads the row.
+    const mark = cfg.each === undefined && cfg.mark !== undefined ? rowMark(key, cfg.mark, rowType) : undefined;
+    return { ...meta, ...(ruleCells.length > 0 ? { ruleCells } : {}), ...(mark !== undefined ? { mark } : {}) };
+}
+
+/** An author's East function value pinned, with its inputs and its output — or a refusal naming the column and the option. */
+function pinDataFunction(key: string, option: "read" | "write" | "mark", fn: unknown): { fn: ExprType<FunctionType>; inputs: EastType[]; output: EastType } {
+    let expr: ExprType<EastType>;
+    try {
+        expr = East.value(fn as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
+    } catch {
+        throw new Error(`Sheet: column "${key}" has a \`${option}\` that is no East function — give it an East.function`);
+    }
+    const t = typeOf(expr) as { type: string; inputs?: EastType[]; output?: EastType };
+    if (t.type !== "Function") {
+        throw new Error(`Sheet: column "${key}" has a \`${option}\` that is ${t.type === "AsyncFunction" ? "an East.asyncFunction, and a cell is read and written as it is drawn and edited" : `${/^[AEIOU]/.test(t.type) ? "an" : "a"} ${t.type}`} — give it an East.function`);
+    }
+    return { fn: expr as unknown as ExprType<FunctionType>, inputs: t.inputs ?? [], output: t.output as EastType };
+}
+
+/** East types as a refusal lists a function's inputs. */
+function spell(types: readonly EastType[]): string {
+    return types.map(describeType).join(", ");
+}
+
+/** A column's `mark` over the row and the day, checked: an East function from the row and a DateTime to an optional `Record.Types.Mark`. */
+function rowMark(key: string, fn: unknown, rowType: StructType): NonNullable<SheetColumnMeta["mark"]> {
+    const mark = pinDataFunction(key, "mark", fn);
+    if (mark.inputs.length !== 2 || !isTypeEqual(mark.inputs[0]!, rowType) || !isTypeEqual(mark.inputs[1]!, DateTimeType)
+        || !isTypeEqual(mark.output, OptionType(RecordMarkType))) {
+        throw new Error(`Sheet: column "${key}" has a \`mark\` over (${spell(mark.inputs)}) returning ${describeType(mark.output)} — it marks a cell over the row and the day: an East function from (RowType, DateTime) to Option<Record.Types.Mark>`);
+    }
+    return mark.fn as unknown as NonNullable<SheetColumnMeta["mark"]>;
+}
+
+/** A custom column's payload — what its `parse` gives some of — and the cell arm it lands in. */
+function customPayload(key: string, cfg: SheetAnyColumnConfig): { payload: EastType; tag: SheetColumnMeta["cellTag"] } {
+    const parseType = typeOf(East.value(cfg.parse as never) as ExprType<EastType>) as FunctionType;
+    const payload = optionPayload(parseType.output as EastType);
+    if (payload === undefined) {
+        throw new Error(`Sheet: custom column "${key}" has a \`parse\` whose output is not an Option — it must return Option<payload>, \`none\` meaning unrecognised`);
+    }
+    const tag = cellTagOf(payload);
+    if (tag === undefined) {
+        throw new Error(`Sheet: custom column "${key}" has payload ${(payload as { type: string }).type}, which no cell holds — use String, Integer, Float, DateTime, Boolean or Sheet.Types.Link`);
+    }
+    return { payload, tag };
+}
+
+/**
+ * A column from data, described against the row type: the field it reads and
+ * writes — its key, or the one `field` names — the value one cell holds,
+ * which its kind decides, and the functions its cells are read and written
+ * through, each checked against the field, the members' key, that value and
+ * the day, or the defaults the field's shape makes obvious: a `Dict` keyed by
+ * the member, and the struct `each` names. Every refusal names the column and
+ * the remedy.
+ */
+function describeFromData(key: string, col: SheetColumn<StructType, EastType>, rowType: StructType): SheetColumnMeta {
+    const cfg = col.config;
+    const kind = col.kind;
+    const where = `Sheet: column "${key}"`;
+    const aKind = `${/^[aeiou]/.test(kind) ? "an" : "a"} ${kind} column`;
+    const fields = rowType.fields as Record<string, EastType>;
+    if (kind === "action") {
+        throw new Error(`${where} is an action column, whose buttons, forms and side-panel entry follow one field — it makes no columns from data, so give it no \`each\``);
+    }
+    if (kind === "lookup") {
+        throw new Error(`${where} is a lookup column, the sheet's driver and one column of its own — it makes no columns from data, so give it no \`each\``);
+    }
+    for (const option of ["fill", "options", "value"] as const) {
+        if (cfg[option] !== undefined) {
+            throw new Error(`${where} makes its columns from data, which take no \`${option}\` — ${option === "value" ? "each cell reads its member's value through `read`" : "the first version takes none"}`);
+        }
+    }
+    if (kind === "age" && cfg.since !== undefined) {
+        throw new Error(`${where} is an age column from data, which counts from each member's value — it takes no \`since\``);
+    }
+
+    // The field: the column's key, or one `field` names under a key of its own — and an age's always so, as it shows no field.
+    const named = cfg.field;
+    if (named !== undefined && fields[key] !== undefined) {
+        throw new Error(`${where} is keyed by the row's "${key}" field, and reads and writes it — key it by a name of its own to read "${named}" with \`field\``);
+    }
+    if (kind === "age" && named === undefined) {
+        throw new Error(`${where} is an age column, which shows no field — keyed by a name of its own, it names the field its columns read with \`field\``);
+    }
+    const field = named ?? key;
+    const fieldType = fields[field];
+    if (fieldType === undefined) {
+        throw new Error(named !== undefined
+            ? `${where} reads "${named}", which \`field\` names and the row type lacks (${Object.keys(fields).join(", ")})`
+            : `${where} is not a field of the row type — key a column from data by the field it reads, or by a name of its own with \`field\` naming it (${Object.keys(fields).join(", ")})`);
+    }
+    const fieldSpelt = `its field "${field}" (${describeType(fieldType)})`;
+
+    // What one cell holds, as the kind takes it: the kind's value, or an Option of it.
+    let accepted: EastType[];
+    let payloadType: EastType;
+    let cellTag: SheetColumnMeta["cellTag"];
+    let valueName: string;
+    let steps: SheetStepsCodec | undefined;
+    if (kind === "cycle" && col.variantType !== undefined) {
+        steps = stepsOf(key, col);
+        accepted = [col.variantType];
+        payloadType = StringType;
+        cellTag = "String";
+        valueName = `its variant (${Object.keys(col.variantType.cases as Record<string, EastType>).join(", ")})`;
+    } else if (kind === "set" || kind === "link") {
+        accepted = [SheetLinkType];
+        payloadType = SheetLinkType;
+        cellTag = "Link";
+        valueName = "a Sheet.Types.Link";
+    } else if (kind === "custom") {
+        const { payload, tag } = customPayload(key, cfg);
+        accepted = [payload];
+        payloadType = payload;
+        cellTag = tag;
+        valueName = describeType(payload);
+    } else if (kind === "age" || kind === "audit") {
+        accepted = kind === "age" ? [DateTimeType, RecordChangeType] : [RecordChangeType];
+        payloadType = DateTimeType;
+        cellTag = "DateTime";
+        valueName = kind === "age" ? "a DateTime or a Record.Types.Change" : "a Record.Types.Change";
+    } else {
+        payloadType = SCALAR_PAYLOAD[kind] as EastType;
+        accepted = [payloadType];
+        cellTag = cellTagOf(payloadType)!;
+        valueName = describeType(payloadType);
+    }
+    const holds = (t: EastType): boolean => {
+        const own = optionPayload(t) ?? t;
+        return accepted.some((a) => isTypeEqual(a, own));
+    };
+    // A stamped code, an age and a change are never written; any other is, unless the author says not.
+    const readOnly = kind === "stamped" || kind === "age" || kind === "audit";
+    if (readOnly && cfg.write !== undefined) {
+        throw new Error(`${where} is ${aKind}, which is read only — it takes no \`write\``);
+    }
+    const writes = !readOnly && cfg.editable !== false;
+    if (cfg.read === undefined && cfg.write !== undefined) {
+        throw new Error(`${where} has a \`write\` and no \`read\` — a write sets what its read reads, so give the column a \`read\` too`);
+    }
+    const markOf = (inputs: EastType[], spelt: string): ExprType<FunctionType> | undefined => {
+        if (cfg.mark === undefined) return undefined;
+        const mark = pinDataFunction(key, "mark", cfg.mark);
+        if (mark.inputs.length !== inputs.length || mark.inputs.some((t, i) => !isTypeEqual(t, inputs[i]!)) || !isTypeEqual(mark.output, OptionType(RecordMarkType))) {
+            throw new Error(`${where} has a \`mark\` over (${spell(mark.inputs)}) returning ${describeType(mark.output)} — it marks a cell over ${spelt}, returning Option<Record.Types.Mark>`);
+        }
+        return mark.fn;
+    };
+
+    let data: SheetFromDataMeta;
+    let optional = false;
+    const each = cfg.each!;
+    if (typeof each === "string") {
+        // One column per member of a register: the functions take the member's key.
+        const entry = fieldType.type === "Dict" && (fieldType.key as EastType).type === "String" && holds(fieldType.value as EastType) && optionPayload(fieldType.value as EastType) === undefined
+            ? fieldType.value as EastType : undefined;
+        let valueType: EastType;
+        let read: ExprType<FunctionType>;
+        let write: ExprType<FunctionType> | undefined;
+        let clears = false;
+        if (cfg.read === undefined) {
+            if (entry === undefined) {
+                throw new Error(`${where} makes a column for each member of "${each}" from ${fieldSpelt} — a field that is no Dict keyed by the member, of ${valueName}, takes a \`read\` and a \`write\``);
+            }
+            // The member's entry, or none; an edit sets it, and a clear removes it.
+            valueType = OptionType(entry);
+            read = East.function([fieldType, StringType, DateTimeType], valueType, (_$, value, member, _day) =>
+                (value as unknown as ExprType<DictType<StringType, EastType>>).tryGet(member)) as unknown as ExprType<FunctionType>;
+            if (writes) {
+                write = East.function([fieldType, StringType, valueType, DateTimeType], fieldType, ($, value, member, given, _day) => {
+                    const next = $.let((value as unknown as ExprType<DictType<StringType, EastType>>).copy());
+                    $.match(given as unknown as ExprType<OptionType<EastType>>, {
+                        some: ($2, set) => { $2(next.insertOrUpdate(member, set)); },
+                        none: ($2) => { $2(next.tryDelete(member)); },
+                    });
+                    return next;
+                }) as unknown as ExprType<FunctionType>;
+                clears = true;
+            }
+        } else {
+            const pinned = pinDataFunction(key, "read", cfg.read);
+            if (pinned.inputs.length !== 3 || !isTypeEqual(pinned.inputs[0]!, fieldType) || !isTypeEqual(pinned.inputs[1]!, StringType) || !isTypeEqual(pinned.inputs[2]!, DateTimeType)) {
+                throw new Error(`${where} has a \`read\` over (${spell(pinned.inputs)}) — it reads ${fieldSpelt}, the member's key (String) and the day (DateTime)`);
+            }
+            if (!holds(pinned.output)) {
+                throw new Error(`${where} has a \`read\` returning ${describeType(pinned.output)} — it returns ${valueName}, or an Option of it, for each member`);
+            }
+            valueType = pinned.output;
+            read = pinned.fn;
+            if (cfg.write !== undefined) {
+                const own = optionPayload(valueType) ?? valueType;
+                const pinnedWrite = pinDataFunction(key, "write", cfg.write);
+                const [writeField, writeMember, writeValue, writeDay] = pinnedWrite.inputs;
+                if (pinnedWrite.inputs.length !== 4 || !isTypeEqual(writeField!, fieldType) || !isTypeEqual(writeMember!, StringType)
+                    || !(isTypeEqual(writeValue!, own) || isTypeEqual(writeValue!, OptionType(own))) || !isTypeEqual(writeDay!, DateTimeType)) {
+                    throw new Error(`${where} has a \`write\` over (${spell(pinnedWrite.inputs)}) — it writes ${fieldSpelt} given the member's key (String), the value its \`read\` gives (${describeType(own)}, or an Option of it) and the day (DateTime)`);
+                }
+                if (!isTypeEqual(pinnedWrite.output, fieldType)) {
+                    throw new Error(`${where} has a \`write\` returning ${describeType(pinnedWrite.output)} — it returns the field's new value, ${describeType(fieldType)}`);
+                }
+                write = pinnedWrite.fn;
+                clears = optionPayload(writeValue!) !== undefined;
+            } else if (writes) {
+                throw new Error(`${where} reads ${fieldSpelt} through its \`read\` — give it a \`write\` too, or \`editable: false\` to show it read only`);
+            }
+        }
+        optional = optionPayload(valueType) !== undefined;
+        data = {
+            from: "register", register: each, groups: cfg.groups, valueType, clears, read, write,
+            mark: markOf([fieldType, StringType, DateTimeType], `${fieldSpelt}, the member's key (String) and the day (DateTime)`),
+        };
+    } else {
+        // One column per field of a struct: the functions take the struct.
+        if (cfg.groups !== undefined) {
+            throw new Error(`${where} makes a column for each field of a struct, and \`groups\` heads a register's members — group a struct's columns with \`columnGroups\`, by the column's key`);
+        }
+        const given = Object.entries(each);
+        if (given.length === 0) {
+            throw new Error(`${where} has an \`each\` naming no field — name each field of the struct it makes a column for, with its header`);
+        }
+        let structType: StructType;
+        let read: ExprType<FunctionType>;
+        let write: ExprType<FunctionType> | undefined;
+        if (cfg.read === undefined) {
+            if (fieldType.type !== "Struct") {
+                throw new Error(`${where} makes a column for each field of a struct from ${fieldSpelt} — a field that is no struct takes a \`read\` giving one, and a \`write\``);
+            }
+            // The struct itself; an edit writes the new one.
+            structType = fieldType as StructType;
+            read = East.function([fieldType, DateTimeType], fieldType, (_$, value, _day) => value) as unknown as ExprType<FunctionType>;
+            if (writes) write = East.function([fieldType, fieldType, DateTimeType], fieldType, (_$, _value, next, _day) => next) as unknown as ExprType<FunctionType>;
+        } else {
+            const pinned = pinDataFunction(key, "read", cfg.read);
+            if (pinned.inputs.length !== 2 || !isTypeEqual(pinned.inputs[0]!, fieldType) || !isTypeEqual(pinned.inputs[1]!, DateTimeType)) {
+                throw new Error(`${where} has a \`read\` over (${spell(pinned.inputs)}) — over a struct's fields it reads ${fieldSpelt} and the day (DateTime), giving the struct`);
+            }
+            if (pinned.output.type !== "Struct") {
+                throw new Error(`${where} has a \`read\` returning ${describeType(pinned.output)} — over a struct's fields it gives the struct whose fields \`each\` names`);
+            }
+            structType = pinned.output as StructType;
+            read = pinned.fn;
+            if (cfg.write !== undefined) {
+                const pinnedWrite = pinDataFunction(key, "write", cfg.write);
+                if (pinnedWrite.inputs.length !== 3 || !isTypeEqual(pinnedWrite.inputs[0]!, fieldType) || !isTypeEqual(pinnedWrite.inputs[1]!, structType)
+                    || !isTypeEqual(pinnedWrite.inputs[2]!, DateTimeType)) {
+                    throw new Error(`${where} has a \`write\` over (${spell(pinnedWrite.inputs)}) — over a struct's fields it writes ${fieldSpelt} given the struct its \`read\` gives (${describeType(structType)}) and the day (DateTime)`);
+                }
+                if (!isTypeEqual(pinnedWrite.output, fieldType)) {
+                    throw new Error(`${where} has a \`write\` returning ${describeType(pinnedWrite.output)} — it returns the field's new value, ${describeType(fieldType)}`);
+                }
+                write = pinnedWrite.fn;
+            } else if (writes) {
+                throw new Error(`${where} reads ${fieldSpelt} through its \`read\` — give it a \`write\` too, or \`editable: false\` to show it read only`);
+            }
+        }
+        const struct = structType.fields as Record<string, EastType>;
+        const members = given.map(([name, header]): SheetStructMember => {
+            const valueType = struct[name];
+            if (valueType === undefined) {
+                throw new Error(`${where} names "${name}" in \`each\`, which is not a field of its struct (${Object.keys(struct).join(", ")})`);
+            }
+            if (!holds(valueType)) {
+                throw new Error(`${where} makes a column of its struct's "${name}", which holds ${describeType(valueType)} — ${aKind}'s value is ${valueName}, or an Option of it`);
+            }
+            return { name, header, valueType, clears: optionPayload(valueType) !== undefined };
+        });
+        data = {
+            from: "fields", structType, members, read, write,
+            mark: markOf([fieldType, DateTimeType], `${fieldSpelt} and the day (DateTime)`),
+        };
+    }
+    return {
+        key, field, kind, config: cfg, fieldType, optional, payloadType, cellTag,
+        editable: writes && data.write !== undefined,
+        ...(col.register !== undefined ? { register: col.register } : {}),
+        ...(steps !== undefined ? { register: `$steps:${key}`, steps } : {}),
+        ...(kind === "set" || kind === "link" ? { form: "link" as const } : {}),
+        ...(col.driverType !== undefined ? { driverType: col.driverType } : {}),
+        data,
+    };
 }
 
 /**
@@ -359,17 +712,32 @@ function describeAge(key: string, col: SheetColumn<StructType, EastType>, rowTyp
 
 /**
  * A cycle over a variant, described against its field: the field holds the
- * variant, no case of it holds data, and `steps` names every case once, in
- * the order a click steps through them. Its steps become a register keyed by
- * the cases' names, under a `$` name no register of the author's takes.
+ * variant, and its steps are checked ({@link stepsOf}). They become a register
+ * keyed by the cases' names, under a `$` name no register of the author's
+ * takes.
  */
 function describeSteps(key: string, col: SheetColumn<StructType, EastType>, fieldType: EastType): SheetColumnMeta {
+    if (!isTypeEqual(fieldType, col.variantType!)) {
+        throw new Error(`Sheet: cycle column "${key}" steps through a variant's cases, but sits on ${fieldType.type === "Variant" ? "a field holding another variant" : `a ${describeType(fieldType)} field`} — it sits on a field holding the variant it steps through`);
+    }
+    return {
+        key, field: key, kind: "cycle", config: col.config, fieldType, optional: false,
+        payloadType: StringType, cellTag: "String", editable: col.config.editable !== false,
+        register: `$steps:${key}`,
+        steps: stepsOf(key, col),
+    };
+}
+
+/**
+ * A cycle over a variant's steps, checked — no case of its variant holds
+ * data, and `steps` names every case once, in the order a click steps
+ * through them — as a register keyed by the cases' names, and how a case and
+ * its key cross.
+ */
+function stepsOf(key: string, col: SheetColumn<StructType, EastType>): SheetStepsCodec {
     const variantType = col.variantType!;
     const cases = variantType.cases as Record<string, EastType>;
     const names = Object.keys(cases);
-    if (!isTypeEqual(fieldType, variantType)) {
-        throw new Error(`Sheet: cycle column "${key}" steps through a variant's cases, but sits on ${fieldType.type === "Variant" ? "a field holding another variant" : `a ${describeType(fieldType)} field`} — it sits on a field holding the variant it steps through`);
-    }
     for (const [name, type] of Object.entries(cases)) {
         if (type.type !== "Null") {
             throw new Error(`Sheet: cycle column "${key}" steps through a variant whose "${name}" case holds ${describeType(type)} — a step has no value to give a case, so no case of a cycle's variant holds data`);
@@ -402,12 +770,7 @@ function describeSteps(key: string, col: SheetColumn<StructType, EastType>, fiel
         const byKey = $.const(new Map(names.map((name) => [name, variant(name, null)])), DictType(StringType, variantType));
         return byKey.tryGet(text);
     }) as unknown as SheetStepsCodec["decode"];
-    return {
-        key, field: key, kind: "cycle", config: col.config, fieldType, optional: false,
-        payloadType: StringType, cellTag: "String", editable: col.config.editable !== false,
-        register: `$steps:${key}`,
-        steps: { members, encode, decode },
-    };
+    return { members, encode, decode };
 }
 
 /** {@link describeColumn}'s kind-by-kind half. */
@@ -512,18 +875,9 @@ function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowTy
     }
 
     if (kind === "custom") {
-        const parseFn = East.value(cfg.parse as never) as ExprType<EastType>;
-        const parseType = typeOf(parseFn) as FunctionType;
-        const parsed = optionPayload(parseType.output as EastType);
-        if (parsed === undefined) {
-            throw new Error(`Sheet: custom column "${key}" has a \`parse\` whose output is not an Option — it must return Option<payload>, \`none\` meaning unrecognised`);
-        }
+        const { payload: parsed, tag } = customPayload(key, cfg);
         if (!isTypeEqual(parsed, unwrapped)) {
             throw new Error(`Sheet: custom column "${key}" parses to ${(parsed as { type: string }).type} but sits on a ${(unwrapped as { type: string }).type} field — the payload must be the field's type (or its Option's)`);
-        }
-        const tag = cellTagOf(parsed);
-        if (tag === undefined) {
-            throw new Error(`Sheet: custom column "${key}" has payload ${(parsed as { type: string }).type}, which no cell holds — use String, Integer, Float, DateTime, Boolean or Sheet.Types.Link`);
         }
         return { key, field: key, kind, config: cfg, fieldType, optional, payloadType: parsed, cellTag: tag, editable: cfg.editable !== false };
     }
@@ -772,6 +1126,9 @@ export interface SheetBridgeInput {
     rowType: EastType;
     idField: string | undefined;
     metas: SheetColumnMeta[];
+    /** The columns from data: a row carries their rule cells over the row alone — a detail, a date's level and actual —
+     *  never a member's cell, which is read at the Record's day. */
+    dataMetas?: readonly SheetColumnMeta[];
     registers: Record<string, SheetRegisterValue>;
     driver: SheetDriverValue | undefined;
     source: SheetBridgeSource;
@@ -839,6 +1196,12 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
         }
         for (const m of metas) {
             $(cells.insert(m.key, projectCell(m, r, m.register !== undefined ? bound.get(m.register) : undefined)));
+            for (const rc of m.ruleCells ?? []) {
+                const rule = $.const(rc.fn);
+                $(cells.insert(rc.key, cellOfFieldValue(rc.tag, rule(r), rc.optional)));
+            }
+        }
+        for (const m of input.dataMetas ?? []) {
             for (const rc of m.ruleCells ?? []) {
                 const rule = $.const(rc.fn);
                 $(cells.insert(rc.key, cellOfFieldValue(rc.tag, rule(r), rc.optional)));

@@ -77,7 +77,7 @@ import {
 } from "./types.js";
 import { SheetDraftTypeFor } from "./transactions.js";
 import { SheetDraftGroupTypeFor } from "./drafts.js";
-import type { SheetColumn } from "./columns.js";
+import type { SheetColumn, SheetMarkInput } from "./columns.js";
 import type { SheetBridge, SheetColumnMeta, SheetRuleCellMeta } from "./bridge.js";
 import type { SheetRegisterValue } from "./registers.js";
 
@@ -289,6 +289,8 @@ export interface SheetActionConfig<R extends StructType, V extends VariantType> 
     name?: (row: ExprType<R>) => SubtypeExprOrValue<StringType>;
     /** The row's words beside its name — `"Weld frame"`. */
     title?: (row: ExprType<R>) => SubtypeExprOrValue<StringType>;
+    /** Words on the cell, or a lock, over the row and the Record's day — a Record's ({@link SheetMarkInput}). */
+    mark?: SheetMarkInput<R>;
 }
 
 /** An action column's config, erased — what the built column carries. @internal */

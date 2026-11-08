@@ -24,7 +24,7 @@ import { createMembers, concatMembers } from "../sheet/registers.js";
 import { SheetField } from "../sheet/fields.js";
 import { createPatch } from "../sheet/index.js";
 import {
-    RecordChangeType, SheetLinkType, SheetMemberType, SheetPatchTypeFor, sheetContextType,
+    RecordChangeType, RecordMarkType, SheetLinkType, SheetMemberType, SheetPatchTypeFor, sheetContextType,
 } from "../sheet/types.js";
 import { SheetNewRowType, SheetReadinessType, SheetFieldIssueType, SheetDraftTypeFor } from "../sheet/transactions.js";
 import { RecordTag, RecordComponent, createRecordPayload, type RecordTagType } from "./record.js";
@@ -102,6 +102,8 @@ export interface RecordNamespace extends RecordTagType {
     Types: {
         /** The last change to a row, as the app keeps it — what an audit column shows and an age column counts from ({@link RecordChangeType}). */
         Change: typeof RecordChangeType;
+        /** A cell's mark, what a column's `mark` returns: words drawn in the cell, or a lock the grid then won't edit through ({@link RecordMarkType}). */
+        Mark: typeof RecordMarkType;
         /** What `newRow` is asked: where the new row lands. */
         NewRow: typeof SheetNewRowType;
         /** `Patch(R)` — a row patch, every field an `Option`. */
@@ -134,6 +136,7 @@ const RECORD_MEMBERS = {
     patch: createPatch,
     Types: {
         Change: RecordChangeType,
+        Mark: RecordMarkType,
         NewRow: SheetNewRowType,
         Patch: SheetPatchTypeFor,
         Draft: SheetDraftTypeFor,

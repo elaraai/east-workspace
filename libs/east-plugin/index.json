@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1324,
+    "totalEntries": 1326,
     "totalFiles": 222,
     "packages": {
       "east": 584,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 308,
-      "e3-ui": 182,
+      "e3-ui": 184,
       "e3": 24,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -44375,6 +44375,63 @@
         "tsx"
       ],
       "source": "// A cycle over a variant: an order's status, stepped by a click in the order its `steps` give — received, picked, packed, shipped — rather than the alphabetical order East keeps a variant's cases in, each step a chip with its tone, Details offering the steps in that order as one line, and Apply writing the case\n// inputs: []\n/** Where an order is. East keeps a variant's cases in alphabetical order — packed, picked, received, shipped — so the cycle gives its own. */\nexport const Status = VariantType({ received: NullType, picked: NullType, packed: NullType, shipped: NullType });\n\nexport const Order = StructType({ customer: StringType, status: Status });\n\nexport const recordOrders = e3.record(\"record_orders\", DictType(StringType, Order), {\n    initial: new Map([\n        [\"SO-1041\", { customer: \"Ashgrove Joinery\", status: variant(\"received\", null) }],\n        [\"SO-1042\", { customer: \"Bellmoor Interiors\", status: variant(\"packed\", null) }],\n        [\"SO-1043\", { customer: \"Corran Builders\", status: variant(\"shipped\", null) }],\n    ]),\n    mutations: (mutation) => ({\n        // The orders' patch door — every Apply commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const orders = $.let(Record.bind(recordOrders));\n            return (\n                <Box height=\"320px\">\n                    <Record\n                        record={orders}\n                        title=\"Orders\"\n                        noun={{ singular: \"order\", plural: \"orders\" }}\n                        columns={{\n                            customer: Record.column.title(Order, { header: \"Customer\", width: \"200px\" }),\n                            status:   Record.column.cycle(Order, Status, {\n                                header: \"Status\", width: \"96px\",\n                                steps: [\n                                    { case: \"received\", label: \"Received\", tone: \"neutral\" },\n                                    { case: \"picked\",   label: \"Picked\",   tone: \"info\" },\n                                    { case: \"packed\",   label: \"Packed\",   tone: \"info\" },\n                                    { case: \"shipped\",  label: \"Shipped\",  tone: \"success\" },\n                                ],\n                            }),\n                        }}\n                        inspector\n                        name=\"orders\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:record.examples.tsx:recordHoursByProject",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/record/record.examples.tsx",
+      "suite": "",
+      "test": "Columns from data: a person's hours by project, the field a Dict keyed by the project's code — a column for each project in the projects record, in its order and headed by its name, each under its client in the clients record's order, a project whose client that record lacks after them unlabelled, and a client with no projects drawing nothing; with no functions, a cell shows the person's entry, an edit sets it and a clear removes it",
+      "keywords": [
+        "Record",
+        "columns from data",
+        "each",
+        "groups",
+        "register",
+        "parent",
+        "Dict",
+        "Record.column.quantity",
+        "a column per member"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Columns from data: a person's hours by project, the field a Dict keyed by the project's code — a column for each project in the projects record, in its order and headed by its name, each under its client in the clients record's order, a project whose client that record lacks after them unlabelled, and a client with no projects drawing nothing; with no functions, a cell shows the person's entry, an edit sets it and a clear removes it\n// inputs: []\n/** A client of the joinery. */\nexport const Client = StructType({ name: StringType });\n\n/** A project, for one client by the client's code. */\nexport const Project = StructType({ name: StringType, client: StringType });\n\n/** A person's hours on each project, by the project's code. */\nexport const Person = StructType({ name: StringType, hours: DictType(StringType, FloatType) });\n\nexport const recordClients = e3.record(\"record_clients\", DictType(StringType, Client), {\n    initial: new Map([\n        [\"C-01\", { name: \"Ashgrove Joinery\" }],\n        [\"C-02\", { name: \"Bellmoor Interiors\" }],\n        [\"C-03\", { name: \"Corran Builders\" }],\n    ]),\n});\n\nexport const recordProjects = e3.record(\"record_projects\", DictType(StringType, Project), {\n    initial: new Map([\n        [\"P-100\", { name: \"Kitchen fit-out\", client: \"C-01\" }],\n        [\"P-101\", { name: \"Stair rebuild\", client: \"C-01\" }],\n        [\"P-200\", { name: \"Shop front\", client: \"C-02\" }],\n        [\"P-900\", { name: \"Training\", client: \"\" }],\n    ]),\n});\n\nexport const recordHours = e3.record(\"record_hours\", DictType(StringType, Person), {\n    initial: new Map([\n        [\"H-01\", { name: \"A. Morgan\", hours: new Map([[\"P-100\", 12.5], [\"P-200\", 4.0]]) }],\n        [\"H-02\", { name: \"B. Ellis\", hours: new Map([[\"P-101\", 30.0], [\"P-900\", 6.0]]) }],\n        [\"H-03\", { name: \"C. Patel\", hours: new Map() }],\n    ]),\n    mutations: (mutation) => ({\n        // Every Save commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const staff = $.let(Record.bind(recordHours));\n            const clientRows = $.let(Data.bind(recordClients));\n            const projectRows = $.let(Data.bind(recordProjects));\n            return (\n                <Box height=\"320px\">\n                    <Record\n                        record={staff}\n                        title=\"Hours\"\n                        noun={{ singular: \"person\", plural: \"people\" }}\n                        registers={{\n                            clients: Record.register.members(clientRows.read(), { kind: \"client\", key: (_c, code) => code, label: (c) => c.name }),\n                            projects: Record.register.members(projectRows.read(), {\n                                kind: \"project\", key: (_p, code) => code, label: (p) => p.name, parent: (p) => some(p.client),\n                            }),\n                        }}\n                        columns={{\n                            name: Record.column.title(Person, { header: \"Name\", width: \"176px\" }),\n                            // The hours field: a column for each project, under its client.\n                            hours: Record.column.quantity(Person, { each: \"projects\", groups: \"clients\", unit: \"hrs\", width: \"88px\" }),\n                        }}\n                        inspector\n                        name=\"hours\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:record.examples.tsx:recordRosterByDay",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/record/record.examples.tsx",
+      "suite": "",
+      "test": "Columns from data over a struct's fields: a shift's heads for each day as one struct field, a column for each day in the order `each` gives and headed as it says, fixed when the page is built, under a column group that names them all by the column's key",
+      "keywords": [
+        "Record",
+        "columns from data",
+        "each",
+        "struct",
+        "fields",
+        "Record.column.integer",
+        "columnGroups",
+        "a column per field"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Columns from data over a struct's fields: a shift's heads for each day as one struct field, a column for each day in the order `each` gives and headed as it says, fixed when the page is built, under a column group that names them all by the column's key\n// inputs: []\n/** A week's heads, a day each. */\nexport const Week = StructType({\n    mon: IntegerType, tue: IntegerType, wed: IntegerType, thu: IntegerType, fri: IntegerType, sat: IntegerType, sun: IntegerType,\n});\n\n/** A shift and the heads it needs each day of the week. */\nexport const Shift = StructType({ name: StringType, week: Week });\n\nexport const recordRoster = e3.record(\"record_roster\", DictType(StringType, Shift), {\n    initial: new Map([\n        [\"S-1\", { name: \"Early\", week: { mon: 4n, tue: 4n, wed: 4n, thu: 4n, fri: 4n, sat: 2n, sun: 0n } }],\n        [\"S-2\", { name: \"Late\", week: { mon: 3n, tue: 3n, wed: 3n, thu: 3n, fri: 3n, sat: 1n, sun: 0n } }],\n        [\"S-3\", { name: \"Night\", week: { mon: 2n, tue: 2n, wed: 2n, thu: 2n, fri: 2n, sat: 2n, sun: 2n } }],\n    ]),\n    mutations: (mutation) => ({\n        // Every Save commits through it.\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const shifts = $.let(Record.bind(recordRoster));\n            return (\n                <Box height=\"320px\">\n                    <Record\n                        record={shifts}\n                        title=\"Roster\"\n                        noun={{ singular: \"shift\", plural: \"shifts\" }}\n                        columns={{\n                            name: Record.column.title(Shift, { header: \"Shift\", width: \"176px\" }),\n                            // The week field: a column for each day.\n                            week: Record.column.integer(Shift, {\n                                each: { mon: \"Mon\", tue: \"Tue\", wed: \"Wed\", thu: \"Thu\", fri: \"Fri\", sat: \"Sat\", sun: \"Sun\" },\n                                width: \"56px\",\n                            }),\n                        }}\n                        columnGroups={[{ label: \"Heads per day\", columnKeys: [\"week\"] }]}\n                        inspector\n                        name=\"roster\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:domain.examples.ts:rosterCoverage",

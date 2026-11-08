@@ -11,7 +11,7 @@ A Record's columns are its row's own fields, fixed when the page is built: the `
 
 This proposal lets a column come from data: one column per member of a record the business edits, or one per field of a struct. Each cell reads one field of the row, and each edit writes that field. How the field is stored stays the solution's.
 
-The API names no domain. The common shapes need no functions, every column kind can come from data, and the Sheet and the Record share the machinery.
+The API names no domain. The common shapes need no functions, every column kind but the action column can come from data, and the Sheet and the Record share the machinery.
 
 ## 2. What a solution writes
 
@@ -479,7 +479,7 @@ export const preferencesPage = East.function([], UIComponentType, (_$) => (
 
 ## 3. The API
 
-Every option below works on every column kind a Record draws, the Sheet's kinds and the Record's own, unless its row says otherwise. The Sheet's own build refuses them in the first version (§7, item 9).
+Every option below works on every column kind a Record draws, the Sheet's kinds and the Record's own, unless its row says otherwise, and an action column takes `mark` alone (§7, item 10). The Sheet's own build refuses them in the first version (§7, item 9).
 
 | Option | Takes | What it does |
 |---|---|---|
@@ -513,7 +513,8 @@ The **day** the functions get is the Record's clock: the browser's local calenda
 - an `each` over fields naming a field the struct lacks;
 - `steps` that leave out a case, name one twice, or name one the variant lacks, and a cycle over a variant with a case that carries data, which a step has no value for;
 - a literal column group naming a column made from a register, whose columns aren't known until the page runs;
-- `fill` or `options` on a column from data, which the first version doesn't take.
+- `fill` or `options` on a column from data, which the first version doesn't take;
+- `each` on an action column, whose buttons, forms and side-panel entry follow one field.
 
 ## 4. How it behaves
 
@@ -571,10 +572,12 @@ All ruled, and the proposal approved, on 8 November 2026.
 7. **Locked cells are locked in both places** (D1), the grid and the side panel.
 8. **It's built on the Record's branch and PR, #1537** (D3), as part of the Record's epic (#1536).
 9. **The Sheet refuses the options in the first version** (D2), naming the Record, as it refuses the Record's own kinds today, with a spec of that refusal. On the Sheet, a column from data also meets its fill providers, its driver, its grouped lines and its proposals, each of which needs to learn about members. Every public method a change touches gets a spec and an example, so the Sheet takes the options later, with its own (§8).
+10. **An action column doesn't come from data** in the first version. Its buttons, its forms and its entry in the side panel follow one field, so a set of them per member is a piece of work of its own (§8).
 
 ## 8. Later
 
 - **The Sheet taking the options**, its fill providers, driver, grouped lines and proposals taught about members, with its own examples and specs (§7, item 9).
+- **An action column from data**: each member with its own buttons, forms and entry in the side panel (§7, item 10).
 - **The Record's day as a prop**, so a page shows and edits its records as at a date. A planner plans as at a week's first day: a page set to that day shows what the plan will read, and its writes are dated that day.
 - **Filtering the rail by one member's value**: an index over (member, value) pairs.
 - **The history list in the side panel**: the field's rows, read only, then editing a licence there, and renewing a level with an expiry.

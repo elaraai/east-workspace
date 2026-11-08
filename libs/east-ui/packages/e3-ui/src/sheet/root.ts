@@ -109,7 +109,7 @@ import {
 } from "./bridge.js";
 import { buildActionKind } from "./actions.js";
 import { RECORD_COLUMN_KINDS, type SheetColumn, type SheetColumnSpec, type SheetFieldKey, type SheetMemberKindInput, type SheetMultipleInput } from "./columns.js";
-import type { SheetDriverValue, SheetRegisterValue } from "./registers.js";
+import { dedupeMembers, groupMembers, type SheetDriverValue, type SheetRegisterValue } from "./registers.js";
 import type { SheetGroupValue } from "./group.js";
 import type { SheetSubRowsValue } from "./sub-rows.js";
 import type { SheetEditsInput } from "./edits.js";
@@ -462,8 +462,12 @@ interface SheetActionKindContext {
     groupCells?: SheetColumnMeta[] | undefined;
 }
 
-/** Build one column's wire kind value. */
-function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriverValue | undefined, actions?: SheetActionKindContext): ExprType<SheetColumnKindType> {
+/**
+ * Build one column's wire kind value — a column from data's for one of its
+ * columns, `cellKey` that column's key, which the cells an audit's change
+ * projects beside its own are keyed by.
+ */
+function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriverValue | undefined, actions?: SheetActionKindContext, cellKey?: ExprType<StringType>): ExprType<SheetColumnKindType> {
     const cfg = meta.config;
     const options = cfg.options !== undefined
         ? East.value(some(wrapOptions(bridge, meta, cfg.options)), OptionType(SheetOptionsRuleType))
@@ -574,8 +578,8 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
         case "audit":   return kindOf("audit", {
             mode:   resolveTag(cfg.mode ?? "date", SheetAuditModeType),
             absent: optionOf(cfg.absent, StringType),
-            by:     sheetRuleCell("by", meta.key),
-            verb:   sheetRuleCell("verb", meta.key),
+            by:     cellKey !== undefined ? East.str`$by:${cellKey}` : sheetRuleCell("by", meta.key),
+            verb:   cellKey !== undefined ? East.str`$verb:${cellKey}` : sheetRuleCell("verb", meta.key),
         });
     }
 }
@@ -708,8 +712,10 @@ export interface SheetBuild {
     root: ExprType<SheetRootType>;
     /** The typed bridge the root was compiled with. */
     bridge: SheetBridge;
-    /** The declared columns, each described against the type they are declared over — the row, or a grouped sheet's line: what the inspector reads its fields through (#1188). */
+    /** The declared columns, each described against the type they are declared over — the row, or a grouped sheet's line: what the inspector reads its fields through (#1188). A column from data is among `data` instead. */
     metas: readonly SheetColumnMeta[];
+    /** The columns from data, described: each a family of wire columns, one per member of a register or field of a struct. */
+    data: readonly SheetColumnMeta[];
     /** The registers' names — the declared ones, and the driver's under its column: what a `reference` hint in the inspector may name (#1188). */
     registers: readonly string[];
     /** A keyed source's key type — a record's own, a keyed paged source's String — whose rows' ids are its keys' text; `undefined` for an Array source, whose rows are keyed by their id field (#1409). */
@@ -880,19 +886,27 @@ function buildSheet(
         if (internal.recordKinds !== true && RECORD_COLUMN_KINDS.has(col.kind)) {
             throw new Error(`Sheet: column "${key}" is a ${col.kind} column, which a Record draws and a Sheet does not — show a system of records' rows with <Record>`);
         }
+        // Columns from data and marks meet the Sheet's fill providers, driver, grouped lines and proposals, which know no members yet.
+        if (internal.recordKinds !== true && (col.config.each !== undefined || col.config.mark !== undefined)) {
+            throw new Error(`Sheet: column "${key}" ${col.config.each !== undefined ? "makes its columns from data, with `each`," : "has a `mark`,"} which a Record draws and a Sheet does not yet — show a system of records' rows with <Record>`);
+        }
         if (col.rowType === undefined || col.rowType === lineType) continue;
         throw new Error(groupDecl !== undefined && col.rowType === groupType
             ? `Sheet: column "${key}" was built over the group's row type — columns are declared over the line type \`${groupDecl.lines}\` holds (Sheet.column.${col.kind}(LineType, …))`
             : `Sheet: column "${key}" was built over a different row type than the sheet's — pass the same StructType to Sheet.column.${col.kind}(RowType, …) and \`data\``);
     }
-    const metas = columnEntries.map(([key, col]) => describeColumn(key, col, lineType));
+    // Every column, described in the columns map's order; a column from data's cells are read at the Record's day, so
+    // its row carries none of them, and the session reaches its field through its own functions.
+    const described = columnEntries.map(([key, col]) => describeColumn(key, col, lineType));
+    const metas = described.filter((m) => m.data === undefined);
+    const dataMetas = described.filter((m) => m.data !== undefined);
     const metaByKey = new Map(metas.map((m) => [m.key, m]));
-    for (const m of metas) {
+    for (const m of described) {
         if (m.otherField !== undefined && metaByKey.has(m.otherField)) {
             throw new Error(`Sheet: link column "${m.key}" names "${m.otherField}" as its other half, which is also a column — a half's field is written through the link column, never on its own`);
         }
         // A flat row's id is its identity — and so is a loose row's (#846).
-        if ((groupDecl === undefined || loose) && m.key === idField) throw new Error(`Sheet: the id field "${idField}" cannot also be a column`);
+        if ((groupDecl === undefined || loose) && m.field === idField) throw new Error(`Sheet: the id field "${idField}" cannot also be a column`);
     }
 
     // The driver — a lookup column on a String field.
@@ -904,7 +918,7 @@ function buildSheet(
         }
         dm.register = driver.column;
     }
-    for (const m of metas) {
+    for (const m of described) {
         if (m.kind === "lookup" && (driver === undefined || m.key !== driver.column)) {
             throw new Error(`Sheet: column "${m.key}" is a lookup column, which is the driver column — declare \`driver={Sheet.driver("${m.key}", …)}\`, or use \`Sheet.column.reference\` for a plain register lookup`);
         }
@@ -916,14 +930,21 @@ function buildSheet(
     // Registers — by name, plus the driver's under its column name, and each cycle over a variant's steps under its own.
     const registers: Record<string, SheetRegisterValue> = { ...(opts.registers ?? {}) };
     if (driver !== undefined) registers[driver.column] = driver.members;
-    for (const m of metas) {
+    for (const m of described) {
         if (m.steps === undefined) continue;
         if (registers[m.register!] !== undefined) throw new Error(`Sheet: \`registers\` declares "${m.register}", the name column "${m.key}"'s steps take — name the register another way`);
         registers[m.register!] = m.steps.members;
     }
-    for (const m of metas) {
+    for (const m of described) {
         if (m.register !== undefined && registers[m.register] === undefined) {
             throw new Error(`Sheet: column "${m.key}" names register "${m.register}", which \`registers\` does not declare (${Object.keys(registers).join(", ") || "none declared"})`);
+        }
+        // A column from data's members and its groups' heads are registers too.
+        if (m.data?.from !== "register") continue;
+        for (const [option, name] of [["each", m.data.register], ["groups", m.data.groups]] as const) {
+            if (name !== undefined && registers[name] === undefined) {
+                throw new Error(`Sheet: column "${m.key}" names register "${name}" in \`${option}\`, which \`registers\` does not declare (${Object.keys(registers).join(", ") || "none declared"})`);
+            }
         }
     }
 
@@ -964,7 +985,7 @@ function buildSheet(
     const hinted = internal.inspector;
     const lineLeave = new Set(idField !== undefined && (groupDecl === undefined || loose) && idField in lineType.fields ? [idField] : []);
     const unsettable = {
-        row: adds("insertRows") ? unsettableFields(lineType, metas, hinted === undefined ? undefined : hinted.fields ?? {}, lineLeave) : [],
+        row: adds("insertRows") ? unsettableFields(lineType, described, hinted === undefined ? undefined : hinted.fields ?? {}, lineLeave) : [],
         group: groupDecl !== undefined && cellMetas !== undefined && adds("insertGroups")
             ? unsettableFields(groupType, cellMetas, hinted === undefined ? undefined : hinted.groupFields ?? {}, new Set([groupDecl.lines, ...(idField !== undefined ? [idField] : [])]))
             : [],
@@ -985,7 +1006,7 @@ function buildSheet(
 
     // The bridge.
     const bridge = buildBridge({
-        rowType, idField, metas, registers, driver,
+        rowType, idField, metas, dataMetas, registers, driver,
         source: resolved.kind === "inline"
             ? keyType !== undefined
                 ? { kind: "keyed", rows: resolved.rows as ExprType<DictType<EastType, EastType>>, keyType }
@@ -996,19 +1017,71 @@ function buildSheet(
         ...(internal.hold !== undefined ? { hold: internal.hold } : {}),
     });
 
-    // Pass 2 — the wire columns.
-    const columnValues = metas.map((m) => East.value({
-        key:         m.key,
-        header:      m.config.header ?? m.key,
-        sub:         optionOf(m.config.sub, StringType),
-        width:       optionOf(m.config.width, StringType),
-        kind:        buildKind(m, bridge, driver, { metas, registers, groupCells: cellMetas }),
-        dataType:    toEastTypeValue(m.fieldType),
-        payloadType: toEastTypeValue(m.payloadType),
-        editable:    m.editable,
-        fill:        (m.config.fill ?? []).map((f, i) => wrapProvider(bridge, m, f, i)),
-        detailCell:  ruleCellKey(m, "detail"),
-    }, SheetColumnType));
+    // Pass 2 — the wire columns, in the columns map's order: one for each column, and for a column from data one for each
+    // of its members, keyed `column:member` — a struct's fields fixed here, a register's members mapped as the page runs,
+    // their groups' order theirs where `groups` heads them, so each group is a run of adjacent columns.
+    const parts: ExprType<ArrayType<SheetColumnType>>[] = [];
+    let fixed: ExprType<SheetColumnType>[] = [];
+    for (const m of described) {
+        const data = m.data;
+        if (data === undefined) {
+            fixed.push(East.value({
+                key:         m.key,
+                header:      m.config.header ?? m.key,
+                sub:         optionOf(m.config.sub, StringType),
+                width:       optionOf(m.config.width, StringType),
+                kind:        buildKind(m, bridge, driver, { metas, registers, groupCells: cellMetas }),
+                dataType:    toEastTypeValue(m.fieldType),
+                payloadType: toEastTypeValue(m.payloadType),
+                editable:    m.editable,
+                fill:        (m.config.fill ?? []).map((f, i) => wrapProvider(bridge, m, f, i)),
+                detailCell:  ruleCellKey(m, "detail"),
+            }, SheetColumnType));
+            continue;
+        }
+        if (data.from === "fields") {
+            for (const member of data.members) {
+                const key = `${m.key}:${member.name}`;
+                fixed.push(East.value({
+                    key,
+                    header:      member.header,
+                    sub:         optionOf(m.config.sub, StringType),
+                    width:       optionOf(m.config.width, StringType),
+                    kind:        buildKind(m, bridge, driver, undefined, East.value(key, StringType)),
+                    dataType:    toEastTypeValue(member.valueType),
+                    payloadType: toEastTypeValue(m.payloadType),
+                    editable:    m.editable,
+                    fill:        [],
+                    detailCell:  ruleCellKey(m, "detail"),
+                }, SheetColumnType));
+            }
+            continue;
+        }
+        if (fixed.length > 0) parts.push(East.value(fixed, ArrayType(SheetColumnType)));
+        fixed = [];
+        const members = registers[data.register]!;
+        const ordered = data.groups === undefined
+            ? dedupeMembers(members)
+            : groupMembers(members, registers[data.groups]!).flatMap((_$, group) => group.members);
+        // The column's element type as TypeScript infers it expands the recursive type of a type, which the wire's names once.
+        parts.push(ordered.map(($, member) => {
+            const key = $.const(East.str`${m.key}:${member.key}`);
+            return East.value({
+                key,
+                header:      member.label,
+                sub:         optionOf(m.config.sub, StringType),
+                width:       optionOf(m.config.width, StringType),
+                kind:        buildKind(m, bridge, driver, undefined, key),
+                dataType:    toEastTypeValue(data.valueType),
+                payloadType: toEastTypeValue(m.payloadType),
+                editable:    m.editable,
+                fill:        [],
+                detailCell:  ruleCellKey(m, "detail"),
+            }, SheetColumnType);
+        }) as unknown as ExprType<ArrayType<SheetColumnType>>);
+    }
+    if (fixed.length > 0 || parts.length === 0) parts.push(East.value(fixed, ArrayType(SheetColumnType)));
+    const columnValues = parts.slice(1).reduce((all, part) => all.concat(part), parts[0]!);
 
     // The rows — the same projection on both arms. A grouped sheet's row is
     // the group: the band's cells, its lines and the band; a loose row between
@@ -1138,7 +1211,7 @@ function buildSheet(
     const root = East.value({
         rows:          rowsValue,
         editing,
-        columns:       East.value(columnValues, ArrayType(SheetColumnType)),
+        columns:       columnValues,
         registers:     East.value(new Map(Object.entries(registers).map(([name, members]) => [name, East.value({ members }, SheetRegisterType)])), DictType(StringType, SheetRegisterType)),
         driver:        driver !== undefined
             ? East.value(some({ column: driver.column, members: driver.members }), OptionType(SheetDriverType))
@@ -1164,5 +1237,5 @@ function buildSheet(
         narrow,
         ordered: ordered !== undefined,
     }, SheetRootType);
-    return { root, bridge, metas, registers: Object.keys(registers), keyType };
+    return { root, bridge, metas, data: dataMetas, registers: Object.keys(registers), keyType };
 }

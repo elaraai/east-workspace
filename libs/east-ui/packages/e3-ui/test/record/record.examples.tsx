@@ -7,8 +7,9 @@
 
 /**
  * The Record (`Record - DX Proposal.md` §3): the table for a system of
- * records. Each example is the proposal's, whole: the record, its binding,
- * the Record.
+ * records, and its columns from data (`Record Columns From Data - DX
+ * Proposal.md` §2). Each example is the proposal's, whole: the record, its
+ * binding, the Record.
  */
 
 import {
@@ -613,6 +614,131 @@ export const recordOrderStatus = example({
                         }}
                         inspector
                         name="orders"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// Example 9 — columns from data: a value for each member of a register
+// ============================================================================
+
+/** A client of the joinery. */
+export const Client = StructType({ name: StringType });
+/** A project, for one client by the client's code. */
+export const Project = StructType({ name: StringType, client: StringType });
+/** A person's hours on each project, by the project's code. */
+export const Person = StructType({ name: StringType, hours: DictType(StringType, FloatType) });
+export const recordClients = e3.record("record_clients", DictType(StringType, Client), {
+    initial: new Map([
+        ["C-01", { name: "Ashgrove Joinery" }],
+        ["C-02", { name: "Bellmoor Interiors" }],
+        ["C-03", { name: "Corran Builders" }],
+    ]),
+});
+export const recordProjects = e3.record("record_projects", DictType(StringType, Project), {
+    initial: new Map([
+        ["P-100", { name: "Kitchen fit-out", client: "C-01" }],
+        ["P-101", { name: "Stair rebuild", client: "C-01" }],
+        ["P-200", { name: "Shop front", client: "C-02" }],
+        ["P-900", { name: "Training", client: "" }],
+    ]),
+});
+export const recordHours = e3.record("record_hours", DictType(StringType, Person), {
+    initial: new Map([
+        ["H-01", { name: "A. Morgan", hours: new Map([["P-100", 12.5], ["P-200", 4.0]]) }],
+        ["H-02", { name: "B. Ellis", hours: new Map([["P-101", 30.0], ["P-900", 6.0]]) }],
+        ["H-03", { name: "C. Patel", hours: new Map() }],
+    ]),
+    mutations: (mutation) => ({
+        // Every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
+
+export const recordHoursByProject = example({
+    keywords: ["Record", "columns from data", "each", "groups", "register", "parent", "Dict", "Record.column.quantity", "a column per member"],
+    description: "Columns from data: a person's hours by project, the field a Dict keyed by the project's code — a column for each project in the projects record, in its order and headed by its name, each under its client in the clients record's order, a project whose client that record lacks after them unlabelled, and a client with no projects drawing nothing; with no functions, a cell shows the person's entry, an edit sets it and a clear removes it",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const staff = $.let(Record.bind(recordHours));
+            const clientRows = $.let(Data.bind(recordClients));
+            const projectRows = $.let(Data.bind(recordProjects));
+            return (
+                <Box height="320px">
+                    <Record
+                        record={staff}
+                        title="Hours"
+                        noun={{ singular: "person", plural: "people" }}
+                        registers={{
+                            clients: Record.register.members(clientRows.read(), { kind: "client", key: (_c, code) => code, label: (c) => c.name }),
+                            projects: Record.register.members(projectRows.read(), {
+                                kind: "project", key: (_p, code) => code, label: (p) => p.name, parent: (p) => some(p.client),
+                            }),
+                        }}
+                        columns={{
+                            name: Record.column.title(Person, { header: "Name", width: "176px" }),
+                            // The hours field: a column for each project, under its client.
+                            hours: Record.column.quantity(Person, { each: "projects", groups: "clients", unit: "hrs", width: "88px" }),
+                        }}
+                        inspector
+                        name="hours"
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// Example 10 — columns from data: a column for each field of a struct
+// ============================================================================
+
+/** A week's heads, a day each. */
+export const Week = StructType({
+    mon: IntegerType, tue: IntegerType, wed: IntegerType, thu: IntegerType, fri: IntegerType, sat: IntegerType, sun: IntegerType,
+});
+/** A shift and the heads it needs each day of the week. */
+export const Shift = StructType({ name: StringType, week: Week });
+export const recordRoster = e3.record("record_roster", DictType(StringType, Shift), {
+    initial: new Map([
+        ["S-1", { name: "Early", week: { mon: 4n, tue: 4n, wed: 4n, thu: 4n, fri: 4n, sat: 2n, sun: 0n } }],
+        ["S-2", { name: "Late", week: { mon: 3n, tue: 3n, wed: 3n, thu: 3n, fri: 3n, sat: 1n, sun: 0n } }],
+        ["S-3", { name: "Night", week: { mon: 2n, tue: 2n, wed: 2n, thu: 2n, fri: 2n, sat: 2n, sun: 2n } }],
+    ]),
+    mutations: (mutation) => ({
+        // Every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
+
+export const recordRosterByDay = example({
+    keywords: ["Record", "columns from data", "each", "struct", "fields", "Record.column.integer", "columnGroups", "a column per field"],
+    description: "Columns from data over a struct's fields: a shift's heads for each day as one struct field, a column for each day in the order `each` gives and headed as it says, fixed when the page is built, under a column group that names them all by the column's key",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const shifts = $.let(Record.bind(recordRoster));
+            return (
+                <Box height="320px">
+                    <Record
+                        record={shifts}
+                        title="Roster"
+                        noun={{ singular: "shift", plural: "shifts" }}
+                        columns={{
+                            name: Record.column.title(Shift, { header: "Shift", width: "176px" }),
+                            // The week field: a column for each day.
+                            week: Record.column.integer(Shift, {
+                                each: { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" },
+                                width: "56px",
+                            }),
+                        }}
+                        columnGroups={[{ label: "Heads per day", columnKeys: ["week"] }]}
+                        inspector
+                        name="roster"
                     />
                 </Box>
             );
