@@ -74,8 +74,12 @@ jobs:
       - name: Build east-py-datascience (example modules)
         run: pnpm --filter @elaraai/east-py-datascience run build
 
+      # setup-uv 7.6 and later fetch uv from Astral's mirror, not GitHub's
+      # releases, whose downloads time out; its cache stays off, as before.
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
 
       - name: Set up Python 3.11
         run: uv python install 3.11

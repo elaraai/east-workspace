@@ -640,8 +640,12 @@ jobs:
 
       # This tree's east-py, built as the east-py workflow builds it, its CLI
       # alone put on PATH (not the venv's python): the spec runs its units on it.
+      # setup-uv 7.6 and later fetch uv from Astral's mirror, not GitHub's
+      # releases, whose downloads time out; its cache stays off, as before.
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
 
       - name: Build east-py
         working-directory: libs/east-py
