@@ -4,9 +4,9 @@
  */
 
 /**
- * Calls of named functions through a workspace, each filed as it starts, run
- * where its backend runs calls, and kept for a lifetime once it ends
- * (east-workspace#1554).
+ * Calls of named functions through a workspace, and one-shots started as
+ * calls, each filed as it starts, run where its backend runs calls, and kept
+ * for a lifetime once it ends (east-workspace#1554).
  *
  * A call is a record in the repository's call store (`StorageBackend.calls`):
  * - **Start** ({@link functionCallStart}): the function is resolved in the
@@ -15,7 +15,10 @@
  *   pinned at the hash each holds now, each value argument is stored through
  *   the store's door, and the call is filed `running`, with its limits, its
  *   deadline and its lifetimes. A call found wrong is filed ended `invalid`,
- *   and nothing runs.
+ *   and nothing runs. A one-shot's start ({@link oneShotCallStart}) holds the
+ *   request to its caller's grant as a one-shot run within a request is held,
+ *   and files its program as an anonymous function of its own, which runs as
+ *   a named function's does from here on.
  * - **Run** ({@link functionCallRun}): the call runs on a runner with
  *   `runDetached`, its inputs and arguments staged as the stored objects they
  *   are, while it watches its record for a request to cancel it. Once it ends,
@@ -38,9 +41,11 @@
  * @packageDocumentation
  */
 
-import { none, some, variant } from '@elaraai/east';
+import { encodeBeast2For, none, some, variant } from '@elaraai/east';
 import {
+  FunctionObjectType,
   decodeFunctionObject,
+  type CallArg,
   type ExecuteResult,
   type FunctionCallArg,
   type FunctionCallJob,
@@ -50,6 +55,7 @@ import {
   type FunctionCallStatus,
   type FunctionCallSummary,
   type FunctionObject,
+  type OneShotRequest,
   type RunnerValue,
 } from '@elaraai/e3-types';
 import { readDatasetWhole } from '../dataset-open.js';
@@ -62,8 +68,11 @@ import { uuidv7, uuidv7Timestamp } from '../uuid.js';
 import { workspaceGetPackage } from '../workspaces.js';
 import type { DetachedArg, DetachedResult, TaskRunner } from './interfaces.js';
 import {
-  pinCallArguments, resolveExecuteLimits, resolveJobLimits, type ExecuteCeilings, type OneShotGrant, type ResolvedLimits,
+  oneShotPlatformUse, pinCallArguments, programSignature, resolveExecuteLimits, resolveJobLimits, type ExecuteCeilings, type OneShotGrant,
+  type ResolvedLimits,
 } from './oneShot.js';
+
+const encodeFunctionObject = encodeBeast2For(FunctionObjectType);
 
 /**
  * How long a call is kept once it ends, in milliseconds, by how it ended.
@@ -236,47 +245,23 @@ export async function functionCallStart(
       })
     : resolveJobLimits(request.limits, options.ceilings);
   const startedAt = now();
-  const deadline = startedAt + limits.timeoutMs;
-  const keep: FunctionCallKeep = { succeeded: BigInt(lifetimes.succeededMs), failed: BigInt(lifetimes.failedMs) };
-  // The id its caller chose names the call, unless its clock is far from ours
-  const id = options.id !== undefined && Math.abs(uuidv7Timestamp(options.id).getTime() - startedAt) <= CHOSEN_ID_SKEW_MS
-    ? options.id
-    : uuidv7();
-  const filed = (
-    state: FunctionCallState,
-    args: FunctionCallArg[],
-    inputs: FunctionCallJob['call']['inputs'],
-    runner: RunnerValue,
-    expiresAt: number,
-  ): FunctionCallJob => ({
-    call: {
-      id,
-      function: fnName,
-      caller: options.caller === null ? none : some(options.caller),
-      startedAt: new Date(startedAt),
-      endedAt: state.type === 'running' ? none : some(new Date(startedAt)),
-      state,
-      package: { name: deployed.name, version: deployed.version },
-      args,
-      inputs,
-      limits: { timeoutMs: BigInt(limits.timeoutMs), maxResultBytes: BigInt(limits.maxResultBytes), maxLogBytes: BigInt(limits.maxLogBytes) },
-      expiresAt: new Date(expiresAt),
-      ...QUIET,
-    },
+  const filing: Filing = {
+    id: filedId(options.id, startedAt),
+    fn: some(fnName),
+    pkg: some({ name: deployed.name, version: deployed.version }),
+    caller: options.caller,
     workspace,
-    functionObject: fnHash,
-    runner,
+    startedAt,
+    deadline: startedAt + limits.timeoutMs,
+    limits,
     verbose: options.verbose ?? false,
-    deadline: new Date(deadline),
-    cancel: none,
-    keep,
-  });
-  const refuse = async (diagnostics: Extract<FunctionCallState, { type: 'invalid' }>['value']['diagnostics']): Promise<FunctionCallJob> => {
-    const job = filed(variant('invalid', { diagnostics }), [], [], fnObj.runner, startedAt + lifetimes.failedMs);
+    keep: keepOf(lifetimes),
+  };
+  const refuse = async (diagnostics: Diagnostics): Promise<FunctionCallJob> => {
+    const job = filedCall(filing, variant('invalid', { diagnostics }), [], [], fnHash, fnObj.runner, startedAt + lifetimes.failedMs);
     await storage.calls.create(repo, job);
     return job;
   };
-  const diagnostic = (message: string) => [{ message, filename: none, line: none, column: none }];
 
   if (request.args.length !== fnObj.argTypes.length) {
     return refuse(diagnostic(`Expected ${fnObj.argTypes.length} argument(s), got ${request.args.length}`));
@@ -294,21 +279,256 @@ export async function functionCallStart(
       return refuse(pinned.outcome.type === 'invalid' ? pinned.outcome.value.diagnostics : diagnostic('the call\'s arguments did not pin'));
     }
     const inputs = pinned.inputs.slice(0, fnObj.inputs.length);
-    const args: FunctionCallArg[] = [];
-    let datasetAt = fnObj.inputs.length;
-    for (const arg of request.args) {
-      if (arg.type === 'value') {
-        args.push(variant('value', await storeDatasetBytes(storage, repo, arg.value)));
-      } else {
-        const pin = pinned.inputs[datasetAt++]!;
-        args.push(variant('dataset', { path: pin.path, hash: pin.hash }));
-      }
-    }
+    const args = await keptArguments(storage, repo, request.args, pinned.inputs, fnObj.inputs.length);
     // Kept past the grace, so a read finds a call its host stopped, and records it lost
-    const job = filed(variant('running', null), args, inputs, runner, deadline + FUNCTION_CALL_GRACE_MS + lifetimes.failedMs);
+    const job = filedCall(filing, variant('running', null), args, inputs, fnHash, runner, filing.deadline + FUNCTION_CALL_GRACE_MS + lifetimes.failedMs);
     await storage.calls.create(repo, job);
     return job;
   });
+}
+
+/** Options for {@link oneShotCallStart}. */
+export interface OneShotCallStartOptions {
+  /** Who makes the call, as the host's auth names them; `null` without an identity */
+  readonly caller: string | null;
+  /** The caller's one-shot grant: what they may run, as a one-shot run within
+   *  a request is held to it (`oneShotExecute`) */
+  readonly grant: OneShotGrant;
+  /** The most a call may ask for: its timeout is the ceiling's unless it asks
+   *  for less, since it answers no request (default: a server's) */
+  readonly ceilings?: ExecuteCeilings;
+  /** How long the call is kept once it ends (default
+   *  {@link DEFAULT_FUNCTION_CALL_LIFETIMES}) */
+  readonly lifetimes?: FunctionCallLifetimes;
+  /** Pass `-v` to a stock runner */
+  readonly verbose?: boolean;
+  /** The time, in epoch milliseconds (default `Date.now`) */
+  readonly now?: () => number;
+  /** An id its caller chose for the call, as a named function's call takes
+   *  one ({@link FunctionCallStartOptions.id}) */
+  readonly id?: string;
+}
+
+/**
+ * Files a one-shot started as a call through a workspace: its caller's
+ * program, run as an anonymous function and kept as a named function's call
+ * is, so it outlives the request that starts it.
+ *
+ * @remarks
+ * In order:
+ * 1. **Grant.** As a one-shot run within a request is held (`oneShotExecute`):
+ *    `none` is refused; `platform_free` starts only a platform-free request
+ *    (`oneShotPlatformUse`). Both come before any storage read.
+ * 2. **Workspace.** It must exist and be deployed.
+ * 3. **Store.** The program, and an anonymous function object naming it —
+ *    its parameters' and return types, its runner, and no inputs — which the
+ *    call runs as a named function's object runs, and which it alone keeps.
+ * 4. **Check, pin and store.** Its arity; each dataset argument pinned at the
+ *    hash it holds now, an unassigned one refusing the call; each value
+ *    argument stored through the store's door.
+ * 5. **File.** As a named function's call is filed
+ *    ({@link functionCallStart}), naming no function and no package, its
+ *    timeout the ceiling's unless it asks for less.
+ *
+ * A call found wrong — a program that is no function, a wrong arity, an
+ * unassigned dataset — is filed ended `invalid`, kept as a failure is, and
+ * runs nothing; one whose program is no function names the program as sent in
+ * place of a function object.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param workspace - The workspace whose datasets the call reads
+ * @param request - The body, its arguments, its runner and its limits
+ * @param options - Who calls, their grant, the host's ceilings, and the
+ *   call's lifetimes
+ * @returns The call as filed: `running`, or ended `invalid`
+ * @throws {PermissionDeniedError} For `none`, and for `platform_free` with a
+ *   request that is not platform-free (`path` `one-shot`), before anything is
+ *   read
+ * @throws {WorkspaceNotFoundError} When there is no such workspace
+ * @throws {WorkspaceNotDeployedError} When nothing is deployed to it
+ * @throws {InvalidNameError} When the id its caller chose is not a UUIDv7,
+ *   before anything is read
+ * @throws {Error} When a garbage collection or an upgrade holds the
+ *   repository, or the workspace keeps a call under the id its caller chose
+ */
+export async function oneShotCallStart(
+  storage: StorageBackend,
+  repo: string,
+  workspace: string,
+  request: OneShotRequest,
+  options: OneShotCallStartOptions,
+): Promise<FunctionCallJob> {
+  if (options.id !== undefined) checkId('call id', options.id);
+  if (options.grant === 'none') throw new PermissionDeniedError('one-shot');
+  // The program's types, which its function object names: one that is no
+  // function is refused once the call is filed
+  let signature: ReturnType<typeof programSignature> | null = null;
+  let notAFunction = '';
+  try {
+    signature = programSignature(request.bodyIr);
+  } catch (err) {
+    notAFunction = `the body does not decode as a function: ${messageOf(err)}`;
+  }
+  if (options.grant === 'platform_free') {
+    // Its runner first, and then its program, as a one-shot run within a request
+    let use: string | null = null;
+    try {
+      use = oneShotPlatformUse(request);
+    } catch {
+      // A program that is no function: refused once the call is filed
+    }
+    if (use !== null) throw new PermissionDeniedError('one-shot');
+  }
+  await workspaceGetPackage(storage, repo, workspace);
+
+  const now = options.now ?? Date.now;
+  const lifetimes = options.lifetimes ?? DEFAULT_FUNCTION_CALL_LIFETIMES;
+  const limits = resolveJobLimits(request.limits, options.ceilings);
+  const startedAt = now();
+  const filing: Filing = {
+    id: filedId(options.id, startedAt),
+    fn: none,
+    pkg: none,
+    caller: options.caller,
+    workspace,
+    startedAt,
+    deadline: startedAt + limits.timeoutMs,
+    limits,
+    verbose: options.verbose ?? false,
+    keep: keepOf(lifetimes),
+  };
+
+  return withRunningWork(storage, repo, async () => {
+    const program = await storage.objects.write(repo, request.bodyIr);
+    const refuse = async (functionObject: string, diagnostics: Diagnostics): Promise<FunctionCallJob> => {
+      const job = filedCall(filing, variant('invalid', { diagnostics }), [], [], functionObject, request.runner, startedAt + lifetimes.failedMs);
+      await storage.calls.create(repo, job);
+      return job;
+    };
+    if (signature === null) return refuse(program, diagnostic(notAFunction));
+    const fnObj: FunctionObject = {
+      bodyIr: program,
+      inputs: [],
+      argTypes: signature.argTypes,
+      outputType: signature.outputType,
+      runner: request.runner,
+      environment: none,
+    };
+    const functionObject = await storage.objects.write(repo, encodeFunctionObject(fnObj));
+    if (request.args.length !== fnObj.argTypes.length) {
+      return refuse(functionObject, diagnostic(`Expected ${fnObj.argTypes.length} argument(s), got ${request.args.length}`));
+    }
+    const pinned = await pinCallArguments(storage, repo, workspace, request.args);
+    if (!('args' in pinned)) {
+      return refuse(functionObject, pinned.outcome.type === 'invalid' ? pinned.outcome.value.diagnostics : diagnostic('the call\'s arguments did not pin'));
+    }
+    const args = await keptArguments(storage, repo, request.args, pinned.inputs, 0);
+    // Kept past the grace, so a read finds a call its host stopped, and records it lost
+    const job = filedCall(filing, variant('running', null), args, [], functionObject, request.runner,
+      filing.deadline + FUNCTION_CALL_GRACE_MS + lifetimes.failedMs);
+    await storage.calls.create(repo, job);
+    return job;
+  });
+}
+
+/** A refusal's diagnostics. */
+type Diagnostics = Extract<FunctionCallState, { type: 'invalid' }>['value']['diagnostics'];
+
+/** A refusal's one diagnostic, naming no place in a source. */
+function diagnostic(message: string): Diagnostics {
+  return [{ message, filename: none, line: none, column: none }];
+}
+
+/** What every call a start files names, beside how it stands and what it pinned. */
+interface Filing {
+  readonly id: string;
+  /** The function's name; `none` for a one-shot */
+  readonly fn: FunctionCallJob['call']['function'];
+  /** The package it runs from; `none` for a one-shot */
+  readonly pkg: FunctionCallJob['call']['package'];
+  readonly caller: string | null;
+  readonly workspace: string;
+  readonly startedAt: number;
+  readonly deadline: number;
+  readonly limits: ResolvedLimits;
+  readonly verbose: boolean;
+  readonly keep: FunctionCallKeep;
+}
+
+/** The id a call is filed under: the one its caller chose, unless its clock
+ *  is far from ours, else one the server mints. */
+function filedId(chosen: string | undefined, startedAt: number): string {
+  return chosen !== undefined && Math.abs(uuidv7Timestamp(chosen).getTime() - startedAt) <= CHOSEN_ID_SKEW_MS ? chosen : uuidv7();
+}
+
+/** How long a call is kept once it ends, as its record holds it. */
+function keepOf(lifetimes: FunctionCallLifetimes): FunctionCallKeep {
+  return { succeeded: BigInt(lifetimes.succeededMs), failed: BigInt(lifetimes.failedMs) };
+}
+
+/** A call as its start files it: `running`, or ended as it started. */
+function filedCall(
+  filing: Filing,
+  state: FunctionCallState,
+  args: FunctionCallArg[],
+  inputs: FunctionCallJob['call']['inputs'],
+  functionObject: string,
+  runner: RunnerValue,
+  expiresAt: number,
+): FunctionCallJob {
+  return {
+    call: {
+      id: filing.id,
+      function: filing.fn,
+      caller: filing.caller === null ? none : some(filing.caller),
+      startedAt: new Date(filing.startedAt),
+      endedAt: state.type === 'running' ? none : some(new Date(filing.startedAt)),
+      state,
+      package: filing.pkg,
+      args,
+      inputs,
+      limits: {
+        timeoutMs: BigInt(filing.limits.timeoutMs),
+        maxResultBytes: BigInt(filing.limits.maxResultBytes),
+        maxLogBytes: BigInt(filing.limits.maxLogBytes),
+      },
+      expiresAt: new Date(expiresAt),
+      ...QUIET,
+    },
+    workspace: filing.workspace,
+    functionObject,
+    runner,
+    verbose: filing.verbose,
+    deadline: new Date(filing.deadline),
+    cancel: none,
+    keep: filing.keep,
+  };
+}
+
+/**
+ * A call's arguments as it keeps them: each value stored through the store's
+ * door, and each dataset by the hash it was pinned at, which `pinned` holds
+ * after the `skip` inputs pinned before the arguments.
+ */
+async function keptArguments(
+  storage: StorageBackend,
+  repo: string,
+  args: readonly CallArg[],
+  pinned: ExecuteResult['inputs'],
+  skip: number,
+): Promise<FunctionCallArg[]> {
+  const kept: FunctionCallArg[] = [];
+  let datasetAt = skip;
+  for (const arg of args) {
+    if (arg.type === 'value') {
+      kept.push(variant('value', await storeDatasetBytes(storage, repo, arg.value)));
+    } else {
+      const pin = pinned[datasetAt++]!;
+      kept.push(variant('dataset', { path: pin.path, hash: pin.hash }));
+    }
+  }
+  return kept;
 }
 
 /** Options for {@link functionCallRun}. */

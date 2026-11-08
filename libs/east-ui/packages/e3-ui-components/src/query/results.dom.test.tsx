@@ -279,7 +279,8 @@ describe("<Query.Builder> — a run that gives no result (#938 R4)", () => {
         const stop = h.e3.fail(isRun, "network");
         await h.mountBuilder();
         await openQuery(variant("saved", COUNT.name));
-        await waitFor(() => expect(banners()).toEqual([`Couldn't reach the serverfetch failed: the test failed the network for POST /repos/default/workspaces/${h.workspace}/one-shot`]), { timeout: 10_000 });
+        // A run's one call is started as a call of the workspace, which the server keeps
+        await waitFor(() => expect(banners()).toEqual([`Couldn't reach the serverfetch failed: the test failed the network for POST /repos/default/workspaces/${h.workspace}/one-shot/calls`]), { timeout: 10_000 });
         stop();
         h.e3.fail(isRun, { status: 403, type: "permission_denied" });
         await runKeys();

@@ -684,6 +684,13 @@ Each wire changed under this rule, with the kind it is.
   answer them too, so no client reads an earlier answer of them: an earlier
   server has no `…/functions/:fn/calls` route, answers it 404, and
   e3-api-client calls it through the sync route, whose types do not change.
+  A one-shot started as a call (`…/one-shot/calls`) is kept the same way, its
+  program its caller's: the call's `function` (`FunctionCallSummaryType`'s and
+  `FunctionCallType`'s) and its `package` are Options, `none` for it, and its
+  job's `functionObject` names the anonymous function object its start stored,
+  which the call alone roots. An earlier server has no `…/one-shot/calls`
+  route, answers it 404, and e3-api-client runs the one-shot within one request
+  (`…/one-shot`), whose types do not change.
   `ErrorType` gains no case: a call the workspace does not keep is `internal`.
   `FunctionCallStateType` and `FunctionCallStatusType` are kept forms: a case
   either gains is named to sort after every case before it, so its tag is the

@@ -337,13 +337,17 @@ export async function createServer(config: ServerConfig): Promise<Server> {
     ...(calls.pollWaitMs !== undefined && { pollWaitMs: calls.pollWaitMs }),
   }));
 
-  // One-shot routes: /api/repos/:repo/workspaces/:ws/one-shot/*, and the split
-  // calls launched under the same grant, run as jobs on the transfer backend,
-  // each under the server's call limits.
+  // One-shot routes: /api/repos/:repo/workspaces/:ws/one-shot/*; the one-shots
+  // started as calls, run on the transfer backend and kept as a function's
+  // calls are, among the calls above; and the split calls launched under the
+  // same grant, run as jobs on the transfer backend, each under the server's
+  // call limits.
   app.route('/api/repos/:repo/workspaces/:ws/one-shot', createOneShotRoutes(storage, getRepoPath, transferBackend, getRunner, {
     access,
     ...(calls.syncDeadlineMs !== undefined && { syncDeadlineMs: calls.syncDeadlineMs }),
     ...(calls.ceilings !== undefined && { ceilings: calls.ceilings }),
+    ...(calls.windowMs !== undefined && { windowMs: calls.windowMs }),
+    ...(calls.lifetimes !== undefined && { lifetimes: calls.lifetimes }),
   }));
 
   // Workspace-scoped record routes: /api/repos/:repo/workspaces/:ws/records/*

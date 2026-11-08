@@ -1322,8 +1322,11 @@ export const FunctionSignatureType = StructType({
 
 /**
  * One-shot execution request: run an anonymous function whose IR is supplied
- * at call time, optionally bound to existing workspace datasets, returning
- * the result inline and persisting nothing.
+ * at call time, optionally bound to existing workspace datasets. Run within
+ * one request (`POST …/one-shot`), its result is returned inline and nothing
+ * is kept. Started (`POST …/one-shot/calls`), it is a kept call as a named
+ * function's is: filed, run outside the request, polled to its end, and kept
+ * for its lifetime with no function named ({@link FunctionCallType}).
  *
  * SECURITY: one-shot evaluates a caller-supplied IR. One that is platform-free
  * — a stock runtime given no platform package, and a body that calls no
@@ -1464,8 +1467,10 @@ export const SplitCallStatusType = VariantType({
 // A call of a named function through a workspace is filed, run on compute
 // that outlives the request, and kept once it ends: its arguments, the
 // versions of the inputs it read, its value and its log tails, until the
-// lifetime its end gives it (east-workspace#1554). A kept call names its
-// values by hash, so it stays small whatever the call weighs.
+// lifetime its end gives it (east-workspace#1554). A one-shot started as a
+// call is kept the same way, naming no function: its program is its caller's.
+// A kept call names its values by hash, so it stays small whatever the call
+// weighs.
 
 /**
  * A kept call's state.
@@ -1506,7 +1511,8 @@ export const FunctionCallArgType = VariantType({
  * A kept call, as a workspace's list of calls shows it.
  *
  * @property id - The call's id, a UUIDv7, so ids order as the calls started
- * @property function - The function's name in the deployed package
+ * @property function - The function's name in the deployed package; `none`
+ *   for a one-shot call, whose program its caller sent
  * @property caller - Who made the call, as the host's auth names them; `none`
  *   for a server without auth
  * @property startedAt - When it was filed
@@ -1515,7 +1521,7 @@ export const FunctionCallArgType = VariantType({
  */
 export const FunctionCallSummaryType = StructType({
   id:        StringType,
-  function:  StringType,
+  function:  OptionType(StringType),
   caller:    OptionType(StringType),
   startedAt: DateTimeType,
   endedAt:   OptionType(DateTimeType),
@@ -1526,7 +1532,8 @@ export const FunctionCallSummaryType = StructType({
  * A kept call, whole: a {@link FunctionCallSummaryType}'s fields, and what the
  * call ran, took, read and wrote.
  *
- * @property package - The package it ran from, as deployed when it started
+ * @property package - The package it ran from, as deployed when it started;
+ *   `none` for a one-shot call, which runs no package's function
  * @property args - Its arguments, in order: values by their objects, datasets
  *   by the hashes they were pinned at
  * @property inputs - The function's own inputs, each by its path and the hash
@@ -1543,12 +1550,12 @@ export const FunctionCallSummaryType = StructType({
  */
 export const FunctionCallType = StructType({
   id:              StringType,
-  function:        StringType,
+  function:        OptionType(StringType),
   caller:          OptionType(StringType),
   startedAt:       DateTimeType,
   endedAt:         OptionType(DateTimeType),
   state:           FunctionCallStateType,
-  package:         StructType({ name: StringType, version: StringType }),
+  package:         OptionType(StructType({ name: StringType, version: StringType })),
   args:            ArrayType(FunctionCallArgType),
   inputs:          ArrayType(StructType({ path: TreePathType, hash: StringType })),
   limits:          StructType({ timeoutMs: IntegerType, maxResultBytes: IntegerType, maxLogBytes: IntegerType }),

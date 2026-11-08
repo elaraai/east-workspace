@@ -141,10 +141,12 @@ export {
   type SplitCallRunOptions,
 } from './splitCall.js';
 
-// Calls of named functions through a workspace, filed, run where a backend
-// runs them, and kept for a lifetime (east-workspace#1554)
+// Calls of named functions through a workspace, and one-shots started as
+// calls, filed, run where a backend runs them, and kept for a lifetime
+// (east-workspace#1554)
 export {
   functionCallStart,
+  oneShotCallStart,
   functionCallRun,
   functionCallRead,
   functionCallStatus,
@@ -158,6 +160,7 @@ export {
   FUNCTION_CALL_GRACE_MS,
   type FunctionCallLifetimes,
   type FunctionCallStartOptions,
+  type OneShotCallStartOptions,
   type FunctionCallRunOptions,
   type FunctionCallRun,
   type ProcessFunctionCallDeps,

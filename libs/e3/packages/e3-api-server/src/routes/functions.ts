@@ -24,9 +24,11 @@
  * a {@link OneShotAccess}, which gives each request's caller a grant — `any`,
  * `platform_free` or `none` — and e3-core's `oneShotExecute` runs the request
  * under it. A caller who may read a workspace may run a platform-free
- * one-shot, which can only compute over its arguments. A split call — a
- * caller's program over a dataset's pieces — is launched under the same grant,
- * and runs as a job the client polls.
+ * one-shot, which can only compute over its arguments. A one-shot started as
+ * a call is kept as a function's call through a workspace is, under the same
+ * grant, and outlives its request. A split call — a caller's program over a
+ * dataset's pieces — is launched under the same grant, and runs as a job the
+ * client polls.
  */
 
 import { Hono } from 'hono';
@@ -55,7 +57,7 @@ import {
   getSplitCallStatus,
   startSplitCall,
 } from '../handlers/functions.js';
-import { callFunctionInWorkspace, startFunctionCall } from '../handlers/calls.js';
+import { callFunctionInWorkspace, startFunctionCall, startOneShotCall } from '../handlers/calls.js';
 import { callerOfIdentity, type CallerOf } from './calls.js';
 import { badQuery, wholeQuery } from './query.js';
 
@@ -81,6 +83,23 @@ export interface OneShotRoutesOptions {
   /** The most a request may ask for, where a host's response limits are
    *  tighter than a server's default. */
   ceilings?: ExecuteCeilings;
+  /**
+   * The most a one-shot started as a call may ask for: its timeout is the
+   * ceiling's unless it asks for less, since it outlives its request
+   * (default `ceilings`). A host whose calls run elsewhere than its one-shots
+   * and split calls — e3-cloud's call function — gives that compute's own.
+   */
+  callCeilings?: ExecuteCeilings;
+  /** The longest a started call's start waits for it to end before it
+   *  answers `running` (default {@link DEFAULT_CALL_WINDOW_MS}): under the
+   *  host's request timeout */
+  windowMs?: number;
+  /** How long a started call is kept once it ends (default: an hour for a
+   *  success or a cancel, a week for any other end) */
+  lifetimes?: FunctionCallLifetimes;
+  /** Who makes a started call, as it is kept (default `callerOfIdentity`:
+   *  the identity's email, else its subject) */
+  callerOf?: CallerOf;
 }
 
 /** The longest a call's start waits for it to end, unless the host says. */
@@ -310,7 +329,14 @@ export function createWorkspaceFunctionRoutes(
  *
  * - `POST /` takes the caller's grant from `options.access`, and runs the
  *   request under it through e3-core's `oneShotExecute`, stopped when the
- *   caller hangs up.
+ *   caller hangs up: within the request, its timeout under the sync deadline,
+ *   keeping nothing.
+ * - `POST /calls[?wait=ms&id=uuidv7]` starts the request as a call under the
+ *   same grant: filed, run where the transfer backend runs calls, and kept
+ *   for its lifetime among the workspace's calls, naming no function. The
+ *   start waits and answers as a function's start does
+ *   (`POST …/functions/:fn/calls`): the call's id and its status, its result
+ *   once it ended or `running`, which the calls routes poll and cancel.
  * - `POST /split` launches a split call under the same grant and answers its
  *   job's id; with `?explain=1` its job plans the call's pieces instead, and
  *   runs no unit.
@@ -328,10 +354,12 @@ export function createWorkspaceFunctionRoutes(
  * @param storage - Storage backend
  * @param getRepoPath - A repository's identifier from its name
  * @param transferBackend - Files and dispatches the jobs split calls run as,
- *   which outlast a request, on the runner the backend was given
+ *   and runs started calls, each of which outlasts a request, on the runner
+ *   the backend was given
  * @param getRunner - Each repository's task runner
- * @param options - Who may run what, the host's sync deadline and the most a
- *   request may ask for
+ * @param options - Who may run what, the host's sync deadline, the most a
+ *   request may ask for, and a started call's ceilings, window, lifetimes and
+ *   caller
  * @returns The routes
  */
 export function createOneShotRoutes(
@@ -342,6 +370,9 @@ export function createOneShotRoutes(
   options: OneShotRoutesOptions
 ) {
   const app = new Hono<{ Variables: { identity?: Identity } }>();
+  const windowMs = options.windowMs ?? DEFAULT_CALL_WINDOW_MS;
+  const callerOf = options.callerOf ?? callerOfIdentity;
+  const callCeilings = options.callCeilings ?? options.ceilings;
 
   app.post('/', async (c) => {
     const repoPath = getRepoPath(c.req.param('repo')!);
@@ -358,6 +389,32 @@ export function createOneShotRoutes(
       return sendSuccess(ExecuteResultType, result);
     } catch (err) {
       return sendError(ExecuteResultType, errorToVariant(err));
+    }
+  });
+
+  // POST /calls - Start a one-shot as a call, kept for its lifetime
+  // (FunctionCallAnswer)
+  app.post('/calls', async (c) => {
+    const repo = c.req.param('repo')!;
+    try {
+      const query = wholeQuery(c, { wait: 0 });
+      if (query instanceof Response) return query;
+      // The id the client chose, so it can stop the call before this answers
+      const id = c.req.query('id');
+      if (id !== undefined && !isUuidv7(id)) return badQuery(`id must be a UUIDv7, got ${JSON.stringify(id)}`);
+      const grant = await options.access(c);
+      const req = await decodeBody(c, OneShotRequestType);
+      return await startOneShotCall(storage, transferBackend.functionCalls, repo, getRepoPath(repo), c.req.param('ws')!, req, {
+        caller: callerOf(c),
+        grant,
+        verbose: c.req.query('verbose') === '1',
+        ...(callCeilings !== undefined && { ceilings: callCeilings }),
+        ...(options.lifetimes !== undefined && { lifetimes: options.lifetimes }),
+        waitMs: Math.min(query.wait ?? windowMs, windowMs),
+        ...(id !== undefined && { id }),
+      });
+    } catch (err) {
+      return sendError(FunctionCallAnswerType, errorToVariant(err));
     }
   });
 

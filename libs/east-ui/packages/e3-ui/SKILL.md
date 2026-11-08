@@ -448,12 +448,15 @@ start and end are `Option<DateTime>` when it can wait in the backlog. A
   saved jq queries; `Query.value(sources, queries)` ships some, checked at
   build. `<Query.Builder queries datasets />` edits a query as steps or jq,
   checks it, runs it on e3 (split over a large dataset's pieces) and saves it;
-  `<Query.Library>` lists them. A split run's plan read-out says how many
-  pieces it cut and how many units e3's cache served; `first(…)` and
-  `limit(n; …)` over a dataset's rows split too, stopping once they have their
-  rows; a run given up — a new run, or the builder going — cancels its split
-  call's job; and a split answer too large for one, with no final step, is
-  read a page at a time in the Table and the Tree.
+  `<Query.Library>` lists them. A run of one program is a call the workspace
+  keeps, as it keeps a function's (the **e3** skill): held to its own timeout,
+  never a request's, and listed among the workspace's calls, naming no
+  function. A split run's plan read-out says how many pieces it cut and how
+  many units e3's cache served; `first(…)` and `limit(n; …)` over a dataset's
+  rows split too, stopping once they have their rows; a run given up — a new
+  run, or the builder going — cancels its call, or its split call's job; and a
+  split answer too large for one, with no final step, is read a page at a time
+  in the Table and the Tree.
 
 ## Rendering surfaces in an app — `<E3Provider>`
 

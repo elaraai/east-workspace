@@ -8,7 +8,8 @@
  * function through a workspace started, polled to its end, cancelled, listed
  * and read whole — who made it, its arguments, the versions of the inputs it
  * read, its value and its logs — and kept for the lifetime its end gives it,
- * the sync route's calls among them.
+ * the sync route's calls among them; and a one-shot started as a call, kept
+ * the same way naming no function, under its caller's one-shot grant.
  *
  * No case leans on a timing a server sets: a start asked to wait no time
  * answers `running` at once; a call of a known length sleeps (`nap`), and one
@@ -21,12 +22,16 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  IntegerType, OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, variant, type ValueTypeOf,
+  East, IntegerType, OptionType, StringType, decodeBeast2For, encodeBeast2For, encodeEastIR, equalFor, none, printFor, some, variant,
+  type ValueTypeOf,
 } from '@elaraai/east';
+import { Time } from '@elaraai/east-node-std';
 import {
   ApiError,
   datasetGetStatus,
   objectGet,
+  oneShotCall,
+  oneShotStart,
   workspaceCallGet,
   workspaceCallList,
   workspaceFunctionCallCancel,
@@ -36,10 +41,11 @@ import {
   type ExecuteResult,
   type FunctionCallRequest,
   type FunctionCallStatus,
+  type OneShotRequest,
   type RequestOptions,
 } from '@elaraai/e3-api-client';
 import { uuidv7 } from '@elaraai/e3-core';
-import { ExecuteResultType, type TreePath } from '@elaraai/e3-types';
+import { ExecuteResultType, FunctionCallType, type RunnerValue, type TreePath } from '@elaraai/e3-types';
 
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
@@ -61,11 +67,28 @@ const decodeInt = decodeBeast2For(IntegerType);
 const encodeString = encodeBeast2For(StringType);
 const decodeString = decodeBeast2For(StringType);
 const sameCaller = equalFor(OptionType(StringType));
+/** A kept call's function, its name: `none` for a one-shot. */
+const sameFunction = equalFor(FunctionCallType.fields.function);
+/** A kept call's package: `none` for a one-shot. */
+const samePackage = equalFor(FunctionCallType.fields.package);
 
 /** A call of value arguments, each one's bytes. */
 function request(args: Uint8Array[]): FunctionCallRequest {
   return { args: args.map((arg) => variant('value', arg)), runner: none, limits: none };
 }
+
+/** A stock east-node runner, given the platform packages named: none is what a platform-free one-shot runs on. */
+function eastNode(platforms: string[] = []): RunnerValue {
+  return variant('east_node', { platforms, decode: variant('lazy', null) });
+}
+
+/** A one-shot of a program over its arguments, on the runner given. */
+function oneShotOf(body: { toIR(): unknown }, args: OneShotRequest['args'], runner: RunnerValue = eastNode()): OneShotRequest {
+  return { bodyIr: encodeEastIR(body.toIR() as never), args, runner, limits: none };
+}
+
+/** An Integer tripled: a platform-free program. */
+const triple = East.function([IntegerType], IntegerType, ($, x) => x.multiply(3n));
 
 /** A result's Integer value, once it succeeded. */
 function successValue(result: ExecuteResult): bigint {
@@ -202,9 +225,8 @@ export function callTests(setup: TestSetup<TestContext>): void {
       assert.equal(successValue(completed(quoted.status)), 12n);
       const quote = await workspaceCallGet(base, ctx.repoName, WS, quoted.id, opts);
       assert.equal(quote.id, quoted.id);
-      assert.equal(quote.function, 'quote');
-      assert.equal(quote.package.name, PKG);
-      assert.equal(quote.package.version, VERSION);
+      assert.ok(sameFunction(quote.function, some('quote')), 'the function it called');
+      assert.ok(samePackage(quote.package, some({ name: PKG, version: VERSION })), 'the package it ran from');
       const read = [await pinnedAt(ctx, VALUE_PATH, opts), await pinnedAt(ctx, PRICES_PATH, opts)];
       assert.ok(equalFor(InputsType)(quote.inputs, read), `the inputs it read, ${printFor(InputsType)(quote.inputs)}`);
       const [sku] = quote.args;
@@ -262,7 +284,7 @@ export function callTests(setup: TestSetup<TestContext>): void {
       assert.deepEqual(listed(await workspaceCallList(base, ctx.repoName, WS, opts, { function: 'twice' })), [ids[3], ids[1]]);
       assert.deepEqual(listed(await workspaceCallList(base, ctx.repoName, WS, opts, { state: 'failed' })), [ids[2]]);
       const failed = (await workspaceCallList(base, ctx.repoName, WS, opts, { state: 'failed' })).calls[0]!;
-      assert.equal(failed.function, 'add');
+      assert.ok(sameFunction(failed.function, some('add')));
       assert.equal(failed.endedAt.type, 'some');
 
       await assert.rejects(
@@ -320,8 +342,73 @@ export function callTests(setup: TestSetup<TestContext>): void {
       assert.equal(successValue(result), 5n);
       const page = await workspaceCallList(ctx.config.baseUrl, ctx.repoName, WS, opts);
       assert.equal(page.calls.length, 1);
-      assert.equal(page.calls[0]!.function, 'add');
+      assert.ok(sameFunction(page.calls[0]!.function, some('add')));
       assert.equal(page.calls[0]!.state.type, 'succeeded');
+    });
+
+    it('a one-shot started as a call is kept naming no function and no package, its dataset argument pinned, polled to its result, and listed among the calls', async (t) => {
+      const ctx = await withCalls(t);
+      const opts = await ctx.opts();
+      const base = ctx.config.baseUrl;
+
+      // The package's `value` (10), tripled
+      const answer = await oneShotStart(base, ctx.repoName, WS, oneShotOf(triple, [variant('dataset', VALUE_PATH)]), opts, { waitMs: 0 });
+      const result = completed(answer.status.type === 'running' ? await ended(ctx, WS, answer.id, opts) : answer.status);
+      assert.equal(successValue(result), 30n);
+      const read = await pinnedAt(ctx, VALUE_PATH, opts);
+      assert.ok(equalFor(InputsType)(result.inputs, [read]), 'its result names the dataset it read, at its hash');
+
+      const call = await workspaceCallGet(base, ctx.repoName, WS, answer.id, opts);
+      assert.ok(sameFunction(call.function, none), 'a one-shot names no function');
+      assert.ok(samePackage(call.package, none), 'and runs no package\'s');
+      const [dataset] = call.args;
+      if (dataset?.type !== 'dataset') assert.fail('its argument is a dataset');
+      assert.equal(dataset.value.hash, read.hash, 'kept as the hash it was pinned at');
+      if (call.state.type !== 'succeeded') assert.fail(`the call ended ${call.state.type}`);
+      assert.equal(decodeInt(await objectGet(base, ctx.repoName, call.state.value.value, opts)), 30n, 'its value, by its object');
+
+      // Run to its end by the client, through the call it starts
+      assert.equal(successValue(await oneShotCall(base, ctx.repoName, WS, oneShotOf(triple, [variant('value', encodeInt(7n))]), opts)), 21n);
+
+      const page = await workspaceCallList(base, ctx.repoName, WS, opts);
+      assert.equal(page.calls.length, 2);
+      assert.equal(page.calls[1]!.id, answer.id, 'the latest first');
+      assert.ok(page.calls.every((listed) => sameFunction(listed.function, none)));
+      await workspaceFunctionStart(base, ctx.repoName, WS, 'add', request([encodeInt(2n), encodeInt(3n)]), opts);
+      assert.equal((await workspaceCallList(base, ctx.repoName, WS, opts, { function: 'add' })).calls.length, 1, 'a one-shot is no function\'s call');
+    });
+
+    it('a one-shot started as a call is stopped by a cancel, as a function\'s call is', async (t) => {
+      const ctx = await withCalls(t);
+      const opts = await ctx.opts();
+      const base = ctx.config.baseUrl;
+
+      // An admin's one-shot may load a platform package: this one sleeps 30 s
+      const sleeps = East.asyncFunction([IntegerType], IntegerType, ($, x) => {
+        $(Time.sleep(30_000n));
+        return $.return(x);
+      });
+      const answer = await oneShotStart(base, ctx.repoName, WS, oneShotOf(sleeps, [variant('value', encodeInt(1n))], eastNode(['@elaraai/east-node-std'])), opts, { waitMs: 0 });
+      assert.equal(answer.status.type, 'running');
+      const asked = Date.now();
+      let status = await workspaceFunctionCallCancel(base, ctx.repoName, WS, answer.id, opts);
+      if (status.type === 'running') status = await ended(ctx, WS, answer.id, opts);
+      assert.equal(status.type, 'cancelled');
+      assert.ok(Date.now() - asked < 20_000, `the call stopped ${Date.now() - asked} ms after the cancel, its 30 s sleep cut short`);
+      assert.equal((await workspaceCallGet(base, ctx.repoName, WS, answer.id, opts)).state.type, 'cancelled');
+    });
+
+    it('a reader starts a platform-free one-shot as a call, and is refused one that loads a platform package before anything is kept', async (t) => {
+      const ctx = await withCalls(t);
+      const reader = await ctx.readerOpts();
+      const base = ctx.config.baseUrl;
+
+      assert.equal(successValue(await oneShotCall(base, ctx.repoName, WS, oneShotOf(triple, [variant('value', encodeInt(4n))]), reader)), 12n);
+      await assert.rejects(
+        oneShotStart(base, ctx.repoName, WS, oneShotOf(triple, [variant('value', encodeInt(4n))], eastNode(['@elaraai/east-node-std'])), reader),
+        (err: unknown) => err instanceof ApiError && err.code === 'permission_denied',
+      );
+      assert.equal((await workspaceCallList(base, ctx.repoName, WS, reader)).calls.length, 1, 'the refused start kept nothing');
     });
 
     it('a reader starts a call, polls it and finds it in the list', async (t) => {

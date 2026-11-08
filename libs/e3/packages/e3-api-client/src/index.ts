@@ -225,6 +225,8 @@ export {
   type FunctionCallPollOptions,
   type FunctionCallListQuery,
   oneShotExecute,
+  oneShotCall,
+  oneShotStart,
   splitCallLaunch,
   splitCallStatus,
   splitCallCancel,
