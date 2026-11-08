@@ -4,17 +4,39 @@
  * @vitest-environment jsdom
  *
  * The app's own words for who is on the Roster (#1516), on e3: each `vocabulary` entry given replaces its default word
- * wherever the Roster draws it, and the People tab keeps its groups' order whatever they are called.
+ * wherever the Roster draws it, and the People tab keeps its groups' order whatever they are called. The People layout's
+ * badge beside an agency person's name and each group's row of agency requests take theirs too (#1566), by week, by
+ * month and on a phone.
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
-import { act, open, rosterHarness, settle, slot } from "./harness.test-utils.js";
+import type { E3Request } from "../e3-web.test-utils.js";
+import { act, open, rosterHarness, settle, slot, width } from "./harness.test-utils.js";
 
-rosterHarness();
+const h = rosterHarness();
+const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
 async function press(node: Element | null | undefined) { expect(node).toBeTruthy(); await act(async () => { fireEvent.click(node!); }); await settle(); }
 /** The words the Roster draws of its own, none of which may show once the app gives its own. */
-const DEFAULTS = /\bPermanent\b|Agency staff|agency staff|\bAssociates\b|\bLeads\b|\bTrainers\b|· available|\bperm\b/u;
+const DEFAULTS = /\bPermanent\b|Agency staff|agency staff|\bAssociates\b|\bLeads\b|\bTrainers\b|· available|\bperm\b|Agency requests/u;
+/** The People layout's words of its own for agency staff and their requests, none of which may show under the app's (#1566). */
+const PEOPLE_DEFAULTS = /Agency requests|\bAgency\b/u;
+/** A read of the weeks or of the duties, as the request log names their datasets. */
+const weekRead = (request: E3Request) => ["page", "find", "runs", "rows"].includes(request.kind)
+    && (request.dataset === "records.roster_rota_weeks" || request.dataset === "records.roster_duties");
+/** Scrolls main's rows three at a time at their pitch — a People row's 36px, a phone's card's 360 — until what the selector names is mounted. */
+async function reveal(c: HTMLElement, selector: string, pitch = 36): Promise<HTMLElement> {
+    const scroller = slot(c, "main").querySelector<HTMLElement>("[data-virtual-rows]")!;
+    for (let i = 1; i <= 60 && slot(c, "main").querySelector(selector) === null; i++) {
+        await act(async () => { scroller.scrollTop = i * 3 * pitch; fireEvent.scroll(scroller); });
+        await settle();
+    }
+    const found = slot(c, "main").querySelector<HTMLElement>(selector);
+    expect(found, selector).not.toBeNull();
+    return found!;
+}
+/** The agency badges main has mounted, by their words. */
+const badges = (c: HTMLElement) => [...slot(c, "main").querySelectorAll("[data-roster-agency-badge]")].map(el => el.textContent);
 
 describe("a Roster's vocabulary", () => {
     test("the legend, the coverage detail, the inspector and the People tab's groups say the app's words, in the groups' own order", async () => {
@@ -37,5 +59,40 @@ describe("a Roster's vocabulary", () => {
         await press(within(slot(c, "end")).getByRole("tab", { name: /^Issues/ }));
         await press(within(slot(c, "end")).getAllByRole("button", { name: "Find a lead" })[0]);
         await waitFor(() => expect(c.querySelector("[data-roster-find]")!.textContent).toContain("Find · Supervisors"));
+    });
+    test("the People layout's badge beside an agency person's name is the app's short form, and each group's requests row its word — by week and by month (#1566)", async () => {
+        const { container: c } = await open(ex.rosterVocabulary);
+        await press(toolbar(c).getByRole("radio", { name: "People" }));
+        // By week: a group's agency staff rank last, right above its requests row.
+        const row = await reveal(c, '[data-roster-person-row="requests:inbound"]');
+        expect(row.querySelector("[data-roster-person-name] button")!.textContent).toBe("Contractor requests");
+        expect(badges(c).length).toBeGreaterThan(0);
+        expect(new Set(badges(c))).toEqual(new Set(["contr"]));
+        expect(slot(c, "main").textContent).not.toMatch(PEOPLE_DEFAULTS);
+        // By month: the requests row's name and each of its week cells' names, the badge the same.
+        await press(toolbar(c).getByRole("radio", { name: "Month" }));
+        const cell = await reveal(c, '[data-roster-person-week^="requests:inbound."]');
+        expect(cell.getAttribute("aria-label")).toMatch(/^Contractor requests · W\d+$/u);
+        expect(cell.closest("[data-roster-person-row]")!.querySelector("[data-roster-person-name] button")!.textContent).toBe("Contractor requests");
+        expect(badges(c).length).toBeGreaterThan(0);
+        expect(new Set(badges(c))).toEqual(new Set(["contr"]));
+        expect(slot(c, "main").textContent).not.toMatch(PEOPLE_DEFAULTS);
+    });
+    test("a phone's People cards title each group's requests the app's word, read and while a week is read (#1566)", async () => {
+        const { container: c } = await open(ex.rosterVocabulary);
+        await press(toolbar(c).getByRole("radio", { name: "People" }));
+        await width(390);
+        expect(slot(c, "main").querySelector('[data-roster-agenda="people"]')).not.toBeNull();
+        const card = await reveal(c, '[data-roster-person-card="requests:inbound"]', 360);
+        expect(card.hasAttribute("data-roster-unread")).toBe(false);
+        expect(card.textContent).toContain("Contractor requests");
+        expect(slot(c, "main").textContent).not.toMatch(PEOPLE_DEFAULTS);
+        // Two weeks on, past the week read ahead, every read held: the cards' heads while the week is not read.
+        const held = h.e3.hold(weekRead);
+        for (let step = 0; step < 2; step++) { await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: "]" }); }); await settle(); }
+        const unread = await reveal(c, '[data-roster-person-card="requests:inbound"][data-roster-unread]', 360);
+        expect(unread.textContent).toContain("Contractor requests");
+        expect(slot(c, "main").textContent).not.toMatch(PEOPLE_DEFAULTS);
+        await act(async () => { held.release(); }); await settle();
     });
 });

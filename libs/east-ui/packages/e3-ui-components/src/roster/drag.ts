@@ -230,7 +230,7 @@ function rosterDrag({ value, commands, week, duties, weeks, context, storageKey,
     const name = (coord: CellCoord): string => {
         const personWeek = readPersonWeek(coord.slot);
         if (personWeek !== undefined) {
-            return words.cell({ row: context.people.get(personWeek.person)?.name ?? "Agency requests", slot: `W${format.number(weekNumber(personWeek.start))}` });
+            return words.cell({ row: context.people.get(personWeek.person)?.name ?? value.vocabulary.requests, slot: `W${format.number(weekNumber(personWeek.start))}` });
         }
         const parsed = parseSlot(coord.slot);
         if (!parsed.success) return words.cell({ row: coord.row, slot: coord.slot });

@@ -359,7 +359,7 @@ export const rosterMobile = example({
 });
 
 export const rosterVocabulary = example({
-    inputs: [], description: "The app's own words for who is on the Roster (#1516): `vocabulary` replaces Permanent, Agency staff, Leads, Associates, Trainers and Off Mon · available wherever the Roster draws them, its coverage detail's short forms too, and the People tab keeps its groups' order whatever they are called.",
+    inputs: [], description: "The app's own words for who is on the Roster (#1516): `vocabulary` replaces Permanent, Agency staff, Leads, Associates, Trainers and Off Mon · available wherever the Roster draws them, its coverage detail's short forms too, and the People tab keeps its groups' order whatever they are called; in the People layout the badge beside an agency person's name is its `agencyShort`, and each group's row of agency requests its `requests` (#1566).",
     keywords: ["Roster", "vocabulary", "words", "rename", "Employees", "Contractors", "labels", "Slice", "Slice.bindRecords", "Data.bindPaged"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const rota = $.let(Record.bind(rosterDuties));
@@ -379,7 +379,7 @@ export const rosterVocabulary = example({
         return <Box width="100%" height="760px"><Roster id="rosterVocabulary" week={{ start: "sunday" }} slice={{ slice }} inspector fit={fit}
             vocabulary={{
                 permanent: "Employees", permanentShort: "empl", agency: "Contractors", agencyShort: "contr", leads: "Supervisors", others: "Colleagues", trainers: "Mentors",
-                available: East.function([StringType], StringType, (_$2, weekday) => East.str`Not rostered ${weekday}`),
+                available: East.function([StringType], StringType, (_$2, weekday) => East.str`Not rostered ${weekday}`), requests: "Contractor requests",
             }}
             view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
             events={{ duty: Schedule.events(rota, {

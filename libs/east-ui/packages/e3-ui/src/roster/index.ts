@@ -81,15 +81,17 @@ export const RosterLibraryTabType = VariantType({
  * @property permanent - People and hours that are not agency: the legend, the inspector, the coverage bar
  * @property permanentShort - Its short form in the coverage detail
  * @property agency - A person whose `agency` accessor is true, and their hours
- * @property agencyShort - Its short form in the coverage detail
+ * @property agencyShort - Its short form: the coverage detail, and the badge beside an agency person's name in the People layout (#1566)
  * @property leads - The group of people in a lead position that day: the People tab, and a Find's needs
  * @property others - The group of the others rostered that day
  * @property trainers - A Find's needs' group of trainers
  * @property available - The group of people not rostered that day, from the weekday's short name
+ * @property requests - The name of the People layout's row of agency requests: its name cell, its month cells' label and the
+ *   phone's cards (#1566)
  */
 export const RosterVocabularyType = StructType({
     permanent: StringType, permanentShort: StringType, agency: StringType, agencyShort: StringType, leads: StringType, others: StringType, trainers: StringType,
-    available: FunctionType([StringType], StringType),
+    available: FunctionType([StringType], StringType), requests: StringType,
 });
 
 /**
@@ -171,7 +173,7 @@ export interface RosterVocabulary {
     permanentShort?: SubtypeExprOrValue<StringType>;
     /** A person whose `agency` accessor is true, and their hours: "Agency staff". */
     agency?: SubtypeExprOrValue<StringType>;
-    /** Its short form in the coverage detail: "agency". */
+    /** Its short form in the coverage detail, and the badge beside an agency person's name in the People layout: "agency". */
     agencyShort?: SubtypeExprOrValue<StringType>;
     /** The group of people in a lead position that day (People tab, needs): "Leads". */
     leads?: SubtypeExprOrValue<StringType>;
@@ -181,6 +183,8 @@ export interface RosterVocabulary {
     trainers?: SubtypeExprOrValue<StringType>;
     /** The group of people not rostered that day, from the weekday's short name ("Mon"): `Off ${weekday} · available`. */
     available?: SubtypeExprOrValue<FunctionType<[StringType], StringType>>;
+    /** The name of the People layout's row of agency requests (its name cell, its month cells, the phone's cards): "Agency requests". */
+    requests?: SubtypeExprOrValue<StringType>;
 }
 
 /**
@@ -646,7 +650,7 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
                 permanent: props.vocabulary?.permanent ?? "Permanent", permanentShort: props.vocabulary?.permanentShort ?? "perm",
                 agency: props.vocabulary?.agency ?? "Agency staff", agencyShort: props.vocabulary?.agencyShort ?? "agency",
                 leads: props.vocabulary?.leads ?? "Leads", others: props.vocabulary?.others ?? "Associates", trainers: props.vocabulary?.trainers ?? "Trainers",
-                available: props.vocabulary?.available ?? ROSTER_AVAILABLE,
+                available: props.vocabulary?.available ?? ROSTER_AVAILABLE, requests: props.vocabulary?.requests ?? "Agency requests",
             },
             id: props.id === undefined ? none : some(props.id),
         } as never, RosterPayloadType);

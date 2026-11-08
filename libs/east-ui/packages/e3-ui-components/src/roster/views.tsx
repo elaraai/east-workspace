@@ -829,18 +829,18 @@ const PersonDayBody = memo(function PersonDayBody({ ctx, person, group, day, dut
         {off && (commands.available || commands.locked !== undefined ? <AssignMenu ctx={ctx} person={person} group={group} day={day} /> : <Box css={styles.detail}>Off</Box>)}
     </>;
 });
-/** A person's name cell (#1406, D8): the name, the Agency badge, and — by week — the week's hours against the contract over the meter. */
+/** A person's name cell (#1406, D8): the name — the requests row's, the vocabulary's `requests` — the agency badge in the vocabulary's `agencyShort` (#1566), and — by week — the week's hours against the contract over the meter. */
 function NameCell({ ctx, person, rowKey, weekSelected, hours, nameRef }: {
     ctx: ViewContext; person: Person | undefined; rowKey: string; weekSelected: boolean;
     /** The hours cell; nothing in the month (P16). */
     hours: ReactNode; nameRef?: RefObject<HTMLButtonElement | null> | undefined;
 }) {
-    const { styles, start } = ctx;
+    const { styles, start, value } = ctx;
     return <Box css={styles.peopleName} data-selected={weekSelected ? "" : undefined} data-roster-person-name="">
         <Box css={styles.nameLine}>
             <chakra.button ref={nameRef} type="button" css={styles.personName} data-roster-person-head={person?.key} aria-pressed={weekSelected}
-                onClick={() => person !== undefined && ctx.select({ type: "personWeek", key: rowKey, start: start.getTime() })}><span>{person?.name ?? "Agency requests"}</span></chakra.button>
-            {person?.agency && <Box as="span" css={styles.agencyBadge} data-roster-agency-badge="">Agency</Box>}
+                onClick={() => person !== undefined && ctx.select({ type: "personWeek", key: rowKey, start: start.getTime() })}><span>{person?.name ?? value.vocabulary.requests}</span></chakra.button>
+            {person?.agency && <Box as="span" css={styles.agencyBadge} data-roster-agency-badge="">{value.vocabulary.agencyShort}</Box>}
         </Box>
         {hours}
     </Box>;
@@ -1117,7 +1117,7 @@ const MonthCell = memo(function MonthCell({ ctx, person, group, held, days, lett
     const drafted = !unread && SEVEN_DAYS.some(day => dayDrafted(ctx.domain, held.held, days[day] ?? NO_DUTIES));
     return <chakra.button ref={ref as (el: HTMLButtonElement | null) => void} type="button" css={styles.monthCell} data-roster-person-week={`${key}.${weekKey(start)}`} data-selected={selected ? "" : undefined}
         data-drafted={drafted ? "" : undefined} data-pattern-hover={previewKey !== undefined ? "" : undefined} data-density={value.settings.density.type}
-        aria-label={`${person?.name ?? "Agency requests"} · W${ctx.format.number(weekNumber(start))}`} aria-pressed={selected}
+        aria-label={`${person?.name ?? value.vocabulary.requests} · W${ctx.format.number(weekNumber(start))}`} aria-pressed={selected}
         onClick={() => person !== undefined && ctx.select({ type: "personWeek", key, start: start.getTime() })}>
         {ctx.read.state === "failed" ? null : <Box css={styles.markStrip} data-roster-mark-strip="">
             {SEVEN_DAYS.map(day => unread ? (revealed ? <Box key={day} as="span" css={styles.mark} data-roster-mark={day} data-pending="" /> : null)
@@ -1251,7 +1251,7 @@ const PersonCard = memo(function PersonCard({ ctx, row, index, rows, days, reque
                 <Unread read={ctx.read} kind="chip" index={index + day} /></Box>)}
     </Box>;
     return <Box ref={measure} css={styles.card} data-roster-person-card={person?.key ?? row.key}>
-        {person === undefined ? <><Box css={styles.cardHead}><Box css={styles.cardTitle}>Agency requests</Box></Box>{requests.map(({ id, a, removed }) => <AssignmentCard key={id} ctx={ctx} id={id} assignment={a} removed={removed} />)}</> : <>
+        {person === undefined ? <><Box css={styles.cardHead}><Box css={styles.cardTitle}>{value.vocabulary.requests}</Box></Box>{requests.map(({ id, a, removed }) => <AssignmentCard key={id} ctx={ctx} id={id} assignment={a} removed={removed} />)}</> : <>
             <chakra.button ref={head} type="button" css={styles.cardHead} data-roster-person-head={person.key} onClick={() => ctx.select({ type: "personWeek", key: person.key, start: start.getTime() })}>
                 <Box css={styles.cardTitle} data-roster-card-hours="" data-opn={ctx.lit && ctx.optimised?.people.has(person.key) === true ? "" : undefined}>{person.name} · {format.number(ctx.hours.get(person.key) ?? 0)} / {format.number(person.contract)} h</Box></chakra.button>
             {/* A phone's `Apply pattern…` (#1406, P22): the Chooser over the patterns, its choice applied as a drop is. */}
@@ -1268,7 +1268,7 @@ const PersonCard = memo(function PersonCard({ ctx, row, index, rows, days, reque
 });
 /** A card's head while the week is not read: the person's name, and a placeholder for their hours beside their contract. */
 function UnreadCardHead({ ctx, person, index }: { ctx: ViewContext; person: Person | undefined; index: number }) {
-    return <Box css={ctx.styles.cardHead}><Box css={ctx.styles.cardTitle}>{person?.name ?? "Agency requests"}</Box>
+    return <Box css={ctx.styles.cardHead}><Box css={ctx.styles.cardTitle}>{person?.name ?? ctx.value.vocabulary.requests}</Box>
         {person !== undefined && <Box css={ctx.styles.unreadValue}><Unread read={ctx.read} kind="number" index={index} />{`/ ${ctx.format.number(person.contract)} h`}</Box>}</Box>;
 }
 /** A person's card of a week whose read failed (#1398, CL11): the failure said in the first card in view, which it reads itself. */
