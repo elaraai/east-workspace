@@ -13,7 +13,7 @@
 
 import { useCallback, useMemo, useRef } from "react";
 import { StringType, equalFor, none, some } from "@elaraai/east";
-import { NEW_LINE_KEY, NULL_CELL, blankIdOf, buildBody, buildLensBody, driverKeyOf, isLooseRow, isRowSpace, lineRowsOf, resolveMember as resolveRegisterMember, segmentOf, withProposals, type LineGroup, type SheetBodyItem, type SheetColumnMeta } from "./model.js";
+import { NEW_LINE_KEY, NULL_CELL, blankIdOf, buildBody, buildLensBody, cellWritable, driverKeyOf, isLooseRow, isRowSpace, lineRowsOf, resolveMember as resolveRegisterMember, segmentOf, withProposals, type LineGroup, type SheetBodyItem, type SheetColumnMeta } from "./model.js";
 import { lensBodyItems } from "./lens-layout.js";
 import type { CandidateContext } from "./candidates.js";
 import type { ParseContext } from "./parse/index.js";
@@ -131,6 +131,11 @@ export function useSheetBody(sheetDecode: SheetDecode, sheetSession: SheetSessio
     }, [rowAt]);
     /** A date column's level for a row (#844). */
     const levelAt = useCallback((r: number, meta: SheetColumnMeta) => (meta.kind === "date" && meta.level !== undefined ? meta.level(cellsAt(r)) : undefined), [cellsAt]);
+    /** Whether the cell at a row and column takes an edit (#1560): the one check every gesture asks, so none misses a lock. */
+    const writableAt = useCallback((r: number, c: number): boolean => {
+        const meta = metaAt(r, c);
+        return meta !== undefined && cellWritable(meta, cellsAt(r));
+    }, [metaAt, cellsAt]);
     /** The register member a cell holds the key of (#1536) — the one its label shows for, as the cell draws it. */
     const memberAt = useCallback((r: number, c: number): SheetRegisterMemberValue | undefined => {
         const meta = metaAt(r, c);
@@ -249,7 +254,7 @@ export function useSheetBody(sheetDecode: SheetDecode, sheetSession: SheetSessio
     return {
         allowedFor, blankLineRowOf, body, candidateCtxFor, cellAt, colCount, endPosition, idAt, lensEnds, lensLayout,
         levelAt, linkCellCtx, linkColumns, linkCtxFor, linkVocabularies, memberAt, memberships, metaAt, parseCtxFor,
-        rowAt, rowCount, rowOf, rowSpace, wireContextFor, wireContextOf,
+        rowAt, rowCount, rowOf, rowSpace, wireContextFor, wireContextOf, writableAt,
     };
 }
 

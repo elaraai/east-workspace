@@ -22,8 +22,9 @@
  *   set: a click on a cycle, a toggle or a boolean, else the inspector;
  * - **any other kind** (SP7) — its column and its value, and ⏎ where it edits.
  *
- * Where a cell steps nothing — an owned row, a Record read only — it says
- * where it is and no more. While the Sheet's strip speaks of what is in hand —
+ * Where a cell steps nothing — an owned row, a Record read only, a cell a
+ * mark locks — it says where it is and no more; a cell's mark's words follow
+ * what it says (#1560). While the Sheet's strip speaks of what is in hand —
  * an open editor, a range, an action — it is the strip; so it is over a cell
  * whose column gives a `detail` of its own, a base field every column takes:
  * the column's words for the cell, of any kind.
@@ -37,7 +38,7 @@ import { IntegerType, StringType, equalFor } from "@elaraai/east";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import type { SheetHostStripCell, SheetHostStripProps } from "../sheet/index.js";
-import { cellIsBlank, cellText, resolveMember, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "../sheet/model.js";
+import { cellIsBlank, cellText, cellWritable, markOf, resolveMember, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "../sheet/model.js";
 import { namesMember } from "../sheet/Rows.js";
 import { SheetStrip } from "../sheet/Strip.js";
 import { stepCell, stepsInPlace } from "../sheet/steps.js";
@@ -102,9 +103,10 @@ export function recordStripOf(input: RecordStripInput): RecordStripText | undefi
     const { row, column: meta, changes } = at;
     const cell = row.cells.get(meta.key);
     const kind = meta.raw.kind;
-    // Where the cell steps: a gesture may be made, the column edits, and no system owns the row.
-    const steps = writable && meta.editable && !row.owned;
-    if (changes?.added === true && meta.editable && meta.kind !== "stamped" && meta.kind !== "action" && cellIsBlank(cell)) {
+    // Where the cell steps: a gesture may be made, the cell takes an edit — its column writes, and no mark locks it — and no
+    // system owns the row.
+    const steps = writable && cellWritable(meta, row.cells) && !row.owned;
+    if (changes?.added === true && cellWritable(meta, row.cells) && meta.kind !== "stamped" && meta.kind !== "action" && cellIsBlank(cell)) {
         const first = kind.type === "cycle" ? registers.byName.get(kind.value.register)?.[0] : undefined;
         const how = kind.type === "cycle" ? (first === undefined ? undefined : { cycle: first.label !== "" ? first.label : first.key })
             : kind.type === "toggle" || kind.type === "boolean" ? "click" as const : inspector ? "inspector" as const : undefined;
@@ -203,13 +205,17 @@ export const RecordStrip = memo(function RecordStrip({ styles: sheetStyles, mode
     const said = recordStripOf({ at, columns, registers, writable, title, noun, inspector, words, now });
     // Any other kind (SP7): its column and its value, so the band stays.
     const line = said ?? (at === undefined ? undefined : {
-        label: at.column.header, text: valueText(at.column, at.row.cells.get(at.column.key), registers, words), keys: m.stripEdit({ editable: writable && at.column.editable && !at.row.owned }),
+        label: at.column.header, text: valueText(at.column, at.row.cells.get(at.column.key), registers, words),
+        keys: m.stripEdit({ editable: writable && cellWritable(at.column, at.row.cells) && !at.row.owned }),
     });
     if (line === undefined) return null;
+    // The cell's mark, after what the strip says of it (#1560).
+    const mark = at === undefined ? undefined : markOf(at.column, at.row.cells);
+    const text = mark === undefined ? line.text : m.marked({ text: line.text, words: mark.words, lock: mark.lock });
     return (
         <Box css={styles.strip} data-slot="strip" data-record-strip="">
             <Box as="span" css={styles.stripLabel} data-slot="stripLabel">{line.label}</Box>
-            <Box as="span" css={styles.stripText} data-slot="stripText" title={line.text === "" ? undefined : line.text}>{line.text}</Box>
+            <Box as="span" css={styles.stripText} data-slot="stripText" title={text === "" ? undefined : text}>{text}</Box>
             {line.keys !== "" && <Box as="span" css={styles.stripKeys} data-slot="stripKeys">{line.keys}</Box>}
         </Box>
     );

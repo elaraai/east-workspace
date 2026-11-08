@@ -29,7 +29,11 @@
  *     step of the heat ramp or a valence's 6% wash, edge and text step; the
  *     mark look's pips and dots; an age mono 13/500, warn past its threshold
  *     with a dot; an audit's date mono 13/500 and its who in `fg.muted`, or
- *     PENDING in `brandPressed`.
+ *     PENDING in `brandPressed`. A mark's note after the value at `body.sm`
+ *     in `fg.muted`, or in an empty cell in the absent face in its place; a
+ *     lock the design system's Tag — 20 tall, padded 0 8, `bg.subtle` behind
+ *     the subtle rule at radius `sm`, mono 10/500 in `fg.muted`, the paper on
+ *     a selected row — after the value or alone, cut with an ellipsis.
  *   - Strip: 32 tall on `bg.canvas`, its label mono 10/600 at 0.14em in
  *     `brand.solid`, its text 12.5 in `fg.strong`, its keys mono 10.5. Over a
  *     Sheet kind the Sheet's strip draws its chips in this frame.
@@ -121,7 +125,7 @@ export const recordSlotRecipe = defineSlotRecipe({
         "row", "cell", "tick", "run", "runRow", "runGutter", "runCell", "runActionCell",
         "titleCell", "avatar", "nobody", "personLabel", "text",
         "chip", "pips", "pip", "mark", "markDot", "markWord", "box",
-        "age", "staleDot", "absent", "auditDate", "auditMeta", "pending", "pendingDot", "pendingMeta",
+        "age", "staleDot", "absent", "auditDate", "auditMeta", "pending", "pendingDot", "pendingMeta", "note", "lock",
         "empty", "emptyMark", "emptyTitle", "emptyClear", "emptyBox", "emptyLink",
         "strip", "stripLabel", "stripText", "stripKeys",
         "footer", "footerCount", "footerNote", "footerSpacer", "footerLive", "legend", "legendItem", "legendChip", "legendName",
@@ -297,6 +301,21 @@ export const recordSlotRecipe = defineSlotRecipe({
         },
         pendingDot: { width: "8px", height: "8px", flex: "none", borderRadius: "full", background: "brandMark" },
         pendingMeta: { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body.sm", color: "brandPressed" },
+        /* A mark's note after the cell's value, one line, the value keeping its room. */
+        note: {
+            flex: "0 1 auto", minWidth: "0", marginInlineStart: "8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            fontSize: "body.sm", color: "fg.muted",
+        },
+        /* A lock: the design system's Tag, a named fact read only — after the value, or alone in an empty cell; on a selected
+           row its fill the paper. One line, ending in an ellipsis where the column is narrow. */
+        lock: {
+            flex: "0 1 auto", minWidth: "0", height: "20px", boxSizing: "border-box", marginInlineStart: "8px", paddingInline: "8px",
+            borderWidth: "1px", borderStyle: "solid", borderColor: "border.subtle", borderRadius: "sm", background: "bg.subtle",
+            fontFamily: "mono", fontSize: "label.sm", fontWeight: 500, lineHeight: "18px", color: "fg.muted",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            "&[data-alone]": { marginInlineStart: "0" },
+            "[data-selected] &": { background: "bg.surface" },
+        },
 
         /* Nothing shown: the search, or the filters, match no row. */
         empty: { display: "grid", justifyItems: "center", gap: "8px", textAlign: "center", paddingBlock: "32px", paddingInline: "20px" },

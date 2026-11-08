@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { equalFor } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
-import { NULL_CELL, TITLE_KEY, cellText, lineId, resolveMember as resolveRegisterMember, type SheetColumnMeta } from "./model.js";
+import { NULL_CELL, TITLE_KEY, cellText, cellWritable, lineId, resolveMember as resolveRegisterMember, type SheetColumnMeta } from "./model.js";
 import { selectionRect } from "./sheet-state.js";
 import type { EntryVersion } from "./transactions.js";
 import { editsOutOfPlace, stepsInPlace } from "./steps.js";
@@ -62,7 +62,7 @@ export function useSheetActions(host: SheetHost, sheetDecode: SheetDecode, sheet
         barClosedAt, canEdit, dispatchStore, draftVersion, editingState, recordGesture, rows, session, setBarClosedAt,
         ui,
     } = sheetSession;
-    const { metaAt, rowAt, rowOf, wireContextFor } = sheetBody;
+    const { metaAt, rowAt, rowOf, wireContextFor, writableAt } = sheetBody;
     const { dispatch } = sheetMachine;
     const { failed, gestureEvents, writeCells } = sheetWrites;
     const { cardRef } = sheetEffects;
@@ -237,10 +237,10 @@ export function useSheetActions(host: SheetHost, sheetDecode: SheetDecode, sheet
         try { return words.m.actionSets({ facts: actionFacts(r, key, c, c.encode(value)).facts }); }
         catch { return ""; }
     };
-    /** Whether a row takes actions at a column (T9): a sheet that takes edits, a column it writes, a row no system owns. */
+    /** Whether a row takes actions at a column (T9): a sheet that takes edits, a cell it writes that no mark locks (#1560), a row no system owns. */
     const actionWritable = (r: number, key: string): boolean => {
         const a = actionAt(r, key);
-        return a !== undefined && canEdit && a.meta.editable && !(a.lg?.row ?? a.it.row).owned;
+        return a !== undefined && canEdit && cellWritable(a.meta, a.it.row.cells) && !(a.lg?.row ?? a.it.row).owned;
     };
     const ringOn = (r: number, key: string) => {
         const c = columns.list.findIndex((col) => col.key === key);
@@ -432,7 +432,7 @@ export function useSheetActions(host: SheetHost, sheetDecode: SheetDecode, sheet
         if (it === undefined || it.kind !== "real" || column === undefined) return null;
         const summary = it.row.cells.get(column.summary);
         return <ActionPanel host={actionHost} api={panelApi} r={r} columnKey={key} column={column} cell={it.row.cells.get(key)}
-            summary={summary?.type === "String" ? summary.value : ""} registers={registers} />;
+            summary={summary?.type === "String" ? summary.value : ""} registers={registers} writable={meta !== undefined && cellWritable(meta, it.row.cells)} />;
     }, [rowAt, allColumns, actionHost, panelApi, registers]);
     const actionBar = barKey === undefined || barRow === undefined || barHead === undefined ? undefined
         : <ActionBar key={barRow.lg !== undefined ? lineId(barRow.lg.row.id, barRow.lg.key) : barRow.it.row.id} host={actionHost} api={panelApi} r={ui.sel.r} columnKey={barKey}
@@ -440,7 +440,7 @@ export function useSheetActions(host: SheetHost, sheetDecode: SheetDecode, sheet
             summary={ruleText(barRow.it.row, barRow.column.summary) ?? ""} onClose={() => setBarClosedAt({ r: ui.sel.r, c: ui.sel.c })} />;
     // A phone's cell editor (`Mobile Sheet Spec.md` SH10, R9): the ring's cell of every other kind edits in the same
     // bottom container — the inspector's form at touch size, its field alone, the frame's — opened by a press on the cell
-    // and ⌄ closed as the bar is. A column that takes no edit opens nothing (SH10.2); a sheet read only opens nothing; nor,
+    // and ⌄ closed as the bar is. A cell that takes no edit opens nothing (SH10.2), a locked one too (#1560); a sheet read only opens nothing; nor,
     // on a host's grid, does a cell that steps in place or opens where the host edits it (#1536): the press takes it there.
     const hostEditor = host.cellEditor;
     // Its eyebrow names the row as the action bar's does — its action column's name and title — where it has one.
@@ -456,7 +456,7 @@ export function useSheetActions(host: SheetHost, sheetDecode: SheetDecode, sheet
     const ringR = ui.sel.r;
     const ringC = ui.sel.c;
     const cellEditor = !phoneFrame || hostEditor === undefined || ui.ringless || ui.selEnd !== null || barClosed || readOnly || ringMeta === undefined
-        || !ringMeta.editable || ringMeta.kind === "action" || ringMeta.kind === "stamped" || (hostGrid !== undefined && (stepsInPlace(ringMeta) || editsOutOfPlace(ringMeta)))
+        || !writableAt(ringR, ringC) || ringMeta.kind === "action" || ringMeta.kind === "stamped" || (hostGrid !== undefined && (stepsInPlace(ringMeta) || editsOutOfPlace(ringMeta)))
         || (ringRow?.kind !== "real" && ringRow?.kind !== "group") ? undefined
         : hostEditor({ r: ringR, columnKey: ringMeta.key, band: ringRow.kind === "group", name: rowActionName(ringR), onClose: () => setBarClosedAt({ r: ringR, c: ringC }) });
     return { actionBar, actionOverlayNode, cellEditor, drawAction, rowActions };

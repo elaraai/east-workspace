@@ -42,6 +42,8 @@ export interface FillColumn {
     key: string;
     kind: SheetKind;
     editable: boolean;
+    /** Whether a row's cell takes a fill — its column writes and no mark locks it (#1560); `editable` alone when absent. */
+    writable?: ((cells: ReadonlyMap<string, SheetCellValue>) => boolean) | undefined;
     providers: readonly SheetProviderValue[];
 }
 
@@ -171,7 +173,7 @@ export function runSuggest(input: SuggestInput): SuggestOutcome {
     };
 
     for (const col of input.columns) {
-        if (!col.editable || col.providers.length === 0) continue;
+        if (!(col.writable?.(row.cells) ?? col.editable) || col.providers.length === 0) continue;
         const predictedInto = col.kind === "link" || col.kind === "set";
         if (col.key === input.skipKey && !predictedInto) continue;
         if (input.rejected.fills.has(`${input.anchorId}|${col.key}`)) continue;

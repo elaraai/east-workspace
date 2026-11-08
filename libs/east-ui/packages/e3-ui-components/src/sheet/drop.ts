@@ -185,6 +185,8 @@ export interface SheetDropContext {
     can: { insertRows: boolean; insertGroups: boolean; moveRows: "none" | "within" | "between"; moveGroups: boolean };
     /** The column a card's cell lands under — on a band, its band cell — by key: whether the sheet writes it, and its header. */
     columnAt: (band: boolean, key: string) => Pick<SheetColumnMeta, "editable" | "kind" | "header"> | undefined;
+    /** Whether a card's cell takes an edit on a row — its column writes, and no mark locks it (#1560); the column's `editable` alone when absent. */
+    writableAt?: ((r: number, band: boolean, key: string) => boolean) | undefined;
     /** Where an insertion at a row's seam goes: the seam chips' own anchor. */
     anchorFor: (r: number, side: SheetDropSide) => InsertionAnchor;
 }
@@ -313,13 +315,13 @@ export function planBelow(source: SheetDropSource, row: SheetDropRow, ctx: Sheet
     return { kind: "insert", template: source.template, request, place: { at: "seam", r: entry.r, side: "after" }, mark: entry.after };
 }
 
-/** A card's cells set on a row, or on a band (SB61) — refused anywhere else, or where a cell it sets is read only. */
+/** A card's cells set on a row, or on a band (SB61) — refused anywhere else, or where a cell it sets is read only or locked. */
 function planCard(card: SheetDropCard, lands: "row" | "group", at: At, ctx: SheetDropContext): SheetDropPlan {
     const band = at.item.kind === "group";
     if (lands === "group" ? !band : at.item.kind !== "real") return refused(lands === "group" ? { why: "ontoBand" } : { why: "ontoRow", line: ctx.grouped });
     for (const key of card.sets.keys()) {
         const meta = ctx.columnAt(band, key);
-        if (meta === undefined || !meta.editable || meta.kind === "stamped") return refused({ why: "column", header: meta?.header ?? key });
+        if (meta === undefined || !(ctx.writableAt?.(at.r, band, key) ?? meta.editable) || meta.kind === "stamped") return refused({ why: "column", header: meta?.header ?? key });
     }
     return { kind: "set", card, r: at.r };
 }

@@ -6,8 +6,9 @@
 /**
  * The Sheet model (`Sheet Spec.md` §6) — the decoded value turned into what
  * the renderer walks: the column index, the body (real rows in sheet order,
- * the paged arm's unloaded bands, the blank padding rows), the driver lookup
- * and the cell display helpers.
+ * the paged arm's unloaded bands, the blank padding rows), the driver lookup,
+ * the cell display helpers, and a cell's mark with the one check of whether
+ * a cell takes an edit (#1560).
  *
  * On a GROUPED sheet (#740) the body is the groups' BANDS with their lines
  * under them: a line is a `real` item whose row is a pseudo wire row over
@@ -581,6 +582,60 @@ export function rawCellText(cell: SheetCellValue): string {
 /** A sub row's printed text — its lead, detail and id, what a search matches it by. */
 export function subRowText(s: SheetSubRowValue): string {
     return [s.code, s.name, ...s.chips, ...s.facets.map((f) => `${f.label} ${f.value}`), s.id].filter((t) => t !== "").join(" ");
+}
+
+// ── Marks and locks (#1560) ───────────────────────────────────────────────
+
+/** A cell's mark: the words drawn in it, and whether it locks the cell. */
+export interface SheetCellMark {
+    /** The mark's words — a note, or why the cell is locked. */
+    words: string;
+    /** Whether the mark locks the cell, so no gesture writes it. */
+    lock: boolean;
+}
+
+/**
+ * The mark on a column's cell, read off its row's cells where the column's
+ * marks cross (`SheetMarkCellsType`): the root writes both cells for a mark,
+ * and neither where the row has none.
+ *
+ * @param meta - The column
+ * @param cells - The row's cells, read at the sheet's day; `undefined` for a row that holds none
+ * @returns The mark, or `undefined` where the cell has none
+ */
+export function markOf(meta: Pick<SheetColumnMeta, "raw">, cells: ReadonlyMap<string, SheetCellValue> | undefined): SheetCellMark | undefined {
+    const at = getSomeorUndefined(meta.raw.mark);
+    if (at === undefined || cells === undefined) return undefined;
+    const words = cells.get(at.words);
+    if (words?.type !== "String") return undefined;
+    const lock = cells.get(at.lock);
+    return { words: words.value, lock: lock?.type === "Boolean" && lock.value };
+}
+
+/**
+ * Whether a cell takes an edit — the one check every gesture asks, so none
+ * can miss a lock: a step, typing, a paste, a clear, a fill and a drop. Its
+ * column writes, and no mark locks it.
+ *
+ * @param meta - The column
+ * @param cells - The row's cells; `undefined` for a row that holds none
+ * @returns `true` when the cell can be edited
+ */
+export function cellWritable(meta: Pick<SheetColumnMeta, "editable" | "raw">, cells: ReadonlyMap<string, SheetCellValue> | undefined): boolean {
+    return meta.editable && markOf(meta, cells)?.lock !== true;
+}
+
+/**
+ * Whether a column's cells take a clear. Every column's do but a column from
+ * data's whose value isn't an option (its `from.clears`): there a blank is
+ * nothing it can write.
+ *
+ * @param meta - The column
+ * @returns `true` when a clear writes the cell blank
+ */
+export function takesClear(meta: Pick<SheetColumnMeta, "raw">): boolean {
+    const from = getSomeorUndefined(meta.raw.from);
+    return from === undefined || from.clears;
 }
 
 // ── The body ──────────────────────────────────────────────────────────────

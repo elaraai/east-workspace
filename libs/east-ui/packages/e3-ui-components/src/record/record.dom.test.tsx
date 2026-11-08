@@ -23,17 +23,20 @@
  * cells read at the Record's day over a row's entry or its draft, an edit
  * written over the field, two columns on one field chaining in one gesture,
  * Save's difference of each field, the data moving under them and the day
- * turning — over the Record's examples deployed to e3 itself, each test a
- * workspace of its own.
+ * turning — and marks and locks (§4, §5.3, #1560): a note and a lock drawn in
+ * a cell, a plain column's mark over its row, a lock refusing every gesture
+ * and lifting as the draft it reads changes, and a clear refused where a
+ * cell's value isn't an option — over the Record's examples deployed to e3
+ * itself, each test a workspace of its own.
  */
 
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ArrayType, DateTimeType, East, IntegerType, StringType, StructType, equalFor, printFor, some, variant } from "@elaraai/east";
+import { ArrayType, DateTimeType, East, IntegerType, OptionType, StringType, StructType, equalFor, none, printFor, some, variant } from "@elaraai/east";
 import { Reactive, RecordSlicesChromeType, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
-import { Data, Record } from "@elaraai/e3-ui/internal";
+import { Data, Record, Sheet } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/record/record";
 import { width } from "../e3-web-mount.test-utils.js";
 import { act, settle, sheetHarness, slot } from "../sheet/frame/harness.test-utils.js";
@@ -1580,5 +1583,154 @@ describe("columns from data, read and written at the day", () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+});
+
+/** What a column's `mark` returns. */
+const Mark = OptionType(Record.Types.Mark);
+/** What a notes column's fill provider returns. */
+const NotesFill = OptionType(Sheet.Types.Fill(StringType));
+
+/** The hours by project, the training booked centrally locked and the shop front's noted; the lead's name noted, a plain column's mark over its row. */
+const hoursMarked = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const staff = $.let(Record.bind(ex.recordHours));
+    const projectRows = $.let(Data.bind(ex.recordProjects));
+    return Record({
+        record: staff,
+        title: "Hours",
+        noun: { singular: "person", plural: "people" },
+        registers: { projects: Record.register.members(projectRows.read(), { kind: "project", key: (_p, code) => code, label: (p) => p.name }) },
+        columns: {
+            name: Record.column.title(ex.Person, {
+                header: "Name",
+                mark: East.function([ex.Person, DateTimeType], Mark, ($2, person) => {
+                    $2.if(person.name.equal("A. Morgan"), ($3) => { $3.return(some(variant("note", "Lead"))); });
+                    return none;
+                }),
+            }),
+            hours: Record.column.quantity(ex.Person, {
+                each: "projects", unit: "hrs",
+                mark: East.function([Hours, StringType, DateTimeType], Mark, ($2, _hours, project) => {
+                    $2.if(project.equal("P-900"), ($3) => { $3.return(some(variant("lock", "Booked centrally"))); });
+                    $2.if(project.equal("P-200"), ($3) => { $3.return(some(variant("note", "Estimate"))); });
+                    return none;
+                }),
+            }),
+        },
+        name: "hoursMarked",
+    });
+})));
+
+/** The operators, one on nights locked out of her notes, shifts and overtime; empty notes filled with the rota's words. */
+const operatorsOnNights = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const operators = $.let(Record.bind(ex.recordOperators));
+    const choices = $.let(["can", "prefer", "cannot"], ArrayType(StringType));
+    const onNights = $.const(East.function([ex.Operator, DateTimeType], Mark, ($2, operator) => {
+        $2.if(operator.night, ($3) => { $3.return(some(variant("lock", "On nights"))); });
+        return none;
+    }));
+    const covering = $.const(East.function([Record.Types.DraftContext(ex.Operator)], NotesFill, () => East.value(some({ value: "Covering nights", meta: "the rota" }), NotesFill)));
+    return Record({
+        record: operators,
+        title: "Operators",
+        noun: { singular: "operator", plural: "operators" },
+        // The operators come from the Gatehouse: this Record edits them, and adds none.
+        edits: { insertRows: false },
+        registers: { choices: Record.register.members(choices, { kind: "choice", key: (c) => c, label: (c) => c }) },
+        columns: {
+            name: Record.column.title(ex.Operator, { header: "Name" }),
+            notes: Record.column.text(ex.Operator, { header: "Notes", fill: [covering], mark: onNights }),
+            shifts: Record.column.integer(ex.Operator, { header: "Shifts", mark: onNights }),
+            hours: Record.column.quantity(ex.Operator, { header: "Hours", unit: "hrs" }),
+            night: Record.column.toggle(ex.Operator, { header: "Nights", on: "yes", off: "no" }),
+            preference: Record.column.cycle(ex.Operator, "choices", { header: "Overtime", mark: onNights }),
+        },
+        name: "operatorsOnNights",
+    });
+})));
+
+describe("marks and locks", () => {
+    test("a note draws after the value, or in an empty cell in its place; a lock is the Tag after the value, or alone, its cell read only and taking no hover; the hover and the strip say both; a plain column's mark reads its row", async () => {
+        const { container } = await h.mount({ fn: hoursMarked }, { storageKey: "record-marks" });
+        const at = (r: number, k: string) => cellAt(container, r, k);
+        // A plain column's mark, over its row: the lead's name noted, after it.
+        expect([part(at(0, "name"), "note")?.textContent, part(at(0, "name"), "note")?.hasAttribute("data-alone")]).toEqual(["Lead", false]);
+        expect(at(0, "name").getAttribute("title")).toBe("A. Morgan · H-01 · Lead");
+        expect(part(at(1, "name"), "note")).toBeNull();
+        // The shop front's hours noted: after A. Morgan's 4, and in B. Ellis's empty cell in its place.
+        expect([at(0, "hours:P-200").textContent, part(at(0, "hours:P-200"), "note")!.hasAttribute("data-alone")]).toEqual(["4hrsEstimate", false]);
+        expect([at(1, "hours:P-200").textContent, part(at(1, "hours:P-200"), "note")!.hasAttribute("data-alone")]).toEqual(["Estimate", true]);
+        expect(at(1, "hours:P-200").getAttribute("title")).toBe("Estimate");
+        // Training locked: the Tag after B. Ellis's 6, and alone in the others' empty cells.
+        expect([at(1, "hours:P-900").textContent, part(at(1, "hours:P-900"), "lock")!.hasAttribute("data-alone")]).toEqual(["6hrsBooked centrally", false]);
+        expect([at(0, "hours:P-900").textContent, part(at(0, "hours:P-900"), "lock")!.hasAttribute("data-alone")]).toEqual(["Booked centrally", true]);
+        expect(at(1, "hours:P-900").getAttribute("title")).toBe("locked: Booked centrally");
+        // Each locked cell read only and still; a cell no mark locks neither.
+        expect(rows(container).map((_row, r) => [at(r, "hours:P-900").hasAttribute("data-locked"), at(r, "hours:P-900").hasAttribute("data-still"), at(r, "hours:P-900").getAttribute("aria-readonly")]))
+            .toEqual([[true, true, "true"], [true, true, "true"], [true, true, "true"]]);
+        expect([at(0, "hours:P-100").hasAttribute("data-locked"), at(0, "hours:P-100").hasAttribute("data-still"), at(0, "hours:P-100").getAttribute("aria-readonly")])
+            .toEqual([false, false, null]);
+        // The strip says the mark after the cell's value, and offers a locked cell no edit.
+        await hover(at(1, "hours:P-900"));
+        expect(stripSays(container)).toEqual(["Training", "6 · locked: Booked centrally", "↑ ↓ ← → move"]);
+        await hover(at(0, "hours:P-200"));
+        expect(stripSays(container)).toEqual(["Shop front", "4 · Estimate", "⏎ edit · ↑ ↓ ← → move"]);
+    });
+
+    test("a lock refuses every gesture — a step, typing, a clear, a paste and a fill — and lifts as the draft it reads changes", async () => {
+        const { container } = await h.mount({ fn: operatorsOnNights }, { storageKey: "record-locks" });
+        const at = (r: number, k: string) => cellAt(container, r, k);
+        const locked = (r: number) => ["notes", "shifts", "preference"].map((k) => at(r, k).hasAttribute("data-locked"));
+        // B. Ellis is on nights: her notes, shifts and overtime are locked, and her overtime steps nowhere.
+        expect([locked(0), locked(1)]).toEqual([[false, false, false], [true, true, true]]);
+        expect([at(0, "preference").hasAttribute("data-steps"), at(1, "preference").hasAttribute("data-steps")]).toEqual([true, false]);
+        // A step: a press, and Space on the ring.
+        await press(at(1, "preference"));
+        await key(container, " ");
+        expect(part(at(1, "preference"), "chip")!.textContent).toBe("can");
+        // Typing: a key opens no editor; and a clear.
+        await press(at(1, "shifts"));
+        await key(container, "5");
+        expect(editor(container)).toBeNull();
+        await key(container, "Backspace");
+        expect(at(1, "shifts").textContent).toBe("96On nights");
+        // A paste down Shifts from A. Morgan's: hers takes it, B. Ellis's keeps its value.
+        await press(at(0, "shifts"));
+        await act(async () => { fireEvent.paste(grid(container), { clipboardData: { getData: () => "10\n20" } }); });
+        await settle();
+        expect([at(0, "shifts").textContent, at(1, "shifts").textContent]).toEqual(["10", "96On nights"]);
+        expect(rows(container)[1]!.hasAttribute("data-draft")).toBe(false);
+        // A fill: an edit on her row runs the fills, and ⌘⏎ takes none into her locked notes …
+        await typeInto(container, 1, "hours", "14");
+        await key(container, "Enter", { metaKey: true });
+        expect(at(1, "notes").textContent).toBe("On nights");
+        // … until she comes off nights: the lock lifts, and the next fill lands.
+        await press(at(1, "night"));
+        expect(locked(1)).toEqual([false, false, false]);
+        await typeInto(container, 1, "hours", "15");
+        await key(container, "Enter", { metaKey: true });
+        expect(at(1, "notes").textContent).toBe("Covering nights");
+    });
+
+    test("a clear is refused where the cell's value isn't an option: ⌫, a blank pasted and an edit emptied each leave the roster's heads as they were", async () => {
+        const { container } = await h.mount(ex.recordRosterByDay, { storageKey: "record-clear-refused" });
+        const week = () => ["week:mon", "week:tue"].map((k) => cellAt(container, 0, k).textContent);
+        await clear(container, 0, "week:mon");
+        expect(week()).toEqual(["4", "4"]);
+        await act(async () => { fireEvent.paste(grid(container), { clipboardData: { getData: () => "\t" } }); });
+        await settle();
+        expect(week()).toEqual(["4", "4"]);
+        await key(container, "7");
+        const input = await waitFor(() => {
+            const open = cellAt(container, 0, "week:mon").querySelector<HTMLInputElement>('[data-slot="editorInput"]');
+            expect(open).not.toBeNull();
+            return open!;
+        });
+        fireEvent.input(input, { target: { value: "" } });
+        await settle();
+        fireEvent.keyDown(input, { key: "Tab" });
+        await settle();
+        expect(week()).toEqual(["4", "4"]);
+        expect(rows(container)[0]!.hasAttribute("data-draft")).toBe(false);
     });
 });

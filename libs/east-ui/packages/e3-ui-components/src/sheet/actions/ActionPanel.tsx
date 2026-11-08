@@ -53,10 +53,12 @@ export interface ActionPanelProps {
     cell: SheetCellValue | undefined;
     summary: string;
     registers: SheetRegisterIndex;
+    /** Whether the action cell takes an edit: its column writes, and no mark locks it (#1560). */
+    writable: boolean;
 }
 
 /** Renders an action field in the inspector. */
-export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, column, cell, summary, registers }: ActionPanelProps) {
+export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, column, cell, summary, registers, writable }: ActionPanelProps) {
     const styles = useSlotStyles("sheetAction");
     const button = useRecipe({ key: "button" });
     const phone = useContext(FrameDrawer);
@@ -73,11 +75,10 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
     const formRef = useRef<HTMLDivElement | null>(null);
     const [emptied, setEmptied] = useState<FieldSpecValue | undefined>(undefined);
     // A phone's cells draw no controls (X4), but its drawer's field takes the cases as the grid's would: while the sheet
-    // takes an edit, the column is editable and the row is not owned upstream (SH12).
+    // takes an edit, the cell is writable and the row is not owned upstream (SH12).
     const inspect = useSheetInspect();
-    const meta = inspect.columnAt(r, columnKey);
     const owned = inspect.selected.kind === "one" && inspect.selected.place.owned;
-    const controls = host.controls(r, columnKey) || (phone && inspect.writable && meta?.editable === true && !owned);
+    const controls = host.controls(r, columnKey) || (phone && inspect.writable && writable && !owned);
     const choose = (c: ActionCase) => {
         if (c.kind === "button") { api.take(r, columnKey, c, null); return; }
         const form = c.take.type === "form" ? c.take.value : undefined;

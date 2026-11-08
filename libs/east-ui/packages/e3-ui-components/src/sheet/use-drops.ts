@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { StringType, equalFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
 import { useDragTarget, type DragEventValue, type DragTargetConfig } from "@elaraai/east-ui-components";
-import { NULL_CELL, TITLE_KEY } from "./model.js";
+import { NULL_CELL, TITLE_KEY, cellWritable } from "./model.js";
 import type { EntryVersion, Origin, Placement } from "./transactions.js";
 import { cardSource, dropCaption, dropName, dropRefusal, dropRowOf, locateDrop, payloadSource, planBelow, planDrop, readDropRow, type SheetDropContext, type SheetDropMark, type SheetDropPlan, type SheetDropRow, type SheetDropSource } from "./drop.js";
 import { pageWindow } from "./Pager.js";
@@ -84,6 +84,12 @@ export function useSheetDrops(sheetDecode: SheetDecode, sheetSession: SheetSessi
         writable: canEdit && editingState.available,
         can: { insertRows: canInsertRows, insertGroups: canInsertGroups, moveRows: capabilities.moveRows.type, moveGroups: capabilities.moveGroups },
         columnAt: (band, key) => (band ? group?.cells.get(key) : allColumns.byKey.get(key)),
+        // A card's cell on the row it lands on: its column writes, and no mark there locks it (#1560).
+        writableAt: (r, band, key) => {
+            const meta = band ? group?.cells.get(key) : allColumns.byKey.get(key);
+            const it = rowAt(r);
+            return meta !== undefined && cellWritable(meta, it !== undefined && (it.kind === "real" || it.kind === "group") ? it.row.cells : undefined);
+        },
         anchorFor,
     }), [rows, rowAt, rowOf, blankLineRowOf, tailRow, rowCount, group, loose, keyed, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, allColumns, anchorFor]);
     // A drop row's text, read once: the rows print their own, so the same few come back.

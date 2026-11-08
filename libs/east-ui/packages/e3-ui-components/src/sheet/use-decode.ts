@@ -17,7 +17,7 @@ import { Sheet } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, useCoarsePointer, useSlicesReactivity, useDataStable } from "@elaraai/east-ui-components";
 import { useDensityHeights, devicePixels, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { RecordSliceBindType, RecordSliceStateType } from "@elaraai/east-ui/internal";
-import { DEFAULT_BLANKS, DEFAULT_GUTTER_PX, TITLE_KEY, densityOf, groupBandPx, indexColumns, indexGroup, indexRegisters, parseWidth } from "./model.js";
+import { DEFAULT_BLANKS, DEFAULT_GUTTER_PX, TITLE_KEY, cellWritable, densityOf, groupBandPx, indexColumns, indexGroup, indexRegisters, parseWidth } from "./model.js";
 import { keyOrderOf } from "./key-order.js";
 import { narrowingOf, sheetViewsEqual } from "./view-state.js";
 import { mintKey } from "../shared/schedule/records.js";
@@ -305,9 +305,11 @@ export function useSheetDecode(value: SheetRootValue, host: SheetHost) {
 
     // The copilot's declaration: the columns' fill providers and the proposers, as wire functions (§4.8).
     const suggestDecl = useMemo(() => getSomeorUndefined(value.suggest), [value.suggest]);
-    const fillColumns = useMemo<FillColumn[]>(() => columns.list.map((m) => ({
-        key: m.key, kind: m.kind, editable: m.editable && m.kind !== "stamped" && m.kind !== "action", providers: m.raw.fill,
-    })), [columns]);
+    const fillColumns = useMemo<FillColumn[]>(() => columns.list.map((m): FillColumn => {
+        const editable = m.editable && m.kind !== "stamped" && m.kind !== "action";
+        // A cell a mark locks takes no fill (#1560).
+        return { key: m.key, kind: m.kind, editable, writable: (cells) => editable && cellWritable(m, cells), providers: m.raw.fill };
+    }), [columns]);
     const proposers = useMemo<SheetProposerValue[]>(() => suggestDecl?.propose ?? [], [suggestDecl]);
     const ahead = Number(suggestDecl?.ahead ?? 2n);
     const triggers = useMemo(() => new Set(suggestDecl?.triggers ?? []), [suggestDecl]);

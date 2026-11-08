@@ -10,13 +10,16 @@
  * its draft once a gesture has made one. The source's rows carry none of these
  * cells, so its projection stays pure, as it does for an age cell's count. A
  * row is read as it arrives, again whenever its draft changes, and every row
- * again as the day turns; the cells read stand over the row's own.
+ * again as the day turns; the cells read stand over the row's own, and in
+ * place of the last read's, so a mark the draft no longer has goes with it
+ * (#1560).
  *
  * @packageDocumentation
  */
 
 import { useMemo } from "react";
 import { encodeBeast2For, variant, type ValueTypeOf } from "@elaraai/east";
+import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import type { SheetReadFromType } from "@elaraai/e3-ui/internal";
 import type { EntryVersion } from "./transactions.js";
 import type { LocalLayer } from "./use-editing.js";
@@ -46,10 +49,17 @@ const NOTHING_READ: SheetCellsFromData = { rows: (rows) => rows, layer: (layer) 
  * @returns The readers — the same ones while the root and the day hold
  */
 export function useCellsFromData(value: SheetRootValue, day: Date): SheetCellsFromData {
-    const { cellsAt, editing } = value;
+    const { cellsAt, columns, editing } = value;
     return useMemo((): SheetCellsFromData => {
         if (cellsAt.type === "none") return NOTHING_READ;
         const cellsOf = cellsAt.value;
+        // The cells a read writes: each column from data's, and every column's marks.
+        const readKeys = new Set<string>();
+        for (const column of columns) {
+            if (getSomeorUndefined(column.from) !== undefined) readKeys.add(column.key);
+            const mark = getSomeorUndefined(column.mark);
+            if (mark !== undefined) { readKeys.add(mark.words); readKeys.add(mark.lock); }
+        }
         const encodeDraft = encodeBeast2For(editing.draftType) as (draft: unknown) => Uint8Array;
         // An app's read or mark that throws leaves the row its own cells, and is said once.
         let said = false;
@@ -62,7 +72,12 @@ export function useCellsFromData(value: SheetRootValue, day: Date): SheetCellsFr
                 said = true;
                 return row;
             }
-            return cells.size === 0 ? row : { ...row, cells: new Map([...row.cells, ...cells]) };
+            // A read stands in for the last one: a cell it wrote that this one doesn't — a mark lifted — goes.
+            const stale = [...row.cells.keys()].some((key) => readKeys.has(key) && !cells.has(key));
+            if (cells.size === 0 && !stale) return row;
+            const out = new Map([...row.cells].filter(([key]) => !readKeys.has(key) || cells.has(key)));
+            for (const [key, cell] of cells) out.set(key, cell);
+            return { ...row, cells: out };
         };
         const byEntry = new WeakMap<SheetRowValue, SheetRowValue>();
         const byDraft = new WeakMap<SheetRowValue, { draft: unknown; row: SheetRowValue }>();
@@ -102,5 +117,5 @@ export function useCellsFromData(value: SheetRootValue, day: Date): SheetCellsFr
                 return cells;
             },
         };
-    }, [cellsAt, editing, day]);
+    }, [cellsAt, columns, editing, day]);
 }

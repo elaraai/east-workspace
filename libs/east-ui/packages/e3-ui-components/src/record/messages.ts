@@ -7,8 +7,8 @@
  * The Record's own words (`Record - DX Proposal.md` SL1, ST8, EM1, C1–C10,
  * FR5, FR6, AD1–AD7, SP1–SP6, FT1, IN2–IN4, IN7–IN9): its select column's,
  * a new row's required cell's, its empty state's, its cells' — their hovers,
- * an age's and an audit's, and the words for no one and for no value where a
- * column gives none — and its toolbar's, its status line's, its strip's, its
+ * an age's and an audit's, the words for no one and for no value where a
+ * column gives none, and a mark's after a cell's own — and its toolbar's, its status line's, its strip's, its
  * footer's and its inspector's, each in the Record's word for its rows. Every
  * other word it shows is the Sheet's, but the message of an empty field a new
  * row needs, which the Record says its own way in the Sheet's place.
@@ -74,6 +74,8 @@ export interface RecordMessages {
     unassigned: () => string;
     /** A cell with no value, where its column gives no words of its own. */
     absent: () => string;
+    /** A cell's words — its hover, its strip's — with its mark's after them (#1560): `Competent · locked: licence`. */
+    marked: (p: { text: string | undefined; words: string; lock: boolean }) => string;
     /** A cycle's or a toggle's hover: its column, the state it holds, and — while a draft changed it — the record's. */
     stateTitle: (p: { header: string; state: string; was: string | undefined }) => string;
     /** The dot of an age at its column's threshold. */
@@ -178,6 +180,7 @@ export const recordMessages: RecordMessages = {
     titleTitle: ({ title, id }) => `${title} · ${id}`,
     unassigned: () => "Unassigned",
     absent: () => "—",
+    marked: ({ text, words, lock }) => [text ?? "", lock ? (words === "" ? "locked" : `locked: ${words}`) : words].filter((part) => part !== "").join(" · "),
     stateTitle: ({ header, state, was }) => (was === undefined ? `${header} · ${state}` : `${header} · ${state} · was ${was}`),
     stale: () => "Stale",
     ageTitle: ({ count, one, unit, stale, threshold }) => {

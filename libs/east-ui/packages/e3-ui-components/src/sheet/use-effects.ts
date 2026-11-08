@@ -14,7 +14,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { none, some, variant } from "@elaraai/east";
 import { focusKeySearch } from "@elaraai/east-ui-components";
-import { NULL_CELL, cellIsBlank, latencyOf, type SheetBodyItem } from "./model.js";
+import { NULL_CELL, cellIsBlank, latencyOf, takesClear, type SheetBodyItem } from "./model.js";
 import { SHEET_PAGE_SIZE } from "./paging.js";
 import { writeNarrowing, writeSheetViews } from "./view-state.js";
 import { parseCell } from "./parse/index.js";
@@ -50,7 +50,7 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
         setViewsState, triggers, viewsRef, words,
     } = sheetDecode;
     const { canEdit, dispatchStore, paging, recordGesture, store } = sheetSession;
-    const { blankLineRowOf, cellAt, colCount, idAt, lensEnds, metaAt, parseCtxFor, rowAt, rowOf, rowSpace } = sheetBody;
+    const { blankLineRowOf, cellAt, colCount, idAt, lensEnds, metaAt, parseCtxFor, rowAt, rowOf, rowSpace, writableAt } = sheetBody;
     const { dispatch, expectedNarrowing, jumpToElement, lensJumpTo } = sheetMachine;
     const { deleteRows, failed, gestureEvents, insertLooseProposals, insertProposal, writeCells } = sheetWrites;
     const { requestReady, requestRun } = sheetCopilot;
@@ -113,12 +113,17 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
             switch (eff.t) {
                 case "write": {
                     const meta = metaAt(eff.r, eff.c);
+                    // A cell locked since the editor opened takes no write, nor a blank a cell that takes no clear (#1560).
+                    if (!writableAt(eff.r, eff.c) || (meta !== undefined && cellIsBlank(eff.cell ?? NULL_CELL) && !takesClear(meta))) break;
                     const res = writeCells([{ r: eff.r, c: eff.c, cell: eff.cell ?? NULL_CELL }], "typed");
                     afterWrite(eff.r, res, meta !== undefined && (triggers.size === 0 || triggers.has(meta.key)));
                     break;
                 }
                 case "write.many": {
-                    const res = writeCells(eff.writes.map((w) => ({ r: eff.r, c: w.c, cell: w.cell })), eff.source);
+                    // A cell locked since the fill was proposed keeps its value (#1560).
+                    const writes = eff.writes.filter((w) => writableAt(eff.r, w.c));
+                    if (writes.length === 0) break;
+                    const res = writeCells(writes.map((w) => ({ r: eff.r, c: w.c, cell: w.cell })), eff.source);
                     afterWrite(eff.r, res, true);
                     break;
                 }
@@ -158,8 +163,9 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                     for (let r = eff.r0; r <= eff.r1; r++) {
                         for (let c = eff.c0; c <= eff.c1; c++) {
                             const meta = metaAt(r, c);
-                            // A cell that edits out of place is cleared where it edits, never in the grid (#1531).
-                            if (meta === undefined || meta.kind === "stamped" || meta.kind === "action" || editsOutOfPlace(meta) || !meta.editable || !canEdit) continue;
+                            // A cell that edits out of place is cleared where it edits, never in the grid (#1531); a locked cell,
+                            // or one whose value isn't an option, is never cleared (#1560).
+                            if (meta === undefined || meta.kind === "stamped" || meta.kind === "action" || editsOutOfPlace(meta) || !writableAt(r, c) || !takesClear(meta) || !canEdit) continue;
                             if (cellIsBlank(cellAt(r, c))) continue;
                             writes.push({ r, c, cell: NULL_CELL });
                         }
@@ -221,19 +227,27 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                         const r = eff.r + p.dr;
                         const outcome = parseCell(meta, p.text, parseCtxFor(Math.min(r, blankR ?? r), meta));
                         const cell = outcome.kind === "unrecognised" ? variant("Invalid", p.text) : outcome.kind === "cell" ? outcome.cell : NULL_CELL;
+                        // A blank lands only where the cell takes a clear, and a cell it lands on in place only when no
+                        // mark locks it (#1560): either is said as skipped.
+                        if (cellIsBlank(cell) && !takesClear(meta)) { skipped += 1; continue; }
+                        const inPlace = { r, c: p.c, cell };
+                        const lands = writableAt(r, p.c);
                         if (looseEnd !== undefined) {
-                            writes.push(r <= looseEnd ? { r, c: p.c, cell } : { r: looseEnd, c: p.c, cell, extra: r - looseEnd });
+                            if (r > looseEnd) writes.push({ r: looseEnd, c: p.c, cell, extra: r - looseEnd });
+                            else if (lands) writes.push(inPlace);
+                            else skipped += 1;
                             continue;
                         }
                         if (gid !== undefined) {
                             const target = rowAt(r);
                             const inPlan = target !== undefined && (target.kind === "real" || target.kind === "blank") && target.group?.row.id === gid;
-                            if (inPlan && (blankR === undefined || r <= blankR)) writes.push({ r, c: p.c, cell });
+                            if (inPlan && (blankR === undefined || r <= blankR) && lands) writes.push(inPlace);
                             else if (blankR !== undefined && r > blankR) writes.push({ r: blankR, c: p.c, cell, extra: r - blankR });
                             else skipped += 1;
                             continue;
                         }
-                        writes.push({ r, c: p.c, cell });
+                        if (lands) writes.push(inPlace);
+                        else skipped += 1;
                     }
                     // A paste whose new rows' keys are refused writes nothing, and the footer says why (#1536).
                     if (writes.length > 0 && writeCells(writes, "pasted").refused === true) break;
@@ -354,7 +368,7 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
             }
         }
         recordSoFar();
-    }, [recordGesture, failed, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo, hostGrid, dispatchStore, expectedNarrowing, gestureEvents, setViewsState, viewsRef]);
+    }, [recordGesture, failed, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, writableAt, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo, hostGrid, dispatchStore, expectedNarrowing, gestureEvents, setViewsState, viewsRef]);
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
         if (store.fxSeq === drainedFx.current) return;

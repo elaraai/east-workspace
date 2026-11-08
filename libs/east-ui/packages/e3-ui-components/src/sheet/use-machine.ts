@@ -57,7 +57,7 @@ export function useSheetMachine(value: SheetRootValue, sheetDecode: SheetDecode,
     } = sheetSession;
     const {
         body, candidateCtxFor, cellAt, colCount, idAt, lensEnds, levelAt, linkCtxFor, memberAt, metaAt, parseCtxFor,
-        rowAt, rowCount, rowOf, rowSpace,
+        rowAt, rowCount, rowOf, rowSpace, writableAt,
     } = sheetBody;
     // The whole-sheet narrowing, and whether the active tab has drifted from its view (B§8).
     const emptyNarrowing = useMemo(() => (narrowing !== undefined ? clearNarrowing(narrowing) : undefined), [narrowing]);
@@ -102,8 +102,9 @@ export function useSheetMachine(value: SheetRootValue, sheetDecode: SheetDecode,
             const meta = metaAt(r, c);
             if (meta === undefined) return false;
             if (it.kind === "blank" && !canInsertRows) return false;
-            // An action column is written by its actions alone (T7): typed into, pasted over and cleared never.
-            if (!meta.editable || meta.kind === "stamped" || meta.kind === "action") return false;
+            // An action column is written by its actions alone (T7): typed into, pasted over and cleared never. A locked
+            // cell takes no gesture at all (#1560).
+            if (!writableAt(r, c) || meta.kind === "stamped" || meta.kind === "action") return false;
             // A cell that steps in place is a control, as an action cell is (#1531): an owned row's takes no step (T9).
             if (hostGrid !== undefined && stepsInPlace(meta) && (it.kind === "real" || it.kind === "group") && it.row.owned) return false;
             return true;
@@ -207,7 +208,7 @@ export function useSheetMachine(value: SheetRootValue, sheetDecode: SheetDecode,
                 group: g.lines.filter((l) => l.subRows.length > 0).map((l) => lineId(g.id, l.key)),
             };
         },
-    }), [rowCount, colCount, lensDrawn, exhausted, canEdit, canInsertRows, editingState.available, group, declaredNoun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, memberAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, narrowing, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, lensEnds, pageRows, hostGrid, registers]);
+    }), [rowCount, colCount, lensDrawn, exhausted, canEdit, canInsertRows, editingState.available, group, declaredNoun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, memberAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, narrowing, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, lensEnds, pageRows, hostGrid, registers, writableAt]);
     const ctxRef = useRef(ctx);
     ctxRef.current = ctx;
     const uiRef = useRef(ui);

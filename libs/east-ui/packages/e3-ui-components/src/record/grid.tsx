@@ -17,7 +17,9 @@
  *   Apply; a new row's empty cell a person must fill is washed and says so on
  *   hover; a cycle, a toggle or a boolean a person may step lights under the
  *   pointer; an owned row, and every row of a read-only Record, takes no
- *   hover.
+ *   hover. A cell's mark (#1560) draws its words: a note after the value, or
+ *   in an empty cell in its place; a lock the design system's Tag, after the
+ *   value or alone, and the cell it locks takes no hover and no gesture.
  * - **The header** — the column groups' row, each group's label over a rule
  *   under its columns, the columns before the first group and an unlabelled
  *   group drawing neither, then the header row, the select column's box
@@ -46,7 +48,7 @@ import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordPayloadType } from "@elaraai/e3-ui/internal";
 import type { SlotStyles } from "@elaraai/east-ui-components/internal";
 import type { SheetHostEmptyProps, SheetHostHeaderProps, SheetHostRowProps } from "../sheet/index.js";
-import { cellIsBlank, driverKeyOf, resolveMember, unitOf, type SheetColumnIndex, type SheetColumnMeta } from "../sheet/model.js";
+import { cellIsBlank, cellWritable, driverKeyOf, markOf, resolveMember, unitOf, type SheetColumnIndex, type SheetColumnMeta } from "../sheet/model.js";
 import { SheetCellContent } from "../sheet/cells/Cell.js";
 import { cellDetail } from "../sheet/detail.js";
 import { namesMember } from "../sheet/Rows.js";
@@ -176,7 +178,10 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
             {columns.list.map((meta, c) => {
                 const cell = row?.cells.get(meta.key);
                 const editing = editor?.c === c;
-                const editable = writable && meta.editable && meta.kind !== "stamped" && meta.kind !== "action";
+                // The one check every gesture asks (#1560): the column writes, and no mark locks the cell.
+                const mark = markOf(meta, row?.cells);
+                const locked = mark?.lock === true;
+                const editable = writable && cellWritable(meta, row?.cells) && meta.kind !== "stamped" && meta.kind !== "action";
                 // A new row's empty cell a person must fill (ST8): washed, empty, and saying so on hover.
                 const required = changes?.added === true && editable && cellIsBlank(cell);
                 const issue = cell?.type === "Invalid" ? words.m.issueInvalid({ value: cell.value }) : draft?.issues.get(meta.key);
@@ -192,6 +197,13 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
                 // A Record kind's cell, and what it says on hover; a Sheet kind's is the Sheet's (C11).
                 const view = row === undefined || required ? undefined
                     : recordCell({ styles, meta, row, cell, registers, changes, now, words, chip: chips.get(meta.key) });
+                // A mark's words: in an empty cell in its place — but an action cell's, whose state draws whatever it holds — else
+                // after the value; a lock's as the Tag either way.
+                const alone = mark !== undefined && action === undefined && cellIsBlank(cell);
+                const marked = mark === undefined || (mark.words === "" && !locked) ? null
+                    : locked ? <Box as="span" css={styles.lock} data-slot="lock" data-alone={alone ? "" : undefined}>{mark.words}</Box>
+                        : <Box as="span" css={alone ? styles.absent : styles.note} data-slot="note" data-alone={alone ? "" : undefined}>{mark.words}</Box>;
+                const said = required ? m.required({ header: meta.header }) : issue ?? view?.title ?? detail?.title;
                 return (
                     <Box
                         key={meta.key}
@@ -207,10 +219,12 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
                         data-last={c === last ? "" : undefined}
                         data-pinned={pinned && c === 0 ? "" : undefined}
                         data-align={alignOf(meta)}
-                        data-still={still ? "" : undefined}
-                        // A required cell's one issue is that it is empty: it says so in the Record's words.
-                        title={required ? m.required({ header: meta.header }) : issue ?? view?.title ?? detail?.title}
+                        data-still={still || locked ? "" : undefined}
+                        data-locked={locked ? "" : undefined}
+                        // A required cell's one issue is that it is empty: it says so in the Record's words. A mark's words follow.
+                        title={mark === undefined ? said : m.marked({ text: said, words: mark.words, lock: locked })}
                         aria-invalid={issue !== undefined ? true : undefined}
+                        aria-readonly={locked ? true : undefined}
                         role="gridcell"
                         id={`${idPrefix}-${r}-${c}`}
                         aria-colindex={c + (lead ? 2 : 1)}
@@ -219,7 +233,7 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
                         onDoubleClick={() => props.onCellDouble(r, c)}
                         onMouseEnter={() => props.onCellEnter(r, c)}
                     >
-                        {required ? null : action !== undefined && props.actions !== undefined ? (
+                        {alone ? null : required ? null : action !== undefined && props.actions !== undefined ? (
                             <ActionCellSlot host={props.actions} r={r} columnKey={meta.key} column={action} cell={cell}
                                 summary={summary?.type === "String" ? summary.value : ""} selected={selC === c} />
                         ) : view !== undefined ? view.content : (
@@ -235,6 +249,7 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
                                 when={when}
                             />
                         )}
+                        {marked}
                         {editing && editor.node}
                     </Box>
                 );
