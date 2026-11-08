@@ -261,7 +261,7 @@ for (const theme of LAYOUT_THEMES) {
             await page.keyboard.press("Shift+Tab");
             await settled(page);
             const focused = page.locator(":focus");
-            expect(await focused.evaluate((el, row) => row.contains(el), await theirs.elementHandle()), "the focus in the row above").toBe(true);
+            await expect(theirs.locator(":focus"), "the focus in the row above").toHaveCount(1);
             expect(await covered(focused), "the focused control in view").toBe(false);
         });
 
@@ -273,7 +273,7 @@ for (const theme of LAYOUT_THEMES) {
             await page.keyboard.press("ArrowUp");
             await settled(page);
             await expect(hovered, "the day above takes the drag").toHaveCount(1);
-            expect(await hovered.evaluate((el, row) => row.contains(el), await theirs.elementHandle()), "the day above is the row above's").toBe(true);
+            await expect(theirs.locator("[data-drop-active], [data-drop-invalid]"), "the day above is the row above's").toHaveCount(1);
             expect(await covered(hovered), "the day above in view").toBe(false);
             await page.keyboard.press("Escape");
             await expect(page.locator("[data-drag-ghost]")).toHaveCount(0);
