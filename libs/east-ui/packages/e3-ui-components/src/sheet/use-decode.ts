@@ -227,17 +227,22 @@ export function useSheetDecode(value: SheetRootValue, host: SheetHost) {
     // The frame's slack goes to the TEXT columns, each capped at 2.5× its
     // width, and the last column takes the rest, out to the frame's edge: the
     // grid ends at its own last column, never at an empty track after it. A
-    // phone's frame: any pinned column, then a slot a column (SH1, SH4) — the
-    // gutter's cells drawn nowhere (the recipe), so they take no track, but as
-    // the Row column, a slot of its own first among the paged ones (SH2).
+    // host's grid keeps its last column at its own width, as any other, and
+    // what is left lies after it, empty: a Record's cells stay under their
+    // headers, never out at the frame's edge. A phone's frame: any pinned
+    // column, then a slot a column (SH1, SH4) — the gutter's cells drawn
+    // nowhere (the recipe), so they take no track, but as the Row column, a
+    // slot of its own first among the paged ones (SH2).
     const gridTemplate = useMemo(() => {
         if (phoneFrame) {
             const tracks = columns.list.map((_c, i) => (i === 0 && pinned ? `${PHONE_PIN_PX}px` : `${slotPx}px`));
             if (rowNumbers) tracks.splice(pinned ? 1 : 0, 0, `${slotPx}px`);
             return tracks.join(" ");
         }
-        const tracks = columns.list.map((c, i) => (i === columns.list.length - 1 ? `minmax(${c.width}px, 1fr)`
+        const last = columns.list.length - 1;
+        const tracks = columns.list.map((c, i) => (i === last && hostGrid === undefined ? `minmax(${c.width}px, 1fr)`
             : c.kind === "text" ? `minmax(${c.width}px, ${Math.round(c.width * 2.5)}px)` : `${c.width}px`));
+        if (hostGrid !== undefined) tracks.push("1fr");
         // A host's grid with no lead has no lead track (#1531).
         return hostGrid !== undefined && gutterPx === 0 ? tracks.join(" ") : `${gutterPx}px ${tracks.join(" ")}`;
     }, [gutterPx, columns, phoneFrame, slotPx, pinned, rowNumbers, hostGrid]);

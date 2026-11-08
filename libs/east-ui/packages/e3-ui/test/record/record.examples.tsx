@@ -686,7 +686,7 @@ export const recordHoursByProject = example({
                         columns={{
                             name: Record.column.title(Person, { header: "Name", width: "176px" }),
                             // The hours field: a column for each project, under its client.
-                            hours: Record.column.quantity(Person, { each: "projects", groups: "clients", unit: "hrs", width: "88px" }),
+                            hours: Record.column.quantity(Person, { each: "projects", groups: "clients", unit: "hrs", width: "128px" }),
                         }}
                         inspector
                         name="hours"

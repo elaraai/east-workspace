@@ -100,9 +100,13 @@ export function useRecordGrid(): RecordGrid {
     return grid;
 }
 
-/** How a column's cells sit in them (GR2): a cycle's, a toggle's and a boolean's centred, an age's at the end, every other at the start. */
+/**
+ * How a column's cells and its header sit in them (GR2): a cycle's, a toggle's and a boolean's centred; an age's and a
+ * number's at the end, a number's header over its figures; every other at the start.
+ */
 function alignOf(meta: SheetColumnMeta): "center" | "end" | undefined {
-    return meta.kind === "cycle" || meta.kind === "toggle" || meta.kind === "boolean" ? "center" : meta.kind === "age" ? "end" : undefined;
+    return meta.kind === "cycle" || meta.kind === "toggle" || meta.kind === "boolean" ? "center"
+        : meta.kind === "age" || meta.kind === "quantity" || meta.kind === "integer" ? "end" : undefined;
 }
 
 /**

@@ -14,8 +14,9 @@
  *     line, mono 11 in `fg.muted`, right-aligned and one line; Add and Delete,
  *     the outline buttons, Delete off in `fg.faint` until rows are ticked.
  *   - Header: the group row 24 tall, each group's label mono 9.5/600 at 0.14em
- *     over a `border.strong` rule inset 6 at each end; the header row as tall
- *     as a row, its labels mono 10/600 at 0.1em, one line.
+ *     over a `border.strong` rule inset 6 at each end, cut with an ellipsis
+ *     where its columns are narrower; the header row as tall as a row, its
+ *     labels mono 10/600 at 0.1em, one line.
  *   - Select column: 46 wide, a 14 checkbox at radius 3, `brand.solid` once
  *     ticked.
  *   - Rows: `bg.surface`, `bg.canvas` under the pointer, `bg.subtle` selected
@@ -168,7 +169,7 @@ export const recordSlotRecipe = defineSlotRecipe({
         },
         groupLabel: {
             textAlign: "center", fontFamily: "mono", fontSize: "label.xs", fontWeight: 600, letterSpacing: "label", textTransform: "uppercase",
-            lineHeight: "18px", color: "fg.subtle", whiteSpace: "nowrap", overflow: "hidden",
+            lineHeight: "18px", color: "fg.subtle", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
             /* On a phone, centred over its group while it is all in view, and held over the part of it in view as the window pages:
                past the pinned column (`--record-pin`, the renderer's geometry) and the group's own inset. */
             "[data-phone] &": {
@@ -219,8 +220,10 @@ export const recordSlotRecipe = defineSlotRecipe({
             "&[data-pinned][data-still]": { _hover: { background: "inherit" } },
             "&[data-still][data-dirty]": { _hover: { background: "brandTint" } },
             "&[data-still][data-active]": { _hover: { background: "bg.subtle" } },
-            /* The editor of a Sheet kind lies over the cell, the cell's own box. */
-            "& > [data-slot=editor]": { position: "absolute", inset: "0", zIndex: "10" },
+            /* The editor of a Sheet kind lies over the cell, the cell's own box: never past it, as over the Sheet's seams, for
+               the cell clips what reaches past it and its ring would lose its foot. Named with the cell's slot, so it outweighs
+               the Sheet's own rules for its first cell. */
+            "&[data-slot=cell] > [data-slot=editor]": { position: "absolute", inset: "0", minHeight: "0", zIndex: "10" },
         },
         /* The select column's box, 20 in; in the header, a pixel above the labels' line. */
         tick: { ...BOX, cursor: "pointer", "&[data-mixed]": { color: "fg.subtle" }, "[data-tick] > &": { marginBottom: "1px" } },
