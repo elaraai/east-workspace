@@ -62,19 +62,22 @@
  * the start, cut with an ellipsis and whole in its tooltip, and its choices at
  * the end as one line of radios, none checked while it holds no value — a
  * Record's cycle, toggle and boolean. A choice is an edit at once; read only,
- * the choice made is printed there. Lines that follow one another sit closer
- * than fields do, rows of choices. A field an issue names (`issues`) takes the warn wash
- * around it, as a changed one takes the brand's; and the field a host names
- * (`focus`) takes the keyboard as it is named — a new row's title — or, where a
- * tab or a fold still hides the form, once it shows.
+ * the choice made is printed there. Its help line, where it has one — a
+ * Record's mark's words (#1561) — sits under it, as a field's does, in the
+ * shared `Field`'s style for help. Lines that follow one another sit closer
+ * than fields do, rows of choices. A field an issue names (`issues`) takes the
+ * warn wash around it, as a changed one takes the brand's; and the field a
+ * host names (`focus`) takes the keyboard as it is named — a new row's title —
+ * or, where a tab or a fold still hides the form, once it shows.
  *
  * It is a React part for renderers, as `BuilderFrame` is: no East component.
  * Each input's payload is East's `defaultValue` of its type with the field's
  * parts set; the `fieldForm` recipe lays the fields out and tints a changed
  * one; the form sets data attributes (`data-field`, `data-editor`,
  * `data-layout`, `data-dirty`, `data-issue`, `data-field-line`,
- * `data-field-side`, `data-field-block`), a text's or a choice's title and
- * geometry only.
+ * `data-field-side`, `data-field-block`, `data-field-help`), a text's or a
+ * choice's title and geometry only; a line's help takes the `field` recipe's
+ * help style.
  *
  * @packageDocumentation
  */
@@ -522,6 +525,8 @@ const FieldRow = memo(function FieldRow({
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const iconButton = useRecipe({ key: "iconButton" });
+    // A line's help, in the shared Field's style for it: what the Field draws a column's in.
+    const fieldStyles = useSlotRecipe({ key: "field" })() as Styles;
     const type = useMemo(() => fromEastTypeValue(spec.type) as EastType, [spec.type]);
     // Two values of the field, either of them none yet (a draft's field not given).
     const same = useMemo(() => {
@@ -582,10 +587,12 @@ const FieldRow = memo(function FieldRow({
     );
 
     // Drawn on one line: its label at the start, cut where the line is short and whole in its tooltip, and its choices
-    // at the end as one line of radios, none checked while it holds no value — or, read only, the choice made.
+    // at the end as one line of radios, none checked while it holds no value — or, read only, the choice made — and its
+    // help under it.
     if (choices !== undefined && own === undefined) {
         const chosen = held === undefined ? -1 : choices.findIndex((choice) => sameInner(choice.value, held));
         const printedLine = editor.type === "readonly" || readOnly;
+        const lineHelp = getSomeorUndefined(spec.help);
         return (
             <Box css={styles.field} data-field={key} data-editor={printedLine ? "readonly" : editor.type} data-layout="line"
                 data-dirty={dirty ? "" : undefined} data-issue={issue ? "" : undefined} title={spec.label}>
@@ -609,6 +616,9 @@ const FieldRow = memo(function FieldRow({
                         </Box>
                     )}
                 {!printedLine && spec.optional && held !== undefined && <Box css={styles.side} data-field-side="clear">{clear}</Box>}
+                {lineHelp !== undefined && lineHelp.length > 0 && (
+                    <Box as="span" css={[fieldStyles.helperText, styles.lineHelp]} data-field-help="">{lineHelp}</Box>
+                )}
             </Box>
         );
     }

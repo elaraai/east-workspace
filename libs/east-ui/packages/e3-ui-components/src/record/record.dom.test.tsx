@@ -26,8 +26,11 @@
  * turning — and marks and locks (§4, §5.3, #1560): a note and a lock drawn in
  * a cell, a plain column's mark over its row, a lock refusing every gesture
  * and lifting as the draft it reads changes, and a clear refused where a
- * cell's value isn't an option — over the Record's examples deployed to e3
- * itself, each test a workspace of its own.
+ * cell's value isn't an option — and columns from data in the side panel
+ * (§4, #1561): each member a line in its group's section, the field they
+ * write no field of its own, a locked line read only with its lock's words,
+ * and a line's edit drafting as the grid's does — over the Record's examples
+ * deployed to e3 itself, each test a workspace of its own.
  */
 
 import { describe, expect, test, vi } from "vitest";
@@ -1617,6 +1620,7 @@ const hoursMarked = East.function([], UIComponentType, (_$) => Reactive.Root(Eas
                 }),
             }),
         },
+        inspector: true,
         name: "hoursMarked",
     });
 })));
@@ -1645,6 +1649,7 @@ const operatorsOnNights = East.function([], UIComponentType, (_$) => Reactive.Ro
             night: Record.column.toggle(ex.Operator, { header: "Nights", on: "yes", off: "no" }),
             preference: Record.column.cycle(ex.Operator, "choices", { header: "Overtime", mark: onNights }),
         },
+        inspector: true,
         name: "operatorsOnNights",
     });
 })));
@@ -1732,5 +1737,117 @@ describe("marks and locks", () => {
         await settle();
         expect(week()).toEqual(["4", "4"]);
         expect(rows(container)[0]!.hasAttribute("data-draft")).toBe(false);
+    });
+});
+
+/** The fields of an element of Details, by their keys, in order. */
+const fieldKeys = (root: Element) => [...root.querySelectorAll("[data-field]")].map((field) => field.getAttribute("data-field"));
+/** Details' sections: each one's label and its fields. */
+const sectionsOf = (container: HTMLElement) => [...details(container)!.querySelectorAll<HTMLElement>("[data-field-group]")]
+    .map((section) => [section.getAttribute("data-field-group"), fieldKeys(section)]);
+/** A field's help line, as the shared Field draws it. */
+const helpOf = (container: HTMLElement, key: string) => detailsField(container, key).querySelector("[data-part=helper-text]")?.textContent;
+/** A read-only field's value, as it is printed. */
+const printedOf = (container: HTMLElement, key: string) => (within(detailsField(container, key)).getByRole("textbox") as HTMLInputElement).value;
+
+describe("columns from data in the side panel (#1561)", () => {
+    test("each member a line in its column's place, in its group's section, labelled by its member and holding its cell — the field the columns write no field of its own", async () => {
+        const { container } = await h.mount(ex.recordHoursByProject, { storageKey: "record-lines" });
+        await press(cellAt(container, 0, "name"));
+        await waitFor(() => expect(inspected(container)).toBe("H-01"));
+        const projects = ["hours:P-100", "hours:P-101", "hours:P-200", "hours:P-900"];
+        expect(fieldKeys(details(container)!)).toEqual(["name", ...projects]);
+        expect(sectionsOf(container)).toEqual([
+            ["Ashgrove Joinery", ["hours:P-100", "hours:P-101"]], ["Bellmoor Interiors", ["hours:P-200"]], ["Other", ["hours:P-900"]],
+        ]);
+        expect(projects.map((key) => detailsField(container, key).querySelector("label")!.textContent)).toEqual(["Kitchen fit-out", "Stair rebuild", "Shop front", "Training"]);
+        // A. Morgan's kitchen and shop front hours, each a number in the column's unit; none on the stair rebuild, Set giving it one.
+        expect(projects.map((key) => detailsField(container, key).getAttribute("data-editor"))).toEqual(["number", "number", "number", "number"]);
+        expect(helpOf(container, "hours:P-100")).toBe("in hrs");
+        expect((within(detailsField(container, "hours:P-101")).getByRole("textbox") as HTMLInputElement).placeholder).toBe("Not set");
+        expect(within(detailsField(container, "hours:P-101")).getByRole("button", { name: "Set" })).toBeTruthy();
+        expect(within(detailsField(container, "hours:P-200")).getByRole("button", { name: "Clear Shop front" })).toBeTruthy();
+        expect(details(container)!.querySelector('[data-field="hours"]')).toBeNull();
+    });
+
+    test("a struct's fields: each a line under the column group that names them, the struct no field of its own, and a line whose value isn't an option no Clear", async () => {
+        const { container } = await h.mount(ex.recordRosterByDay, { storageKey: "record-lines-struct" });
+        await press(cellAt(container, 0, "name"));
+        await waitFor(() => expect(inspected(container)).toBe("S-1"));
+        const days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((day) => `week:${day}`);
+        expect(fieldKeys(details(container)!)).toEqual(["name", ...days]);
+        expect(sectionsOf(container)).toEqual([["Heads per day", days]]);
+        expect(days.map((key) => detailsField(container, key).querySelector("label")!.textContent)).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
+        expect(within(details(container)!).queryByRole("button", { name: /^(Clear|Set)/ })).toBeNull();
+    });
+
+    test("an edit in a line drafts as the grid's cell does — the cell and the line changed, one step Undo takes back — and Apply writes the field's difference", async () => {
+        const { container } = await h.mount(ex.recordHoursByProject, { storageKey: "record-lines-edit" });
+        await press(cellAt(container, 0, "name"));
+        await waitFor(() => expect(inspected(container)).toBe("H-01"));
+        // The stair rebuild set, where A. Morgan logged none.
+        await press(within(detailsField(container, "hours:P-101")).getByRole("button", { name: "Set" }));
+        expect(cellAt(container, 0, "hours:P-101").textContent).toBe("0hrs");
+        expect([cellAt(container, 0, "hours:P-101").hasAttribute("data-dirty"), detailsField(container, "hours:P-101").hasAttribute("data-dirty")]).toEqual([true, true]);
+        expect(chipOf(container)).toEqual(["pending", "1 pending"]);
+        await press(history(container, editingMessages.undo()));
+        expect(cellAt(container, 0, "hours:P-101").textContent).toBe("");
+        expect([cellAt(container, 0, "hours:P-101").hasAttribute("data-dirty"), detailsField(container, "hours:P-101").hasAttribute("data-dirty")]).toEqual([false, false]);
+        // The kitchen's hours typed, a key at a time as the number input reads them, and the shop front's cleared.
+        const user = userEvent.setup();
+        const kitchen = within(detailsField(container, "hours:P-100")).getByRole("spinbutton");
+        await user.clear(kitchen);
+        for (const k of "10") {
+            await user.type(kitchen, k);
+            await settle();
+        }
+        await user.keyboard("{Enter}");
+        await settle();
+        expect(cellAt(container, 0, "hours:P-100").textContent).toBe("10hrs");
+        await press(within(detailsField(container, "hours:P-200")).getByRole("button", { name: "Clear Shop front" }));
+        expect(cellAt(container, 0, "hours:P-200").textContent).toBe("");
+        await press(history(container, editingMessages.apply()));
+        await waitFor(() => expect(status(container)).toBe("Applied 1 change to 1 person"));
+        const morgan = (await h.read(ex.recordHours)).get("H-01")!.hours;
+        expect(hoursEqual(morgan, new Map([["P-100", 10]])), printHours(morgan)).toBe(true);
+    });
+
+    test("a locked cell's line is read only, its lock's words its help; a note's words a line's help, before what the line says of its own (D1)", async () => {
+        const { container } = await h.mount({ fn: hoursMarked }, { storageKey: "record-lines-marks" });
+        await press(cellAt(container, 0, "name"));
+        await waitFor(() => expect(inspected(container)).toBe("H-01"));
+        // The lead's name noted; her training locked, logging none; her shop front's estimate noted, before its unit.
+        expect(helpOf(container, "name")).toBe("Lead");
+        expect([detailsField(container, "hours:P-900").getAttribute("data-editor"), printedOf(container, "hours:P-900"), helpOf(container, "hours:P-900")])
+            .toEqual(["readonly", "—", "locked: Booked centrally"]);
+        expect([detailsField(container, "hours:P-200").getAttribute("data-editor"), helpOf(container, "hours:P-200")]).toEqual(["number", "Estimate · in hrs"]);
+        expect(helpOf(container, "hours:P-100")).toBe("in hrs");
+        // B. Ellis's training: its 6 printed, read only.
+        await press(cellAt(container, 1, "name"));
+        await waitFor(() => expect(inspected(container)).toBe("H-02"));
+        expect([detailsField(container, "hours:P-900").getAttribute("data-editor"), printedOf(container, "hours:P-900")]).toEqual(["readonly", "6"]);
+        expect(within(detailsField(container, "hours:P-900")).queryByRole("button", { name: /^(Clear|Set)/ })).toBeNull();
+    });
+
+    test("a lock on a plain column reads its field only — a cycle's one line printing its choice, the lock's words under it — and lifts as the draft it reads changes (D1)", async () => {
+        const { container } = await h.mount({ fn: operatorsOnNights }, { storageKey: "record-lines-lock-line" });
+        // B. Ellis is on nights.
+        await press(cellAt(container, 1, "name"));
+        await waitFor(() => expect(inspected(container)).toBe(rows(container)[1]!.getAttribute("data-row-id")));
+        const overtime = () => detailsField(container, "preference");
+        expect([overtime().getAttribute("data-layout"), overtime().getAttribute("data-editor")]).toEqual(["line", "readonly"]);
+        expect(overtime().querySelector("[data-field-value]")!.textContent).toBe("can");
+        expect(overtime().querySelector("[data-field-help]")!.textContent).toBe("locked: On nights");
+        expect(overtime().querySelector("[data-scope=radio-group]")).toBeNull();
+        expect(["notes", "shifts"].map((key) => [detailsField(container, key).getAttribute("data-editor"), helpOf(container, key)]))
+            .toEqual([["readonly", "locked: On nights"], ["readonly", "locked: On nights"]]);
+        // Off nights, her Nights line's no: the lock lifts in Details as in the grid.
+        fireEvent.click(radiosOf(detailsField(container, "night"))[1]!);
+        await settle();
+        expect(cellAt(container, 1, "preference").hasAttribute("data-locked")).toBe(false);
+        expect(overtime().getAttribute("data-editor")).not.toBe("readonly");
+        expect(checkedOf(overtime())).toEqual([true, false, false]);
+        expect(overtime().querySelector("[data-field-help]")).toBeNull();
+        expect(detailsField(container, "shifts").getAttribute("data-editor")).toBe("number");
     });
 });

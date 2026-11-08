@@ -534,6 +534,7 @@ The **day** the functions get is the Record's clock: the browser's local calenda
 - **`sheet/bridge.ts`** — `describeColumn` describes a column made from data: its field, its members' key, its functions' signatures checked against them, the defaults for a `Dict` and a struct, and every refusal above.
 - **`sheet/root.ts`** — the payload's columns become an East expression: the fixed columns, and each register's members mapped to wire columns where their column stands. A struct's columns are fixed at build.
 - **`record/record.ts`** — `columnGroups` becomes the literal groups plus each column's computed groups. The literal groups keep the build's checks.
+- **`sheet/fields.ts`** — the inspector's form leaves out the field a column from data writes, so it never shows by its type, set on the draft past the column's `write` and its locks. A `fields` hint naming it is refused, naming the column.
 - **A variant's steps** cross the wire as a register keyed by the cases' names, so the renderer's cycle is unchanged. The bridge maps each case to its key and back.
 - **The Sheet's build** refuses a column from data, naming the Record, where it refuses the Record's own kinds today.
 
@@ -550,7 +551,7 @@ The **day** the functions get is the Record's clock: the browser's local calenda
 - **A lock** makes its cell read only. Today each gesture checks its column's `editable` on its own, in the grid, the strip and the side panel, for steps, typing, paste, clear and fill. Those checks become one check per cell, which reads the lock, so no gesture can miss it. The clear's check also refuses a clear where `from` says the cell takes none.
 - **The cells** draw a mark's words in the record recipe's slots.
 - **The column groups** already match each column to its group by key, in the header and on a phone, so they need no change.
-- **The side panel** draws the columns from data as lines, in their groups' sections.
+- **The side panel** draws the columns from data as lines, in their groups' sections, each written as its cell is. A mark's words are its line's help, and a lock reads the line only. `FieldForm` draws a one-line field's help line under it, as it does every other field's.
 
 ## 6. Tests and examples
 

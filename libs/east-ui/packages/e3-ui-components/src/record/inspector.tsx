@@ -13,9 +13,11 @@
  *   over its form, each field's label and message, the field each names washed
  *   in the form (IN3); its fields in column order, each column group a section
  *   under its label — an unlabelled group's `Other` — and the fields no column
- *   shows after them (IN4), a cycle, a toggle and a boolean each one line of
- *   radios (IN5); its facts last, the audit's and the age's, read only, an age
- *   warning once stale (IN6); then Duplicate and Delete (IN7);
+ *   shows after them (IN4), each member of a column from data a line of its
+ *   own in its group's section (#1561), a cycle, a toggle and a boolean each
+ *   one line of radios (IN5); a cell's mark its field's help, and a lock's
+ *   field read only (D1); its facts last, the audit's and the age's, read
+ *   only, an age warning once stale (IN6); then Duplicate and Delete (IN7);
  * - **nothing** — the rows shown, the drafts pending and the rows stale, then
  *   where a row's fields show (IN8).
  *
@@ -35,11 +37,11 @@
  * @packageDocumentation
  */
 
-import { createContext, memo, useContext, useEffect, useMemo, type ReactNode } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLock } from "@fortawesome/free-solid-svg-icons";
-import { defaultValue, equalFor, fromEastTypeValue, some, variant, type EastType } from "@elaraai/east";
+import { defaultValue, equalFor, fromEastTypeValue, none, some, variant, type EastType } from "@elaraai/east";
 import { Field, type FieldSpecValue } from "@elaraai/east-ui/internal";
 import {
     EastChakraComponent, EastChakraField, FieldForm, fieldFormMessages, getSomeorUndefined, type FieldLineChoice,
@@ -47,7 +49,7 @@ import {
 import { FrameDrawer, formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { useSheetEntries, useSheetInspect, type SheetInspect, type SheetInspectPlace, type SheetInspectTarget } from "../sheet/index.js";
 import { targetIssues, useAuthorDetails, useTargetForm, whatOf, type FormValue, type SheetInspectorDetailsProps } from "../sheet/frame/inspector.js";
-import { indexColumns, indexRegisters, type SheetColumnIndex } from "../sheet/model.js";
+import { indexColumns, indexRegisters, markOf, type SheetColumnIndex } from "../sheet/model.js";
 import type { SheetWords } from "../sheet/words.js";
 import { ageOf, useRecordNow } from "./clock.js";
 import { staleCountOf } from "./footer.js";
@@ -200,46 +202,57 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
 
     // Its fields in column order, each column group a section under its label — an unlabelled group's `Other` — the fields
     // no column shows after them, in the form's order (IN4): a variant's cases' fields right after it, its block under its
-    // choice (#1549) — a column's field is one spec, never a variant's cases'. The audit is a fact, never a field (IN6).
+    // choice (#1549) — a column's field is one spec, never a variant's cases'. Each member of a column from data is a line
+    // in its column's place, in its group's section (#1561). The audit is a fact, never a field (IN6). A cell's mark is its
+    // field's help, after its own, a lock's words saying so — and a lock reads the field only, as the grid's cell (D1).
+    const cells = target.row.cells;
     const specs = useMemo(() => {
         const order = new Map(columns.list.map((meta, i) => [meta.key, i] as const));
         const groupOf = new Map<string, string>();
         for (const group of groups) for (const key of group.columnKeys) groupOf.set(key, group.label.trim().length === 0 ? rm.otherGroup() : group.label);
         const placed = edit.specs.flatMap((spec, i): { spec: FieldSpecValue; at: number }[] => {
-            const key = getSomeorUndefined(form.fields[i]!.column);
+            const key = edit.columns[i];
             const at = key === undefined ? undefined : order.get(key);
             if (key === undefined || at === undefined) return [{ spec, at: columns.list.length + i }];
-            if (columns.byKey.get(key)?.kind === "audit") return [];
+            const meta = columns.byKey.get(key);
+            if (meta?.kind === "audit") return [];
             const group = groupOf.get(key);
-            return [{ spec: group === undefined ? spec : { ...spec, group: some(group) }, at }];
+            const grouped = group === undefined ? spec : { ...spec, group: some(group) };
+            const mark = meta === undefined ? undefined : markOf(meta, cells);
+            if (mark === undefined) return [{ spec: grouped, at }];
+            const help = rm.marked({ text: getSomeorUndefined(spec.help), words: mark.words, lock: mark.lock });
+            return [{ spec: { ...grouped, help: help === "" ? none : some(help), ...(mark.lock ? { editor: variant("readonly", null) } : {}) }, at }];
         });
         return placed.sort((a, b) => a.at - b.at).map((p) => p.spec);
-    }, [edit.specs, form.fields, columns, groups]);
+    }, [edit.specs, edit.columns, columns, groups, cells]);
 
-    // A cycle, a toggle and a boolean, each one line of radios (IN5): a cycle's members as its options rule offers them at
-    // this row, a toggle's on and off, a boolean's yes and no.
+    // A cycle, a toggle and a boolean, each one line of radios (IN5) — a member's line's among them: a cycle's members as
+    // its options rule offers them at this row, a toggle's on and off, a boolean's yes and no.
     const lines = useMemo(() => {
         const out = new Map<string, readonly FieldLineChoice[]>();
-        for (const f of form.fields) {
-            const key = getSomeorUndefined(f.column);
+        edit.specs.forEach((spec, i) => {
+            const key = edit.columns[i];
             const kind = key === undefined ? undefined : inspect.columnAt(r, key)?.raw.kind;
-            if (key === undefined || kind === undefined) continue;
+            if (key === undefined || kind === undefined) return;
             if (kind.type === "cycle") {
                 const allowed = inspect.allowedAt(r, key);
                 // What a member's choice sets: a String field its key — and a cycle over a variant, whose steps the wire
-                // keys by the cases' names, the case its key names.
-                const ofCases = (fromEastTypeValue(f.spec.type) as EastType).type === "Variant" && !f.spec.optional;
-                out.set(formKey(f.spec.path), (registers.byName.get(kind.value.register) ?? [])
+                // keys by the cases' names, the case its key names. A member's line holds its cell's key.
+                const ofCases = (fromEastTypeValue(spec.type) as EastType).type === "Variant" && !spec.optional;
+                out.set(formKey(spec.path), (registers.byName.get(kind.value.register) ?? [])
                     .filter((member) => allowed === undefined || allowed.has(member.key))
                     .map((member) => ({ value: ofCases ? variant(member.key, null) : member.key, label: member.label !== "" ? member.label : member.key })));
             } else if (kind.type === "toggle") {
-                out.set(formKey(f.spec.path), [{ value: true, label: kind.value.on }, { value: false, label: kind.value.off }]);
+                out.set(formKey(spec.path), [{ value: true, label: kind.value.on }, { value: false, label: kind.value.off }]);
             } else if (kind.type === "boolean") {
-                out.set(formKey(f.spec.path), [{ value: true, label: fieldFormMessages.yesNo({ value: true }) }, { value: false, label: fieldFormMessages.yesNo({ value: false }) }]);
+                out.set(formKey(spec.path), [{ value: true, label: fieldFormMessages.yesNo({ value: true }) }, { value: false, label: fieldFormMessages.yesNo({ value: false }) }]);
             }
-        }
+        });
         return out;
-    }, [form.fields, inspect, r, registers]);
+    }, [edit.specs, edit.columns, inspect, r, registers]);
+    // A line draws its choices, or read only the choice made — a lock's too: never its cell's own control.
+    const editControl = edit.renderControl;
+    const renderControl = useCallback((spec: FieldSpecValue) => (lines.has(formKey(spec.path)) ? undefined : editControl(spec)), [lines, editControl]);
 
     // The fields its issues name, washed in the form (IN3).
     const named = useMemo(() => new Set(issues.flatMap((issue) => (issue.name === undefined ? [] : [issue.name]))), [issues]);
@@ -337,7 +350,7 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
                     : own !== undefined
                         ? <EastChakraComponent value={own} storageKey={`${keys.frame}.inspector`} />
                         : <FieldForm specs={specs} value={edit.formValue} baseline={edit.baseline} options={edit.options} onChange={edit.onChange}
-                            readOnly={!inspect.writable} renderControl={edit.renderControl} lines={lines} issues={named} focus={focusKey} />}
+                            readOnly={!inspect.writable} renderControl={renderControl} lines={lines} issues={named} focus={focusKey} />}
             </Box>
             {facts.length > 0 && (
                 <Box css={record.facts} data-record-facts="">

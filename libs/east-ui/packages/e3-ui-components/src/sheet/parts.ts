@@ -480,7 +480,8 @@ export interface SheetInspect {
     kindOf: (issue: EditIssue) => "incomplete" | "invalid";
     /**
      * Write rows: every cell, text and field as one transaction, the copilot asked again for a row whose trigger column
-     * changed. A write that `joins` the last one — given the same key — is one step of the history with it.
+     * changed. A write that `joins` the last one — given the same key — is one step of the history with it. Each cell
+     * asks the grid's one check (#1560): a cell its mark locks takes none, nor one with no blank a clear (#1561).
      */
     write: (writes: readonly SheetInspectWrite[], joins?: string) => void;
     /** Put the ring on a row's cell under a column the grid shows, and focus the grid; `false` when the grid does not show it. */
@@ -497,6 +498,8 @@ export interface SheetInspect {
     columnAt: (r: number, key: string) => SheetColumnMeta | undefined;
     /** The cell under a column at a row. */
     cellAt: (r: number, key: string) => SheetCellValue | undefined;
+    /** What a row's drafts changed against what the record holds, as the grid tints its cells by it (#1561); `undefined` for a row no gesture has touched, and for a line or a band. */
+    changesAt: (r: number) => SheetRowChanges | undefined;
     /** A quantity's unit at a row: its driver member's. */
     unitAt: (r: number, key: string) => string | undefined;
     /** A date column's level at a row (#844). */

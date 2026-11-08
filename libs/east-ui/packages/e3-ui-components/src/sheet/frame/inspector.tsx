@@ -14,7 +14,8 @@
  * - **one row or line** (SB47): its number and id, a Pending or New chip,
  *   the lock of a row owned upstream, its issues, every field of its type
  *   through `FieldForm` (the payload's form: a column's kind its field's
- *   editor, a field with no column by its type), its sub rows read only, then
+ *   editor, a field with no column by its type — and each member of a column
+ *   from data a line of its own, its cell, #1561), its sub rows read only, then
  *   Duplicate and Delete. A link or set field shows its halves as the grid
  *   draws them, with Edit in sheet, which puts the ring on its cell (SB48). An
  *   edit is one transaction, as typing in the cell is: a field with a column
@@ -59,10 +60,10 @@ import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faLock, faMinus, faPlus } from "@fortawesome/free-solid-svg-icons";
 import {
-    ArrayType, FloatType, IntegerType, NullType, StringType, VariantType, compareFor, decodeBeast2For, defaultValue, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, printFor, some,
+    ArrayType, FloatType, IntegerType, NullType, OptionType, StringType, VariantType, compareFor, decodeBeast2For, defaultValue, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, printFor, some,
     toEastTypeValue, variant, type EastType, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
-import type { FieldSpecValue } from "@elaraai/east-ui/internal";
+import type { FieldEditorValue, FieldSpecValue } from "@elaraai/east-ui/internal";
 import { Sheet, type sheetKeys } from "@elaraai/e3-ui/internal";
 import {
     EastChakraComponent, FieldForm, fieldFormMessages, getSomeorUndefined, useDataStable, type BuilderFrameDock, type EditIssue, type FieldOption,
@@ -70,7 +71,7 @@ import {
 import { FrameDrawer, useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { useSheetInspect, type SheetCellEditorAt, type SheetInspect, type SheetInspectPlace, type SheetInspectTarget, type SheetInspectWrite, type SheetSelected } from "../index.js";
 import { formatTime, splitTimeToken, todayUtc, withTime } from "../parse/date.js";
-import { NULL_CELL, cellText, indexRegisters, type SheetColumnMeta } from "../model.js";
+import { NULL_CELL, cellText, indexRegisters, takesClear, type SheetColumnMeta } from "../model.js";
 import type { SheetCellValue } from "../values.js";
 import { issueText, type SheetWords } from "../words.js";
 import { actionColumnOf } from "../actions/model.js";
@@ -283,6 +284,55 @@ function patchOne(struct: StructType, name: string, next: unknown): Record<strin
     return Object.fromEntries(Object.keys(struct.fields).map((field) => [field, stringEqual(field, name) ? some(next) : none]));
 }
 
+/**
+ * A member's line's editor (#1561): its kind's, as the inspector's form gives a column's field its kind's — read only
+ * where its column writes nothing, and for a stamped code, a link and a set, which the grid edits — at the cell's
+ * value: a quantity in its unit at the row, a date at its level there.
+ *
+ * @param meta - The column made for the member
+ * @param unit - A quantity's unit at the row
+ * @param level - A date's level at the row
+ * @returns The editor
+ */
+function memberEditor(meta: SheetColumnMeta, unit: string | undefined, level: "week" | "day" | "range" | "time" | undefined): FieldEditorValue {
+    if (!meta.editable) return variant("readonly", null);
+    switch (meta.kind) {
+        case "text":
+        case "title":
+        case "custom": return variant("text", { placeholder: none });
+        // A date at a week, a day or a range is a date alone, as the grid reads it; at the time level, a date and its time.
+        case "date": return variant("datetime", { precision: level === "time" ? none : some(variant("date", null)) });
+        case "quantity":
+        case "integer": return variant("number", { unit: unit === undefined ? none : some(unit), step: none, min: none, max: none });
+        // Its members at the row, by its key: a select's offered the column's own.
+        case "enum":
+        case "reference":
+        case "person":
+        case "cycle": return variant("reference", { of: meta.key });
+        case "boolean":
+        case "toggle": return variant("checkbox", null);
+        default: return variant("readonly", null);
+    }
+}
+
+/**
+ * A member's line (#1561): the cell a column from data shows for its member, as a field of the form at the column's
+ * key — of the value the cell holds, a custom column's its text, an Option where a clear writes none — labelled by
+ * the member's header, its column's second line its help.
+ *
+ * @param meta - The column made for the member
+ * @param editor - Its editor at the row ({@link memberEditor})
+ * @returns The field's spec
+ */
+function memberSpec(meta: SheetColumnMeta, editor: FieldEditorValue): FieldSpecValue {
+    const held = meta.kind === "custom" ? StringType : fromEastTypeValue(meta.raw.payloadType) as EastType;
+    const optional = takesClear(meta);
+    return {
+        path: [meta.key], label: meta.header, help: meta.sub === undefined ? none : some(meta.sub), group: none,
+        type: toEastTypeValue(optional ? OptionType(held) : held), optional, editor,
+    };
+}
+
 /** Props of {@link TargetDetails}. */
 interface PlaceProps extends DetailsProps {
     styles: Styles;
@@ -305,8 +355,10 @@ function TargetDetails({ place, ...props }: PlaceProps) {
 
 /** One target's form, as {@link useTargetForm} reads it: what `FieldForm` draws it with. */
 export interface TargetForm {
-    /** The specs at this row. */
+    /** The specs at this row: the form's fields, then each member of a column from data a line of its own (#1561). */
     specs: FieldSpecValue[];
+    /** The column each spec is read and written through, in the specs' order, by key — a member's line its column's; `undefined` for a field the draft holds alone. */
+    columns: (string | undefined)[];
     /** Each select's members at this row, by the field's path. */
     options: Record<string, FieldOption[]>;
     /** The form's value: the draft's fields. */
@@ -330,6 +382,13 @@ export interface TargetForm {
  * given `joins`, one step with the edits before it under that key (a phone's
  * cell editor, SH10.1). A host's Details draws its form from it (#1534).
  *
+ * Each member of a column from data is a line of its own after the form's
+ * fields (#1561), whose field the form leaves out: the member's cell at the
+ * column's key, read as the grid reads it at the day, tinted where it differs
+ * from the cell the record holds, and written as typing in the cell writes it
+ * — through the column's `write`, over the field as drafted so far. An age's
+ * shows no line, as a column's age shows no field.
+ *
  * @param input - The payload, the words, the columns hidden, the `sheetInspector` styles, the sheet's reads and writes, the target and its form — and the key its edits join under, if they are one step
  * @returns The form, as `FieldForm` draws it
  */
@@ -346,9 +405,20 @@ export function useTargetForm({ value, words, hidden, styles, inspect, target, f
         const key = getSomeorUndefined(f.column);
         return key === undefined ? undefined : inspect.columnAt(r, key);
     }, [inspect, r]);
+    // The members of the columns from data at this row, each a line of its own (#1561) — but an age's, which shows no field.
+    const members = useMemo(() => value.sheet.columns.flatMap((column): SheetColumnMeta[] => {
+        if (getSomeorUndefined(column.from) === undefined) return [];
+        const meta = inspect.columnAt(r, column.key);
+        return meta === undefined || meta.kind === "age" ? [] : [meta];
+    }), [value.sheet.columns, inspect, r]);
+    const memberOf = useMemo(() => new Map(members.map((meta) => [meta.key, meta] as const)), [members]);
+    // A member's line's editor at this row: a quantity's unit, a date's level, its own.
+    const editorOf = useCallback((meta: SheetColumnMeta) => memberEditor(meta, meta.kind === "quantity" ? inspect.unitAt(r, meta.key) : undefined,
+        meta.kind === "date" ? inspect.levelAt(r, meta.key) : undefined), [inspect, r]);
 
-    // The specs at this row: a select's own members, a quantity's unit, a date's level, a stamped code's owner.
-    const specs = useMemo(() => form.fields.map((f): FieldSpecValue => {
+    // The specs at this row: a select's own members, a quantity's unit, a date's level, a stamped code's owner — and each
+    // member's line.
+    const specs = useMemo(() => [...form.fields.map((f): FieldSpecValue => {
         const meta = metaOf(f);
         const editor = f.spec.editor;
         // Each select its own members at this row, by its path: two fields over one register may be offered different ones.
@@ -363,24 +433,30 @@ export function useTargetForm({ value, words, hidden, styles, inspect, target, f
         }
         if (meta?.kind === "stamped" && meta.owner !== undefined && f.spec.help.type === "none") return { ...f.spec, help: some(meta.owner) };
         return f.spec;
-    }), [form.fields, metaOf, inspect, r]);
+    }), ...members.map((meta) => memberSpec(meta, editorOf(meta)))], [form.fields, metaOf, inspect, r, members, editorOf]);
+    const columns = useMemo(() => [...form.fields.map((f) => getSomeorUndefined(f.column)), ...members.map((meta) => meta.key)], [form.fields, members]);
 
-    // A select's members: its register's, as its column's options rule offers them at this row.
+    // A select's members: its register's, as its column's options rule offers them at this row — a member's line's, its column's.
     const options = useMemo(() => {
         const out: Record<string, FieldOption[]> = {};
-        for (const f of form.fields) {
-            if (f.spec.editor.type !== "reference") continue;
-            const key = getSomeorUndefined(f.column);
+        const offered = (register: string, key: string | undefined): FieldOption[] => {
             const allowed = key !== undefined ? inspect.allowedAt(r, key) : undefined;
-            out[pathKey(f.spec.path)] = (registers.byName.get(f.spec.editor.value.of) ?? [])
+            return (registers.byName.get(register) ?? [])
                 .filter((member) => allowed === undefined || allowed.has(member.key))
                 .map((member) => {
                     const meta = getSomeorUndefined(member.meta);
                     return { key: member.key, label: meta === undefined ? member.label : `${member.label} · ${meta}` };
                 });
+        };
+        for (const f of form.fields) {
+            if (f.spec.editor.type !== "reference") continue;
+            out[pathKey(f.spec.path)] = offered(f.spec.editor.value.of, getSomeorUndefined(f.column));
+        }
+        for (const meta of members) {
+            if (meta.register !== undefined && editorOf(meta).type === "reference") out[pathKey([meta.key])] = offered(meta.register, meta.key);
         }
         return out;
-    }, [form.fields, registers, inspect, r]);
+    }, [form.fields, registers, inspect, r, members, editorOf]);
 
     // The form's value and baseline: the draft's fields — a custom column's text by its print, a read-only column's from its cell.
     const { formValue, baseline } = useMemo(() => {
@@ -408,10 +484,33 @@ export function useTargetForm({ value, words, hidden, styles, inspect, target, f
                 began[name] = current[name];
             }
         }
+        // A member's line: its cell as the grid shows it, against the cell the record holds — as it stands on a row no
+        // gesture has touched, and none on a new row, whose every value is a change.
+        const changes = inspect.changesAt(r);
+        for (const meta of members) {
+            const optional = takesClear(meta);
+            const valueOf = (cell: SheetCellValue | undefined) => (meta.kind === "custom" ? textValue(cellText(cell, meta, words), optional) : cellValue(cell, optional));
+            current[meta.key] = valueOf(inspect.cellAt(r, meta.key));
+            if (changes === undefined) began[meta.key] = current[meta.key];
+            else if (!changes.added) began[meta.key] = valueOf(changes.held?.get(meta.key));
+        }
         return { formValue: current, baseline: began };
-    }, [target, form.fields, metaOf, inspect, r, words]);
+    }, [target, form.fields, metaOf, inspect, r, words, members]);
 
     const onChange = useCallback((path: readonly string[], next: unknown) => {
+        // A member's line: its cell, written as typing in it writes it — the column's `write` over the field as drafted
+        // so far; emptied, the blank cell, which the write refuses where a clear writes nothing.
+        const member = path.length === 1 ? memberOf.get(path[0]!) : undefined;
+        if (member !== undefined) {
+            const held = takesClear(member) ? getSomeorUndefined(next as option<unknown>) : next;
+            if (member.kind === "custom") {
+                write([{ r, texts: new Map([[member.key, held === undefined ? "" : held as string]]) }]);
+                return;
+            }
+            const blank = held === undefined || (editorOf(member).type === "text" && stringEqual(held as string, ""));
+            write([{ r, cells: new Map([[member.key, blank ? NULL_CELL : cellOfPayload(fromEastTypeValue(member.raw.payloadType) as EastType, held)]]) }]);
+            return;
+        }
         const f = byPath.get(pathKey(path));
         if (f === undefined) return;
         const key = getSomeorUndefined(f.column);
@@ -441,12 +540,12 @@ export function useTargetForm({ value, words, hidden, styles, inspect, target, f
         const fieldType = (struct.fields as Record<string, EastType>)[name]!;
         const top = target.value?.[name] ?? defaultValue(fieldType);
         write([{ r, fields: new Map([[name, setAt(top, path.slice(1), next)]]) }]);
-    }, [byPath, inspect, r, struct, form, encodePatch, target.value, write]);
+    }, [byPath, inspect, r, struct, form, encodePatch, target.value, write, memberOf, editorOf]);
 
-    // A link or set field: its halves as the grid draws them, and Edit in sheet (SB48).
+    // A link or set field: its halves as the grid draws them, and Edit in sheet (SB48) — a member's line's too.
     const renderControl = useCallback((spec: FieldSpecValue): ReactNode | undefined => {
         const f = byPath.get(pathKey(spec.path));
-        const key = f === undefined ? undefined : getSomeorUndefined(f.column);
+        const key = f !== undefined ? getSomeorUndefined(f.column) : spec.path.length === 1 && memberOf.has(spec.path[0]!) ? spec.path[0] : undefined;
         const meta = key === undefined ? undefined : inspect.columnAt(r, key);
         // An action field: its state, the cases its row is offered, and a choice's or a form's inline (#1478).
         if (key !== undefined && meta?.kind === "action") return inspect.drawAction(r, key);
@@ -466,9 +565,9 @@ export function useTargetForm({ value, words, hidden, styles, inspect, target, f
                 </chakra.button>
             </Box>
         );
-    }, [byPath, inspect, r, hidden, styles, button, m]);
+    }, [byPath, inspect, r, hidden, styles, button, m, memberOf]);
 
-    return { specs, options, formValue, baseline, onChange, renderControl, struct };
+    return { specs, columns, options, formValue, baseline, onChange, renderControl, struct };
 }
 
 /** One issue of a target, as Details lists it. */

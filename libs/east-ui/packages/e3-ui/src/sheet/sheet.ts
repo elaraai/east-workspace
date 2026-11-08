@@ -634,7 +634,7 @@ export function buildInspectorPane(
         }
         return East.value(none, OptionType(SheetInspectorPaneType));
     }
-    const forms = buildForms(built.bridge, built.metas, hints.fields, hints.groupFields, hints.id, built.registers);
+    const forms = buildForms(built.bridge, built.metas, hints.fields, hints.groupFields, hints.id, built.registers, built.data);
     const custom = inspector === true
         ? East.value(none, OptionType(SheetInspectorType))
         : East.value(some(buildInspector(inspector, built.bridge.lineType)), OptionType(SheetInspectorType));

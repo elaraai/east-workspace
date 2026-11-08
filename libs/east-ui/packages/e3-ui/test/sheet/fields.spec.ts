@@ -80,7 +80,7 @@ function partForms(hints?: (h: typeof Sheet.field) => FieldHints<typeof Part["fi
                 machines: Sheet.register.members(machines, { kind: "machine", key: (m) => m, label: (m) => m }),
             },
         }, { keyOrdered: true });
-        return buildForms(build.bridge, build.metas, hints?.(Sheet.field) as Hints | undefined, groupHints, undefined, build.registers);
+        return buildForms(build.bridge, build.metas, hints?.(Sheet.field) as Hints | undefined, groupHints, undefined, build.registers, build.data);
     }), [])() as Forms;
 }
 
@@ -100,7 +100,7 @@ function batchForms(groupHints?: (h: typeof Sheet.field) => Hints): Forms {
         }, {
             group: Sheet.group(Batch, "lines", { title: "name", cells: { ends: Sheet.group.cell.date(Batch, "due") } }),
         }, { keyOrdered: true });
-        return buildForms(build.bridge, build.metas, undefined, groupHints?.(Sheet.field), undefined, build.registers);
+        return buildForms(build.bridge, build.metas, undefined, groupHints?.(Sheet.field), undefined, build.registers, build.data);
     }), [])() as Forms;
 }
 

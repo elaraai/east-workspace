@@ -611,6 +611,37 @@ describe("columns from data", () => {
             }),
         }, { id: "id" }, { recordKinds: true }));
     });
+
+    test("the inspector's form leaves out the field its columns write — a register's members, two columns over one field, a struct's fields — and refuses a hint naming it, naming the columns", () => {
+        const Pane = OptionType(SheetInspectorPaneType);
+        const formPaths = (pane: ValueTypeOf<typeof Pane>) => {
+            if (pane.type !== "some") assert.fail("no inspector pane");
+            return pane.value.forms.row.fields.map((f) => f.spec.path.join("."));
+        };
+        const hours = East.compile(East.function([], Pane, ($) => {
+            const rows = $.const(STAFF, ArrayType(Staff));
+            const built = createSheetBuild(rows, {
+                name: Record.column.title(Staff, { header: "Name" }),
+                hours: Record.column.quantity(Staff, { each: "projects", unit: "hrs" }),
+                byClient: Record.column.quantity(Staff, { each: "clients", field: "hours" }),
+            }, STAFF_OPTIONS, { recordKinds: true });
+            return buildInspectorPane(true, built, { fields: undefined, groupFields: undefined, id: "id" });
+        }), [])();
+        assert.ok(equalFor(Keys)(formPaths(hours), ["name"]), printFor(Keys)(formPaths(hours)));
+        const week = East.compile(East.function([], Pane, ($) => {
+            const rows = $.const(ROSTERED);
+            const built = createSheetBuild(rows, { week: Record.column.integer(Rostered, { each: { mon: "Mon", sat: "Sat" } }) }, { id: "id" }, { recordKinds: true });
+            return buildInspectorPane(true, built, { fields: undefined, groupFields: undefined, id: "id" });
+        }), [])();
+        assert.ok(equalFor(Keys)(formPaths(week), []), printFor(Keys)(formPaths(week)));
+        const columns = {
+            name: Record.column.title(ex.Person, { header: "Name" }),
+            hours: Record.column.quantity(ex.Person, { each: "projects", unit: "hrs" }),
+            byClient: Record.column.quantity(ex.Person, { each: "clients", field: "hours" }),
+        };
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordHours), columns, registers: STAFF_OPTIONS.registers, inspector: true, fields: { hours: Record.field.readonly() } }),
+            /^Error: Record: `fields` names "hours", which the inspector does not show as a field of its own — the columns "hours" and "byClient" from data write it, and each member shows as a line of its own, labelled by its header/);
+    });
 });
 
 // ── Columns from data at the day (§5.2): their cells read over a row's entry or its draft, a gesture's edits written ──

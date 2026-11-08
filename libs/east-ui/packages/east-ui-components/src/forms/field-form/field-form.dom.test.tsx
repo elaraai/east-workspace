@@ -17,8 +17,8 @@
  * to four cases a radio group; and (#1534) a field a host draws on one line,
  * the wash of a field an issue names, and the field a host names taking the
  * keyboard; and (#1549) a variant whose cases hold data edited as a block
- * under its choice, and a reference to a key of any type. Every value handed
- * back is asserted with East's `equalFor`.
+ * under its choice, and a reference to a key of any type; and (#1561) a line's
+ * help under it. Every value handed back is asserted with East's `equalFor`.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -646,7 +646,7 @@ describe("FieldForm — a field a host draws on one line, an issue's wash, and t
         ["lead", YES_NO],
     ]);
 
-    function mountShift(value: Record<string, unknown>, extra: { readOnly?: boolean; issues?: ReadonlySet<string>; hidden?: boolean } = {}) {
+    function mountShift(value: Record<string, unknown>, extra: { readOnly?: boolean; issues?: ReadonlySet<string>; hidden?: boolean; specs?: readonly FieldSpecValue[] } = {}) {
         const edits: Edit[] = [];
         let named: (key: string | undefined) => void = () => {};
         function Host() {
@@ -656,7 +656,7 @@ describe("FieldForm — a field a host draws on one line, an issue's wash, and t
             // A panel around the form, hidden as a tab's is until it is shown.
             return (
                 <div data-panel="" hidden={extra.hidden}>
-                    <FieldForm specs={SHIFT_SPECS} value={current} readOnly={extra.readOnly} lines={LINES} issues={extra.issues} focus={focus}
+                    <FieldForm specs={extra.specs ?? SHIFT_SPECS} value={current} readOnly={extra.readOnly} lines={LINES} issues={extra.issues} focus={focus}
                         onChange={(path, next) => { edits.push({ path: path.join("."), value: next }); setValue((v) => setAt(v, path, next)); }} />
                 </div>
             );
@@ -719,6 +719,25 @@ describe("FieldForm — a field a host draws on one line, an issue's wash, and t
         expect(["kind", "active", "lead"].map((key) => field(key).querySelector("[data-field-value]")!.textContent)).toEqual(["Night", "Yes", "Not set"]);
         expect(field("kind").getAttribute("data-editor")).toBe("readonly");
         expect(container.querySelector("[data-scope=radio-group], [data-field-clear]")).toBeNull();
+    });
+
+    test("a line's help sits under it, after its choices and its Clear, the line still one field — read only too; a line with none has none (#1561)", () => {
+        const helped = SHIFT_SPECS.map((spec): FieldSpecValue => (spec.path[0] === "kind" ? { ...spec, help: some("set by the rota") }
+            : spec.path[0] === "lead" ? { ...spec, help: some("locked: a lead's own") } : spec));
+        const { field } = mountShift({ name: "Early", kind: "night", active: true, lead: some(true), note: "" }, { specs: helped });
+        const helpOf = (key: string) => field(key).querySelector<HTMLElement>(":scope > [data-field-help]");
+        expect(helpOf("kind")!.textContent).toBe("set by the rota");
+        expect(helpOf("kind")!.previousElementSibling!.getAttribute("data-field-choice")).toBe("radio");
+        expect(helpOf("lead")!.textContent).toBe("locked: a lead's own");
+        expect(helpOf("lead")!.previousElementSibling!.getAttribute("data-field-side")).toBe("clear");
+        expect(field("kind").getAttribute("data-layout")).toBe("line");
+        expect(radios(field("kind")).map((r) => r.checked)).toEqual([false, true]);
+        expect(helpOf("active")).toBeNull();
+        cleanup();
+        const { field: printed } = mountShift({ name: "Early", kind: "night", active: true, lead: some(true), note: "" }, { specs: helped, readOnly: true });
+        const printedHelp = printed("kind").querySelector<HTMLElement>(":scope > [data-field-help]");
+        expect(printedHelp!.textContent).toBe("set by the rota");
+        expect(printedHelp!.previousElementSibling!.hasAttribute("data-field-value")).toBe(true);
     });
 
     test("a field an issue names takes the warn wash; the field a host names takes the keyboard as it is named", async () => {

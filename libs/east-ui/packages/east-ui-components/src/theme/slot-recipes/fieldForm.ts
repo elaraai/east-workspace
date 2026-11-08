@@ -23,10 +23,11 @@
  *
  * A field drawn on one line (#1534) is that line: its label at the start, as
  * strong as a field's label, one line and an ellipsis, and its radios at the
- * end; lines that follow one another sit closer than fields do, rows of
- * choices. A field an issue names takes the warn wash a Record's empty
- * required cell wears, spread as the drafts' tint is — so a new row's empty
- * lines read as one block.
+ * end, which hold the line to the Input's height; its help, where it has one,
+ * wraps under it, the shared `Field`'s help line (#1561). Lines that follow
+ * one another sit closer than fields do, rows of choices. A field an issue
+ * names takes the warn wash a Record's empty required cell wears, spread as
+ * the drafts' tint is — so a new row's empty lines read as one block.
  *
  * A variant whose case holds data has a block under its choice (#1549): the
  * case's fields, a column of the form's rhythm, set in from the choice along
@@ -44,7 +45,7 @@ const ISSUE_WASH = "color-mix(in srgb, {colors.status.warn} 17%, {colors.bg.surf
 
 export const fieldFormSlotRecipe = defineSlotRecipe({
     className: "elara-field-form",
-    slots: ["root", "group", "groupHead", "groupFields", "field", "block", "line", "control", "side", "items", "item", "lines", "lineLabel", "lineChoices", "lineValue"],
+    slots: ["root", "group", "groupHead", "groupFields", "field", "block", "line", "control", "side", "items", "item", "lines", "lineLabel", "lineChoices", "lineValue", "lineHelp"],
     base: {
         root: {
             display: "flex",
@@ -94,11 +95,14 @@ export const fieldFormSlotRecipe = defineSlotRecipe({
                 background: ISSUE_WASH,
                 boxShadow: `0 0 0 6px ${ISSUE_WASH}`,
             },
-            /* Drawn on one line: its label at the start, its choices at the end, on the Input's line. */
+            /* Drawn on one line: its label at the start, its choices at the end, on the Input's line — its help
+             * wrapping under it, as far from the line as a Field's help sits from its control. */
             "&[data-layout=line]": {
                 flexDirection: "row",
+                flexWrap: "wrap",
                 alignItems: "center",
-                gap: "{spacing.3}",
+                columnGap: "{spacing.3}",
+                rowGap: "{spacing.1}",
                 minHeight: fieldHeights.md,
                 _coarse: { minHeight: "44px" },
             },
@@ -132,17 +136,29 @@ export const fieldFormSlotRecipe = defineSlotRecipe({
             fontWeight: "semibold",
             color: "fg",
         },
+        /* The choices hold the line to the Input's height, with a help under it as without. */
         lineChoices: {
             flex: "none",
             display: "flex",
             alignItems: "center",
+            minHeight: fieldHeights.md,
+            _coarse: { minHeight: "44px" },
         },
-        /* Read only: the choice made, where the radios would be. */
+        /* Read only: the choice made, where the radios would be, on the same line. */
         lineValue: {
             flex: "none",
+            display: "flex",
+            alignItems: "center",
+            minHeight: fieldHeights.md,
+            _coarse: { minHeight: "44px" },
             fontSize: "body",
             color: "fg",
             whiteSpace: "nowrap",
+        },
+        /* A line's help: the line's whole width, under it — the words the `field` recipe's help line takes. */
+        lineHelp: {
+            flex: "1 0 100%",
+            minWidth: 0,
         },
         /* The control's line: the field's width — the shared Field lays its
          * parts out from their start — the control filling it, and an

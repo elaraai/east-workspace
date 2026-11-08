@@ -6,7 +6,8 @@
 /**
  * The side panel's reads and gestures: the target the ring or the range selects, its draft against what the record
  * holds, its writes, duplicates and removals, a host's own Add and Delete, the cells drawn as the grid draws them, and the
- * batch's issues, gone to where they are.
+ * batch's issues, gone to where they are. A write asks each cell the one check the grid's gestures ask (#1560): a cell
+ * its mark locks takes none, nor one with no blank a clear (#1561).
  *
  * @packageDocumentation
  */
@@ -17,7 +18,9 @@ import { SheetDraftFieldType } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, type EditIssue } from "@elaraai/east-ui-components";
 import { kindOfIssue } from "@elaraai/east-ui-components/internal";
 import { EditingIssueType } from "@elaraai/east-ui/internal";
-import { NULL_CELL, TITLE_KEY, cellText, driverKeyOf, lineAddress, resolveMember as resolveRegisterMember, unitOf, type SheetColumnMeta } from "./model.js";
+import {
+    NULL_CELL, TITLE_KEY, cellIsBlank, cellText, cellWritable, driverKeyOf, lineAddress, resolveMember as resolveRegisterMember, takesClear, unitOf, type SheetColumnMeta,
+} from "./model.js";
 import { clearSearch, narrowingQuery, writeNarrowing } from "./view-state.js";
 import { askHiding, hiddenLine } from "../shared/schedule/hidden.js";
 import { parseCell } from "./parse/index.js";
@@ -40,7 +43,7 @@ import type { SheetOpenEditor } from "./use-open-editor.js";
 import type { SheetJumps } from "./use-jumps.js";
 import type { SheetViewTabs } from "./use-view-tabs.js";
 import type { SheetActions } from "./use-actions.js";
-import type { SheetDuplicateOptions, SheetInspect, SheetInspectPlace, SheetInspectTarget, SheetInspectWrite, SheetSelected } from "./parts.js";
+import type { SheetDuplicateOptions, SheetInspect, SheetInspectPlace, SheetInspectTarget, SheetInspectWrite, SheetRowChanges, SheetSelected } from "./parts.js";
 import { mintLineKey, rowNameOf } from "./local-rows.js";
 
 const stringEqual = equalFor(StringType);
@@ -117,7 +120,7 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         driverColumn, group, lensWanted, loose, mintAmong, narrowing, registers, triggers, words,
     } = sheetDecode;
     const {
-        canEdit, childField, dispatchStore, draftOf, draftType, draftVersion, editingState, layerRef, mintLineId,
+        canEdit, changesOf, childField, dispatchStore, draftOf, draftType, draftVersion, editingState, layerRef, mintLineId,
         readiness, recordGesture, rows, session, setLayer, sourceRows, store, takenKeys, ui,
     } = sheetSession;
     const { allowedFor, body, idAt, levelAt, linkCellCtx, parseCtxFor, rowAt, rowSpace } = sheetBody;
@@ -236,13 +239,24 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
             const it = rowAt(w.r);
             if (it === undefined || (it.kind !== "real" && it.kind !== "group")) continue;
             const keys: string[] = [];
-            for (const [key, cell] of w.cells ?? []) { cellWrites.push({ r: w.r, c: -1, key, cell }); keys.push(key); }
+            // The one check each cell asks, as the grid's gestures do: a cell its mark locks takes nothing, and one whose
+            // column has no blank — a column from data's value that is no option — no clear.
+            const metaOf = (key: string) => (it.kind === "group" ? group?.cells.get(key) : allColumns.byKey.get(key));
+            const takes = (meta: SheetColumnMeta | undefined, cell: SheetCellValue) =>
+                meta === undefined || (cellWritable(meta, it.row.cells) && (!cellIsBlank(cell) || takesClear(meta)));
+            for (const [key, cell] of w.cells ?? []) {
+                if (!takes(metaOf(key), cell)) continue;
+                cellWrites.push({ r: w.r, c: -1, key, cell });
+                keys.push(key);
+            }
             for (const [key, text] of w.texts ?? []) {
                 // As typing in the cell reads it: blank is the blank cell, unreadable text kept as typed.
-                const meta = it.kind === "group" ? group?.cells.get(key) : allColumns.byKey.get(key);
+                const meta = metaOf(key);
                 if (meta === undefined) continue;
                 const outcome = parseCell(meta, text, parseCtxFor(w.r, meta));
-                cellWrites.push({ r: w.r, c: -1, key, cell: outcome.kind === "cell" ? outcome.cell : outcome.kind === "unrecognised" ? variant("Invalid", text) : NULL_CELL });
+                const cell = outcome.kind === "cell" ? outcome.cell : outcome.kind === "unrecognised" ? variant("Invalid", text) : NULL_CELL;
+                if (!takes(meta, cell)) continue;
+                cellWrites.push({ r: w.r, c: -1, key, cell });
                 keys.push(key);
             }
             touched.push({ r: w.r, keys });
@@ -268,6 +282,8 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
                 return { ...before, draft: looseDraft ? variant(arm!, next) : next };
             });
         }
+        // A write every cell of which was refused is no gesture.
+        if (cellWrites.length === 0 && draftEdits.size === 0) return;
         if (cellWrites.length > 0) writeCells(cellWrites, "typed");
         try { recordGesture(gestureEvents.current, undefined, "typed", draftEdits, undefined, undefined, joins); }
         catch (error) { failed(error); }
@@ -456,6 +472,11 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         const it = rowAt(r);
         return it !== undefined && (it.kind === "real" || it.kind === "group") ? it.row.cells.get(key) : undefined;
     }, [rowAt]);
+    // What a row's drafts changed, as the grid tints its cells by it: a line's and a band's are their group's.
+    const changesAt = useCallback((r: number): SheetRowChanges | undefined => {
+        const it = rowAt(r);
+        return it?.kind === "real" && it.group === undefined ? changesOf(it.row.id, it.row) : undefined;
+    }, [rowAt, changesOf]);
     const unitAt = useCallback((r: number, key: string): string | undefined => {
         const meta = columnAt(r, key);
         const it = rowAt(r);
@@ -588,9 +609,9 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         issues: issueList,
         kindOf,
         write: inspectWrite, editInSheet, remove: removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, placeOf: placeOfIssue,
-        columnAt, cellAt: inspectCellAt, unitAt, levelAt: inspectLevelAt, allowedAt, drawCell, drawAction,
+        columnAt, cellAt: inspectCellAt, changesAt, unitAt, levelAt: inspectLevelAt, allowedAt, drawCell, drawAction,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks the session's pending count.
-    }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, placeOfIssue, columnAt, inspectCellAt, unitAt, inspectLevelAt, allowedAt, drawCell, drawAction, draftVersion]);
+    }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, placeOfIssue, columnAt, inspectCellAt, changesAt, unitAt, inspectLevelAt, allowedAt, drawCell, drawAction, draftVersion]);
     return { addRow, conflictValue, goToIssue, inspect, removeRowsById, rowWhere, versionOf };
 }
 

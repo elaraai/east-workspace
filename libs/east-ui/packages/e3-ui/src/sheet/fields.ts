@@ -24,17 +24,21 @@
  * | `stamped`, `audit`, a `value` projection, `editable: false` | Read only |
  * | `age` | None: it shows no field — the renderer draws its count among the row's facts |
  * | `action` | Its state and summary, its actions taken in the pane (#1474) |
+ * | Columns from data | None: the renderer draws each member's cell as a line of its own (#1561) |
  * | No column | By its type, as `Fields.specs` resolves it |
  *
  * A field with a column is read and written through it: its spec names the
  * column (or the band cell, on a group), and an edit in the inspector is the
  * cell's write, as typing in it is (SB52). A field with none is the draft's
- * own. A hint may label a column's field, give it a help line, make it read
- * only or hide it; an editor hint must fit the field's type, and a read-only
- * column takes none. Each form carries the cells a patch of its struct sets
- * (`encode`) — the projection the copilot's proposals and the templates go
- * through — so a whole-row write (a custom inspector's `update`, SB58) lands
- * on the cells as the grid would write them.
+ * own. The field columns from data write is no field of the form: by its type
+ * it would be set on the draft past the columns' `write` and their locks, so
+ * the inspector shows each of its members' cells instead, as the grid does,
+ * and a hint naming it is refused. A hint may label a column's field, give it
+ * a help line, make it read only or hide it; an editor hint must fit the
+ * field's type, and a read-only column takes none. Each form carries the
+ * cells a patch of its struct sets (`encode`) — the projection the copilot's
+ * proposals and the templates go through — so a whole-row write (a custom
+ * inspector's `update`, SB58) lands on the cells as the grid would write them.
  *
  * @packageDocumentation
  */
@@ -223,8 +227,9 @@ function columnField(name: string, meta: SheetColumnMeta, hint: AnyHint | undefi
  * @param leave - The fields the form leaves out: an identity field, a group's lines field
  * @param where - The prop the hints came from, for a refusal (`fields`, `groupFields`)
  * @param registers - The sheet's registers, by name: what a `reference` hint may name
+ * @param fromData - The fields columns from data write, each with those columns' keys: the form leaves them out too, as the inspector shows their members' cells
  * @returns The form's fields
- * @throws Error naming the field: a hint for a field the struct does not have, one that does not fit it, or a reference to a register the sheet does not declare
+ * @throws Error naming the field: a hint for a field the struct does not have, one that does not fit it, one the form leaves out, or a reference to a register the sheet does not declare
  */
 function formFields(
     struct: StructType,
@@ -233,6 +238,7 @@ function formFields(
     leave: ReadonlySet<string>,
     where: string,
     registers: ReadonlySet<string>,
+    fromData: ReadonlyMap<string, readonly string[]>,
 ): ExprType<SheetFieldType>[] {
     const fields = struct.fields as Record<string, EastType>;
     // A link column's other half is written through that column, never on its own.
@@ -241,6 +247,10 @@ function formFields(
         if (!(name in fields)) {
             throw new Error(`Sheet: \`${where}\` names "${name}", which is not a field of ${where === "groupFields" ? "the group type" : "the row type"} (${Object.keys(fields).join(", ")})`);
         }
+        const columns = fromData.get(name);
+        if (columns !== undefined) {
+            throw new Error(`Sheet: \`${where}\` names "${name}", which the inspector does not show as a field of its own — the column${columns.length === 1 ? "" : "s"} ${columns.map((key) => `"${key}"`).join(" and ")} from data write${columns.length === 1 ? "s" : ""} it, and each member shows as a line of its own, labelled by its header`);
+        }
         if (leave.has(name) || halves.has(name)) {
             throw new Error(`Sheet: \`${where}\` names "${name}", which the inspector does not show as a field of its own — ${halves.has(name) ? "it is a link column's other half, shown with that column" : "it is the row's identity, or the group's rows"}`);
         }
@@ -248,7 +258,7 @@ function formFields(
     const order = [...Object.keys(hints), ...Object.keys(fields).filter((name) => !(name in hints))];
     const out: ExprType<SheetFieldType>[] = [];
     for (const name of order) {
-        if (leave.has(name) || halves.has(name)) continue;
+        if (leave.has(name) || halves.has(name) || fromData.has(name)) continue;
         const hint = hints[name];
         if (isHint(hint) && hint[FIELD_HINT] === "hidden") continue;
         const meta = metas.get(name);
@@ -301,6 +311,7 @@ function encodeOf(patchType: StructType, cells: SheetBridge["encodePatch"]): Exp
  * @param groupHints - `groupFields`: the author's hints for the group's own fields
  * @param idField - The rows' identity field, which the form leaves to the header
  * @param registers - The sheet's registers' names, the driver's among them: what a `reference` hint may name
+ * @param data - The columns from data, described against the row type: the fields they write, which the form leaves out (#1561)
  * @returns The forms on the wire
  * @throws Error naming the prop: `groupFields` on a flat sheet, and each refusal of a hint
  * @internal
@@ -312,6 +323,7 @@ export function buildForms(
     groupHints: Readonly<Record<string, unknown>> | undefined,
     idField: string | undefined,
     registers: readonly string[],
+    data: readonly SheetColumnMeta[],
 ): ExprType<SheetFormsType> {
     const named = new Set(registers);
     const groupHalf = bridge.group;
@@ -320,9 +332,12 @@ export function buildForms(
     }
     // A row's identity is its header's, never a field to edit: a flat row's, and a loose row's line beside the groups (#846).
     const lineLeave = new Set(idField !== undefined && idField in bridge.lineType.fields ? [idField] : []);
+    // The fields columns from data write — two columns may write one — each with those columns' keys.
+    const fromData = new Map<string, string[]>();
+    for (const m of data) fromData.set(m.field, [...(fromData.get(m.field) ?? []), m.key]);
     const row = East.value({
         type: toEastTypeValue(bridge.lineType),
-        fields: formFields(bridge.lineType, new Map(metas.map((m) => [m.field, m])), hints ?? {}, lineLeave, "fields", named),
+        fields: formFields(bridge.lineType, new Map(metas.map((m) => [m.field, m])), hints ?? {}, lineLeave, "fields", named, fromData),
         ...columnFields(metas),
         encode: encodeOf(bridge.patchType, bridge.encodePatch),
     }, SheetFormType);
@@ -331,7 +346,7 @@ export function buildForms(
     const groupLeave = new Set([groupHalf.linesField, ...(idField !== undefined && idField in groupType.fields ? [idField] : [])]);
     const group = East.value({
         type: toEastTypeValue(groupType),
-        fields: formFields(groupType, new Map(groupHalf.cellMetas.map((m) => [m.field, m])), groupHints ?? {}, groupLeave, "groupFields", named),
+        fields: formFields(groupType, new Map(groupHalf.cellMetas.map((m) => [m.field, m])), groupHints ?? {}, groupLeave, "groupFields", named, new Map()),
         ...columnFields(groupHalf.cellMetas),
         encode: encodeOf(SheetPatchTypeFor(groupType) as unknown as StructType, buildPatchCells(groupType, groupHalf.cellMetas, {})),
     }, SheetFormType);
