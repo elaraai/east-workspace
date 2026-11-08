@@ -37,7 +37,7 @@ import { Box, Button, Menu as ChakraMenu, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faAngleRight, faCheck, faGripVertical, faRotateLeft, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { ArrayType, SortedMap, StringType, none, printFor, variant } from "@elaraai/east";
-import { FrameMenuLayer, LoadingFailedLine, PlaceholderShape, VirtualRows, devicePixels, useRevealed, useRowsTop, keptRead } from "@elaraai/east-ui-components/internal";
+import { FrameMenuLayer, LoadingFailedLine, PlaceholderShape, VirtualRows, devicePixels, useRevealed, useRowsTop, keptRead, type StickySection } from "@elaraai/east-ui-components/internal";
 import { takeKey, tickFormatOf, useDragEventChip, useDropCell, usePersistedState, type CellCoord, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import type { PeriodRead } from "../shared/loading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
@@ -1118,6 +1118,30 @@ function withDemand(list: readonly ListRow[], value: RosterValue, demands: Reado
         : [row, ...block(row.group, people.get(row.group.key) ?? 0)]);
 }
 /**
+ * The People grid's sections whose heads stick under its header (#1568, A6): a band's work requirement — the band, its
+ * eyebrow, its lanes and their skill rows heading the band's rows to the next band — or, where the grid draws no bands,
+ * the one block heading everyone's. The skill rows give way first: past half of main they scroll with the people.
+ *
+ * @param rows - The rows the grid draws
+ * @returns Its sections, in order
+ */
+function demandSections(rows: readonly PeopleRow[]): readonly StickySection[] {
+    const yields = (i: number) => rows[i]?.kind === "skill";
+    const heads = (i: number) => rows[i]?.kind === "demand" || rows[i]?.kind === "lane" || rows[i]?.kind === "skill";
+    const sections: StickySection[] = [];
+    for (let i = 0; i < rows.length; i++) {
+        const kind = rows[i]!.kind;
+        // A band its work requirement follows, or the block a grid of no bands opens with.
+        if (!(kind === "group" ? rows[i + 1]?.kind === "demand" : kind === "demand" && rows[i - 1]?.kind !== "group")) continue;
+        let head = kind === "group" ? i + 1 : i;
+        while (heads(head)) head++;
+        let end = head;
+        while (end < rows.length && rows[end]!.kind !== "group") end++;
+        sections.push({ start: i, end, head: head - i, yields });
+    }
+    return sections;
+}
+/**
  * A band's work requirement (#1568, A1): the people it lists, then the week's hours needed, rostered and their
  * difference in the Shifts band's words, and how many of its shifts are short.
  */
@@ -1259,6 +1283,8 @@ function People({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
     const { open, toggle: toggleLane } = useOpenLanes(props.drag.surface);
     const people = useMemo(() => bandPeople(props.value), [props.value]);
     const rows = useMemo(() => withDemand(list, props.value, demands, open, people), [list, props.value, demands, open, people]);
+    // Each band's work requirement sticks under the header while its people scroll (A6).
+    const sections = useMemo(() => demandSections(rows), [rows]);
     const index = useMemo(() => peopleIndex(props.week, props.held), [props.week, props.held]);
     const { floors, measured, measure } = useRowFloors(PEOPLE_FLOORS);
     // A new floor places every row again at it, the rows measured kept: a new key function is what has the rows' places
@@ -1301,7 +1327,7 @@ function People({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
     return <Box css={props.styles.main} data-roster-grid="people" onKeyDown={onKeyDown}>
         <PeopleFocusContext.Provider value={focus}>
             <VirtualRows fillParent height={undefined} maxHeight={undefined} minWidth="var(--roster-people-width)" rootCss={props.styles.scroll}
-                header={header} count={rows.length} getItemKey={getItemKey} estimateSize={estimateSize} anchorable={ANCHOR_EVERY_ROW}
+                header={header} sections={sections} count={rows.length} getItemKey={getItemKey} estimateSize={estimateSize} anchorable={ANCHOR_EVERY_ROW}
                 scrollToIndex={selectedPeopleRow(props, rows)} scrollAlign="auto" renderRow={renderRow}
                 onAnchorChange={onAnchorChange} restoreAnchor={restore} />
         </PeopleFocusContext.Provider>
@@ -1630,6 +1656,8 @@ function MonthGrid({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }
     const { open, toggle: toggleLane } = useOpenLanes(props.drag.surface);
     const people = useMemo(() => bandPeople(props.value), [props.value]);
     const rows = useMemo(() => withDemand(list, props.value, demands, open, people), [list, props.value, demands, open, people]);
+    // Each band's work requirement sticks under the header while its people scroll (A6).
+    const sections = useMemo(() => demandSections(rows), [rows]);
     const weeks = props.weeks;
     const indexes = useMemo(() => weeks.map(held => peopleIndex(held.week, held.held)), [weeks]);
     const { floors, measured, measure } = useRowFloors(PEOPLE_FLOORS);
@@ -1675,7 +1703,7 @@ function MonthGrid({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }
     return <Box ref={root} css={props.styles.main} data-roster-grid="people-month" style={style} onKeyDown={onKeyDown}>
         <PeopleFocusContext.Provider value={focus}>
             <VirtualRows fillParent height={undefined} maxHeight={undefined} minWidth="var(--roster-people-width)" rootCss={props.styles.scroll}
-                header={header} count={rows.length} getItemKey={getItemKey} estimateSize={estimateSize} anchorable={ANCHOR_EVERY_ROW}
+                header={header} sections={sections} count={rows.length} getItemKey={getItemKey} estimateSize={estimateSize} anchorable={ANCHOR_EVERY_ROW}
                 scrollToIndex={selectedPeopleRow(props, rows)} scrollAlign="auto" renderRow={renderRow}
                 onAnchorChange={onAnchorChange} restoreAnchor={restore} />
         </PeopleFocusContext.Provider>

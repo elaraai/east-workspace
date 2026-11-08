@@ -51,7 +51,8 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         ...schedulePaneBase,
         root: { height: "100%", minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", background: "bg.surface", color: "fg" },
         main: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column", "&[data-roster-grid=people]": { "--roster-columns": "8", "--roster-people-width": "1100px" } },
-        scroll: { flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", overscrollBehavior: "contain" },
+        // The People rows stuck under the header (#1568, A6) on the surface's paper, opaque as the header is.
+        scroll: { flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", overscrollBehavior: "contain", "& [data-virtual-stuck] > [data-index]": { background: "bg.surface" } },
         grid: { minWidth: "832px", "&[data-period=week]": { minWidth: "862px" } },
         row: { display: "grid", gridTemplateColumns: "148px repeat(var(--roster-columns), minmax(0, 1fr))", borderBottomWidth: "1px", borderColor: "border.subtle",
             // A person's row retained while a narrowing is read (#1398, CL5): the shared retained row.

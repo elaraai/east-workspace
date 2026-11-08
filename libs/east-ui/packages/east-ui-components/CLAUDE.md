@@ -972,6 +972,39 @@ Row virtualization via `@tanstack/react-virtual`:
   read, found again on its own line once its window lands, or in the run that
   then holds it — so the rows landing around it never move it, however their
   heights part from the run's pitch.
+- A bounded frame of measured rows sticks the first rows of each of its
+  sections under its header (`sections`, `StickySection`, #1568: the Roster's
+  People bands with the work requirement under each). Each head row sticks
+  under the stuck rows above it, in a rail of its own from its place to where
+  the stuck head, whole, meets its section's end (`stuckRows`, pure), so the
+  next section's start pushes the head out at once and CSS alone holds it: a
+  scroll draws nothing again. A head taller than half the view keeps only its
+  rows that do not `yield`, in order, while they fit in that half; the rest
+  scroll with the section. The head of the section the view is in stays
+  mounted however far in the view goes — the range extractor puts it first,
+  so the rows stay in index order — and the next section's head carries its
+  rails as soon as it mounts. A row a request brings in at its start lands
+  under a stuck head, as it lands under the header — a head row that yields
+  too — and so does an element the focus or a scroll into view brings in:
+  each place names what covers its row (`--virtual-cover`: the header and the
+  stuck rows over it, or above a stuck row), its elements' scroll margin, so
+  the keyboard never lands under the head (WCAG 2.4.11) and a stuck row takes
+  the focus where it stands. Each row there is two boxes, its place, which the
+  frame moves by its `top` — never a transform: a browser sticks a row where
+  layout puts it, before its place's transform, which doubled each stuck
+  row's offset — and the row, the one measured (`data-index`), so a row that
+  comes to head a section, or ceases to, keeps its element. The host's recipe
+  paints a stuck row (`[data-virtual-stuck] > [data-index]`), opaque as its
+  header is: the Roster's `scroll` slot. An anchoring frame whose anchor went with its section's rows
+  keeps the head's first row where it showed: a band folded from its stuck
+  place stays at the view's top, the focus on it.
+- A row an anchoring commit mounts above the view, measured off its estimate —
+  a stuck head's, an overscan row — moves the virtualizer's offset on by as
+  much as it grew, and the offset the commit writes is the anchored one with
+  that correction (`virtualizer.scrollOffset ?? anchored`), never the render's
+  alone, which took the view back by as much as a remount drew it (#1568).
+  Every anchoring frame takes it: the Roster's, the Sheet's, the Calendar's and
+  the Plan's.
 
 **Persist scroll as a clamped ROW INDEX, never a pixel `scrollTop`.** The
 top visible row index survives data changes (restore clamps to the current

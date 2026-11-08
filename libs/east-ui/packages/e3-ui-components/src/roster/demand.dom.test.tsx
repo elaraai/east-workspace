@@ -16,6 +16,11 @@
  * its days — off where the week names none of its shift — and a skill row's its skill's; a mark selects its slot in its
  * week, which the inspector then shows, or with no bands the shift's day across the groups; while the month is read,
  * each figure is a placeholder.
+ *
+ * Deep in a band's people, by week or by month, its band, eyebrow and lanes stick under the header, each under the
+ * ones above it, until the next band pushes them out together; with no bands the one block sticks over everyone; past
+ * half of main an open lane's skill rows scroll with the people; and a stuck band folded stays at the view's top, the
+ * focus on it (A6).
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -488,5 +493,172 @@ describe("the People layout's work requirement by month (#1568)", () => {
         expect(slot(c, "main").querySelector("[data-roster-person-row]")).not.toBeNull();
         await display(c, "Show requirements");
         expect(slot(c, "main").querySelector("[data-roster-lane-mark]")).not.toBeNull();
+    });
+});
+
+/** A row of main's frame as it stands: what it draws, its place, and while it sticks its rail and how far under the header. */
+interface Placed {
+    /** What it draws: `band:<group>`, a work requirement row by its key (`demand:…`, `lane:…`, `skill:…`, `assign:…`), or `row:<key>`. */
+    readonly name: string;
+    /** Its place, in the rows' own coordinates. */
+    readonly place: number;
+    /** While it sticks, its rail's height and its top under the header; `undefined` while it scrolls with the rows. */
+    readonly stuck: { readonly rail: number; readonly top: number } | undefined;
+}
+/** What a place box's row draws, named as {@link Placed} names it. */
+function nameOf(box: Element): string {
+    const row = box.querySelector("[data-roster-group], [data-roster-demand], [data-roster-lane], [data-roster-lane-skill], [data-roster-assign-head], [data-roster-person-row]");
+    if (row === null) throw new Error("a place box holds no People row");
+    const band = row.getAttribute("data-roster-group"), person = row.getAttribute("data-roster-person-row");
+    return band !== null ? `band:${band}` : person !== null ? `row:${person}`
+        : row.getAttribute("data-roster-demand") ?? row.getAttribute("data-roster-lane") ?? row.getAttribute("data-roster-lane-skill") ?? row.getAttribute("data-roster-assign-head")!;
+}
+/** A row's kind, from its name: `band`, `demand`, `lane`, `skill`, `assign` or `row`. */
+const kindOf = (name: string) => name.slice(0, name.indexOf(":"));
+/** Main's rows as they stand, in their order: each place box's row, where the frame moves it, and how it sticks. */
+function placed(c: HTMLElement): Placed[] {
+    return [...scroller(c).querySelectorAll<HTMLElement>('[data-slot="virtualRow"]')].map(box => {
+        const row = box.firstElementChild as HTMLElement;
+        return { name: nameOf(box), place: Number.parseFloat(box.style.top),
+            stuck: box.hasAttribute("data-virtual-stuck") ? { rail: Number.parseFloat(box.style.height), top: Number.parseFloat(row.style.top) } : undefined };
+    });
+}
+/** The frame's rows' extent: where the list ends. */
+const extent = (c: HTMLElement) => Number(scroller(c).querySelector("[data-virtual-extent]")!.getAttribute("data-virtual-extent"));
+/** The rows heading a section as they stand — from `first` to the assignment's eyebrow after it — each with its height: the place of the row after it, less its own. */
+function headAt(c: HTMLElement, first: string): { readonly name: string; readonly size: number }[] {
+    const rows = placed(c);
+    const from = rows.findIndex(row => row.name === first);
+    const to = rows.findIndex((row, i) => i > from && kindOf(row.name) === "assign");
+    expect([from, to], first).not.toContain(-1);
+    return rows.slice(from, to).map((row, i) => ({ name: row.name, size: rows[from + i + 1]!.place - row.place }));
+}
+/** The height of rows stacked one under another. */
+const heightOf = (rows: readonly { readonly size: number }[]) => rows.reduce((sum, row) => sum + row.size, 0);
+/** Rests main's view at `top`. */
+async function rest(c: HTMLElement, top: number) {
+    await act(async () => { scroller(c).scrollTop = top; fireEvent.scroll(scroller(c)); });
+    await settle();
+}
+/** Scrolls main's rows on, three at a time, until the row `name` names is mounted: its place. */
+async function placeOf(c: HTMLElement, name: string): Promise<number> {
+    for (let step = 0; step <= 80; step++) {
+        const found = placed(c).find(row => row.name === name);
+        if (found !== undefined) return found.place;
+        await rest(c, scroller(c).scrollTop + 3 * 62);
+    }
+    throw new Error(`${name} never mounted`);
+}
+/** The group a band, or a row of its work requirement, belongs to; `undefined` for a person's row, or the block of no band's. */
+const groupOf = (name: string): string | undefined => kindOf(name) === "band" ? name.slice(name.indexOf(":") + 1)
+    : kindOf(name) === "row" ? undefined : partsOf(name)[0];
+/**
+ * Holds what sticks to the rule (A6): the rows `stuck` names stick, in order, each under the ones above it, at their
+ * heights, and each one's rail ends where the stuck rows below it still fit above `end` — the next band's place, or the
+ * list's end — so it pushes them out together. Any other row sticking heads the band after them, `next`, its rails laid
+ * for when the view reaches it; no person's row nor assignment's eyebrow sticks.
+ */
+function holdsStuck(c: HTMLElement, stuck: readonly { readonly name: string; readonly size: number }[], end: number, next?: string) {
+    const sticking = placed(c).filter(row => row.stuck !== undefined);
+    expect(sticking.slice(0, stuck.length).map(row => row.name)).toEqual(stuck.map(row => row.name));
+    expect(sticking.slice(stuck.length).filter(row => !["band", "demand", "lane"].includes(kindOf(row.name)) || next === undefined || groupOf(row.name) !== next)
+        .map(row => row.name)).toEqual([]);
+    const height = heightOf(stuck);
+    let above = 0;
+    stuck.forEach((row, i) => {
+        const at = sticking[i]!;
+        expect(at.stuck!.top, row.name).toBe(above);
+        above += row.size;
+        expect(at.place + at.stuck!.rail, row.name).toBe(end - (height - above));
+    });
+}
+
+describe("the work requirement sticks under the header while its people scroll (#1568, A6)", () => {
+    test("deep in a band's people its band, eyebrow and lanes stick under the header, each under the ones above it, and the next band pushes them out together; the assignment's eyebrow and the people scroll by; deep in the next band's people, its head sticks", async () => {
+        scrollsAsAPageDoes();
+        const { container: c } = await open(ex.rosterWorkRequirement);
+        const [first, second, third] = ordered(await h.read(ex.rosterTeams));
+        const head = headAt(c, `band:${first}`);
+        expect(head.length).toBeGreaterThan(2);
+        expect(head.map(row => kindOf(row.name))).toEqual(["band", "demand", ...head.slice(2).map(() => "lane")]);
+        // Five rows above the band's agency requests, its people under its head.
+        await rest(c, await placeOf(c, `row:requests:${first}`) - 300);
+        const next = placed(c).find(row => row.name === `band:${second}`);
+        expect(next).toBeDefined();
+        holdsStuck(c, head, next!.place, second);
+        // The next band's head as it stands under the view, and deep in its people, that head sticks in the first's place.
+        const theirs = headAt(c, `band:${second}`);
+        expect(theirs.map(row => kindOf(row.name))).toEqual(["band", "demand", ...theirs.slice(2).map(() => "lane")]);
+        await rest(c, await placeOf(c, `row:requests:${second}`) - 300);
+        holdsStuck(c, theirs, placed(c).find(row => row.name === `band:${third}`)?.place ?? extent(c), third);
+    });
+
+    test("by month a band's head sticks the same way", async () => {
+        scrollsAsAPageDoes();
+        const { container: c } = await open(ex.rosterWorkRequirement);
+        await press(toolbar(c).getByRole("radio", { name: "Month" }));
+        const [first, second] = ordered(await h.read(ex.rosterTeams));
+        const head = headAt(c, `band:${first}`);
+        expect(head.map(row => kindOf(row.name))).toEqual(["band", "demand", ...head.slice(2).map(() => "lane")]);
+        await rest(c, await placeOf(c, `row:requests:${first}`) - 300);
+        holdsStuck(c, head, placed(c).find(row => row.name === `band:${second}`)!.place, second);
+    });
+
+    test("with no bands the one block at the list's head sticks over everyone, pushed out only at the list's end", async () => {
+        scrollsAsAPageDoes();
+        const { container: c } = await open(ex.rosterPeopleNoBands);
+        const head = headAt(c, placed(c)[0]!.name);
+        expect(head.length).toBeGreaterThan(1);
+        expect(head.map(row => kindOf(row.name))).toEqual(["demand", ...head.slice(1).map(() => "lane")]);
+        await rest(c, await placeOf(c, "row:requests") - 300);
+        holdsStuck(c, head, extent(c));
+    });
+
+    test("lanes opened past half of main: their skill rows scroll with the people, and the band, eyebrow and lanes stay (A6.2)", async () => {
+        scrollsAsAPageDoes();
+        const { container: c } = await open(ex.rosterWorkRequirement);
+        const [first, second] = ordered(await h.read(ex.rosterTeams));
+        const half = scroller(c).getBoundingClientRect().height / 2;
+        // The first band's lanes opened in turn until its head is taller than half of main.
+        const lanes = headAt(c, `band:${first}`).filter(row => kindOf(row.name) === "lane").map(row => row.name);
+        for (const lane of lanes) {
+            if (heightOf(headAt(c, `band:${first}`)) > half) break;
+            const row = [...scroller(c).querySelectorAll("[data-roster-lane]")].find(el => el.getAttribute("data-roster-lane") === lane);
+            await press(row?.querySelector("[data-roster-lane-head]"));
+        }
+        const head = headAt(c, `band:${first}`);
+        expect(heightOf(head)).toBeGreaterThan(half);
+        expect(head.some(row => kindOf(row.name) === "skill")).toBe(true);
+        // What sticks: the rows that do not give way, in order, while they fit in half of main.
+        const firm: (typeof head)[number][] = [];
+        for (const row of head) {
+            if (kindOf(row.name) === "skill") continue;
+            if (heightOf(firm) + row.size > half) break;
+            firm.push(row);
+        }
+        expect(firm.map(row => kindOf(row.name))).toEqual(head.filter(row => kindOf(row.name) !== "skill").map(row => kindOf(row.name)));
+        await rest(c, await placeOf(c, `row:requests:${first}`) - 300);
+        holdsStuck(c, firm, placed(c).find(row => row.name === `band:${second}`)!.place, second);
+    });
+
+    test("a stuck band folded keeps its element and the focus, and stays at the view's top, its rows folded away under it", async () => {
+        scrollsAsAPageDoes();
+        const { container: c } = await open(ex.rosterWorkRequirement);
+        const [, second, third] = ordered(await h.read(ex.rosterTeams));
+        await rest(c, await placeOf(c, `row:requests:${second}`) - 300);
+        const band = scroller(c).querySelector<HTMLElement>(`[data-roster-group="${second}"]`)!;
+        const box = band.closest('[data-slot="virtualRow"]')!;
+        expect(box.hasAttribute("data-virtual-stuck")).toBe(true);
+        const at = placed(c).find(row => row.name === `band:${second}`)!.place;
+        await act(async () => { band.focus(); });
+        await press(band);
+        expect(band.isConnected).toBe(true);
+        expect(document.activeElement).toBe(band);
+        expect(band.getAttribute("aria-expanded")).toBe("false");
+        expect(scroller(c).scrollTop).toBe(at);
+        expect(box.hasAttribute("data-virtual-stuck")).toBe(false);
+        // Its rows went with the fold: the next band follows it.
+        const rows = placed(c).map(row => row.name);
+        expect(rows[rows.indexOf(`band:${second}`) + 1]).toBe(`band:${third}`);
     });
 });

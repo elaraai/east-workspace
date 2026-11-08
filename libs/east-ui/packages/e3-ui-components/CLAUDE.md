@@ -1267,8 +1267,21 @@ where the requests make up its hours, or off with no target; its difference
 where a day is 22px or wider, whole or not at all, and no figure in the name
 cells (P16). A mark selects its slot in its week — a selection names its week
 (`Selection`'s `start`, `selectionWeek`) — and the inspector and the commands
-work over that week. `requirements={false}`, Hide requirements and a Roster
-without targets draw none of it.
+work over that week. Deep in a band's people, by week or by month, the band's
+head — the band, its eyebrow and its lanes, an open lane's skill rows with
+them — sticks under the grid's header, each row under the ones above it, until
+the next band pushes the head out whole (A6.1, `views.tsx`' `demandSections`
+over `VirtualRows`' `sections`); with `peopleBands={false}` the one block
+sticks over everyone. A head taller than half of main keeps its band, eyebrow
+and lanes, as many as fit in that half, and its skill rows scroll with the
+people (A6.2). A band with no work requirement under it sticks nothing, and a
+stuck band folded stays at the view's top, the focus on it. The stuck rows are
+on the surface's paper, the `scroll` slot's (`[data-virtual-stuck] >
+[data-index]`), and nothing the keyboard reaches lands under them — a Tab, a
+pick, a keyboard drag's step — each row's elements keeping what covers it clear
+as their scroll margin (`VirtualRows`' `--virtual-cover`, WCAG 2.4.11).
+`requirements={false}`, Hide requirements and a Roster without targets draw
+none of it.
 
 The People tab has no filter of its own: leads, trainers, agency and skill are
 rail fields of the staff record (#1342). A Find fix asks the app's fit

@@ -29,9 +29,10 @@
  *   parsed height / maxHeight (reserved-gutter scrollbar via
  *   {@link virtualScrollbarCss}); the header pins (`position: sticky`, opaque
  *   `bg.surface` so rows never paint through it) and only the visible rows
- *   (+ overscan) are mounted, positioned by `translateY`. Its view is its
- *   scrollport ({@link observeScrollport}): a horizontal scrollbar the rows
- *   run under is no view, so a row a request brings in ends above it.
+ *   (+ overscan) are mounted, positioned by `translateY` — a frame with
+ *   sections by `top` (below). Its view is its scrollport
+ *   ({@link observeScrollport}): a horizontal scrollbar the rows run under is
+ *   no view, so a row a request brings in ends above it.
  *
  * The bounded virtualizer's window is measured from the scroll element's
  * origin, but the rows start BELOW the in-flow sticky header — `scrollMargin`
@@ -73,7 +74,9 @@
  * view, else one covering the view — and a render that finds the anchor
  * moved, with nothing scrolled since, moves the virtualizer's offset by the
  * same amount (the rows drawn are the ones that will show) and the scroll
- * position follows before paint. A collection that draws rows not read as one
+ * position follows before paint, with what the virtualizer corrects in that
+ * commit — a row it mounts above the view, measured off its estimate (a stuck
+ * head's row, #1568). A collection that draws rows not read as one
  * item, a run however many (`runs`, the Calendar's paged places, #1424),
  * anchors on the row inside a run at the view's top — by the key that row
  * takes once read — and finds it again wherever it then is: its own line, or
@@ -120,6 +123,36 @@
  * (`sticky`), drawn from the row at the top of the view and over the rows,
  * taking no height of its own (#823).
  *
+ * A bounded frame of measured rows can stick the first rows of each of its
+ * sections (`sections`, #1568): a group's band and the rows heading it stick
+ * under the header, each under the one before, while the section's other rows
+ * scroll under them, and the next section's start pushes them out together.
+ * CSS holds them there — each head row sticks in a rail of its own, from its
+ * place to where the push-out leaves it — so a scroll draws nothing again, and
+ * the head of the section the view is in stays mounted however far into the
+ * section the view goes. A head row that yields sticks only while the whole
+ * head fits in half the view; past that, the head's other rows stick while
+ * they fit there. A row brought into view at its start lands under a stuck
+ * head, as it lands under the header, and so does an element of a row that the
+ * focus or a scroll into view brings in: each place names how much of the
+ * view's top covers its row — the header and the rows stuck over it, or above
+ * a stuck row — as `--virtual-cover`, which its elements keep clear as their
+ * scroll margin. The keyboard never lands under a stuck head (WCAG 2.4.11), and
+ * a stuck row, its margin its own offset, scrolls nowhere as it takes the
+ * focus. The host's recipe paints a stuck row (`[data-virtual-stuck] >
+ * [data-index]`), opaque as its header is. In such a frame each row is two
+ * boxes — its place, which the frame moves, and the row itself, the one
+ * measured (`data-index`) — so a row that comes to head a section, or ceases
+ * to, keeps its element. The place is a `top`, never a transform: a browser
+ * sticks a row where layout puts it, before any transform of its place, so a
+ * translated place moved each stuck row down by its place a second time. Each
+ * place is a stacking context of its own, as a translated one is, so nothing a
+ * row scrolling under the stuck head raises paints over it. A frame that
+ * anchors its scroll keeps a stuck head's first row where it showed once it
+ * heads no section, where the row it anchored on went with the section's rows:
+ * a band folding them away under the view stays at the view's top, the focus
+ * on it.
+ *
  * A row taller than the view — a paged collection's unloaded run — draws only
  * the part of itself the view shows, and follows the view itself: the frame
  * draws again only as its mounted range moves, so it hands its rows what
@@ -142,11 +175,14 @@
  */
 
 import {
-    memo, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState,
-    type HTMLAttributes, type MutableRefObject, type ReactNode, type RefObject,
+    memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState,
+    type CSSProperties, type HTMLAttributes, type MutableRefObject, type ReactNode, type RefObject,
 } from "react";
 import { Box } from "@chakra-ui/react";
-import { debounce, observeElementOffset, useVirtualizer, useWindowVirtualizer, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
+import {
+    debounce, defaultRangeExtractor, observeElementOffset, useVirtualizer, useWindowVirtualizer,
+    type Range as VirtualRange, type VirtualItem, type Virtualizer,
+} from "@tanstack/react-virtual";
 import { parseCssSize } from "../style/parse-size.js";
 import { virtualScrollbarCss } from "../style/scrollbar.js";
 import { RowTopContext, RowsScrollContext, createRowsScroll } from "./rows-scroll.js";
@@ -308,6 +344,103 @@ export interface RowRuns {
     readonly find: (at: { readonly key: string; readonly offset: number }) => { readonly index: number; readonly offset: number } | undefined;
 }
 
+/**
+ * A run of a bounded frame's rows whose first rows stick under its header while the run scrolls (#1568): a group's
+ * band and the rows heading it, over the group's other rows. It runs from its `start` to its `end`; its head — the
+ * `head` rows from its start — sticks, each row under the one before, until the next section's start pushes the head
+ * out.
+ */
+export interface StickySection {
+    /** The section's first row. */
+    readonly start: number;
+    /** The row after its last: the next section's start, or the frame's count. */
+    readonly end: number;
+    /** How many rows from its start head it. */
+    readonly head: number;
+    /**
+     * Whether a head row, by its index, gives way first: it sticks only while the whole head fits in half the view,
+     * and past that scrolls with the section's other rows. Omitted, none does.
+     */
+    readonly yields?: ((index: number) => boolean) | undefined;
+}
+
+/** How a head row sticks (#1568). */
+export interface StuckRow {
+    /** How far under the header it sticks: the height of the stuck rows above it. */
+    readonly top: number;
+    /** Its rail's height: from its place to where the next section's start pushes it out. */
+    readonly rail: number;
+}
+
+/**
+ * The sections a run of rows falls in (#1568), in order.
+ *
+ * @param sections - The frame's sections, sorted by their start, none overlapping
+ * @param from - The run's first row
+ * @param to - Its last row
+ * @returns Every section holding one of its rows
+ */
+function sectionsOver(sections: readonly StickySection[], from: number, to: number): readonly StickySection[] {
+    // The first section ending past `from`.
+    let lo = 0;
+    let hi = sections.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (sections[mid]!.end <= from) lo = mid + 1;
+        else hi = mid;
+    }
+    const over: StickySection[] = [];
+    for (let i = lo; i < sections.length && sections[i]!.start <= to; i++) over.push(sections[i]!);
+    return over;
+}
+
+/**
+ * Where a section's head rows stick (#1568). Every head row sticks while the whole head fits in `half` the view; past
+ * that, the rows that do not yield, in order, while they fit there. Each sticks under the stuck rows above it, in a
+ * rail from its place to where the stuck head, whole, meets the section's end — so the next section's start pushes
+ * every stuck row out at once.
+ *
+ * @param section - The section
+ * @param size - A row's height, by its index
+ * @param place - A row's place, by its index, in the rows' own coordinates
+ * @param end - Where the section ends, in the rows' own coordinates
+ * @param half - Half the view's height
+ * @returns The rows that stick, by index, and the stuck head's height
+ * @internal Exported for its test.
+ */
+export function stuckRows(section: StickySection, size: (index: number) => number, place: (index: number) => number, end: number, half: number):
+    { readonly rows: ReadonlyMap<number, StuckRow>; readonly height: number } {
+    const head: number[] = [];
+    for (let i = section.start; i < Math.min(section.start + section.head, section.end); i++) head.push(i);
+    let sticking = head;
+    if (head.reduce((sum, i) => sum + size(i), 0) > half) {
+        sticking = [];
+        let total = 0;
+        for (const i of head) {
+            if (section.yields?.(i) === true) continue;
+            if (total + size(i) > half) break;
+            total += size(i);
+            sticking.push(i);
+        }
+    }
+    const height = sticking.reduce((sum, i) => sum + size(i), 0);
+    const rows = new Map<number, StuckRow>();
+    let above = 0;
+    for (const i of sticking) {
+        const h = size(i);
+        // Pushed out where the stuck rows below it still fit above the section's end.
+        rows.set(i, { top: above, rail: Math.max(h, end - (height - above - h) - place(i)) });
+        above += h;
+    }
+    return { rows, height };
+}
+
+/**
+ * A sectioned frame's scroll margins (#1568): every element of a row keeps what its place names covering the row
+ * (`--virtual-cover`) clear above it, so the focus, or a scroll into view, lands below a stuck head, never under it.
+ */
+const COVERED_ROWS_CSS = { "& [data-slot=virtualRow] *": { scrollMarginTop: "var(--virtual-cover, 0px)" } } as const;
+
 /** What moves a frame's rows on screen (#856) — see `onViewport`. */
 export interface RowsViewport {
     /**
@@ -347,6 +480,16 @@ interface VirtualRowsBaseProps {
      * unbounded frame's header scrolls with the page (#856), so it has none.
      */
     sticky?: ((topIndex: number) => ReactNode) | undefined;
+    /**
+     * Sections whose first rows stick under a BOUNDED frame's header (#1568), sorted by their start, none overlapping:
+     * a section's head sticks, each row under the one before, while the section's other rows scroll under it, until
+     * the next section's start pushes it out ({@link StickySection}). Measured rows only; an unbounded frame's header
+     * scrolls with the page (#856), so it has none. Given — even empty — each row is drawn in two boxes, its place and
+     * the row itself, the one measured (`data-index`), so a row that comes to head a section keeps its element, and
+     * each row's elements scroll into view clear of what covers it. The host's recipe paints a stuck row
+     * (`[data-virtual-stuck] > [data-index]`), opaque as its header is.
+     */
+    sections?: readonly StickySection[] | undefined;
     /** Trailing content after the rows (e.g. a legend); scrolls with the body. */
     footer?: ReactNode | undefined;
     /**
@@ -598,6 +741,9 @@ type Rows = Virtualizer<HTMLElement, Element> | Virtualizer<Window, Element>;
 /** The scroll behaviour TanStack hands a `scrollToFn`. */
 type ScrollBehaviorOption = "auto" | "smooth" | "instant";
 
+/** Where a scroll request aligns its row in the view. */
+type ScrollAlign = "auto" | "start" | "center" | "end";
+
 /** How an offset observer tells the virtualizer where its scroll is, and whether it is under way. */
 type OffsetReport = (offset: number, isScrolling: boolean) => void;
 
@@ -809,6 +955,14 @@ interface ScrollAnchor {
     start: number;
     offset: number;
     index: number;
+    /**
+     * The first row of the section the view is in, while its head sticks under
+     * the header (#1568): its key, its index — where to look for it first — and
+     * where it showed, in the rows' own coordinates. Where the anchor leaves the
+     * frame with the section's rows — a band folding them away — and that row
+     * heads no section any longer, it is kept where it showed.
+     */
+    stuck?: { readonly key: ItemKey; readonly index: number; readonly start: number } | undefined;
 }
 
 /**
@@ -891,7 +1045,7 @@ function startOfKey(virtualizer: Rows, count: number, keyOf: (index: number) => 
 interface ScrollRequest {
     key: ItemKey;
     index: number;
-    align: "auto" | "start" | "center" | "end";
+    align: ScrollAlign;
     offset: number;
     scroller: Rows["scrollElement"];
     at: number;
@@ -924,7 +1078,7 @@ export function setVirtualRowsMeasureProbe(fn: (() => void) | undefined): void {
  */
 export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
-        header, sticky, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, runs, renderRow, measureRows = true,
+        header, sticky, sections, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, runs, renderRow, measureRows = true,
         overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, rootProps, fillParent, scrollElRef,
         scrollToIndex, scrollNonce, scrollAlign = "center", onRangeChange, sizeVersion,
         virtualizeUnboundedAt, onAnchorChange, restoreAnchor, rowsProps, rowsRef, onViewport,
@@ -1040,11 +1194,26 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const keyed = getItemKey !== undefined ? { getItemKey } : {};
     // The scroll's intent (CL6), read in the offset observers before the virtualizer takes each offset.
     const [intent] = useState(createScrollIntentFollow);
+    // The head of the section the view is in stays mounted, however far into the section the view goes: its rows stick
+    // there (#1568).
+    const rangeExtractor = useMemo(() => {
+        if (!bounded || !measureRows || sections === undefined || sections.length === 0) return undefined;
+        return (range: VirtualRange): number[] => {
+            const indexes = defaultRangeExtractor(range);
+            const first = indexes[0];
+            const [section] = sectionsOver(sections, range.startIndex, range.startIndex);
+            if (first === undefined || section === undefined || section.start >= first) return indexes;
+            const head: number[] = [];
+            for (let i = section.start; i < Math.min(section.start + section.head, section.end, first); i++) head.push(i);
+            return [...head, ...indexes];
+        };
+    }, [bounded, measureRows, sections]);
     const elementRows = useVirtualizer<HTMLElement, Element>({
         count,
         getScrollElement: () => (bounded ? scrollRef.current : ancestorEl ?? null),
         estimateSize: estimate,
         ...keyed,
+        ...(rangeExtractor !== undefined ? { rangeExtractor } : {}),
         overscan,
         scrollMargin: bounded ? itemsOffset : 0,
         // The pinned header covers this much of a bounded viewport's top.
@@ -1104,6 +1273,47 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // rows' own top.
     const margin = bounded ? itemsOffset : 0;
 
+    // A section's stuck head (#1568): where its rows stick, from the rows' measurements and the view's height.
+    const stickOf = (section: StickySection) => {
+        const place = (i: number) => (virtualizer.measurementsCache[i]?.start ?? margin) - margin;
+        const end = section.end < count ? place(section.end) : virtualizer.getTotalSize();
+        return stuckRows(section, (i) => virtualizer.measurementsCache[i]?.size ?? 0, place, end, (virtualizer.scrollRect?.height ?? 0) / 2);
+    };
+    // The first row of the section the view is in, while its head sticks under the header (#1568): its key, its index
+    // and where it shows, in the rows' own coordinates — which a scroll anchor keeps in place where its own row leaves.
+    const stuckAt = (offset: number, anchorable: (index: number) => boolean): ScrollAnchor["stuck"] => {
+        if (!bounded || !measureRows || sections === undefined) return undefined;
+        const top = virtualizer.getVirtualItemForOffset(offset + margin);
+        const [section] = top === undefined ? [] : sectionsOver(sections, top.index, top.index);
+        if (section === undefined || !anchorable(section.start)) return undefined;
+        const at = stickOf(section).rows.get(section.start);
+        const item = virtualizer.measurementsCache[section.start];
+        if (at === undefined || item === undefined) return undefined;
+        const place = item.start - margin;
+        const shown = Math.min(Math.max(place, offset + at.top), place + at.rail - item.size);
+        return shown > place ? { key: item.key, index: section.start, start: shown } : undefined;
+    };
+    // How much of the view's top a stuck head covers over row `index`: its section's, wherever the row does not stick
+    // itself — a row past the head, or a head row that yields or finds no room in half the view (A6.2).
+    const headOver = (index: number): number => {
+        if (!bounded || !measureRows || sections === undefined) return 0;
+        const [section] = sectionsOver(sections, index, index);
+        if (section === undefined) return 0;
+        const head = stickOf(section);
+        return head.rows.has(index) ? 0 : head.height;
+    };
+    // Where a scroll request puts its row: as the virtualizer aligns it — but a row a stuck head would cover, brought in
+    // at its start (going up, or in view already behind the head), lands under the head, as it lands under the header
+    // (#1568).
+    const offsetFor = (index: number, align: ScrollAlign): readonly [number, ScrollAlign] | undefined => {
+        const target = virtualizer.getOffsetForIndex(index, align);
+        const item = virtualizer.measurementsCache[index];
+        const covered = headOver(index);
+        if (target === undefined || item === undefined || covered === 0) return target;
+        const behind = item.start < (virtualizer.scrollOffset ?? 0) + margin + covered;
+        return target[1] === "start" || (target[1] === "auto" && behind) ? [Math.max(0, item.start - margin - covered), "start"] : target;
+    };
+
     // What scrolls the rows, for a row taller than the view — an unloaded run —
     // to draw the part of it the view shows (#1398, CL2; `rows-scroll.ts`): the
     // frame never draws again while the view moves inside one row, so the row
@@ -1148,10 +1358,23 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         const offset = virtualizer.scrollOffset;
         if (anchor !== null && offset !== null && offset === anchor.offset) {
             virtualizer.getTotalSize();  // this render's measurements
-            const start = startOfKey(virtualizer, count, getItemKey, anchor.key, anchor.index, runs);
+            let start = startOfKey(virtualizer, count, getItemKey, anchor.key, anchor.index, runs);
+            let was = anchor.start;
+            // The anchor gone with its section's rows — a band folding them
+            // away under the view — the row that stuck at the head of the
+            // section, heading none now, stays where it showed (#1568).
+            const stuck = anchor.stuck;
+            if (start === undefined && stuck !== undefined) {
+                const index = indexOfKey(count, getItemKey, stuck.key, stuck.index);
+                const heads = index !== undefined && sections !== undefined && sectionsOver(sections, index, index)[0]?.start === index;
+                if (index !== undefined && !heads) {
+                    start = virtualizer.measurementsCache[index]?.start;
+                    was = stuck.start;
+                }
+            }
             // Where the anchor starts among the rows now, as it was taken: a
             // header measured or grown since moves every start, and no row.
-            const moved = start === undefined ? 0 : start - margin - anchor.start;
+            const moved = start === undefined ? 0 : start - margin - was;
             if (moved !== 0) {
                 const live = liveOffset();
                 if (live !== undefined && Math.abs(live - offset) < 1) {
@@ -1182,9 +1405,15 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             anchorTarget.current = null;
             return;
         }
-        const target = anchorTarget.current;
-        if (target !== null) {
+        const anchored = anchorTarget.current;
+        if (anchored !== null) {
             anchorTarget.current = null;
+            // A row this commit mounted above the view, measured off its
+            // estimate — a stuck head's row (#1568), an overscan row — has the
+            // virtualizer move its offset on by as much as it grew: the offset
+            // written is the anchored one with that correction, never the
+            // render's alone, which would take the view back by as much.
+            const target = virtualizer.scrollOffset ?? anchored;
             if (onWindow) windowRows.options.scrollToFn(target, {}, windowRows);
             else elementRows.options.scrollToFn(target, {}, elementRows);
             const live = liveOffset();
@@ -1194,8 +1423,9 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             }
         }
         const offset = virtualizer.scrollOffset ?? 0;
-        anchorRef.current = anchorable === undefined ? null
+        const anchor = anchorable === undefined ? null
             : anchorOf(virtualizer, offset, offset + margin, virtualizer.scrollRect?.height ?? 0, anchorable, margin, runs);
+        anchorRef.current = anchor === null || anchorable === undefined ? anchor : { ...anchor, stuck: stuckAt(offset, anchorable) };
     });
 
     // Where a bounded frame's scroll rests, reported when a scroll SETTLES
@@ -1261,7 +1491,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             && performance.now() - request.at <= FOLLOW_MS
             ? indexOfKey(count, getItemKey, request.key, request.index) : undefined;
         virtualizer.getTotalSize();  // this render's measurements
-        const target = index === undefined ? undefined : virtualizer.getOffsetForIndex(index, request.align);
+        const target = index === undefined ? undefined : offsetFor(index, request.align);
         const live = liveOffset();
         if (index === undefined || target === undefined || live === undefined) {
             requestRef.current = null;
@@ -1323,7 +1553,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         const served = servedRef.current;
         if (served !== null && served.key === key && served.nonce === scrollNonce
             && served.scroller === virtualizer.scrollElement) return;
-        const target = virtualizer.getOffsetForIndex(index, scrollAlign);
+        const target = offsetFor(index, scrollAlign);
         if (target === undefined) return;
         servedRef.current = { key, nonce: scrollNonce, scroller: virtualizer.scrollElement };
         requestRef.current = {
@@ -1400,27 +1630,51 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // them, and while no row is mounted, the overlay stays the rows' sibling.
     const columnTop = items.length > 0 ? items[0]!.start - margin : 0;
     const overlayInColumn = !measureRows && items.length > 0;
+    // A frame with sections (#1568): bounded, its rows measured — and where the heads of the sections this window falls
+    // in stick.
+    const sectioned = bounded && measureRows && sections !== undefined;
+    const stuck = new Map<number, StuckRow>();
+    if (sectioned && items.length > 0) {
+        for (const section of sectionsOver(sections, items[0]!.index, items[items.length - 1]!.index)) {
+            for (const [i, at] of stickOf(section).rows) stuck.set(i, at);
+        }
+    }
+    const placeRow = (item: VirtualItem) => {
+        const row = <RowTopContext.Provider value={item.start - margin}><RowContent index={item.index} render={renderRow} /></RowTopContext.Provider>;
+        if (!sectioned) {
+            return (
+                <Box key={item.key} data-index={item.index} data-slot="virtualRow" ref={virtualizer.measureElement}
+                    position="absolute" top="0" left="0" width="100%" style={{ transform: `translateY(${item.start - margin}px)` }}>
+                    {row}
+                </Box>
+            );
+        }
+        // The row's place, which the frame moves — a stuck head row's, its rail, taking no pointer below the row — and
+        // in it the row itself, measured, sticking under the header and the stuck rows above it, which the host's recipe
+        // paints. The place is its top, never a transform, which a stuck row's offset would be worked out before (the
+        // module docs); isolated, a stacking context as a transform made it. It names what covers the row — the header,
+        // and the stuck rows over it or, stuck, above it — which the row's elements scroll into view clear of.
+        const at = stuck.get(item.index);
+        const cover = itemsOffset + (at !== undefined ? at.top : headOver(item.index));
+        return (
+            <Box key={item.key} data-slot="virtualRow" data-virtual-stuck={at !== undefined ? "" : undefined}
+                position="absolute" left="0" width="100%" isolation="isolate" pointerEvents={at !== undefined ? "none" : undefined}
+                style={{ top: `${item.start - margin}px`, "--virtual-cover": `${cover}px`, ...(at !== undefined ? { height: `${at.rail}px`, zIndex: 1 } : {}) } as CSSProperties}>
+                <Box data-index={item.index} ref={virtualizer.measureElement} position={at !== undefined ? "sticky" : undefined}
+                    pointerEvents={at !== undefined ? "auto" : undefined}
+                    style={at !== undefined ? { top: `${itemsOffset + at.top}px` } : undefined}>
+                    {row}
+                </Box>
+            </Box>
+        );
+    };
     const virtualWindow = () => (
-        <Box ref={setRows} position="relative" style={{ height: `${total}px` }} minWidth={minWidth}
+        <Box ref={setRows} position="relative" style={{ height: `${total}px` }} minWidth={minWidth} css={sectioned ? COVERED_ROWS_CSS : undefined}
             // The extent, as data: the height compiles to a class, which jsdom
             // does not resolve — this is what a DOM test holds geometry to.
             data-virtual-extent={total} {...rowsProps}>
             {measureRows ? (
-                items.map((item) => (
-                    <Box
-                        key={item.key}
-                        data-index={item.index}
-                        data-slot="virtualRow"
-                        ref={virtualizer.measureElement}
-                        position="absolute"
-                        top="0"
-                        left="0"
-                        width="100%"
-                        style={{ transform: `translateY(${item.start - margin}px)` }}
-                    >
-                        <RowTopContext.Provider value={item.start - margin}><RowContent index={item.index} render={renderRow} /></RowTopContext.Provider>
-                    </Box>
-                ))
+                items.map(placeRow)
             ) : items.length > 0 && (
                 // Fixed-row window: ONE translated normal-flow column.
                 // Adjacent rows share edges inside a single layer, so row
@@ -1455,10 +1709,12 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             {!overlayInColumn && overlay}
         </Box>
     );
+    // The window's own first row: the stuck head mounted before it is no row of the range (#1568).
+    const windowFrom = Math.max(0, (virtualizer.range?.startIndex ?? 0) - overscan);
     const reporter = onRangeChange !== undefined && virtualized && (
         <RangeReporter
             virtualizer={virtualizer}
-            startIndex={items[0]?.index ?? 0}
+            startIndex={(items.find((item) => item.index >= windowFrom) ?? items[0])?.index ?? 0}
             endIndex={items[items.length - 1]?.index ?? 0}
             // At rest as soon as the scroll shows intent (CL6), whatever the virtualizer still says — read as the
             // virtualizer's own flag is, off what the scroll's observer has set.

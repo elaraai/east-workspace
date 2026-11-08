@@ -249,10 +249,16 @@ test("a person the rail's narrowing hides is named by the people's choice that h
     await waitFor(() => expect(focusedPerson()).toBe("tkelp"));
 });
 
-/** The row at the top of the People grid's view — the mounted row its scroll offset falls in — and the px scrolled into it. */
+/**
+ * The row at the top of the People grid's view — the mounted row its scroll offset falls in, where its place puts it
+ * (the row's own box sits in its place: a top where the grid's sections stick, #1568, else a translation) — and the px
+ * scrolled into it.
+ */
 function topRow(c: HTMLElement): { key: string | null; into: number } {
     const top = scroller(c).scrollTop;
-    const placed = [...slot(c, "main").querySelectorAll<HTMLElement>("[data-index]")].map(el => ({ el, at: Number(/translateY\((-?[\d.]+)px\)/.exec(el.style.transform)?.[1] ?? NaN) }))
+    const placeOf = (box: HTMLElement) => box.style.top !== "" ? Number.parseFloat(box.style.top) : Number(/translateY\((-?[\d.]+)px\)/.exec(box.style.transform)?.[1] ?? NaN);
+    const placed = [...slot(c, "main").querySelectorAll<HTMLElement>("[data-index]")]
+        .map(el => ({ el, at: placeOf(el.closest<HTMLElement>("[data-slot=virtualRow]")!) }))
         .filter(row => row.at <= top).sort((a, b) => b.at - a.at);
     const row = placed[0];
     if (row === undefined) return { key: null, into: 0 };
