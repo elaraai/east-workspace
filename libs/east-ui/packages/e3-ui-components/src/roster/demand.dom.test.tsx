@@ -29,11 +29,11 @@
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { ArrayType, DateTimeType, IntegerType, SortedSet, StringType, compareFor, parseFor } from "@elaraai/east";
+import { ArrayType, DateTimeType, IntegerType, SortedSet, StringType, compareFor, parseFor, variant } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { DAY, slotKey, weekKey } from "./model.js";
-import { NEXT, START, act, open, press, rosterHarness, scrollsAsAPageDoes, settle, slot, width } from "./harness.test-utils.js";
+import { NEXT, START, act, narrow, open, press, rosterHarness, scrollsAsAPageDoes, settle, slot, width, type Choice } from "./harness.test-utils.js";
 
 const h = rosterHarness();
 const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
@@ -76,6 +76,8 @@ function figuresOf(el: Element): { rostered: string; needed: string } {
 }
 /** A band's figures, the text it says itself: its people and its spans' own words, without a shortfall of its own. */
 const own = (el: Element) => [...el.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join("");
+/** A count of people as a band and its assignment's eyebrow say it: `1 person`, `12 people`. */
+const peopleSaid = (n: number) => `${n} ${n === 1 ? "person" : "people"}`;
 /** The period segment's radio, checked. */
 async function period(c: HTMLElement, name: "Day" | "Week") {
     const radio = toolbar(c).getByRole("radio", { name });
@@ -278,8 +280,8 @@ describe("the People layout's work requirement by week (#1568)", () => {
             // The band: its people, its week as the Shifts layout's band says it, and its shifts short.
             const people = [...staff.values()].filter(person => person.team === group).length;
             const { said: week, short } = shown.weeks.get(group)!;
-            expect(drawn.bands.get(group), group).toEqual({ people: `${people} people`, said: week, short: short === 0 ? undefined : ` · ${short} ${short === 1 ? "shift" : "shifts"} short` });
-            expect(drawn.assigns.get(group), group).toBe(`Assignment · ${people} people`);
+            expect(drawn.bands.get(group), group).toEqual({ people: peopleSaid(people), said: week, short: short === 0 ? undefined : ` · ${short} ${short === 1 ? "shift" : "shifts"} short` });
+            expect(drawn.assigns.get(group), group).toBe(`Assignment · ${peopleSaid(people)}`);
             // The eyebrow: each day's hours rostered of needed, as the Shifts layout's band says them of that day.
             expect(drawn.eyebrows.get(group), group).toEqual(shown.days.get(group)!.map(f => `${f.rostered} / ${f.needed} h`));
         }
@@ -289,6 +291,21 @@ describe("the People layout's work requirement by week (#1568)", () => {
             const f = shown.slots.get(key)!;
             expect(said(words), key).toBe(targets.has(key) ? `${f.rostered} of ${f.needed} hours rostered` : "no target");
         });
+    });
+
+    test("a band the narrowing leaves one person says `1 person`, and so does its assignment's eyebrow", async () => {
+        scrollsAsAPageDoes();
+        const { container: c, store } = await open(ex.rosterWorkRequirement);
+        const staff = [...await h.read(ex.rosterStaff)], first = ordered(await h.read(ex.rosterTeams))[0]!;
+        // A person of the first band whose name begins no one else's: their name, as a prefix, leaves them alone in it.
+        const alone = staff.find(([, person]) => person.team === first && staff.filter(([, other]) => other.name.startsWith(person.name)).length === 1);
+        expect(alone, first).toBeDefined();
+        const [key, person] = alone!;
+        await narrow(store, "rosterWorkRequirement", "people", new Map<string, Choice>([["name", variant("prefix", person.name)]]));
+        await waitFor(() => expect(slot(c, "main").querySelector(`[data-roster-group="${first}"] [data-count]`)?.textContent).toBe("1 person"));
+        const drawn = await strip(c, key);
+        expect(drawn.bands.get(first)?.people, first).toBe("1 person");
+        expect(drawn.assigns.get(first), first).toBe("Assignment · 1 person");
     });
 
     test("with no bands one block heads the list, a lane a shift any group's target names; a lane's day opens the shift's day across the groups in the inspector — the sum as the lane says it, each group's slot as the Shifts layout draws it", async () => {
@@ -759,7 +776,7 @@ describe("the work requirement on a phone (#1568)", () => {
                 }
             });
             const people = [...staff.values()].filter(person => person.team === group).length;
-            expect(drawn.assigns.get(group), group).toBe(`Assignment · ${people} people`);
+            expect(drawn.assigns.get(group), group).toBe(`Assignment · ${peopleSaid(people)}`);
             // The band, then its work requirement's cards and the assignment's eyebrow, then its people's cards.
             const at = drawn.order.indexOf(`band:${group}`);
             expect(drawn.order.slice(at + 1, at + 3), group).toEqual([`demand:${group}`, `assign:${group}`]);

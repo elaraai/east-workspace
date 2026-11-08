@@ -1092,6 +1092,16 @@ function bandPeople(value: RosterValue): ReadonlyMap<string, number> {
     return counts;
 }
 /**
+ * A count of people as a band and its assignment's eyebrow say it (#1568, A1, A5): `1 person`, `12 people`.
+ *
+ * @param number - The locale's number formatter
+ * @param n - How many people
+ * @returns The count in words
+ */
+function peopleSaid(number: (n: number) => string, n: number): string {
+    return `${number(n)} ${n === 1 ? "person" : "people"}`;
+}
+/**
  * A scope's work requirement as rows (#1568): its group's — `undefined` for the one block over every group's, where the
  * layout draws no bands — its work requirement, and how many people its band lists.
  */
@@ -1171,7 +1181,7 @@ function BandDemand({ ctx, demand, people }: { ctx: ViewContext; demand: Demand;
     const { styles, format, read } = ctx;
     const { needed, rostered, shortSlots } = demand.total;
     return <>
-        <Box as="span" css={styles.groupMeta} data-count="">{format.number(people)} people</Box>
+        <Box as="span" css={styles.groupMeta} data-count="">{peopleSaid(format.number, people)}</Box>
         <Box as="span" css={styles.groupMeta} data-roster-band-demand="">{read.state !== "held" ? <Unread read={read} kind="aggregate" index={2} />
             : <>{format.number(needed)} h needed · {format.number(rostered)} h rostered · {signed(format.number, difference(rostered, needed), "+0")} h{shortSlots > 0
                 && <Box as="span" data-tone="warning"> · {format.number(shortSlots)} {shortSlots === 1 ? "shift" : "shifts"} short</Box>}</>}</Box>
@@ -1307,10 +1317,10 @@ const SkillRow = memo(function SkillRow({ ctx, row, measure }: { ctx: ViewContex
             {read.state !== "held" ? <Unread read={read} kind="number" index={day} /> : figures === undefined ? null : <SkillFigures ctx={ctx} figures={figures} />}</Box>; })}
     </Box>;
 });
-/** The eyebrow before a band's people (#1568, A5): `Assignment · n people`, the people the band lists. */
+/** The eyebrow before a band's people (#1568, A5): `Assignment · 12 people`, the people the band lists — `1 person` for one. */
 const AssignHead = memo(function AssignHead({ ctx, row, measure }: { ctx: ViewContext; row: Extract<DemandRow, { kind: "assign" }>; measure: (el: HTMLElement | null) => void }) {
     return <Box ref={measure} css={ctx.styles.assignRow} data-roster-assign-head={row.key}>
-        <Box as="span" css={ctx.styles.assignLabel}>Assignment · {ctx.format.number(row.people)} people</Box>
+        <Box as="span" css={ctx.styles.assignLabel}>Assignment · {peopleSaid(ctx.format.number, row.people)}</Box>
     </Box>;
 });
 
