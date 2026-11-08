@@ -42,8 +42,11 @@ over itself.
 **`e3-api-server`** serves repositories: `--repos <dir>` (each subdirectory a
 repository) or `--repo <path>` (one, served as `default`), `-p`/`--port` (3000),
 `-H`/`--host` (localhost), `--cors`, `-j`/`--memory` (the server's budget, for
-every run and call it serves and every upload it takes in), and auth — `--oidc`, a built-in provider for `e3
+every run and call it serves and every upload it takes in), the call limits —
+`--call-deadline` (a one-shot or function call's, 120s), `--job-timeout` (a
+split call's job, 10m), `--max-result` (1M, held in the server's memory while
+it is answered) and `--max-log` (256K) — and auth: `--oidc`, a built-in provider for `e3
 auth login` (`--token-expiry`, `--refresh-token-expiry`), or an external JWT
 issuer (`--auth-key`, `--auth-issuer`, `--auth-audience`). In code,
-`createServer({ reposDir | singleRepoPath, port, host, … })` starts one, and its
-route factories mount on another host.
+`createServer({ reposDir | singleRepoPath, port, host, calls?, … })` starts one,
+and its route factories mount on another host.

@@ -100,10 +100,11 @@ export interface FunctionRoutesOptions {
    */
   access?: OneShotAccess;
   /**
-   * The most a call through a workspace may ask for. A started call's timeout
+   * The most a call may ask for. Through a workspace, a started call's timeout
    * is the ceiling's unless it asks for less, since it outlives its request; a
-   * sync call's defaults as before, and is clamped under the sync deadline
-   * too (default: a server's, a 10-minute timeout).
+   * sync call's, and a call's through the package, defaults as before, and is
+   * clamped under the sync deadline too (default: a server's, a 10-minute
+   * timeout, a 1 MiB result and 256 KiB of logs).
    */
   ceilings?: ExecuteCeilings;
   /** The longest a call's start waits for it to end before it answers
@@ -147,8 +148,8 @@ export function oneShotAccessByRoles(elevated: readonly string[] = ['admin', 'ow
  * @param storage - Storage backend
  * @param getRepoPath - A repository's identifier from its name
  * @param getRunner - Each repository's task runner
- * @param options - The host's sync deadline, and the grant a runner a call
- *   names is held to
+ * @param options - The host's sync deadline, the ceilings a call's limits are
+ *   held to, and the grant a runner a call names is held to
  * @returns The routes
  */
 export function createPackageFunctionRoutes(
@@ -177,7 +178,8 @@ export function createPackageFunctionRoutes(
     try {
       const grant = await functionGrant(c, options);
       const req = await decodeBody(c, FunctionCallRequestType);
-      return await callFunctionSync(storage, repoPath, getRunner(repoPath), c.req.param('pkg')!, c.req.param('version')!, c.req.param('fn')!, req, c.req.query('verbose') === '1', options.syncDeadlineMs, grant);
+      return await callFunctionSync(storage, repoPath, getRunner(repoPath), c.req.param('pkg')!, c.req.param('version')!, c.req.param('fn')!, req,
+        c.req.query('verbose') === '1', options.syncDeadlineMs, grant, null, options.ceilings);
     } catch (err) {
       return sendError(ExecuteResultType, errorToVariant(err));
     }

@@ -685,6 +685,16 @@ New files:
     gateway error. The function and one-shot routes share the limits, so both
     take it. `ceilings` lowers what a request may ask for, where a host's
     response limits are tighter than a server's.
+  - **The local server's** (#1103) are its own to set, with no gateway in
+    front of it: `ServerConfig.calls` — `{ syncDeadlineMs?, ceilings? }` —
+    or the CLI's `--call-deadline`, `--job-timeout` (`ceilings.timeoutMs`),
+    `--max-result` and `--max-log`, each a positive duration or size,
+    refused naming its flag otherwise (`resolveCallLimits`). `createServer`
+    passes the deadline to all three factories and the ceilings to the
+    one-shot routes, which hold one-shot and split calls; a named function
+    call keeps the default ceilings. A larger result limit holds a larger
+    answer in the server's memory while it is answered; past it, a split
+    call's answer is read from its stored output by its hash (#1106).
 
 Mount in **`packages/e3-api-server/src/server.ts`** after the auth middleware
 (`app.use('/api/repos/:repo/*', authMiddleware)`), before any catch-all:
@@ -815,7 +825,8 @@ typical 7-field row ≈ 111 B — results in the low thousands of rows sit well 
 1 MB. The binding ceilings are the cloud transport (see cloud doc): **API Gateway
 10 MB** (hard), **Lambda sync response 6 MB**, and base64 inflation in the Lambda
 proxy → ~4.5 MB raw. **Default `maxResultBytes` = 1 MB**, server-owned and
-clamped (a deployment may set it lower). It leaves 3–4× headroom under the
+clamped (a deployment may set it lower; a local server, with no gateway,
+higher: `--max-result`, §7.1). It leaves 3–4× headroom under the
 base64-inflated Lambda ceiling and still allows multi-thousand-row tables inline.
 A result that doesn't fit is a dataset — deploy a task and read it with
 `datasetGet` (which already does the inline-vs-presigned split). Streaming is
@@ -960,7 +971,8 @@ inputs — and then, with `then`, `runner.runDetached` over the assembled output
 and the arguments, each as `{ dataset: hash }`, whose value is stored through
 the door. The job's timeout is `limits.timeoutMs`, by default and at most
 one-shot's ceiling of 10 minutes (`resolveJobLimits`: a job has no sync
-deadline). It is one budget for the whole job, counted from its launch (the
+deadline), which a local server sets with `--job-timeout` (§7.1). It is one
+budget for the whole job, counted from its launch (the
 record's `createdAt`, `splitCallRun`'s `launchedAt`); past it the run is
 aborted and the call ends `timed_out`. A caller that stops a call to run it
 again, as compute with a time limit does, leaves the job `processing`, and the

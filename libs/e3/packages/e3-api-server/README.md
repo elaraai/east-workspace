@@ -42,6 +42,9 @@ e3-api-server --repo /path/to/repo --oidc
 
 # Custom port and host
 e3-api-server --repo /path/to/repo --port 8080 --host 0.0.0.0
+
+# Longer split calls, and larger results
+e3-api-server --repo /path/to/repo --job-timeout 1h --max-result 8M
 ```
 
 ### CLI Options
@@ -58,6 +61,13 @@ e3-api-server --repo /path/to/repo --port 8080 --host 0.0.0.0
 | `--refresh-token-expiry <duration>` | Refresh token expiry, e.g., "7d", "90d" (default: 90d) |
 | `-j, --jobs <n>` | Cores: runner processes in flight at once, across every run and call the server serves and every upload it takes in (default: `E3_JOBS`, else the CPUs available) |
 | `--memory <size>` | Memory those runner processes may reserve between them, as `8G` or `512M` (default: `E3_MEMORY`, else the memory available, less a reserve for e3 and the OS) |
+| `--call-deadline <duration>` | How long a one-shot call, or a function called through its sync route, may run before it answers, as `90s` or `15m` (default: 120s). A call that names no timeout of its own gets 60s within it |
+| `--job-timeout <duration>` | How long a split call's job, or a kept call of a workspace's function, may run, as `30m` or `2h`, which is also the longest timeout a one-shot call may ask for (default: 10m) |
+| `--max-result <size>` | The largest result a one-shot, split or kept call answers, as `8M` (default: 1M). The server holds a result in memory while it answers it, so a larger limit takes more of it; a split call's larger result is read from its stored output, by its hash |
+| `--max-log <size>` | The most of each of a call's stdout and stderr its answer may carry, as `1M` (default: 256K; a call that names no limit gets 64K) |
+
+A malformed value, or one that is not positive, is refused naming its flag,
+and the server does not start.
 
 ## Programmatic Usage
 
@@ -145,15 +155,38 @@ interface ServerConfig {
   // Runner processes (optional)
   budget?: Budget | BudgetSettings;  // Cores and memory every runner the server spawns shares (default: from E3_JOBS / E3_MEMORY, else the machine)
 
-  // Calls of named functions through a workspace (optional)
-  functionCalls?: {
-    windowMs?: number;          // How long a call's start waits for it to end (default: 20000)
-    pollWaitMs?: number;        // The longest a poll is held (default: 20000)
-    ceilings?: ExecuteCeilings; // The most a call may ask for (default: a 10-minute timeout, a 1 MiB result)
-    lifetimes?: { succeededMs: number; failedMs: number };  // How long a call is kept once it ends (default: an hour, a week)
-  };
+  // Calls (optional)
+  calls?: CallLimits;  // A sync call's deadline, the most a call may ask for, and how a kept call is waited for and kept (below)
 }
 ```
+
+`calls` sets the limits the one-shot, function and split calls run under, as
+the CLI's `--call-deadline`, `--job-timeout`, `--max-result` and `--max-log`
+do (`resolveCallLimits` turns those flags into it), and how the server waits
+for and keeps a call of a workspace's function, which outlives its request:
+
+```typescript
+const server = await createServer({
+  singleRepoPath: '/path/to/repo',
+  calls: {
+    syncDeadlineMs: 300_000,         // a one-shot or sync function call answers within 5 minutes (default: 120 000)
+    ceilings: {
+      timeoutMs: 60 * 60_000,        // a split call's job, or a kept call, runs up to an hour (default: 10 minutes)
+      maxResultBytes: 8 * 1024 ** 2, // results up to 8 MiB are answered inline (default: 1 MiB)
+      maxLogBytes: 1024 ** 2,        // log tails up to 1 MiB (default: 256 KiB)
+    },
+    windowMs: 20_000,                // a kept call's start waits up to 20 s for it to end (default: 20 000)
+    pollWaitMs: 20_000,              // a poll of one is held up to 20 s (default: 20 000)
+    lifetimes: { succeededMs: 60 * 60_000, failedMs: 7 * 24 * 60 * 60_000 },  // how long one is kept (default: an hour, a week)
+  },
+});
+```
+
+The deadline applies to one-shot calls and to a function's sync route, and the
+ceilings to one-shot calls, split calls and kept calls of a workspace's
+functions. A limit no call could meet — a deadline, ceiling or lifetime that
+is not positive, or a negative window or wait — makes `createServer` throw a
+`RangeError`.
 
 ### Mounting the routes on another host
 
@@ -551,8 +584,9 @@ without the elevated grant. A host that mounts the function routes without
 A call through a workspace is the server's, and outlives the request that
 starts it: it is filed — the function as deployed then, its inputs and dataset
 arguments pinned, each value argument stored as an object — run on the server's
-runner, held to its own timeout (the ceiling, ten minutes here, unless it asks
-for less), and kept until the lifetime its end gives it: an hour for a success
+runner, held to its own timeout (the server's job limit, `--job-timeout`, ten
+minutes by default, unless it asks for less), and kept until the lifetime its
+end gives it: an hour for a success
 or a cancel, a week for any other end, with no job run to forget it, since
 every read leaves out a call past its `expiresAt`. A kept call names its
 arguments, the inputs it read and its value by hash, and gc keeps what a live
@@ -563,9 +597,11 @@ server stopped before it ended — is answered `lost`. A call found wrong is kep
 A split call runs as a split task, so each
 piece and merge is cached: a relaunch is served from the cache, and one after
 an append reruns only the pieces the append reached. Its timeout is one budget
-for the whole job, counted from its launch. A call is polled only through the
-repository and workspace that launched it, and a caller with a platform-free
-grant polls only a platform-free call, or one such a caller launched.
+for the whole job, counted from its launch: the server's job limit
+(`--job-timeout`, 10 minutes by default) unless the call asks for less. A call
+is polled only through the repository and workspace that launched it, and a
+caller with a platform-free grant polls only a platform-free call, or one such
+a caller launched.
 
 ### Records
 
