@@ -222,11 +222,11 @@ function commitEdit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx): Tran
     const text = commitText(edit, ctx);
     const effects: SheetEffect[] = [];
     // Closed on the text it opened with, nothing changed and nothing is
-    // written (#852): re-reading a cell's own edit form could still change
-    // it — the quantity grammar rounds to a whole number. An untouched
-    // editor (its buffer as it opened, no candidate cycled) never takes a
-    // ghost it was not asked for either. Holding a chosen member, it is
-    // unchanged while that member is the cell's own (#1536).
+    // written (#852): the cell keeps its own value, never its edit form read
+    // back, and the history takes no step. An untouched editor (its buffer
+    // as it opened, no candidate cycled) never takes a ghost it was not
+    // asked for either. Holding a chosen member, it is unchanged while that
+    // member is the cell's own (#1536).
     const own = edit.pick !== undefined ? ctx.memberAt?.(edit.r, edit.c) : undefined;
     const unchanged = edit.opened !== undefined && (edit.pick !== undefined
         ? own !== undefined && stringEqual(edit.pick, own)

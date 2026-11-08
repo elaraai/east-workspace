@@ -32,7 +32,9 @@ describe("quantity grammar", () => {
         ["1.2m", 1200000],
         ["2 M", 2000000],
         ["4", 4],
-        ["2.6", 3],           // rounded integer
+        ["2.6", 2.6],         // the number as written
+        ["7.5", 7.5],
+        ["1.005k", 1005],     // the decimal point moved, never multiplied: 1004.9999999999999
         ["-5", -5],
     ])("%s → %s", (text, expected) => {
         expect(parseQuantity(text, en.separators)).toBe(expected);
@@ -56,28 +58,28 @@ describe("quantity grammar", () => {
 describe("in the viewer's language (#852)", () => {
     test.each([
         ["1.234", 1234],        // a German thousands point, not a decimal
-        ["1.234,5", 1235],      // the decimal comma, then the whole-number rule
+        ["1.234,5", 1234.5],    // the decimal comma
         ["1,5k", 1500],
         ["1,5m", 1500000],
-        ["12,4", 12],
+        ["12,4", 12.4],
         ["1 234", 1234],        // a space is never a digit
-        ["-2,6", -3],
+        ["-2,6", -2.6],
     ])("German: %s → %s", (text, expected) => {
         expect(parseQuantity(text, de.separators)).toBe(expected);
     });
 
     test.each([
-        ["1\u202f234,5", 1235], // French groups with a narrow no-break space
-        ["1\u00a0234,5", 1235], // …or a no-break space, pasted from elsewhere
-        ["1 234,5", 1235],
+        ["1\u202f234,5", 1234.5], // French groups with a narrow no-break space
+        ["1\u00a0234,5", 1234.5], // …or a no-break space, pasted from elsewhere
+        ["1 234,5", 1234.5],
         ["2,5k", 2500],
     ])("French: %j → %s", (text, expected) => {
         expect(parseQuantity(text, fr.separators)).toBe(expected);
     });
 
-    test("an integer column reads without rounding, so a fraction is caught", () => {
-        expect(parseQuantity("1.234", de.separators, false)).toBe(1234);
-        expect(parseQuantity("1.234,5", de.separators, false)).toBe(1234.5);
+    test("a fraction reads as written, so an integer column catches it", () => {
+        expect(parseQuantity("1.234", de.separators)).toBe(1234);
+        expect(parseQuantity("1.234,5", de.separators)).toBe(1234.5);
     });
 
     test("a second decimal separator is unrecognised in every language", () => {
@@ -90,11 +92,11 @@ describe("in the viewer's language (#852)", () => {
     ] as const)("%s: what a cell displays and what the edit box opens on read back as the number", (_locale, words) => {
         // The display groups, to three decimals at most — it reads back as the number it shows.
         for (const n of [0, 7, 1234.5, 1234567.25, -98765.432, 0.125]) {
-            expect(parseQuantity(words.number(n), words.separators, false)).toBe(n);
+            expect(parseQuantity(words.number(n), words.separators)).toBe(n);
         }
         // The edit and copy form is bare, every digit kept — it reads back exactly.
         for (const n of [0, 1234.5, -98765.4321, 0.1, 0.0005, 123456789.123]) {
-            expect(parseQuantity(formatNumberBare(n, words), words.separators, false)).toBe(n);
+            expect(parseQuantity(formatNumberBare(n, words), words.separators)).toBe(n);
         }
     });
 

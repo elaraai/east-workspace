@@ -87,7 +87,7 @@ const STATUSES = [
     { word: "RELEASED", tone: variant("info", null) },
     { word: "CANCELLED", tone: variant("danger", null) },
 ];
-/** j1 holds a fraction, so a whole-number re-read would show (#852). */
+/** j1 holds a fraction, so the viewer's decimal separator shows (#852). */
 const ROWS_FRACTION = [{ ...ROWS[0]!, qty: some(1234.5) }, ROWS[1]!];
 /** j1 holds more digits than the number field shows (`0.3`). */
 const ROWS_NOISE = [{ ...ROWS[0]!, qty: some(0.30000000000000004) }, ROWS[1]!];
@@ -514,10 +514,10 @@ describe("numbers in the viewer's language (#852)", () => {
         expect(container.querySelector('[data-slot="footerMessage"]')!.textContent).toBe("Copied 1×1 to clipboard");
     });
 
-    test("German: typing 1.234 saves 1234, 1.234,5 saves 1235 (the whole-number rule), 1,5k saves 1500; a paste reads the same", async () => {
+    test("German: typing 1.234 saves 1234, 1.234,5 saves 1234,5, 1,5k saves 1500; a paste reads the same", async () => {
         const { value, draft } = withSpies(buildSheet({ rows: ROWS_FRACTION }));
         const { card, cell, key, type, editorKey, flush } = mount(value, "de-DE");
-        for (const [text, n] of [["1.234", 1234], ["1.234,5", 1235], ["1,5k", 1500]] as const) {
+        for (const [text, n] of [["1.234", 1234], ["1.234,5", 1234.5], ["1,5k", 1500]] as const) {
             fireEvent.mouseDown(cell(1, "qty"), { button: 0 });
             key("1");
             await flush();
@@ -531,8 +531,22 @@ describe("numbers in the viewer's language (#852)", () => {
         fireEvent.mouseDown(cell(1, "qty"), { button: 0 });
         fireEvent.paste(card, { clipboardData: { getData: () => "2.345,5" } });
         await flush();
-        expect(draft("j2", Sheet.Types.Draft(JobType)).qty).toEqual(variant("value", some(2346)));
-        expect(cell(1, "qty").textContent).toBe("2.346");
+        expect(draft("j2", Sheet.Types.Draft(JobType)).qty).toEqual(variant("value", some(2345.5)));
+        expect(cell(1, "qty").textContent).toBe("2.345,5");
+    });
+
+    test("English: typing 7.5 saves 7.5, and the cell shows it", async () => {
+        const { value, draft } = withSpies(buildSheet());
+        const { cell, key, type, editorKey, flush } = mount(value, "en-US");
+        fireEvent.mouseDown(cell(1, "qty"), { button: 0 });
+        key("7");
+        await flush();
+        type("7.5");
+        await flush();
+        editorKey("Enter");
+        await flush();
+        expect(draft("j2", Sheet.Types.Draft(JobType)).qty).toEqual(variant("value", some(7.5)));
+        expect(cell(1, "qty").textContent).toBe("7.5");
     });
 
     test("English: the cell and the edit box are as they always were, and ⏎ on the unchanged box leaves 1234.5 as it was", async () => {

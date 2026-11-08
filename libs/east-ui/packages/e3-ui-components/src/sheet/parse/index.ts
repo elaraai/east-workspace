@@ -81,7 +81,7 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
             return { kind: "cell", cell: cellOf("Float", n) };
         }
         case "integer": {
-            const n = parseQuantity(text, ctx.words.separators, false);
+            const n = parseQuantity(text, ctx.words.separators);
             if (n === undefined) return { kind: "blank" };
             if (n === null || !Number.isSafeInteger(n)) return { kind: "unrecognised" };
             return { kind: "cell", cell: cellOf("Integer", BigInt(n)) };

@@ -82,7 +82,7 @@ describe("paste", () => {
         ["de-DE", de, "1.234,5\t1234,5\r\n-0,5\t2,5k\r\n"],
         ["fr-FR", fr, "1\u202f234,5\t1234,5\r\n-0,5\t2,5k\r\n"],
     ] as const)("%s: a spreadsheet's clipboard in the viewer's language reads as the numbers it showed (#852)", (_locale, words, text) => {
-        const read = parseMatrix(text).map((line) => line.map((t) => parseQuantity(t, words.separators, false)));
+        const read = parseMatrix(text).map((line) => line.map((t) => parseQuantity(t, words.separators)));
         expect(read).toEqual([[1234.5, 1234.5], [-0.5, 2500]]);
     });
 });
