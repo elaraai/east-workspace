@@ -153,13 +153,16 @@ describe("the People layout without bands (#1567)", () => {
         expect(cells.length).toBeGreaterThan(0);
         expect(cells.every(cell => /^Agency requests · W\d+$/u.test(cell.getAttribute("aria-label") ?? ""))).toBe(true);
     });
-    test("on a phone a card a person in the same one list, and every group's requests in one card at its foot, each group's under its name", async () => {
+    test("on a phone a card a person in the same one list under the work requirement's one block, and every group's requests in one card at its foot, each group's under its name", async () => {
         const { container: c } = await open(ex.rosterPeopleNoBands);
         await width(390);
         expect(slot(c, "main").querySelector('[data-roster-agenda="people"]')).not.toBeNull();
         expect(slot(c, "main").querySelector("[data-roster-group]")).toBeNull();
+        // The work requirement's day cards head the list (#1568), then the assignment's eyebrow, then everyone's cards.
         const first = (await ranked())[0]!;
-        expect(slot(c, "main").querySelector('[data-index="0"] [data-roster-person-card]')!.getAttribute("data-roster-person-card")).toBe(first);
+        expect(slot(c, "main").querySelector('[data-index="0"] [data-roster-demand-cards]')).not.toBeNull();
+        expect(slot(c, "main").querySelector('[data-index="1"] [data-roster-assign-head]')).not.toBeNull();
+        expect(slot(c, "main").querySelector('[data-index="2"] [data-roster-person-card]')!.getAttribute("data-roster-person-card")).toBe(first);
         await requestInbound();
         const card = await reveal(c, '[data-roster-person-card="requests"]', 360);
         expect(card.firstElementChild!.textContent).toBe("Agency requests");

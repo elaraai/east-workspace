@@ -8,9 +8,14 @@
  * pitch; the tiles in the shifts' colour tokens and the ink the shade takes;
  * a pattern dropped on a person's row, saved through e3 and read back after
  * a remount; a month not read drawn at once with its placeholders, the
- * months either side read ahead (#1398); both densities; and a month's marks
+ * months either side read ahead (#1398); both densities; a month's marks
  * drawing a longer code's first letter alone, none cut at any width in either
- * density (#1569).
+ * density (#1569); and the work requirement (#1568) at every width — by week
+ * its eyebrow and lanes, each day's figures whole over its bar inside its
+ * cell; by month each lane's marks holding their figures whole; on a phone
+ * each band's day cards, a line its shift's swatch, label and figures on one
+ * row over its bar, every word whole, and on a touch screen each line a 44px
+ * target.
  */
 import { expect, type Locator, type Page } from "playwright/test";
 import { PatchType, SortedMap, StringType, compareFor, diffFor, encodeBeast2For } from "@elaraai/east";
@@ -85,11 +90,12 @@ const requestFaults = (row: Locator) => row.locator("[data-roster-person-day]").
 /** The shifts' colour tokens, as the warehouse seeds them (teal 300, orange 300, purple 700), and the ink each shade takes. */
 const SHIFTS = [["Early", "teal-300", "gray-900"], ["Late", "orange-300", "gray-900"], ["Night", "purple-700", "white"]] as const;
 /**
- * What a header draws of its words that is cut or crowded (the hand retest, R3): each element's words — its own text,
- * whole, when it is not hidden and is laid out — cut by a box of the header that clips them, or, as far as they show,
- * on a line with another's closer than a pixel. Measured from the words' own box, so an ellipsis is a cut.
+ * What a part — a header, an eyebrow, a lane, a card — draws of its words that is cut or crowded (the hand retest, R3):
+ * each element's words — its own text, whole, when it is not hidden and is laid out — cut by a box of the part that
+ * clips them, or, as far as they show, on a line with another's closer than a pixel. Measured from the words' own box,
+ * so an ellipsis is a cut.
  */
-const headerFaults = (header: Locator) => header.evaluate((root) => {
+const wordFaults = (part: Locator) => part.evaluate((root) => {
     const faults: string[] = [];
     const shown: { text: string; left: number; right: number; top: number; bottom: number }[] = [];
     for (const el of [root, ...root.querySelectorAll("*")]) {
@@ -152,6 +158,89 @@ const markFaults = (frame: Locator) => frame.locator("[data-roster-mark][data-sh
     }
     return { lettered, faults: [...faults] };
 });
+/**
+ * What a lane's days draw wrongly by week (#1568, A3.3): a day's figures, or its `no target`, wider than its line or
+ * outside its cell's padding, or figures with no bar under them inside the cell. Over the lanes mounted in `scope`.
+ */
+const laneDayFaults = (scope: Locator) => scope.locator("[data-roster-lane] [data-roster-lane-day]").evaluateAll(cells => cells.flatMap((cell) => {
+    const at = cell.getAttribute("data-roster-lane-day"), box = cell.getBoundingClientRect(), css = getComputedStyle(cell);
+    const left = box.left + parseFloat(css.borderLeftWidth) + parseFloat(css.paddingLeft), right = box.right - parseFloat(css.borderRightWidth) - parseFloat(css.paddingRight);
+    const inside = (el: Element) => { const r = el.getBoundingClientRect(); return r.left >= left - 0.5 && r.right <= right + 0.5 && r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5; };
+    const part = cell.querySelector<HTMLElement>("[data-roster-lane-figures], [data-roster-lane-none]"), bar = cell.querySelector("[data-roster-lane-bar]");
+    if (part === null) return [`${at} shows neither figures nor no target`];
+    return [
+        ...part.scrollWidth > part.clientWidth ? [`${at}: "${part.textContent}" is wider than its line`] : [],
+        ...!inside(part) ? [`${at}: "${part.textContent}" is outside its cell`] : [],
+        ...!part.hasAttribute("data-roster-lane-figures") ? [] : bar === null ? [`${at}: no bar under "${part.textContent}"`]
+            : !inside(bar) || bar.getBoundingClientRect().top < part.getBoundingClientRect().bottom - 0.5 ? [`${at}: its bar is not under its figures inside its cell`] : [],
+    ];
+}));
+/**
+ * What a lane's marks draw wrongly by month (#1568, A3.5): a mark's figure whose text leaves its mark. Over the marks
+ * mounted in `scope`, with how many show a figure.
+ */
+const laneMarkFaults = (scope: Locator) => scope.locator("[data-roster-lane-mark]").evaluateAll((marks) => {
+    const faults = new Set<string>();
+    let said = 0;
+    for (const mark of marks) {
+        const figure = mark.querySelector("[data-roster-mark-figure]");
+        if (figure === null) continue;
+        said += 1;
+        const range = document.createRange();
+        range.selectNodeContents(figure);
+        const box = range.getBoundingClientRect(), edge = mark.getBoundingClientRect();
+        if (box.left < edge.left - 0.5 || box.right > edge.right + 0.5 || box.top < edge.top - 0.5 || box.bottom > edge.bottom + 0.5) faults.add(`"${figure.textContent}" leaves its mark`);
+    }
+    return { said, faults: [...faults] };
+});
+/**
+ * What the work requirement's block of day cards draws wrongly on a phone (#1568): its eyebrow not 28px, its heading
+ * and the week's hours not on its one line inside its padding; a card outside main; a line whose shift's swatch, label
+ * and figures — or `no target` — are not on one row, in that order, inside its padding, or whose figures are wider than
+ * their line; figures with no bar under them, or a bar not spanning the line's padding.
+ */
+const dayCardFaults = (block: Locator) => block.evaluate((root) => {
+    const faults: string[] = [];
+    const padded = (el: Element) => { const r = el.getBoundingClientRect(), css = getComputedStyle(el); return { height: r.height, start: r.left + parseFloat(css.paddingLeft), end: r.right - parseFloat(css.paddingRight) }; };
+    const middle = (r: DOMRect) => (r.top + r.bottom) / 2;
+    const head = padded(root.querySelector("[data-roster-demand-head]")!);
+    const heading = root.querySelector("[data-roster-demand-head] [data-roster-demand-heading]")!.getBoundingClientRect(), total = root.querySelector("[data-roster-demand-total]")!.getBoundingClientRect();
+    if (Math.round(head.height) !== 28) faults.push(`its eyebrow is ${head.height}px tall`);
+    if (Math.abs(middle(heading) - middle(total)) > 1) faults.push("its heading and the week's hours are not on one line");
+    if (heading.left < head.start - 0.5 || total.right > head.end + 0.5 || heading.right > total.left + 0.5) faults.push("its heading and the week's hours are not apart inside its padding");
+    const main = root.closest("[data-roster-main]")!.getBoundingClientRect();
+    for (const card of root.querySelectorAll("[data-roster-demand-card]")) {
+        const at = card.getAttribute("data-roster-demand-card"), box = card.getBoundingClientRect();
+        if (box.left < main.left - 0.5 || box.right > main.right + 0.5) faults.push(`${at} is outside main`);
+        for (const line of card.querySelectorAll("[data-roster-lane-day]")) {
+            const name = line.getAttribute("data-roster-lane-day"), r = padded(line);
+            const [swatch, label] = [...line.children], part = line.querySelector<HTMLElement>("[data-roster-lane-figures], [data-roster-lane-none]");
+            if (swatch === undefined || label === undefined || part === null) { faults.push(`${name} is not a swatch, a label and figures`); continue; }
+            const row = [swatch, label, part].map(el => el.getBoundingClientRect());
+            const middles = row.map(middle), bottom = Math.max(...row.map(b => b.bottom));
+            if (Math.max(...middles) - Math.min(...middles) > 1) faults.push(`${name}: its swatch, label and figures are not on one row`);
+            if (row[0]!.left < r.start - 0.5 || row[0]!.right > row[1]!.left + 0.5 || row[1]!.right > row[2]!.left + 0.5 || row[2]!.right > r.end + 0.5) faults.push(`${name}: its swatch, label and figures are not in order inside its padding`);
+            if (part.scrollWidth > part.clientWidth) faults.push(`${name}: "${part.textContent}" is wider than its line`);
+            const bar = line.querySelector("[data-roster-lane-bar]")?.getBoundingClientRect();
+            if (part.hasAttribute("data-roster-lane-figures") && bar === undefined) faults.push(`${name}: no bar under its figures`);
+            if (bar !== undefined && (bar.top < bottom - 0.5 || Math.abs(bar.left - r.start) > 0.5 || Math.abs(bar.right - r.end) > 0.5)) faults.push(`${name}: its bar is not under its row across its padding`);
+        }
+    }
+    return faults;
+});
+/**
+ * Each tap that misses a phone's day card line (#1568) on a touch screen, a 44px target by its halo: 21px above and below
+ * its middle, and at its two ends. Over the lines of `card`, which must be in view.
+ */
+const missedLineTaps = (card: Locator) => card.locator("[data-roster-lane-day]").evaluateAll(lines => lines.flatMap((line) => {
+    const r = line.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+    const name = (node: Element | null) => node === null ? "nothing" : `${node.tagName.toLowerCase()}${[...node.attributes].filter(a => a.name.startsWith("data-")).map(a => `[${a.name}="${a.value}"]`).join("")}`;
+    const taps = [[x, y - 21, "21px above its middle"], [x, y + 21, "21px below its middle"], [r.left + 2, y, "at its start"], [r.right - 2, y, "at its end"]] as const;
+    return taps.flatMap(([px, py, where]) => {
+        const hit = document.elementFromPoint(px, py);
+        return hit !== null && line.contains(hit) ? [] : [`a tap ${where} on ${line.getAttribute("data-roster-lane-day")} lands on ${name(hit)}`];
+    });
+}));
 
 for (const theme of LAYOUT_THEMES) {
     test(`People week and month fit 1440/1024/768/390/360 and a 294px parent: a row one line at the density's pitch, a 36px header, seven marks a cell lettered by the 13px rule, and the phone's cards by week alone (${theme}) @desktop`, async ({ page }) => {
@@ -236,7 +325,7 @@ for (const theme of LAYOUT_THEMES) {
                 // A phone's People is its cards, by week alone: no header to measure.
                 if (await header.count() === 0) continue;
                 measured += 1;
-                expect(await headerFaults(header), `${name} ${width}px`).toEqual([]);
+                expect(await wordFaults(header), `${name} ${width}px`).toEqual([]);
                 if (name === "rosterPeopleMonth") {
                     // Every week keeps its number whole, whatever else its label drops.
                     const labels = await header.locator("[data-roster-week-column]").evaluateAll(els => els.map(el => el.textContent ?? ""));
@@ -366,6 +455,84 @@ for (const theme of LAYOUT_THEMES) {
             }
             expect(lettered, `${density}: a width whose marks are lettered`).toBeGreaterThan(0);
         }
+    });
+    test(`the work requirement by week fits 1440/1024/768/390/360 and a 294px parent: its eyebrows 28px, a lane's day its figures whole over its bar inside its cell, no word cut or touching another; on a phone each band's day cards — the eyebrow 28px, its heading and the week's hours on its line, a card a day inside main, a line its shift's swatch, label and figures on one row over its bar, every word whole (#1568) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const entry = await open(page, "rosterWorkRequirement", theme), frame = entry.locator("[data-roster-frame]").first();
+        const main = frame.locator("[data-roster-main]");
+        let grids = 0, phones = 0;
+        for (const width of [1440, 1024, 768, 390, 360, 294]) {
+            await size(page, entry, width);
+            const where = `${width}px`;
+            if (await main.evaluate(el => el.getBoundingClientRect().width < 480)) {
+                phones += 1;
+                const block = main.locator("[data-roster-demand-cards]").first();
+                await expect(block, where).toBeVisible();
+                expect(await main.evaluate(el => el.scrollWidth - el.clientWidth), where).toBeLessThanOrEqual(1);
+                await expect(block.locator("[data-roster-demand-card]"), where).toHaveCount(7);
+                expect(await dayCardFaults(block), where).toEqual([]);
+                expect(await wordFaults(block.locator("[data-roster-demand-head]")), where).toEqual([]);
+                for (const card of await block.locator("[data-roster-demand-card]").all()) expect(await wordFaults(card), where).toEqual([]);
+                continue;
+            }
+            grids += 1;
+            const eyebrows = main.locator("[data-roster-demand]");
+            expect(await eyebrows.count(), where).toBeGreaterThan(0);
+            expect(new Set(await eyebrows.evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().height)))), `${where} eyebrows`).toEqual(new Set([28]));
+            for (const eyebrow of await eyebrows.all()) expect(await wordFaults(eyebrow), where).toEqual([]);
+            const lanes = main.locator("[data-roster-lane]");
+            expect(await lanes.count(), where).toBeGreaterThan(0);
+            for (const lane of await lanes.all()) expect(await wordFaults(lane), where).toEqual([]);
+            expect(await laneDayFaults(main), where).toEqual([]);
+        }
+        expect(grids, "a width with the grid").toBeGreaterThan(0);
+        expect(phones, "a width with the phone's cards").toBeGreaterThan(0);
+    });
+    test(`the work requirement by month fits 1880/1440/1024/900/768/640: its eyebrows 28px, each week's hours whole in the richest form every week holds — with its unit, without, or rostered over needed — a lane's marks holding their figures whole, no word cut or touching another (#1568, A3.5) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const entry = await open(page, "rosterWorkRequirement", theme), frame = entry.locator("[data-roster-frame]").first();
+        const main = frame.locator("[data-roster-main]");
+        await size(page, entry, 1440);
+        await frame.locator('[data-frame-slot="toolbar"]').getByRole("radio", { name: "Month", exact: true }).click();
+        await settled(page);
+        await expect(main.locator('[data-roster-grid="people-month"]')).toBeVisible();
+        let said = 0;
+        const forms = new Set<string | null>();
+        // 1880px first: a lane's day is 22px or wider beside the panes only there, so its marks say their figures.
+        for (const width of [1880, 1440, 1024, 900, 768, 640]) {
+            await size(page, entry, width);
+            const where = `${width}px`;
+            const eyebrows = main.locator('[data-roster-demand][data-period="month"]');
+            expect(await eyebrows.count(), where).toBeGreaterThan(0);
+            expect(new Set(await eyebrows.evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().height)))), `${where} eyebrows`).toEqual(new Set([28]));
+            // Every week of an eyebrow says its hours in the one form, whole: none goes unsaid at these widths.
+            const shown = await eyebrows.evaluateAll(els => els.map(el => el.getAttribute("data-demand-form")));
+            expect(shown.filter(form => form === null || form === "none"), where).toEqual([]);
+            for (const form of shown) forms.add(form);
+            for (const eyebrow of await eyebrows.all()) expect(await wordFaults(eyebrow), where).toEqual([]);
+            const lanes = main.locator("[data-roster-lane]");
+            expect(await lanes.count(), where).toBeGreaterThan(0);
+            for (const lane of await lanes.all()) expect(await wordFaults(lane), where).toEqual([]);
+            const marks = await laneMarkFaults(main);
+            expect(marks.faults, where).toEqual([]);
+            said += marks.said;
+        }
+        expect(said, "a width whose lane marks show figures").toBeGreaterThan(0);
+        // The widths take the eyebrow through each of its forms.
+        expect(forms).toEqual(new Set(["full", "short", "stacked"]));
+    });
+    test(`on a touch screen each line of a phone's day cards is a 44px target by its halo: a tap 21px above or below its middle, or at either end, lands on it (#1568) (${theme}) @mobile`, async ({ page }) => {
+        const entry = await open(page, "rosterWorkRequirement", theme), frame = entry.locator("[data-roster-frame]").first();
+        const cards = frame.locator("[data-roster-main] [data-roster-demand-cards]").first().locator("[data-roster-demand-card]");
+        await expect(cards).toHaveCount(7);
+        let lines = 0;
+        for (const card of await cards.all()) {
+            await card.evaluate((el) => { el.scrollIntoView({ block: "center" }); });
+            await settled(page);
+            lines += await card.locator("[data-roster-lane-day]").count();
+            expect(await missedLineTaps(card)).toEqual([]);
+        }
+        expect(lines).toBeGreaterThan(7);
     });
 }
 

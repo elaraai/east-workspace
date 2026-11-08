@@ -16,6 +16,7 @@
  * the Patterns tab's strip of marks on each card.
  */
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 import { wholeOrNone } from "../../style/whole-or-none.js";
 import { CONFLICT_RING } from "../conflict-ring.js";
 import { fontAwesomeSize } from "../icon-size.js";
@@ -41,7 +42,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         "assign", "assignMenuHead", "assignItem", "swatch", "monthRow", "monthHead", "monthGutter", "weekHead", "weekNumber", "weekRange", "dayTicks", "dayTick", "monthCell",
         "markStrip", "mark", "patternStrip", "patternMark",
         "demandRow", "demandName", "demandFigure", "laneName", "laneToggle", "laneSwatch", "laneLabel", "laneHours", "laneWeek", "laneCell", "laneLine", "laneFigure", "laneDiff",
-        "laneBar", "laneTick", "laneNoTarget", "laneMark", "skillTag", "skillName", "skillBar", "assignRow", "assignLabel"],
+        "laneBar", "laneTick", "laneNoTarget", "laneMark", "skillTag", "skillName", "skillBar", "assignRow", "assignLabel", "demandCards", "demandCardsHead", "demandShift"],
     base: {
         ...moveGhostBase,
         ...scheduleGroupBase,
@@ -274,8 +275,16 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         demandName: { position: "sticky", left: 0, zIndex: 3, display: "flex", alignItems: "center", minWidth: 0, padding: "0 12px 0 20px", background: "bg.canvas",
             borderRightWidth: "1px", borderColor: "border.subtle", textStyle: "mono.xs", fontWeight: "semibold", letterSpacing: "label", textTransform: "uppercase", color: "fg.subtle",
             whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-        demandFigure: { display: "flex", alignItems: "center", minWidth: 0, padding: "0 10px", borderLeftWidth: "1px", borderColor: "border.subtle", textStyle: "mono.xs", color: "fg.muted",
-            whiteSpace: "nowrap", overflow: "hidden" },
+        // By month a week's hours take the richest form every week's column holds whole (the header's fit rule, R3:
+        // `data-demand-form` on the eyebrow's row); the other forms are laid out unseen, out of the flow and clipped by
+        // the cell, so the fit measures each whole. The stacked form sets the hours needed under the hours rostered.
+        demandFigure: { position: "relative", display: "flex", alignItems: "center", minWidth: 0, padding: "0 10px", borderLeftWidth: "1px", borderColor: "border.subtle", textStyle: "mono.xs",
+            color: "fg.muted", whiteSpace: "nowrap", overflow: "hidden",
+            "& > [data-roster-demand-form]": { position: "absolute", left: 0, top: 0, visibility: "hidden" },
+            "& > [data-roster-demand-form=stacked]": { display: "flex", flexDirection: "column", gap: "2px", lineHeight: 1.2 },
+            "[data-demand-form=full] &": { "& > [data-roster-demand-form=full]": { position: "static", visibility: "visible" } },
+            "[data-demand-form=short] &": { "& > [data-roster-demand-form=short]": { position: "static", visibility: "visible" } },
+            "[data-demand-form=stacked] &": { "& > [data-roster-demand-form=stacked]": { position: "static", visibility: "visible" } } },
         // A lane's name cell (A3.2): its chevron, the shift's swatch, its label and hours, and by week its week's figures at
         // the end; a skill row's (A4.2) its code tag and name, indented under the lane's. By month (168px) it holds no
         // figures (P16).
@@ -322,5 +331,17 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         assignRow: { display: "flex", alignItems: "center", height: "28px", background: "bg.canvas", borderBottomWidth: "1px", borderColor: "border.subtle" },
         assignLabel: { position: "sticky", left: 0, padding: "0 20px", textStyle: "mono.xs", fontWeight: "semibold", letterSpacing: "label", textTransform: "uppercase", color: "fg.subtle",
             whiteSpace: "nowrap" },
+        // On a phone (#1568), before a band's people's cards: the eyebrow — its heading, the week's hours rostered of needed
+        // at its end — over a card a day, 8px apart as a day's cards are in the Shifts layout's.
+        demandCards: { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0, paddingBottom: "8px" },
+        demandCardsHead: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", minWidth: 0, height: "28px", padding: "0 12px", background: "bg.canvas",
+            borderBottomWidth: "1px", borderColor: "border.subtle", textStyle: "mono.xs", fontWeight: "semibold", letterSpacing: "label", textTransform: "uppercase", color: "fg.subtle",
+            whiteSpace: "nowrap", "& > [data-roster-demand-heading]": { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
+            "& > [data-roster-demand-total]": { flexShrink: 0, fontWeight: "medium", letterSpacing: "normal", textTransform: "none", color: "fg.muted", fontVariantNumeric: "tabular-nums" } },
+        // A lane's day on a day card: the shift's swatch and label, its figures at the end and its bar under them across the
+        // line; one button that selects its slot, ringed while selected, out to the card's padding, a finger's height on touch.
+        demandShift: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", alignItems: "center", columnGap: "8px", rowGap: "6px", minWidth: 0,
+            margin: "0 -8px", padding: "4px 8px", borderRadius: "sm", textAlign: "left", whiteSpace: "nowrap", cursor: "pointer", ...planRowFocus,
+            ...coarseHitArea({ position: true, axis: "block" }), "& > [data-roster-lane-bar]": { gridColumn: "1 / -1" }, "&[data-selected]": { boxShadow: "inset 0 0 0 1px {colors.fg}" } },
     },
 });

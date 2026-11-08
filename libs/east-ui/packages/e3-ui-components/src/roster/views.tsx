@@ -596,6 +596,13 @@ type DemandRow = { kind: "demand"; key: string; group: Group | undefined; demand
     | { kind: "assign"; key: string; group: Group | undefined; people: number };
 /** A People row: the list's, or the work requirement's. */
 type PeopleRow = ListRow | DemandRow;
+/**
+ * A row of the work requirement on a phone (#1568): its eyebrow, which holds a card a day — the lanes have no row of
+ * their own there — and the eyebrow before the people's cards.
+ */
+type AgendaDemandRow = Extract<DemandRow, { kind: "demand" | "assign" }>;
+/** A row of a phone's People cards: the list's, or the work requirement's. */
+type AgendaRow = ListRow | AgendaDemandRow;
 /** A person's row, or a row of agency requests. */
 type PersonRowValue = Extract<ListRow, { kind: "person" }>;
 /**
@@ -1085,38 +1092,53 @@ function bandPeople(value: RosterValue): ReadonlyMap<string, number> {
     return counts;
 }
 /**
- * The People rows by week with the work requirement's (#1568): under each open band its eyebrow, its lanes — each open
- * one's skill rows under it — and the eyebrow before its people; where the layout draws no bands, the one block at the
- * list's head. A scope whose week names no target has its eyebrows and no lane.
+ * A scope's work requirement as rows (#1568): its group's — `undefined` for the one block over every group's, where the
+ * layout draws no bands — its work requirement, and how many people its band lists.
+ */
+type DemandBlock<R> = (group: Group | undefined, demand: Demand, people: number) => readonly R[];
+/**
+ * The People rows with the work requirement's (#1568): under each open band its scope's block, or — where the layout
+ * draws no bands — the one block at the list's head.
  *
  * @param list - The People list's rows
  * @param value - The payload
  * @param demands - Each scope's work requirement
- * @param open - The open lanes' keys
  * @param people - How many people each band lists
- * @returns The rows the grid draws
+ * @param block - A scope's rows: the grid's (`gridDemand`) or a phone's (`cardDemand`)
+ * @returns The rows the layout draws
  */
-function withDemand(list: readonly ListRow[], value: RosterValue, demands: ReadonlyMap<string | undefined, Demand>, open: readonly string[],
-    people: ReadonlyMap<string, number>): readonly PeopleRow[] {
+function withDemand<R>(list: readonly ListRow[], value: RosterValue, demands: ReadonlyMap<string | undefined, Demand>, people: ReadonlyMap<string, number>,
+    block: DemandBlock<R>): readonly (ListRow | R)[] {
     if (demands.size === 0) return list;
-    const block = (group: Group | undefined, count: number): DemandRow[] => {
-        const demand = demands.get(group?.key);
-        if (demand === undefined) return [];
-        return [
-            { kind: "demand", key: demandKey("demand", group), group, demand },
-            ...demand.lanes.flatMap((lane): DemandRow[] => {
-                const key = demandKey("lane", group, lane.shift.key), opened = open.includes(key);
-                return [{ kind: "lane", key, group, lane, open: opened },
-                    ...(opened ? lane.skills.map((skill): DemandRow => ({ kind: "skill", key: demandKey("skill", group, lane.shift.key, skill.skill), group, lane, skill })) : [])];
-            }),
-            { kind: "assign", key: demandKey("assign", group), group, people: count },
-        ];
-    };
-    if (!value.settings.peopleBands) return [...block(undefined, list.filter(row => row.kind === "person" && row.person !== undefined).length), ...list];
+    const rows = (group: Group | undefined, count: number): readonly R[] => { const demand = demands.get(group?.key); return demand === undefined ? [] : block(group, demand, count); };
+    if (!value.settings.peopleBands) return [...rows(undefined, list.filter(row => row.kind === "person" && row.person !== undefined).length), ...list];
     // An open band's rows follow it — its requests' row at least — and a folded band's do not.
-    return list.flatMap((row, i): PeopleRow[] => row.kind !== "group" || list[i + 1] === undefined || list[i + 1]!.kind === "group" ? [row]
-        : [row, ...block(row.group, people.get(row.group.key) ?? 0)]);
+    return list.flatMap((row, i): (ListRow | R)[] => row.kind !== "group" || list[i + 1] === undefined || list[i + 1]!.kind === "group" ? [row]
+        : [row, ...rows(row.group, people.get(row.group.key) ?? 0)]);
 }
+/**
+ * A scope's rows in the People grid, by week or by month (#1568): its eyebrow, its lanes — each open one's skill rows
+ * under it — and the eyebrow before its people. A scope whose span names no target has its eyebrows and no lane.
+ *
+ * @param open - The open lanes' keys
+ * @returns What makes a scope's rows
+ */
+function gridDemand(open: readonly string[]): DemandBlock<DemandRow> {
+    return (group, demand, count) => [
+        { kind: "demand", key: demandKey("demand", group), group, demand },
+        ...demand.lanes.flatMap((lane): DemandRow[] => {
+            const key = demandKey("lane", group, lane.shift.key), opened = open.includes(key);
+            return [{ kind: "lane", key, group, lane, open: opened },
+                ...(opened ? lane.skills.map((skill): DemandRow => ({ kind: "skill", key: demandKey("skill", group, lane.shift.key, skill.skill), group, lane, skill })) : [])];
+        }),
+        { kind: "assign", key: demandKey("assign", group), group, people: count },
+    ];
+}
+/** A scope's rows on a phone (#1568): its eyebrow, which holds its day cards, and the eyebrow before its people's cards. */
+const cardDemand: DemandBlock<AgendaDemandRow> = (group, demand, count) => [
+    { kind: "demand", key: demandKey("demand", group), group, demand },
+    { kind: "assign", key: demandKey("assign", group), group, people: count },
+];
 /**
  * The People grid's sections whose heads stick under its header (#1568, A6): a band's work requirement — the band, its
  * eyebrow, its lanes and their skill rows heading the band's rows to the next band — or, where the grid draws no bands,
@@ -1188,7 +1210,7 @@ function LaneFigures({ ctx, figures: f }: { ctx: ViewContext; figures: DemandFig
     const parts: { kind: "permanent" | "agency" | "requested" | "open"; width: number; left: number }[] = (["permanent", "agency", "requested"] as const).map(kind => { const width = f[kind]; const part = { kind, width, left }; left += width; return part; });
     if (f.needed > left) parts.push({ kind: "open", left, width: f.needed - left });
     return <>
-        <Box as="span" css={styles.laneLine}><Figure ctx={ctx} rostered={f.rostered} needed={f.needed} /><Box as="span" css={styles.laneDiff} data-tone={toneOf(d)}>{signed(format.number, d)}</Box></Box>
+        <Box as="span" css={styles.laneLine} data-roster-lane-figures=""><Figure ctx={ctx} rostered={f.rostered} needed={f.needed} /><Box as="span" css={styles.laneDiff} data-tone={toneOf(d)}>{signed(format.number, d)}</Box></Box>
         <Box as="span" css={styles.laneBar} data-roster-lane-bar="">
             {parts.filter(part => part.width > 0).map(part => <Box as="span" key={part.kind} css={styles.coverageSegment} data-kind={part.kind} style={{ left: `${part.left / max * 100}%`, width: `${part.width / max * 100}%` }} />)}
             <Box as="span" css={styles.laneTick} style={{ left: `${f.needed / max * 100}%` }} />
@@ -1196,12 +1218,18 @@ function LaneFigures({ ctx, figures: f }: { ctx: ViewContext; figures: DemandFig
     </>;
 }
 /**
- * A lane's day (#1568, A3.3): its figures, or — none of the day's slots with a target — `no target`, no bar (A3.6); a
- * press selects its slot, a band's group's, or the shift's day across the groups where the layout draws no bands (A3.8),
- * which the inspector shows.
+ * A lane's day to a press (#1568, A3.8): it selects its slot, a band's group's, or the shift's day across the groups
+ * where the layout draws no bands, which the inspector shows. Its label names the shift, the day and the group, then
+ * the hours rostered of needed, or `no target`.
+ *
+ * @param ctx - The views' context
+ * @param group - The lane's band's group; `undefined` for the one block over every group's
+ * @param lane - The lane
+ * @param day - The day, from the week's start
+ * @returns Whether the day is selected, what it says to a screen reader, and what selects it
  */
-const LaneDay = memo(function LaneDay({ ctx, rowKey, group, lane, day }: { ctx: ViewContext; rowKey: string; group: Group | undefined; lane: DemandLane; day: number }) {
-    const { styles, format, read, start } = ctx;
+function useLaneDay(ctx: ViewContext, group: Group | undefined, lane: DemandLane, day: number): { selected: boolean; label: string; select: () => void } {
+    const { format, read, start } = ctx;
     const selection = useContext(SelectionContext);
     const shift = lane.shift.key;
     const slot = useMemo(() => group === undefined ? undefined : { day: BigInt(day), group: group.key, shift }, [group, day, shift]);
@@ -1209,9 +1237,24 @@ const LaneDay = memo(function LaneDay({ ctx, rowKey, group, lane, day }: { ctx: 
     const f = lane.days[day]!;
     const when = `${lane.shift.label} · ${format.weekday(new Date(start.getTime() + day * DAY))}${group === undefined ? "" : ` · ${group.label}`}`;
     const label = read.state !== "held" ? when : f.target ? `${when}: ${format.number(f.rostered)} of ${format.number(f.needed)} hours rostered` : `${when}: no target`;
-    return <chakra.button type="button" css={styles.laneCell} data-roster-lane-day={`${rowKey}.${day}`} data-selected={selected ? "" : undefined} aria-pressed={selected} aria-label={label}
-        onClick={() => ctx.select(slot !== undefined ? { type: "requirement", slot, start: start.getTime() } : { type: "shiftDay", shift, day, start: start.getTime() })}>
-        {read.state !== "held" ? <Unread read={read} kind="aggregate" index={day} /> : f.target ? <LaneFigures ctx={ctx} figures={f} /> : <Box as="span" css={styles.laneNoTarget}>no target</Box>}
+    const select = () => ctx.select(slot !== undefined ? { type: "requirement", slot, start: start.getTime() } : { type: "shiftDay", shift, day, start: start.getTime() });
+    return { selected, label, select };
+}
+/**
+ * What a lane's day shows (A3.3): its figures over its bar, or — none of the day's slots with a target — `no target`, no
+ * bar (A3.6); a placeholder while the week is read.
+ */
+function LaneDayFigures({ ctx, lane, day }: { ctx: ViewContext; lane: DemandLane; day: number }) {
+    const f = lane.days[day]!;
+    return ctx.read.state !== "held" ? <Unread read={ctx.read} kind="aggregate" index={day} />
+        : f.target ? <LaneFigures ctx={ctx} figures={f} /> : <Box as="span" css={ctx.styles.laneNoTarget} data-roster-lane-none="">no target</Box>;
+}
+/** A lane's day (#1568, A3.3): its figures, a press selecting it (A3.8). */
+const LaneDay = memo(function LaneDay({ ctx, rowKey, group, lane, day }: { ctx: ViewContext; rowKey: string; group: Group | undefined; lane: DemandLane; day: number }) {
+    const { selected, label, select } = useLaneDay(ctx, group, lane, day);
+    return <chakra.button type="button" css={ctx.styles.laneCell} data-roster-lane-day={`${rowKey}.${day}`} data-selected={selected ? "" : undefined} aria-pressed={selected} aria-label={label}
+        onClick={select}>
+        <LaneDayFigures ctx={ctx} lane={lane} day={day} />
     </chakra.button>;
 });
 /**
@@ -1282,7 +1325,7 @@ function People({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
     const demands = useDemands(props);
     const { open, toggle: toggleLane } = useOpenLanes(props.drag.surface);
     const people = useMemo(() => bandPeople(props.value), [props.value]);
-    const rows = useMemo(() => withDemand(list, props.value, demands, open, people), [list, props.value, demands, open, people]);
+    const rows = useMemo(() => withDemand(list, props.value, demands, people, gridDemand(open)), [list, props.value, demands, open, people]);
     // Each band's work requirement sticks under the header while its people scroll (A6).
     const sections = useMemo(() => demandSections(rows), [rows]);
     const index = useMemo(() => peopleIndex(props.week, props.held), [props.week, props.held]);
@@ -1372,6 +1415,10 @@ interface MonthHeadFit {
 }
 /** The header before it is measured, and where it cannot be (no layout): every word in its place. */
 const MONTH_HEAD_WHOLE: MonthHeadFit = { label: "full", letters: true, numbers: true };
+/** A computed length in pixels; none, 0. */
+const px = (value: string) => Number.parseFloat(value) || 0;
+/** An element's width with what its box cuts of its content: its words' natural width, whatever clips them; none, 0. */
+const natural = (el: Element | null) => el === null ? 0 : el.getBoundingClientRect().width + Math.max(0, el.scrollWidth - el.clientWidth);
 /**
  * The month's header measured as it is laid out: each week label's room against its number and each form of its dates
  * at their natural widths — the one shown, whatever its box cut of it, and the other laid out unseen — and each tick's
@@ -1382,8 +1429,6 @@ const MONTH_HEAD_WHOLE: MonthHeadFit = { label: "full", letters: true, numbers: 
  * @returns How it fits
  */
 function measureMonthHead(head: HTMLElement): MonthHeadFit {
-    const px = (value: string) => Number.parseFloat(value) || 0;
-    const natural = (el: Element | null) => el === null ? 0 : el.getBoundingClientRect().width + Math.max(0, el.scrollWidth - el.clientWidth);
     let full = true, days = true, letters = true, numbers = true;
     for (const label of head.querySelectorAll<HTMLElement>("[data-roster-week-label]")) {
         const css = getComputedStyle(label);
@@ -1400,26 +1445,30 @@ function measureMonthHead(head: HTMLElement): MonthHeadFit {
     return { label: full ? "full" : days ? "days" : "number", letters, numbers };
 }
 /**
- * The month's header's fit ({@link MonthHeadFit}): measured after each render, as the header resizes and as fonts
- * arrive, before the browser paints.
+ * A row's fit as it is laid out — the month's header's ({@link MonthHeadFit}) or a work requirement's eyebrow's by month
+ * ({@link DemandWeekForm}): measured after each render, as the row resizes and as fonts arrive, before the browser
+ * paints. What a measure reads never moves with the fit, so it never loops.
  *
- * @param head - The header's row
+ * @typeParam T - The fit
+ * @param row - The row measured
+ * @param measure - Its fit, as it is laid out; a module's own function, the same at every render
+ * @param same - Whether two fits are the same, so an unmoved fit draws nothing again
+ * @param initial - The fit before the row is measured, and where it cannot be (no layout)
  * @returns How it fits
  */
-function useMonthHeadFit(head: RefObject<HTMLElement | null>): MonthHeadFit {
-    const [fit, setFit] = useState(MONTH_HEAD_WHOLE);
-    const measure = useCallback(() => {
-        const el = head.current;
+function useLayoutFit<T>(row: RefObject<HTMLElement | null>, measure: (el: HTMLElement) => T, same: (a: T, b: T) => boolean, initial: T): T {
+    const [fit, setFit] = useState(initial);
+    const run = useCallback(() => {
+        const el = row.current;
         if (el === null) return;
-        const next = measureMonthHead(el);
-        setFit(was => was.label === next.label && was.letters === next.letters && was.numbers === next.numbers ? was : next);
-    }, [head]);
-    // After every render: the weeks, the locale or the density may have moved.
-    useLayoutEffect(() => { measure(); });
+        const next = measure(el);
+        setFit(was => same(was, next) ? was : next);
+    }, [row, measure, same]);
+    // After every render: the weeks, the figures, the locale or the density may have moved.
+    useLayoutEffect(() => { run(); });
     useLayoutEffect(() => {
-        const el = head.current;
+        const el = row.current;
         if (el === null) return undefined;
-        const run = () => measure();
         const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(run);
         observer?.observe(el);
         const fonts = el.ownerDocument.fonts as FontFaceSet | undefined;
@@ -1429,8 +1478,19 @@ function useMonthHeadFit(head: RefObject<HTMLElement | null>): MonthHeadFit {
             observer?.disconnect();
             fonts?.removeEventListener?.("loadingdone", run);
         };
-    }, [head, measure]);
+    }, [row, run]);
     return fit;
+}
+/** Whether two of the month's header's fits are the same. */
+const sameMonthHeadFit = (a: MonthHeadFit, b: MonthHeadFit) => a.label === b.label && a.letters === b.letters && a.numbers === b.numbers;
+/**
+ * The month's header's fit ({@link MonthHeadFit}).
+ *
+ * @param head - The header's row
+ * @returns How it fits
+ */
+function useMonthHeadFit(head: RefObject<HTMLElement | null>): MonthHeadFit {
+    return useLayoutFit(head, measureMonthHead, sameMonthHeadFit, MONTH_HEAD_WHOLE);
 }
 /**
  * A day's mark in a week cell (P13): the shift's letter — its code's first, never the whole code, which the mark would
@@ -1512,17 +1572,57 @@ const MonthRow = memo(function MonthRow({ ctx, row, index, rows, weeks, indexes,
     </Box>;
 });
 /**
+ * How the work requirement's eyebrow by month says each week's hours (#1568), by the month's header's fit rule (R3):
+ * in the richest form every week's column holds whole — `1,352 / 1,298 h`; then the unit dropped, `1,352 / 1,298`; then
+ * the hours rostered over the hours needed, `/ 1,298` under `1,352` — and none where even that does not fit. Nothing is
+ * cut.
+ */
+type DemandWeekForm = "full" | "short" | "stacked" | "none";
+/** The forms, richest first. */
+const DEMAND_WEEK_FORMS = ["full", "short", "stacked"] as const;
+/**
+ * The eyebrow by month measured as it is laid out: each week's room against each form of its hours at their natural
+ * widths — the one shown, and the others laid out unseen beside it — the richest form every week holds. A week still
+ * read holds none, and decides nothing.
+ *
+ * @param row - The eyebrow's row
+ * @returns Its form
+ */
+function measureDemandWeeks(row: HTMLElement): DemandWeekForm {
+    const fits = new Set<DemandWeekForm>(DEMAND_WEEK_FORMS);
+    for (const cell of row.querySelectorAll<HTMLElement>("[data-roster-demand-week]")) {
+        if (cell.querySelector("[data-roster-demand-form]") === null) continue;
+        const css = getComputedStyle(cell);
+        const room = cell.getBoundingClientRect().width - px(css.borderLeftWidth) - px(css.paddingLeft) - px(css.paddingRight) + 0.5;
+        for (const form of DEMAND_WEEK_FORMS) if (natural(cell.querySelector(`[data-roster-demand-form="${form}"]`)) > room) fits.delete(form);
+    }
+    return DEMAND_WEEK_FORMS.find(form => fits.has(form)) ?? "none";
+}
+/**
  * The work requirement's eyebrow by month (#1568, A2.2): the vocabulary's heading, then each week's hours rostered
- * against needed, no valence.
+ * against needed, no valence, in the form every week's column holds whole ({@link DemandWeekForm}): each form of a
+ * week's hours is laid out, the one shown in its place and the others unseen beside it, so the fit measures each whole.
  */
 const MonthDemandHead = memo(function MonthDemandHead({ ctx, row, weeks, measure }: {
     ctx: ViewContext; row: Extract<DemandRow, { kind: "demand" }>; weeks: readonly WeekState[]; measure: (el: HTMLElement | null) => void;
 }) {
     const { styles, format, read, value } = ctx;
-    return <Box ref={measure} css={styles.demandRow} data-period="month" data-roster-demand={row.key}>
+    const own = useRef<HTMLDivElement>(null);
+    const form = useLayoutFit(own, measureDemandWeeks, Object.is, "full");
+    const ref = useCallback((el: HTMLDivElement | null) => { own.current = el; measure(el); }, [measure]);
+    return <Box ref={ref} css={styles.demandRow} data-period="month" data-roster-demand={row.key} data-demand-form={form}>
         <Box css={styles.demandName} data-roster-demand-heading="">{value.vocabulary.demand}</Box>
-        {weeks.map((held, w) => { const figures = row.demand.weeks[w]; return <Box key={held.start.getTime()} css={styles.demandFigure} data-roster-demand-week={weekKey(held.start)}>
-            {read.state !== "held" || figures === undefined ? <Unread read={read} kind="number" index={w} /> : `${format.number(figures.rostered)} / ${format.number(figures.needed)} h`}</Box>; })}
+        {weeks.map((held, w) => {
+            const figures = row.demand.weeks[w];
+            const rostered = figures === undefined ? "" : format.number(figures.rostered), needed = figures === undefined ? "" : format.number(figures.needed);
+            return <Box key={held.start.getTime()} css={styles.demandFigure} data-roster-demand-week={weekKey(held.start)}>
+                {read.state !== "held" || figures === undefined ? <Unread read={read} kind="number" index={w} /> : <>
+                    <span data-roster-demand-form="full">{`${rostered} / ${needed} h`}</span>
+                    <span data-roster-demand-form="short">{`${rostered} / ${needed}`}</span>
+                    <span data-roster-demand-form="stacked"><span>{rostered}</span><span>{`/ ${needed}`}</span></span>
+                </>}
+            </Box>;
+        })}
     </Box>;
 });
 /**
@@ -1655,7 +1755,7 @@ function MonthGrid({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }
     const demands = useDemands(props);
     const { open, toggle: toggleLane } = useOpenLanes(props.drag.surface);
     const people = useMemo(() => bandPeople(props.value), [props.value]);
-    const rows = useMemo(() => withDemand(list, props.value, demands, open, people), [list, props.value, demands, open, people]);
+    const rows = useMemo(() => withDemand(list, props.value, demands, people, gridDemand(open)), [list, props.value, demands, open, people]);
     // Each band's work requirement sticks under the header while its people scroll (A6).
     const sections = useMemo(() => demandSections(rows), [rows]);
     const weeks = props.weeks;
@@ -1725,8 +1825,11 @@ function AssignmentCard({ ctx, id, assignment, removed }: { ctx: ViewContext; id
         <AssignmentActions id={id} assignment={assignment} removed={removed} value={ctx.value} start={ctx.start} commands={ctx.commands} styles={ctx.styles} />
     </Box>;
 }
-/** The phone's People cards' estimate of each kind before one has mounted: a person's card is its seven days, each a place action. */
-const AGENDA_FLOORS: Readonly<Record<RowKind, number>> = { group: 38, person: 360, requests: 60, demand: 28, lane: 36, skill: 36, assign: 28 };
+/**
+ * The phone's People cards' estimate of each kind before one has mounted: a person's card is its seven days, each a
+ * place action; the work requirement's eyebrow its seven day cards (#1568), each its head alone at the least.
+ */
+const AGENDA_FLOORS: Readonly<Record<RowKind, number>> = { group: 38, person: 360, requests: 60, demand: 560, lane: 36, skill: 36, assign: 28 };
 /**
  * A person's card on a phone, or a group's requests' — or every group's, each group's under its name (#1567): drawn
  * again only as what it shows changes (#1398, CL9).
@@ -1793,21 +1896,84 @@ function FailedPersonCard({ ctx, read, row, index, rows, measure }: {
         {says && <ReadFailure read={read} />}
     </Box>;
 }
+/**
+ * A lane's day on a phone's day card (#1568): the shift's swatch and label, then its figures over its bar — or `no
+ * target` — one button that selects it as a lane's day in the grid does (A3.8).
+ */
+const LaneDayLine = memo(function LaneDayLine({ ctx, laneKey, group, lane, day }: {
+    ctx: ViewContext; laneKey: string; group: Group | undefined; lane: DemandLane; day: number;
+}) {
+    const { selected, label, select } = useLaneDay(ctx, group, lane, day);
+    return <chakra.button type="button" css={ctx.styles.demandShift} data-roster-lane-day={`${laneKey}.${day}`} data-roster-lane-shift={lane.shift.key}
+        data-selected={selected ? "" : undefined} aria-pressed={selected} aria-label={label} onClick={select}>
+        <Box as="span" css={ctx.styles.laneSwatch} style={fillOf(lane.shift)} />
+        <Box as="span" css={ctx.styles.laneLabel}>{lane.shift.label}</Box>
+        <LaneDayFigures ctx={ctx} lane={lane} day={day} />
+    </chakra.button>;
+});
+/**
+ * A day's card of the work requirement on a phone (#1568): its date and the day's hours rostered of needed, as the
+ * grid's eyebrow says them, then a line a lane — the shift's figures that day.
+ */
+function DemandDayCard({ ctx, row, day }: { ctx: ViewContext; row: Extract<AgendaDemandRow, { kind: "demand" }>; day: number }) {
+    const { styles, format, read, start } = ctx;
+    const figures = row.demand.days[day]!;
+    return <Box css={styles.card} data-roster-demand-card={`${row.key}.${day}`}>
+        <Box css={styles.cardHead}>
+            <Box css={styles.cardTitle}>{format.weekdayDate(new Date(start.getTime() + day * DAY))}</Box>
+            <Box css={styles.detail} data-roster-demand-day={day}>
+                {read.state !== "held" ? <Unread read={read} kind="number" index={day} /> : `${format.number(figures.rostered)} / ${format.number(figures.needed)} h`}</Box>
+        </Box>
+        {row.demand.lanes.map(lane => <LaneDayLine key={lane.shift.key} ctx={ctx} laneKey={demandKey("lane", row.group, lane.shift.key)} group={row.group} lane={lane} day={day} />)}
+    </Box>;
+}
+/**
+ * The work requirement on a phone (#1568), before a band's people's cards — or, where the layout draws no bands,
+ * everyone's: its eyebrow, the vocabulary's heading and the week's hours rostered of needed, then a card a day holding
+ * its shifts' figures.
+ */
+const DemandCards = memo(function DemandCards({ ctx, row, measure }: {
+    ctx: ViewContext; row: Extract<AgendaDemandRow, { kind: "demand" }>; measure: (el: HTMLElement | null) => void;
+}) {
+    const { styles, format, read, value } = ctx;
+    const { rostered, needed } = row.demand.total;
+    return <Box ref={measure} css={styles.demandCards} data-roster-demand-cards={row.key}>
+        <Box css={styles.demandCardsHead} data-roster-demand-head="">
+            <Box as="span" data-roster-demand-heading="">{value.vocabulary.demand}</Box>
+            <Box as="span" data-roster-demand-total="">{read.state !== "held" ? <Unread read={read} kind="number" index={0} /> : `${format.number(rostered)} / ${format.number(needed)} h`}</Box>
+        </Box>
+        {SEVEN_DAYS.map(day => <DemandDayCard key={day} ctx={ctx} row={row} day={day} />)}
+    </Box>;
+});
+/**
+ * The People layout on a phone (#1406, P31): a band a group, a card a person — and with targets the work requirement's
+ * day cards before each band's people's cards, or before everyone's where it draws no bands (#1568).
+ */
 function PeopleAgenda({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
     const { collapsed, toggle } = useGroupCollapse(props.drag.surface);
-    const rows = usePeopleRows(props.value, collapsed);
+    const list = usePeopleRows(props.value, collapsed);
+    // The work requirement's rows (#1568): each band's, or the one block over every group's, the lanes in its day cards.
+    const demands = useDemands(props);
+    const people = useMemo(() => bandPeople(props.value), [props.value]);
+    const rows = useMemo((): readonly AgendaRow[] => withDemand(list, props.value, demands, people, cardDemand), [list, props.value, demands, people]);
     const index = useMemo(() => peopleIndex(props.week, props.held), [props.week, props.held]);
     const { floors, measured, measure } = useRowFloors(AGENDA_FLOORS);
     const getItemKey = useCallback((i: number) => rows[i]!.key, [rows, floors]); // eslint-disable-line react-hooks/exhaustive-deps -- the floors re-key the places
-    const estimateSize = useCallback((i: number) => { const row = rows[i]!; return row.kind === "group" ? floors.group : row.person === undefined ? floors.requests : floors.person; }, [rows, floors]);
+    const estimateSize = useCallback((i: number) => { const row = rows[i]!; return row.kind !== "person" ? floors[row.kind] : row.person === undefined ? floors.requests : floors.person; }, [rows, floors]);
     // A card drawn again only as what it shows changes: the same function while the rows, the week and the views hold (CL9).
     const renderRow = useCallback((i: number) => {
         const row = rows[i]!;
-        if (row.kind === "group") return <GroupHeading scope="roster" group={row.group} styles={ctx.styles} collapsed={collapsed.includes(row.group.key)} toggle={toggle} measure={measure("group")} />;
-        const days = row.person === undefined ? requestDays(index, row.group) : index.person.get(row.person.key);
-        const requests = row.person !== undefined ? NO_DUTIES : row.group === undefined ? index.allRequestList : index.requestList.get(row.group.key) ?? NO_DUTIES;
-        return <PersonCard ctx={ctx} row={row} index={i} rows={rows} days={days ?? NO_DAYS} requests={requests}
-            measure={measure(row.person === undefined ? "requests" : "person")} />;
+        switch (row.kind) {
+            case "group": return <GroupHeading scope="roster" group={row.group} styles={ctx.styles} collapsed={collapsed.includes(row.group.key)} toggle={toggle} measure={measure("group")} />;
+            case "demand": return <DemandCards ctx={ctx} row={row} measure={measure("demand")} />;
+            case "assign": return <AssignHead ctx={ctx} row={row} measure={measure("assign")} />;
+            case "person": {
+                const days = row.person === undefined ? requestDays(index, row.group) : index.person.get(row.person.key);
+                const requests = row.person !== undefined ? NO_DUTIES : row.group === undefined ? index.allRequestList : index.requestList.get(row.group.key) ?? NO_DUTIES;
+                return <PersonCard ctx={ctx} row={row} index={i} rows={rows} days={days ?? NO_DAYS} requests={requests}
+                    measure={measure(row.person === undefined ? "requests" : "person")} />;
+            }
+        }
     }, [rows, ctx, collapsed, toggle, index, measure]);
     // Where the cards' view rests, by its top card's key (#1398): saved as a scroll settles, brought back as they mount.
     const { onAnchor } = props;

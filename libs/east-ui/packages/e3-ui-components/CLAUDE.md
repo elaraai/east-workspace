@@ -1260,7 +1260,12 @@ requirements are on and the Roster has targets, a week naming none drawing no
 lane, so the list's first row never changes as a week lands — rows landing
 above the view would scroll it; while a week is read the last read's lanes
 stand in, each figure a placeholder. By month the band sums the month's weeks,
-the eyebrow says each week's hours, and a lane's and a skill row's day is a
+the eyebrow says each week's hours — by the month header's fit rule (R3), in
+the richest form every week's column holds whole: `1,352 / 1,298 h`, then the
+unit dropped, then the hours needed under the hours rostered, else none; every
+form laid out, the others unseen, so the fit measures each (`views.tsx`'
+`measureDemandWeeks` over `useLayoutFit`, which the header's fit shares) — and
+a lane's and a skill row's day is a
 mark on the person marks' day columns (`laneMark`, `skillMark`): covered,
 short — dashed in the warning's edge on its wash — requested, dashed teal,
 where the requests make up its hours, or off with no target; its difference
@@ -1279,9 +1284,15 @@ stuck band folded stays at the view's top, the focus on it. The stuck rows are
 on the surface's paper, the `scroll` slot's (`[data-virtual-stuck] >
 [data-index]`), and nothing the keyboard reaches lands under them — a Tab, a
 pick, a keyboard drag's step — each row's elements keeping what covers it clear
-as their scroll margin (`VirtualRows`' `--virtual-cover`, WCAG 2.4.11).
-`requirements={false}`, Hide requirements and a Roster without targets draw
-none of it.
+as their scroll margin (`VirtualRows`' `--virtual-cover`, WCAG 2.4.11). On a
+phone, before each band's people's cards — or with `peopleBands={false}`
+everyone's — the eyebrow, headed the vocabulary's `demand` with the week's
+hours rostered of needed, over a card a day: the day's hours as the grid's
+eyebrow says them, then a line a lane, its figures over its bar or `no
+target`, which selects as a lane's day does (`views.tsx`' `DemandCards`, one
+`VirtualRows` item, its rows made by `cardDemand`); then `Assignment · n
+people`. `requirements={false}`, Hide requirements and a Roster without targets
+draw none of it.
 
 The People tab has no filter of its own: leads, trainers, agency and skill are
 rail fields of the staff record (#1342). A Find fix asks the app's fit

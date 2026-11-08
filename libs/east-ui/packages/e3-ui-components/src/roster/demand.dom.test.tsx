@@ -21,6 +21,11 @@
  * ones above it, until the next band pushes them out together; with no bands the one block sticks over everyone; past
  * half of main an open lane's skill rows scroll with the people; and a stuck band folded stays at the view's top, the
  * focus on it (A6).
+ *
+ * On a phone, before each band's people's cards — or with no bands everyone's — the vocabulary's heading and the week's
+ * hours over a card a day, its hours and each lane's line as the Shifts layout says them; a line's press opens its slot,
+ * or the shift's day across the groups, in the inspector; Hide requirements takes the cards away; while a week is read,
+ * each figure is a placeholder.
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -28,7 +33,7 @@ import { ArrayType, DateTimeType, IntegerType, SortedSet, StringType, compareFor
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { DAY, slotKey, weekKey } from "./model.js";
-import { NEXT, START, act, open, press, rosterHarness, scrollsAsAPageDoes, settle, slot } from "./harness.test-utils.js";
+import { NEXT, START, act, open, press, rosterHarness, scrollsAsAPageDoes, settle, slot, width } from "./harness.test-utils.js";
 
 const h = rosterHarness();
 const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
@@ -185,13 +190,17 @@ function weekCell(row: Element, attribute: string, key: string, week: Date): HTM
 interface Mark { readonly said: string | undefined; readonly state: string }
 /** A lane by month, as it is drawn: its band's group, its shift and each of the month's weeks' seven marks. */
 interface MonthLane { readonly group: string | undefined; readonly shift: string; readonly weeks: readonly (readonly Mark[])[] }
+/** A week's hours on an eyebrow by month, as they are drawn: what the form its row shows says, and each form laid out. */
+interface EyebrowWeek { readonly shown: string; readonly full: string; readonly short: string; readonly stacked: readonly string[] }
+/** What a week's cell on an eyebrow by month shows: the form its row's fit chose (with nothing laid out, its full form). */
+const shownWeek = (row: Element, cell: Element) => cell.querySelector(`[data-roster-demand-form="${row.getAttribute("data-demand-form")}"]`)?.textContent ?? "";
 /**
  * The People grid's work requirement by month, every band's, read as {@link strip} reads it by week: each lane's marks
  * and each open lane's skill rows', a week of `weeks` at a time; each eyebrow's weeks; and each band's people and
  * figures, by their band's group.
  */
 async function monthStrip(c: HTMLElement, foot: string, weeks: readonly Date[]) {
-    const lanes = new Map<string, MonthLane>(), skills = new Map<string, readonly (readonly Mark[])[]>(), eyebrows = new Map<string, string[]>();
+    const lanes = new Map<string, MonthLane>(), skills = new Map<string, readonly (readonly Mark[])[]>(), eyebrows = new Map<string, EyebrowWeek[]>();
     const bands = new Map<string, { people: string; said: string }>();
     const marks = (row: Element, cell: string, mark: string, says: string) => {
         const key = row.getAttribute(cell.replace(/-week$/u, ""))!;
@@ -208,7 +217,11 @@ async function monthStrip(c: HTMLElement, foot: string, weeks: readonly Date[]) 
             marks(el, "data-roster-lane-skill-week", "data-roster-lane-skill-mark", "title"));
         for (const el of main.querySelectorAll<HTMLElement>("[data-roster-demand]")) {
             const cells = [...el.querySelectorAll("[data-roster-demand-week]")];
-            eyebrows.set(partsOf(el.getAttribute("data-roster-demand")!)[0] ?? "", weeks.map(week => cells.find(cell => cell.getAttribute("data-roster-demand-week") === weekKey(week))!.textContent!));
+            eyebrows.set(partsOf(el.getAttribute("data-roster-demand")!)[0] ?? "", weeks.map((week): EyebrowWeek => {
+                const cell = cells.find(at => at.getAttribute("data-roster-demand-week") === weekKey(week))!;
+                const form = (name: string) => cell.querySelector(`[data-roster-demand-form="${name}"]`);
+                return { shown: shownWeek(el, cell), full: form("full")?.textContent ?? "", short: form("short")?.textContent ?? "", stacked: [...form("stacked")?.children ?? []].map(line => line.textContent!) };
+            }));
         }
         for (const band of main.querySelectorAll<HTMLElement>("[data-roster-group]")) {
             const demand = band.querySelector("[data-roster-band-demand]");
@@ -390,10 +403,19 @@ describe("the People layout's work requirement by month (#1568)", () => {
         expect(new Set([...slot(c, "main").querySelectorAll("[data-roster-demand-heading]")].map(el => el.textContent))).toEqual(new Set(["Work requirement"]));
         for (const group of groups) {
             // The eyebrow's weeks: each its band's week as the Week layout says it, hours rostered of needed.
-            expect(month.eyebrows.get(group), group).toEqual(byWeek.map(drawn => {
+            const eyebrow = month.eyebrows.get(group)!;
+            expect(eyebrow.map(week => week.full), group).toEqual(byWeek.map(drawn => {
                 const [, needed, rostered] = /^(.+) h needed · (.+) h rostered · /u.exec(drawn.bands.get(group)!.said) ?? [];
                 return `${rostered} / ${needed} h`;
             }));
+            // Each week's other forms say the same hours — the unit dropped, then the hours needed under the hours rostered —
+            // and with nothing laid out the full form shows.
+            for (const week of eyebrow) {
+                expect(week.shown, group).toBe(week.full);
+                expect(week.short, group).toBe(week.full.replace(/ h$/u, ""));
+                const [rostered, needed] = week.short.split(" / ");
+                expect(week.stacked, group).toEqual([rostered, `/ ${needed}`]);
+            }
             // A lane a shift any of the month's weeks names, in the shifts' order.
             const named = shifts.filter(shift => byWeek.some(drawn => [...drawn.lanes.values()].some(lane => lane.group === group && lane.shift === shift)));
             expect(named.length, group).toBeGreaterThan(0);
@@ -480,7 +502,9 @@ describe("the People layout's work requirement by month (#1568)", () => {
         await settle();
         await waitFor(() => expect(main().querySelector("[data-roster-demand-week] [data-shape], [data-roster-band-demand] [data-shape]")).toBeNull());
         // January names no target: each eyebrow's weeks say their hours, and no lane is drawn.
-        expect([...main().querySelectorAll("[data-roster-demand-week]")].filter(el => !/^.+ \/ .+ h$/u.test(el.textContent!))).toEqual([]);
+        const said = [...main().querySelectorAll("[data-roster-demand]")].flatMap(row => [...row.querySelectorAll("[data-roster-demand-week]")].map(cell => shownWeek(row, cell)));
+        expect(said.length).toBeGreaterThan(0);
+        expect(said.filter(week => !/^.+ \/ .+ h$/u.test(week))).toEqual([]);
         expect(main().querySelector("[data-roster-lane]")).toBeNull();
     });
 
@@ -660,5 +684,144 @@ describe("the work requirement sticks under the header while its people scroll (
         // Its rows went with the fold: the next band follows it.
         const rows = placed(c).map(row => row.name);
         expect(rows[rows.indexOf(`band:${second}`) + 1]).toBe(`band:${third}`);
+    });
+});
+
+/** A day's card on a phone, as it is drawn: what its head says of the day's hours, and each line's shift and what it says of its hours. */
+interface DayCard { readonly said: string; readonly lines: readonly { readonly shift: string; readonly said: string }[] }
+/**
+ * The phone's People cards, read as {@link strip} reads the grid: scrolled from their top a few cards at a time until
+ * the card `foot` keys is mounted, each row met taken by its place — a band by its group, the work requirement's cards
+ * and the assignment's eyebrow by their scope's group, a person's card by its key — and each scope's block of day cards
+ * and its assignment's eyebrow.
+ */
+async function cards(c: HTMLElement, foot: string) {
+    const blocks = new Map<string, { heading: string; week: string; days: DayCard[] }>(), assigns = new Map<string, string>(), rows = new Map<number, string>();
+    const scope = (el: Element, attribute: string) => partsOf(el.getAttribute(attribute)!)[0] ?? "";
+    const take = () => {
+        for (const box of slot(c, "main").querySelectorAll<HTMLElement>("[data-index]")) {
+            const band = box.querySelector("[data-roster-group]"), demand = box.querySelector("[data-roster-demand-cards]");
+            const assign = box.querySelector("[data-roster-assign-head]"), person = box.querySelector("[data-roster-person-card]");
+            if (demand !== null) blocks.set(scope(demand, "data-roster-demand-cards"), {
+                heading: demand.querySelector("[data-roster-demand-heading]")!.textContent!, week: demand.querySelector("[data-roster-demand-total]")!.textContent!,
+                days: [...demand.querySelectorAll("[data-roster-demand-card]")].map((card): DayCard => ({
+                    said: card.querySelector("[data-roster-demand-day]")!.textContent!,
+                    lines: [...card.querySelectorAll("[data-roster-lane-day]")].map(line => ({ shift: line.getAttribute("data-roster-lane-shift")!, said: said(line.getAttribute("aria-label")!) })),
+                })),
+            });
+            if (assign !== null) assigns.set(scope(assign, "data-roster-assign-head"), assign.textContent!);
+            const name = band !== null ? `band:${band.getAttribute("data-roster-group")}` : demand !== null ? `demand:${scope(demand, "data-roster-demand-cards")}`
+                : assign !== null ? `assign:${scope(assign, "data-roster-assign-head")}` : person !== null ? `card:${person.getAttribute("data-roster-person-card")}` : undefined;
+            if (name !== undefined) rows.set(Number(box.getAttribute("data-index")), name);
+        }
+    };
+    const at = () => slot(c, "main").querySelector(`[data-roster-person-card="${foot}"]`) !== null;
+    take();
+    for (let step = 1; step <= 120 && !at(); step++) {
+        await act(async () => { scroller(c).scrollTop = step * 3 * 360; fireEvent.scroll(scroller(c)); });
+        await settle();
+        take();
+    }
+    expect(at(), foot).toBe(true);
+    // Every place from the top to the foot met once: no row skipped on the way.
+    const places = [...rows.keys()].sort((a, b) => a - b);
+    expect(places).toEqual(places.map((_, i) => i));
+    return { blocks, assigns, order: places.map(i => rows.get(i)!) };
+}
+
+describe("the work requirement on a phone (#1568)", () => {
+    test("before each band's people's cards: the vocabulary's heading and the week's hours as the Shifts layout's band says them, a card a day — its hours as the band says them of that day, a line a lane its slot's hours or `no target` — then the assignment's eyebrow; a line's press opens its slot in the inspector", async () => {
+        scrollsAsAPageDoes();
+        const { container: c } = await open(ex.rosterWorkRequirement);
+        const targets = await targeted(), shifts = ordered(await h.read(ex.rosterShiftTimes)), groups = ordered(await h.read(ex.rosterTeams));
+        const staff = await h.read(ex.rosterStaff);
+        // The Shifts layout's figures for the week, then People on a phone.
+        const shown = await shiftsLayout(c, groups, shifts);
+        await press(toolbar(c).getByRole("radio", { name: "People" }));
+        await width(390);
+        expect(slot(c, "main").querySelector('[data-roster-agenda="people"]')).not.toBeNull();
+        const drawn = await cards(c, `requests:${groups.at(-1)!}`);
+        for (const group of groups) {
+            const block = drawn.blocks.get(group)!;
+            expect(block.heading, group).toBe("Work requirement");
+            const [, needed, rostered] = /^(.+) h needed · (.+) h rostered · /u.exec(shown.weeks.get(group)!.said) ?? [];
+            expect(block.week, group).toBe(`${rostered} / ${needed} h`);
+            expect(block.days.map(day => day.said), group).toEqual(shown.days.get(group)!.map(f => `${f.rostered} / ${f.needed} h`));
+            // A line a shift the group's targets name, in the shifts' order, each its slot's hours as the Shifts layout draws them.
+            const named = shifts.filter(shift => DAYS.some(d => targets.has(slotKey({ day: BigInt(d), group, shift }))));
+            expect(named.length, group).toBeGreaterThan(0);
+            block.days.forEach((day, d) => {
+                expect(day.lines.map(line => line.shift), `${group} ${d}`).toEqual(named);
+                for (const line of day.lines) {
+                    const key = slotKey({ day: BigInt(d), group, shift: line.shift });
+                    const f = shown.slots.get(key)!;
+                    expect(line.said, key).toBe(targets.has(key) ? `${f.rostered} of ${f.needed} hours rostered` : "no target");
+                }
+            });
+            const people = [...staff.values()].filter(person => person.team === group).length;
+            expect(drawn.assigns.get(group), group).toBe(`Assignment · ${people} people`);
+            // The band, then its work requirement's cards and the assignment's eyebrow, then its people's cards.
+            const at = drawn.order.indexOf(`band:${group}`);
+            expect(drawn.order.slice(at + 1, at + 3), group).toEqual([`demand:${group}`, `assign:${group}`]);
+            expect(drawn.order[at + 3]?.startsWith("card:"), group).toBe(true);
+        }
+        // A line's press opens its slot, its group's, in the inspector: the slot's hours as the line says them — the first
+        // band's cards, back at the list's top.
+        await act(async () => { scroller(c).scrollTop = 0; fireEvent.scroll(scroller(c)); });
+        await settle();
+        const line = [...slot(c, "main").querySelectorAll<HTMLElement>("[data-roster-demand-cards] [data-roster-lane-day]")].find(el => said(el.getAttribute("aria-label")!) !== "no target");
+        expect(line).toBeDefined();
+        await press(line!);
+        expect(line!.getAttribute("aria-pressed")).toBe("true");
+        await waitFor(() => expect(figuresOf(slot(c, "end"))).toEqual(laneFigures(said(line!.getAttribute("aria-label")!))));
+    });
+
+    test("with no bands one block of day cards heads everyone's cards, a line a shift any group's target names; a line's press opens the shift's day across the groups, the sum as the line says it; Hide requirements takes the cards away and Show brings them back", async () => {
+        const { container: c } = await open(ex.rosterPeopleNoBands);
+        const targets = await targeted(), shifts = ordered(await h.read(ex.rosterShiftTimes)), groups = ordered(await h.read(ex.rosterTeams));
+        await width(390);
+        const main = () => slot(c, "main");
+        expect(main().querySelector('[data-index="0"] [data-roster-demand-cards]')).not.toBeNull();
+        const days = [...main().querySelectorAll<HTMLElement>("[data-roster-demand-card]")];
+        expect(days.length).toBe(7);
+        const named = shifts.filter(shift => groups.some(group => DAYS.some(d => targets.has(slotKey({ day: BigInt(d), group, shift })))));
+        expect(named.length).toBeGreaterThan(0);
+        for (const card of days) expect([...card.querySelectorAll("[data-roster-lane-day]")].map(el => el.getAttribute("data-roster-lane-shift"))).toEqual(named);
+        const lineOf = (shift: string, d: number) => main().querySelectorAll<HTMLElement>("[data-roster-demand-card]")[d]!.querySelector<HTMLElement>(`[data-roster-lane-shift="${shift}"]`)!;
+        const shift = named[0]!;
+        const d = DAYS.find(day => groups.some(group => targets.has(slotKey({ day: BigInt(day), group, shift }))))!;
+        await press(lineOf(shift, d));
+        expect(lineOf(shift, d).getAttribute("aria-pressed")).toBe("true");
+        const across = await waitFor(() => { const el = slot(c, "end").querySelector<HTMLElement>('[data-roster-shift-day="across"]'); expect(el).not.toBeNull(); return el!; });
+        expect(figuresOf(across)).toEqual(laneFigures(said(lineOf(shift, d).getAttribute("aria-label")!)));
+        // Hide requirements takes the cards and the assignment's eyebrow away, the people's cards staying; Show brings them back.
+        await display(c, "Hide requirements");
+        expect(main().querySelector("[data-roster-demand-cards], [data-roster-assign-head]")).toBeNull();
+        expect(main().querySelector("[data-roster-person-card]")).not.toBeNull();
+        await display(c, "Show requirements");
+        expect(main().querySelector('[data-index="0"] [data-roster-demand-cards]')).not.toBeNull();
+    });
+
+    test("while a week is read each of the cards' figures is a placeholder — the week's, each day's and each line's — its lines the last week read's; read, its figures land in place", async () => {
+        const { container: c } = await open(ex.rosterWorkRequirement);
+        await width(390);
+        const block = () => slot(c, "main").querySelector<HTMLElement>("[data-roster-demand-cards]")!;
+        const lines = () => [...block().querySelectorAll("[data-roster-lane-day]")].map(el => el.getAttribute("data-roster-lane-day"));
+        const before = lines();
+        expect(before.length).toBeGreaterThan(0);
+        // Two weeks on, past the week read ahead, every read of the weeks and the duties held.
+        const held = h.e3.hold(weekRead);
+        for (let step = 0; step < 2; step++) { await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: "]" }); }); await settle(); }
+        expect(lines()).toEqual(before);
+        expect(block().textContent).not.toMatch(/\d h\b|no target/u);
+        // Past the reveal's delay, the placeholders fill: the week's, and each day's and each line's.
+        await waitFor(() => expect(block().querySelector("[data-roster-demand-total] [data-shape]")).not.toBeNull());
+        const figures = [...block().querySelectorAll("[data-roster-demand-day], [data-roster-lane-day]")];
+        expect(figures.length).toBeGreaterThan(7);
+        expect(figures.filter(el => el.querySelector("[data-shape]") === null)).toEqual([]);
+        await act(async () => { held.release(); });
+        await settle();
+        await waitFor(() => expect(block().querySelector("[data-shape]")).toBeNull());
+        expect(block().querySelector("[data-roster-demand-total]")!.textContent).toMatch(/^.+ \/ .+ h$/u);
     });
 });
