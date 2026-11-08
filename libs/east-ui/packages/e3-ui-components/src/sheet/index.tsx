@@ -183,6 +183,8 @@ import { SheetEditor, isComboboxKind, type EditorFocusRequest, type EditorOption
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripModel, type StripSuggestInput } from "./Strip.js";
 import type { SheetFooterProps, SheetLoadingLine } from "./Footer.js";
 import { useSheetEditing, type DraftEdit, type LocalLayer, type SheetSeeds } from "./use-editing.js";
+import { useCellsFromData } from "./cells-from-data.js";
+import { useSheetDay } from "./day.js";
 import { draftChanges, draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
 import { sheetToolbarRow, useSheetToolbarPartsFor, type SheetToolbarParts, type SheetToolbarTabs } from "./Toolbar.js";
 import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLineValue, SheetLinkValue, SheetMemberValue, SheetNarrowing, SheetNounValue, SheetProposerValue, SheetRegisterMemberValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetSubRowValue, SheetSavedView } from "./values.js";
@@ -1228,13 +1230,18 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         if (lensDrawn) drawnLast.current = "lens";
         else if (pagedSource !== undefined && pagesReady) drawnLast.current = "pages";
     });
-    const sourceRows: readonly SheetRowValue[] = decodedRows ?? (lensDrawn ? lens.rows : paging.rows);
+    const drawnRows: readonly SheetRowValue[] = decodedRows ?? (lensDrawn ? lens.rows : paging.rows);
     const rowsOffset = decodedRows !== undefined || lensDrawn ? 0 : paging.rowsOffset;
     // Each source row's position — its index inline; paged, its place in the
     // source, which a failed window before it does not move (#853); under the
     // lens, its place in the record.
     const inlinePositions = useMemo(() => decodedRows?.map((_r, i) => i), [decodedRows]);
     const sourcePositions: readonly number[] = inlinePositions ?? (lensDrawn ? lens.positions : paging.positions);
+    // Each row's cells from data and every column's marks, read at the day (#1559): over its entry here, over its draft
+    // once it has one (the layer, below) — the source's rows carry none of them.
+    const day = useSheetDay(value.cellsAt.type === "some");
+    const fromData = useCellsFromData(value, day);
+    const sourceRows = useMemo(() => fromData.rows(drawnRows, sourcePositions), [fromData, drawnRows, sourcePositions]);
     // Every row resident: inline, or a paged source read to its end — never under the lens, which draws a part of the record.
     const exhausted = decodedRows !== undefined || (!lensDrawn && paging.exhausted);
     // The source's element count, once known.
@@ -1249,7 +1256,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // The rows a key's far jump holds stand in, retained, until its rows replace them (#1398, CL10): the source's own
     // rows still, which the session holds, but they take no gesture.
     const keyHeld = !lensDrawn && paging.held;
-    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular);
+    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular, day);
     const session = editingState.session;
     // ── The app's optimiser (#1409, #1418) ────────────────────────────────
     // One run over the current tab's rows, its result landed on them as one edit (below, once the rows and their
@@ -1308,7 +1315,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         return recorded;
     }, [recordSession]);
     const drafts = editingState.drafts;
-    const layer = editingState.layer;
+    // The session's rows, each with its cells from data read over its draft (#1559).
+    const layer = useMemo(() => fromData.layer(editingState.layer, session.entries, drafts), [fromData, editingState.layer, session, drafts]);
     // A row's draft presentation, derived once per session change (#858): the
     // gutter's decisions and the row read the same one, and between changes a
     // row keeps it by identity, so its memo holds.
@@ -1338,15 +1346,16 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 if (began.draft === undefined) found = { added: true, dirty: NOTHING, held: undefined, fields: 0 };
                 else {
                     const dirty = new Set<string>();
-                    for (const [key, cell] of row.cells) if (!cellEqual(began.wire?.cells.get(key) ?? NULL_CELL, cell)) dirty.add(key);
-                    found = { added: false, dirty, held: began.wire?.cells, fields: fieldChanges(began.draft, draft) };
+                    const held = fromData.held(began);
+                    for (const [key, cell] of row.cells) if (!cellEqual(held?.get(key) ?? NULL_CELL, cell)) dirty.add(key);
+                    found = { added: false, dirty, held, fields: fieldChanges(began.draft, draft) };
                 }
             }
             byId.set(id, found);
             return found ?? undefined;
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session; the rows, what a change is read against.
-    }, [session, draftVersion, sourceRows, layer, fieldChanges]);
+    }, [session, draftVersion, sourceRows, layer, fieldChanges, fromData]);
     // Temporary writes within one reducer effect batch; the transaction session
     // publishes the completed gesture and owns the rendered layer thereafter.
     const layerRef = useRef(layer);

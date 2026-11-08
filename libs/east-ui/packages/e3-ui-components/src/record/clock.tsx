@@ -8,8 +8,8 @@
  * age cells count to — the browser's, read as the Record mounts and again at
  * each whole minute — and an age column's count of a row's moment against
  * it. Every part that counts reads the one instant, so a day that turns over
- * moves the age cells, their stale dots, the footer's count and the
- * inspector's facts together.
+ * moves the age cells, their stale dots, the footer's count, the inspector's
+ * facts and the cells from data, read at its day (#1559), together.
  *
  * @packageDocumentation
  */
@@ -18,21 +18,22 @@ import { createContext, useContext, type ReactNode } from "react";
 import { IntegerType, lessFor } from "@elaraai/east";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import { useNow } from "../shared/time/now-line.js";
+import { SheetDayProvider } from "../sheet/day.js";
 import type { SheetColumnMeta } from "../sheet/model.js";
 import type { SheetCellValue } from "../sheet/values.js";
 
 const RecordClockContext = createContext<Date | undefined>(undefined);
 
 /**
- * Provides the Record's clock to the parts under it. As it moves, only the
- * parts that read it draw again.
+ * Provides the Record's clock to the parts under it, and its day to the sheet's. As it moves, only the parts that read
+ * it draw again — the sheet's, only as the day turns.
  *
  * @param props - The parts under it
  * @returns The provider
  */
 export function RecordClock({ children }: { children: ReactNode }) {
     const now = useNow(undefined);
-    return <RecordClockContext.Provider value={now}>{children}</RecordClockContext.Provider>;
+    return <RecordClockContext.Provider value={now}><SheetDayProvider now={now}>{children}</SheetDayProvider></RecordClockContext.Provider>;
 }
 
 /**

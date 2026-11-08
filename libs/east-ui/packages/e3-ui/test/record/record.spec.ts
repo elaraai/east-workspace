@@ -10,22 +10,24 @@
  * clock and the audit's who and what; a cycle over a variant's steps
  * (`Record Columns From Data - DX Proposal.md` §2.3); columns from data — a
  * column per member of a register or per field of a struct, their groups and
- * the functions their cells read and write through (§2); the columns map's
- * typing; and every refusal, naming the column or the prop — a new row's
- * field no person can set among them (#1526).
+ * the functions their cells read and write through (§2), their cells and
+ * every column's marks read at the Record's day over a row's entry or its
+ * draft, and a gesture's edits written over the draft (§5.2); the columns
+ * map's typing; and every refusal, naming the column or the prop — a new
+ * row's field no person can set among them (#1526).
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
-    equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
+    decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { FieldSpecType } from "@elaraai/east-ui/internal";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import e3 from "@elaraai/e3";
 import {
-    Data, Record, RecordPayloadType, Sheet, SheetInspectorPaneType, SheetUnsettableType, buildInspectorPane, createSheetBuild, createSheetRootWith,
+    Data, Record, RecordPayloadType, Sheet, SheetInspectorPaneType, SheetReadFromType, SheetUnsettableType, buildInspectorPane, createSheetBuild, createSheetRootWith,
 } from "@elaraai/e3-ui/internal";
 import { refusingPlatform } from "../refusing-platform.js";
 import * as ex from "./record.examples.js";
@@ -608,6 +610,161 @@ describe("columns from data", () => {
                 mark: East.function([Order, DateTimeType], Mark, () => none),
             }),
         }, { id: "id" }, { recordKinds: true }));
+    });
+});
+
+// ── Columns from data at the day (§5.2): their cells read over a row's entry or its draft, a gesture's edits written ──
+
+const Cells = DictType(StringType, Sheet.Types.Cell);
+type CellValue = ValueTypeOf<typeof Sheet.Types.Cell>;
+const StaffDraft = Record.Types.Draft(Staff);
+const RosteredDraft = Record.Types.Draft(Rostered);
+const encodeRow = encodeBeast2For(Sheet.Types.Row);
+const encodeStaffDraft = encodeBeast2For(StaffDraft);
+const decodeStaffDraft = decodeBeast2For(StaffDraft);
+const encodeRosteredDraft = encodeBeast2For(RosteredDraft);
+const decodeRosteredDraft = decodeBeast2For(RosteredDraft);
+/** Days as the Record's clock gives them: the local calendar date, at UTC midnight. */
+const MONDAY = new Date("2026-11-09T00:00:00Z");
+const SATURDAY = new Date("2026-11-07T00:00:00Z");
+/** A. Morgan's entry, and her draft as the session lifts it. */
+const MORGAN = variant("entry", encodeBeast2For(Staff)(STAFF[0]!));
+const MORGAN_DRAFT: ValueTypeOf<typeof StaffDraft> = {
+    id: variant("value", "H-1"), name: variant("value", "A. Morgan"), hours: variant("value", new Map([["P-100", 12.5], ["P-200", 4.0]])),
+};
+
+/** The hours by project, a project booked centrally locked and a weekend's noted, and by client over the same field; a lead's name noted. */
+const STAFF_AT_DAY: Root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+    const rows = $.const(STAFF, ArrayType(Staff));
+    return createSheetRootWith(rows, {
+        name: Record.column.title(Staff, {
+            header: "Name",
+            mark: East.function([Staff, DateTimeType], Mark, ($2, person) => {
+                $2.if(person.name.equal("A. Morgan"), ($3) => { $3.return(some(variant("note", "Lead"))); });
+                return none;
+            }),
+        }),
+        hours: Record.column.quantity(Staff, {
+            each: "projects",
+            mark: East.function([Hours, StringType, DateTimeType], Mark, ($2, _hours, project, day) => {
+                $2.if(project.equal("P-900"), ($3) => { $3.return(some(variant("lock", "Booked centrally"))); });
+                $2.if(day.getDayOfWeek().greaterEqual(6n), ($3) => { $3.return(some(variant("note", "Weekend"))); });
+                return none;
+            }),
+        }),
+        byClient: Record.column.quantity(Staff, { each: "clients", field: "hours" }),
+    }, STAFF_OPTIONS, { recordKinds: true });
+}), [])();
+
+/** The rota's week as Monday's and Saturday's columns, locked once Monday is over its cap. */
+const WEEK_AT_DAY: Root = East.compile(East.function([], Sheet.Types.Root, () => createSheetRootWith(ROSTERED, {
+    week: Record.column.integer(Rostered, {
+        each: { mon: "Mon", sat: "Sat" },
+        mark: East.function([Week, DateTimeType], Mark, ($, week) => {
+            $.if(week.mon.greater(4n), ($2) => { $2.return(some(variant("lock", "Over the cap"))); });
+            return none;
+        }),
+    }),
+}, { id: "id" }, { recordKinds: true })), [])();
+
+/** A root's cells at a day, which a root with a column from data or a mark has. */
+function cellsAtOf(root: Root): (from: ValueTypeOf<typeof SheetReadFromType>, day: Date) => ValueTypeOf<typeof Cells> {
+    if (root.cellsAt.type !== "some") assert.fail("the root reads no cells at a day");
+    return root.cellsAt.value;
+}
+
+describe("columns from data at the day", () => {
+    test("a wire column names the column and member it was made for and whether a clear writes none, and where its marks cross; a root reading nothing at the day has no `cellsAt`", () => {
+        const From = ColumnType.fields.from;
+        const Marks = ColumnType.fields.mark;
+        const column = (root: Root, key: string) => root.columns.find((c) => c.key === key) ?? assert.fail(`no column ${key}`);
+        const name = column(STAFF_AT_DAY, "name");
+        assert.ok(equalFor(From)(name.from, none), printFor(From)(name.from));
+        assert.ok(equalFor(Marks)(name.mark, some({ words: "$mark:name", lock: "$lock:name" })), printFor(Marks)(name.mark));
+        const booked = column(STAFF_AT_DAY, "hours:P-900");
+        assert.ok(equalFor(From)(booked.from, some({ column: "hours", member: "P-900", clears: true })), printFor(From)(booked.from));
+        assert.ok(equalFor(Marks)(booked.mark, some({ words: "$mark:hours:P-900", lock: "$lock:hours:P-900" })), printFor(Marks)(booked.mark));
+        const client = column(STAFF_AT_DAY, "byClient:C-01");
+        assert.ok(equalFor(From)(client.from, some({ column: "byClient", member: "C-01", clears: true })), printFor(From)(client.from));
+        assert.ok(equalFor(Marks)(client.mark, none), printFor(Marks)(client.mark));
+        // A struct's field takes a clear where it is an Option.
+        const mon = column(WEEK_AT_DAY, "week:mon");
+        assert.ok(equalFor(From)(mon.from, some({ column: "week", member: "mon", clears: false })), printFor(From)(mon.from));
+        const sat = column(WEEK_AT_DAY, "week:sat");
+        assert.ok(equalFor(From)(sat.from, some({ column: "week", member: "sat", clears: true })), printFor(From)(sat.from));
+        assert.ok(equalFor(Marks)(sat.mark, some({ words: "$mark:week:sat", lock: "$lock:week:sat" })), printFor(Marks)(sat.mark));
+        assert.equal(ROOT.cellsAt.type, "none");
+    });
+
+    test("a row's cells are read over its entry at the day: each member's value, a member it holds none of blank, and the marks beside them, the day's own", () => {
+        const cellsAt = cellsAtOf(STAFF_AT_DAY);
+        const monday = cellsAt(MORGAN, MONDAY);
+        const expected = new Map<string, CellValue>([
+            ["$lock:hours:P-900", variant("Boolean", true)], ["$lock:name", variant("Boolean", false)],
+            ["$mark:hours:P-900", variant("String", "Booked centrally")], ["$mark:name", variant("String", "Lead")],
+            ["byClient:C-01", variant("Null", null)], ["byClient:C-02", variant("Null", null)], ["byClient:C-03", variant("Null", null)],
+            ["hours:P-100", variant("Float", 12.5)], ["hours:P-101", variant("Null", null)], ["hours:P-200", variant("Float", 4.0)], ["hours:P-900", variant("Null", null)],
+        ]);
+        assert.ok(equalFor(Cells)(monday, expected), printFor(Cells)(monday));
+        // On a Saturday each project not locked is noted.
+        const saturday = cellsAt(MORGAN, SATURDAY);
+        const Cell = Sheet.Types.Cell;
+        assert.ok(equalFor(Cell)(saturday.get("$mark:hours:P-100") ?? variant("Null", null), variant("String", "Weekend")), printFor(Cells)(saturday));
+        assert.ok(equalFor(Cell)(saturday.get("$lock:hours:P-100") ?? variant("Null", null), variant("Boolean", false)), printFor(Cells)(saturday));
+        assert.ok(equalFor(Cell)(saturday.get("$mark:hours:P-900") ?? variant("Null", null), variant("String", "Booked centrally")), printFor(Cells)(saturday));
+    });
+
+    test("over a draft, the cells are the draft's; a field not yet set shows none, and a mark over the row waits until its draft is whole", () => {
+        const cellsAt = cellsAtOf(STAFF_AT_DAY);
+        const drafted = cellsAt(variant("draft", encodeStaffDraft({ ...MORGAN_DRAFT, hours: variant("value", new Map([["P-101", 2.0]])) })), MONDAY);
+        const Cell = Sheet.Types.Cell;
+        assert.ok(equalFor(Cell)(drafted.get("hours:P-101") ?? variant("Null", null), variant("Float", 2.0)), printFor(Cells)(drafted));
+        assert.ok(equalFor(Cell)(drafted.get("hours:P-100") ?? variant("Invalid", "absent"), variant("Null", null)), printFor(Cells)(drafted));
+        assert.ok(equalFor(Cell)(drafted.get("$mark:name") ?? variant("Null", null), variant("String", "Lead")), printFor(Cells)(drafted));
+        const fresh = cellsAt(variant("draft", encodeStaffDraft({ id: variant("value", "H-9"), name: variant("value", "A. Morgan"), hours: variant("missing", null) })), MONDAY);
+        assert.ok(equalFor(Cells)(fresh, new Map()), printFor(Cells)(fresh));
+    });
+
+    test("`decode` writes each cell a gesture changed through its column's `write`, over the field as drafted so far — a second column on the field chaining onto the first — and a cell left as it read, or holding text no column could read, writes nothing", () => {
+        const cellsAt = cellsAtOf(STAFF_AT_DAY);
+        const decode = (cells: ValueTypeOf<typeof Cells>, base: ValueTypeOf<typeof StaffDraft>) => decodeStaffDraft(STAFF_AT_DAY.editing.decode(
+            encodeRow({ id: "H-1", owned: false, cells, lines: [], band: none, subRows: [] }), some(encodeStaffDraft(base)), none, MONDAY));
+        const shown = cellsAt(MORGAN, MONDAY);
+        const typed = new Map<string, CellValue>([...shown, ["hours:P-200", variant("Float", 9.0)], ["byClient:C-01", variant("Float", 1.5)], ["hours:P-101", variant("Invalid", "lots")]]);
+        const written = decode(typed, MORGAN_DRAFT);
+        const chained = { ...MORGAN_DRAFT, hours: variant("value", new Map([["C-01", 1.5], ["P-100", 12.5], ["P-200", 9.0]])) };
+        assert.ok(equalFor(StaffDraft)(written, chained), printFor(StaffDraft)(written));
+        // The next gesture reads over the draft it left: a clear removes the member's entry, and the rest stand.
+        const cleared = decode(new Map<string, CellValue>([...cellsAt(variant("draft", encodeStaffDraft(written)), MONDAY), ["hours:P-100", variant("Null", null)]]), written);
+        const left = { ...MORGAN_DRAFT, hours: variant("value", new Map([["C-01", 1.5], ["P-200", 9.0]])) };
+        assert.ok(equalFor(StaffDraft)(cleared, left), printFor(StaffDraft)(cleared));
+        const untouched = decode(shown, MORGAN_DRAFT);
+        assert.ok(equalFor(StaffDraft)(untouched, MORGAN_DRAFT), printFor(StaffDraft)(untouched));
+    });
+
+    test("over a struct's fields, each changed one is set on the struct and the struct written once — a clear writing none where the field is an Option and nothing where it isn't — and a field not yet set starts from its type's default at its first write", () => {
+        const cellsAt = cellsAtOf(WEEK_AT_DAY);
+        const decode = (id: string, cells: ValueTypeOf<typeof Cells>, base: ValueTypeOf<typeof RosteredDraft> | undefined) => decodeRosteredDraft(WEEK_AT_DAY.editing.decode(
+            encodeRow({ id, owned: false, cells, lines: [], band: none, subRows: [] }), base === undefined ? none : some(encodeRosteredDraft(base)), none, MONDAY));
+        const base: ValueTypeOf<typeof RosteredDraft> = { id: variant("value", "S-1"), week: variant("value", { mon: 4n, sat: some(2n), note: "" }) };
+        const shown = cellsAt(variant("draft", encodeRosteredDraft(base)), MONDAY);
+        assert.ok(equalFor(Cells)(shown, new Map<string, CellValue>([["week:mon", variant("Integer", 4n)], ["week:sat", variant("Integer", 2n)]])), printFor(Cells)(shown));
+        const written = decode("S-1", new Map<string, CellValue>([["week:mon", variant("Integer", 5n)], ["week:sat", variant("Null", null)]]), base);
+        const week = { ...base, week: variant("value", { mon: 5n, sat: none, note: "" }) };
+        assert.ok(equalFor(RosteredDraft)(written, week), printFor(RosteredDraft)(written));
+        // The struct's one mark, on each of its columns.
+        const locked = cellsAt(variant("draft", encodeRosteredDraft(written)), MONDAY);
+        assert.ok(equalFor(Cells)(locked, new Map<string, CellValue>([
+            ["$lock:week:mon", variant("Boolean", true)], ["$lock:week:sat", variant("Boolean", true)],
+            ["$mark:week:mon", variant("String", "Over the cap")], ["$mark:week:sat", variant("String", "Over the cap")],
+            ["week:mon", variant("Integer", 5n)], ["week:sat", variant("Null", null)],
+        ])), printFor(Cells)(locked));
+        const refused = decode("S-1", new Map<string, CellValue>([["week:mon", variant("Null", null)], ["week:sat", variant("Integer", 2n)]]), base);
+        assert.ok(equalFor(RosteredDraft)(refused, base), printFor(RosteredDraft)(refused));
+        const fresh = decode("S-9", new Map<string, CellValue>([["week:sat", variant("Integer", 3n)]]), undefined);
+        assert.ok(equalFor(RosteredDraft)(fresh, { id: variant("value", "S-9"), week: variant("value", { mon: 0n, sat: some(3n), note: "" }) }), printFor(RosteredDraft)(fresh));
+        const unwritten = decode("S-9", new Map(), undefined);
+        assert.ok(equalFor(RosteredDraft)(unwritten, { id: variant("value", "S-9"), week: variant("missing", null) }), printFor(RosteredDraft)(unwritten));
     });
 });
 

@@ -288,6 +288,7 @@ export function indexGroup(group: SheetGroupValue, columns: SheetColumnIndex, ti
         const meta = indexColumns([{
             key: cell.key, header: cell.key === TITLE_KEY ? titleHeader : columns.byKey.get(cell.key)?.header ?? cell.key,
             sub: none, width: none, kind: cell.kind, dataType: cell.dataType, payloadType: cell.payloadType, editable: cell.editable, fill: [], detailCell: none,
+            from: none, mark: none,
         }]).list[0]!;
         cells.set(cell.key, meta);
     }

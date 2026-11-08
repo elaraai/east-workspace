@@ -19,14 +19,18 @@
  * `ready` listed and reachable (#1525), and a new row's fields its `newRow`
  * gives (#1526) — and a cycle over a variant (`Record Columns From Data - DX
  * Proposal.md` §2.3): its steps in their order, in the grid and Details, and
- * Apply writing the case — over the Record's examples deployed to e3 itself,
- * each test a workspace of its own.
+ * Apply writing the case — and columns from data (§5.2, §5.3, #1559): their
+ * cells read at the Record's day over a row's entry or its draft, an edit
+ * written over the field, two columns on one field chaining in one gesture,
+ * Save's difference of each field, the data moving under them and the day
+ * turning — over the Record's examples deployed to e3 itself, each test a
+ * workspace of its own.
  */
 
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ArrayType, East, StringType, StructType, equalFor, printFor, some, variant } from "@elaraai/east";
+import { ArrayType, DateTimeType, East, IntegerType, StringType, StructType, equalFor, printFor, some, variant } from "@elaraai/east";
 import { Reactive, RecordSlicesChromeType, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Record } from "@elaraai/e3-ui/internal";
@@ -1396,5 +1400,185 @@ describe("a cycle over a variant", () => {
         const statusEqual = equalFor(ex.Status);
         expect([...orders].map(([id, order]) => [id, statusEqual(order.status, variant("packed", null)), statusEqual(order.status, variant("shipped", null))]))
             .toEqual([["SO-1041", true, false], ["SO-1042", false, true], ["SO-1043", false, true]]);
+    });
+});
+
+/** A person's hours, as the record holds them. */
+const Hours = ex.Person.fields.hours;
+const hoursEqual = equalFor(Hours);
+const printHours = printFor(Hours);
+
+/** The hours by project, and by client over the same field: two columns from data writing one field. */
+const hoursByClient = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const staff = $.let(Record.bind(ex.recordHours));
+    const clientRows = $.let(Data.bind(ex.recordClients));
+    const projectRows = $.let(Data.bind(ex.recordProjects));
+    return Record({
+        record: staff,
+        title: "Hours",
+        noun: { singular: "person", plural: "people" },
+        registers: {
+            clients: Record.register.members(clientRows.read(), { kind: "client", key: (_c, code) => code, label: (c) => c.name }),
+            projects: Record.register.members(projectRows.read(), { kind: "project", key: (_p, code) => code, label: (p) => p.name }),
+        },
+        columns: {
+            name: Record.column.title(ex.Person, { header: "Name" }),
+            hours: Record.column.quantity(ex.Person, { each: "projects", unit: "hrs" }),
+            byClient: Record.column.quantity(ex.Person, { each: "clients", field: "hours", unit: "hrs" }),
+        },
+        name: "hoursByClient",
+    });
+})));
+
+/** The roster's heads today, read at the Record's day: the column turns over with its clock. */
+const rosterToday = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const shifts = $.let(Record.bind(ex.recordRoster));
+    const days = $.let(["today"], ArrayType(StringType));
+    return Record({
+        record: shifts,
+        title: "Roster",
+        noun: { singular: "shift", plural: "shifts" },
+        registers: { days: Record.register.members(days, { kind: "day", key: (d) => d, label: () => "Today" }) },
+        columns: {
+            name: Record.column.title(ex.Shift, { header: "Shift" }),
+            today: Record.column.integer(ex.Shift, {
+                each: "days", field: "week", editable: false,
+                read: East.function([ex.Week, StringType, DateTimeType], IntegerType, ($2, week, _day, day) => {
+                    // ISO's days: Monday is 1, Sunday 7.
+                    const weekday = $2.const(day.getDayOfWeek());
+                    $2.if(weekday.equal(1n), ($3) => { $3.return(week.mon); });
+                    $2.if(weekday.equal(2n), ($3) => { $3.return(week.tue); });
+                    $2.if(weekday.equal(3n), ($3) => { $3.return(week.wed); });
+                    $2.if(weekday.equal(4n), ($3) => { $3.return(week.thu); });
+                    $2.if(weekday.equal(5n), ($3) => { $3.return(week.fri); });
+                    $2.if(weekday.equal(6n), ($3) => { $3.return(week.sat); });
+                    return week.sun;
+                }),
+            }),
+        },
+        // Today's heads are read only, and no other column sets a week: this Record adds no shift.
+        edits: { insertRows: false },
+        name: "rosterToday",
+    });
+})));
+
+/** A value typed into a cell: the ring on it, its editor opened by the first key, the text in it and Tab — ⏎ on the last row would add one under it. */
+async function typeInto(container: HTMLElement, r: number, column: string, text: string) {
+    await press(cellAt(container, r, column));
+    await key(container, text[0]!);
+    const input = await waitFor(() => {
+        const open = cellAt(container, r, column).querySelector<HTMLInputElement>('[data-slot="editorInput"]');
+        expect(open).not.toBeNull();
+        return open!;
+    });
+    fireEvent.input(input, { target: { value: text } });
+    await settle();
+    fireEvent.keyDown(input, { key: "Tab" });
+    await settle();
+}
+
+/** A cell cleared: the ring on it, and ⌫. */
+async function clear(container: HTMLElement, r: number, column: string) {
+    await press(cellAt(container, r, column));
+    await key(container, "Backspace");
+}
+
+describe("columns from data, read and written at the day", () => {
+    test("a Dict field with no functions: each cell its member's entry, blank where it has none; an edit sets the entry, one step Undo takes back", async () => {
+        const { container } = await h.mount(ex.recordHoursByProject, { storageKey: "record-data-dict" });
+        const logged = (r: number) => ["hours:P-100", "hours:P-101", "hours:P-200", "hours:P-900"].map((k) => cellAt(container, r, k).textContent);
+        expect([logged(0), logged(1), logged(2)]).toEqual([["12.5hrs", "", "4hrs", ""], ["", "30hrs", "", "6hrs"], ["", "", "", ""]]);
+        await typeInto(container, 2, "hours:P-101", "7");
+        expect(logged(2)).toEqual(["", "7hrs", "", ""]);
+        expect(cellAt(container, 2, "hours:P-101").hasAttribute("data-dirty")).toBe(true);
+        expect(rows(container)[2]!.hasAttribute("data-draft")).toBe(true);
+        await press(history(container, editingMessages.undo()));
+        expect(logged(2)).toEqual(["", "", "", ""]);
+        expect(rows(container)[2]!.hasAttribute("data-draft")).toBe(false);
+    });
+
+    test("a struct's fields: an edit writes the struct, its other fields as they were", async () => {
+        const { container } = await h.mount(ex.recordRosterByDay, { storageKey: "record-data-struct" });
+        expect(rows(container).map((_row, r) => cellAt(container, r, "week:mon").textContent)).toEqual(["4", "3", "2"]);
+        await typeInto(container, 0, "week:mon", "5");
+        expect(cellAt(container, 0, "week:mon").textContent).toBe("5");
+        expect([cellAt(container, 0, "week:mon").hasAttribute("data-dirty"), cellAt(container, 0, "week:tue").hasAttribute("data-dirty")]).toEqual([true, false]);
+        await press(history(container, editingMessages.apply()));
+        await waitFor(() => expect(status(container)).toBe("Applied 1 change to 1 shift"));
+        const roster = await h.read(ex.recordRoster);
+        const early = roster.get("S-1")!.week;
+        expect(equalFor(ex.Week)(early, { mon: 5n, tue: 4n, wed: 4n, thu: 4n, fri: 4n, sat: 2n, sun: 0n }), printFor(ex.Week)(early)).toBe(true);
+    });
+
+    test("two columns writing one field chain in one gesture — a paste across both, one step Undo takes back and Redo brings again — and Apply writes both", async () => {
+        const { container } = await h.mount({ fn: hoursByClient }, { storageKey: "record-data-chain" });
+        const pasted = () => [cellAt(container, 2, "hours:P-900").textContent, cellAt(container, 2, "byClient:C-01").textContent];
+        await press(cellAt(container, 2, "hours:P-900"));
+        await act(async () => { fireEvent.paste(grid(container), { clipboardData: { getData: () => "1\t2" } }); });
+        await settle();
+        expect(pasted()).toEqual(["1hrs", "2hrs"]);
+        await press(history(container, editingMessages.undo()));
+        expect(pasted()).toEqual(["", ""]);
+        await press(history(container, editingMessages.redo()));
+        expect(pasted()).toEqual(["1hrs", "2hrs"]);
+        await press(history(container, editingMessages.apply()));
+        await waitFor(() => expect(status(container)).toBe("Applied 1 change to 1 person"));
+        const patel = (await h.read(ex.recordHours)).get("H-03")!.hours;
+        expect(hoursEqual(patel, new Map([["C-01", 2], ["P-900", 1]])), printHours(patel)).toBe(true);
+    });
+
+    test("Save sends each field's difference — an entry set where there was none, one changed and one cleared — and a field an edit leaves where it began sends nothing", async () => {
+        const { container } = await h.mount(ex.recordHoursByProject, { storageKey: "record-data-save" });
+        await typeInto(container, 1, "hours:P-200", "8");
+        await typeInto(container, 0, "hours:P-100", "10");
+        await clear(container, 0, "hours:P-200");
+        // C. Patel's shop front, set and cleared again: her hours as the record holds them.
+        await typeInto(container, 2, "hours:P-200", "3");
+        await clear(container, 2, "hours:P-200");
+        expect(rows(container).map((row) => row.hasAttribute("data-draft"))).toEqual([true, true, false]);
+        await press(history(container, editingMessages.apply()));
+        await waitFor(() => expect(status(container)).toBe("Applied 2 changes to 2 people"));
+        const hours = await h.read(ex.recordHours);
+        const held = ["H-01", "H-02", "H-03"].map((id) => hours.get(id)!.hours);
+        const expected = [new Map([["P-100", 10]]), new Map([["P-101", 30], ["P-200", 8], ["P-900", 6]]), new Map<string, number>()];
+        expect(held.map((logged, i) => hoursEqual(logged, expected[i]!)), held.map((logged) => printHours(logged)).join(" · ")).toEqual([true, true, true]);
+    });
+
+    test("the data moving: a member added becomes a column, one moved changes group and one retired loses its column — a row still naming it keeping its entry through a Save", async () => {
+        const { container } = await h.mount(ex.recordHoursByProject, { storageKey: "record-data-moves" });
+        const keys = () => [...container.querySelectorAll<HTMLElement>('[data-record] [data-slot="headerCell"]')].map((cell) => cell.getAttribute("data-key"));
+        const groups = () => [...container.querySelectorAll<HTMLElement>('[data-record] [data-slot="groupSeg"]')].map((segment) => [segment.style.gridColumn, segment.textContent]);
+        expect(keys()).toEqual(["name", "hours:P-100", "hours:P-101", "hours:P-200", "hours:P-900"]);
+        expect(groups()).toEqual([["span 2", ""], ["span 2", "Ashgrove Joinery"], ["span 1", "Bellmoor Interiors"], ["span 1", ""]]);
+        // The stair rebuild moves to Bellmoor, a site office comes in for Corran, and training is retired.
+        await h.patch(ex.recordProjects, new Map([
+            ["P-100", { name: "Kitchen fit-out", client: "C-01" }],
+            ["P-101", { name: "Stair rebuild", client: "C-02" }],
+            ["P-200", { name: "Shop front", client: "C-02" }],
+            ["P-300", { name: "Site office", client: "C-03" }],
+        ]));
+        await waitFor(() => expect(keys()).toEqual(["name", "hours:P-100", "hours:P-101", "hours:P-200", "hours:P-300"]));
+        expect(groups()).toEqual([["span 2", ""], ["span 1", "Ashgrove Joinery"], ["span 2", "Bellmoor Interiors"], ["span 1", "Corran Builders"]]);
+        await typeInto(container, 1, "hours:P-101", "31");
+        await press(history(container, editingMessages.apply()));
+        await waitFor(() => expect(status(container)).toBe("Applied 1 change to 1 person"));
+        const ellis = (await h.read(ex.recordHours)).get("H-02")!.hours;
+        expect(hoursEqual(ellis, new Map([["P-101", 31], ["P-900", 6]])), printHours(ellis)).toBe(true);
+    });
+
+    test("a column read at the day turns over with the Record's clock: a Sunday's heads, then Monday's", async () => {
+        // A Sunday, a minute before midnight where the browser is: the clock's next read falls on the turn.
+        vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+        vi.setSystemTime(new Date(2026, 10, 8, 23, 59, 0));
+        try {
+            const { container } = await h.mount({ fn: rosterToday }, { storageKey: "record-data-day" });
+            const today = () => rows(container).map((_row, r) => cellAt(container, r, "today:today").textContent);
+            expect(today()).toEqual(["0", "0", "2"]);
+            await act(async () => { vi.advanceTimersByTime(60_000); });
+            await settle();
+            expect(today()).toEqual(["4", "3", "2"]);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

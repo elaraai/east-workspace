@@ -229,11 +229,11 @@ export const SHEET_TITLE_CELL = "$title";
  * date column's `level` / `actual`, a column's `detail`. The `$` prefix keeps
  * it clear of every field name, as {@link SHEET_TITLE_CELL} is.
  *
- * @param rule - The rule (`"level"`, `"actual"`, `"detail"`; an action column's `"summary"`, `"name"`, `"title"`; an audit column's `"by"`, `"verb"`)
+ * @param rule - The rule (`"level"`, `"actual"`, `"detail"`; an action column's `"summary"`, `"name"`, `"title"`; an audit column's `"by"`, `"verb"`; a mark's `"mark"`, its words, and `"lock"`, whether it locks)
  * @param column - The column key
  * @returns The cell key (`"$level:start"`)
  */
-export function sheetRuleCell(rule: "level" | "actual" | "detail" | "summary" | "name" | "title" | "by" | "verb", column: string): string {
+export function sheetRuleCell(rule: "level" | "actual" | "detail" | "summary" | "name" | "title" | "by" | "verb" | "mark" | "lock", column: string): string {
     return `$${rule}:${column}`;
 }
 
@@ -993,6 +993,37 @@ export type SheetColumnKindLiteral =
     | "title" | "person" | "boolean" | "toggle" | "cycle" | "age" | "audit";
 
 /**
+ * The column from data and the member a wire column was made for, and whether
+ * its cells take a clear.
+ *
+ * @property column - The column from data, by its key in the columns map
+ * @property member - The register member's key, or the struct's field, whose value the column's cells show
+ * @property clears - Whether a clear writes `none`: the cell's value is an `Option` — a `Dict`'s entry, a struct's optional field, or a `write` that takes one; where it isn't, the cell refuses a clear
+ */
+export const SheetColumnFromType = StructType({
+    column:  StringType,
+    member:  StringType,
+    clears:  BooleanType,
+});
+/** Type alias for {@link SheetColumnFromType}. */
+export type SheetColumnFromType = typeof SheetColumnFromType;
+
+/**
+ * Where a column's marks cross: two unrendered cells beside each of its cells,
+ * as an audit column's `by` and `verb` do — a mark's words, and whether it
+ * locks the cell. A row with no mark there holds neither.
+ *
+ * @property words - The cell holding the mark's words, a `String`
+ * @property lock - The cell holding whether the mark locks its cell, a `Boolean`
+ */
+export const SheetMarkCellsType = StructType({
+    words: StringType,
+    lock:  StringType,
+});
+/** Type alias for {@link SheetMarkCellsType}. */
+export type SheetMarkCellsType = typeof SheetMarkCellsType;
+
+/**
  * One declared column.
  *
  * @remarks
@@ -1002,16 +1033,23 @@ export type SheetColumnKindLiteral =
  * precedent). `editable` is `false` for a stamped column, a `value`-projected
  * column, or by option.
  *
- * @property key - The column key — the row field it sits on
+ * A column from data crosses as one wire column per member, each keyed
+ * `column:member` and naming both in `from`; its `dataType` is the value one
+ * cell holds. Its cells, and every column's marks, are no part of a row: the
+ * renderer reads them at its day through the root's `cellsAt`.
+ *
+ * @property key - The column key — the row field it sits on; a column from data's, `column:member`
  * @property header - The header line
  * @property sub - The grey second header line
  * @property width - CSS width
  * @property kind - The column kind
- * @property dataType - The row field's static type
+ * @property dataType - The row field's static type; a column from data's, the value one cell holds
  * @property payloadType - The kind's payload type
  * @property editable - Whether the sheet writes the column
  * @property fill - The fill providers; the first that yields wins
  * @property detailCell - The unrendered cell whose text is the column's detail — the hover and the strip (#844)
+ * @property from - A column from data's: the column and member it was made for, and whether its cells take a clear
+ * @property mark - Where the column's marks cross, when it has a `mark`
  */
 export const SheetColumnType = StructType({
     key:         StringType,
@@ -1024,6 +1062,8 @@ export const SheetColumnType = StructType({
     editable:    BooleanType,
     fill:        ArrayType(SheetProviderType),
     detailCell:  OptionType(StringType),
+    from:        OptionType(SheetColumnFromType),
+    mark:        OptionType(SheetMarkCellsType),
 });
 /** Type alias for {@link SheetColumnType}. */
 export type SheetColumnType = typeof SheetColumnType;
@@ -1228,6 +1268,21 @@ export type SheetNarrowType = typeof SheetNarrowType;
 // ============================================================================
 
 /**
+ * What a row's cells at a day are read over: its entry, as the source holds
+ * it, or its draft, once the session holds one — each encoded at the editing
+ * session's schemas (`entryType`, `draftType`).
+ *
+ * @property entry - The row's entry, as `editing.readEntry` answers it
+ * @property draft - The row's draft, as the session holds it
+ */
+export const SheetReadFromType = VariantType({
+    entry: BlobType,
+    draft: BlobType,
+});
+/** Type alias for {@link SheetReadFromType}. */
+export type SheetReadFromType = typeof SheetReadFromType;
+
+/**
  * The Sheet root IR — the whole planning spreadsheet, a CLOSED struct: the
  * grid, its rows and its session, which `<Sheet>`'s payload carries as its
  * `sheet`.
@@ -1256,10 +1311,12 @@ export type SheetNarrowType = typeof SheetNarrowType;
  * @property footer - Footer items
  * @property style - The gutter width
  * @property narrow - On a phone: any column it pins, and how many it shows at once ({@link SheetNarrowType})
+ * @property cellsAt - A row's cells at a day, the browser's local calendar date at UTC midnight, read over its draft or its entry: each column from data's, its member's value through the column's `read`, and every column's marks ({@link SheetMarkCellsType}); `none` where no column reads any. A row from the source holds none of them, so its projection stays pure, as an age cell's count does
  */
 export const SheetRootType = StructType({
     rows:          SheetRowsType,
     editing:       SheetEditingType,
+    cellsAt:       OptionType(FunctionType([SheetReadFromType, DateTimeType], DictType(StringType, SheetCellType))),
     columns:       ArrayType(SheetColumnType),
     registers:     DictType(StringType, SheetRegisterType),
     driver:        OptionType(SheetDriverType),

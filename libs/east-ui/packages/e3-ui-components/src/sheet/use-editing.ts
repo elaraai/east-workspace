@@ -20,6 +20,7 @@ import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useEditSession } from "@elaraai/east-ui-components";
 import { normalizeDraft, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
 import { authorReadiness } from "./readiness.js";
+import { sheetDayOf } from "./day.js";
 import { SheetRefused, prepareCreation, unsetField } from "./creation.js";
 import type { EntryVersion, EntryUpdate, Origin, Placement, SheetTransactions } from "./transactions.js";
 import type { SheetEditValue, SheetPagedSourceValue, SheetRowValue } from "./values.js";
@@ -115,9 +116,11 @@ export interface SheetEditingResult {
  *   the session still holds, but they take no gesture until the jump's rows replace them
  * @param mint - On a sheet with loose rows between its groups (#846), mints a new line's id field — the field a loose row is identified by
  * @param noun - The host's word for a group: what a refused new group is called (#1536)
+ * @param day - The day a column from data writes its cells at (#1559) — the sheet's, which it reads them at; else the
+ *   day each gesture is made on
  * @returns The session, its layer and gesture recorder, the drafts, and whether editing is available
  */
-export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string, recordSlice?: ValueTypeOf<RecordSliceBindType>, replacing = false, retained = false, noun?: string): SheetEditingResult {
+export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string, recordSlice?: ValueTypeOf<RecordSliceBindType>, replacing = false, retained = false, noun?: string, day?: Date): SheetEditingResult {
     const currentRows = replacing ? NO_ROWS : rows;
     const currentPositions = replacing ? NO_POSITIONS : positions;
     const editing = useMemo(() => recordSlice === undefined ? declared : { ...declared, sourceId: recordSlice.sourceId }, [declared, recordSlice]);
@@ -152,6 +155,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         const seeded: Editing = seeds === undefined ? editing : { ...editing, newRow: seeds.newRow ?? editing.newRow, newGroup: seeds.newGroup ?? editing.newGroup };
         const updates = new Map<string, EntryUpdate>();
         const inputs = new Map<string, SheetRowValue>();
+        const at = day ?? sheetDayOf(new Date());
         let origin: Origin = "typed";
         const update = (id: string, row: SheetRowValue | undefined, placement?: Placement) => {
             const before = updates.get(id)?.before ?? original(id);
@@ -159,7 +163,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             const prepared = row === undefined ? undefined : prepareCreation(row, current, inputs.get(id), placement ?? current.place, seeded, draftType, mint);
             if (row !== undefined) inputs.set(id, row);
             const after: EntryVersion = prepared === undefined ? absent : {
-                draft: codecs.decodeDraft(editing.decode(encodeWire(prepared.row), prepared.draft === undefined ? none : some(codecs.encodeDraft(prepared.draft)), prepared.previous === undefined ? none : some(encodeWire(prepared.previous)))),
+                draft: codecs.decodeDraft(editing.decode(encodeWire(prepared.row), prepared.draft === undefined ? none : some(codecs.encodeDraft(prepared.draft)), prepared.previous === undefined ? none : some(encodeWire(prepared.previous)), at)),
                 wire: prepared.row, place: placement ?? current.place,
             };
             updates.set(id, { id, before, after });
@@ -193,7 +197,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         const label = named !== undefined ? named : gestureOrigin === "insert" ? "Insert row" : gestureOrigin === "drop" ? "Drop" : gestureOrigin === "move" ? "Move"
             : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : events.length === 0 ? "Edit fields" : "Edit cells";
         return session.record([...updates.values()], gestureOrigin, label, joins);
-    }, [session, observed, original, codecs, editing, draftType, mint, replacing, retained, noun]);
+    }, [session, observed, original, codecs, editing, draftType, mint, replacing, retained, noun, day]);
     const recordVersions = useCallback((updates: readonly EntryUpdate[], origin: Origin, label: string): boolean => {
         if (replacing || updates.length === 0 || !observed || !session.writable) return false;
         session.observeBase(observed.base);

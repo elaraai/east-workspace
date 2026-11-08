@@ -5,7 +5,7 @@
 
 /** Typed author callbacks behind a closed renderer transport. @packageDocumentation */
 import {
-    ArrayType, AsyncFunctionType, BlobType, East, Expr, FunctionType, IntegerType,
+    ArrayType, AsyncFunctionType, BlobType, DateTimeType, East, Expr, FunctionType, IntegerType,
     NullType, OptionType, StringType, StructType, isTypeEqual, none, some, toEastTypeValue, variant,
     type DictType, type EastType, type ExprType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
@@ -129,12 +129,16 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
             some: ($, row) => $.const(some(East.Blob.encodeBeast(row, "v2")), OptionType(BlobType)),
         });
     });
-    const decode = East.function([BlobType, OptionType(BlobType), OptionType(BlobType)], BlobType, ($, rowBlob, payload, previousBlob) => {
+    // A gesture's cells over the draft so far — and, on a sheet with columns from data, each cell of theirs it changed
+    // written through its column at the day (#1559).
+    const decode = East.function([BlobType, OptionType(BlobType), OptionType(BlobType), DateTimeType], BlobType, ($, rowBlob, payload, previousBlob, day) => {
         const row = $.const(rowBlob.decodeBeast(SheetRowType, "v2"));
         const base = $.const(payload.match({ none: () => none, some: (_$, blob) => some(blob.decodeBeast(draftType, "v2")) }), OptionType(draftType));
         const previous = $.const(previousBlob.match({ none: () => none, some: (_$, blob) => some(blob.decodeBeast(SheetRowType, "v2")) }), OptionType(SheetRowType));
         const decoder = $.const(bridge.draftDecode);
-        return East.Blob.encodeBeast(decoder(row, base, previous), "v2");
+        if (bridge.writeData === undefined) return East.Blob.encodeBeast(decoder(row, base, previous), "v2");
+        const write = $.const(bridge.writeData);
+        return East.Blob.encodeBeast(write(row.cells, base as never, decoder(row, base, previous) as never, day), "v2");
     });
     // An entry's wire row (#1409): the row the source would show for it, as the optimiser's answer lands in the session.
     const project = East.function([BlobType, StringType], BlobType, ($, entryBlob, id) => {

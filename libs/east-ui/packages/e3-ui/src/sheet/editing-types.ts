@@ -4,7 +4,7 @@
  */
 
 /** Closed transport for typed Sheet transaction callbacks. @packageDocumentation */
-import { ArrayType, BlobType, FunctionType, OptionType, StringType, StructType } from "@elaraai/east";
+import { ArrayType, BlobType, DateTimeType, FunctionType, OptionType, StringType, StructType } from "@elaraai/east";
 import { EditingSessionFields } from "@elaraai/east-ui/internal";
 import { SheetNewRowType, SheetNewGroupType, SheetReadinessType } from "./transactions.js";
 import { SheetEditsType } from "./edits.js";
@@ -39,7 +39,11 @@ export const SheetUnsettableType = StructType({ field: StringType, label: String
  * names a new row's (a grouped sheet's line's, a loose row's) and a new
  * group's {@link SheetUnsettableType} fields, on a sheet that adds that kind
  * of entry — one that applies, is not read only and inserts it: a new entry
- * whose constructor leaves one empty is never drafted.
+ * whose constructor leaves one empty is never drafted. `decode` takes a wire
+ * row, its prior draft and its prior wire row, and the renderer's day — the
+ * browser's local calendar date at UTC midnight — at which a column from
+ * data writes each of its cells the gesture changed, over the field as
+ * drafted so far.
  *
  * @internal
  */
@@ -52,6 +56,6 @@ export const SheetEditingType = StructType({
     readyRow: OptionType(FunctionType([BlobType], ArrayType(SheetReadinessType))),
     readyGroup: OptionType(FunctionType([BlobType], SheetReadinessType)),
     driverColumn: OptionType(StringType),
-    decode: FunctionType([BlobType, OptionType(BlobType), OptionType(BlobType)], BlobType),
+    decode: FunctionType([BlobType, OptionType(BlobType), OptionType(BlobType), DateTimeType], BlobType),
     project: FunctionType([BlobType, StringType], BlobType),
 });

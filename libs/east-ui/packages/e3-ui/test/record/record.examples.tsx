@@ -646,6 +646,10 @@ export const recordProjects = e3.record("record_projects", DictType(StringType, 
         ["P-200", { name: "Shop front", client: "C-02" }],
         ["P-900", { name: "Training", client: "" }],
     ]),
+    mutations: (mutation) => ({
+        // Projects are added, moved and retired where they are run: the hours' columns follow.
+        patch: mutation.patch(),
+    }),
 });
 export const recordHours = e3.record("record_hours", DictType(StringType, Person), {
     initial: new Map([

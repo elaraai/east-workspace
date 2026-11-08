@@ -573,8 +573,12 @@ function optionOf(type: EastType): EastType | undefined {
 /**
  * A draft → the value it stands for, `none` while a field it needs is missing
  * or unread: an `Option` field missing is `none`.
+ *
+ * @param rowType - The row type
+ * @returns The draft → its row, or `none`
+ * @internal
  */
-function buildComplete(rowType: StructType): ExprType<FunctionType<[StructType], OptionType<StructType>>> {
+export function buildComplete(rowType: StructType): ExprType<FunctionType<[StructType], OptionType<StructType>>> {
     const draftType = SheetDraftTypeFor(rowType) as StructType;
     const fields = Object.entries(rowType.fields as Record<string, EastType>);
     return East.function([draftType], OptionType(rowType), ($, d) => {

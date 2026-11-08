@@ -773,3 +773,21 @@ Each wire changed under this rule, with the kind it is.
   another type is that record's own migration (`migration.rekey`). The form's
   specs keep their type (`FieldSpecType`): a variant whose cases hold data gets
   the `select` editor and its cases' specs, where it got `readonly`.
+- **e3-ui's `Record` reads its columns from data at the browser's day, and
+  writes them through the Sheet's decode** — package-borne. `SheetColumnType`
+  gains `from` and `mark`, after `detailCell`: a column from data's column and
+  member, and whether its cells take a clear (`SheetColumnFromType`); and where
+  the column's marks cross, two unrendered cells beside it, its words and
+  whether it locks (`SheetMarkCellsType`). The root (`Sheet.Types.Root`) gains
+  `cellsAt`, after `editing`: a row's cells at a day, over its entry or its
+  draft (`SheetReadFromType`), which the renderer calls with the browser's
+  local calendar date at UTC midnight — a row from the source holds none of
+  them. Its editing declaration's `decode` (`SheetEditingType`) takes that day
+  after the prior wire row, and writes each cell from data a gesture changed
+  through its column's `write`. They travel in the `Sheet` and `Record`
+  extensions' payloads, so a UI value encoded under either type does not
+  decode under the other: packages are re-exported, and the dataflow computes
+  each UI task's output again under the new type. A UI task's output is not
+  stored state, and a column from data reads and writes a field the app's
+  record already holds, as it holds it, so no repository upgrade step ships
+  with it.

@@ -79,6 +79,8 @@ const P1_RENAMED = { id: "p1", owned: false, cells: new Map<string, unknown>([["
 const P2_ROW = { id: "p2", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Bay 3 week 8")]]) as never, lines: [], band: BAND, subRows: [] };
 const P3_ROW = { id: "p3", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "New plan")]]) as never, lines: [], band: BAND, subRows: [] };
 const EDITING_CELLS = new Map<string, unknown>([["task", variant("String", "Spraying")]]) as never;
+// The day a decode writes columns from data at: these sheets have none, so every day decodes alike.
+const DAY = new Date("2026-01-05T00:00:00Z");
 
 // ── Loose rows between the groups (#846): entries of a group, or a row of the line type.
 const TaskType = StructType({ id: StringType, task: StringType, note: StringType });
@@ -440,8 +442,8 @@ describeEast("Sheet", (test) => {
             lines: [], band: none, subRows: [],
         }, Sheet.Types.Row);
         const bytes = $.const(East.Blob.encodeBeast(row, "v2"));
-        const canonicalDraft = $.const(canonical.editing.decode(bytes, none, none).decodeBeast(Sheet.Types.Draft(PlanRowType), "v2"));
-        const typedDraft = $.const(asTyped.editing.decode(bytes, none, none).decodeBeast(Sheet.Types.Draft(PlanRowType), "v2"));
+        const canonicalDraft = $.const(canonical.editing.decode(bytes, none, none, DAY).decodeBeast(Sheet.Types.Draft(PlanRowType), "v2"));
+        const typedDraft = $.const(asTyped.editing.decode(bytes, none, none, DAY).decodeBeast(Sheet.Types.Draft(PlanRowType), "v2"));
         $(Assert.equal(canonicalDraft.machines.unwrap("value"), "Router 2140 > 4 x CNC router"));
         $(Assert.equal(typedDraft.machines.unwrap("value"), "R2140 > 4 x CNC router"));
         $(Assert.equal(typedDraft.status.hasTag("missing"), true));
@@ -693,24 +695,24 @@ describeEast("Sheet", (test) => {
         const baseBytes = $.const(some(East.Blob.encodeBeast(base, "v2")));
         const previousBytes = $.const(some(East.Blob.encodeBeast(previous, "v2")));
         const insertedWire = $.const(P1_INSERTED, Sheet.Types.Row);
-        const inserted = $.const(root.editing.decode(East.Blob.encodeBeast(insertedWire, "v2"), baseBytes, previousBytes).decodeBeast(Draft, "v2"));
+        const inserted = $.const(root.editing.decode(East.Blob.encodeBeast(insertedWire, "v2"), baseBytes, previousBytes, DAY).decodeBeast(Draft, "v2"));
         $(Assert.equal(inserted.lines.size(), 3n));
         $(Assert.equal(inserted.lines.get(1n).task.unwrap("value"), "Between"));
         $(Assert.equal(inserted.lines.get(2n).note.unwrap("value"), "second"));
         $(Assert.equal(inserted.owner.unwrap("value"), "planner"));
         const sprayedWire = $.const(P1_SPRAYED, Sheet.Types.Row);
-        const sprayed = $.const(root.editing.decode(East.Blob.encodeBeast(sprayedWire, "v2"), baseBytes, previousBytes).decodeBeast(Draft, "v2"));
+        const sprayed = $.const(root.editing.decode(East.Blob.encodeBeast(sprayedWire, "v2"), baseBytes, previousBytes, DAY).decodeBeast(Draft, "v2"));
         $(Assert.equal(sprayed.lines.get(1n).task.unwrap("value"), "Spraying"));
         const renamedWire = $.const(P1_RENAMED, Sheet.Types.Row);
-        const renamed = $.const(root.editing.decode(East.Blob.encodeBeast(renamedWire, "v2"), baseBytes, previousBytes).decodeBeast(Draft, "v2"));
+        const renamed = $.const(root.editing.decode(East.Blob.encodeBeast(renamedWire, "v2"), baseBytes, previousBytes, DAY).decodeBeast(Draft, "v2"));
         $(Assert.equal(renamed.name.unwrap("value"), "Renamed"));
         $(Assert.equal(renamed.total.unwrap("value"), 300.0));
         const removedWire = $.const(P1_REMOVED, Sheet.Types.Row);
-        const removed = $.const(root.editing.decode(East.Blob.encodeBeast(removedWire, "v2"), baseBytes, previousBytes).decodeBeast(Draft, "v2"));
+        const removed = $.const(root.editing.decode(East.Blob.encodeBeast(removedWire, "v2"), baseBytes, previousBytes, DAY).decodeBeast(Draft, "v2"));
         $(Assert.equal(removed.lines.size(), 1n));
         $(Assert.equal(removed.lines.get(0n).task.unwrap("value"), "Routing"));
         const freshWire = $.const(P3_ROW, Sheet.Types.Row);
-        const fresh = $.const(root.editing.decode(East.Blob.encodeBeast(freshWire, "v2"), none, none).decodeBeast(Draft, "v2"));
+        const fresh = $.const(root.editing.decode(East.Blob.encodeBeast(freshWire, "v2"), none, none, DAY).decodeBeast(Draft, "v2"));
         $(Assert.equal(fresh.owner.hasTag("missing"), true));
         $(Assert.equal(fresh.total.hasTag("missing"), true));
         $(Assert.equal(fresh.name.unwrap("value"), "New plan"));
@@ -788,7 +790,7 @@ describeEast("Sheet", (test) => {
         const Draft = Sheet.Types.DraftEntry(EntryType);
         // A new loose row, from its wire row alone: the id from the row, the task typed, the note (no column) missing.
         const freshWire = $.const(LOOSE_NEW, Sheet.Types.Row);
-        const fresh = $.const(root.editing.decode(East.Blob.encodeBeast(freshWire, "v2"), none, none).decodeBeast(Draft, "v2"));
+        const fresh = $.const(root.editing.decode(East.Blob.encodeBeast(freshWire, "v2"), none, none, DAY).decodeBeast(Draft, "v2"));
         $(Assert.equal(fresh.hasTag("row"), true));
         $(Assert.equal(fresh.unwrap("row").id.unwrap("value"), "new"));
         $(Assert.equal(fresh.unwrap("row").task.unwrap("value"), "Denib"));
@@ -797,7 +799,7 @@ describeEast("Sheet", (test) => {
         const briefDraft = $.const(variant("row", { id: variant("value", "brief"), task: variant("value", "Review"), note: variant("value", "first") }), Draft);
         const briefBytes = $.const(some(East.Blob.encodeBeast(briefDraft, "v2")));
         const briefWire = $.const(LOOSE_BRIEF, Sheet.Types.Row);
-        const edited = $.const(root.editing.decode(East.Blob.encodeBeast(briefWire, "v2"), briefBytes, none).decodeBeast(Draft, "v2"));
+        const edited = $.const(root.editing.decode(East.Blob.encodeBeast(briefWire, "v2"), briefBytes, none, DAY).decodeBeast(Draft, "v2"));
         $(Assert.equal(edited.unwrap("row").task.unwrap("value"), "Review again"));
         $(Assert.equal(edited.unwrap("row").note.unwrap("value"), "first"));
         // A group's wire row decodes into the group arm, its lines' hidden fields from their drafts.
@@ -808,7 +810,7 @@ describeEast("Sheet", (test) => {
         ] }), Draft);
         const packageBytes = $.const(some(East.Blob.encodeBeast(packageDraft, "v2")));
         const previousBytes = $.const(some(East.Blob.encodeBeast(packageWire, "v2")));
-        const group = $.const(root.editing.decode(East.Blob.encodeBeast(packageWire, "v2"), packageBytes, previousBytes).decodeBeast(Draft, "v2"));
+        const group = $.const(root.editing.decode(East.Blob.encodeBeast(packageWire, "v2"), packageBytes, previousBytes, DAY).decodeBeast(Draft, "v2"));
         $(Assert.equal(group.hasTag("group"), true));
         $(Assert.equal(group.unwrap("group").name.unwrap("value"), "Nesting"));
         $(Assert.equal(group.unwrap("group").tasks.get(1n).note.unwrap("value"), "hidden"));

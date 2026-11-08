@@ -18,19 +18,21 @@ const view = East.function([], Sheet.Types.Root, () => Sheet.Root(source, {
 }, { id: "id" })).toIR().compile([])();
 const editing = view.editing;
 const base = { id: variant("value", "a"), qty: variant("value", 1n), note: variant("value", none), hidden: variant("value", ["keep"]) };
+// The day a decode writes columns from data at: this sheet has none, so every day decodes alike.
+const day = new Date("2026-01-05T00:00:00Z");
 
 test("the factory's draft decoder preserves hidden fields and explicit optional none", () => {
-    const out = decodeBeast2For(Draft)(editing.decode(encodeWire(wire), some(encodeBeast2For(Draft)(base)), none));
+    const out = decodeBeast2For(Draft)(editing.decode(encodeWire(wire), some(encodeBeast2For(Draft)(base)), none, day));
     assert.deepEqual(out, { ...base, qty: variant("value", 5n) });
 });
 test("a new row keeps omitted fields missing instead of inventing defaults", () => {
-    const out = decodeBeast2For(Draft)(editing.decode(encodeWire(wire), none, none));
+    const out = decodeBeast2For(Draft)(editing.decode(encodeWire(wire), none, none, day));
     assert.deepEqual(out, { id: variant("value", "a"), qty: variant("value", 5n), note: variant("missing", null), hidden: variant("missing", null) });
 });
 test("clearing a required value keeps a missing draft, and mismatched input keeps its text", () => {
     const encodeBase = some(encodeBeast2For(Draft)(base));
     const cleared = { ...wire, cells: new Map([["qty", variant("Null", null)]]) };
-    assert.equal(decodeBeast2For(Draft)(editing.decode(encodeWire(cleared), encodeBase, none)).qty.type, "missing");
+    assert.equal(decodeBeast2For(Draft)(editing.decode(encodeWire(cleared), encodeBase, none, day)).qty.type, "missing");
     const bad = { ...wire, cells: new Map([["qty", variant("String", "several")]]) };
-    assert.deepEqual(decodeBeast2For(Draft)(editing.decode(encodeWire(bad), encodeBase, none)).qty, variant("invalid", "several"));
+    assert.deepEqual(decodeBeast2For(Draft)(editing.decode(encodeWire(bad), encodeBase, none, day)).qty, variant("invalid", "several"));
 });

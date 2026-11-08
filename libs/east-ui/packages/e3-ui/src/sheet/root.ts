@@ -78,6 +78,7 @@ import {
     SheetOptionsRuleType,
     SheetLookType,
     SheetAuditModeType,
+    SheetMarkCellsType,
     SHEET_TITLE_CELL,
     sheetLinesOf,
     sheetRuleCell,
@@ -1020,6 +1021,10 @@ function buildSheet(
     // Pass 2 — the wire columns, in the columns map's order: one for each column, and for a column from data one for each
     // of its members, keyed `column:member` — a struct's fields fixed here, a register's members mapped as the page runs,
     // their groups' order theirs where `groups` heads them, so each group is a run of adjacent columns.
+    // Each wire column's marks cross as two unrendered cells beside its own (#1559): their words, and whether they lock.
+    const markCells = (key: SubtypeExprOrValue<StringType>, marked: boolean): ExprType<OptionType<SheetMarkCellsType>> => (marked
+        ? East.value(some({ words: East.str`$mark:${key}`, lock: East.str`$lock:${key}` }), OptionType(SheetMarkCellsType))
+        : East.value(none, OptionType(SheetMarkCellsType)));
     const parts: ExprType<ArrayType<SheetColumnType>>[] = [];
     let fixed: ExprType<SheetColumnType>[] = [];
     for (const m of described) {
@@ -1036,6 +1041,8 @@ function buildSheet(
                 editable:    m.editable,
                 fill:        (m.config.fill ?? []).map((f, i) => wrapProvider(bridge, m, f, i)),
                 detailCell:  ruleCellKey(m, "detail"),
+                from:        none,
+                mark:        markCells(m.key, m.mark !== undefined),
             }, SheetColumnType));
             continue;
         }
@@ -1053,6 +1060,8 @@ function buildSheet(
                     editable:    m.editable,
                     fill:        [],
                     detailCell:  ruleCellKey(m, "detail"),
+                    from:        some({ column: m.key, member: member.name, clears: member.clears }),
+                    mark:        markCells(key, data.mark !== undefined),
                 }, SheetColumnType));
             }
             continue;
@@ -1077,6 +1086,8 @@ function buildSheet(
                 editable:    m.editable,
                 fill:        [],
                 detailCell:  ruleCellKey(m, "detail"),
+                from:        some({ column: m.key, member: member.key, clears: data.clears }),
+                mark:        markCells(key, data.mark !== undefined),
             }, SheetColumnType);
         }) as unknown as ExprType<ArrayType<SheetColumnType>>);
     }
@@ -1211,6 +1222,7 @@ function buildSheet(
     const root = East.value({
         rows:          rowsValue,
         editing,
+        cellsAt:       bridge.cellsAt !== undefined ? some(bridge.cellsAt) : none,
         columns:       columnValues,
         registers:     East.value(new Map(Object.entries(registers).map(([name, members]) => [name, East.value({ members }, SheetRegisterType)])), DictType(StringType, SheetRegisterType)),
         driver:        driver !== undefined
