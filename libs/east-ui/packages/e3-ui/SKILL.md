@@ -344,21 +344,9 @@ fn)`, the **e3** skill) is bound the same way: its handle's `call` takes the
 `args` alone, and each call reads the inputs from the workspace as they are
 stored when it launches. The page binds none of them; an optimiser's eye
 (`optimise={Func.bind(fn)}`) passes its request as the one argument while the
-function reads its reference data as inputs. `e3-ui:func.examples.tsx:funcBindInputs`
-is the example.
-
-```tsx
-<Reactive>{$ => {
-    const forecast = $.let(Func.bind(forecastFn));   // e3.function('forecast', East.function([IntegerType, FloatType], FloatType, …))
-    const run = $.const(East.function([], NullType, $ => { $(forecast.call(12n, 1.05)); }));
-    return (
-        <VStack gap="3">
-            <Button onClick={run} loading={forecast.pending()}>Run forecast</Button>
-            <Stat label="Forecast" value={East.print(forecast.read())} />
-        </VStack>
-    );
-}}</Reactive>
-```
+function reads its reference data as inputs. `e3-ui:func.examples.tsx:funcBindCall`
+launches a call from a button and shows its result;
+`e3-ui:func.examples.tsx:funcBindInputs` binds a function that declares inputs.
 
 ## The builders
 
@@ -468,13 +456,10 @@ A deployed `ui()` task renders in a React app through
 requests reach it, `<ReactiveDatasetProvider>` inside it installs the bindings'
 adapters, and `<UITaskPreview task="…">` fetches and renders a task's output.
 
-| `E3Config` | Meaning |
-|---|---|
-| `apiUrl` | **required** — the e3 API's base URL |
-| `repo` | the repository; `"default"` when omitted |
-| `workspace` | the workspace the bindings read and write |
-| `token` | a bearer token, or `null`; read afresh for every request |
-| `fetch` | the `fetch` requests go through; for an e3 running in the page, the one `createWebE3` gives (e3-web, the **e3** skill) |
+`E3Config` names the e3: `apiUrl` (**required**), `repo` (`"default"` when
+omitted), `workspace`, `token` (a bearer token or `null`, read afresh for every
+request) and `fetch` — for an e3 running in the page, the one `createWebE3`
+gives (e3-web, the **e3** skill).
 
 `E3Provider` also takes a `queryClient` to share a TanStack Query cache. Wrap
 the app in `<I18nProvider locale="…">` (re-exported from
@@ -483,47 +468,17 @@ in; dates print in UTC.
 
 ## Key Patterns
 
-### Staged commit / discard
+- **Staged commit / discard**: `Data.bind(d, { mode: 'staged' })`, with Apply
+  calling `commit()` and Discard `discard()`, both off until `pending()`:
+  `e3-ui:data.examples.tsx:dataBindStagedVariants`.
+- **A record's mutation from a button**: `Record.bind(r, ["increment"])`, the
+  button applying `r.mutate.increment(1n)` with `loading={r.mutate.pending()}`:
+  `e3-ui:record.examples.tsx:recordBindMutate`.
+- **Disable controls on stale data**:
 
-```tsx
-<Reactive>{$ => {
-    const t = $.let(Data.bind(threshold, { mode: 'staged' }));
-    const value = $.let(t.read());
-    const commit  = $.const(East.function([], NullType, $ => { $(t.commit()); }));
-    const discard = $.const(East.function([], NullType, $ => { $(t.discard()); }));
-    return (
-        <VStack gap="3">
-            <Slider value={value} min={0} max={100} onChange={t.write} />
-            <HStack gap="2">
-                <Button variant="outline" onClick={discard} disabled={t.pending().not()}>Discard</Button>
-                <Button variant="solid" onClick={commit} disabled={t.pending().not()}>Apply</Button>
-            </HStack>
-        </VStack>
-    );
-}}</Reactive>
-```
-
-### A record's mutation from a button
-
-```tsx
-<Reactive>{$ => {
-    const r = $.let(Record.bind(counter, ["increment"]));
-    const bump = $.const(East.function([], NullType, $ => { $(r.mutate.increment(1n)); }));
-    return (
-        <VStack gap="2">
-            <Stat label="Counter" value={East.print(r.read())} />
-            <Button onClick={bump} loading={r.mutate.pending()}>Increment</Button>
-            <Text>{r.mutate.status().getTag()}</Text>
-        </VStack>
-    );
-}}</Reactive>
-```
-
-### Disable controls on stale data
-
-```tsx
-<Slider value={t.read()} onChangeEnd={t.writeAndStart} disabled={t.status().hasTag('stale')} />
-```
+  ```tsx
+  <Slider value={t.read()} onChangeEnd={t.writeAndStart} disabled={t.status().hasTag('stale')} />
+  ```
 
 ## Related skills
 
