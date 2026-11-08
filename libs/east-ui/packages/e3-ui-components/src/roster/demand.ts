@@ -6,14 +6,22 @@
 /**
  * The People layout's work requirement (#1568): each shift's hours rostered against those needed — a day's, a week's
  * and a skill's — summed from the coverage the Shifts layout works out for each slot, so the two layouts never
- * disagree (K1). A group's band sums its own slots; where the layout draws no bands (#1567), one block sums every
- * group's. Rostered is every duty's hours — the permanent staff's, agency staff's and the agencies' requests' — as the
- * Shifts layout counts them (ruled 8 Nov 2026).
+ * disagree (K1), over the span in view: a week, or a month's weeks. A group's band sums its own slots; where the layout
+ * draws no bands (#1567), one block sums every group's. Rostered is every duty's hours — the permanent staff's, agency
+ * staff's and the agencies' requests' — as the Shifts layout counts them (ruled 8 Nov 2026).
  *
  * @packageDocumentation
  */
 import { none, some } from "@elaraai/east";
 import type { Coverage, RosterValue, Shift, Slot, Week } from "./model.js";
+
+/** A week of the span, as the work requirement reads it: its targets, and each slot's coverage over it. */
+export interface DemandWeek {
+    /** The week's targets, by slot. */
+    readonly requirements: Week["requirements"];
+    /** Each slot's coverage over the week. */
+    readonly coverage: ReadonlyMap<Slot, Coverage>;
+}
 
 /** Hours over a set of slots: those needed against those rostered, and what the slots are short, each its own. */
 export interface DemandFigures {
@@ -43,36 +51,49 @@ export interface SkillFigures {
     readonly assigned: number;
 }
 
-/** A skill row under an open lane (A4): the skill's hours each day and over the week. */
+/** A skill row under an open lane (A4): the skill's hours each day and over the span. */
 export interface DemandSkill {
     /** The skill's key. */
     readonly skill: string;
-    /** Each day's, the week's first day first: `undefined` where none of the day's slots needs the skill. */
+    /** Each day's, the span's first day first, seven a week: `undefined` where none of the day's slots needs the skill. */
     readonly days: readonly (SkillFigures | undefined)[];
-    /** The week's. */
-    readonly week: SkillFigures;
+    /** The span's. */
+    readonly total: SkillFigures;
 }
 
-/** A lane (A3): a shift a target of the scope names in the week, its slots each day and over the week. */
+/** A lane (A3): a shift a target of the scope names in the span, its slots each day and over the span. */
 export interface DemandLane {
     /** The shift. */
     readonly shift: Shift;
-    /** Each day's, the week's first day first: the shift's slots of the scope's groups that day. */
+    /** Each day's, the span's first day first, seven a week: the shift's slots of the scope's groups that day. */
     readonly days: readonly DemandFigures[];
-    /** The week's. */
-    readonly week: DemandFigures;
+    /** The span's. */
+    readonly total: DemandFigures;
     /** Its skill rows: one a skill its slots' targets need hours of, in the activities' order (A4.1). */
     readonly skills: readonly DemandSkill[];
 }
 
-/** A scope's work requirement over a week: a group's, or every group's where the layout draws no bands. */
+/** A scope's work requirement over the span: a group's, or every group's where the layout draws no bands. */
 export interface Demand {
-    /** Its lanes: one a shift a target of the scope names in the week, in the shifts' order (A3.1); none without a target. */
+    /** Its lanes: one a shift a target of the scope names in the span, in the shifts' order (A3.1); none without a target. */
     readonly lanes: readonly DemandLane[];
-    /** Each day's over every slot of the scope (A2.2): the eyebrow's figures. */
+    /** Each day's over every slot of the scope, the span's first day first (A2.2): a week's eyebrow's figures. */
     readonly days: readonly DemandFigures[];
-    /** The week's over every slot of the scope: the band's figures (A1). */
-    readonly week: DemandFigures;
+    /** Each week's over every slot of the scope (A2.2): a month's eyebrow's figures. */
+    readonly weeks: readonly DemandFigures[];
+    /** The span's over every slot of the scope: the band's figures (A1.2). */
+    readonly total: DemandFigures;
+}
+
+/**
+ * A day's mark in a month's lane or skill row (A3.5, A4.4): its state — off where it has no target (a skill's, where
+ * none of the day's slots needs it), short where it is, requested where requests make up part of its hours, else
+ * covered — and the difference its figure says.
+ */
+export interface DemandMark {
+    readonly state: "off" | "short" | "requested" | "covered";
+    /** Rostered — a skill's assigned — less needed. */
+    readonly difference: number;
 }
 
 /** The hours under which a difference is none: a sum of fractional hours lands a hair either side of zero. */
@@ -116,6 +137,32 @@ export function signed(number: (n: number) => string, d: number, zero = ""): str
     return at === 0 ? zero : `${at > 0 ? "+" : "−"}${number(Math.abs(at))}`;
 }
 
+/**
+ * A lane's day as a month's mark draws it (A3.5): off with no target; short by its difference; requested where the
+ * agencies' requests make up part of its hours, which count as rostered, as the week's bar draws them dashed; else
+ * covered, over by its difference or exact.
+ *
+ * @param f - The lane's day
+ * @returns Its mark
+ */
+export function laneMark(f: DemandFigures): DemandMark {
+    const d = difference(f.rostered, f.needed);
+    return { state: !f.target ? "off" : d < 0 ? "short" : f.requested > EPSILON ? "requested" : "covered", difference: d };
+}
+
+/**
+ * A skill row's day as a month's mark draws it (A4.4): off where none of the day's slots needs the skill; short by its
+ * difference; else covered.
+ *
+ * @param f - The skill's day, `undefined` where none of its slots needs it
+ * @returns Its mark
+ */
+export function skillMark(f: SkillFigures | undefined): DemandMark {
+    if (f === undefined) return { state: "off", difference: 0 };
+    const d = difference(f.assigned, f.needed);
+    return { state: d < 0 ? "short" : "covered", difference: d };
+}
+
 /** A slot as the figures read it: its coverage, and whether it has a target. */
 interface Entry {
     readonly coverage: Coverage;
@@ -150,42 +197,47 @@ function skillsOf(value: Pick<RosterValue, "activities">, days: readonly (readon
     return value.activities.flatMap(activity => {
         const row = by.get(activity.key);
         if (row === undefined) return [];
-        const week = row.reduce<SkillFigures>((sum, day) => day === undefined ? sum : { needed: sum.needed + day.needed, assigned: sum.assigned + day.assigned }, { needed: 0, assigned: 0 });
-        return [{ skill: activity.key, days: row, week }];
+        const total = row.reduce<SkillFigures>((sum, day) => day === undefined ? sum : { needed: sum.needed + day.needed, assigned: sum.assigned + day.assigned }, { needed: 0, assigned: 0 });
+        return [{ skill: activity.key, days: row, total }];
     });
 }
 
 /**
- * A scope's work requirement over a week (#1568): a lane a shift a target of the scope names, its days' and its
- * week's hours summed over the scope's groups' slots — each slot's as the Shifts layout draws it — and its skill rows;
- * and the scope's days' and week's over every one of its slots, a shift with no target's included, as the Shifts
- * layout's band sums them.
+ * A scope's work requirement over the span (#1568): a lane a shift a target of the scope names in any of the span's
+ * weeks, its days' and its span's hours summed over the scope's groups' slots — each slot's as the Shifts layout draws
+ * it — and its skill rows; and the scope's days', weeks' and span's over every one of its slots, a shift with no
+ * target's included, as the Shifts layout's band sums them.
  *
  * @param value - The payload: its shifts and activities, in their orders
- * @param week - The week: its targets
- * @param coverage - Each slot's coverage over the week
+ * @param weeks - The span's weeks, its first first: each one's targets and coverage
  * @param groups - The scope's groups: a band's own, or every group where the layout draws no bands
  * @returns The scope's lanes and figures
  */
-export function demandOf(value: Pick<RosterValue, "shifts" | "activities">, week: Pick<Week, "requirements">, coverage: ReadonlyMap<Slot, Coverage>,
-    groups: readonly string[]): Demand {
-    const scopeDays: Entry[][] = Array.from({ length: WEEK_DAYS }, () => []);
+export function demandOf(value: Pick<RosterValue, "shifts" | "activities">, weeks: readonly DemandWeek[], groups: readonly string[]): Demand {
+    const days = weeks.length * WEEK_DAYS;
+    const scopeDays: Entry[][] = Array.from({ length: days }, () => []);
     const lanes: DemandLane[] = [];
     for (const shift of value.shifts) {
-        const laneDays: Entry[][] = Array.from({ length: WEEK_DAYS }, () => []);
+        const laneDays: Entry[][] = Array.from({ length: days }, () => []);
         let targeted = false;
-        for (let day = 0; day < WEEK_DAYS; day++) for (const group of groups) {
-            const slot = { day: BigInt(day), group, shift: shift.key };
-            const slotCoverage = coverage.get(slot);
-            if (slotCoverage === undefined) continue;
-            const entry = { coverage: slotCoverage, target: week.requirements.has(slot) };
-            targeted ||= entry.target;
-            laneDays[day]!.push(entry);
-            scopeDays[day]!.push(entry);
-        }
-        if (targeted) lanes.push({ shift, days: laneDays.map(sumOf), week: sumOf(laneDays.flat()), skills: skillsOf(value, laneDays) });
+        weeks.forEach(({ requirements, coverage }, w) => {
+            for (let day = 0; day < WEEK_DAYS; day++) for (const group of groups) {
+                const slot = { day: BigInt(day), group, shift: shift.key };
+                const slotCoverage = coverage.get(slot);
+                if (slotCoverage === undefined) continue;
+                const entry = { coverage: slotCoverage, target: requirements.has(slot) };
+                targeted ||= entry.target;
+                laneDays[w * WEEK_DAYS + day]!.push(entry);
+                scopeDays[w * WEEK_DAYS + day]!.push(entry);
+            }
+        });
+        if (targeted) lanes.push({ shift, days: laneDays.map(sumOf), total: sumOf(laneDays.flat()), skills: skillsOf(value, laneDays) });
     }
-    return { lanes, days: scopeDays.map(sumOf), week: sumOf(scopeDays.flat()) };
+    return {
+        lanes, days: scopeDays.map(sumOf),
+        weeks: weeks.map((_, w) => sumOf(scopeDays.slice(w * WEEK_DAYS, (w + 1) * WEEK_DAYS).flat())),
+        total: sumOf(scopeDays.flat()),
+    };
 }
 
 /**

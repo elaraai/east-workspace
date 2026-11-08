@@ -14,6 +14,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { DateTimeType, IntegerType, SortedSet, StringType, compareFor } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import { NEXT, START, act, assignment, at, drop, history, hover, libraryCard, open, press, release, reveal, rosterHarness, scrollsAsAPageDoes, settle, slot, width } from "./harness.test-utils.js";
+import { DAY } from "./model.js";
 
 const h = rosterHarness();
 const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
@@ -59,10 +60,13 @@ async function ranked(): Promise<string[]> {
     return [...staff].map(([key, person]) => ({ key, rank: rank(person) })).sort((a, b) => a.rank - b.rank).map(person => person.key);
 }
 const byString = compareFor(StringType), byDate = compareFor(DateTimeType), byOrder = compareFor(IntegerType);
-/** The shifts a target of the open week names, in the shifts' order, as e3 holds the targets: the work requirement's lanes (#1568). */
-async function lanes(): Promise<string[]> {
+/**
+ * The shifts a target of the days from `from` up to `to` names — the open week's, unless told — in the shifts' order, as
+ * e3 holds the targets: the work requirement's lanes (#1568).
+ */
+async function lanes(from: Date = START, to: Date = NEXT): Promise<string[]> {
     const cover = await h.read(ex.rosterCover), times = await h.read(ex.rosterShiftTimes);
-    const named = new SortedSet([...cover.values()].filter(target => byDate(target.day, START) >= 0 && byDate(target.day, NEXT) < 0).map(target => target.shift), byString);
+    const named = new SortedSet([...cover.values()].filter(target => byDate(target.day, from) >= 0 && byDate(target.day, to) < 0).map(target => target.shift), byString);
     return [...times].sort(([a, x], [b, y]) => byOrder(x.order, y.order) || byString(a, b)).map(([key]) => key).filter(key => named.has(key));
 }
 /** Another session's request for agency cover in Inbound on Monday's Early, beside the warehouse's two in Picking on Thursday. */
@@ -135,12 +139,15 @@ describe("the People layout without bands (#1567)", () => {
         const saved = (await h.read(ex.rosterDuties)).get("s217")!;
         expect([saved.team, saved.shift, saved.start, saved.end]).toEqual(["picking", "early", at("2028-03-08T06:00:00"), at("2028-03-08T14:00:00")]);
     });
-    test("by month the same one list, the requests' row at its foot naming its weeks by the vocabulary's word, and no band", async () => {
+    test("by month the same one list under the work requirement's one block, the requests' row at its foot naming its weeks by the vocabulary's word, and no band", async () => {
         scrollsAsAPageDoes();
         const { container: c } = await open(ex.rosterPeopleNoBands);
         await press(toolbar(c).getByRole("radio", { name: "Month" }));
         await waitFor(() => expect(slot(c, "main").querySelector('[data-roster-grid="people-month"]')).not.toBeNull());
-        expect(await listed(c)).toEqual([...await ranked(), "requests"]);
+        // March's weeks, W9–W13: a lane a shift a target of any of them names (#1568).
+        const shifts = await lanes(new Date(START.getTime() - 7 * DAY), new Date(START.getTime() + 28 * DAY));
+        expect(shifts.length).toBeGreaterThan(0);
+        expect(await listed(c)).toEqual(["demand", ...shifts.map(shift => `lane.${shift}`), "assign", ...await ranked(), "requests"]);
         expect(slot(c, "main").querySelector("[data-roster-group]")).toBeNull();
         const cells = [...slot(c, "main").querySelectorAll<HTMLElement>('[data-roster-person-week^="requests."]')];
         expect(cells.length).toBeGreaterThan(0);

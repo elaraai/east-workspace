@@ -3,17 +3,18 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  * @vitest-environment jsdom
  *
- * The People layout's work requirement (#1568) over a week's coverage: a lane a shift a target of the scope names, in
- * the shifts' order; its days' and its week's hours its slots' summed over the scope's groups, what each slot is short
- * summed so that no slot's surplus nets another's shortfall (K4); its skill rows in the activities' order; the scope's
- * figures over every one of its slots, a shift with no target's too; a difference's figure and tone; and a shift's day
- * summed across the groups, as the inspector draws it.
+ * The People layout's work requirement (#1568) over a span's coverage — a week's, or a month's weeks: a lane a shift a
+ * target of the scope names in any week, in the shifts' order; its days' and its span's hours its slots' summed over the
+ * scope's groups, what each slot is short summed so that no slot's surplus nets another's shortfall (K4); its skill rows
+ * in the activities' order; the scope's figures each day, each week and over the span, every one of its slots counted, a
+ * shift with no target's too; a month's marks; a difference's figure and tone; and a shift's day summed across the
+ * groups, as the inspector draws it.
  */
 import { describe, expect, test } from "vitest";
 import { SortedMap, StringType, compareFor, none, printFor, some, type option } from "@elaraai/east";
 import { RosterCoverageType } from "@elaraai/e3-ui/internal";
 import { compareSlot, type Coverage, type Requirement, type RosterValue, type Slot } from "./model.js";
-import { demandOf, difference, signed, summedCoverage, toneOf } from "./demand.js";
+import { demandOf, difference, laneMark, signed, skillMark, summedCoverage, toneOf } from "./demand.js";
 
 const byString = compareFor(StringType);
 const printCoverage = printFor(RosterCoverageType);
@@ -61,7 +62,7 @@ const NONE = { target: false, needed: 0, rostered: 0, permanent: 0, agency: 0, r
 
 describe("a scope's work requirement over a week", () => {
     test("every group's: a lane a shift a target names, each day's hours its groups' slots summed, short as each slot is short", () => {
-        const both = demandOf(value, { requirements }, coverage, ["inbound", "picking"]);
+        const both = demandOf(value, [{ requirements, coverage }], ["inbound", "picking"]);
         expect(both.lanes.map(lane => lane.shift.key)).toEqual(["early"]);
         const early = both.lanes[0]!;
         // Monday: 26 hours rostered of 24 needed, yet Picking's 4 short stand: Inbound's 6 over net none of them (K4).
@@ -70,35 +71,83 @@ describe("a scope's work requirement over a week", () => {
         expect(early.days[2]).toEqual({ target: true, needed: 8, rostered: 8, permanent: 4, agency: 0, requested: 4, short: 0, shortSlots: 0 });
         // Sunday: no slot of the shift has a target.
         expect(early.days[0]).toEqual(NONE);
-        expect(early.week).toEqual({ target: true, needed: 32, rostered: 34, permanent: 30, agency: 0, requested: 4, short: 4, shortSlots: 1 });
+        expect(early.total).toEqual({ target: true, needed: 32, rostered: 34, permanent: 30, agency: 0, requested: 4, short: 4, shortSlots: 1 });
         // The scope's own figures count every slot of it, the Late's with no target too, as the Shifts layout's band does.
         expect(both.days[1]).toEqual({ target: true, needed: 24, rostered: 34, permanent: 34, agency: 0, requested: 0, short: 4, shortSlots: 1 });
-        expect(both.week).toEqual({ target: true, needed: 32, rostered: 42, permanent: 38, agency: 0, requested: 4, short: 4, shortSlots: 1 });
+        expect(both.total).toEqual({ target: true, needed: 32, rostered: 42, permanent: 38, agency: 0, requested: 4, short: 4, shortSlots: 1 });
     });
 
     test("a lane's skill rows: each skill its slots' lines need, summed each day, in the activities' order, a day none of its slots needs it empty", () => {
-        const [early] = demandOf(value, { requirements }, coverage, ["inbound", "picking"]).lanes;
+        const [early] = demandOf(value, [{ requirements, coverage }], ["inbound", "picking"]).lanes;
         expect(early!.skills.map(skill => skill.skill)).toEqual(["pick", "unload"]);
         expect(early!.skills[0]!.days).toEqual([undefined, { needed: 16, assigned: 12 }, { needed: 8, assigned: 8 }, undefined, undefined, undefined, undefined]);
-        expect(early!.skills[0]!.week).toEqual({ needed: 24, assigned: 20 });
-        expect(early!.skills[1]!.week).toEqual({ needed: 8, assigned: 14 });
+        expect(early!.skills[0]!.total).toEqual({ needed: 24, assigned: 20 });
+        expect(early!.skills[1]!.total).toEqual({ needed: 8, assigned: 14 });
     });
 
     test("a band's: its own group's slots alone", () => {
-        const picking = demandOf(value, { requirements }, coverage, ["picking"]);
+        const picking = demandOf(value, [{ requirements, coverage }], ["picking"]);
         expect(picking.lanes.map(lane => lane.shift.key)).toEqual(["early"]);
         expect(picking.lanes[0]!.days[1]).toEqual({ target: true, needed: 16, rostered: 12, permanent: 12, agency: 0, requested: 0, short: 4, shortSlots: 1 });
         expect(picking.lanes[0]!.skills.map(skill => skill.skill)).toEqual(["pick"]);
-        const inbound = demandOf(value, { requirements }, coverage, ["inbound"]);
-        expect(inbound.lanes[0]!.week).toEqual({ target: true, needed: 8, rostered: 14, permanent: 14, agency: 0, requested: 0, short: 0, shortSlots: 0 });
+        const inbound = demandOf(value, [{ requirements, coverage }], ["inbound"]);
+        expect(inbound.lanes[0]!.total).toEqual({ target: true, needed: 8, rostered: 14, permanent: 14, agency: 0, requested: 0, short: 0, shortSlots: 0 });
     });
 
     test("lanes in the shifts' order, whatever order the targets are in; a week naming no target, no lane", () => {
         const late = new SortedMap<Slot, Requirement>([...requirements, [slot(1, "picking", "late"), target(1n, [["pick", 8]])]], compareSlot);
-        expect(demandOf(value, { requirements: late }, coverage, ["inbound", "picking"]).lanes.map(lane => lane.shift.key)).toEqual(["early", "late"]);
-        const untargeted = demandOf(value, { requirements: new SortedMap<Slot, Requirement>([], compareSlot) }, coverage, ["inbound", "picking"]);
+        expect(demandOf(value, [{ requirements: late, coverage }], ["inbound", "picking"]).lanes.map(lane => lane.shift.key)).toEqual(["early", "late"]);
+        const untargeted = demandOf(value, [{ requirements: new SortedMap<Slot, Requirement>([], compareSlot), coverage }], ["inbound", "picking"]);
         expect(untargeted.lanes).toEqual([]);
-        expect(untargeted.week.target).toBe(false);
+        expect(untargeted.total.target).toBe(false);
+    });
+});
+
+/** The next week: Wednesday's Late, Picking 4 hours short of its 8. */
+const nextRequirements = new SortedMap<Slot, Requirement>([[slot(3, "picking", "late"), target(1n, [["pick", 8]])]], compareSlot);
+const nextCoverage = new SortedMap<Slot, Coverage>([[slot(3, "picking", "late"), covered(8, 4, [line("pick", 8, 4)])]], compareSlot);
+
+describe("a scope's work requirement over a month's weeks", () => {
+    const month = demandOf(value, [{ requirements, coverage }, { requirements: nextRequirements, coverage: nextCoverage }], ["inbound", "picking"]);
+    test("a lane a shift any week's targets name, its days seven a week; a week naming none of its targets, untargeted days", () => {
+        expect(month.lanes.map(lane => lane.shift.key)).toEqual(["early", "late"]);
+        const [early, late] = month.lanes;
+        expect(early!.days).toHaveLength(14);
+        expect(early!.days.slice(7)).toEqual(Array.from({ length: 7 }, () => NONE));
+        expect(early!.total).toEqual({ target: true, needed: 32, rostered: 34, permanent: 30, agency: 0, requested: 4, short: 4, shortSlots: 1 });
+        // The first week's Monday Late: rostered with no target; the next week's Wednesday, short.
+        expect(late!.days[1]).toEqual({ target: false, needed: 0, rostered: 8, permanent: 8, agency: 0, requested: 0, short: 0, shortSlots: 0 });
+        expect(late!.days[7 + 3]).toEqual({ target: true, needed: 8, rostered: 4, permanent: 4, agency: 0, requested: 0, short: 4, shortSlots: 1 });
+        expect(late!.total).toEqual({ target: true, needed: 8, rostered: 12, permanent: 12, agency: 0, requested: 0, short: 4, shortSlots: 1 });
+        expect(late!.skills.map(skill => skill.skill)).toEqual(["pick"]);
+        expect(late!.skills[0]!.days.flatMap((day, i) => day === undefined ? [] : [[i, day]])).toEqual([[10, { needed: 8, assigned: 4 }]]);
+        expect(late!.skills[0]!.total).toEqual({ needed: 8, assigned: 4 });
+    });
+    test("each week's figures the scope's that week; the span's their sum, each slot short its own", () => {
+        expect(month.days).toHaveLength(14);
+        expect(month.weeks).toEqual([
+            demandOf(value, [{ requirements, coverage }], ["inbound", "picking"]).total,
+            { target: true, needed: 8, rostered: 4, permanent: 4, agency: 0, requested: 0, short: 4, shortSlots: 1 },
+        ]);
+        expect(month.total).toEqual({ target: true, needed: 40, rostered: 46, permanent: 42, agency: 0, requested: 4, short: 8, shortSlots: 2 });
+    });
+});
+
+describe("a month's marks", () => {
+    const [early] = demandOf(value, [{ requirements, coverage }], ["inbound", "picking"]).lanes;
+    test("a lane's day: off with no target, covered over or exact, requested where requests make up part of its hours, short by its difference", () => {
+        expect(laneMark(early!.days[0]!)).toEqual({ state: "off", difference: 0 });
+        expect(laneMark(early!.days[1]!)).toEqual({ state: "covered", difference: 2 });
+        expect(laneMark(early!.days[2]!)).toEqual({ state: "requested", difference: 0 });
+        expect(laneMark({ ...early!.days[1]!, rostered: 20, permanent: 20 })).toEqual({ state: "short", difference: -4 });
+        // Short with requests among its hours is short: the requests do not cover it.
+        expect(laneMark({ ...early!.days[2]!, rostered: 6, requested: 2 })).toEqual({ state: "short", difference: -2 });
+    });
+    test("a skill's day: off where none of its slots needs it, short by its difference, else covered", () => {
+        expect(skillMark(undefined)).toEqual({ state: "off", difference: 0 });
+        expect(skillMark({ needed: 16, assigned: 12 })).toEqual({ state: "short", difference: -4 });
+        expect(skillMark({ needed: 8, assigned: 14 })).toEqual({ state: "covered", difference: 6 });
+        expect(skillMark({ needed: 8, assigned: 8 })).toEqual({ state: "covered", difference: 0 });
     });
 });
 
@@ -138,7 +187,7 @@ describe("a shift's day across the groups", () => {
         }));
     });
     test("its hours are the lane's day's: both sum the same slots", () => {
-        const [early] = demandOf(value, { requirements }, coverage, ["inbound", "picking"]).lanes;
+        const [early] = demandOf(value, [{ requirements, coverage }], ["inbound", "picking"]).lanes;
         const monday = summedCoverage(value, [coverage.get(slot(1, "inbound", "early"))!, coverage.get(slot(1, "picking", "early"))!]);
         expect([monday.hours.needed, monday.hours.rostered, monday.hours.requested]).toEqual([early!.days[1]!.needed, early!.days[1]!.rostered, early!.days[1]!.requested]);
     });

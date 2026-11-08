@@ -16,6 +16,7 @@
  * the Patterns tab's strip of marks on each card.
  */
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { wholeOrNone } from "../../style/whole-or-none.js";
 import { CONFLICT_RING } from "../conflict-ring.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
@@ -40,7 +41,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         "assign", "assignMenuHead", "assignItem", "swatch", "monthRow", "monthHead", "monthGutter", "weekHead", "weekNumber", "weekRange", "dayTicks", "dayTick", "monthCell",
         "markStrip", "mark", "patternStrip", "patternMark",
         "demandRow", "demandName", "demandFigure", "laneName", "laneToggle", "laneSwatch", "laneLabel", "laneHours", "laneWeek", "laneCell", "laneLine", "laneFigure", "laneDiff",
-        "laneBar", "laneTick", "laneNoTarget", "skillTag", "skillName", "skillBar", "assignRow", "assignLabel"],
+        "laneBar", "laneTick", "laneNoTarget", "laneMark", "skillTag", "skillName", "skillBar", "assignRow", "assignLabel"],
     base: {
         ...moveGhostBase,
         ...scheduleGroupBase,
@@ -265,17 +266,21 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
 
         // ── The People layout's work requirement (#1568, `People Work Requirements` 2a) ──────────────────────────────
         // Its eyebrow under a band (A2): the heading in the name cell, then each day's hours rostered against needed, no
-        // valence, 28px on the canvas paper. Its lanes and skill rows are People rows (`peopleRow`), at the density's pitch.
-        demandRow: { display: "grid", gridTemplateColumns: "232px repeat(7, minmax(0, 1fr))", height: "28px", background: "bg.canvas", borderBottomWidth: "1px", borderColor: "border.subtle" },
+        // valence, 28px on the canvas paper; by month (A2.2) on the month's columns, a figure a week. Its lanes and skill
+        // rows are People rows (`peopleRow`), by month the month's (`monthRow`), at the density's pitch.
+        demandRow: { display: "grid", gridTemplateColumns: "232px repeat(7, minmax(0, 1fr))", height: "28px", background: "bg.canvas", borderBottomWidth: "1px", borderColor: "border.subtle",
+            "&[data-period=month]": { gridTemplateColumns: "168px repeat(var(--roster-weeks, 5), minmax(0, 1fr))" } },
         demandName: { position: "sticky", left: 0, zIndex: 3, display: "flex", alignItems: "center", minWidth: 0, padding: "0 12px 0 20px", background: "bg.canvas",
             borderRightWidth: "1px", borderColor: "border.subtle", textStyle: "mono.xs", fontWeight: "semibold", letterSpacing: "label", textTransform: "uppercase", color: "fg.subtle",
             whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
         demandFigure: { display: "flex", alignItems: "center", minWidth: 0, padding: "0 10px", borderLeftWidth: "1px", borderColor: "border.subtle", textStyle: "mono.xs", color: "fg.muted",
             whiteSpace: "nowrap", overflow: "hidden" },
         // A lane's name cell (A3.2): its chevron, the shift's swatch, its label and hours, and by week its week's figures at
-        // the end; a skill row's (A4.2) its code tag and name, indented under the lane's.
+        // the end; a skill row's (A4.2) its code tag and name, indented under the lane's. By month (168px) it holds no
+        // figures (P16).
         laneName: { position: "sticky", left: 0, zIndex: 3, display: "flex", alignItems: "center", gap: "8px", minWidth: 0, padding: "0 12px 0 20px", background: "bg.surface",
-            borderRightWidth: "1px", borderColor: "border.subtle", whiteSpace: "nowrap", overflow: "hidden", textAlign: "left", "&[data-skill]": { paddingLeft: "40px" } },
+            borderRightWidth: "1px", borderColor: "border.subtle", whiteSpace: "nowrap", overflow: "hidden", textAlign: "left", "&[data-skill]": { paddingLeft: "40px" },
+            "&[data-period=month]": { paddingRight: "8px" } },
         // The lane's name cell is its disclosure (A3.7): the chevron turns a quarter as its skill rows open.
         laneToggle: { cursor: "pointer", ...planRowFocus,
             "& > svg": { flexShrink: 0, color: "fg.muted", transition: "transform {durations.fast} {easings.inOut}", ...fontAwesomeSize("12px") },
@@ -299,6 +304,15 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         laneBar: { position: "relative", height: "6px", background: "bg.subtle" },
         laneTick: { position: "absolute", top: "-3px", bottom: "-3px", width: "2px", marginLeft: "-1px", background: "fg", pointerEvents: "none" },
         laneNoTarget: { textStyle: "mono.xs", fontSize: "label.md", fontStyle: "italic", fontWeight: "normal", color: "fg.subtle", whiteSpace: "nowrap" },
+        // A lane's or a skill row's day by month (A3.5, A4.4), over the person marks' `mark`: covered on the third paper,
+        // short dashed in the warning's edge on its 6% wash, requested dashed teal, an off mark with no target; its
+        // difference whole or not at all, never cut. A lane's is a button that selects its slot, ringed while selected.
+        laneMark: { ...wholeOrNone("100%"), fontSize: "label.xs", background: "bg.subtle", color: "fg.muted",
+            "&:is(button)": { cursor: "pointer", ...planElementFocus },
+            "&[data-state=short]": { background: "bg.warning.subtle", borderStyle: "dashed", borderColor: "border.warning", color: "fg.warning" },
+            "&[data-state=requested]": { background: "transparent", borderStyle: "dashed", borderColor: "teal.500" },
+            "&[data-state=off]": { background: "color-mix(in srgb, {colors.fg} 7%, transparent)", color: "transparent" },
+            "&[data-selected]": { boxShadow: "inset 0 0 0 1px {colors.fg}" } },
         skillTag: { display: "inline-flex", alignItems: "center", height: "16px", flexShrink: 0, padding: "0 4px", borderWidth: "1px", borderColor: "border.strong", borderRadius: "sm",
             textStyle: "mono.xs", fontSize: "label.xs", fontWeight: "semibold", color: "fg.strong" },
         skillName: { textStyle: "body.sm", color: "fg.strong", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },

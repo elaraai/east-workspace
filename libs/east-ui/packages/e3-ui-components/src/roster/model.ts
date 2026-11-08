@@ -80,11 +80,26 @@ export interface RosterView { layout: RosterLayout; period: RosterPeriod; date: 
  * The inspector's selection is separate from edits and library filtering. A `personWeek` is a person's week (#1406,
  * D11): the inspector's person Details read that week, and a pattern applies to it. A `shiftDay` is a shift's day
  * across the groups (#1568): a day of a work requirement lane where the People layout draws no bands, whose Details
- * draw each group's slot and the skill lines summed over them.
+ * draw each group's slot and the skill lines summed over them. A work requirement's day names its week (`start`), as a
+ * person-week does: a month's mark is a day of one of its weeks, which the inspector then reads.
  */
 export type Selection = { type: "assignment" | "proposal" | "person"; key: string }
-    | { type: "slot" | "requirement"; slot: Slot } | { type: "group"; key: string } | { type: "shift"; key: string }
-    | { type: "personWeek"; key: string; start: number } | { type: "shiftDay"; shift: string; day: number };
+    | { type: "slot" | "requirement"; slot: Slot; start?: number } | { type: "group"; key: string } | { type: "shift"; key: string }
+    | { type: "personWeek"; key: string; start: number } | { type: "shiftDay"; shift: string; day: number; start?: number };
+
+/**
+ * The week a selection names (#1406, D11; #1568): a person-week's, or a work requirement's day's — the week the
+ * inspector, the commands and the checks then work over where a month shows several.
+ *
+ * @param selection - The selection
+ * @returns Its week's first day, as a time; `undefined` for a selection naming none
+ */
+export function selectionWeek(selection: Selection | undefined): number | undefined {
+    switch (selection?.type) {
+        case "personWeek": case "slot": case "requirement": case "shiftDay": return selection.start;
+        default: return undefined;
+    }
+}
 
 /**
  * A period a layout takes (#1406, D1): the one given where the layout takes it, else the layout's first — Shifts a

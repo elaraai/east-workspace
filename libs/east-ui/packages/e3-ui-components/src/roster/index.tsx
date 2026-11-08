@@ -17,7 +17,9 @@
  * views rest is saved, and comes back as they mount. The span in view is a
  * week, or a month's four to six (#1406): each week assembled from the span's
  * rows, the week the inspector and the commands work over the selected
- * person-week's, or the selected duty's, else the first. With an optimiser bound, the Elara eye
+ * person-week's, or a work requirement's day's (#1568), or the selected
+ * duty's, else the first; a month drawing the work requirement works out each
+ * of its weeks' coverage, the hours alone. With an optimiser bound, the Elara eye
  * (#1409): one run over the week in view, its result landed on the week's
  * duties as one step of the history, and what it left on them marked until
  * Apply. BuilderFrame stays an internal React detail.
@@ -56,9 +58,9 @@ import { useRosterLibrary } from "./library.js";
 import { rosterMessages, type RosterWords } from "./messages.js";
 import {
     DAY, NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, availableProposals, compareDate, configError, dayOfSlot, editableStatus, placeDrafted, placeStored, placeTargets,
-    rosterContext, rosterDomain, spanWindow, spanWords, started, statusText, weekBefore, weekKey, weekNumber, weekOf, weekStart, type Assignment, type DraftedDuty, type Issue,
-    type PlacedDuties, type PlacedPeriod,
-    type RosterPayload, type RosterStyles, type RosterValue, type Selection, type StoredDuty, type StoredTarget, type WeekState,
+    rosterContext, rosterDomain, selectionWeek, spanWindow, spanWords, started, statusText, weekBefore, weekKey, weekNumber, weekOf, weekStart, type Assignment, type Coverage,
+    type DraftedDuty, type Issue, type PlacedDuties, type PlacedPeriod,
+    type RosterPayload, type RosterStyles, type RosterValue, type Selection, type Slot, type StoredDuty, type StoredTarget, type WeekState,
 } from "./model.js";
 import { landRosterOptimise, lockRosterCommands, rosterOptimiseRequest, rosterOptimiseTypes, type RosterOptimiseRequest, type RosterOptimiseResult, type RosterOptimised } from "./optimise.js";
 import { useRosterToolbar } from "./toolbar.js";
@@ -79,6 +81,8 @@ const NO_PERIOD_DRAFTS: ReadonlyMap<string, Uint8Array | undefined> = new Map();
 const NO_STORED: ReadonlyMap<string, StoredDuty> = new Map();
 const NO_STORED_TARGETS: ReadonlyMap<string, StoredTarget> = new Map();
 const NO_ISSUES: readonly Issue[] = [];
+/** No week of the span's coverage: a month drawing no work requirement. */
+const NO_SPAN_COVERAGE: readonly ReadonlyMap<Slot, Coverage>[] = [];
 const sameContext = equalFor(RosterContextType);
 const sameIssues = equalFor(ArrayType(RosterIssueType));
 /** No People view has rested anywhere yet. */
@@ -158,12 +162,12 @@ function RosterFrame(props: FrameProps) {
         return { start: at, week: weekOf(drafted, targets, period), held: weekOf(stored, heldTargets, heldPeriod), duties: drafted, heldDuties: stored, targets, period, heldPeriod };
     }), [span.weeks, current, data.duties, data.targets, data.periods, place, domain, dutyDrafts, targetDrafts, periodDrafts, context, source]);
     const [selection, setSelection] = useState<Selection>();
-    // The week the inspector, the commands and the checks work over: the selected person-week's in a month (D11), else the
-    // selected duty's — as drafted, else as stored: a day pressed in a person's Details, in a Month with no Week, selects a
-    // duty of any of its weeks — else the span's first.
-    const pickedWeek = selection?.type === "personWeek" ? selection : undefined;
+    // The week the inspector, the commands and the checks work over: the selected person-week's in a month (D11), or the
+    // week of the work requirement's day selected there (#1568), else the selected duty's — as drafted, else as stored: a
+    // day pressed in a person's Details, in a Month with no Week, selects a duty of any of its weeks — else the span's first.
+    const pickedStart = selectionWeek(selection);
     const pickedDuty = selection?.type === "assignment" ? selection.key : undefined;
-    const primary = (pickedWeek !== undefined ? weekStates.find(held => held.start.getTime() === pickedWeek.start)
+    const primary = (pickedStart !== undefined ? weekStates.find(held => held.start.getTime() === pickedStart)
         : pickedDuty === undefined ? undefined
             : weekStates.find(held => held.week.assignments.has(pickedDuty)) ?? weekStates.find(held => held.held.assignments.has(pickedDuty))) ?? weekStates[0]!;
     const { start, week, held, duties: draftedDuties, heldDuties: storedDuties, targets, period, heldPeriod } = primary;
@@ -184,7 +188,8 @@ function RosterFrame(props: FrameProps) {
     const startRef = useRef(start); startRef.current = start;
     const selectedIn = useRef<Date>(start);
     const select = useCallback((next: Selection | undefined) => {
-        selectedIn.current = next?.type === "personWeek" ? new Date(next.start) : startRef.current;
+        const named = selectionWeek(next);
+        selectedIn.current = named !== undefined ? new Date(named) : startRef.current;
         setSelection(next); setTab("details"); if (next !== undefined) panes.current?.reveal("end");
     }, []);
     const spanKey = `${span.start.getTime()}:${span.weeks.length}`;
@@ -203,6 +208,11 @@ function RosterFrame(props: FrameProps) {
     const payCache = useRef(new RosterPayCache());
     const weekPay = useMemo(() => source.pay.type === "some" ? payCache.current.run(domain, source.pay.value, week, start, context) : NO_PAY, [source.pay, domain, week, start, context]);
     const coverage = useMemo(() => domain.coverage(week, context, weekPay.pay), [domain, week, context, weekPay]);
+    // What the People layout's work requirement sums (#1568): a week's coverage, or each of a month's weeks' — their hours
+    // alone, so no week but the one the inspector reads asks the app's pay — while the month draws it.
+    const demanded = value.settings.requirements && value.targets.type === "some";
+    const spanCoverage = useMemo((): readonly ReadonlyMap<Slot, Coverage>[] => span.period !== "month" ? [coverage]
+        : demanded ? weekStates.map(state => domain.coverage(state.week, context, NO_PAY.pay)) : NO_SPAN_COVERAGE, [span.period, coverage, demanded, weekStates, domain, context]);
     const hours = useMemo(() => domain.hours(week, context), [domain, week, context]);
     const builtIn = useMemo(() => domain.check(week, context), [domain, week, context]);
     // Each duty's row checked against its form's bounds (#1585), once a row's bytes: a duty breaking one wears the warn
@@ -357,8 +367,8 @@ function RosterFrame(props: FrameProps) {
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
         [schedule, scheduleVersion, dutyKind]);
     const viewProps = { value, week, held, start, day: window.day, view: window.view, setView: window.setView, span, weeks: weekStates, openWeek: window.openWeek, opensDay: window.opensDay, opensWeek: window.opensWeek,
-        styles, format, narrow, coverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read, optimised, lit: landing.lit,
-        conflicted, bounded };
+        styles, format, narrow, coverage, spanCoverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read, optimised,
+        lit: landing.lit, conflicted, bounded };
     // Search Records (#1398): a person found by their key is selected — in the People layout their row brought into view
     // once the narrowing draws it, and a pick's person given the keyboard there, once the box has let it go: their name
     // takes the focus as ↑ / ↓ give it. One the rail's narrowing hides is shown by clearing just the choices of the
@@ -517,7 +527,7 @@ function RosterFrame(props: FrameProps) {
     const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, refused: refusals.length, onIssues, onIssue, onConflict,
         where: historyWhere, onAction, onPickerDates: setPickerDates, narrow,
         optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,
-        selectedWeek: pickedWeek === undefined ? undefined : new Date(pickedWeek.start),
+        selectedWeek: pickedStart === undefined ? undefined : new Date(pickedStart),
         status: source.periods.type === "some" ? statusText(heldPeriod) : undefined, unread: !current, publishing, picker: data.picker,
         onDisplay: next => props.setDisplay({ ...props.display, ...next }), search });
     // Read only while no week in view can be edited: the week's status, or every week of the month's (#1406).
