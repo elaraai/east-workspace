@@ -18,8 +18,11 @@
  * starts it and polls it to its end, and the server's workspace keeps it —
  * who made it, its arguments, the versions of the inputs it read, its value
  * and its logs — which {@link workspaceCallList} and {@link workspaceCallGet}
- * read. A split call — a caller's program over a dataset's pieces — runs as a
- * job, launched under one-shot's grant and polled for its result.
+ * read. A one-shot is run within its request by {@link oneShotExecute}, or
+ * started as such a call by {@link oneShotCall}, kept among the workspace's
+ * calls naming no function. A split call — a caller's program over a
+ * dataset's pieces — runs as a job, launched under one-shot's grant and polled
+ * for its result.
  */
 
 import type {
@@ -291,21 +294,50 @@ export async function workspaceFunctionCall(
   options: RequestOptions,
   call: WorkspaceFunctionCallOptions = {},
 ): Promise<ExecuteResult> {
+  return keptCall(url, repo, ws, options, call,
+    (id) => workspaceFunctionStart(url, repo, ws, fn, req, options, {
+      id,
+      ...(call.startWaitMs !== undefined && { waitMs: call.startWaitMs }),
+    }),
+    () => workspaceFunctionCallSync(url, repo, ws, fn, req, options));
+}
+
+/**
+ * A kept call, started and polled to its end: what {@link workspaceFunctionCall}
+ * and {@link oneShotCall} make, each by its own start, and its own route
+ * within one request for a server that keeps no such calls.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param ws - The workspace the call is made through
+ * @param options - Request options including auth token
+ * @param call - The signal that stops the call, and who is told its id
+ * @param start - Starts the call under the id the client named it by
+ * @param sync - Makes the call within one request, on a server whose start
+ *   route is none
+ * @returns The call's terminal result
+ */
+async function keptCall(
+  url: string,
+  repo: string,
+  ws: string,
+  options: RequestOptions,
+  call: WorkspaceFunctionCallOptions,
+  start: (id: string) => Promise<FunctionCallAnswer>,
+  sync: () => Promise<ExecuteResult>,
+): Promise<ExecuteResult> {
   const { signal } = call;
   signal?.throwIfAborted();
   // The call is named before it is sent, so it can be stopped before its start answers
   const id = uuidv7();
-  const starting = workspaceFunctionStart(url, repo, ws, fn, req, options, {
-    id,
-    ...(call.startWaitMs !== undefined && { waitMs: call.startWaitMs }),
-  });
+  const starting = start(id);
   let answer: FunctionCallAnswer;
   try {
     answer = await untilAborted(starting, signal);
   } catch (err) {
     if (err instanceof ApiError && (err.code === 'not_found' || err.code === 'method_not_allowed')) {
-      // A server that keeps no calls answers the sync route alone
-      return untilAborted(workspaceFunctionCallSync(url, repo, ws, fn, req, options), signal);
+      // A server that keeps no calls answers within one request alone
+      return untilAborted(sync(), signal);
     }
     if (signal?.aborted === true) {
       // Asked to stop at once by its name; and again once the start answers,
@@ -648,6 +680,10 @@ function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
  * path and the hash it was pinned at, in argument order, so an answer can be
  * reproduced and a stale one noticed.
  *
+ * The call runs within the request, its timeout clamped under the server's
+ * sync deadline, so one that runs past it is answered `timed_out`, and
+ * nothing of it is kept. {@link oneShotCall} is held to no request's deadline.
+ *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param ws - The workspace whose datasets the call reads
@@ -667,6 +703,95 @@ export async function oneShotExecute(
   options: RequestOptions
 ): Promise<ExecuteResult> {
   return post(url, verboseQuery(oneShotBase(repo, ws), options), req, OneShotRequestType, ExecuteResultType, options);
+}
+
+/**
+ * Run an anonymous IR against a workspace, and wait for its result: the call
+ * is started, kept by the server for its lifetime among the workspace's calls
+ * — naming no function, its program being the caller's — and polled to its
+ * end.
+ *
+ * @remarks
+ * Held to the caller's grant as {@link oneShotExecute} is. A call is held to
+ * its own timeout, never to a request's, so it may run for as long as its
+ * limits allow — its timeout is the server's ceiling unless the request asks
+ * for less — and is started, polled and stopped as {@link workspaceFunctionCall}
+ * says: its start waits up to the server's window, a call still running is
+ * polled, and an abort asks the server to stop it, by the id the client named
+ * it with. The server keeps it, as it keeps a function's call — who made it,
+ * its arguments, the versions of the datasets it read, its value and its logs
+ * — which {@link workspaceCallList} and {@link workspaceCallGet} read. A
+ * server that keeps no one-shot calls, one that predates them, has no route
+ * to start one, and the call is made through {@link oneShotExecute} instead.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param ws - The workspace whose datasets the call reads
+ * @param req - The body IR, its arguments (values or dataset paths), its
+ *   runner and its limits
+ * @param options - Request options including auth token
+ * @param call - The signal that stops the call, and who is told its id once
+ *   it runs on past its start
+ * @returns The call's terminal result
+ * @throws {ApiError} As {@link oneShotExecute} does, and `internal` for a call
+ *   someone cancelled, or the server lost, which has no result
+ * @throws {AuthError} On 401 Unauthorized
+ * @throws The abort's reason, once `call.signal` aborts
+ */
+export async function oneShotCall(
+  url: string,
+  repo: string,
+  ws: string,
+  req: OneShotRequest,
+  options: RequestOptions,
+  call: WorkspaceFunctionCallOptions = {},
+): Promise<ExecuteResult> {
+  return keptCall(url, repo, ws, options, call,
+    (id) => oneShotStart(url, repo, ws, req, options, {
+      id,
+      ...(call.startWaitMs !== undefined && { waitMs: call.startWaitMs }),
+    }),
+    () => oneShotExecute(url, repo, ws, req, options));
+}
+
+/**
+ * Start a one-shot as a call: the server files it, runs it where its calls
+ * run, and waits a while for it to end.
+ *
+ * @remarks
+ * Answered as {@link workspaceFunctionStart} answers a function's start: the
+ * call's id and how it stood when the wait ended, `completed` with its result
+ * for a call that ended within it — one found wrong among them, `invalid` — or
+ * `running`, which {@link workspaceFunctionCallStatus} polls and
+ * {@link workspaceFunctionCallCancel} stops. A start is never sent twice, so a
+ * call is never filed twice.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param ws - The workspace whose datasets the call reads
+ * @param req - The body IR, its arguments, its runner and its limits
+ * @param options - Request options including auth token
+ * @param start - How long the start waits for the call to end, and the id to
+ *   file it under
+ * @returns The call's id and status
+ * @throws {ApiError} As {@link oneShotExecute} does; `not_found` from a server
+ *   that keeps no one-shot calls
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function oneShotStart(
+  url: string,
+  repo: string,
+  ws: string,
+  req: OneShotRequest,
+  options: RequestOptions,
+  start: FunctionCallStartOptions = {},
+): Promise<FunctionCallAnswer> {
+  const path = withQuery(`${oneShotBase(repo, ws)}/calls`, [
+    ['wait', waitParam(start.waitMs)],
+    ['id', start.id],
+    ['verbose', options.verbose === true ? '1' : undefined],
+  ]);
+  return post(url, path, req, OneShotRequestType, FunctionCallAnswerType, options);
 }
 
 // =============================================================================

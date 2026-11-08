@@ -5,8 +5,9 @@
 
 /**
  * The calls a `WebStorage` keeps (east-workspace#1554): each call of a named
- * function through a workspace a record of the records adapter, from its start
- * to the end of the lifetime its end gives it.
+ * function through a workspace, and each one-shot started as a call, a record
+ * of the records adapter, from its start to the end of the lifetime its end
+ * gives it.
  *
  * @packageDocumentation
  */
@@ -135,7 +136,8 @@ export class WebFunctionCallStore implements FunctionCallStore {
           expired.push(key);
           continue;
         }
-        if (options.function !== undefined && job.call.function !== options.function) continue;
+        // A function's calls: a one-shot names none
+        if (options.function !== undefined && !(job.call.function.type === 'some' && job.call.function.value === options.function)) continue;
         if (options.state !== undefined && job.call.state.type !== options.state) continue;
         calls.push(job);
         if (calls.length >= options.limit) {

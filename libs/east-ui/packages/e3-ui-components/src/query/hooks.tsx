@@ -10,9 +10,11 @@
  *
  * - **The root** (`useQueryRoot`): each bound data source as a root field —
  *   its name, its dataset's path and its value's type — in the order given.
- * - **The call** (`useQueryCall`): how a one-shot call is made — e3-api-client's
- *   `oneShotExecute` against the `E3Provider`'s server, or a host's own
- *   ({@link QueryCallProvider}).
+ * - **The call** (`useQueryCall`): how a one-shot call is made — against the
+ *   `E3Provider`'s server, a run's started and kept as a call of the workspace
+ *   (e3-api-client's `oneShotCall`), so it outlives any request and is listed
+ *   among the workspace's calls, and a summary's within one request
+ *   (`oneShotExecute`); or a host's own ({@link QueryCallProvider}).
  * - **The split call** (`useQuerySplitCall`, #941): how a split call is made —
  *   e3-api-client's `splitCall` against the `E3Provider`'s server, which
  *   launches it, polls it with backoff and reports its progress; or a host's
@@ -45,7 +47,9 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { DataSourceType, SavedQueryType } from "@elaraai/e3-ui/internal";
-import { collectionOpen, datasetGetStatus, oneShotExecute, splitCall, splitCallExplain, type RemoteCollection, type SplitCallAnswer } from "@elaraai/e3-api-client";
+import {
+    collectionOpen, datasetGetStatus, oneShotCall, oneShotExecute, splitCall, splitCallExplain, type RemoteCollection, type SplitCallAnswer,
+} from "@elaraai/e3-api-client";
 import {
     pathToString,
     type DatasetStatusDetail, type ExecuteResult, type OneShotRequest, type SplitCallPlan, type SplitCallProgress, type SplitCallRequest, type TreePath,
@@ -127,13 +131,35 @@ function resolveRoot(datasets: readonly DataSource[], m: QueryWords["messages"])
 // The call
 // ============================================================================
 
+/** How a one-shot call is made ({@link QueryCall}): a run's, or a summary's. */
+export interface QueryCallOptions {
+    /**
+     * Whether the call is a run's: started and kept by the server as a call of
+     * the workspace, held to no request's deadline and listed among its calls,
+     * rather than made within one request, as a summary's is. Default `false`.
+     */
+    readonly run?: boolean;
+    /**
+     * Gives the call up: it rejects with the signal's reason, and a run's call
+     * is asked to stop on the server, which ends it `cancelled`.
+     */
+    readonly signal?: AbortSignal;
+}
+
 /**
  * Makes a one-shot call: the request, answered by the call's result.
  *
  * @param request - The request — a query's or a summary's, platform-free
+ * @param options - Whether it is a run's, and the signal that gives it up
  * @returns The result
+ *
+ * @remarks
+ * It rejects with e3-api-client's `ApiError` or `AuthError` when the server
+ * refuses the call — `internal` for a run's call someone cancelled, or the
+ * server lost — and with a `TypeError` when the server cannot be reached, as
+ * `fetch` does; and with the signal's reason once it is given up.
  */
-export type QueryCall = (request: OneShotRequest) => Promise<ExecuteResult>;
+export type QueryCall = (request: OneShotRequest, options?: QueryCallOptions) => Promise<ExecuteResult>;
 
 const QueryCallContext = createContext<QueryCall | null>(null);
 
@@ -158,8 +184,12 @@ export function QueryCallProvider({ call, children }: QueryCallProviderProps) {
 
 /**
  * How the builder makes a one-shot call: a {@link QueryCallProvider}'s, else
- * e3-api-client's `oneShotExecute` against the `E3Provider`'s server and
- * workspace, with its token and through its `fetch`.
+ * against the `E3Provider`'s server and workspace, with its token and through
+ * its `fetch`: a run's by e3-api-client's `oneShotCall`, started and kept as a
+ * call of the workspace, polled to its end and stopped once its signal
+ * aborts, so a run takes as long as its limits allow, never a request's
+ * deadline; a summary's by `oneShotExecute`, within one request, and kept by
+ * nothing.
  *
  * @returns The call, or `undefined` when there is no server to call
  */
@@ -171,7 +201,11 @@ export function useQueryCall(): QueryCall | undefined {
         if (config === null || config.workspace === undefined) return undefined;
         const { apiUrl, workspace } = config;
         const repo = config.repo ?? "default";
-        return (request) => oneShotExecute(apiUrl, repo, workspace, request, e3RequestOptions(config));
+        return (request, options) => (options?.run === true
+            ? oneShotCall(apiUrl, repo, workspace, request, e3RequestOptions(config), {
+                ...(options.signal !== undefined && { signal: options.signal }),
+            })
+            : oneShotExecute(apiUrl, repo, workspace, request, e3RequestOptions(config)));
     }, [provided, config]);
 }
 

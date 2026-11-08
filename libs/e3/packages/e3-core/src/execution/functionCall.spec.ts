@@ -17,15 +17,17 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { East, IntegerType, OptionType, StringType, encodeBeast2For, equalFor, none, some, variant } from '@elaraai/east';
+import { East, IntegerType, OptionType, StringType, encodeBeast2For, encodeEastIR, equalFor, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { ExecuteResultType, type FunctionCallJob, type FunctionCallRequest } from '@elaraai/e3-types';
+import {
+  ExecuteResultType, decodeFunctionObject, type FunctionCallJob, type FunctionCallRequest, type OneShotRequest, type RunnerValue,
+} from '@elaraai/e3-types';
 import { packageImport } from '../package-files.js';
 import { workspaceDeploy } from '../workspaces.js';
 import { workspaceGetDatasetHash } from '../trees.js';
 import { InMemoryStorage } from '../storage/in-memory/InMemoryStorage.js';
 import { createTempDir, removeTempDir } from '../test-helpers.js';
-import { InvalidNameError } from '../errors.js';
+import { InvalidNameError, PermissionDeniedError } from '../errors.js';
 import { isUuidv7, uuidv7Generator } from '../uuid.js';
 import { MockTaskRunner } from './MockTaskRunner.js';
 import type { DetachedResult, DetachedRunOptions, DetachedSpec } from './interfaces.js';
@@ -36,7 +38,9 @@ import {
   functionCallRun,
   functionCallStart,
   functionCallStatus,
+  oneShotCallStart,
   type FunctionCallLifetimes,
+  type OneShotCallStartOptions,
 } from './functionCall.js';
 
 const REPO = 'r';
@@ -247,5 +251,78 @@ describe('functionCall', () => {
     const { job } = await functionCallRun(storage, runner, REPO, WS, done.call.id, { now });
     const left = await functionCallLost(storage, REPO, job!, 'too late', T);
     assert.equal(left.call.state.type, 'succeeded');
+  });
+
+  describe('a one-shot started as a call', () => {
+    /** A program of two integers, their sum: what a query builder's run sends, in small. */
+    const sum = encodeEastIR(East.function([IntegerType, IntegerType], IntegerType, ($, x, y) => x.add(y)).toIR() as never);
+    const stock = (platforms: string[] = []): RunnerValue => variant('east_node', { platforms, decode: variant('lazy', null) });
+    const oneShot = (bodyIr: Uint8Array, args: OneShotRequest['args'], runner: RunnerValue = stock()): OneShotRequest =>
+      ({ bodyIr, args, runner, limits: none });
+    const startOneShot = (req: OneShotRequest, options: Partial<OneShotCallStartOptions> = {}): Promise<FunctionCallJob> =>
+      oneShotCallStart(storage, REPO, WS, req, { caller: 'ada@example.com', grant: 'platform_free', lifetimes: LIFETIMES, now, ...options });
+
+    it('files it running, naming no function and no package, its program stored as the anonymous function it runs, and its arguments pinned', async () => {
+      const job = await startOneShot(oneShot(sum, [variant('dataset', VALUE), variant('value', encodeInt(5n))]));
+      const { call } = job;
+      assert.equal(call.state.type, 'running');
+      assert.equal(call.function.type, 'none');
+      assert.equal(call.package.type, 'none');
+      assert.equal(call.inputs.length, 0, 'it reads only what its caller passed');
+      assert.equal(call.limits.timeoutMs, 600_000n, 'its timeout the ceiling\'s, as a started call\'s');
+      assert.equal(call.expiresAt.getTime(), T + 600_000 + FUNCTION_CALL_GRACE_MS + FAILED_MS);
+
+      const pinned = await workspaceGetDatasetHash(storage, REPO, WS, VALUE);
+      const [dataset, value] = call.args;
+      assert.ok(dataset?.type === 'dataset' && dataset.value.hash === pinned.hash, 'its dataset argument, at the hash it holds now');
+      if (value?.type !== 'value') assert.fail('its second argument is a value');
+      assert.deepEqual(await storage.objects.read(REPO, value.value), encodeInt(5n));
+
+      const fnObj = decodeFunctionObject(await storage.objects.read(REPO, job.functionObject));
+      assert.deepEqual(await storage.objects.read(REPO, fnObj.bodyIr), sum, 'its program, as sent');
+      assert.equal(fnObj.inputs.length, 0);
+      assert.equal(fnObj.argTypes.length, 2);
+      assert.equal(fnObj.outputType.type, 'Integer');
+      assert.equal(job.runner.type, 'east_node', 'it runs on its own runner');
+      assert.ok((await storage.calls.get(REPO, WS, call.id)) !== null, 'and is kept in the store');
+    });
+
+    it('runs as a named function\'s call runs: its program, on its arguments as stored objects, its value kept', async () => {
+      runner.setDetachedResult(ran({ kind: 'success', value: encodeInt(15n) }));
+      const filed = await startOneShot(oneShot(sum, [variant('dataset', VALUE), variant('value', encodeInt(5n))]));
+      const { job, result } = await functionCallRun(storage, runner, REPO, WS, filed.call.id, { now });
+      const [spec] = runner.getDetachedCalls();
+      assert.deepEqual(spec!.bodyIr, sum);
+      const [dataset, value] = filed.call.args;
+      assert.ok(dataset?.type === 'dataset' && value?.type === 'value');
+      assert.deepEqual(spec!.args, [{ dataset: dataset.value.hash }, { dataset: value.value }]);
+      if (job?.call.state.type !== 'succeeded') assert.fail(`the call ended ${job?.call.state.type}`);
+      assert.deepEqual(await storage.objects.read(REPO, job.call.state.value.value), encodeInt(15n));
+      assert.ok(result?.outcome.type === 'success');
+      assert.equal(result.inputs.length, 1, 'its result names the dataset it read');
+    });
+
+    it('holds it to its caller\'s grant before anything is filed, as a one-shot run within a request is held', async () => {
+      const withPackage = oneShot(sum, [variant('value', encodeInt(1n)), variant('value', encodeInt(2n))], stock(['@elaraai/east-node-std']));
+      await assert.rejects(startOneShot(oneShot(sum, []), { grant: 'none' }), (err: unknown) => err instanceof PermissionDeniedError);
+      await assert.rejects(startOneShot(withPackage), (err: unknown) => err instanceof PermissionDeniedError, 'a platform package under a platform-free grant');
+      assert.equal((await storage.calls.list(REPO, WS, { limit: 10 })).calls.length, 0, 'nothing filed');
+      assert.equal((await startOneShot(withPackage, { grant: 'any' })).call.state.type, 'running', 'the elevated grant starts it');
+    });
+
+    it('files one found wrong ended invalid: a program that is no function, or a wrong arity', async () => {
+      const garbled = new Uint8Array([1, 2, 3]);
+      const notAFunction = await startOneShot(oneShot(garbled, []));
+      if (notAFunction.call.state.type !== 'invalid') assert.fail(`filed ${notAFunction.call.state.type}`);
+      assert.match(notAFunction.call.state.value.diagnostics[0]!.message, /does not decode as a function/);
+      assert.deepEqual(await storage.objects.read(REPO, notAFunction.functionObject), garbled, 'naming the program as sent');
+
+      const arity = await startOneShot(oneShot(sum, [variant('value', encodeInt(1n))]));
+      if (arity.call.state.type !== 'invalid') assert.fail(`filed ${arity.call.state.type}`);
+      assert.equal(arity.call.state.value.diagnostics[0]!.message, 'Expected 2 argument(s), got 1');
+      assert.equal(arity.call.expiresAt.getTime(), T + FAILED_MS, 'kept as a failure is');
+      const status = await functionCallStatus(storage, REPO, arity);
+      assert.ok(status.type === 'completed' && status.value.outcome.type === 'invalid');
+    });
   });
 });

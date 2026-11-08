@@ -23,7 +23,8 @@
  *   split call that reports none has its pieces counted by its explain once
  *   it has answered (#1132);
  * - **one at a time**: a new run gives the one before up by its signal, which
- *   cancels its split call's job, so e3 stops its units (#1104), and a run
+ *   cancels its split call's job, so e3 stops its units (#1104), or its one
+ *   call, which e3 keeps as a call of the workspace and stops; and a run
  *   given up has its answer dropped when it lands; while it goes, the run
  *   names the data sources it reads. The builder going gives up the run in
  *   flight too, and its coming back — React's mount → unmount → mount, a
@@ -366,9 +367,12 @@ function pagedInstead(
  * final step, goes on as that split call (`weighPlan`'s `tooLarge`), so its
  * result is read a page at a time too.
  *
- * A new run gives the one before up by its signal, and so does the builder
- * going — unmounted, or hidden: its split call stops polling, its job is
- * cancelled, so e3 stops its units (#1104), and its answer is dropped when it
+ * A one call is a run's (`QueryCall`'s `run`): e3 starts and keeps it as a call
+ * of the workspace, listed among its calls, so it runs as long as its limits
+ * allow, never a request's deadline. A new run gives the one before up by its
+ * signal, and so does the builder going — unmounted, or hidden: its one call
+ * is asked to stop, and its split call stops polling and its job is
+ * cancelled, so e3 stops its units (#1104); and its answer is dropped when it
  * lands. The builder's coming back starts that run again, under its number:
  * React's development check of a component's effects, which mounts it,
  * unmounts it and mounts it again, would otherwise fail the run a saved query
@@ -477,7 +481,8 @@ export function useQueryRun(
                 }
                 let answer: ExecuteResult;
                 try {
-                    answer = await call(planned.prepared.request);
+                    // Started as a call of the workspace, held to no request's deadline, and stopped once the run is given up
+                    answer = await call(planned.prepared.request, { run: true, signal: controller.signal });
                 } catch (err) {
                     if (live()) failed(refusedBy(err, false) ? "refused" : "unreachable", messageOf(err), planned);
                     return;

@@ -25,18 +25,30 @@ const WS = 'calls-ws';
 const HOUR_MS = 60 * 60 * 1000;
 const jobEqual = equalFor(FunctionCallJobType);
 
+/** What {@link filed} files. */
+interface Filed {
+  id?: string;
+  /** The function's name (default `quote`); `null` for a one-shot started as a call, which names none and no package */
+  function?: string | null;
+  functionObject?: string;
+  expiresAt?: Date;
+  args?: FunctionCallJob['call']['args'];
+  inputs?: FunctionCallJob['call']['inputs'];
+}
+
 /** A call as it starts, in a workspace: running, and kept for an hour unless told otherwise. */
-function filed(workspace: string, options: { id?: string; function?: string; expiresAt?: Date; args?: FunctionCallJob['call']['args']; inputs?: FunctionCallJob['call']['inputs'] } = {}): FunctionCallJob {
+function filed(workspace: string, options: Filed = {}): FunctionCallJob {
   const now = Date.now();
+  const fn = options.function === undefined ? 'quote' : options.function;
   return {
     call: {
       id: options.id ?? uuidv7(),
-      function: options.function ?? 'quote',
+      function: fn === null ? none : some(fn),
       caller: some('ada@example.com'),
       startedAt: new Date(now),
       endedAt: none,
       state: variant('running', null),
-      package: { name: 'calls-pkg', version: '1.0.0' },
+      package: fn === null ? none : some({ name: 'calls-pkg', version: '1.0.0' }),
       args: options.args ?? [],
       inputs: options.inputs ?? [],
       limits: { timeoutMs: 60_000n, maxResultBytes: 1024n, maxLogBytes: 1024n },
@@ -47,7 +59,7 @@ function filed(workspace: string, options: { id?: string; function?: string; exp
       stderrTruncated: false,
     },
     workspace,
-    functionObject: 'f'.repeat(64),
+    functionObject: options.functionObject ?? 'f'.repeat(64),
     runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
     verbose: false,
     deadline: new Date(now + 60_000),
@@ -155,19 +167,26 @@ export function functionCallStoreTests(setup: BackendSetup): void {
 
     it("lists a workspace's calls the latest first, a page at a time, a function's or a state's alone", async (t) => {
       const { storage, repo } = await setup(t);
-      const jobs = [filed(WS, { function: 'quote' }), filed(WS, { function: 'price' }), filed(WS, { function: 'quote' }), filed(WS, { function: 'quote' })];
+      const jobs = [
+        filed(WS, { function: 'quote' }), filed(WS, { function: 'price' }), filed(WS, { function: 'quote' }), filed(WS, { function: 'quote' }),
+        filed(WS, { function: null }),
+      ];
       for (const job of jobs) await storage.calls.create(repo, job);
       await storage.calls.create(repo, filed('other-ws'));
       await storage.calls.end(repo, WS, jobs[2]!.call.id, ending(variant('failed', { exitCode: 2n })));
       const latestFirst = jobs.map((job) => job.call.id).reverse();
 
-      assert.deepEqual(await listAll(storage, repo, WS, { limit: 10 }), latestFirst, 'the latest first, and none of another workspace');
+      assert.deepEqual(await listAll(storage, repo, WS, { limit: 10 }), latestFirst, 'the latest first, a one-shot among them, and none of another workspace');
       assert.deepEqual(await listAll(storage, repo, WS, { limit: 2 }), latestFirst, 'page by page, each from the last one\'s next');
       const first = await storage.calls.list(repo, WS, { limit: 2 });
       assert.ok(first.next !== undefined, 'a page that leaves calls before it names its next');
       assert.deepEqual(await listAll(storage, repo, WS, { limit: 10, function: 'price' }), [jobs[1]!.call.id]);
       assert.deepEqual(await listAll(storage, repo, WS, { limit: 10, state: 'failed' }), [jobs[2]!.call.id]);
-      assert.deepEqual(await listAll(storage, repo, WS, { limit: 10, function: 'quote', state: 'running' }), [jobs[3]!.call.id, jobs[0]!.call.id]);
+      assert.deepEqual(await listAll(storage, repo, WS, { limit: 10, function: 'quote', state: 'running' }), [jobs[3]!.call.id, jobs[0]!.call.id],
+        'a one-shot, which names no function, is no function\'s call');
+      assert.deepEqual(await listAll(storage, repo, WS, { limit: 10, state: 'running' }), [jobs[4]!.call.id, jobs[3]!.call.id, jobs[1]!.call.id, jobs[0]!.call.id]);
+      const oneShot = await storage.calls.get(repo, WS, jobs[4]!.call.id);
+      assert.ok(oneShot !== null && jobEqual(oneShot, jobs[4]!), 'a one-shot reads back as filed: no function, no package');
       assert.deepEqual(await listAll(storage, repo, 'empty-ws', { limit: 10 }), []);
       await assert.rejects(storage.calls.list(repo, WS, { limit: 0 }), RangeError);
     });
@@ -188,21 +207,25 @@ export function functionCallStoreTests(setup: BackendSetup): void {
       assert.ok((await storage.calls.get(repo, WS, gone.call.id)) === null, 'its id is free once it has expired');
     });
 
-    it('roots what a kept call names for gc: its value arguments, the versions it read and its value, and nothing of an expired call', async (t) => {
+    it('roots what a kept call names for gc: its function object, its value arguments, the versions it read and its value, and nothing of an expired call', async (t) => {
       const { storage, repo } = await setup(t);
       await workspaceCreate(storage, repo, WS);
-      const [arg, dataset, input, value, expired] = ['1', '2', '3', '4', '5'].map((digit) => digit.repeat(64));
+      const [fnObject, arg, dataset, input, value, oneShot, expired, expiredFn] = ['1', '2', '3', '4', '5', '6', '7', '8'].map((digit) => digit.repeat(64));
       const job = filed(WS, {
+        functionObject: fnObject!,
         args: [variant('value', arg!), variant('dataset', { path: [variant('field', 'inputs'), variant('field', 'sales')], hash: dataset! })],
         inputs: [{ path: [variant('field', 'inputs'), variant('field', 'rate')], hash: input! }],
       });
       await storage.calls.create(repo, job);
       await storage.calls.end(repo, WS, job.call.id, ending(variant('succeeded', { value: value! })));
-      await storage.calls.create(repo, filed(WS, { args: [variant('value', expired!)], expiresAt: new Date(Date.now() - 1) }));
+      // A one-shot's function object, its program's, which no package names: the call alone keeps it
+      await storage.calls.create(repo, filed(WS, { function: null, functionObject: oneShot! }));
+      await storage.calls.create(repo, filed(WS, { functionObject: expiredFn!, args: [variant('value', expired!)], expiresAt: new Date(Date.now() - 1) }));
 
       const roots = await collectAllRoots(storage.repos, repo);
-      for (const hash of [arg, dataset, input, value]) assert.ok(roots.has(hash!), `the kept call roots ${hash!.slice(0, 1)}…`);
+      for (const hash of [fnObject, arg, dataset, input, value, oneShot]) assert.ok(roots.has(hash!), `the kept calls root ${hash!.slice(0, 1)}…`);
       assert.equal(roots.has(expired!), false, 'an expired call roots nothing');
+      assert.equal(roots.has(expiredFn!), false, 'not even its function object');
     });
 
     it("removes a workspace's calls with it, so a workspace made again under its name has none", async (t) => {

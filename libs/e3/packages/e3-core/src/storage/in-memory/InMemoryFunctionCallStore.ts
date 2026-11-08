@@ -82,7 +82,8 @@ export class InMemoryFunctionCallStore implements FunctionCallStore, InMemoryRep
     for (const [at, id] of ids.entries()) {
       const job = this.live(`${prefix}${id}`);
       if (job === null) continue;
-      if (options.function !== undefined && job.call.function !== options.function) continue;
+      // A function's calls: a one-shot names none
+      if (options.function !== undefined && !(job.call.function.type === 'some' && job.call.function.value === options.function)) continue;
       if (options.state !== undefined && job.call.state.type !== options.state) continue;
       calls.push(job);
       // A full page names the next while calls are left before its last

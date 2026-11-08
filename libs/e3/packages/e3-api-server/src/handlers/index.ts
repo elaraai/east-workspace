@@ -99,6 +99,7 @@ export {
 
 export {
   startFunctionCall,
+  startOneShotCall,
   callFunctionInWorkspace,
   getFunctionCallStatus,
   cancelFunctionCall,
