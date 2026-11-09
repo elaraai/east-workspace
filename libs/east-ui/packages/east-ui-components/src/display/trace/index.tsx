@@ -12,10 +12,11 @@
  */
 
 import { memo, Fragment, useEffect, useMemo } from "react";
-import { Box as ChakraBox, useSlotRecipe } from "@chakra-ui/react";
+import { Box as ChakraBox, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Trace } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { resolveColor } from "../../collections/shared/helpers.js";
 import { useDensity, type Density } from "../../contracts/density";
 import { usePlotGutter } from "../../contracts/plot-gutter.js";
 import { useFormatters } from "../../format/index.js";
@@ -61,6 +62,7 @@ export interface EastChakraTraceProps {
 }
 
 export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey }: EastChakraTraceProps) {
+    const system = useChakraContext();
     const recipe = useSlotRecipe({ key: "trace" });
     const inheritedDensity = useDensity();
     const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
@@ -75,7 +77,8 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     const axis = useMemo(() => getSomeorUndefined(value.axis), [value.axis]);
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const ownHue = style ? getSomeorUndefined(style.brandColor) : undefined;
-    const brandHue = ownHue ?? "var(--chakra-colors-brand-600)";
+    // An author's hue is a theme colour's name (`"accent.purple"`) or a CSS colour.
+    const brandHue = ownHue === undefined ? "var(--chakra-colors-brand-600)" : resolveColor(system, ownHue);
     // The brand scale in the theme's own hue is the design system's heat ramp, the categorical scale its series hues
     // built the same way, and the diverging scale the brand's ramp below each track's midpoint and the warning hue's
     // above it, all drawn by the recipe from each step's level, so their values read on their fills in both themes; an

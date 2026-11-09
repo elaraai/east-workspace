@@ -221,3 +221,28 @@ describe("Trace's diverging scale: the brand below each track's midpoint, the wa
         expect(above.map((s) => [declaredStyle(s, "background"), s.style.color, s.style.borderColor])).toEqual(Array.from({ length: 9 }, () => [undefined, "", ""]));
     });
 });
+
+describe("Trace's brandColor: a theme colour's name, or a CSS colour", () => {
+    /** One track either side of its midpoint, 5, the last two predicted. */
+    const tracks = [{ name: "A", values: [0, 2, 4, 6, 8, 10] }];
+    const stepsOf = (container: HTMLElement) => [...gridOf(container).querySelectorAll<HTMLElement>("[title$='measured'], [title$='predicted']")];
+    const hued = (scale: TraceValue["scale"], color: string) => render(
+        <ChakraProvider value={system}>
+            <EastChakraTrace value={traceValue(tracks, {
+                scale,
+                now: some(4n),
+                style: some({ brandColor: some(color), nowLineColor: none, labelWidth: none, plotGutter: none }),
+            })} storageKey={`hued.${color}`} />
+        </ChakraProvider>,
+    );
+
+    test("a theme colour's name fills the brand scale's steps, and the diverging scale's below the midpoint, in that colour", () => {
+        const drawn = (s: HTMLElement) => declaredStyle(s, "background")?.includes("var(--chakra-colors-accent-purple)") === true;
+        expect(stepsOf(hued(none, "accent.purple").container).map(drawn)).toEqual(Array.from({ length: 6 }, () => true));
+        cleanup();
+        const diverging = stepsOf(hued(some(variant("diverge", null)), "accent.purple").container);
+        expect(diverging.map((s) => [s.textContent, s.getAttribute("data-side") ?? (drawn(s) ? "purple" : "none")])).toEqual([
+            ["0", "purple"], ["2", "purple"], ["4", "purple"], ["6", "above"], ["8", "above"], ["10", "above"],
+        ]);
+    });
+});

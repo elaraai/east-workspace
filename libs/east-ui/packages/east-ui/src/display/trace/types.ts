@@ -66,7 +66,7 @@ export type TraceTrackType = typeof TraceTrackType;
 /**
  * Visual escape hatches for a Trace.
  *
- * @property brandColor - Override the heat hue of the `brand` scale and of the `diverge` scale's cool side, below each track's midpoint
+ * @property brandColor - Override the heat hue of the `brand` scale and of the `diverge` scale's cool side, below each track's midpoint: a theme colour's name (`"accent.purple"`) or a CSS colour
  * @property nowLineColor - Override the colour of the now-line
  * @property labelWidth - Width of the left-hand track-name gutter (any CSS length); omit for the density default
  * @property plotGutter - Shared plot gutter (#147): pins the lane to `[left, W−right]` so a stacked Chart/Trace line up. `left` supersedes `labelWidth`; presence makes the lane fill the container (flexible steps)
@@ -124,7 +124,7 @@ export interface TraceTrack {
  * @property scale - Heat-fill colour encoding
  * @property future - How predicted steps are distinguished
  * @property axis - Optional per-step labels (ruler at `comfortable`, step tooltips at every density)
- * @property brandColor - Override the heat hue of the `brand` scale and of the `diverge` scale's cool side, below each track's midpoint
+ * @property brandColor - Override the heat hue of the `brand` scale and of the `diverge` scale's cool side, below each track's midpoint: a theme colour's name (`"accent.purple"`) or a CSS colour
  * @property nowLineColor - Override the colour of the now-line
  */
 export interface TraceOptions {
@@ -138,7 +138,7 @@ export interface TraceOptions {
     future?: SubtypeExprOrValue<TraceFutureType> | TraceFutureLiteral;
     /** Optional per-step labels (ruler at `comfortable`, step tooltips always). */
     axis?: SubtypeExprOrValue<ArrayType<StringType>>;
-    /** Override the heat hue of the `brand` scale and of the `diverge` scale's cool side, below each track's midpoint. */
+    /** Override the heat hue of the `brand` scale and of the `diverge` scale's cool side, below each track's midpoint: a theme colour's name (`"accent.purple"`) or a CSS colour. */
     brandColor?: SubtypeExprOrValue<StringType>;
     /** Override the colour of the now-line. */
     nowLineColor?: SubtypeExprOrValue<StringType>;
