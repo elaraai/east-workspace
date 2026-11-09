@@ -232,13 +232,13 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         }
         return { kind: "several", rs, r0: rect.r0, r1: rect.r1 };
     }, [ringless, selSel, selEnd, rowAt, placeAt]);
-    const inspectWrite = useCallback((writes: readonly SheetInspectWrite[], joins?: string) => {
-        if (!canEdit || !editingState.available) return;
+    const inspectWrite = useCallback((writes: readonly SheetInspectWrite[], joins?: string): SheetCellRefusalWord | undefined => {
+        if (!canEdit || !editingState.available) return undefined;
         gestureEvents.current = [];
         const cellWrites: CellWrite[] = [];
         const draftEdits = new Map<string, DraftEdit>();
         const touched: { r: number; keys: string[] }[] = [];
-        // Why the first cell it leaves as it was is left: the footer says so.
+        // Why the first cell it leaves as it was is left: the footer says so, and the write answers it.
         let refused: SheetCellRefusalWord | undefined;
         for (const w of writes) {
             const it = rowAt(w.r);
@@ -307,7 +307,7 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         // A write every cell of which was refused is no gesture.
         if (cellWrites.length === 0 && draftEdits.size === 0) {
             if (said !== undefined) dispatchStore({ t: "patch", patch: { msg: said } });
-            return;
+            return refused;
         }
         if (cellWrites.length > 0) writeCells(cellWrites, "typed");
         try { recordGesture(gestureEvents.current, undefined, "typed", draftEdits, undefined, undefined, joins); }
@@ -322,6 +322,7 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
                 if (id !== undefined) requestRun(id, 0);
             }
         }
+        return refused;
     }, [canEdit, editingState.available, rowAt, group, allColumns, parseCtxFor, structOf, draftType, childField, writeCells, recordGesture, failed, copilotOn, triggers, idAt, requestRun, gestureEvents, dispatchStore]);
     const editInSheet = useCallback((r: number, key: string): boolean => {
         const c = columns.list.findIndex((col) => stringEqual(col.key, key));

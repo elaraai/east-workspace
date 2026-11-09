@@ -22,7 +22,8 @@
  *   where a row's fields show (IN8).
  *
  * Every edit is the Sheet's form's, written as the row's cell writes it: one
- * draft and one step of the history. A complete row given the author's own
+ * draft and one step of the history — or, refused by its cell, none, the field
+ * showing what the row holds and why under it. A complete row given the author's own
  * Details shows them in the form's place (SB58). A title opened, a copy made
  * and an issue gone to put the keyboard in their field (AD1, IN7, IN9): the
  * focus the Record asks for ({@link RecordInspector}). Several rows are the

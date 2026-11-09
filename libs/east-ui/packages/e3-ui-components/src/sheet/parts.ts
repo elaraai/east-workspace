@@ -16,6 +16,7 @@ import type { SystemStyleObject } from "@chakra-ui/react";
 import type { EditIssue, HistoryAction, LandingAttributes, ToolbarItem } from "@elaraai/east-ui-components";
 import type { PlaceholderKind, SlotStyles } from "@elaraai/east-ui-components/internal";
 import type { SheetColumnIndex, SheetColumnMeta, SheetRegisterIndex } from "./model.js";
+import type { SheetCellRefusalWord } from "./messages.js";
 import type { SheetNotice } from "./sheet-types.js";
 import type { EntryVersion, SheetTransactions } from "./transactions.js";
 import type { SheetDropHost } from "./drop.js";
@@ -536,8 +537,9 @@ export interface SheetInspect {
      * Write rows: every cell, text and field as one transaction, the copilot asked again for a row whose trigger column
      * changed. A write that `joins` the last one — given the same key — is one step of the history with it. Each cell
      * asks the grid's one check (#1560): a cell its mark locks takes none, nor one with no blank a clear (#1561).
+     * Returns why the first cell it left as it was is left, as the footer says it; `undefined` where none was.
      */
-    write: (writes: readonly SheetInspectWrite[], joins?: string) => void;
+    write: (writes: readonly SheetInspectWrite[], joins?: string) => SheetCellRefusalWord | undefined;
     /** Put the ring on a row's cell under a column the grid shows, and focus the grid; `false` when the grid does not show it. */
     editInSheet: (r: number, key: string) => boolean;
     /** Delete the rows (or lines) from `r0` to `r1`, as ⌫ on them does. */

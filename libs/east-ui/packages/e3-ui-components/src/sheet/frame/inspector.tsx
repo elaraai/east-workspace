@@ -21,8 +21,11 @@
  *   edit is one transaction, as typing in the cell is: a field with a column
  *   is written through its cell — the cells a patch of it sets, or a custom
  *   column's text read by its own parse — and asks the copilot again when its
- *   column is a trigger; a field with none is set on the draft (SB52). A
- *   field the drafts changed is tinted against what the source holds. With
+ *   column is a trigger; a field with none is set on the draft (SB52). An
+ *   edit its cell refuses — a clear of a value that is never empty — leaves
+ *   the field showing what the row holds, the reason under it as the footer's
+ *   line says it. A field the drafts changed is tinted against what the
+ *   source holds. With
  *   the author's own Details (SB58), a complete row shows what they return in
  *   place of the form, and their `update` is one transaction; a row still
  *   missing a field, or holding one unreadable, shows the form until it is
@@ -365,8 +368,8 @@ export interface TargetForm {
     formValue: Record<string, unknown>;
     /** What the record holds, as the value holds the draft: a field that differs is tinted. */
     baseline: Record<string, unknown>;
-    /** An edit of a field, written as typing in the grid writes it. */
-    onChange: (path: readonly string[], next: unknown) => void;
+    /** An edit of a field, written as typing in the grid writes it: why its cell refused it, in the Sheet's words, where it did. */
+    onChange: (path: readonly string[], next: unknown) => string | void;
     /** The controls the form takes from the grid: a link's or a set's halves, an action's state, a member's label. */
     renderControl: (spec: FieldSpecValue) => ReactNode | undefined;
     /** The form's struct. */
@@ -396,7 +399,11 @@ export function useTargetForm({ value, words, hidden, styles, inspect, target, f
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const r = target.r;
-    const write = useCallback((writes: readonly SheetInspectWrite[]) => inspect.write(writes, joins), [inspect, joins]);
+    // A write, and why its cell refused it in the Sheet's words — what the field says under it.
+    const write = useCallback((writes: readonly SheetInspectWrite[]): string | undefined => {
+        const refused = inspect.write(writes, joins);
+        return refused === undefined ? undefined : m.cellRefused(refused);
+    }, [inspect, joins, m]);
     const struct = useMemo(() => fromEastTypeValue(form.type) as StructType, [form.type]);
     const encodePatch = useMemo(() => encodeBeast2For(Sheet.Types.Patch(struct)), [struct]);
     const registers = useMemo(() => indexRegisters(value.sheet.registers), [value.sheet.registers]);
@@ -497,49 +504,40 @@ export function useTargetForm({ value, words, hidden, styles, inspect, target, f
         return { formValue: current, baseline: began };
     }, [target, form.fields, metaOf, inspect, r, words, members]);
 
-    const onChange = useCallback((path: readonly string[], next: unknown) => {
+    const onChange = useCallback((path: readonly string[], next: unknown): string | undefined => {
         // A member's line: its cell, written as typing in it writes it — the column's `write` over the field as drafted
         // so far; emptied, the blank cell, which the write refuses where a clear writes nothing.
         const member = path.length === 1 ? memberOf.get(path[0]!) : undefined;
         if (member !== undefined) {
             const held = takesClear(member) ? getSomeorUndefined(next as option<unknown>) : next;
-            if (member.kind === "custom") {
-                write([{ r, texts: new Map([[member.key, held === undefined ? "" : held as string]]) }]);
-                return;
-            }
+            if (member.kind === "custom") return write([{ r, texts: new Map([[member.key, held === undefined ? "" : held as string]]) }]);
             const blank = held === undefined || (editorOf(member).type === "text" && stringEqual(held as string, ""));
-            write([{ r, cells: new Map([[member.key, blank ? NULL_CELL : cellOfPayload(fromEastTypeValue(member.raw.payloadType) as EastType, held)]]) }]);
-            return;
+            return write([{ r, cells: new Map([[member.key, blank ? NULL_CELL : cellOfPayload(fromEastTypeValue(member.raw.payloadType) as EastType, held)]]) }]);
         }
         const f = byPath.get(pathKey(path));
-        if (f === undefined) return;
+        if (f === undefined) return undefined;
         const key = getSomeorUndefined(f.column);
         const name = path[0]!;
         if (key !== undefined) {
             const meta = inspect.columnAt(r, key);
-            if (meta === undefined) return;
+            if (meta === undefined) return undefined;
             // A custom column reads its text with its own parse, as typing in its cell does.
             if (meta.kind === "custom") {
                 const text = f.spec.optional ? getSomeorUndefined(next as option<string>) ?? "" : next as string;
-                write([{ r, texts: new Map([[key, text]]) }]);
-                return;
+                return write([{ r, texts: new Map([[key, text]]) }]);
             }
             // Emptied, a field is the blank cell, as typing nothing in the cell is.
             const held = f.spec.optional ? getSomeorUndefined(next as option<unknown>) : next;
-            if (held === undefined || (f.spec.editor.type === "text" && stringEqual(held as string, ""))) {
-                write([{ r, cells: new Map([[key, NULL_CELL]]) }]);
-                return;
-            }
+            if (held === undefined || (f.spec.editor.type === "text" && stringEqual(held as string, ""))) return write([{ r, cells: new Map([[key, NULL_CELL]]) }]);
             // The cells a patch of the one field sets, through the column's projection.
-            write([{ r, cells: form.encode(encodePatch(patchOne(struct, name, next) as never)) }]);
-            return;
+            return write([{ r, cells: form.encode(encodePatch(patchOne(struct, name, next) as never)) }]);
         }
         // No column: the field on the draft — a nested field rebuilt under its struct, and a case's value under its
         // variant while it holds that case (#1549), from its type's default when the field has none yet.
-        if (path.length === 1) { write([{ r, fields: new Map([[name, next]]) }]); return; }
+        if (path.length === 1) return write([{ r, fields: new Map([[name, next]]) }]);
         const fieldType = (struct.fields as Record<string, EastType>)[name]!;
         const top = target.value?.[name] ?? defaultValue(fieldType);
-        write([{ r, fields: new Map([[name, setAt(top, path.slice(1), next)]]) }]);
+        return write([{ r, fields: new Map([[name, setAt(top, path.slice(1), next)]]) }]);
     }, [byPath, inspect, r, struct, form, encodePatch, target.value, write, memberOf, editorOf]);
 
     // A link or set field: its halves as the grid draws them, and Edit in sheet (SB48) — a member's line's too.
