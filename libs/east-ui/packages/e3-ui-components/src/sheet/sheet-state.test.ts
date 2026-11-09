@@ -1082,6 +1082,21 @@ describe("a grid a host draws", () => {
         ]);
     });
 
+    test("a ⇧ press on a cell no step reaches — an owned row's, a read-only one, a locked one — stretches the range to it, and the ring stays", () => {
+        // The cycle and the toggle take no gesture; the text beside them does.
+        const ctx = hostCtxOf({ editableAt: (_r, c) => c === 2 });
+        const placed = run(unplaced(), [{ t: "cell.down", r: 0, c: 2, shift: false }], ctx).state;
+        for (const c of [1, 3]) {
+            const stretched = run(placed, [{ t: "cell.down", r: 1, c, shift: true }], ctx);
+            expect(stretched.state).toMatchObject({ sel: { r: 0, c: 2 }, selEnd: { r: 1, c } });
+            expect(stretched.effects).toEqual([]);
+        }
+        // A press alone takes the ring there, and steps nothing.
+        const pressed = run(placed, [{ t: "cell.down", r: 1, c: 1, shift: false }], ctx);
+        expect(pressed.state).toMatchObject({ sel: { r: 1, c: 1 }, selEnd: null });
+        expect(writesOf(pressed)).toEqual([]);
+    });
+
     test("a cell that edits out of place opens through the host on a press, ⏎ or F2 — the ring on it, and never an editor", () => {
         const ctx = hostCtxOf();
         const pressed = run(unplaced(), [{ t: "cell.down", r: 1, c: 0, shift: false }], ctx);

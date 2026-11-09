@@ -59,7 +59,9 @@
  *   fill or the selected proposal rejects it and remembers.
  * - **Cells that step in place (#1531)** — a Record's cycle, toggle and
  *   boolean: a press, Space or ⏎ takes the next state (⇧ the one before),
- *   ⌫ a cycle's first and a member's key sets it; none opens an editor. A
+ *   ⌫ a cycle's first and a member's key sets it; none opens an editor. One
+ *   no step reaches — an owned row's, a read-only one, a locked one — takes a
+ *   ⇧ press as any other cell does: the range stretches to it. A
  *   cell that edits out of place — a Record's title — opens through the host
  *   on a press, ⏎ or F2. A grid a host draws opens with no ring: a press
  *   places it, or the first move key, on the first row's first cell that
@@ -561,14 +563,17 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
             const effects = closed.effects;
             // A cell that steps in place (#1531): the press takes its next state, ⇧ the one before — never a range. With
-            // no ring placed, a ⇧ press has no range to stretch, and places the ring as a press does.
+            // no ring placed, a ⇧ press has no range to stretch, and places the ring as a press does. A cell no step
+            // reaches — an owned row's, a read-only one, one its mark locks — is any other cell to a ⇧ press: had it
+            // moved the ring, the range the press means to stretch would be gone.
             const stepped = ctx.stepAt?.(e.r, e.c, e.shift ? -1 : 1);
-            if (e.shift && stepped === undefined && !closed.state.ringless) {
+            const steps = stepped !== undefined && ctx.editableAt(e.r, e.c);
+            if (e.shift && !steps && !closed.state.ringless) {
                 return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: e.c }, ctx), gsel: null }, effects };
             }
             const moved = moveTo(closed.state, { r: e.r, c: e.c }, ctx, effects, false);
             effects.push({ t: "focus.sheet" });
-            if (stepped !== undefined && ctx.editableAt(e.r, e.c)) {
+            if (steps) {
                 // The editor's commit is its own undo step, the step another.
                 if (s.edit !== null) effects.push({ t: "gesture.end" });
                 effects.push({ t: "write", r: e.r, c: e.c, cell: stepped, text: "" });
