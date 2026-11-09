@@ -384,7 +384,9 @@ component, nothing in east-ui.
   The other pane's rail stays out from under it. A pane its host sets to
   `overlay` on a wider frame floats over a live main. While a drag is under
   way an open overlay pane slides off main and its scrim lifts, so it never
-  hides a drop target.
+  hides a drop target; the frame hears of a drag only while one is open
+  (`OverlayDragWatch`), so a frame with none draws nothing as a drag starts
+  and ends (#1594).
 - **A phone's frame** (560px or narrower, `data-phone`; `Mobile Builder
   Frame Spec.md` in `libs/east-ui/docs/proposals`, ruled 3 Nov 2026) stacks
   its regions and gives main the frame's whole width. The items that draw a
@@ -437,11 +439,17 @@ component, nothing in east-ui.
   its host again for it. A part drawn a thousand times at once — the
   Calendar timeline's event blocks, as a month of them mounts — draws plain
   elements of its slots' classes (`useSlotClass`, `./internal`): each slot's
-  styles made a class once for the theme, the class Chakra gives an element
-  drawn with them, its rules inserted in the page's emotion cache once.
+  styles made a class once for the theme, with the rules Chakra gives an
+  element drawn with them, inserted in the page's emotion cache once.
   Chakra's styled element works its styles out again at every element it
   draws — its css function keys its cache by the whole style object, printed,
-  and emotion serialises and hashes what that gives.
+  and emotion serialises and hashes what that gives — and makes a class of
+  its own, so a class made ahead serves only an element drawn with it. What a
+  gesture draws — a drag's ghost, a drop's preview — is one of those, its
+  class made as the page is drawn (the Library's `useCardGhost`, #1594): a
+  rule added as a drag starts invalidates every font in the page in Chromium,
+  since Chakra writes each in a cascade layer, and a first drag worked out
+  the whole page's styles and laid all of it out again.
 - **Retained content** (#1398, CL8). What a builder keeps on screen while it
   reads again — a period stepped to, a narrowing, a new revision — is
   `aria-disabled`, never `inert`, in an `aria-busy` region: readable,

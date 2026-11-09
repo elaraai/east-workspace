@@ -64,7 +64,9 @@ import type { E3Request } from "../e3-web.test-utils.js";
 import { eventKey, resourceKey, DAY } from "./model.js";
 import { TIMELINE_GUTTER, timelinePixels } from "./timeline.js";
 import type { CalendarCommands } from "./actions.js";
-import "./index.js";
+import { setCalendarFrameRenderProbe } from "./index.js";
+import { setCalendarDetailsRenderProbe } from "./inspector.js";
+import { setEventFaceRenderProbe, setTimelineRowRenderProbe } from "./views.js";
 
 /** The placements the Calendar's commands were asked for: each a drag checked where it rests, and each one made. */
 const placed = vi.hoisted(() => ({ checks: 0, made: 0 }));
@@ -963,5 +965,51 @@ describe("a template carried over the timeline of 2,000 paged presses (#1594)", 
         expect(landing(), "resting on Press 1004's row").toEqual([row("P-1004")]);
         await letGo(thursday, 150);
         expect(landing(), "let go").toEqual([]);
+    });
+
+    test("picking a card up and carrying it over a row draw no event's face again", async () => {
+        const { container: c } = await h.mount(windowsTemplates, { storageKey: "windows-lift" });
+        await settle();
+        const { card, x } = layOutRows(c, ["P-1003", "P-1004"]);
+        expect(c.querySelectorAll("[data-calendar-event]").length, "events drawn").toBeGreaterThan(0);
+        let faces = 0;
+        setEventFaceRenderProbe(() => { faces += 1; });
+        try {
+            await pickUp(card);
+            expect([document.querySelector("[data-drag-ghost]") !== null, faces], "as it is picked up").toEqual([true, 0]);
+            await moveTo(x("2026-10-08T06:00:00Z"), 150);
+            expect([c.querySelectorAll("[data-calendar-landing]").length, faces], "resting on a row").toEqual([1, 0]);
+        } finally {
+            setEventFaceRenderProbe(undefined);
+        }
+        await letGo(x("2026-10-08T06:00:00Z"), 150);
+    });
+
+    test("a drop draws again the row it lands on and no other, draws the frame twice — its gesture, then what it changed read — and an event's Details only once that has been drawn", async () => {
+        const { container: c } = await h.mount(windowsTemplates, { storageKey: "windows-drop-draws" });
+        await settle();
+        const { card, x } = layOutRows(c, ["P-1003", "P-1004"]);
+        await pickUp(card);
+        const thursday = x("2026-10-08T06:00:00Z");
+        await moveTo(thursday, 150);
+        const rows = new Set<string>();
+        let frames = 0;
+        /** The jobs drawn as drafted at each drawing of the Details: nothing yet, had they been drawn in the drop's own pass. */
+        const draftedAtDetails: number[] = [];
+        setTimelineRowRenderProbe((row) => { rows.add(row); });
+        setCalendarFrameRenderProbe(() => { frames += 1; });
+        setCalendarDetailsRenderProbe(() => { draftedAtDetails.push(c.querySelectorAll("[data-calendar-event][data-drafted]").length); });
+        try {
+            await letGo(thursday, 150);
+            await waitFor(() => expect(draftedAtDetails.length).toBeGreaterThan(0));
+        } finally {
+            setTimelineRowRenderProbe(undefined);
+            setCalendarFrameRenderProbe(undefined);
+            setCalendarDetailsRenderProbe(undefined);
+        }
+        expect(c.querySelectorAll("[data-calendar-event][data-drafted]")).toHaveLength(1);
+        expect([...rows], "the rows drawn again").toEqual([resourceKey({ kind: "presses", key: "P-1004" })]);
+        expect(frames, "the frame's renders").toBe(2);
+        expect(draftedAtDetails[0], "drafted jobs drawn as the Details first draw").toBe(1);
     });
 });

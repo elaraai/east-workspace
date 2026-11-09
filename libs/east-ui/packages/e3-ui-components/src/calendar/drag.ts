@@ -44,9 +44,9 @@ interface DragArgs {
     activeTemplate: string | undefined; onError: (message: string | undefined) => void;
 }
 /**
- * No layer is registered in narrow or read-only mode. The same adapter while what it reads holds (#1398, CL9): what the
- * views draw with it draws again only as it changes — and its `grab` the same function while the adapter lives, so an
- * event's block, which calls it, draws again for none of the adapter's other moves.
+ * No layer is registered in narrow or read-only mode. The same object while its surface and whether it takes a drag hold
+ * (#1398, CL9; #1594), each of its answers read from the verdicts as they stand: what the views draw with it — a row that
+ * draws nothing again as a drop lands on another — asks the verdicts of now, and draws again for none of their moves.
  */
 export function useCalendarDrag(args: DragArgs): CalendarDrag {
     const { value, key, commands, narrow, items, backlog, served, selection, activeTemplate, onError } = args;
@@ -60,6 +60,8 @@ export function useCalendarDrag(args: DragArgs): CalendarDrag {
     const format = useFormatters();
     const drag = useMemo(() => calendarDrag({ value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grabbed, grab, format }),
         [value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grab, format]);
+    const live = useRef(drag);
+    live.current = drag;
     const { run } = drag;
     const target = useMemo(() => {
         if (!enabled) return null;
@@ -71,7 +73,15 @@ export function useCalendarDrag(args: DragArgs): CalendarDrag {
         };
     }, [enabled, key, value.library, run, onError]);
     useDragTarget(target);
-    return drag;
+    return useMemo((): CalendarDrag => ({ surface: key, enabled, grab,
+        run: (event, checkOnly) => live.current.run(event, checkOnly),
+        adjust: (instant, payload) => live.current.adjust(instant, payload),
+        wholeDay: (day, payload) => live.current.wholeDay(day, payload),
+        readTime: slot => live.current.readTime(slot),
+        preview: (coord, payload) => live.current.preview(coord, payload),
+        caption: (coord, payload, allowed) => live.current.caption(coord, payload, allowed),
+        create: (start, end, resource) => live.current.create(start, end, resource),
+    }), [key, enabled, grab]);
 }
 /**
  * The drag's verdicts over the period as it stands: what a drop runs, what a hover previews and what a press grabs.

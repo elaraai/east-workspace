@@ -23,6 +23,13 @@
  * and hashes what that gives — and a class made once costs an element
  * nothing.
  *
+ * What a gesture draws has its class made before the gesture, for the same
+ * call (#1594): Chakra writes every rule in a cascade layer, and in Chromium a
+ * rule added to a sheet with layers invalidates every font in the page, so the
+ * first ghost of a drag worked out the page's styles and laid all of it out
+ * again in the frame the drag began. A class made as the page mounts costs
+ * only what mounting costs.
+ *
  * @packageDocumentation
  */
 
@@ -102,9 +109,10 @@ function insertClass(cache: EmotionCache, serialized: SerializedStyles): string 
 }
 
 /**
- * The class of a slot's styles — the class Chakra gives an element drawn with them — made and inserted once for the
- * theme, for a part drawn many times at once to draw plain elements by (see the module docs). Its recipe owns every
- * style still; the element sets its class, its data attributes and its geometry.
+ * A class of a slot's styles — the rules Chakra gives an element drawn with them, under a class of its own, which only
+ * an element drawn with it uses — made and inserted once for the theme, for a part drawn many times at once to draw
+ * plain elements by (see the module docs). Its recipe owns every style still; the element sets its class, its data
+ * attributes and its geometry.
  *
  * @returns A slot's styles' class: the same string for every caller in the theme; `""` for none
  */

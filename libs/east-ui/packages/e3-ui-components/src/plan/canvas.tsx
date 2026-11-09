@@ -421,9 +421,11 @@ export function usePlanCanvas({
     const standIn = useMemo(() => initialEventLead(events), [events]);
     const [readLead, setLead] = useState<PlanEventLead | undefined>(undefined);
     const lead = readLead ?? standIn;
-    // A kind read by its cells (#1039) finds a gesture's event in the rows its cells hold.
+    // A kind read by its cells (#1039) finds a gesture's event in the rows its cells hold, as the gesture runs.
+    const heldCells = useRef(lead.cells?.held);
+    heldCells.current = lead.cells?.held;
     const eventEditing = usePlanEventEditing({
-        kinds, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: lead.cells?.held,
+        kinds, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: heldCells,
     });
     const history = eventEditing.history;
     historyRef.current = history;

@@ -16,8 +16,12 @@
  *
  * A number an event's row holds outside its field's bounds (#1585) is said in the tone its Save stands in: a warning
  * while the event stands as stored, an error once its session refuses its change, holding Save.
+ *
+ * What is selected is drawn a moment after what selected it (#1594): a drop's event shows on the board and the page paints,
+ * then its Details draw in a render of their own, which a pointer's next move can break into, so a form's many fields
+ * never hold up the drop itself.
  */
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useDeferredValue, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { BlobType, decodeBeast2For, equalFor, fromEastTypeValue, isValueOf, isVariant, none, some, OptionType, StringType, StructType, type ValueTypeOf } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui";
@@ -115,29 +119,56 @@ export function CalendarSelectionReader(props: Pick<InspectorArgs, "value" | "re
     });
     return null;
 }
+/** What the inspector shows: the selection read, and what its views edit it through. */
+type InspectorShown = InspectorArgs & { selection: CalendarSelection };
 /** The optional end pane displays the same by-key selection that commands edit. */
-export function useCalendarInspector(args: InspectorArgs & { selection: CalendarSelection }): BuilderFrameDock | undefined {
-    const { value, refs, selection: result } = args;
+export function useCalendarInspector(args: InspectorShown): BuilderFrameDock | undefined {
+    const { value, refs, range, commands, styles: frameStyles, storageKey, overlaps, select, selection, shown } = args;
     const recipe = useSlotRecipe({ key: "planInspector" });
-    const styles = { ...args.styles, ...recipe({}) } as unknown as CalendarStyles;
+    const styles = useMemo(() => ({ ...frameStyles, ...recipe({}) }) as unknown as CalendarStyles, [frameStyles, recipe]);
+    // One object while what the pane shows holds: its body draws it a moment later, and a new one would draw it again for nothing.
+    const drawn = useMemo((): InspectorShown => ({ value, refs, range, commands, styles: frameStyles, storageKey, overlaps, select, selection, shown }),
+        [value, refs, range, commands, frameStyles, storageKey, overlaps, select, selection, shown]);
     if (!value.inspector) return undefined;
-    const events = result.ok ? result.value : [];
+    const events = selection.ok ? selection.value : [];
     return { label: "Inspector", icon: "sliders", badge: String(refs.length), size: "320px", persist: "local", detail: events.length === 1 ? events[0]!.item.title : undefined, active: refs.length > 0,
-        body: <InspectorBody args={args} styles={styles} events={events} />,
+        body: <InspectorBody args={drawn} styles={styles} />,
     };
 }
-/** The pane's body: what is selected, in a region that keeps the keyboard as a control goes with its view — see the module docs. */
-function InspectorBody({ args, styles, events }: { args: InspectorArgs & { selection: CalendarSelection }; styles: CalendarStyles; events: Inspected[] }) {
-    const { refs, selection: result } = args;
+/** The pane's body: a region that keeps the keyboard as a control goes with its view, and what is selected drawn a moment after what selected it — see the module docs. */
+function InspectorBody({ args, styles }: { args: InspectorShown; styles: CalendarStyles }) {
+    const shown = useDeferredValue(args);
     const home = useFocusHome();
     return <Box ref={home.ref} css={styles.root} onFocus={home.onFocus} onBlur={home.onBlur} data-calendar-inspector="">
+        <InspectorViews args={shown} styles={styles} />
+    </Box>;
+}
+/** What is selected: none, one event's Details or several's. Drawn only as it moves, never in the pass that moved it. */
+const InspectorViews = memo(function InspectorViews({ args, styles }: { args: InspectorShown; styles: CalendarStyles }) {
+    const { refs, selection: result } = args;
+    const events = result.ok ? result.value : [];
+    return <>
         {!result.ok && <Box role="alert" css={args.styles.error}>The selected event could not be read.</Box>}
         {events.length === 0 && <Box css={styles.empty} {...FOCUS_HOME_PROPS}><Box css={styles.emptyTitle}>{refs.length > 0 ? "Reading selection…" : "Nothing selected"}</Box><Box css={styles.emptyHint}>Select an event to inspect its schedule and fields.</Box></Box>}
         {events.length === 1 && <OneEvent key={eventKey(events[0]!.item)} {...args} styles={styles} event={events[0]!} />}
         {events.length > 1 && <ManyEvents {...args} styles={styles} events={events} />}
-    </Box>;
+    </>;
+});
+/**
+ * Test-only render probe — lets "an event's Details draw once what the drop made it has been drawn" be asserted as the
+ * Details' own renders (#1594). `undefined` outside tests.
+ */
+let detailsRenderProbe: (() => void) | undefined;
+/**
+ * Install (or clear) the Details render probe. Test use only.
+ *
+ * @param fn - Called each time one event's Details render; `undefined` clears it
+ */
+export function setCalendarDetailsRenderProbe(fn: (() => void) | undefined): void {
+    detailsRenderProbe = fn;
 }
 function OneEvent({ event, value, shown, styles, commands, storageKey, range, overlaps, select }: InspectorArgs & { event: Inspected }) {
+    detailsRenderProbe?.();
     const { kind, item } = event;
     const format = useFormatters();
     const rowType = useMemo(() => fromEastTypeValue(kind.editing.entryType) as StructType, [kind.editing.entryType]);

@@ -1491,6 +1491,29 @@ its preview go as the drag leaves it, lets go or is cancelled (`views.tsx`'
 first where the drop landed before (`calendar-windows.dom.test.tsx`, the
 showcase's `calendar.spec.ts`).
 
+Picking something up and putting it down draw only what they move (#1594). The
+frame hears of a drag only while an overlay pane is open, the one thing a drag
+moves there (east-ui-components' `OverlayDragWatch`). A Library card and an
+event's block are a thin shell, which holds the drag handle, around a memo of
+their face (`LibraryCardFace`, `LibraryGalleryFace`, `views.tsx`'
+`EventBlockFace`), so a handle starting or ending a drag draws no face again.
+What a drag asks of the Calendar it reads as it runs (`calendar/drag.ts`' one
+object while its surface and whether it takes a drag hold, and
+`useScheduleEditing`'s `held`, a ref), so neither a drag nor a landing's cells
+makes any row draw. The Inspector
+draws what is selected a moment after what selected it (`inspector.tsx`'
+`useDeferredValue`): a drop's event shows on the board and the page paints,
+then its Details draw in a render of their own. And a page's first drag adds
+no rule to the page's styles: Chakra writes every rule in a cascade layer, and
+in Chromium a rule added to a sheet with layers invalidates every font in the
+page, so the first ghost of a drag worked out the styles of all of it and laid
+it all out again. A drag's ghosts and a lane's preview are plain elements of
+classes made as the views are drawn (`useSlotClass`, `move-ghost.tsx`'
+`useMoveGhostClasses`), never Chakra's styled elements, whose class is their
+own. The showcase's `calendar-first-drag.spec.ts`, on a page of its own, holds
+that nothing is added as a card or an event is picked up, or carried. The
+Roster's, the Allocation's and the Plan's ghosts do not make theirs ahead yet.
+
 Keep a proposal's compact placement and detailed explanation separate in the
 existing regions: a dashed single-line chip in the desktop grid, the complete
 reason and labelled actions in Details, and explicit-action cards on phones.

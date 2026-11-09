@@ -451,6 +451,23 @@ function unmeasured(start: BuilderFramePane | undefined, end: BuilderFramePane |
 }
 
 /**
+ * Tells the frame whether a drag is under way, while an overlay pane is open (#1594): the pane slides off main and its
+ * scrim lifts for it, and nothing else of the frame moves for a drag, so a frame with none open draws nothing as one
+ * starts and ends.
+ *
+ * @param props - Where it tells the frame
+ * @returns Nothing: it listens
+ */
+function OverlayDragWatch({ onDragging }: { onDragging: (dragging: boolean) => void }): null {
+    const active = useDragLayerOptional()?.active ?? false;
+    useLayoutEffect(() => {
+        onDragging(active);
+        return () => onDragging(false);
+    }, [active, onDragging]);
+    return null;
+}
+
+/**
  * Lays a builder-style component out — see the module docs.
  *
  * @param props - The regions, the panes and the frame's options ({@link BuilderFrameProps})
@@ -462,7 +479,8 @@ export function BuilderFrame(props: BuilderFrameProps) {
     const minMain = props.minMain ?? MIN_MAIN;
     const loadingPitch = props.loadingPitch ?? DEFAULT_LOADING_PITCH;
     const styles = useSlotStyles("builderFrame") as Styles;
-    const dragging = useDragLayerOptional()?.active ?? false;
+    // Whether a drag is under way: heard only while an overlay pane is open, the one thing it moves (`OverlayDragWatch`).
+    const [dragging, setDragging] = useState(false);
 
     const startDock = start !== undefined && !isElementPane(start) ? start : undefined;
     const endDock = end !== undefined && !isElementPane(end) ? end : undefined;
@@ -943,6 +961,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
             data-builder-frame="" data-phone={phone ? "" : undefined} data-loading={covered ? "" : undefined} aria-busy={loading === undefined ? undefined : covered}
             {...(label !== undefined ? { role: "group", "aria-label": label } : {})}
             onKeyDownCapture={onKeyDownCapture} onKeyDown={onKeyDown}>
+            {openOverlay !== undefined && <OverlayDragWatch onDragging={setDragging} />}
             <FramePhoneLayer.Provider value={phone && !covered ? overlaySlot : null}>
             {toolbar !== undefined && (
                 <Box ref={toolbarRef} css={styles.toolbar} data-frame-slot="toolbar" inert={covered} aria-hidden={covered ? true : undefined}>

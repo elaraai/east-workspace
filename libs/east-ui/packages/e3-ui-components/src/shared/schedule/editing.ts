@@ -11,7 +11,7 @@
  * across them is one step, and Save sends each record's changes as a request
  * of its own.
  */
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, type RefObject } from "react";
 import {
     BlobType, DictType, IntegerType, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue,
     isVariant, none, parseFor, printFor, some, variant, type EastType, type ValueTypeOf, type option,
@@ -270,11 +270,12 @@ export interface ScheduleEditingArgs<I extends Item = Item> {
      */
     recordSlices?: readonly ValueTypeOf<RecordSliceBindType>[] | undefined;
     /**
-     * The rows each kind read by its cells holds (#1039), by the kind's slot, then by the event's key's text: where a
-     * gesture, the inspector and a banner find one of its events, with no read of its own; one they do not hold is read
-     * by its key, never over the window. Read as each read runs, so new cells make no new kinds.
+     * Where the rows each kind read by its cells holds are kept (#1039), by the kind's slot, then by the event's key's
+     * text: where a gesture, the inspector and a banner find one of its events, with no read of its own; one they do not
+     * hold is read by its key, never over the window. Read as each read runs, so new cells make no new kinds and draw
+     * nothing (#1594).
      */
-    held?: ScheduleHeldRows | undefined;
+    held?: RefObject<ScheduleHeldRows | undefined> | undefined;
     /**
      * What a conflict at a kind's quantity, or at its split across resources, is called — the builder's own word for
      * a quantity: the two change together, so the conflicts popover shows them as one card under it.
@@ -378,9 +379,6 @@ function sameDrafts(a: ScheduleEventDraftsValue, b: ScheduleEventDraftsValue): b
 export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_RECORDS, reads, storageKey, joined, range, recordSlices, held: cellRows, quantityLabel, boundsOf }: ScheduleEditingArgs<I>): ScheduleEditing<I> {
     // The history, as the kinds' checks read their originals through it.
     const historyRef = useRef<EditHistory<ScheduleEntryRef> | undefined>(undefined);
-    // The latest rows the kinds' cells hold: the kinds' reads read them as they run, so new cells make no new kinds.
-    const heldRef = useRef(cellRows);
-    heldRef.current = cellRows;
     // The latest fields each kind's rows are held to the bounds of (#1585): the checks read them as they run, so a builder's
     // new ones make no new sessions.
     const boundsRef = useRef(boundsOf);
@@ -563,7 +561,7 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
         const at = rangeRef.current ?? NO_RANGE;
         let got: ReturnType<ScheduleEditingKind<I>["event"]>;
         try {
-            got = kind.event(change.id, EMPTY_SCHEDULE_DRAFTS, at.from, at.to, heldRowOf(heldRef.current, kind.key, change.id));
+            got = kind.event(change.id, EMPTY_SCHEDULE_DRAFTS, at.from, at.to, heldRowOf(cellRows?.current, kind.key, change.id));
         } catch (err) {
             console.error(`[Schedule] ${kind.name}'s event ${change.id} could not be read:`, err);
             return undefined;
@@ -603,7 +601,7 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
             const at = rangeRef.current ?? NO_RANGE;
             // Where the builder's own reads hold its row — a page of the Calendar's Backlog (#1424) — from them, read no more.
             const own = parts[i]!.read?.(id);
-            const held = own !== undefined && own.type === "some" && own.value.type === "some" ? some(own.value) : heldRowOf(heldRef.current, kind, id);
+            const held = own !== undefined && own.type === "some" && own.value.type === "some" ? some(own.value) : heldRowOf(cellRows?.current, kind, id);
             const got = event.event(id, drafts.drafts.get(kind) ?? EMPTY_SCHEDULE_DRAFTS, at.from, at.to, held);
             return got.type === "some" ? got.value : undefined;
         },

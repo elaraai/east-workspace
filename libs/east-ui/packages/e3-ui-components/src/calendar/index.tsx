@@ -339,8 +339,10 @@ function EditableCalendar(props: Omit<HostProps, "editing" | "onHeld" | "onBackl
     const { value } = props;
     // Each event kind's Save notice counts what leaves its own source's narrowing.
     const recordSlices = useMemo(() => props.dates.eventParts.map(({ part }) => part), [props.dates.eventParts]);
-    // The rows a kind read by its cells holds (#1424): where a gesture finds one of its events, as the frame's reader hands them on.
-    const [held, setHeld] = useState<ScheduleHeldRows | undefined>(undefined);
+    // The rows a kind read by its cells holds (#1424): where a gesture finds one of its events, as the frame's reader hands
+    // them on — read as the gesture runs, so their moving draws nothing (#1594).
+    const held = useRef<ScheduleHeldRows | undefined>(undefined);
+    const onHeld = useCallback((rows: ScheduleHeldRows | undefined) => { held.current = rows; }, []);
     // The paged Backlog as the frame last made it (#1424): a backlog event its pages read, while the record is at the
     // revision they read it at, is the original a gesture placing it rewrites — as the Schematic's Backlog gives its rows
     // (#1393); any other event is read as its kind reads it, its window's rows first.
@@ -363,7 +365,7 @@ function EditableCalendar(props: Omit<HostProps, "editing" | "onHeld" | "onBackl
     }, [value]);
     const editing = useScheduleEditing({ kinds: value.events, storageKey: props.storageKey, joined: NO_JOINED, range: props.dates.range,
         recordSlices, held, reads });
-    return <CalendarFrame {...props} editing={editing} onHeld={setHeld} onBacklog={onBacklog} />;
+    return <CalendarFrame {...props} editing={editing} onHeld={onHeld} onBacklog={onBacklog} />;
 }
 /**
  * Test-only render probe — lets "a landing key search re-renders the window's reader, never the frame" be asserted

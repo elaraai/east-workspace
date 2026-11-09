@@ -22,7 +22,7 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { createRef, useContext, useEffect, useState, type ReactNode } from "react";
+import { Profiler, createRef, useContext, useEffect, useState, type ReactNode } from "react";
 import { system } from "../../theme/index.js";
 import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
 import { pointAt } from "../../testing/drag-layer.js";
@@ -612,6 +612,32 @@ describe("BuilderFrame — a drag (#1125 F1)", () => {
         expect([sheet("start").style.transform, sheet("end").style.transform]).toEqual(["", "translateX(100%)"]);
         await act(async () => { fireEvent.pointerUp(document, { clientX: 10, clientY: 10 }); });
         expect(sheet("end").style.transform).toBe("");
+    });
+
+    test("a frame with no overlay pane open draws nothing as a drag starts or ends: only an open overlay moves for it (#1594)", async () => {
+        const commits: string[] = [];
+        render(
+            <ChakraProvider value={system}>
+                <DragLayerProvider>
+                    <Card />
+                    <Profiler id="frame" onRender={(_id, phase) => { commits.push(phase); }}>
+                        <BuilderFrame storageKey="frame-test" start={library()}>{MAIN}</BuilderFrame>
+                    </Profiler>
+                </DragLayerProvider>
+            </ChakraProvider>,
+        );
+        frameAt(1440);
+        expect(paneOf("start")).toEqual(["pinned", false]);
+        await act(async () => { await Promise.resolve(); });
+        commits.length = 0;
+        await act(async () => {
+            fireEvent.pointerDown(screen.getByTestId("card"), { clientX: 0, clientY: 0 });
+            pointAt(null);
+            fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
+        });
+        expect(commits, "the frame's commits as the drag starts").toEqual([]);
+        await act(async () => { fireEvent.pointerUp(document, { clientX: 10, clientY: 10 }); });
+        expect(commits, "the frame's commits as it ends").toEqual([]);
     });
 });
 
