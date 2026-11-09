@@ -61,7 +61,7 @@ describe("the board's frame", () => {
         expect(shownDay(container)).toBe(TUE.getTime());
     });
 
-    test("A2 — the picker marks each day of its open month Published · Draft · Not started", async () => {
+    test("A2 — the picker marks each day of its open month, its legend naming each mark: Published, Draft, Not started", async () => {
         const { container } = await h.mount(ex.allocationKilnYard);
         await press(toolbar(container).getByRole("button", { name: "Choose plan day" }));
         const picker = within(document.body).getByRole("dialog");
@@ -69,7 +69,8 @@ describe("the board's frame", () => {
         expect(mark(TUE_4)).toBe("published");
         expect(mark(TUE)).toBe("draft");
         expect(mark(THU)).toBe("empty");
-        expect(picker.textContent).toContain("Published · Draft · Not started");
+        expect([...picker.querySelectorAll("[data-allocation-picker-legend]")].map(item => [item.querySelector("[data-state]")?.getAttribute("data-state"), item.textContent]))
+            .toEqual([["published", "Published"], ["draft", "Draft"], ["empty", "Not started"]]);
     });
 
     test("A2 — read a day at a time, the picker marks each day of the month it browses to, the month read as one run of keys", async () => {

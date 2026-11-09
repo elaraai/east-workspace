@@ -23,22 +23,12 @@ import { fontAwesomeSize } from "../icon-size.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { planElementConflict, planElementDrafted, planElementFocus, planElementSelected, planRowFocus } from "./plan/focus.js";
 import { INSPECTOR_SECTION, INSPECTOR_STATUS } from "./inspector.js";
-import { heldToolbarSlot, retainedColumn, retainedRow } from "./loading.js";
+import { heldToolbarSlot, retainedColumn, retainedRow, widestToolbarSlot } from "./loading.js";
 import { scheduleAgenda, scheduleAgendaGroup, scheduleAgendaHead, scheduleCard, scheduleCardActions, scheduleCardHead, scheduleCardTitle } from "./schedule-agenda.js";
 import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
 import { schedulePaneBase, schedulePaneSlots } from "./schedule-pane.js";
 import { timeHeaderText } from "./time/axis.js";
 import { moveGhostSlots, moveGhostBase } from "./time/move-ghost.js";
-
-/**
- * A cup's figure's ink by month (ruled 8 Nov 2026), from the bottom as the cup's parts are: the brand's contrast on the
- * permanent staff's part, `agency` on agency staff's, the ink on the requests' tint, then the cup's own above the fill.
- *
- * @param agency - The ink on agency staff's teal, which is the same in both themes: the dark ink in each
- * @returns The ink's gradient, which the figure's text clips
- */
-const cupInk = (agency: string) => "linear-gradient(to top, {colors.brand.contrast} var(--roster-cup-permanent), "
-    + `${agency} var(--roster-cup-permanent) var(--roster-cup-agency), {colors.fg} var(--roster-cup-agency) var(--roster-cup-fill), var(--roster-cup-ink) var(--roster-cup-fill))`;
 
 export const rosterBuilderSlotRecipe = defineSlotRecipe({
     className: "east-roster-builder",
@@ -46,8 +36,8 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         "rowHead", "eyebrow", "title", "detail", "requirement", "coverageHead", "metric", "coverageBar", "coverageSegment", "coverageTick", "coverageLine", "coverageName", "coverageFigures", "skillLine", "skillCode",
         "cell", "cellHead", "chips", "assignment", "assignmentName", "badge", "flag", "activity", "fit", "grip", "chipAction", "dropStrip", "landing", "openPosition", "proposal", "proposalMark", "proposalName", "proposalReason", "proposalAction",
         "weekCell", "weekValue", "weekFill", "weekFillValue", "issueDot", "delta", "peopleHead", "peopleCell", "agenda", "agendaGroup", "agendaHead", "card", "cardHead", "cardTitle", "actions", ...schedulePaneSlots, "section", "status",
-        "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", "pickerDot", "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions",
-        "readLine", "heldSlot", "unreadValue",
+        "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", "pickerDot", "pickerLegend", "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions",
+        "readLine", "heldSlot", "widestSlot", "unreadValue",
         "peopleRow", "peopleName", "nameLine", "personName", "agencyBadge", "hoursCell", "hoursText", "meter", "meterFill", "dayCell", "tile", "tileLabel", "tileMeta", "tileWarn", "tileMore",
         "assign", "assignMenuHead", "assignItem", "swatch", "monthRow", "monthHead", "monthGutter", "weekHead", "weekNumber", "weekRange", "dayTicks", "dayTick", "monthCell",
         "markStrip", "mark", "patternStrip", "patternMark",
@@ -87,7 +77,10 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         metric: { textStyle: "mono.tabular.sm", "&[data-tone=warning]": { color: "fg.warning" }, "&[data-tone=danger]": { color: "fg.danger" } },
         coverageBar: { height: "10px", position: "relative", background: "bg.subtle", borderRadius: "2px", overflow: "visible" },
         coverageSegment: { position: "absolute", top: 0, bottom: 0, background: "brand.solid", "&[data-kind=agency]": { background: "accent.teal" }, "&[data-kind=overtime]": { background: "accent.purple" },
-            "&[data-kind=requested]": { background: "transparent", border: "1px dashed", borderColor: "accent.teal" }, "&[data-kind=open]": { background: "transparent", border: "1px dashed", borderColor: "fg.warning" } },
+            "&[data-kind=requested]": { background: "transparent", border: "1px dashed", borderColor: "accent.teal" }, "&[data-kind=open]": { background: "transparent", border: "1px dashed", borderColor: "fg.warning" },
+            // A 1px gap in the panel's colour between a bar's parts, in both themes (ruled 9 Nov 2026): the permanent staff's
+            // blue and agency staff's teal are of one lightness in the dark theme.
+            "& + &": { borderLeftWidth: "1px", borderLeftStyle: "solid", borderLeftColor: "bg.panel" } },
         coverageTick: { position: "absolute", top: "-2px", bottom: "-2px", borderLeft: "1px solid", borderColor: "fg", pointerEvents: "none" },
         // A skill's line in a coverage: its name and its figures on one line where they fit. Where they do not, the name takes
         // the cell's whole width, breaking at its spaces, and its figures keep together on the line under it, at its end.
@@ -116,7 +109,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         // for agency staff, in capitals as the People layout's badge has it (#1566).
         badge: { textStyle: "mono.xs", fontSize: "label.xs", color: "fg.muted", flexShrink: 0, "&[data-lead]": { color: "brand.fg", fontWeight: "bold" },
             "&[data-roster-agency-badge]": { textTransform: "uppercase" } },
-        flag: { "& svg": fontAwesomeSize("9px"), maxWidth: "70px", overflow: "hidden", textOverflow: "ellipsis", flexShrink: 1, textStyle: "mono.xs", fontSize: "label.xs", whiteSpace: "nowrap", color: "fg.warning", "&[data-tone=danger]": { color: "fg.danger" } },
+        flag: { "&[data-roster-card-flag]": { maxWidth: "none", whiteSpace: "normal", overflow: "visible", overflowWrap: "anywhere" }, "& svg": fontAwesomeSize("9px"), maxWidth: "70px", overflow: "hidden", textOverflow: "ellipsis", flexShrink: 1, textStyle: "mono.xs", fontSize: "label.xs", whiteSpace: "nowrap", color: "fg.warning", "&[data-tone=danger]": { color: "fg.danger" } },
         activity: { textStyle: "mono.xs", minWidth: "22px", padding: "0 3px", border: "1px solid", borderColor: "border.subtle", borderRadius: "2px", "&[data-empty]": { borderStyle: "dashed", color: "fg.faint" } },
         fit: { textStyle: "mono.xs", fontSize: "label.xs", color: "fg.subtle", whiteSpace: "nowrap" },
         grip: { display: "inline-flex", opacity: 0, flexShrink: 0, cursor: "grab", ...fontAwesomeSize("8px"), width: "7px" },
@@ -155,7 +148,10 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         rangeTitle: { textStyle: "h5", whiteSpace: "nowrap" }, toolbarText: builderFooterItem,
         error: { textStyle: "body.sm", color: "fg.danger", overflowWrap: "anywhere" },
         empty: { padding: "16px", textStyle: "body.sm", color: "fg.muted" },
-        pickerDot: { width: "6px", height: "6px", borderRadius: "50%", border: "1px solid", borderColor: "fg.subtle", "&[data-state=published]": { background: "fg.success", borderColor: "fg.success" }, "&[data-state=draft]": { background: "brand.solid", borderColor: "brand.solid" } },
+        // A period's mark in the date picker, told apart by shape as well as colour (#1595): a published one filled, a draft's a
+        // hollow ring, one not started a muted ring. The legend draws each beside its word.
+        pickerDot: { display: "inline-block", flexShrink: 0, width: "6px", height: "6px", borderRadius: "50%", border: "1px solid", borderColor: "fg.subtle", "&[data-state=published]": { background: "fg.success", borderColor: "fg.success" }, "&[data-state=draft]": { background: "transparent", borderColor: "brand.solid" } },
+        pickerLegend: { display: "flex", flexWrap: "wrap", columnGap: "12px" },
         summary: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "16px", padding: "16px", borderBottomWidth: "1px", borderColor: "border.subtle" },
         stat: { display: "flex", flexDirection: "column", gap: "4px" }, statValue: { textStyle: "num-lg" }, statLabel: { textStyle: "caption.eyebrow" },
         issue: { ...INSPECTOR_SECTION, gap: "6px", borderLeft: "2px solid", borderLeftColor: "fg.warning", "&[data-tone=danger]": { borderLeftColor: "fg.danger" }, "&[data-tone=info]": { borderLeftColor: "brand.solid" } },
@@ -167,6 +163,8 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         // A toolbar slot held while what fills it is unread, or empty (#1398, CL1): the shared part, so the toolbar never
         // shifts as the week lands.
         heldSlot: heldToolbarSlot,
+        // The status's and the issues' slots, each the widest of what it may say, so the toolbar holds still as they change (#1595).
+        widestSlot: widestToolbarSlot,
         // A figure the week's read has not given yet beside what is known without it — a person's worked hours beside
         // their contract's: the placeholder, then the known words, on one line (#1398).
         unreadValue: { display: "inline-flex", alignItems: "center", gap: "4px", minWidth: 0, textStyle: "mono.xs", color: "fg.muted", whiteSpace: "nowrap" },
@@ -218,7 +216,12 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             "[data-roster-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
         tileLabel: { textStyle: "body.sm", fontWeight: "medium", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
         tileMeta: { textStyle: "mono.xs", whiteSpace: "nowrap", flexShrink: 0, opacity: 0.85, "&[data-own]": { fontWeight: "semibold", opacity: 1 },
-            "&[data-group]": { fontSize: "label.xs", fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.06em" } },
+            "&[data-group]": { fontSize: "label.xs", fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.06em" },
+            // A duty in no group's badge (#1595): its words where they and the shift's whole name both fit, else its icon, each
+            // form laid out always, unseen but the one shown, so the tile's fit reads both.
+            "&[data-roster-tile-group]": { position: "relative", display: "inline-flex", alignItems: "center",
+                "&[data-roster-tile-group=words] > [data-form=icon], &[data-roster-tile-group=icon] > [data-form=words]": { position: "absolute", visibility: "hidden" },
+                "& > [data-form=icon]": { display: "inline-flex", ...fontAwesomeSize("10px") } } },
         tileWarn: { display: "inline-flex", flexShrink: 0, color: "fg.warning", ...fontAwesomeSize("10px"), "&[data-tone=danger]": { color: "fg.danger" } },
         tileMore: { textStyle: "mono.xs", fontWeight: "semibold", color: "fg.danger", flexShrink: 0, whiteSpace: "nowrap" },
         // An off day's `+ Assign`: a wash across the cell, its words shown on hover, focus or selection; inert while a run of the
@@ -331,12 +334,13 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         // a short day lacks is open above them on the warning's 6% wash, its edge — the cup's top and sides along it —
         // dashed in the warning's colour, drawn inside it and clipped to it, so a sliver of a gap never draws its dashes
         // over the fill. A cup nothing fills is open whole (`data-whole`), its dashed edge closed along its bottom too,
-        // round at the cup's corners (ruled 9 Nov 2026); an off mark, with no target, is an empty cup. Its difference
-        // whole or not at all, never cut, in each part's ink where that part is under it: its box spans the cup's height,
-        // so the ink's levels are the parts'. A lane's is a button that selects its slot, ringed over its parts while
-        // selected.
+        // round at the cup's corners (ruled 9 Nov 2026); an off mark, with no target, is an empty cup. A 1px gap in the
+        // panel's colour stands between its parts, in both themes, drawn inside the part above it: a border would make a
+        // part thinner than the gap as tall as the gap, past its level. Its difference whole or not at all, never cut, in the
+        // text colour with a thin outline in the panel's colour, whatever the fill behind it: no digit splits (ruled 9 Nov
+        // 2026). A lane's is a button that selects its slot, ringed over its parts while selected.
         laneMark: { ...wholeOrNone("100%"), position: "relative", borderWidth: 0, fontSize: "label.xs", background: "bg.subtle", color: "fg.muted",
-            "--roster-cup-permanent": "0%", "--roster-cup-agency": "0%", "--roster-cup-fill": "0%", "--roster-cup-ink": "{colors.fg.muted}",
+            "--roster-cup-permanent": "0%", "--roster-cup-agency": "0%", "--roster-cup-fill": "0%",
             "&:is(button)": { cursor: "pointer", ...planElementFocus },
             "& > [data-roster-cup-part]": { position: "absolute", left: 0, right: 0, pointerEvents: "none" },
             "& > [data-roster-cup-part=permanent], & > [data-roster-cup-part=assigned]": { bottom: 0, height: "var(--roster-cup-permanent)", background: "brand.solid" },
@@ -344,12 +348,12 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             "& > [data-roster-cup-part=requested]": { bottom: "var(--roster-cup-agency)", height: "calc(var(--roster-cup-fill) - var(--roster-cup-agency))",
                 background: "color-mix(in srgb, {colors.accent.teal} 40%, {colors.bg.panel})" },
             "& > [data-roster-cup-part=open]": { top: 0, bottom: "var(--roster-cup-fill)", overflow: "hidden", background: "bg.warning.subtle", borderTopRadius: "inherit",
-                "&::before": { content: '""', position: "absolute", inset: "0 0 -1px 0", borderWidth: "1px", borderStyle: "dashed", borderColor: "border.warning",
+                "&::before": { content: '""', position: "absolute", inset: "0 0 1px 0", borderWidth: "1px 1px 0", borderStyle: "dashed", borderColor: "border.warning",
                     borderTopRadius: "inherit" },
-                "&[data-whole]": { borderBottomRadius: "inherit", "&::before": { bottom: 0, borderBottomRadius: "inherit" } } },
-            "& > [data-roster-mark-figure]": { position: "relative", alignSelf: "stretch", display: "flex", alignItems: "center", color: "transparent",
-                backgroundClip: "text", backgroundImage: { base: cupInk("{colors.fg}"), _dark: cupInk("{colors.bg.surface}") } },
-            "&[data-state=short]": { background: "transparent", "--roster-cup-ink": "{colors.fg.warning}" },
+                "&[data-whole]": { borderBottomRadius: "inherit", "&::before": { bottom: 0, borderBottomWidth: "1px", borderBottomRadius: "inherit" } } },
+            "& > [data-roster-cup-part] + [data-roster-cup-part]": { boxShadow: "inset 0 -1px 0 0 {colors.bg.panel}" },
+            "& > [data-roster-mark-figure]": { position: "relative", color: "fg", textShadow: "0 0 1px {colors.bg.panel}, 0 0 1px {colors.bg.panel}, 0 0 2px {colors.bg.panel}" },
+            "&[data-state=short]": { background: "transparent" },
             "&[data-state=off]": { background: "color-mix(in srgb, {colors.fg} 7%, transparent)", color: "transparent" },
             "&[data-selected]::after": { content: '""', position: "absolute", inset: 0, borderRadius: "inherit", boxShadow: "inset 0 0 0 1px {colors.fg}", pointerEvents: "none" } },
         skillTag: { display: "inline-flex", alignItems: "center", height: "16px", flexShrink: 0, padding: "0 4px", borderWidth: "1px", borderColor: "border.strong", borderRadius: "sm",

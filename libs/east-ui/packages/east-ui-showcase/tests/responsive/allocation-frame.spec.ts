@@ -96,7 +96,7 @@ for (const theme of LAYOUT_THEMES) {
         expect(fit.kept).toBeLessThan(8);
     });
 
-    test(`A2 — the picker marks each day Published · Draft · Not started: a 6px dot under its number, out of the day's flow (${theme}) @desktop`, async ({ page }) => {
+    test(`A2 — the picker marks each day under its number, out of the day's flow: 6px, a filled dot when published, a hollow ring in draft and when not started, each drawn in the legend beside its word (#1595) (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1200 });
         const entry = await open(page, "allocationKilnYard", theme);
         await size(page, entry, 1440);
@@ -113,7 +113,7 @@ for (const theme of LAYOUT_THEMES) {
         const published = await mark("2027-05-04T00:00:00Z"), draft = await mark("2027-05-11T00:00:00Z"), empty = await mark("2027-05-13T00:00:00Z");
         const [success, brand, subtle] = [await token(page, "fg-success"), await token(page, "brand-solid"), await token(page, "fg-subtle")];
         expect(published).toEqual({ state: "published", w: 6, h: 6, radius: "50%", fill: success, ring: success, centred: true, bottom: 4 });
-        expect(draft).toEqual({ state: "draft", w: 6, h: 6, radius: "50%", fill: brand, ring: brand, centred: true, bottom: 4 });
+        expect(draft).toEqual({ state: "draft", w: 6, h: 6, radius: "50%", fill: "rgba(0, 0, 0, 0)", ring: brand, centred: true, bottom: 4 });
         expect(empty).toEqual({ state: "empty", w: 6, h: 6, radius: "50%", fill: "rgba(0, 0, 0, 0)", ring: subtle, centred: true, bottom: 4 });
         // Out of the day's flow: every day's number sits where an unmarked one would, at one height across the month.
         const numbers = await picker.locator("[data-time-day]").evaluateAll(days => days.map(d => {
@@ -122,7 +122,10 @@ for (const theme of LAYOUT_THEMES) {
             return Math.round((text ? range.getBoundingClientRect().top : b.top) - b.top);
         }));
         expect(new Set(numbers).size).toBe(1);
-        await expect(picker).toContainText("Published · Draft · Not started");
+        const legend = picker.locator("[data-allocation-picker-legend]");
+        await expect(legend).toHaveText(["Published", "Draft", "Not started"]);
+        expect(await legend.locator("[data-state]").evaluateAll(marks => marks.map((el) => { const s = getComputedStyle(el); return { state: el.getAttribute("data-state"), fill: s.backgroundColor, ring: s.borderTopColor }; })))
+            .toEqual([published, draft, empty].map(({ state, fill, ring }) => ({ state, fill, ring })));
         await page.keyboard.press("Escape");
     });
 }

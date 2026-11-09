@@ -35,7 +35,7 @@
 import { Fragment, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Box, Button, Menu as ChakraMenu, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faAngleRight, faCheck, faGripVertical, faRotateLeft, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faAngleRight, faCheck, faGripVertical, faRotateLeft, faTriangleExclamation, faUsersSlash, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { ArrayType, SortedMap, StringType, none, printFor, some, variant } from "@elaraai/east";
 import { FrameMenuLayer, LoadingFailedLine, PlaceholderShape, VirtualRows, devicePixels, useRevealed, useRowsTop, keptRead, type StickySection } from "@elaraai/east-ui-components/internal";
 import { takeKey, tickFormatOf, useDragEventChip, useDropCell, usePersistedState, type CellCoord, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
@@ -842,6 +842,40 @@ function Tile(args: TileProps) {
  * `tileTimes` is always; a warning mark where an issue names it; its fill the shift's colour token, its words in the ink
  * the shade takes. Tile state comes from the held week and the domain issues, never from a second draft store.
  */
+/**
+ * A duty in no group's badge as its tile is laid out (#1595): its words where they and the shift's whole name both fit
+ * beside what else the tile holds, else its icon. Both forms are laid out always, so what it reads never moves with the
+ * fit; where nothing is laid out, the words.
+ *
+ * @param tile - The tile
+ * @returns The form that fits
+ */
+function measureNoGroupBadge(tile: HTMLElement): "words" | "icon" {
+    const badge = tile.querySelector<HTMLElement>("[data-roster-tile-group]"), name = tile.querySelector<HTMLElement>("[data-roster-assignment-name]");
+    if (badge === null || name === null) return "words";
+    const others = [...tile.children].filter((child): child is HTMLElement => child instanceof HTMLElement && child !== badge && child !== name && getComputedStyle(child).display !== "none");
+    const css = getComputedStyle(tile);
+    const room = tile.clientWidth - px(css.paddingLeft) - px(css.paddingRight) + 0.5;
+    const used = natural(name) + natural(badge.querySelector('[data-form="words"]')) + others.reduce((sum, child) => sum + child.offsetWidth, 0) + px(css.columnGap) * (others.length + 1);
+    return used <= room ? "words" : "icon";
+}
+/**
+ * A duty in no group's badge on a person's row (#1548, #1595): the words `NO GROUP` where they and the shift's whole name
+ * both fit, else a Font Awesome icon; the tile's tooltip and what a screen reader says keep the words, so the shift's name
+ * is never cut for it.
+ *
+ * @param props - The Roster's styles, and the badge's words
+ * @returns The badge
+ */
+function NoGroupBadge({ styles, text }: { styles: RosterStyles; text: string }) {
+    const tile = useRef<HTMLElement | null>(null);
+    const attach = useCallback((el: HTMLElement | null) => { tile.current = el?.closest<HTMLElement>("[data-roster-tile]") ?? null; }, []);
+    const form = useLayoutFit(tile, measureNoGroupBadge, Object.is, "words");
+    return <Box as="span" ref={attach} css={styles.tileMeta} data-group="" data-roster-tile-group={form}>
+        <span data-form="words">{text}</span>
+        <span data-form="icon"><FontAwesomeIcon icon={faUsersSlash} /></span>
+    </Box>;
+}
 const TileBody = memo(function TileBody({ ctx, id, assignment: a, removed, person, home, selected, handle, attach }: TileProps & {
     selected: boolean; handle: ReturnType<typeof useDragEventChip>; attach: (element: HTMLDivElement | null) => void;
 }) {
@@ -871,7 +905,9 @@ const TileBody = memo(function TileBody({ ctx, id, assignment: a, removed, perso
         onClick={event => { event.stopPropagation(); ctx.select({ type: "assignment", key: id }); }}
         onKeyDown={event => { if (event.key === "Enter") { takeKey(event); ctx.select({ type: "assignment", key: id }); } else handle?.onKeyDown?.(event); }}>
         <Box as="span" css={styles.tileLabel} data-roster-assignment-name="">{shift?.label ?? a.place.shift}</Box>
-        {meta !== undefined && <Box as="span" css={styles.tileMeta} data-own={meta.kind === "own" ? "" : undefined} data-group={meta.kind === "group" ? "" : undefined} data-roster-times={meta.kind === "own" ? "" : undefined}>{meta.text}</Box>}
+        {meta !== undefined && (meta.kind === "group" && a.place.group.type === "none"
+            ? <NoGroupBadge styles={styles} text={meta.text} />
+            : <Box as="span" css={styles.tileMeta} data-own={meta.kind === "own" ? "" : undefined} data-group={meta.kind === "group" ? "" : undefined} data-roster-times={meta.kind === "own" ? "" : undefined}>{meta.text}</Box>)}
         {issues.length > 0 && <Box as="span" css={styles.tileWarn} data-tone={danger ? "danger" : undefined} data-roster-tile-warn="" role="img" aria-label={issues[0]!.title}><FontAwesomeIcon icon={faTriangleExclamation} /></Box>}
         {(commands.availableOn(a.place.day) || commands.locked !== undefined) && <chakra.button type="button" css={styles.chipAction} data-roster-chip-action="" aria-label={removed ? `Restore ${name}` : `Remove ${name}`}
             disabled={commands.locked !== undefined} title={commands.locked}
@@ -1739,8 +1775,8 @@ const MonthDemandHead = memo(function MonthDemandHead({ ctx, row, weeks, measure
     </Box>;
 });
 /**
- * A cup's levels by month (ruled 8 Nov 2026), as its recipe draws its parts and its figure's ink: each a share of its
- * height; none for an empty cup, whose levels are the recipe's nothing.
+ * A cup's levels by month (ruled 8 Nov 2026), as its recipe places its parts: each a share of its height; none for an
+ * empty cup, whose levels are the recipe's nothing.
  *
  * @param cup - The cup's levels
  * @returns Its style
@@ -1971,7 +2007,7 @@ function AssignmentCard({ ctx, id, assignment, removed }: { ctx: ViewContext; id
         data-op={mark?.op} data-fill={mark === undefined ? undefined : "own"} title={mark?.provenance}>
         <chakra.button type="button" css={ctx.styles.cardHead} onClick={() => ctx.select({ type: "assignment", key: id })}><Box css={ctx.styles.cardTitle}>{assignmentName(ctx.value, assignment)}{removed && " · removed"}</Box></chakra.button>
         <Box css={ctx.styles.detail}>{`${ctx.format.time(assignment.start)}–${ctx.format.time(assignment.end)}`}{assignment.activity.type === "some" && ` · ${activityOf(ctx.value, assignment.activity.value)?.label ?? assignment.activity.value}`}</Box>
-        {dutyIssues(ctx.issues, id).map((issue, i) => <Box key={i} css={ctx.styles.flag} data-tone={issue.tone.type}>{issue.title}</Box>)}
+        {dutyIssues(ctx.issues, id).map((issue, i) => <Box key={i} css={ctx.styles.flag} data-tone={issue.tone.type} data-roster-card-flag="">{issue.title}</Box>)}
         <AssignmentActions id={id} assignment={assignment} removed={removed} value={ctx.value} start={ctx.start} commands={ctx.commands} styles={ctx.styles} />
     </Box>;
 }

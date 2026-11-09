@@ -47,6 +47,9 @@ import { counted, other, type Nouns } from "./nouns.js";
 /** Table, then Timeline, as the mock orders them. */
 const LAYOUTS = [{ key: "table", label: "Table", icon: faTable }, { key: "timeline", label: "Timeline", icon: faChartGantt }] as const;
 
+/** The picker's marks, each beside its word in its legend (#1595). */
+const PICKER_MARKS = [{ mark: "published", word: "Published" }, { mark: "draft", word: "Draft" }, { mark: "empty", word: "Not started" }] as const;
+
 /** `1 issue`, `3 issues`. */
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
@@ -232,9 +235,14 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     // picker's weeks starting where the board's do.
     const marker = (date: Date) => { const held = args.picker.get(date); return <Box as="span" css={styles.pickerDot} data-state={held === undefined ? "empty" : held.type === "other" ? "draft" : held.type} />; };
     const weekly = byWeek(value);
+    const legend = <Box as="span" css={styles.pickerLegend}>{PICKER_MARKS.map(({ mark, word }) => <Box as="span" key={mark} css={styles.legendItem} data-allocation-picker-legend={mark}><Box as="span" css={styles.pickerDot} data-state={mark} />{word}</Box>)}</Box>;
+    // What the status may say (#1595), each word laid out unseen in its slot so the slot is the widest of them: a day's
+    // status changing never moves the controls beside it nor folds the row. The app's own case, known by its name alone,
+    // stands once it is said.
+    const statusWords = [...new Set(["Draft", "Published", "Not started", "Publishing", ...(status === undefined ? [] : [status])])];
     const navigation = (compact = false, combined = false, withEye = false) => <TimeNavigator scope="allocation" date={view.date} period="day"
         sunday={value.settings.weekStart.type === "sunday"} onChange={date => setView({ ...view, date })} compact={compact} label={combined ? "View" : "Choose plan day"}
-        initialPanel="day" onWeeks={args.onPickerWeeks} legend="Published · Draft · Not started" dayMarker={marker} {...(weekly ? { weekMarker: marker } : {})}
+        initialPanel="day" onWeeks={args.onPickerWeeks} legend={legend} dayMarker={marker} {...(weekly ? { weekMarker: marker } : {})}
         controls={combined ? controls(withEye) : undefined} />;
     return [
         ...rail,
@@ -251,17 +259,24 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
             forms: [focusChip(false), focusChip(true), null] },
         // The status, the issues and Publish keep their slots from cold load, whatever the day's read (#1398, CL1): a read
         // landing never shifts the toolbar nor folds it again. Unread, the status and the issues are placeholders.
-        status !== undefined && { key: "allocation.status", side: "start", rank: HOST_RANK, forms: [unread
-            ? <Box css={[styles.status, styles.heldSlot]} data-allocation-status="" data-pending="" title="Plan status">
-                <PlaceholderShape kind="enum" index={0} /></Box>
-            : <Box css={styles.status} data-tone={args.published && !args.publishing ? "success" : "neutral"} data-allocation-status="" title="Plan status">{status}</Box>, null] },
-        value.inspector && { key: "allocation.issues", side: "end", rank: HOST_RANK + 3, forms: [unread
-            ? <Box css={styles.heldSlot} data-allocation-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
-            : summary.count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn" }), coarseHitArea({ position: true })]} onClick={args.onIssues}
-                aria-label={summary.aria} title={summary.tip} data-allocation-issues="" data-opn={args.issuesFlash === true ? "" : undefined}>
-                <FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{summary.label}</span>
-            </chakra.button>
-                : <Box css={styles.heldSlot} data-allocation-issues="" aria-hidden="true" />, null] },
+        status !== undefined && { key: "allocation.status", side: "start", rank: HOST_RANK, forms: [<Box css={styles.widestSlot}>
+            {statusWords.map(word => <Box as="span" key={word} css={styles.status} data-widest-word={word} aria-hidden="true" />)}
+            {unread
+                ? <Box css={[styles.status, styles.heldSlot]} data-allocation-status="" data-pending="" title="Plan status">
+                    <PlaceholderShape kind="enum" index={0} /></Box>
+                : <Box css={styles.status} data-tone={args.published && !args.publishing ? "success" : "neutral"} data-allocation-status="" title="Plan status">{status}</Box>}
+        </Box>, null] },
+        // The issues' slot is as wide as a count of two figures, at any count or none (#1595).
+        value.inspector && { key: "allocation.issues", side: "end", rank: HOST_RANK + 3, forms: [<Box css={styles.widestSlot} data-end="">
+            <chakra.span css={chip({ tone: "warn" })} data-widest-word={plural(99, "issue")} aria-hidden="true"><FontAwesomeIcon icon={faTriangleExclamation} /></chakra.span>
+            {unread
+                ? <Box css={styles.heldSlot} data-allocation-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
+                : summary.count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn" }), coarseHitArea({ position: true })]} onClick={args.onIssues}
+                    aria-label={summary.aria} title={summary.tip} data-allocation-issues="" data-opn={args.issuesFlash === true ? "" : undefined}>
+                    <FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{summary.label}</span>
+                </chakra.button>
+                    : <Box css={styles.heldSlot} data-allocation-issues="" aria-hidden="true" />}
+        </Box>, null] },
         search !== undefined && { ...search, forms: [...search.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "allocation.controls"] },
         // The Elara eye (#1409), immediately before the history item, whose actions a run out locks (R2): in the row at every
         // width the ladder and the rail's caret leave it room, and else the View's entry, never out of the toolbar.

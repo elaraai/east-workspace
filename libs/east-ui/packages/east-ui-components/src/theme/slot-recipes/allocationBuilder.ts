@@ -73,7 +73,7 @@ import { fontAwesomeSize } from "../icon-size.js";
 import { CONFLICT_RING, conflictRing } from "../conflict-ring.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
-import { heldToolbarSlot, retainedColumn, retainedRow } from "./loading.js";
+import { heldToolbarSlot, retainedColumn, retainedRow, widestToolbarSlot } from "./loading.js";
 import { linkRibbons } from "./links/ribbons.js";
 import { planElementConflict, planElementFocus, planRowFocus } from "./plan/focus.js";
 import { moveGhostBase, moveGhostSlots } from "./time/move-ghost.js";
@@ -131,7 +131,7 @@ const statusWord = { fontSize: "label.md", fontWeight: "semibold", letterSpacing
 export const allocationBuilderSlotRecipe = defineSlotRecipe({
     className: "east-allocation-builder",
     slots: [
-        "root", "main", "status", "pickerDot", "controls", "footer", "footerItem", "legendItem", "legendSwatch", "error", "empty", "narrowedEmpty",
+        "root", "main", "status", "pickerDot", "pickerLegend", "controls", "footer", "footerItem", "legendItem", "legendSwatch", "error", "empty", "narrowedEmpty",
         "timeline", "head", "headCaption", "lanePane", "laneContent", "laneHead", "laneHeadCell", "laneName", "laneOffset", "laneMeta",
         "laneGrid", "laneBand", "laneHour", "laneCell", "card", "cardTop", "cardCode", "cardQty", "cardLine", "cardTo", "cardLeft", "cardMark",
         "connector", "connectorMark", "channel", "channelHead", "resourcePane", "resourceHead", "resourceCaption", "ruler",
@@ -142,7 +142,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         "tableResourceSpan", "tableUnits", "tableValue", "tableLoad", "tableStatus", "tableStatusDot", "tableChip", "tableChipIcon", "tableChipCode",
         "tableChipMeta", "tableChipButton", "tablePlaceholder", "tablePlaceholderText", "tableParts", "tablePart", "tablePartFace", "tableChipQty",
         "cards", "agenda", "agendaItem", "agendaCard", "agendaCardHead", "agendaCardTitle", "agendaLine", "agendaActions", "agendaBin", "agendaBinHead", "agendaStatus",
-        "heldSlot", "readLine", "tableReadLine", "tableUnreadCell",
+        "heldSlot", "widestSlot", "readLine", "tableReadLine", "tableUnreadCell",
     ],
     base: {
         ...nowBase,
@@ -152,12 +152,14 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         root: { height: "100%", minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", background: "bg.surface", color: "fg" },
         main: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column" },
         status: INSPECTOR_STATUS,
-        // A day's mark under its number in the date picker: published, draft, or not started.
+        // A day's mark under its number in the date picker, told apart by shape as well as colour (#1595): a published day's
+        // filled, a draft's a hollow ring, one not started a muted ring. The legend draws each beside its word.
         pickerDot: {
-            width: "6px", height: "6px", borderRadius: "50%", border: "1px solid", borderColor: "fg.subtle",
+            display: "inline-block", flexShrink: 0, width: "6px", height: "6px", borderRadius: "50%", border: "1px solid", borderColor: "fg.subtle",
             "&[data-state=published]": { background: "fg.success", borderColor: "fg.success" },
-            "&[data-state=draft]": { background: "brand.solid", borderColor: "brand.solid" },
+            "&[data-state=draft]": { background: "transparent", borderColor: "brand.solid" },
         },
+        pickerLegend: { display: "flex", flexWrap: "wrap", columnGap: "12px" },
         controls: { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 },
         footer: builderFooter,
         footerItem: builderFooterItem,
@@ -736,6 +738,8 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         },
         // ── A day's read (#1398) ── the toolbar's status, issues and Publish held from cold load (CL1).
         heldSlot: heldToolbarSlot,
+        // The status's and the issues' slots, each the widest of what it may say, so the toolbar holds still as they change (#1595).
+        widestSlot: widestToolbarSlot,
         // Said once across the lane cells of the first row in view (CL11, CL13): from the hour column's rule over every lane,
         // a row high but its rule; the paper over the lanes' rules, so they never cross its words. It takes no pointer but its
         // Retry, and steps aside while a drag or a pick marks the cells under it.

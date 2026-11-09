@@ -37,8 +37,8 @@ const RAIL = '[data-frame-slot="toolbar"] [data-slice-rail="record-slices"]';
 /** The warehouse rail's fields, as `source.field`, in source order. */
 const ROSTER_FIELDS = ['people.team', 'people.position', 'people.trainer', 'people.agency', 'people.skills', 'people.name', 'activities.group'];
 /** A frame wide enough for every chip of the rail live, its presets and its summary; and a page wide enough for it. */
-const WIDE = 2400;
-const WIDE_PAGE = 2800;
+const WIDE = 2480;
+const WIDE_PAGE = 2880;
 /**
  * Every source's field as the rail shows it at its width: a live chip, a
  * folded summary chip (`field:source.field`), or past those its one trigger,

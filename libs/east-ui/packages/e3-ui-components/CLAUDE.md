@@ -1203,6 +1203,18 @@ pay, rest, skills and lead/trainer checks. Never calculate a misleading
 surplus by filtering people out of the roster's arithmetic. Hidden edits still
 Save.
 
+The Roster's and the Allocation's toolbars hold still as a day's status
+changes: the status and the issues count stand in slots as wide as the widest
+of what they may say (`widestSlot`, each word laid out unseen in it), so a step
+to another day neither moves the controls beside them nor tips the row's fold
+(#1595). The picker marks a published day with a filled dot and a draft day
+with a hollow ring, and its legend draws each mark beside its word.
+
+Beside a duty's `NO GROUP` badge a People tile's shift stays whole: where the
+words and the whole name don't both fit, the badge is its `users-slash` icon
+(`views.tsx`' `NoGroupBadge`), its words in the tile's tooltip and in what a
+screen reader says.
+
 The week is the Roster's own navigation and its picker, never a Slice chip
 (ruled 18 Oct, #1342), as the day is the Allocation's. Each builder's view is
 the page's own, as the Calendar's is (`roster/window.ts` and
@@ -1299,9 +1311,11 @@ and clipped to it, so a gap thinner than the dashes draws none over the fill;
 an empty cup with no target. A day of one slot fills as its bar draws it, each
 level ending where the bar's part does. The cup's levels
 are CSS variables its style sets (`--roster-cup-permanent`, `-agency`,
-`-fill`), which the recipe places its parts by, and its figure's ink follows
-them, each part's ink where that part is under it (the figure's text clipping
-a gradient of the inks). Its difference where a day is 22px or wider, whole or
+`-fill`), which the recipe places its parts by, a 1px gap in the panel's colour
+between them, in both themes, drawn inside the part above it so a part thinner
+than the gap keeps its height. Its difference is drawn in the text colour with a
+thin outline in the panel's colour, whatever the fill behind it, so no digit
+splits (ruled 9 Nov 2026), where a day is 22px or wider, whole or
 not at all, and no figure in the name cells (P16). A mark selects its slot in
 its week — a selection names its week
 (`Selection`'s `start`, `selectionWeek`) — and the inspector and the commands

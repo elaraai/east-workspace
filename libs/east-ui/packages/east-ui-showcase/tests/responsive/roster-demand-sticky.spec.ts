@@ -204,6 +204,31 @@ for (const theme of LAYOUT_THEMES) {
         }
     });
 
+    test(`arrowed down the People grid, the row the keyboard moves to ends above main's horizontal scrollbar, inside its view (#1595) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const { frame, rows } = await open(page, theme);
+        // Narrower than the grid, main pans across.
+        await frame.locator("xpath=..").evaluate((el) => { (el as HTMLElement).style.width = "900px"; });
+        await settled(page);
+        expect(await rows.evaluate(el => el.scrollWidth > el.clientWidth), "the grid pans across").toBe(true);
+        await rest(page, rows, 0);
+        await rows.locator("[data-roster-person-head]").first().focus();
+        const focused = () => page.evaluate(() => document.activeElement?.closest("[data-roster-person-row]")?.getAttribute("data-roster-person-row") ?? "");
+        const first = await focused();
+        for (let step = 0; step < 24; step++) {
+            await page.keyboard.press("ArrowDown");
+            await settled(page);
+            const faults = await rows.evaluate((el) => {
+                const row = document.activeElement?.closest("[data-roster-person-row]");
+                if (row === null || row === undefined) return ["the focus left the people's rows"];
+                const foot = row.getBoundingClientRect().bottom, view = el.getBoundingClientRect().top + el.clientTop + el.clientHeight;
+                return foot > view + 0.5 ? [`${row.getAttribute("data-roster-person-row")} ends ${foot - view}px below main's view`] : [];
+            });
+            expect(faults, `step ${step}`).toEqual([]);
+        }
+        expect(await focused(), "the keyboard moved down the rows").not.toBe(first);
+    });
+
     test(`a row the stuck block covers takes no drop, and the keyboard brings one out from under it: a Shift+Tab onto it, a keyboard drag's step to it (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const { frame, rows } = await open(page, theme);

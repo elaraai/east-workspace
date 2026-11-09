@@ -178,9 +178,8 @@ const laneDayFaults = (scope: Locator) => scope.locator("[data-roster-lane] [dat
     ];
 }));
 /**
- * What a lane's marks draw wrongly by month (#1568, A3.5): a mark's figure whose text leaves its mark, or whose box does
- * not span its cup's height, which its ink's levels follow the parts by; and a cup (ruled 8 Nov 2026) not filled to its
- * hours rostered of needed as its label says them — its hours needed less what its slots are short, where its label
+ * What a lane's marks draw wrongly by month (#1568, A3.5): a mark's figure whose text leaves its mark; and a cup (ruled
+ * 8 Nov 2026) not filled to its hours rostered of needed as its label says them — its hours needed less what its slots are short, where its label
  * says they are (K4) — full at them, within a pixel — its parts across its width, each
  * standing on the one under it from its bottom up — or whose open part is not from its top down to the fill, or is
  * drawn on a day not short. Over the marks mounted in `scope`, with how many show a figure and how many cups draw each
@@ -196,9 +195,8 @@ const laneMarkFaults = (scope: Locator) => scope.locator("[data-roster-lane-mark
             said += 1;
             const range = document.createRange();
             range.selectNodeContents(figure);
-            const box = range.getBoundingClientRect(), span = figure.getBoundingClientRect();
+            const box = range.getBoundingClientRect();
             if (box.left < edge.left - 0.5 || box.right > edge.right + 0.5 || box.top < edge.top - 0.5 || box.bottom > edge.bottom + 0.5) faults.add(`"${figure.textContent}" leaves its mark`);
-            if (Math.abs(span.top - edge.top) > 0.5 || Math.abs(span.bottom - edge.bottom) > 0.5) faults.add(`${at}: its figure's box does not span its cup`);
         }
         const [, rostered, needed, by, side] = /: (.+?) of (.+?) hours rostered(?:, (.+) (short|over))?$/u.exec(mark.getAttribute("aria-label") ?? "") ?? [];
         const hours = (text: string) => Number(text.replace(/,/gu, ""));
@@ -214,6 +212,9 @@ const laneMarkFaults = (scope: Locator) => scope.locator("[data-roster-lane-mark
                 if (Math.abs(box.top - edge.top) > 0.5 || Math.abs(box.bottom - top) > 0.5) faults.add(`${at}: what it lacks is not open from its top down to its fill (${box.top - edge.top}px below its top, ${box.bottom - top}px past its fill)`);
                 // Its dashed edge is drawn inside it: clipped to it, a gap thinner than the dashes draws none of them over the fill.
                 if (getComputedStyle(part).overflow !== "hidden") faults.add(`${at}: what it lacks draws its edge past its own box`);
+                // Over a fill its edge stops at the gap under it: no dashes along the fill, none through the gap.
+                const dashes = getComputedStyle(part, "::before");
+                if (part.previousElementSibling?.hasAttribute("data-roster-cup-part") && (dashes.borderBottomWidth !== "0px" || dashes.bottom !== "1px")) faults.add(`${at}: what it lacks draws its dashes along or through the gap over its fill`);
             } else {
                 if (Math.abs(box.bottom - top) > 0.5) faults.add(`${at}: its ${kind} part does not stand on the part under it`);
                 top = box.top;
@@ -298,6 +299,22 @@ const missedLineTaps = (card: Locator) => card.locator("[data-roster-lane-day]")
         return hit !== null && line.contains(hit) ? [] : [`a tap ${where} on ${line.getAttribute("data-roster-lane-day")} lands on ${name(hit)}`];
     });
 }));
+/**
+ * How the parts of a week's lane bars or a month's lane cups are divided: for each part after its first, the seam on the
+ * side that faces the part before it — the border on its left in a bar; in a cup, whose parts stack from the bottom up, the
+ * shadow inside its bottom, which leaves a part thinner than the seam its own height.
+ */
+const partSeams = (scope: Locator, parts: string, parent: string, edge: "Left" | "Bottom") => scope.locator(parent).evaluateAll((els, { parts, edge }) => els.flatMap(el => [...el.querySelectorAll(parts)].slice(1).map((part) => {
+    const css = getComputedStyle(part);
+    return edge === "Left" ? `${css.borderLeftWidth} ${css.borderLeftStyle} ${css.borderLeftColor}` : css.boxShadow;
+})), { parts, edge });
+/** Scrolls main's rows on, a step at a time, until `found` holds something: whatever a virtual list has not mounted yet. */
+async function untilMounted(page: Page, main: Locator, found: Locator): Promise<void> {
+    for (let step = 0; step < 40 && await found.count() === 0; step++) {
+        await main.locator("[data-virtual-rows]").first().evaluate((el) => { el.scrollTop += Math.round(el.clientHeight * 0.7); });
+        await settled(page);
+    }
+}
 
 for (const theme of LAYOUT_THEMES) {
     test(`People week and month fit 1440/1024/768/390/360 and a 294px parent: a row one line at the density's pitch, a 36px header, seven marks a cell lettered by the 13px rule, and the phone's cards by week alone (${theme}) @desktop`, async ({ page }) => {
@@ -605,10 +622,88 @@ for (const theme of LAYOUT_THEMES) {
         }
         expect(lines).toBeGreaterThan(7);
     });
+    test(`on a phone a person's card says its issue whole at 390 and 360: the line takes the card's width and wraps, never cut (#1595) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const entry = await open(page, "rosterPeople", theme), frame = entry.locator("[data-roster-frame]").first();
+        const main = frame.locator("[data-roster-main]");
+        for (const width of [390, 360]) {
+            await size(page, entry, width);
+            await expect(main.locator('[data-roster-agenda="people"]'), `${width}px`).toBeVisible();
+            const flags = main.locator("[data-roster-card] > [data-tone]");
+            await untilMounted(page, main, flags);
+            expect(await flags.count(), `${width}px: a card saying an issue`).toBeGreaterThan(0);
+            const cut = await flags.evaluateAll(els => els.flatMap((el) => {
+                const card = el.closest("[data-roster-card]")!.getBoundingClientRect(), box = el.getBoundingClientRect();
+                return el.scrollWidth > el.clientWidth + 1 || box.right > card.right + 0.5 ? [`"${el.textContent}" is cut to ${Math.round(box.width)}px of a ${Math.round(card.width)}px card`] : [];
+            }));
+            expect(cut, `${width}px`).toEqual([]);
+        }
+    });
+    test(`beside a duty's No group badge a People tile's shift is never cut: where the words and the whole name don't both fit the badge is an icon, its words in the tile's tooltip and what a screen reader says (#1595) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const entry = await open(page, "rosterNoGroup", theme), frame = entry.locator("[data-roster-frame]").first();
+        const main = frame.locator("[data-roster-main]");
+        await size(page, entry, 1440);
+        await frame.locator('[data-frame-slot="toolbar"]').getByRole("radio", { name: "People", exact: true }).click();
+        await settled(page);
+        const forms = new Set<string>();
+        for (const width of [1880, 1440, 1200, 1024, 900, 768, 640]) {
+            await size(page, entry, width);
+            if (await main.locator('[data-roster-agenda="people"]').count() > 0) continue;
+            const measured = await main.locator("[data-roster-tile]").evaluateAll((tiles) => {
+                const faults: string[] = [], shown: string[] = [];
+                let badged = 0;
+                for (const tile of tiles) {
+                    const badge = tile.querySelector<HTMLElement>("[data-group]");
+                    if (badge === null || !(badge.textContent ?? "").includes("NO GROUP")) continue;
+                    badged += 1;
+                    const name = tile.querySelector<HTMLElement>("[data-roster-assignment-name]")!, range = document.createRange();
+                    range.selectNodeContents(name);
+                    if (range.getBoundingClientRect().width > name.getBoundingClientRect().width + 0.5) faults.push(`"${name.textContent}" is cut to ${Math.round(name.getBoundingClientRect().width)}px`);
+                    const form = badge.getAttribute("data-roster-tile-group");
+                    if (form !== null) shown.push(form);
+                    if (!(tile.getAttribute("title") ?? "").includes("NO GROUP") || !(tile.getAttribute("aria-label") ?? "").includes("NO GROUP")) faults.push(`"${name.textContent}" says no group in neither its tooltip nor its label`);
+                    if (form === "icon" && badge.querySelector("svg") === null) faults.push(`"${name.textContent}": its badge draws no icon`);
+                }
+                return { badged, faults, shown };
+            });
+            expect(measured.badged, `${width}px: a tile in no group`).toBeGreaterThan(0);
+            expect(measured.faults, `${width}px`).toEqual([]);
+            for (const form of measured.shown) forms.add(form);
+        }
+        expect(forms, "the widths take the badge through both its forms").toEqual(new Set(["words", "icon"]));
+    });
 }
 
 // A shift's colour token resolves through the theme's palette, the same in both colour modes: a colour of its own, so both themes.
 for (const theme of ["light", "dark"] as const) {
+    test(`a cup's figure is drawn in one ink, the text colour with a thin outline in the panel's colour, and a 1px gap in the panel's colour divides each part of a week's bar and a month's cup (ruled 9 Nov 2026, #1595) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const entry = await open(page, "rosterWorkRequirement", theme), frame = entry.locator("[data-roster-frame]").first();
+        const main = frame.locator("[data-roster-main]");
+        await size(page, entry, 1440);
+        const panel = await resolve(page, "backgroundColor", "--chakra-colors-bg-panel"), ink = await resolve(page, "color", "--chakra-colors-fg");
+        const seam = `1px solid ${panel}`;
+        const week = await partSeams(main, ":scope > [data-kind]", "[data-roster-lane-bar]", "Left");
+        expect(week.length, "a week's bar of more than one part").toBeGreaterThan(0);
+        expect(new Set(week)).toEqual(new Set([seam]));
+        await frame.locator('[data-frame-slot="toolbar"]').getByRole("radio", { name: "Month", exact: true }).click();
+        await settled(page);
+        // 1880px: a lane's day is 22px or wider beside the panes only there, so its marks say their figures.
+        await size(page, entry, 1880);
+        const month = await partSeams(main, "[data-roster-cup-part]", "[data-roster-lane-mark]", "Bottom");
+        expect(month.length, "a month's cup of more than one part").toBeGreaterThan(0);
+        expect(new Set(month)).toEqual(new Set([`${panel} 0px -1px 0px 0px inset`]));
+        const figures = await main.locator("[data-roster-mark-figure]").evaluateAll(els => [...new Set(els.map((el) => {
+            const css = getComputedStyle(el);
+            return JSON.stringify({ color: css.color, clip: css.backgroundClip, image: css.backgroundImage, outlined: css.textShadow });
+        }))].map(text => JSON.parse(text) as { color: string; clip: string; image: string; outlined: string }));
+        expect(figures.length, "a cup says its figure").toBeGreaterThan(0);
+        for (const figure of figures) {
+            expect([figure.color, figure.clip, figure.image]).toEqual([ink, "border-box", "none"]);
+            expect(figure.outlined, "the outline is the panel's colour").toContain(panel);
+        }
+    });
     test(`tiles take the shifts' colour tokens, their words in the ink the shade takes — the same in both themes (D6, P7) (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "rosterPeople", theme), frame = entry.locator("[data-roster-frame]").first();

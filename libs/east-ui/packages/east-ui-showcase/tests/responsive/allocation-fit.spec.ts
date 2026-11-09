@@ -109,3 +109,36 @@ test(`§3.4, A2 — two years of bins read a day at a time on e3: a day back is 
     await expect(status).toHaveText("Draft");
     await expect(bins).toHaveText("26");
 });
+
+test(`the toolbar holds still as a day's status changes: the status and the issues keep their widths over a draft day, a published one and one not started; the picker tells a draft day by a hollow ring, and its legend draws each mark beside its word (#1595) (light) @desktop`, async ({ page }) => {
+    await page.setViewportSize({ width: 2160, height: 1200 });
+    const entry = await open(page, "allocationWindowed");
+    await size(page, entry, 1440);
+    const frame = entry.locator("[data-allocation-frame]").first();
+    const toolbar = frame.locator('[data-frame-slot="toolbar"]');
+    const status = toolbar.locator("[data-allocation-status]");
+    const previous = toolbar.getByRole("button", { name: "Previous day", exact: true }), next = toolbar.getByRole("button", { name: "Next day", exact: true });
+    const widthOf = (key: string) => toolbar.locator(`[data-toolbar-item="${key}"]`).evaluate(el => el.getBoundingClientRect().width);
+    const days = new Map<string, Readonly<Record<"status" | "issues", number>>>();
+    const note = async () => { days.set((await status.textContent()) ?? "", { status: await widthOf("allocation.status"), issues: await widthOf("allocation.issues") }); };
+    await expect(status).toHaveText("Draft"); await note();
+    await previous.click(); await settled(page); await expect(status).toHaveText("Published"); await note();
+    await next.click(); await settled(page);
+    await next.click(); await settled(page); await expect(status).toHaveText("Not started"); await note();
+    await previous.click(); await settled(page); await expect(status).toHaveText("Draft");
+    for (const measure of ["status", "issues"] as const) {
+        const seen = [...days.values()].map(day => day[measure]);
+        expect(Math.max(...seen) - Math.min(...seen), `${measure} over the days: ${JSON.stringify([...days])}`).toBeLessThan(0.5);
+    }
+    await toolbar.getByRole("button", { name: "Choose plan day" }).click();
+    const picker = page.locator('[data-time-picker="allocation"]');
+    await expect(picker).toBeVisible();
+    const fill = (mark: Locator) => mark.evaluate(el => getComputedStyle(el).backgroundColor);
+    const day = (state: string) => picker.locator(`[data-time-day] [data-state="${state}"]`).first();
+    expect(await fill(day("draft")), "a draft day").toBe("rgba(0, 0, 0, 0)");
+    expect(await fill(day("published")), "a published day").not.toBe("rgba(0, 0, 0, 0)");
+    const legend = picker.locator("[data-allocation-picker-legend]");
+    await expect(legend).toHaveText(["Published", "Draft", "Not started"]);
+    for (const [i, state] of ["published", "draft", "empty"].entries()) expect(await fill(legend.nth(i).locator(`[data-state="${state}"]`)), `the legend's ${state} mark as the day's`).toBe(await fill(day(state)));
+    await page.keyboard.press("Escape"); await settled(page);
+});

@@ -29,6 +29,8 @@ const LAYOUTS = [{ key: "shifts", label: "Shifts" }, { key: "people", label: "Pe
 const SHIFT_PERIODS = [{ key: "day", label: "Day" }, { key: "week", label: "Week" }] as const;
 const PEOPLE_PERIODS = [{ key: "week", label: "Week" }, { key: "month", label: "Month" }] as const;
 const PEOPLE_NARROW_PERIODS = [{ key: "week", label: "Week" }] as const;
+/** The picker's marks, each beside its word in its legend (#1595). */
+const PICKER_MARKS = [{ mark: "published", word: "Published" }, { mark: "draft", word: "Draft" }, { mark: "empty", word: "Not started" }] as const;
 /** The eye's step into the View and the View's step that draws its entry (ruled 27 Oct 2026, "Into the View menu"): one bundle, applied together. */
 const EYE_INTO_VIEW = "roster.optimise";
 interface ToolbarArgs extends RosterWindow {
@@ -176,11 +178,16 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         return held.every(status => status?.type === "published") ? "published" : held.some(status => status !== undefined) ? "draft" : "empty";
     };
     const dot = (mark: string) => <Box as="span" css={styles.pickerDot} data-state={mark} />;
+    const legend = <Box as="span" css={styles.pickerLegend}>{PICKER_MARKS.map(({ mark, word }) => <Box as="span" key={mark} css={styles.legendItem} data-roster-picker-legend={mark}>{dot(mark)}{word}</Box>)}</Box>;
+    // What the status may say (#1595), each word laid out unseen in its slot so the slot is the widest of them: a day's or
+    // a week's status changing never moves the controls beside it nor folds the row. A week over its days says how many
+    // are published; the app's own case, known by its name alone, stands once it is said.
+    const statusWords = [...new Set(["Draft", "Published", "Not started", "Publishing", ...(days && !dayPicked ? ["7 of 7 published"] : []), ...(status === undefined ? [] : [status])])];
     const navigation = (compact = false, combined = false, withEye = false) => <TimeNavigator scope="roster" date={view.date} period={unit} rangeLabel={rangeLabel}
         sunday={value.settings.weekStart.type === "sunday"} onChange={date => setView({ ...view, date })}
         compact={compact} label={combined ? "View" : dayPicked ? "Choose roster day" : "Choose roster week"} initialPanel={dayPicked ? "day" : "week"} onWeeks={args.onPickerDates}
         weekMarker={date => dot(weekMark(date))} {...(days ? { dayMarker: (date: Date) => dot(markOf(args.picker.get(date))) } : {})}
-        legend="Published · Draft · Not started" controls={combined ? controls(withEye) : undefined} />;
+        legend={legend} controls={combined ? controls(withEye) : undefined} />;
     const daySelect = <Seg label="Day of week" scope="roster" name="days" active={String(args.day)} onPick={day => setView({ ...view, date: start.getTime() + Number(day) * DAY })}
         items={Array.from({ length: 7 }, (_, day) => ({ key: String(day), label: words.weekday(new Date(start.getTime() + day * DAY)) }))} />;
     return [
@@ -197,13 +204,20 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         view.layout === "shifts" && view.period === "day" && { key: "roster.days", side: "start", rank: HOST_RANK + 2, forms: [daySelect, null] },
         // The status, the issues and Publish keep their slots from cold load, whatever the week's read (#1398, CL1): a read
         // landing never shifts the toolbar nor folds it again. Unread, the status and the issues are placeholders.
-        status !== undefined && { key: "roster.status", side: "start", rank: HOST_RANK, forms: [unread
-            ? <Box css={[styles.status, styles.heldSlot]} data-roster-status="" data-pending=""><PlaceholderShape kind="enum" index={0} /></Box>
-            : <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-roster-status="">{status}</Box>, null] },
-        value.inspector && { key: "roster.issues", side: "end", rank: HOST_RANK + 3, forms: [unread
-            ? <Box css={styles.heldSlot} data-roster-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
-            : count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn" }), coarseHitArea({ position: true })]} data-roster-issues="" data-opn={args.issuesFlash === true ? "" : undefined} onClick={args.onIssues} aria-label={`${count} roster ${count === 1 ? "issue" : "issues"}`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{issuesSaid(count)}</span></chakra.button>
-                : <Box css={styles.heldSlot} data-roster-issues="" aria-hidden="true" />, null] },
+        status !== undefined && { key: "roster.status", side: "start", rank: HOST_RANK, forms: [<Box css={styles.widestSlot}>
+            {statusWords.map(word => <Box as="span" key={word} css={styles.status} data-widest-word={word} aria-hidden="true" />)}
+            {unread
+                ? <Box css={[styles.status, styles.heldSlot]} data-roster-status="" data-pending=""><PlaceholderShape kind="enum" index={0} /></Box>
+                : <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-roster-status="">{status}</Box>}
+        </Box>, null] },
+        // The issues' slot is as wide as a count of two figures, at any count or none (#1595).
+        value.inspector && { key: "roster.issues", side: "end", rank: HOST_RANK + 3, forms: [<Box css={styles.widestSlot} data-end="">
+            <chakra.span css={chip({ tone: "warn" })} data-widest-word={issuesSaid(99)} aria-hidden="true"><FontAwesomeIcon icon={faTriangleExclamation} /></chakra.span>
+            {unread
+                ? <Box css={styles.heldSlot} data-roster-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
+                : count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn" }), coarseHitArea({ position: true })]} data-roster-issues="" data-opn={args.issuesFlash === true ? "" : undefined} onClick={args.onIssues} aria-label={`${count} roster ${count === 1 ? "issue" : "issues"}`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{issuesSaid(count)}</span></chakra.button>
+                    : <Box css={styles.heldSlot} data-roster-issues="" aria-hidden="true" />}
+        </Box>, null] },
         search !== undefined && { ...search, forms: [...search.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "roster.controls"] },
         // The Elara eye (#1409), between the issues item and the history item, whose actions a run out locks (R2): in the row
         // at every width the ladder and the rail's caret leave it room, and else the View's entry, never out of the toolbar.
