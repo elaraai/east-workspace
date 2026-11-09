@@ -206,22 +206,24 @@ export const RecordBindHandleType = <T extends EastType, M extends Record<string
     stateType: T,
     mutations: M,
 ) => {
-    const mutateFields: Record<string, EastType> = {
-        pending: FunctionType([], BooleanType),
-        status:  FunctionType([], RecordMutateStatusType),
-        error:   FunctionType([], OptionType(RecordErrorType)),
-        cancel:  FunctionType([], NullType),
-    };
-    const commitFields: Record<string, EastType> = {};
+    // The writes' fields as lists, in order: an object would list a mutation named like an integer first (#1574)
+    const mutateFields: (readonly [string, EastType])[] = [
+        ["pending", FunctionType([], BooleanType)],
+        ["status",  FunctionType([], RecordMutateStatusType)],
+        ["error",   FunctionType([], OptionType(RecordErrorType))],
+        ["cancel",  FunctionType([], NullType)],
+    ];
+    const reserved = new Set(mutateFields.map(([name]) => name));
+    const commitFields: (readonly [string, EastType])[] = [];
     for (const [name, argTypes] of Object.entries(mutations)) {
-        if (name in mutateFields) {
+        if (reserved.has(name)) {
             throw new Error(
                 `Record.bind: mutation name "${name}" collides with a reserved mutate ` +
                 `field (pending/status/error/cancel). Rename the mutation.`,
             );
         }
-        mutateFields[name] = FunctionType(argTypes, NullType);
-        commitFields[name] = AsyncFunctionType([StringType, ...argTypes], RecordOutcomeType);
+        mutateFields.push([name, FunctionType(argTypes, NullType)]);
+        commitFields.push([name, AsyncFunctionType([StringType, ...argTypes], RecordOutcomeType)]);
     }
     return StructType({
         read:    FunctionType([], stateType),

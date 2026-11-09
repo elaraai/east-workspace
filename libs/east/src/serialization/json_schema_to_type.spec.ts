@@ -77,6 +77,8 @@ const CORPUS: [string, EastType][] = [
     ["Option<recursive>", OptionType(LinkedListType)],
     ["chain", ChainType],
     ["Option<chain>", OptionType(ChainType)],
+    // Fields named like integers keep their order through `required` (#1574)
+    ["integer-named", StructType([["b", IntegerType], ["10", StringType], ["2", FloatType]])],
 ];
 
 const DRAFTS: JsonSchemaDraft[] = ["2020-12", "draft-07", "openapi-3.0"];
@@ -164,6 +166,27 @@ describe("typeFromJsonSchema", () => {
                 additionalProperties: false,
             });
             assert.ok(isTypeEqual(T, StructType({ a: StringType, b: IntegerType })));
+        });
+
+        test("reads a struct's fields in the document's order, and in `required`'s where one is named like an integer (#1574)", () => {
+            // A JavaScript object lists "10" first whatever the document's
+            // order; `required`, an array, keeps it — as the python twin reads it
+            const named = typeFromJsonSchema({
+                type: "object",
+                properties: { b: { type: "integer" }, "10": { type: "string" } },
+                required: ["b", "10"],
+                additionalProperties: false,
+            });
+            assert.ok(isTypeEqual(named, StructType([["b", IntegerType], ["10", StringType]])), `got ${printType(named)}`);
+            assert.ok(!isTypeEqual(named, StructType([["10", StringType], ["b", IntegerType]])));
+            // With no such name, the document's order stands, whatever `required`'s
+            const plain = typeFromJsonSchema({
+                type: "object",
+                properties: { a: { type: "string" }, b: { type: "integer" } },
+                required: ["b", "a"],
+                additionalProperties: false,
+            });
+            assert.ok(isTypeEqual(plain, StructType({ a: StringType, b: IntegerType })), `got ${printType(plain)}`);
         });
 
         test("maps a tagged oneOf to a Variant, in either tag spelling", () => {

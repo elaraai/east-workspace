@@ -346,6 +346,17 @@ add_executable(test_beast2_hardening tests/test_beast2_hardening.c)
 target_link_libraries(test_beast2_hardening east-c)
 add_test(NAME beast2_hardening COMMAND test_beast2_hardening)
 
+# Variant case order gate (#1574, #1578): a variant's cases are in East's
+# order — by name, as strings by code point — wherever a listed type comes in:
+# a type value or a beast2 type table listing them otherwise, as a TypeScript
+# East before #1574 wrote one, is refused rather than sorted into a type whose
+# tags name other cases; and the segment reader and the pages check a header's
+# type against the type asked for, as the whole decode does. Held to bytes
+# v1.0.105 wrote.
+add_executable(test_variant_case_order tests/test_variant_case_order.c)
+target_link_libraries(test_variant_case_order east-c)
+add_test(NAME variant_case_order COMMAND test_variant_case_order)
+
 # The content-defined cut rule and the element writer, pinned against the
 # TypeScript writer: the hashes, the threshold, and where three 50,000-element
 # collections are cut.

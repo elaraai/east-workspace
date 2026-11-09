@@ -716,3 +716,70 @@ Each wire changed under this rule, with the kind it is.
   step ships: a split call in flight as its server's release changes is lost
   — its record no longer decodes, and its poll fails — and a relaunch is
   served the units it finished from the execution cache.
+- **TypeScript writes a variant's cases in name order, and a struct's fields
+  in the order given, whatever their names (#1574, #1578)** —
+  package-borne, and an application's stored state that holds such a
+  variant. A variant's cases are in East's order, their names as strings
+  sort, by code point, and a case's tag is its position there. TypeScript
+  held a variant's cases as an object, which lists a name that is an array
+  index — `"50"`, `"100"` — before every other, in numeric order, and it took
+  that order for the cases': its type values, so the type section beast2
+  writes and each case's tag, listed `"50"` before `"100"`, where east-c and
+  east-py — and every runtime's comparisons — put `"100"` first. It also
+  sorted names by UTF-16 code unit, so a name with a character past U+FFFF
+  sorted before one in U+E000–U+FFFF where the two first differ (`"𝐀"`,
+  U+1D400, before `"Ａ"`, U+FF21), which the others put after it, flipping
+  such a variant's tags, its recursive ids and its default. A value
+  TypeScript wrote read on east-c or east-py as another case. TypeScript now
+  sorts the cases by code point and lists them so wherever their order shows:
+  a type's `cases` object lists them in that order (`Object.keys`), as do its
+  type value and so the bytes it writes, a printed type, a type's default and
+  a match's arms, so every runtime writes one form. Only a variant with a
+  case so named changes: east-ui's `ColorShadeType`, and with it
+  `ColorTokenType` and each type that holds one; no type of e3's own, nor of
+  e3-cloud's, holds one. Their type values, the ids of the recursive types
+  holding them and the IR of every program holding them get new bytes once:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type.
+
+  A struct's fields are in the order its type gives them, and TypeScript's
+  object of them could not keep a field named like an array index in its
+  place: `StructType({ b, "10": …, "2": … })` listed `"2"`, `"10"`, `b`, where
+  python's declaration keeps `b`, `"10"`, `"2"`. `StructType` now refuses a
+  field so named given as an object, naming the list it takes instead —
+  `StructType([["b", …], ["10", …], ["2", …]])` — which keeps its order, as
+  the type's `fields` object lists it; a type value of a struct reads as the
+  struct it lists, in that order. A struct with such a field is declared as a
+  list before its package is next exported: listing its fields in the order
+  the object gave them keeps the bytes an earlier TypeScript wrote of it. No
+  type e3, e3-cloud or east-ui declares has such a field. e3's tree types —
+  a struct of a package's dataset names at each level — list the names in
+  the package structure's order, by code point (`"10"` before `"2"`), where
+  an earlier release's object listed a name like an integer first, in numeric
+  order. A level holding a dataset so named and another whose name sorts
+  before it by code point (`"2"` beside `"10"` or `"1a"`) makes a tree of
+  another type: a tree an earlier release stored of it is refused as another
+  type, never misread. No package deployed today names its datasets so, and
+  no repository upgrade step ships: a workspace of such a package is removed
+  and deployed again.
+
+  Bytes an earlier TypeScript wrote of such a variant are refused, never read
+  as another type. A type value, or a beast2 type table, that lists a
+  variant's cases out of East's order is refused on every runtime —
+  TypeScript's `fromEastTypeValue`, east-c's type values and type tables, and
+  east-py's through east-c's — naming the fix, which is to re-export the
+  package or reset the state: east-c and east-py had sorted such a header and
+  read its tags at other positions. And every reader of a collection checks
+  the header's type against the type it was asked for, as the whole decode
+  does, refusing one of another type, naming both: the pages, whole or
+  through a range reader, the lazy value, the segment iterator, and a
+  manifest, its own type at open and each segment's header as it is read.
+  Before, those decoded the segments by the asked type's positions. So no
+  form of them is carried forward. A deploy refuses an application's record
+  that holds such a variant, a field of a `ColorToken`, as a changed type with
+  no migration: deploy with `--schema=reset` to reset it to the package's
+  initial value, setting again what was changed since. Until then a read of
+  the record's state is refused. An input that holds one and
+  was set in the workspace is reset to the package's value, as any input whose
+  type changed. No repository upgrade step ships, since no type e3 stores for
+  itself holds such a variant.

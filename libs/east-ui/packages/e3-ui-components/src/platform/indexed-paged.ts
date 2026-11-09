@@ -533,7 +533,7 @@ export class IndexedPagedRuntime {
                     values as [TreePath, Metadata, Nested, boolean, (index: string, key: unknown, row: unknown) => string[], string, IndexMaintenances, NestedFill];
                 const pathKey = datasetPathToString(path);
                 if (allowed !== null && !allowed.has(pathKey)) throw new Error(`Data.bindPaged: source path '${pathKey}' not declared in manifest`);
-                const typeKey = printType(StructType(Object.fromEntries(schema.args.map((type, i) => [`T${i}`, type]))));
+                const typeKey = printType(StructType(schema.args.map((type, i) => [`T${i}`, type] as const)));
                 const listed = [...Object.keys(metadata), ...(nested.type === "some" ? Object.keys(nested.value.index) : [])];
                 const id = `${pathKey}@indexes:${listed.join(",")}${joined ? "+join" : ""}`;
                 const cacheKey = `${typeKey}:${id}`;

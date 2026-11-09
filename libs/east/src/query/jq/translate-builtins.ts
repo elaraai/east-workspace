@@ -370,14 +370,17 @@ rule("walk", (t, c) => {
     if (ot.type === "Struct") {
       const s = t.bind($, o, "struct");
       const values: Record<string, Expr> = {};
-      const types: Record<string, EastType> = {};
+      // The rebuilt fields in the struct's order: a list, as an object would
+      // list a name like an integer first (#1574)
+      const types: (readonly [string, EastType])[] = [];
       for (const name of Object.keys(ot.fields as object)) {
         values[name] = walk($, t.field(s, name));
-        types[name] = t.type(values[name]!);
+        types.push([name, t.type(values[name]!)]);
       }
       // A recursive value keeps its type; a reference's value is read through it.
       const vt = t.type(v);
-      const rebuiltType = vt.type === "Recursive" && isTypeEqual(StructType(types), ot) ? vt : StructType(types);
+      const rebuilt = StructType(types);
+      const rebuiltType = vt.type === "Recursive" && isTypeEqual(rebuilt, ot) ? vt : rebuilt;
       return t.struct(rebuiltType, values);
     }
     return v;
@@ -497,12 +500,12 @@ function deleteAt(t: Translator, c: CallSite, $: Block, v: Expr, paths: readonly
       }
     }
     const values: Record<string, Expr> = {};
-    const types: Record<string, EastType> = {};
+    const types: (readonly [string, EastType])[] = [];
     for (const name of Object.keys(fields)) {
       if (removed.has(name)) continue;
       const rests = nested.get(name);
       values[name] = rests === undefined ? t.field(s, name) : t.bind($, deleteAt(t, c, $, t.field(s, name), rests), name);
-      types[name] = t.type(values[name]!);
+      types.push([name, t.type(values[name]!)]);
     }
     return t.struct(StructType(types), values);
   }
@@ -688,7 +691,7 @@ rule("pick", (t, c) => {
     // `null`'s fields are null.
     const inner = t.type(v).type === "Null" ? t.null(c.path) : t.field(v, rest[0]!);
     const picked = rest.length === 1 ? inner : build($, t.bind($, inner, rest[0]!), rest.slice(1));
-    return t.struct(StructType({ [rest[0]!]: t.type(picked) }), { [rest[0]!]: picked });
+    return t.struct(StructType([[rest[0]!, t.type(picked)]]), { [rest[0]!]: picked });
   };
   c.emit(c.$, build(c.$, t.bind(c.$, t.open(input(t, c)), "value"), names));
 });

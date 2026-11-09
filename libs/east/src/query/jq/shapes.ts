@@ -306,11 +306,13 @@ export function unify(a: EastType, b: EastType): EastType | undefined {
       const bFields = b.fields as Record<string, EastType>;
       const names = Object.keys(aFields);
       if (names.length !== Object.keys(bFields).length || !names.every(name => name in bFields)) return undefined;
-      const fields: Record<string, EastType> = {};
+      // A list, in the first's order: an object would list a name like an
+      // integer first (#1574)
+      const fields: (readonly [string, EastType])[] = [];
       for (const name of names) {
         const field = unify(aFields[name]!, bFields[name]!);
         if (field === undefined) return undefined;
-        fields[name] = field;
+        fields.push([name, field]);
       }
       return StructType(fields);
     }

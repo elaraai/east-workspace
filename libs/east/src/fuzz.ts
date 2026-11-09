@@ -174,11 +174,11 @@ export function randomType(
     // Dict (keys must be immutable)
     return DictType(StringType, randomType(depth + 1, child));
   } else if (r < 4) {
-    // Struct with 0-4 fields
+    // Struct with 0-4 fields, listed in order, as a struct built at run time is (#1574)
     const fieldCount = Math.floor(random() * 5);
-    const fields: Record<string, EastType> = {};
+    const fields: (readonly [string, EastType])[] = [];
     for (let i = 0; i < fieldCount; i++) {
-      fields[`field${i}`] = randomType(depth + 1, child);
+      fields.push([`field${i}`, randomType(depth + 1, child)]);
     }
     return StructType(fields);
   } else if (r < 5) {
@@ -342,9 +342,9 @@ function randomRecursiveBody(self: RecursiveTypeMarker): EastType {
     // Struct body: 1-3 fields, at least one recursing through a container.
     const fieldCount = 1 + Math.floor(random() * 3);
     const recursing = Math.floor(random() * fieldCount);
-    const fields: Record<string, EastType> = {};
+    const fields: (readonly [string, EastType])[] = [];
     for (let i = 0; i < fieldCount; i++) {
-      fields[`f${i}`] = i === recursing || random() < 0.3 ? viaContainer() : randomRecursiveLeaf(false);
+      fields.push([`f${i}`, i === recursing || random() < 0.3 ? viaContainer() : randomRecursiveLeaf(false)]);
     }
     return StructType(fields);
   }
@@ -383,10 +383,10 @@ export function randomSharedRecursiveType(): EastType {
     [shapes[i], shapes[j]] = [shapes[j]!, shapes[i]!];
   }
   const fieldCount = 2 + Math.floor(random() * 3);
-  const fields: Record<string, EastType> = {};
-  for (let i = 0; i < fieldCount; i++) fields[`f${i}`] = shapes[i]!;
+  const fields: (readonly [string, EastType])[] = [];
+  for (let i = 0; i < fieldCount; i++) fields.push([`f${i}`, shapes[i]!]);
   if (random() < 0.5) return StructType(fields);
-  return RecursiveType((self) => StructType({ ...fields, next: OptionType(self) }));
+  return RecursiveType((self) => StructType([...fields, ["next", OptionType(self)]]));
 }
 
 /**

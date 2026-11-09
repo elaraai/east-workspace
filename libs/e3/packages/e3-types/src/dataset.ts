@@ -115,11 +115,9 @@ export type DataTreeType<T extends EastType> =
  */
 export function DataTreeType<T extends EastType>(type: T): DataTreeType<T> {
   if (type.type === "Struct") {
-    const fields: Record<string, DataRefType> = {};
-    for (const key of Object.keys(type.fields)) {
-      fields[key] = DataRefType;
-    }
-    return StructType(fields) as DataTreeType<T>;
+    // The fields in the struct's order, as a list: an object would list a
+    // field named like an integer first (#1574)
+    return StructType(Object.keys(type.fields).map((key) => [key, DataRefType] as const)) as DataTreeType<T>;
   } else {
     throw new Error(`DataTreeType not implemented for type .${type.type}`);
   }

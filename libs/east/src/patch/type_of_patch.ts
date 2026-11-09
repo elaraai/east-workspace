@@ -115,11 +115,10 @@ function patchTypeOf(type: EastType, context: Map<EastType, EastType>): EastType
       patch: DictType(keyType, operationType),
     });
   } else if (t.type === "Struct") {
-    const fieldTypes = t.fields;
-    const patchFields: Record<string, EastType> = {};
-    for (const [name, fieldType] of Object.entries(fieldTypes)) {
-      patchFields[name] = PatchType(fieldType, context);
-    }
+    // In the struct's order, as a list: a field named like an array index
+    // would lose its place in an object (#1578).
+    const patchFields = Object.entries(t.fields as Record<string, EastType>)
+      .map(([name, fieldType]) => [name, PatchType(fieldType, context)] as const);
     return VariantType({
       unchanged: NullType,
       replace: StructType({ before: type, after: type }),

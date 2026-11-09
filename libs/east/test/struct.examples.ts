@@ -98,3 +98,20 @@ export const structParse = example({
     inputs: [],
     returns: { a: 1n, b: "hello" },
 });
+
+// ---------------------------------------------------------------------------
+// Fields named like integers
+// ---------------------------------------------------------------------------
+
+/** A struct with fields named like integers: an object lists `"10"` and `"2"`
+ *  before `b`, wherever they were written, so the fields are given as a list,
+ *  in the struct's order. */
+const Counts = StructType([["b", IntegerType], ["10", IntegerType], ["2", IntegerType]]);
+
+export const structIntegerNamedFields = example({
+    keywords: ["struct", "StructType", "field order", "integer-like names", "list of fields", "print"],
+    description: "Declare a struct whose fields are named like integers as a list of its fields, which keeps their order",
+    fn: East.function([Counts], StringType, ($, counts) => East.print(counts)),
+    inputs: [{ b: 1n, "10": 2n, "2": 3n }],
+    returns: "(b=1, `10`=2, `2`=3)",
+});

@@ -116,7 +116,9 @@ Tag   Type           Parameters
 
 **Field/case names in type table entries**: These are stored inline as UTF-8 strings within the type table (NOT in the string table). The string table only holds value-level strings.
 
-**Field ordering**: Struct fields preserve their definition order (field order is significant in East's structural type system). Variant cases are sorted alphabetically by name (enforced by `VariantType()` at construction time).
+**Field ordering**: Struct fields preserve their definition order (field order is significant in East's structural type system), whatever their names. Variant cases are in East's order: by name, as strings compare — by code point (`compareStrings`; `strcmp` over UTF-8 in C) — so `"100"` comes before `"50"`, and `"Ａ"` (U+FF21) before `"𝐀"` (U+1D400). A case's place in that order is its tag (§4.2). Every runtime's constructor sorts the cases (`VariantType()`), and a type table, or a type value, that lists them otherwise is refused, not re-sorted (east-workspace#1574, #1578): only a TypeScript East before #1574 wrote one, listing a case named like an integer first, and re-sorting it would read its tags as other cases.
+
+In TypeScript a type's `fields` and `cases` objects list their names in that order too — `Object.keys(t.cases)` is East's order — though a plain object lists a name that is an array index (`"50"`, `"10"`) before every other. A struct with such a field is declared as a list, `StructType([[name, type], …])`, as the object form `StructType({…})` refuses one; `variantCases(type)` lists a variant's cases.
 
 ### 2.2 Recursion
 
@@ -199,7 +201,7 @@ Value encoding is purely positional — no type tags in the stream. The decoder 
 | Type | Encoding |
 |------|----------|
 | Struct | fields concatenated in definition order, no delimiters |
-| Variant | `varint(case_index)` + case value (case_index per alphabetical case ordering) |
+| Variant | `varint(case_index)` + case value (case_index: the case's place in East's order of the case names, §2.1) |
 | Vector | `varint(element_count)` + packed typed array bytes |
 | Matrix | `varint(rows)` + `varint(cols)` + packed typed array bytes |
 
@@ -441,8 +443,8 @@ root_type_index = 1
 | Unified type table | Single table for header + IR | Eliminates redundancy for types shared between schema and functions |
 | IR type detection | `type_id` comparison against `EastTypeValueType` | Zero-cost detection at encode/decode time; no separate IR substitution step |
 | Value encoding | Unchanged from beast v1 (except strings) | Orthogonal to type header; minimal migration cost |
-| Struct field ordering | Definition order | Field order is significant in East's structural type system |
-| Variant case ordering | Alphabetical | Enforced by VariantType() constructor; deterministic encoding |
+| Struct field ordering | Definition order | Field order is significant in East's structural type system; TypeScript declares a struct with an integer-like field name as a list |
+| Variant case ordering | East's string order (code point) | Sorted by every runtime's `VariantType()`; a table listing cases otherwise is refused; deterministic encoding |
 | Zigzag fast path | Number arithmetic for ≤4 byte varints | Avoids intermediate BigInt allocations for common small values |
 
 ---

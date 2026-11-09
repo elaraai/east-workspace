@@ -1679,7 +1679,7 @@ function lookTypeOf(kind: PlanLookKind): StructType {
     if (type === undefined) {
         const spec = PLAN_LOOKS[kind];
         const omit: readonly string[] = [...(spec.key !== undefined ? [spec.key] : []), ...spec.instants];
-        type = StructType(Object.fromEntries(Object.entries((spec.type as StructType).fields).filter(([f]) => !omit.includes(f))));
+        type = StructType(Object.entries((spec.type as StructType).fields).filter(([f]) => !omit.includes(f)));
         lookTypes.set(kind, type);
     }
     return type;

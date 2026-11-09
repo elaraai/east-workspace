@@ -643,7 +643,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
         for (const [mutationName, argTypes] of sig.mutations) {
             const argTypesEast = argTypes.map(t => fromEastTypeValue(t));
             // Bundle the mutation's N args into one struct (platform fns are fixed-arity).
-            const ArgsStruct = StructType(Object.fromEntries(argTypesEast.map((t, i) => [`arg${i}`, t])));
+            const ArgsStruct = StructType(argTypesEast.map((t, i): readonly [string, EastType] => [`arg${i}`, t]));
             const mutationNameExpr = East.value(mutationName, StringType);
             mutate[mutationName] = East.compile(East.function(argTypesEast, NullType, ($, ...args) => {
                 const obj: Record<string, unknown> = {};

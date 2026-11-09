@@ -40,8 +40,8 @@ export type SchedulePatchInput<R extends StructType> = { [K in keyof R["fields"]
  * @returns The patch type
  */
 export function SchedulePatchTypeFor<R extends StructType>(rowType: R): SchedulePatchOf<R> {
-    const fields: Record<string, EastType> = {};
-    for (const [name, type] of Object.entries(rowType.fields as Record<string, EastType>)) fields[name] = OptionType(type);
+    // The row's fields in its order, as a list: an object would list a field named like an integer first (#1574)
+    const fields = Object.entries(rowType.fields as Record<string, EastType>).map(([name, type]) => [name, OptionType(type)] as const);
     return StructType(fields) as unknown as SchedulePatchOf<R>;
 }
 

@@ -1186,19 +1186,21 @@ class Checker {
       const ub = unwrap(b);
       const af = ua.type === "Struct" ? ua.fields as Record<string, EastType> : {};
       const bf = ub.type === "Struct" ? ub.fields as Record<string, EastType> : {};
-      const fields: Record<string, EastType> = {};
+      // A Map, in insertion order whatever the names: an object would list a
+      // name like an integer first (#1574)
+      const fields = new Map<string, EastType>();
       const facts = new Map<string, Facts>();
       const aKnown = aFacts?.kind === "fields" ? aFacts.fields : undefined;
       const bKnown = bFacts?.kind === "fields" ? bFacts.fields : undefined;
       for (const [name, t] of Object.entries(af)) {
-        fields[name] = t;
+        fields.set(name, t);
         const f = aKnown?.get(name);
         if (f !== undefined) facts.set(name, f);
       }
       for (const [name, t] of Object.entries(bf)) {
         if (deep && name in af && unwrap(af[name]!).type === "Struct" && unwrap(t).type === "Struct") {
           const inner = merge(af[name]!, t, aKnown?.get(name), bKnown?.get(name));
-          fields[name] = inner.type;
+          fields.set(name, inner.type);
           if (inner.facts !== undefined) facts.set(name, inner.facts); else facts.delete(name);
         } else if (deep && name in af && unwrap(af[name]!).type === "Dict" && unwrap(t).type === "Dict") {
           // Two dicts merge into one holding both's keys: their types must unify.
@@ -1207,15 +1209,15 @@ class Checker {
             if (!problem) this.fail(range, "type_mismatch", MESSAGES.arithmetic("*", describeType(af[name]!), describeType(t)));
             problem = true;
           }
-          fields[name] = inner ?? t;
+          fields.set(name, inner ?? t);
           facts.delete(name);
         } else {
-          fields[name] = t;
+          fields.set(name, t);
           const f = bKnown?.get(name);
           if (f !== undefined) facts.set(name, f); else facts.delete(name);
         }
       }
-      return { type: StructType(fields), facts: facts.size > 0 ? { kind: "fields", fields: facts } : undefined };
+      return { type: StructType([...fields]), facts: facts.size > 0 ? { kind: "fields", fields: facts } : undefined };
     };
     const l = left.shape as TypeShape;
     const r = right.shape as TypeShape;
@@ -1287,12 +1289,14 @@ class Checker {
       if (!isImmutableType(keyType)) return this.fail(this.range(computed[0]!.keyPath), "type_mismatch", MESSAGES.mutableKey(this.source(computed[0]!.keyPath), describeType(keyType)));
       return { shape: typed(DictType(keyType, valueType)), mult };
     }
-    const fields: Record<string, EastType> = {};
+    // The struct's fields in the order the object writes them, each once: a
+    // list, which keeps a name like an integer in its place (#1574)
+    const fields: (readonly [string, EastType])[] = [];
     const facts = new Map<string, Facts>();
     for (const l of literal) {
       const t = this.collect(l.result, this.range(path));
       if (t === undefined) return { shape: ERROR, mult };
-      fields[l.name] = t;
+      fields.push([l.name, t]);
       if (l.result.shape.kind === "type" && l.result.shape.facts !== undefined) facts.set(l.name, l.result.shape.facts);
     }
     return { shape: typed(StructType(fields), facts.size > 0 ? { kind: "fields", fields: facts } : undefined), mult };
@@ -1920,19 +1924,21 @@ class Checker {
           return done(merged);
         }
         if (t.type === "Struct") {
-          const fields = { ...(t.fields as Record<string, EastType>) };
+          // The struct's fields in its order, a new one after them: a Map,
+          // which keeps a name like an integer in its place (#1574)
+          const fields = new Map(Object.entries(t.fields as Record<string, EastType>));
           const facts = member.facts?.kind === "fields" ? member.facts.fields.get(name) : undefined;
-          const next = replace(name in fields ? fields[name]! : NullType, facts);
+          const next = replace(fields.get(name) ?? NullType, facts);
           if (next === undefined) return failed;
           // An update that never gives a value deletes the field, as jq deletes the key.
-          if (next.mult.hi === 0) delete fields[name];
-          else fields[name] = next.type;
-          return done(StructType(fields));
+          if (next.mult.hi === 0) fields.delete(name);
+          else fields.set(name, next.type);
+          return done(StructType([...fields]));
         }
         if (t.type === "Null") {
           const next = replace(NullType, undefined);
           if (next === undefined) return failed;
-          return next.mult.hi === 0 ? unchanged : done(StructType({ [name]: next.type }));
+          return next.mult.hi === 0 ? unchanged : done(StructType([[name, next.type]]));
         }
         if (t.type === "Dict" && unwrap(t.key as EastType).type === "String") {
           const old = orNull(t.value as EastType) ?? (t.value as EastType);
@@ -2020,11 +2026,11 @@ class Checker {
         }
         case "Struct": {
           const facts = member.facts?.kind === "fields" ? member.facts.fields : undefined;
-          const fields: Record<string, EastType> = {};
+          const fields: (readonly [string, EastType])[] = [];
           for (const [name, f] of Object.entries(t.fields as Record<string, EastType>)) {
             const next = replace(f, facts?.get(name));
             if (next === undefined) return failed;
-            if (next.mult.hi !== 0) fields[name] = next.type;
+            if (next.mult.hi !== 0) fields.push([name, next.type]);
           }
           return done(StructType(fields));
         }

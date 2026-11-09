@@ -72,8 +72,10 @@ export function jq<T extends EastType>(input: Expr | { readonly [name: string]: 
   const named = !(input instanceof Expr);
   const names = named ? Object.keys(input) : [];
   const values = named ? names.map(n => (input as Record<string, Expr>)[n]!) : [input];
+  // The root's inputs in the order the call passes them: a list, which keeps
+  // a name like an integer in its place (#1574)
   const inputType = named
-    ? StructType(Object.fromEntries(names.map((n, i) => [n, Expr.type(values[i]!) as EastType])))
+    ? StructType(names.map((n, i) => [n, Expr.type(values[i]!) as EastType] as const))
     : Expr.type(input) as EastType;
   const checked = checkJq(program, inputType, { root: named });
   if (checked.program === null) throw new QueryError(checked.diagnostics);

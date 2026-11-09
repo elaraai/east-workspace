@@ -69,10 +69,11 @@ export type ScheduleOptimiseResultType<E extends ScheduleOptimiseRows = Schedule
  * @returns The records by slot
  */
 function recordsOf(rows: ScheduleOptimiseRows): ScheduleOptimiseRecordsType {
-    return StructType(Object.fromEntries(Object.keys(rows).sort().map((slot) => {
+    // A list, in name order: an object would list a slot named like an integer first (#1574)
+    return StructType(Object.keys(rows).sort().map((slot): readonly [string, EastType] => {
         const given = rows[slot]!;
         return [slot, given.type === "Dict" ? given : DictType(StringType, given)];
-    }))) as ScheduleOptimiseRecordsType;
+    })) as ScheduleOptimiseRecordsType;
 }
 
 /**

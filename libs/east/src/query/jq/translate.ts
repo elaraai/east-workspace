@@ -1997,15 +1997,17 @@ export class Translator {
     const af = this.type(left).fields as Record<string, EastType>;
     const bf = this.type(right).fields as Record<string, EastType>;
     const values: Record<string, Expr> = {};
-    const types: Record<string, EastType> = {};
-    for (const name of Object.keys(af)) { values[name] = this.field(left, name); types[name] = af[name]!; }
+    // A Map, in insertion order whatever the names: an object would list a
+    // name like an integer first (#1574)
+    const types = new Map<string, EastType>();
+    for (const name of Object.keys(af)) { values[name] = this.field(left, name); types.set(name, af[name]!); }
     for (const [name, t] of Object.entries(bf)) {
       values[name] = deep && name in af && mergesDeeply(af[name]!, t)
         ? this.bind($, this.deepMerge($, this.field(left, name), this.field(right, name), path), name)
         : this.field(right, name);
-      types[name] = this.type(values[name]!);
+      types.set(name, this.type(values[name]!));
     }
-    return this.struct(StructType(types), values);
+    return this.struct(StructType([...types]), values);
   }
 
   /**
@@ -2635,8 +2637,11 @@ export class Translator {
   /**
    * A struct of some fields' values: of the original's type, recursive
    * wrapper and all, when its fields' types are the original's.
+   *
+   * @param types - Each field's name and type, in the struct's order: a list,
+   *   as an object would list a name like an integer first (#1574)
    */
-  private rebuilt(original: Expr, types: Record<string, EastType>, values: Record<string, Expr>): Expr {
+  private rebuilt(original: Expr, types: readonly (readonly [string, EastType])[], values: Record<string, Expr>): Expr {
     const type = StructType(types);
     const t = this.type(original);
     return this.struct(t.type === "Recursive" && isTypeEqual(t.node as EastType, type) ? t : type, values);
@@ -2663,15 +2668,15 @@ export class Translator {
       const next = f($, this.null(path));
       if (next === undefined) return e;
       const value = this.required($, next, path);
-      return this.struct(StructType({ [name]: this.type(value) }), { [name]: value });
+      return this.struct(StructType([[name, this.type(value)]]), { [name]: value });
     }
     if (t.type === "Struct") {
       const fields = t.fields as Record<string, EastType>;
       const s = this.bind($, e, "struct");
       const next = f($, name in fields ? this.field(s, name) : this.null(path));
       const values: Record<string, Expr> = {};
-      const types: Record<string, EastType> = {};
-      const put = (field: string, value: Expr): void => { values[field] = value; types[field] = this.type(value); };
+      const types: (readonly [string, EastType])[] = [];
+      const put = (field: string, value: Expr): void => { values[field] = value; types.push([field, this.type(value)]); };
       for (const field of Object.keys(fields)) {
         if (field !== name) put(field, this.field(s, field));
         else if (next !== undefined) put(field, this.required($, next, path));
@@ -2864,12 +2869,12 @@ export class Translator {
     if (t.type === "Struct") {
       const s = this.bind($, e, "struct");
       const values: Record<string, Expr> = {};
-      const types: Record<string, EastType> = {};
+      const types: (readonly [string, EastType])[] = [];
       for (const name of Object.keys(t.fields as object)) {
         const next = f($, this.field(s, name));
         if (next === undefined) continue;
         values[name] = this.required($, next, path);
-        types[name] = this.type(values[name]!);
+        types.push([name, this.type(values[name]!)]);
       }
       return this.rebuilt(v, types, values);
     }
@@ -2981,10 +2986,10 @@ export class Translator {
     const s = this.bind($, e, "struct");
     const o = this.bind($, this.open(old), "old");
     const values: Record<string, Expr> = {};
-    const types: Record<string, EastType> = {};
+    const types: (readonly [string, EastType])[] = [];
     for (const name of Object.keys(t.fields as object)) {
       values[name] = name === fields[0] ? this.bind($, this.walkAlong($, this.field(s, name), this.field(o, name), fields.slice(1), path, node), name) : this.field(s, name);
-      types[name] = this.type(values[name]!);
+      types.push([name, this.type(values[name]!)]);
     }
     return this.rebuilt(w, types, values);
   }
@@ -3047,10 +3052,10 @@ export class Translator {
         const s = this.bind($, e, "struct");
         const before = this.bind($, o, "old");
         const values: Record<string, Expr> = {};
-        const types: Record<string, EastType> = {};
+        const types: (readonly [string, EastType])[] = [];
         for (const [name, fieldType] of Object.entries(t.fields as Record<string, EastType>)) {
           values[name] = this.bind($, this.kept($, node($, this.field(s, name), this.field(before, name)), fieldType, path), name);
-          types[name] = this.type(values[name]!);
+          types.push([name, this.type(values[name]!)]);
         }
         return this.rebuilt(w, types, values);
       }

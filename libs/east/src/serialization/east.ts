@@ -2168,11 +2168,9 @@ function parseInferredStruct(input: string, startPos: number, frozen: boolean): 
     }
 
     if (input[pos] === ')') {
-      // Reorder fields to match insertion order
-      const orderedFields: { [key: string]: EastType } = {};
-      for (const name of fieldOrder) {
-        orderedFields[name] = fields[name]!;
-      }
+      // The fields in the order the text gives them, as a list: an object
+      // would list a field named like an array index first (#1578)
+      const orderedFields = fieldOrder.map((name) => [name, fields[name]!] as const);
 
       const struct = frozen ? Object.freeze(values) : values;
       return { type: StructType(orderedFields), value: struct, position: pos + 1 };

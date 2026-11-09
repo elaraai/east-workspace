@@ -51,7 +51,8 @@ function csvColumn(type: EastType): CsvColumn {
 export function resultCsv(output: RunOutput, words: QueryWords): Uint8Array {
     const { columns, rows } = resultRows({ type: output.type, value: output.value });
     const shaped = columns.map(c => ({ ...c, csv: csvColumn(c.type) }));
-    const RowType = StructType(Object.fromEntries(shaped.map(c => [c.key, c.csv.type])));
+    // The columns in the result's order, as a list: an object would list a column named like an integer first (#1574)
+    const RowType = StructType(shaped.map(c => [c.key, c.csv.type] as const));
     const cells = rows.map(row => Object.fromEntries(shaped.map((c): [string, unknown] => {
         const value = (row as Readonly<Record<string, unknown>>)[c.key];
         switch (c.csv.words) {

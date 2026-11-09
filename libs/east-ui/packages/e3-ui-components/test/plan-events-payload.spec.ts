@@ -257,7 +257,7 @@ describe("the payload (PB8, PB11)", () => {
         assert.ok(same(kinds[1]!.templates.map((t) => ({ duration: t.duration, at: t.at, group: t.group })), [0n, 0n].map(() => ({ duration: variant("minutes", 0.0), at: none, group: some("Stops") }))));
         assert.ok(same(kinds[2]!.templates.map((t) => ({ duration: t.duration, at: t.at, group: t.group })), [6n, 14n, 22n].map((hour) => ({ duration: variant("hours", 8.0), at: some({ hour, minute: 0n }), group: some("Shifts") }))));
         // Its values are the job a drop creates, every field but the times and the press, as e3 holds the template.
-        const values = decodeBeast2For(StructType(Object.fromEntries(Object.entries(ex.PrintJob.fields).filter(([f]) => !["start", "end", "press"].includes(f)))))(kinds[0]!.templates[1]!.values);
+        const values = decodeBeast2For(StructType(Object.entries(ex.PrintJob.fields).filter(([f]) => !["start", "end", "press"].includes(f))))(kinds[0]!.templates[1]!.values);
         assert.ok(equalFor(ex.PrintJobTemplate.fields.values)(values as never, (await h.read(ex.planPrintJobTemplates)).get("brochure")!.values));
     });
 

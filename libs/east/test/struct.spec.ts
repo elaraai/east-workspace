@@ -105,4 +105,16 @@ await describe("Struct", (test) => {
         $(assert.throws(East.value("(a = 1)").parse(StructType({ a: IntegerType, b: StringType })))); // missing field
         $(assert.throws(East.value("(a = \"not a number\")").parse(StructType({ a: IntegerType })))); // wrong type
     });
+
+    assert.examples(test, {
+        structIntegerNamedFields: ex.structIntegerNamedFields,
+    });
+
+    test("Fields named like integers, in the order the type lists them", $ => {
+        const Counts = StructType([["b", IntegerType], ["10", IntegerType], ["2", IntegerType]]);
+        const counts = $.let(East.value({ b: 1n, "10": 2n, "2": 3n }, Counts));
+        $(assert.equal(East.print(counts), "(b=1, `10`=2, `2`=3)"));
+        $(assert.equal(East.value("(b=4, `10`=5, `2`=6)").parse(Counts), { b: 4n, "10": 5n, "2": 6n }));
+        $(assert.equal(counts["10"].add(counts["2"]), 5n));
+    });
 });

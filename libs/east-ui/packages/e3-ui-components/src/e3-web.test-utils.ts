@@ -48,7 +48,7 @@ import {
     dataflowExecute, datasetGet, datasetSet, packageImport, repoCreate, workspaceCopy, workspaceCreate, workspaceDeploy,
     workspaceRecordHistory, workspaceRecordMutate, type DatasetKeySearch, type MutationResult, type RecordHistoryResult, type RequestOptions,
 } from "@elaraai/e3-api-client";
-import type { TreePath } from "@elaraai/e3-types";
+import { BEAST2_CONTENT_TYPE, type TreePath } from "@elaraai/e3-types";
 import { exampleModule, examplesPackageZip } from "@elaraai/e3-ui/examples-package";
 import { createWebE3, inProcessUnits, type HostMessage, type UnitWorker, type WebE3, type WorkerMessage } from "@elaraai/e3-web";
 import { serveE3 } from "@elaraai/e3-web/worker";
@@ -199,9 +199,11 @@ export interface E3UnitHold {
  * - `lost`: e3 answers the request — a mutation commits — but its answer never arrives, and the fetch fails as a network does;
  * - `untagged`: e3 answers, and its answer arrives without the headers that tag it — its `ETag`, and the content hash it
  *   names (`X-Content-SHA256`) — as through a proxy that drops them;
- * - an {@link E3Alteration}: e3 answers, and its answer's body arrives as the alteration makes it from e3's.
+ * - an {@link E3Alteration}: e3 answers, and its answer's body arrives as the alteration makes it from e3's;
+ * - an {@link E3Refusal}: the request never reaches e3, and the fetch answers as e3 answers a write it refuses.
  */
-export type E3Failure = { readonly status?: number; readonly type?: string; readonly message?: string } | "network" | "lost" | "untagged" | E3Alteration;
+export type E3Failure =
+    | { readonly status?: number; readonly type?: string; readonly message?: string } | "network" | "lost" | "untagged" | E3Alteration | E3Refusal;
 
 /**
  * A fault that alters e3's answer on its way back: a server whose answers
@@ -217,6 +219,25 @@ export interface E3Alteration {
      * @returns The body the fetch answers with, under e3's status and headers
      */
     readonly alter: (body: Uint8Array, request: E3Request) => Uint8Array<ArrayBuffer>;
+}
+
+/**
+ * A fault that refuses a write in e3's place: the request never reaches e3,
+ * so nothing is committed and the record stays as it was, and the fetch
+ * answers `200` with the body given — beast2 of the route's answer — as e3
+ * answers a mutation it refuses (`MutationResultType`'s `invalid`). An
+ * {@link E3Alteration} of a write's answer is no refusal: e3 has committed
+ * the write by then, and a session that hears it refused sees the commit
+ * once its record moves, and lets the refusal go.
+ */
+export interface E3Refusal {
+    /**
+     * The answer's body.
+     *
+     * @param request - The request it answers
+     * @returns The body the fetch answers with: beast2 of the route's answer type
+     */
+    readonly refuse: (request: E3Request) => Uint8Array<ArrayBuffer>;
 }
 
 /** e3 under test: see the module's documentation. */
@@ -562,7 +583,7 @@ function heldUnits(start: () => UnitWorker): HeldUnits {
 }
 
 /** An answer as e3's API server sends a failure (`sendJsonError`): its status, and its error's type and message as JSON. */
-function failureResponse(failure: Exclude<E3Failure, "network" | "lost" | "untagged" | E3Alteration>, request: E3Request): Response {
+function failureResponse(failure: Exclude<E3Failure, "network" | "lost" | "untagged" | E3Alteration | E3Refusal>, request: E3Request): Response {
     const status = failure.status ?? 500;
     const type = failure.type ?? "internal";
     const message = failure.message ?? `the test failed ${request.method} ${request.path}`;
@@ -700,6 +721,9 @@ function testE3Over(web: WebE3, units: HeldUnits, packageRef: string): TestE3 {
                     const headers = new Headers(answered.headers);
                     headers.delete("Content-Length");
                     return await kept(entry, new Response(body, { status: answered.status, statusText: answered.statusText, headers }));
+                }
+                if ("refuse" in failure) {
+                    return await kept(entry, new Response(failure.refuse(entry), { status: 200, headers: { "Content-Type": BEAST2_CONTENT_TYPE } }));
                 }
                 return await kept(entry, failureResponse(failure, entry));
             }

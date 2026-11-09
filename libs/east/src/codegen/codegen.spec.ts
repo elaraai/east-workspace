@@ -254,6 +254,21 @@ describe("codegen: toSource round trips the builder surface", () => {
     assert.equal(main.toIR().compile([])(5n), fn.toIR().compile([])(5n));
   });
 
+  test("a struct with a field named like an integer prints as its list of fields, which keeps their order, and rebuilds (#1574)", async () => {
+    const Counts = StructType([["b", IntegerType], ["10", IntegerType], ["2", IntegerType]]);
+    const fn = East.function([Counts], Counts, ($, c) => {
+      const swapped = $.const({ b: c["2"], "10": c["10"].add(1n), "2": c.b }, Counts);
+      return swapped;
+    });
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    // An object would list "10" and "2" before b, and StructType refuses one that names them: the type is its fields, in order.
+    assert.match(source, /StructType\(\[\["b", IntegerType\], \["10", IntegerType\], \["2", IntegerType\]\]\)/, source);
+    assert.doesNotMatch(source, /StructType\(\{/, source);
+    const main = await roundTrip(fn, "integer-named fields");
+    const counts = { b: 1n, "10": 2n, "2": 3n };
+    assert.ok(equalFor(Counts)(main.toIR().compile([])(counts), fn.toIR().compile([])(counts)));
+  });
+
   test("value slots and returns: a construction prints bare where the surface types it, through East.value only where the type would be lost (#645, #646)", async () => {
     const Point = StructType({ x: IntegerType, y: IntegerType });
     const Wide = VariantType({ a: IntegerType, b: StringType });

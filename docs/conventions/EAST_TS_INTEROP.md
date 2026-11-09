@@ -27,8 +27,8 @@ value whose meaning JavaScript does not know:
 Each of these type-checks clean when it goes wrong, and the result is silent:
 a value printed so East cannot read it back, text read in the wrong
 timezone, a struct key that never finds its entry, a sort that misplaces
-`NaN`. Each section below has **Do** / **Don't** examples, and the last one
-names the lint rule that enforces it.
+`NaN`. Each section below has **Do** / **Don't** examples, and §11 names the
+lint rule that enforces each.
 
 ---
 
@@ -378,10 +378,10 @@ fail on the real thing.
 
 `east/east-rules` (`@elaraai/eslint-plugin-east`) runs the host-value rules
 — its exported `hostValueRules` — over source and tests in the UI packages'
-`make lint`, at `error`. Each rule recognises an East value by where its
-type comes from (a `ValueTypeOf` struct, a `[variant_symbol]` member, a
+and e3's `make lint`, at `error`. Each rule recognises an East value by where
+its type comes from (a `ValueTypeOf` struct, a `[variant_symbol]` member, a
 `SortedSet` / `SortedMap`, or a field, payload or element read out of one),
-never by a name list.
+never by a name list, and East's `StructType` by its import.
 
 | Section | Rule |
 |---|---|
@@ -391,13 +391,47 @@ never by a name list.
 | §7 | `no-host-print-of-east-values`, `no-host-parse-to-east-values` |
 | §8 | `no-js-collection-for-east-collection` |
 | §9, §10 | `no-handrolled-value-type-mirror` |
+| §12 | `no-struct-type-from-object` |
 
 A finding is fixed, never exempted: no file lists, no disable comments. A
 rule that flags correct code gets more precise, with a spec for the case.
 
 ---
 
-## 12. Quick reference
+## 12. Declare a struct's fields as a list where they are known only at run time
+
+A struct's fields are in the order it declares them, and the order is part
+of its type: its type value, its beast2 bytes and every runtime's IR keep
+it. A JavaScript object cannot hold every order: it lists a name like an
+integer (`"2024"`, `"10"`: an array index) before every other, in numeric
+order, wherever it was written. So `StructType({ … })` takes an object only
+where its names are written out and none is like an integer, and refuses
+one that names such a field (#1574). A struct whose fields are known only at
+run time — another struct's, mapped or filtered; a row's columns; a query's
+keys; a pivot by year — is declared as a list, which keeps any order.
+`Object.entries(T.fields)` lists a struct type's fields in its own order, so
+a struct mapped or filtered from another keeps it.
+
+### Do
+
+```ts
+import { FloatType, OptionType, StructType } from "@elaraai/east";
+
+const PivotType = StructType(years.map((year) => [year, FloatType] as const));   // "2023", "2024", … in their order
+const DraftType = StructType(Object.entries(RowType.fields).map(([name, type]) => [name, OptionType(type)] as const));
+const Mixed = StructType([["b", FloatType], ["10", FloatType]]);                 // "b" first, as declared
+```
+
+### Don't
+
+```ts
+const PivotType = StructType(Object.fromEntries(years.map((year) => [year, FloatType])));   // WRONG — refused for "2024"
+const Mixed = StructType({ b: FloatType, "10": FloatType });                               // WRONG — refused: "10" cannot keep its place
+```
+
+---
+
+## 13. Quick reference
 
 | Operation | Correct API | Don't |
 |---|---|---|
@@ -414,6 +448,7 @@ rule that flags correct code gets more precise, with a spec for the case.
 | Read text | `parseFor(T)(text)`, then `success` | `BigInt(text)`, `Number(text)`, `new Date(text)`, `JSON.parse(text)` |
 | Set / Dict keyed by a struct, variant or DateTime | `new SortedSet(xs, compareFor(K))`, `new SortedMap(entries, compareFor(K))` | `new Set(xs)`, `new Map(entries)` |
 | Decoded value's type | `ValueTypeOf<typeof T>`, narrowed on `.type` | `{ type: string; value: … }` casts, `*Like` mirrors |
+| A struct whose fields are known at run time | `StructType(entries)`, `StructType(Object.entries(T.fields).map(…))` | `StructType(Object.fromEntries(…))`, `StructType(anObject)` |
 | Test assertion | `toEqual(variant(…))` over real values | reading a hand-built value field by field |
 | Declare expr var | `$.let(v, T)` / `$.const(v, T)` | `East.value(v)` |
 | Frozen check | `isFrozenValue(v)` | `Object.isFrozen(v)` (misses typed arrays, lazy values) |

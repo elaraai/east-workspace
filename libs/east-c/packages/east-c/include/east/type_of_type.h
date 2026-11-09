@@ -30,8 +30,21 @@ void east_type_of_type_init(void);
 // Free the type descriptors. Called by east_type_registry_clear().
 void east_type_of_type_free(void);
 
-// Convert decoded EastTypeType variant value -> EastType*
+// Convert decoded EastTypeType variant value -> EastType*. NULL for a value
+// that is no type, and — with the refusal posted through east_builtin_error —
+// for one whose variant lists its cases out of East's order
+// (east_variant_cases_in_order).
 EastType *east_type_from_value(EastValue *value);
+
+// Whether `names`, a variant's cases as a type value or a type table lists
+// them, are in East's order — by name, as strings by code point, which strcmp
+// gives over UTF-8 — with no name twice; a case's place in that order is its
+// tag. When they are not, posts the refusal through east_builtin_error: a
+// TypeScript East before east-workspace#1574 listed a case named like an
+// integer ("50") before the rest, and what it wrote is re-exported or reset,
+// never read as another type (east_variant_type would sort the cases, and
+// the tags written under the old order would read as other cases).
+bool east_variant_cases_in_order(const char *const *names, size_t n);
 
 // Convert EastType* -> EastTypeType variant value
 EastValue *east_type_to_value(EastType *type);

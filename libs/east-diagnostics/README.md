@@ -77,13 +77,15 @@ A value is recognised by where its type comes from — a `ValueTypeOf` struct, a
 member carrying `[variant_symbol]`, a `SortedSet` / `SortedMap`, or a field,
 payload or element read out of one — never by a name list. `hostValueRuleNames`
 names the set (with `no-host-comparison-on-east-values`,
-`no-handrolled-value-type-mirror`, `no-handrolled-variant` and
-`prefer-some-none`), for a caller running only these with `only`.
+`no-handrolled-value-type-mirror`, `no-handrolled-variant`,
+`prefer-some-none` and `no-struct-type-from-object`), for a caller running only
+these with `only`.
 
 - **`no-host-print-of-east-values`** - `String(x)`, `x.toString()`, `` `${x}` ``, `JSON.stringify(x)`, `x.toISOString()` on a value JavaScript prints differently from East — a Float, a DateTime, a Blob, a struct, a variant, a collection. Use `printFor(T)`, or the locale formatters for a person. A String, an Integer and a Boolean print the same either way, and a number written as a CSS length (`` `${w}px` ``) is style, not a print.
 - **`no-host-parse-to-east-values`** - `BigInt(s)`, `Number(s)`, `parseFloat(s)`, `parseInt(s)`, `new Date(s)`, `Date.parse(s)` or `JSON.parse(s)` reading text into an East slot — an East function value's argument, a variant's payload, a struct's field. Use `parseFor(T)` and act on its `success`. Text written in the source is its author's, save a zoneless date-time, which `new Date` reads in local time.
 - **`no-js-type-dispatch-on-east-values`** - `typeof x` or `x instanceof C` on an East value — dispatch on its East type (`isValueOf(x, T)`) or its variant tag.
 - **`no-js-collection-for-east-collection`** - A JavaScript `Set` / `Map` keyed by structs, variants or DateTimes landing in an East Set, Dict or variant payload — it finds a key by identity, so an equal key never finds its entry. Use `SortedSet` / `SortedMap` with `compareFor(K)`. String, Integer, Float and Boolean keys are East's own idiom and pass.
+- **`no-struct-type-from-object`** - East's `StructType` given an object whose fields are known only at run time — `Object.fromEntries(…)`, a `Record<string, …>` or a generic struct's `fields`, a spread of one, a computed name of type `string` — or an object naming a field like an integer (`"10"`, `2024`), written out or in its type. An object lists such a name before every other, wherever it was written, so it cannot keep that field in its place, and `StructType` refuses one (#1574). Declare the fields as a list, `StructType([[name, type], …])`, which keeps any order; `Object.entries(T.fields)` lists a struct type's own. `StructType(Object.fromEntries(list))` is fixed to `StructType(list)`. An object whose names are known and none like an integer — written out, a const record of them, a declared struct's `fields` or a spread of them, a literal key — passes.
 
 ## Usage
 
