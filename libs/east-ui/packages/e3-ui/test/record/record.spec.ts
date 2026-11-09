@@ -813,7 +813,7 @@ describe("columns from data at the day", () => {
         assert.ok(equalFor(StaffDraft)(untouched, MORGAN_DRAFT), printFor(StaffDraft)(untouched));
     });
 
-    test("over a struct's fields, each changed one is set on the struct and the struct written once — a clear writing none where the field is an Option and nothing where it isn't — and a field not yet set starts from its type's default at its first write", () => {
+    test("over a struct's fields, each changed one is set on the struct and the struct written once — a clear writing none where the field is an Option and nothing where it isn't — and a field not yet set starts from its type's default, written or not", () => {
         const cellsAt = cellsAtOf(WEEK_AT_DAY);
         const decode = (id: string, cells: ValueTypeOf<typeof Cells>, base: ValueTypeOf<typeof RosteredDraft> | undefined) => decodeRosteredDraft(WEEK_AT_DAY.editing.decode(
             encodeRow({ id, owned: false, cells, lines: [], band: none, subRows: [] }), base === undefined ? none : some(encodeRosteredDraft(base)), none, MONDAY));
@@ -834,8 +834,10 @@ describe("columns from data at the day", () => {
         assert.ok(equalFor(RosteredDraft)(refused, base), printFor(RosteredDraft)(refused));
         const fresh = decode("S-9", new Map<string, CellValue>([["week:sat", variant("Integer", 3n)]]), undefined);
         assert.ok(equalFor(RosteredDraft)(fresh, { id: variant("value", "S-9"), week: variant("value", { mon: 0n, sat: some(3n), note: "" }) }), printFor(RosteredDraft)(fresh));
+        // A new row's field no column has written yet is its type's default all the same: no person sets it but through its
+        // columns, so Save never waits for it.
         const unwritten = decode("S-9", new Map(), undefined);
-        assert.ok(equalFor(RosteredDraft)(unwritten, { id: variant("value", "S-9"), week: variant("missing", null) }), printFor(RosteredDraft)(unwritten));
+        assert.ok(equalFor(RosteredDraft)(unwritten, { id: variant("value", "S-9"), week: variant("value", { mon: 0n, sat: none, note: "" }) }), printFor(RosteredDraft)(unwritten));
     });
 });
 
