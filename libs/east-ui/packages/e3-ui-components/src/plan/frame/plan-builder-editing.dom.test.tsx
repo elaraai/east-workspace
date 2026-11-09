@@ -25,12 +25,12 @@
  * one commit and read back by id.
  */
 
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { fireEvent, renderHook, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { DateTimeType, East, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, East, StringType, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
-import { editingMessages, fieldFormMessages, getRegisteredPlatformImplementations, type EditHistoryJoined } from "@elaraai/east-ui-components";
+import { editingMessages, fieldFormMessages, getExtensionEntry, getRegisteredPlatformImplementations, type EditHistoryJoined } from "@elaraai/east-ui-components";
 import { Data, Plan, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import * as rowDrop from "@elaraai/e3-ui/examples/plan/plan";
@@ -212,6 +212,26 @@ const printKinds = East.compile(printKindsFn, getRegisteredPlatformImplementatio
 const at = (text: string) => new Date(text);
 /** An instant as East prints it. */
 const printInstant = printFor(DateTimeType);
+const stringEqual = equalFor(StringType);
+
+/**
+ * A kind's own `write` turning down every field edit, as an app's write with no words for it does — its other gestures
+ * its own: the Plan's payload, as the dispatcher decodes it, holding that kind's write in place of its own.
+ *
+ * @param slot - The kind
+ * @returns What puts the payload's own back
+ */
+function refusingFields(slot: string): () => void {
+    const entry = getExtensionEntry("Plan")!;
+    const decode = entry.decode;
+    const spy = vi.spyOn(entry, "decode").mockImplementation((bytes: Uint8Array) => {
+        const payload = decode(bytes) as ValueTypeOf<typeof PlanPayloadType>;
+        return { ...payload, events: payload.events.map((kind) => !stringEqual(kind.key, slot) ? kind : {
+            ...kind, write: (requests: Parameters<typeof kind.write>[0]) => requests.map((request) => (request.gesture.type === "field" ? none : kind.write([request])[0]!)),
+        }) };
+    });
+    return () => spy.mockRestore();
+}
 
 describe("every gesture is one transaction (PB43)", () => {
     test("each kind's session reads its events' start and end as one range, its dates: a conflict at either is one card of the popover", async () => {
@@ -324,6 +344,30 @@ describe("every gesture is one transaction (PB43)", () => {
         await press(historyButton(container, REDO));
         expect(customer(container)).toBe("Alder & Finch Ltd");
         expect(field(container, "customer").hasAttribute("data-dirty")).toBe(true);
+    });
+
+    test("an edit the kind's own write turns down goes back to what its event holds, with no words — nothing drafted, nothing left in the box: one event's field and the bulk edit's state alike (#1585)", async () => {
+        const restore = refusingFields("job");
+        try {
+            const { container } = await h.mount(ex.planPrintWorks);
+            await settle();
+            await select(bar(container, "J-1001")!);
+            await typeInto(container, "customer", "Alder & Finch Ltd");
+            // The catalogue's customer as its row holds it: untinted, nothing said under it, nothing waiting to save.
+            expect(customer(container)).toBe("Alder & Finch");
+            expect(field(container, "customer").hasAttribute("data-dirty")).toBe(false);
+            expect(field(container, "customer").querySelector("[data-scope=field][data-part=error-text]")).toBeNull();
+            expect(pending(container)).toBe("0 pending");
+            // The two jobs' state, a field of each: turned down, the bulk edit shows the state they share again.
+            await select(bar(container, "J-1002")!, true);
+            const state = () => pane(container).querySelector("[data-field='state'] [data-scope=select][data-part=trigger]")!.textContent;
+            expect(state()).toBe("actual");
+            await choose(container, "state", "estimated");
+            expect(state()).toBe("actual");
+            expect(pending(container)).toBe("0 pending");
+        } finally {
+            restore();
+        }
     });
 
     test("a kind's own inspector's update is one transaction: the stop's kind chosen on its segment, undone whole (PB60)", async () => {

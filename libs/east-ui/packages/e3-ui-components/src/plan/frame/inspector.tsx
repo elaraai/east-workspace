@@ -64,6 +64,11 @@
  * kind takes no gesture — a write of its with no answer, its drafts out of
  * date — and each gesture asks the same again as it lands, so a control of a
  * kind's own inspector the fieldset does not reach writes nothing meanwhile.
+ * A field's edit, or a bulk choice, that records nothing — off meanwhile, its
+ * kind's own `write` turning it down, or nothing changed — draws its form
+ * again, showing what the event holds, or what the events share, with no
+ * words, as the Schematic's and the Flowchart's do for a refusal they have no
+ * words for (#1585): a box never keeps a value its event does not hold.
  *
  * It keeps the keyboard (#1398): a control that goes with the view it was
  * pressed in — Duplicate, which selects the copies, an overlap's line, which
@@ -81,7 +86,7 @@
 
 import { ScheduleInspectorHead } from "../../shared/schedule/inspector-head.js";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../../shared/focus-home.js";
-import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
@@ -685,12 +690,18 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
     const refused = refusals.length === 0 ? NO_REFUSED
         : new Set(refusals.flatMap((r) => (r.issue.field.type === "some" ? [r.issue.field.value] : [])));
     const focus = useFieldAsk(kind.key, item.key);
+    // The form's draws: one more each time an edit records nothing, so its fields show what the row holds again.
+    const [redraws, setRedraws] = useState(0);
     // A field edited (PB42): one transaction, written through the kind's own `write`, its value as bytes at the field's type.
+    // One that records nothing — the edits off meanwhile, the write turning it down, nothing changed — draws the form
+    // again, with nothing to say (#1585).
     const onField = useCallback((path: readonly string[], next: unknown) => {
         const spec = specs.find((s) => samePath(s.path, path));
-        if (editing === undefined || spec === undefined || !writes.current) return;
+        if (editing === undefined || spec === undefined) return;
         const value = encodeBeast2For(spec.type)(next as never);
-        editing.record([{ kind: kind.key, id: item.key, gesture: variant("field", { path: [...path], value }) }], "typed", labelOf("Edit", [event]));
+        if (!writes.current || !editing.record([{ kind: kind.key, id: item.key, gesture: variant("field", { path: [...path], value }) }], "typed", labelOf("Edit", [event]))) {
+            setRedraws((n) => n + 1);
+        }
     }, [editing, specs, kind.key, item.key, event]);
     // The kind's own inspector's `update` (PB60): the edited event, whole, one transaction — none while the edits are off,
     // whatever control of the kind's own the fieldset does not reach.
@@ -750,7 +761,7 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
                     </Box>
                 ) : specs.length > 0 && (
                     <Box css={styles.fields} data-inspector-fields="form">
-                        <FieldForm specs={specs} value={value} baseline={held} issues={refused} focus={focus} onChange={editing !== undefined ? onField : NO_EDIT} />
+                        <FieldForm key={redraws} specs={specs} value={value} baseline={held} issues={refused} focus={focus} onChange={editing !== undefined ? onField : NO_EDIT} />
                     </Box>
                 )}
                 <Box css={styles.actions} data-inspector-actions="">
@@ -836,36 +847,43 @@ function SeveralEvents({ events, kinds, resources, words, styles, chrome, select
             resource: first !== undefined && first.type === "some" && refs.every((ref) => resourceEqual(ref, first)) ? some(printResource(first.value)) : none,
         };
     }, [events]);
-    // The bulk edit (PB39): over every selected event that takes it, across kinds, one transaction.
+    // The bulk form's draws: one more each time a choice records nothing, so its fields show what the events share again.
+    const [redraws, setRedraws] = useState(0);
+    // The bulk edit (PB39): over every selected event that takes it, across kinds, one transaction. A choice that records
+    // nothing — the edits off meanwhile, Not set, the kinds' own writes turning it down — draws the form again, with
+    // nothing to say (#1585).
     const onBulk = useCallback((path: readonly string[], next: unknown) => {
-        if (editing === undefined || !writable) return;
-        if (samePath(path, ["state"])) {
-            // A state chosen: written into each event whose kind reads one, at its state field.
-            const chosen = getSomeorUndefined(next as option<ValueTypeOf<typeof STATE_CHOICE>>);
-            if (chosen === undefined) return;
-            const value = encodeState(stateOfWord(chosen.type as PlanStateWord));
-            const changes = events.flatMap((e): PlanEventChange[] => {
-                const field = e.kind.roles.state;
-                return field.type === "some" ? [{ kind: e.kind.key, id: e.item.key, gesture: variant("field", { path: [field.value], value }) }] : [];
-            });
-            editing.record(changes, "typed", labelOf("Set the state of", events));
-            return;
-        }
-        if (samePath(path, ["resource"])) {
-            // A resource chosen, or none: each scheduled event whose kind is placed on its kind, moved onto it, its times kept.
-            const chosen = getSomeorUndefined(next as option<string>);
-            const read = chosen === undefined ? undefined : parseResource(chosen);
-            if (read !== undefined && !read.success) return;
-            const ref = read === undefined ? none : some(read.value);
-            const changes = events.flatMap((e): PlanEventChange[] => {
-                const start = getSomeorUndefined(e.item.start);
-                const end = getSomeorUndefined(e.item.end);
-                if (start === undefined || end === undefined) return [];
-                if (ref.type === "some" && !e.kind.takes.some((slot) => stringEqual(slot, ref.value.kind))) return [];
-                return [{ kind: e.kind.key, id: e.item.key, gesture: variant("place", { start, end, resource: ref }) }];
-            });
-            editing.record(changes, "move", labelOf("Move", events));
-        }
+        const recorded = (): boolean => {
+            if (editing === undefined || !writable) return false;
+            if (samePath(path, ["state"])) {
+                // A state chosen: written into each event whose kind reads one, at its state field.
+                const chosen = getSomeorUndefined(next as option<ValueTypeOf<typeof STATE_CHOICE>>);
+                if (chosen === undefined) return false;
+                const value = encodeState(stateOfWord(chosen.type as PlanStateWord));
+                const changes = events.flatMap((e): PlanEventChange[] => {
+                    const field = e.kind.roles.state;
+                    return field.type === "some" ? [{ kind: e.kind.key, id: e.item.key, gesture: variant("field", { path: [field.value], value }) }] : [];
+                });
+                return editing.record(changes, "typed", labelOf("Set the state of", events));
+            }
+            if (samePath(path, ["resource"])) {
+                // A resource chosen, or none: each scheduled event whose kind is placed on its kind, moved onto it, its times kept.
+                const chosen = getSomeorUndefined(next as option<string>);
+                const read = chosen === undefined ? undefined : parseResource(chosen);
+                if (read !== undefined && !read.success) return false;
+                const ref = read === undefined ? none : some(read.value);
+                const changes = events.flatMap((e): PlanEventChange[] => {
+                    const start = getSomeorUndefined(e.item.start);
+                    const end = getSomeorUndefined(e.item.end);
+                    if (start === undefined || end === undefined) return [];
+                    if (ref.type === "some" && !e.kind.takes.some((slot) => stringEqual(slot, ref.value.kind))) return [];
+                    return [{ kind: e.kind.key, id: e.item.key, gesture: variant("place", { start, end, resource: ref }) }];
+                });
+                return editing.record(changes, "move", labelOf("Move", events));
+            }
+            return false;
+        };
+        if (!recorded()) setRedraws((n) => n + 1);
     }, [editing, events, writable]);
     // A shift in time (PB39): every scheduled event a day or an hour either way, on its resource, one transaction.
     const shift = (by: -1 | 1, unit: "day" | "hour") => {
@@ -906,7 +924,7 @@ function SeveralEvents({ events, kinds, resources, words, styles, chrome, select
             <chakra.fieldset css={styles.edits} disabled={!writable} data-inspector-edits="">
                 <Box css={styles.bulk} data-inspector-bulk="">
                     <Box css={styles.sectionHead}>{m.inspectorSection({ section: "bulk" })}</Box>
-                    {specs.length > 0 && <FieldForm specs={specs} value={shared} options={options} onChange={onBulk} />}
+                    {specs.length > 0 && <FieldForm key={redraws} specs={specs} value={shared} options={options} onChange={onBulk} />}
                     <Box css={styles.shift} role="group" aria-label={m.inspectorShiftLabel()} data-inspector-shift="">
                         {([[-1, "day"], [-1, "hour"], [1, "hour"], [1, "day"]] as const).map(([by, unit]) => (
                             <chakra.button key={`${by}${unit}`} type="button" css={button({ variant: "outline", size: "xs" })}
