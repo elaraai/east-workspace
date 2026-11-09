@@ -311,7 +311,7 @@ function encodeOf(patchType: StructType, cells: SheetBridge["encodePatch"]): Exp
  * @param metas - The declared columns, described against the row (or line) type
  * @param hints - `fields`: the author's hints for the row's fields
  * @param groupHints - `groupFields`: the author's hints for the group's own fields
- * @param idField - The rows' identity field, which the form leaves to the header
+ * @param idField - The rows' identity field, which the form leaves to the header: a flat row's, a loose row's and a group's — a group's line has none
  * @param registers - The sheet's registers' names, the driver's among them: what a `reference` hint may name
  * @param data - The columns from data, described against the row type: the fields they write, which the form leaves out (#1561)
  * @returns The forms on the wire
@@ -333,7 +333,8 @@ export function buildForms(
         throw new Error("Sheet: `groupFields` hints a group's fields, and this sheet declares no group — pass `group={Sheet.group(…)}`, or hint the rows with `fields`");
     }
     // A row's identity is its header's, never a field to edit: a flat row's, and a loose row's line beside the groups (#846).
-    const lineLeave = new Set(idField !== undefined && idField in bridge.lineType.fields ? [idField] : []);
+    // A group's line is its place among the lines, so a field of it named as the id is the line's own, to set here.
+    const lineLeave = new Set(idField !== undefined && (groupHalf === undefined || groupHalf.loose) && idField in bridge.lineType.fields ? [idField] : []);
     // The fields columns from data write — two columns may write one — each with those columns' keys.
     const fromData = new Map<string, string[]>();
     for (const m of data) fromData.set(m.field, [...(fromData.get(m.field) ?? []), m.key]);

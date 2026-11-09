@@ -228,6 +228,23 @@ describe("the inspector's forms (SB10)", () => {
         const named = partForms((h) => ({ created_by: h.reference({ of: "bays" }), task: h.reference({ of: "activity" }) }));
         assert.deepEqual(named.row.fields.slice(0, 2).map((f) => f.spec.editor), [reference("bays"), reference("activity")]);
     });
+
+    test("a group's line has no identity of its own: a field of it named as the id is its form's to set, as the build counts on; a loose row's is its header's (#1584)", () => {
+        const Op = StructType({ id: StringType, task: StringType });
+        const Rig = StructType({ id: StringType, name: StringType, ops: ArrayType(Op) });
+        // With a form, a new line needs no `newRow` for its id: the build counts on the form to set it.
+        assert.doesNotThrow(() => createSheetRootWith(East.value([], ArrayType(Rig)), { task: Sheet.column.text(Op, { header: "Task" }) }, {
+            id: "id", group: Sheet.group(Rig, "ops", { title: "name" }),
+            onApply: East.function([Sheet.Types.ChangeSet(Rig)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none })),
+        }, { inspector: {} }));
+        const lineFields = (loose: boolean) => (East.compile(East.function([], SheetFormsType, ($) => {
+            const rigs = loose ? $.const([], ArrayType(Sheet.Types.Entry(Rig, "ops"))) : $.const([], ArrayType(Rig));
+            const build = createSheetBuild(rigs, { task: Sheet.column.text(Op, { header: "Task" }) }, { id: "id", group: Sheet.group(Rig, "ops", { title: "name" }) }, {});
+            return buildForms(build.bridge, build.metas, undefined, undefined, "id", build.registers, build.data);
+        }), [])() as Forms).row.fields.map((f) => f.spec.path.join("."));
+        assert.deepEqual(lineFields(false), ["id", "task"], "a line's id is its own field, in its form");
+        assert.deepEqual(lineFields(true), ["task"], "a loose row's id is its identity, its header's");
+    });
 });
 
 describe("the author's own Details (SB58)", () => {
