@@ -597,7 +597,7 @@ export const recordOrderStatus = example({
         <Reactive>{$ => {
             const orders = $.let(Record.bind(recordOrders));
             return (
-                <Box height="320px">
+                <Box height="440px">
                     <Record
                         record={orders}
                         title="Orders"

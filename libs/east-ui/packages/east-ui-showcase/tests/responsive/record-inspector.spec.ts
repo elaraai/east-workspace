@@ -13,6 +13,8 @@
  * radio checked, then the Issues tab's lines, a press on one ringing its cell
  * and putting the keyboard in its field. The read-only skills matrix (Example
  * 5) prints each member, its long label whole, and offers no action. The
+ * orders' Status, more steps than fit beside its label, wraps them under it
+ * within the pane, and the line lies whole in the open tab, nothing scrolled. The
  * page's clock is held at the day the proposal walks and its zone at UTC, so
  * each age and each audit reads the same whenever and wherever the suite
  * runs; a spec that holds the clock keeps Playwright's own page.
@@ -226,4 +228,19 @@ test("a line of more choices than fit beside its label wraps them under it, with
         return (s.overflowX === "auto" || s.overflowX === "scroll") && el.scrollWidth > el.clientWidth + 1;
     }));
     expect(sideways, "a scroller in the pane wider than its box").toBe(false);
+});
+
+test("the orders' Details beside the grid shows its row's Status line whole, inside the open tab: no choice straddles its edge, where a press would land on what lies under it @desktop", async ({ page }) => {
+    const entry = await openRecord(page, "recordOrderStatus", "light", 1662);
+    const { pane, open } = paneOf(entry);
+    await expect(pane).toHaveAttribute("data-pane-mode", "pinned");
+    await cellOf(entry, "SO-1042", "customer").click();
+    await expect(open.locator('[data-record-details="row"]')).toHaveAttribute("data-record-entry", "SO-1042");
+    await expect(open.locator('[data-field="status"] [data-part="item"]')).toHaveCount(4);
+    const placed = await open.evaluate((tab) => {
+        const box = tab.getBoundingClientRect();
+        const inside = (el: Element) => { const b = el.getBoundingClientRect(); return b.top >= box.top - 0.5 && b.bottom <= box.bottom + 0.5; };
+        return { scrolled: tab.scrollTop, line: inside(tab.querySelector('[data-field="status"]')!), choices: [...tab.querySelectorAll('[data-field="status"] [data-part="item"]')].map(inside) };
+    });
+    expect(placed).toEqual({ scrolled: 0, line: true, choices: [true, true, true, true] });
 });
