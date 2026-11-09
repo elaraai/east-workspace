@@ -265,7 +265,8 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         ? value.check.value(domain.encodeCheckContext({ day, plan, context, loads })) : NO_ISSUES, [current, value.check, domain, day, plan, context, loads]);
     const custom = useTrackedEvaluation(readCheck);
     const issues = useMemo(() => current ? [...builtIn, ...(custom.result.ok ? custom.result.value : [])] : NO_ISSUES, [current, builtIn, custom.result]);
-    // Publish (B7): Save, then once every record reads back as saved, the day's status — over its row as last saved.
+    // Publish (B7): Save, then once every record reads back as saved, the day's status — over its row as last saved. The
+    // day is the one shown as Publish is pressed: a day stepped to while the Save settles is not the one published.
     const [publishing, setPublishing] = useState(false);
     const publishingNow = useRef(false);
     const latest = useRef({ change: () => undefined as ReturnType<typeof publishChange> });
@@ -273,7 +274,8 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const publish = useCallback(() => {
         if (editing === undefined || publishingNow.current) return;
         publishingNow.current = true; setPublishing(true);
-        void publishPeriod(editing.history, () => latest.current.change(), changes => editing.schedule.record(changes, "typed", "Publish day"))
+        const { change } = latest.current;
+        void publishPeriod(editing.history, change, changes => editing.schedule.record(changes, "typed", "Publish day"))
             .finally(() => { publishingNow.current = false; setPublishing(false); });
     }, [editing]);
     // A narrowing read while the day it filters stands in — the bins' own, the lanes', the resources' or the arrivals' —

@@ -221,7 +221,8 @@ function RosterFrame(props: FrameProps) {
         if (fitError !== undefined) retryFit();
     }, [fitError, retryFit]);
     const isFinding = useCallback((asked: RosterFind) => finding && find !== undefined && sameFind(find, asked), [finding, find]);
-    // Publish (B7): Save, then once every record reads back as saved, the week's status — over its row as last saved.
+    // Publish (B7): Save, then once every record reads back as saved, the week's status — over its row as last saved. The
+    // week is the one shown as Publish is pressed: a week stepped to while the Save settles is not the one published.
     const [publishing, setPublishing] = useState(false);
     const publishingNow = useRef(false);
     const latest = useRef({ change: () => undefined as ReturnType<typeof publishChange> });
@@ -229,7 +230,8 @@ function RosterFrame(props: FrameProps) {
     const publish = useCallback(() => {
         if (editing === undefined || publishingNow.current) return;
         publishingNow.current = true; setPublishing(true);
-        void publishPeriod(editing.history, () => latest.current.change(), changes => editing.schedule.record(changes, "typed", "Publish week"))
+        const { change } = latest.current;
+        void publishPeriod(editing.history, change, changes => editing.schedule.record(changes, "typed", "Publish week"))
             .finally(() => { publishingNow.current = false; setPublishing(false); });
     }, [editing]);
     // A narrowing read while the week it filters stands in keeps the week's rows, stale (#1398, CL5): their words in the

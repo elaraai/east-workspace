@@ -125,6 +125,19 @@ describe("Roster week lifecycle", () => {
         const week = (await h.read(ex.rosterWeeks)).get(NEXT)!;
         expect([week.state.type, week.approver, week.dismissed.size]).toEqual(["issued", some("Ops"), 0]);
     });
+    test("Publish publishes the week it was pressed on: a week stepped to while its Save is on its way is left as it was (#1584)", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        await press(within(assignment(container, "s37")).getByRole("button", { name: "Remove C. Clover" }));
+        // The duties' Save held on its way to e3, and the week stepped on meanwhile.
+        const held = h.e3.hold((request) => request.kind === "mutate" && request.record === ex.rosterDuties.name);
+        await act(async () => { fireEvent.click(history(container, "Publish")); });
+        await settle();
+        await weekKey(container, "]");
+        await act(async () => { held.release(); }); await settle();
+        await waitFor(async () => expect((await h.read(ex.rosterWeeks)).get(START)?.state.type).toBe("issued"));
+        expect((await h.read(ex.rosterWeeks)).has(NEXT)).toBe(false);
+        expect((await h.read(ex.rosterDuties)).has("s37")).toBe(false);
+    });
     test("a failed Save retains the draft and explains the record failure", async () => {
         // The warehouse has locked its duties: their patch door refuses every change, naming why.
         const { container } = await h.mount(warehouseRoster({ locked: true }));

@@ -120,6 +120,23 @@ describe("the board's frame", () => {
         expect(toolbar(container).queryByRole("button", { name: editingMessages.apply() })).toBeNull();
     });
 
+    test("A4 — Publish publishes the day it was pressed on: a day stepped to while its Save is on its way is left as it was (#1584)", async () => {
+        const { container } = await h.mount(ex.allocationKilnYard);
+        const wednesday = (await h.read(ex.yardDays)).get(WED)?.state.type;
+        // A bin back to its arrivals, for the Save to write.
+        await press(container.querySelector('[data-allocation-card="3113"]')!);
+        await key(container, "Delete");
+        // The bins' Save held on its way to e3, and the day stepped on meanwhile.
+        const held = h.e3.hold((request) => request.kind === "mutate" && request.record === ex.kilnBins.name);
+        await act(async () => { fireEvent.click(toolbar(container).getByRole("button", { name: "Publish" })); });
+        await settle();
+        await key(container, "]");
+        expect(shownDay(container)).toBe(WED.getTime());
+        await act(async () => { held.release(); }); await settle();
+        await waitFor(async () => expect((await h.read(ex.yardDays)).get(TUE)?.state.type).toBe("issued"));
+        expect([wednesday, (await h.read(ex.yardDays)).get(WED)?.state.type]).toEqual(["draft", "draft"]);
+    });
+
     test("A4 — the published example's day, Tue 4, opens read-only", async () => {
         const { container } = await h.mount(ex.allocationPublished);
         expect(shownDay(container)).toBe(TUE_4.getTime());
