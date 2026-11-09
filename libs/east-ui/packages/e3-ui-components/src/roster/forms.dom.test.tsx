@@ -158,30 +158,50 @@ describe('Roster shared and custom forms', () => {
         await waitFor(() => expect(details()?.querySelector('[data-roster-refusals]')).not.toBeNull());
         expect(details()?.querySelector('[data-inspector-title]')?.textContent).toBe('C. Clover');
     });
-    test("a refusal of a duty its draft moved into the next week is named by its new day, and pressed shows it there, selected, the refusal over its form (#1584)", async () => {
+    test("a refusal of a duty whose draft stands in another week than the record's is named by its draft's day, and pressed shows it there, selected, the refusal over its form (#1584)", async () => {
         const { container } = await h.mount(ex.rosterWarehouse); const user = userEvent.setup();
         const toolbar = () => within(slot(container, 'toolbar'));
         const end = () => slot(container, 'end');
-        // A. Alder's Saturday early, its cost centre cleared: the warehouse's check on a draft refuses it.
+        // A. Alder's Saturday early, its cost centre cleared — the warehouse's check on a draft refuses it — and moved to the late shift.
         await press(toolbar().getByRole('radio', { name: 'Sat' }));
         await press(assignment(container, 's4'));
         const costCentre = within(end().querySelector<HTMLElement>('[data-field="costCentre"]')!).getByRole('textbox');
         await user.clear(costCentre); await user.type(costCentre, '{Enter}'); await settle();
-        // Its end on to 11 PM, then its start to 6 PM, twelve hours past its shift's: its day is the next, Sunday, the next week's first.
+        await press(within(end()).getByRole('radio', { name: 'Late' }));
+        // Another session's save moves it to the next week's Sunday: its times conflict with the draft's, which stand on Saturday.
+        const duties = await h.read(ex.rosterDuties);
+        duties.set('s4', { ...duties.get('s4')!, start: at('2028-03-12T06:00:00'), end: at('2028-03-12T14:00:00') });
+        await h.patch(ex.rosterDuties, duties);
+        await waitFor(() => expect(container.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        // The next week, where the record holds it now: the refusal is the draft's, named by its Saturday's late.
+        await act(async () => { fireEvent.keyDown(slot(container, 'main'), { key: ']' }); }); await settle();
+        await press(within(end()).getByRole('tab', { name: /^Issues/ }));
+        const line = end().querySelector('[data-roster-issue="refusal"] button');
+        expect(line?.textContent).toBe('A. Alder · Sat, Mar 11, 2028 · Late');
+        await press(line);
+        expect(toolbar().getByRole('radio', { name: 'Sat' }).getAttribute('aria-checked')).toBe('true');
+        const details = () => end().querySelector('[data-roster-inspector="details"]');
+        await waitFor(() => expect(details()?.querySelector('[data-roster-refusals]')).not.toBeNull());
+        expect(assignment(container, 's4').hasAttribute('data-selected')).toBe(true);
+    });
+    test("a duty's start is held to its day: twelve hours after its shift's start is the next day's, so it is refused, and the duty stays on its day (#1584)", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        const toolbar = () => within(slot(container, 'toolbar'));
+        const end = () => slot(container, 'end');
         const segment = (field: string, name: string) => within(end().querySelector<HTMLElement>(`[data-field="${field}"]`)!).getAllByRole('spinbutton')
             .find(s => s.getAttribute('aria-label')?.startsWith(name))!;
+        // A. Alder's Saturday early: its end on to 11 PM, then its start to 6 PM, twelve hours past its shift's.
+        await press(toolbar().getByRole('radio', { name: 'Sat' }));
+        await press(assignment(container, 's4'));
         for (let i = 0; i < 9; i++) { await act(async () => { fireEvent.keyDown(segment('end', 'hour'), { key: 'ArrowUp' }); }); await settle(); }
         await act(async () => { fireEvent.focusOut(segment('end', 'hour')); }); await settle();
         await act(async () => { fireEvent.keyDown(segment('start', 'AM/PM'), { key: 'ArrowUp' }); }); await settle();
         await act(async () => { fireEvent.focusOut(segment('start', 'AM/PM')); }); await settle();
-        await press(within(end()).getByRole('tab', { name: /^Issues/ }));
-        const line = end().querySelector('[data-roster-issue="refusal"] button');
-        expect(line?.textContent).toBe('A. Alder · Sun, Mar 12, 2028 · Early');
-        await press(line);
-        expect(toolbar().getByRole('radio', { name: 'Sun' }).getAttribute('aria-checked')).toBe('true');
-        const details = () => end().querySelector('[data-roster-inspector="details"]');
-        await waitFor(() => expect(details()?.querySelector('[data-roster-refusals]')).not.toBeNull());
-        expect(assignment(container, 's4').hasAttribute('data-selected')).toBe(true);
+        expect(end().querySelector('[data-roster-inspector="details"] [role="alert"]')?.textContent)
+            .toBe("A duty starts up to 12 hours before its shift's start, or less than 12 hours after it.");
+        // Its later end taken, its start refused: still Saturday's early, never moved to Sunday's.
+        expect(cell(container, 6, 'inbound', 'early').contains(assignment(container, 's4'))).toBe(true);
+        expect([assignment(container, 's4').hasAttribute('data-drafted'), assignment(container, 's4').hasAttribute('data-removed')]).toEqual([true, false]);
     });
     test('live configuration and suggestions refresh without replacing a pending duty', async () => {
         const { container } = await h.mount(ex.rosterWarehouse);

@@ -810,12 +810,13 @@ export function shiftTimes(value: Pick<RosterPayload, "shifts">, slot: Slot, sta
     return shift === undefined ? undefined : rosterDays().shiftSpan(dayOfSlot(start, slot), shift);
 }
 /**
- * Where a duty may start (§5.5, rule 4): within twelve hours of its shift's start on its day.
+ * Where a duty may start (§5.5, rule 4): from twelve hours before its shift's start on its day to just short of twelve
+ * hours after — the starts its day holds (`rosterDayOf`), so an edit of its times never moves it to another day.
  *
  * @param value - The payload: its shifts
  * @param slot - The duty's slot
  * @param start - The week's first day
- * @returns The span, its ends included; `undefined` for a shift not configured
+ * @returns The span, half open: a start twelve hours after its shift's is the next day's; `undefined` for a shift not configured
  */
 export function startReach(value: Pick<RosterPayload, "shifts">, slot: Slot, start: Date): { from: Date; to: Date } | undefined {
     const shift = shiftTimes(value, slot, start);

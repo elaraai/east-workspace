@@ -183,7 +183,8 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
     const validRoles = (a: Pick<Assignment, "slot" | "who">, roles: Roles): string | undefined => {
         const reach = startReach(value, a.slot, start);
         if (reach === undefined) return "Choose a configured shift.";
-        if (compareDate(roles.start, reach.from) < 0 || compareDate(roles.start, reach.to) > 0) return "A duty starts within 12 hours of its shift's start.";
+        // Its reach is half open, as its day is: a start twelve hours after its shift's is the next day's.
+        if (compareDate(roles.start, reach.from) < 0 || compareDate(roles.start, reach.to) >= 0) return "A duty starts up to 12 hours before its shift's start, or less than 12 hours after it.";
         if (compareDate(roles.end, roles.start) <= 0) return "A duty ends after it starts.";
         if (value.duty.roles.position && roles.position.type === "some" && !value.positions.some(p => p.key === roles.position.value)) return "Choose a configured position.";
         if (a.who.type === "request" && roles.activity.type === "some") return "Assign an activity to a named person.";

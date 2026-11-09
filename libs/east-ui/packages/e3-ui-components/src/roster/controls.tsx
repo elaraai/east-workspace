@@ -136,7 +136,7 @@ export function AssignmentFields({ assignment, form, baseline, value, onChange, 
         options={{ positions: value.positions.map(p => ({ key: p.key, label: p.label })), activities: activities.map(a => ({ key: a.key, label: a.label })) }}
         onChange={(path, next) => onChange(path[0] === "position" ? { position: some(next as string) } : { activity: next as option<string> })} />;
 }
-/** A duty's own times (§5.5, rule 4): each one an edit, held within twelve hours of its shift's start, its end after its start. */
+/** A duty's own times (§5.5, rule 4): each one an edit, held to its day — its start from twelve hours before its shift's to less than twelve after — its end after its start. */
 export function TimesFields({ form, baseline, onChange, readOnly = false }: {
     form: DutyFormValue; baseline?: DutyFormValue | undefined; onChange: (change: RolesChange) => void; readOnly?: boolean;
 }) {
