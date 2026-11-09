@@ -74,6 +74,24 @@ describe("the rota the check reads beside the duties (#1551)", () => {
         expect(rotaIssues(c)).toEqual(expect.arrayContaining([CHANGED, GONE, MISSING]));
     });
 
+    test("while the week's rows and the rota are read the Issues tab shows it is loading, its count unsaid, and never says there are no issues; read, it says what the check finds (#1595)", async () => {
+        const { container: c } = await open(ex.rosterRota);
+        await issuesTab(c);
+        const end = () => slot(c, "end");
+        const tab = () => within(end()).getByRole("tab", { name: /^Issues/ });
+        expect(rotaIssues(c)).toHaveLength(3);
+        // Two weeks on, a week the Roster has not read ahead, the rota's reads held.
+        const held = h.e3.hold(rotaRead);
+        await step(c, "]"); await step(c, "]");
+        expect(end().querySelector("[data-roster-issues-loading]")).not.toBeNull();
+        expect(end().textContent).not.toContain("No issues in view.");
+        expect(tab().textContent).toBe("Issues");
+        await act(async () => { held.release(); });
+        await settle();
+        await waitFor(() => expect(end().querySelector("[data-roster-issues-loading]")).toBeNull(), { timeout: 15_000 });
+        expect(tab().textContent).toMatch(/^Issues\s*\d+$/u);
+    });
+
     test("the rota is read through its interval index, never the record whole", async () => {
         const { container: c } = await open(ex.rosterRota);
         await press(toolbar(c).getByRole("button", { name: "Next week" }));

@@ -62,8 +62,9 @@ import {
     BannerView, EastChakraComponent, FieldForm, fieldBreachText, fieldFormMessages, getSomeorUndefined, useDropCell, useFormatters, useTrackedEvaluation, type BuilderFrameDock,
     type EditIssue, type FieldFormWords,
 } from "@elaraai/east-ui-components";
-import { Chooser, formatDatePattern } from "@elaraai/east-ui-components/internal";
+import { Chooser, PlaceholderShape, formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
+import type { PeriodRead } from "../shared/loading.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { Seg } from "../shared/schedule/segments.js";
@@ -172,6 +173,8 @@ export interface InspectorArgs {
     m: AllocationMessages;
     /** Every refusal holding Save, of every day's drafts (#1525): listed ahead of the issues, and over its bin's form. */
     refusals: readonly AllocationRefusal[];
+    /** What the board's read says of the day in view (#1398): until its bins and the check's record land, the Issues list shows it is loading (#1595). */
+    read: PeriodRead;
     /** A refusal's Show pressed: its bin shown on its day and selected. */
     onRefusal: (refusal: AllocationRefusal) => void;
 }
@@ -246,7 +249,7 @@ export function useAllocationInspector(args: InspectorArgs): BuilderFrameDock | 
         tab: dragging || args.tab !== "issues" ? "details" : "issues", onTabChange: args.onTab,
         tabs: [
             { key: "details", label: "Details", body: <DetailsTab {...part} /> },
-            { key: "issues", label: "Issues", count, body: <Box css={styles.root} data-allocation-inspector="issues"><IssuesTab {...part} /></Box> },
+            { key: "issues", label: "Issues", count: args.read.state !== "held" && args.refusals.length === 0 ? undefined : count, body: <Box css={styles.root} data-allocation-inspector="issues"><IssuesTab {...part} /></Box> },
         ],
     };
 }
@@ -941,6 +944,10 @@ function IssuesTab(part: Part) {
     const groups = issueGroups(args.issues);
     const refusals = args.refusals;
     if (groups.length === 0 && refusals.length === 0) {
+        // Until the day's bins and the check's record are read what the check finds is not known (#1595): the list shows it
+        // is loading, and a read that failed is said on the board, once.
+        if (args.read.state === "pending") return <Box css={styles.empty} data-allocation-issues-loading=""><PlaceholderShape kind="label" index={0} /></Box>;
+        if (args.read.state === "failed") return null;
         return <Box css={styles.empty} data-allocation-issues-empty="">
             <Box as="span" css={styles.emptyIcon} aria-hidden="true"><FontAwesomeIcon icon={faCircleCheck} /></Box>
             <Box css={styles.emptyTitle}>No issues</Box>

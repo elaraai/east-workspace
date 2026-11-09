@@ -8,6 +8,7 @@ import { faCheck, faMinus } from "@fortawesome/free-solid-svg-icons";
 import { Box, Button, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, equalFor, some } from "@elaraai/east";
 import { BannerView, EastChakraComponent, FieldForm, useTrackedEvaluation, type BuilderFrameDock, type EditIssue } from "@elaraai/east-ui-components";
+import { PlaceholderShape } from "@elaraai/east-ui-components/internal";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
@@ -331,13 +332,17 @@ export function useRosterInspector(args: Args): BuilderFrameDock | undefined {
     const styles = { ...args.styles, ...recipe({}), summary: args.styles.summary, section: args.styles.section, detail: args.styles.detail } as unknown as RosterStyles;
     if (!args.value.inspector) return undefined;
     const props = { ...args, styles };
-    // The refusals holding Save come first, and count with the rule issues: never "No issues" while Save is held (#1525).
-    const count = String(args.issues.length + args.refusals.length);
+    // The refusals holding Save come first, and count with the rule issues: never "No issues" while Save is held (#1525) —
+    // nor while the week's rows and the check's record are read (#1595): what the check finds is not known yet, so the list
+    // shows it is loading and its count is unsaid, as the toolbar's is. A read that failed is said on the board, once.
+    const read = args.read.state === "held";
+    const count = !read && args.refusals.length === 0 ? undefined : String(args.issues.length + args.refusals.length);
     return { label: "Inspector", icon: "sliders", size: "320px", persist: "local", active: args.selection !== undefined,
         badge: count, tab: args.tab, onTabChange: args.onTab,
         tabs: [{ key: "details", label: "Details", body: <DetailsTab props={props} /> },
             { key: "issues", label: "Issues", count, body: <Box css={styles.root} data-roster-inspector="issues">
-                {args.issues.length === 0 && args.refusals.length === 0 && <Box css={styles.empty}>No issues in view.</Box>}
+                {args.read.state === "pending" && <Box css={styles.empty} data-roster-issues-loading=""><PlaceholderShape kind="label" index={0} /></Box>}
+                {read && args.issues.length === 0 && args.refusals.length === 0 && <Box css={styles.empty}>No issues in view.</Box>}
                 {args.refusals.length > 0 && <Refusals props={props} />}
                 {(["breach", "gap", "proposal"] as const).map(kind => { const issues = args.issues.filter(i => i.kind.type === kind); return issues.length === 0 ? null : <FragmentGroup key={kind} props={props} kind={kind} issues={issues} />; })}
             </Box> }],

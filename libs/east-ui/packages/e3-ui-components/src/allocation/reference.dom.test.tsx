@@ -67,6 +67,23 @@ describe("the schedule the check reads beside the bins (#1551)", () => {
         expect(checked(c)).toEqual(TUESDAY);
     });
 
+    test("while the day's bins and the schedule are read the Issues tab shows it is loading, its count unsaid, and never says there are no issues; read, it says what the check finds (#1595)", async () => {
+        const { container: c } = await h.mount(ex.allocationDeliveries);
+        await tab(c, "Issues");
+        expect(checked(c)).toEqual(TUESDAY);
+        const issuesTabButton = () => within(slot(c, "end")).getByRole("tab", { name: /^Issues/ });
+        // Thu 13 May, two days on: a day the board has not read ahead, the schedule's reads held.
+        const held = h.e3.hold(request => ["page", "find", "runs", "rows"].includes(request.kind) && request.dataset === DELIVERIES);
+        await key(c, "]"); await key(c, "]");
+        expect(issuesTab(c).querySelector("[data-allocation-issues-loading]")).not.toBeNull();
+        expect(issuesTab(c).querySelector("[data-allocation-issues-empty]")).toBeNull();
+        expect(issuesTabButton().textContent).toBe("Issues");
+        await act(async () => { held.release(); });
+        await settle();
+        await waitFor(() => expect(issuesTab(c).querySelector("[data-allocation-issues-loading]")).toBeNull(), { timeout: 15_000 });
+        expect(issuesTabButton().textContent).toMatch(/^Issues\s*\d*$/u);
+    });
+
     test("the schedule is read through its interval index, never the record whole", async () => {
         const { container: c } = await h.mount(ex.allocationDeliveries);
         await key(c, "]");

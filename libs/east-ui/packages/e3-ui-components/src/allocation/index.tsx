@@ -650,7 +650,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         without, reserving, shown: { lanes: lanesShown.keys, resources: resourcesShown.keys, arrivals: arrivalsShown.keys },
         refusal, dismissRefusal: () => setRefusal(undefined), chooser, setChooser, book: bookPicked, firstFree,
         tab: inspectorTab.tab, onTab: tab => setInspectorTab({ tab }), storageKey: key, onFind: findable ? onFind : undefined, finding, m: words.m,
-        refusals, onRefusal: refusal => goTo(refusal.kind, refusal.issue.entry, refusal.issue.field),
+        refusals, onRefusal: refusal => goTo(refusal.kind, refusal.issue.entry, refusal.issue.field), read,
     });
     const toolbar = useAllocationToolbar({ ...window, value, styles, commands, editing, words, issues, refused: refusals.length, onIssues, onIssue, onConflict,
         where: historyWhere, onAction, onPickerWeeks: setPickerWeeks,

@@ -1919,7 +1919,9 @@ view (`LoadingFailedBox`: the Calendar's time and month grids), and on the
 footer's line — never a "… unavailable" status over the grid. A period not
 read gives no issue and counts nothing (`…`); a true empty is said once, only
 after its read (the Allocation's `No bins on …`, `LoadingEmptyLine`). The
-toolbar's status, issues, history and Publish hold their slots from cold load
+Issues list shows a placeholder until the period's rows and the check's record
+are read, its count unsaid, and never says there are none (the Roster's and the
+Allocation's inspector, over `read`). The toolbar's status, issues, history and Publish hold their slots from cold load
 (`heldToolbarSlot`): unread, the status and the issues are placeholders, the
 history as the last period read had it, and Publish in its slot, off,
 wherever it cannot publish; the rail's summary keeps a narrowed source's place
