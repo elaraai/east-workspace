@@ -32,7 +32,7 @@ Why this shape:
 - **One namespace.** `Record` already carries `Record.bind` and `Record.onApply`; the tag, `Record.column.*`, `Record.register.*`, `Record.field`, `Record.patch` and `Record.Types` join it, as `Sheet` is its tag and its namespace.
 - **A cycle's states are a register.** A register is declared once and named by every column over it, as `enum` and `reference` name theirs. Its members' order is the cycle's order, their labels its chips, their `meta` its names, their `tone` its colours, and a member's label or alias typed in a cell sets it, which is how the digits work.
 - **The journal is the row's own fields** (ruled 6 November 2026). `Record.Types.Change` is a type a solution adds to its record, `{ at, by, verb }`. The `audit` column draws it and `age` counts from it. The Record only reads it and never writes it, and it needs no signed-in identity and no e3 change.
-- **Time since takes the client's clock.** An age cell is `now − since`, where `since` comes from the row and `now` is the browser's. The factory compiles the elapsed count into an East function `(since, now) → Integer`, and the renderer calls it with the browser's clock. Nothing in the payload is built from a clock.
+- **Time since takes the client's clock.** An age cell counts from `since`, which comes from the row, to the browser's clock: days and weeks to the viewer's own day, so they turn over at the viewer's midnight, and hours as elapsed time. The factory compiles the count into an East function `(since, now) → Integer`, and the renderer calls it with the browser's clock, or for days and weeks the viewer's day. Nothing in the payload is built from a clock.
 
 ## 1. What a Record is
 
@@ -132,7 +132,7 @@ interface RecordCycleConfig<R extends StructType> extends SheetColumnBaseConfig<
     look?: "chip" | "mark";
 }
 
-/** Time since a moment, to the browser's now — `Record.column.age(R, cfg)`, keyed by a name of its own. */
+/** Time since a moment: days and weeks to the viewer's own day, hours to the browser's clock — `Record.column.age(R, cfg)`, keyed by a name of its own. */
 interface RecordAgeConfig<R extends StructType> {
     header?: SubtypeExprOrValue<StringType>;
     sub?: SubtypeExprOrValue<StringType>;
@@ -899,7 +899,7 @@ Sheet.Types.ColumnKind gains
     toggle:  { on: String, off: String, look: Variant{ chip, mark } }
     cycle:   { register: String, scale: Boolean, look: Variant{ chip, mark } }
     age:     { unit: Variant{ hours, days, weeks }, stale: Option<Integer>, absent: Option<String>,
-               elapsed: Function([DateTime, DateTime], Integer) }   // (since, now) → whole units
+               elapsed: Function([DateTime, DateTime], Integer) }   // (since, now) → whole hours elapsed, or days and weeks to the viewer's day
     audit:   { mode: Variant{ date, blame }, absent: Option<String>, by: String, verb: String }   // the rule cells
 Sheet.Types.ColumnKind.quantity gains  unit: Option<String>        // a constant unit, beside the driver's uom
 Sheet.Types.Root trades  newRowId: Option<Function([], String)>   for
@@ -915,7 +915,7 @@ Plan's settings lose  applyMode: Variant{ batch, auto }
 ```
 
 - **The cells.** A title, person or cycle cell is the `String` arm; a boolean or toggle cell is `Boolean`. An age cell is its `since` as `DateTime`, or `Null`. An audit cell is its Change's `at` as `DateTime`, or `Null`, with `by` and `verb` projected into unrendered rule cells (`$by:updated`, `$verb:updated`), as a date's `actual` is. No new cell arm.
-- **The clock.** `elapsed` is compiled by the factory from `unit` (`since.durationMilliseconds(now)` over the unit's milliseconds, rounded down) and called by the renderer with the browser's clock (§2.3). Nothing else on the wire reads a clock.
+- **The clock.** `elapsed` is compiled by the factory from `unit` and called by the renderer (§2.3). Hours are elapsed time: `since.durationMilliseconds(now)` over an hour's milliseconds, rounded down, to the browser's clock. Days and weeks are the calendar's: from `since`'s date (`roundDownDay`, in UTC, as every East DateTime is) to the viewer's own day, which the renderer passes at UTC midnight, so a count turns over at the viewer's midnight. Nothing else on the wire reads a clock.
 - **A new entry's key.** The Sheet's `newKey` crosses as text, as the rows' ids do: a String key is itself, and any other key is its `.east` printing. The Sheet's factory wraps the author's typed function in East, reading each taken key back with `parse` (as `Record.onApply` reads an id) and printing the key it returns; a String key's function crosses as it is. The Sheet's machine mints every new entry through it, with the keys taken, or else through `mintKey`.
 - **The fields only the app gives.** `unsettable` names, for a new row or line and for a new group, each required field no editable column and no form of the inspector sets (§2.7), with its label as the inspector's form gives it: the hint's label, else its column's header, else its name spelled out. The build has refused it already when `newRow` or `newGroup` is absent; the shared creation path reads it to draft nothing when the app's values leave one empty, and the status line names the field by its label, with an inspector or without one.
 - **No apply mode.** The editing session's `mode` told the shared session to apply each ready gesture at once; with it gone, every builder's batch waits for Apply (§7, decision 11). Every type that carried it changes, so this too is package-borne.
