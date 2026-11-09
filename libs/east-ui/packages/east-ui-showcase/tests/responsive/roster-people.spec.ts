@@ -179,7 +179,8 @@ const laneDayFaults = (scope: Locator) => scope.locator("[data-roster-lane] [dat
 /**
  * What a lane's marks draw wrongly by month (#1568, A3.5): a mark's figure whose text leaves its mark, or whose box does
  * not span its cup's height, which its ink's levels follow the parts by; and a cup (ruled 8 Nov 2026) not filled to its
- * hours rostered of needed as its label says them, full at them, within a pixel — its parts across its width, each
+ * hours rostered of needed as its label says them — its hours needed less what its slots are short, where its label
+ * says they are (K4) — full at them, within a pixel — its parts across its width, each
  * standing on the one under it from its bottom up — or whose open part is not from its top down to the fill, or is
  * drawn on a day not short. Over the marks mounted in `scope`, with how many show a figure and how many cups draw each
  * part.
@@ -198,9 +199,10 @@ const laneMarkFaults = (scope: Locator) => scope.locator("[data-roster-lane-mark
             if (box.left < edge.left - 0.5 || box.right > edge.right + 0.5 || box.top < edge.top - 0.5 || box.bottom > edge.bottom + 0.5) faults.add(`"${figure.textContent}" leaves its mark`);
             if (Math.abs(span.top - edge.top) > 0.5 || Math.abs(span.bottom - edge.bottom) > 0.5) faults.add(`${at}: its figure's box does not span its cup`);
         }
-        const [, rostered, needed] = /: (.+) of (.+) hours rostered$/u.exec(mark.getAttribute("aria-label") ?? "") ?? [];
+        const [, rostered, needed, by, side] = /: (.+?) of (.+?) hours rostered(?:, (.+) (short|over))?$/u.exec(mark.getAttribute("aria-label") ?? "") ?? [];
         const hours = (text: string) => Number(text.replace(/,/gu, ""));
-        const share = rostered === undefined || needed === undefined || hours(needed) <= 0 ? 0 : Math.min(hours(rostered) / hours(needed), 1);
+        const met = side === "short" ? hours(needed!) - hours(by!) : hours(rostered ?? "0");
+        const share = rostered === undefined || needed === undefined || hours(needed) <= 0 ? 0 : Math.min(met / hours(needed), 1);
         let top = edge.bottom, open = false;
         for (const part of mark.querySelectorAll("[data-roster-cup-part]")) {
             const kind = part.getAttribute("data-roster-cup-part")!, box = part.getBoundingClientRect();

@@ -171,6 +171,20 @@ export function signed(number: (n: number) => string, d: number, zero = ""): str
 }
 
 /**
+ * A difference as a day's label says it to a screen reader, after its hours (K4): `, 2 short`, `, 13 over`, and
+ * nothing at zero. The label stands in for the figures it holds, and its hours alone cannot say a stated shortfall: a
+ * day 2 short in one group and 4 over in another has more hours rostered than needed.
+ *
+ * @param number - The locale's number formatter
+ * @param d - The difference it states ({@link stated})
+ * @returns What follows the hours in its label
+ */
+export function differenceSaid(number: (n: number) => string, d: number): string {
+    const at = Math.abs(d) < EPSILON ? 0 : d;
+    return at === 0 ? "" : `, ${number(Math.abs(at))} ${at < 0 ? "short" : "over"}`;
+}
+
+/**
  * A lane's day as a month's mark draws it (A3.5): off with no target; short where any of its slots is, by what they are
  * short (K4); requested where the agencies' requests make up part of its hours, which count as rostered, as the week's
  * bar draws them dashed; else covered, over by its difference or exact.

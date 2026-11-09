@@ -1268,7 +1268,11 @@ rostered of needed; a lane a shift a target of the scope names in the week, in
 the shifts' order, each day's figures over a bar in the coverage marks — `no
 target` where none of the day's slots has one — its name cell the disclosure of
 its skill rows, kept open under the Roster's surface as the bands' folds are
-(`open-lanes`); then `Assignment · n people`. Each is a `VirtualRows` item keyed
+(`open-lanes`); then `Assignment · n people`. A lane's day's label — and by
+month its mark's, and a skill's cup's title — says its hours, then the
+difference its figure states (`demand.ts`' `differenceSaid`: `216 of 214 hours
+rostered, 2 short`), which its hours alone cannot say once a group is short as
+another is over. Each is a `VirtualRows` item keyed
 by its kind and its parts as East prints them (`demand:`, `lane:`, `skill:`,
 `assign:`). A lane's day selects its slot, the band's group's, or with no bands
 the shift's day across the groups (`Selection`'s `shiftDay`), which the

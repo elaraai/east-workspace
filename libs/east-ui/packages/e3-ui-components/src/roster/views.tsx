@@ -49,7 +49,7 @@ import { readRosterSource } from "./identity.js";
 import { isPatternCard, rosterCoord, rosterPersonWeekCoord, type RosterDrag } from "./drag.js";
 import type { PatternDay, RosterCommands } from "./actions.js";
 import type { RosterDutyOp, RosterOptimised } from "./optimise.js";
-import { barOf, demandOf, difference, laneCup, laneMark, looseOf, signed, skillCup, skillMark, skillMet, stated, toneOf, type Demand, type DemandCup, type DemandFigures, type DemandLane, type DemandMark, type DemandSkill, type DemandWeek, type SkillFigures } from "./demand.js";
+import { barOf, demandOf, difference, differenceSaid, laneCup, laneMark, looseOf, signed, skillCup, skillMark, skillMet, stated, toneOf, type Demand, type DemandCup, type DemandFigures, type DemandLane, type DemandMark, type DemandSkill, type DemandWeek, type SkillFigures } from "./demand.js";
 import {
     DAY, NO_GROUP, activityOf, compareSlot, costsOf, groupName, groupOf, groupSkills, hourText, ownTimes, placeKey, placeOf, samePlace, sameSlot, shiftColor, shiftHoursText,
     shiftLetter, shiftOf, slotKey, slotOfPlace, weekKey, weekNumber,
@@ -1325,7 +1325,8 @@ function LaneFigures({ ctx, figures: f }: { ctx: ViewContext; figures: DemandFig
 /**
  * A lane's day to a press (#1568, A3.8): it selects its slot, a band's group's, or the shift's day across the groups
  * where the layout draws no bands, which the inspector shows. Its label names the shift, the day and the group, then
- * the hours rostered of needed, or `no target`.
+ * the hours rostered of needed and the difference its figure states — `216 of 214 hours rostered, 2 short` where a
+ * group is short as another is over (K4) — or `no target`.
  *
  * @param ctx - The views' context
  * @param group - The lane's band's group; `undefined` for the one block over every group's
@@ -1341,7 +1342,8 @@ function useLaneDay(ctx: ViewContext, group: Group | undefined, lane: DemandLane
     const selected = slot !== undefined ? selectedSlot(selection, slot) : selection?.type === "shiftDay" && selection.shift === shift && selection.day === day;
     const f = lane.days[day]!;
     const when = `${lane.shift.label} · ${format.weekday(new Date(start.getTime() + day * DAY))}${group === undefined ? "" : ` · ${group.label}`}`;
-    const label = read.state !== "held" ? when : f.target ? `${when}: ${format.number(f.rostered)} of ${format.number(f.needed)} hours rostered` : `${when}: no target`;
+    const label = read.state !== "held" ? when : !f.target ? `${when}: no target`
+        : `${when}: ${format.number(f.rostered)} of ${format.number(f.needed)} hours rostered${differenceSaid(format.number, stated(f.rostered, f.needed, f.short))}`;
     const select = () => ctx.select(slot !== undefined ? { type: "requirement", slot, start: start.getTime() } : { type: "shiftDay", shift, day, start: start.getTime() });
     return { selected, label, select };
 }
@@ -1768,9 +1770,9 @@ function cupParts(cup: DemandCup, state: DemandMark["state"], skill: boolean): R
  * A lane's day by month (#1568, A3.5): its mark, a cup (ruled 8 Nov 2026) filled from the bottom to its hours rostered
  * of those needed, full at them, in its parts' colours as the day's bar by week draws them — the agencies' requests on
  * top, solid — what a short day lacks open above them, dashed in the warning's edge on its wash; an empty cup with no
- * target. It says its difference where a day is wide enough and the figure fits the mark whole, never cut. A press
- * selects its slot in its week (A3.8): a band's group's, or the shift's day across the groups where the layout draws no
- * bands, which the inspector then reads.
+ * target. It says its difference where a day is wide enough and the figure fits the mark whole, never cut, and its
+ * label always, after its hours, as a lane's day's does. A press selects its slot in its week (A3.8): a band's group's,
+ * or the shift's day across the groups where the layout draws no bands, which the inspector then reads.
  */
 const LaneMark = memo(function LaneMark({ ctx, rowKey, group, lane, week, day, figures: f, said }: {
     ctx: ViewContext; rowKey: string; group: Group | undefined; lane: DemandLane; week: Date; day: number; figures: DemandFigures;
@@ -1789,7 +1791,7 @@ const LaneMark = memo(function LaneMark({ ctx, rowKey, group, lane, week, day, f
     const figure = said && mark.state !== "off" ? signed(format.number, mark.difference) : "";
     return <chakra.button type="button" css={[styles.mark, styles.laneMark]} data-roster-lane-mark={`${rowKey}.${weekKey(week)}.${day}`} data-state={mark.state}
         data-selected={selected ? "" : undefined} aria-pressed={selected} style={cupStyle(cup)}
-        aria-label={f.target ? `${when}: ${format.number(f.rostered)} of ${format.number(f.needed)} hours rostered` : `${when}: no target`}
+        aria-label={f.target ? `${when}: ${format.number(f.rostered)} of ${format.number(f.needed)} hours rostered${differenceSaid(format.number, mark.difference)}` : `${when}: no target`}
         onClick={() => ctx.select(slot !== undefined ? { type: "requirement", slot, start } : { type: "shiftDay", shift, day, start })}>
         {cupParts(cup, mark.state, false)}
         {figure !== "" && <span data-roster-mark-figure="">{figure}</span>}
@@ -1833,7 +1835,8 @@ const MonthLaneRow = memo(function MonthLaneRow({ ctx, row, weeks, said, toggle,
 /**
  * A skill row's week by month (A4.4): its seven marks as a lane's are, each a cup (ruled 8 Nov 2026) filled to the
  * hours assigned it of those needed, full at them, what a short day lacks open above them — an empty cup where none of
- * the day's slots needs the skill — none pressable, each its hours on hover.
+ * the day's slots needs the skill — none pressable, each its hours on hover, then the difference it states, as a
+ * lane's day's label says it.
  */
 const SkillWeek = memo(function SkillWeek({ ctx, row, week, w, said }: {
     ctx: ViewContext; row: Extract<DemandRow, { kind: "skill" }>; week: Date; w: number; said: boolean;
@@ -1849,7 +1852,7 @@ const SkillWeek = memo(function SkillWeek({ ctx, row, week, w, said }: {
                 const figure = said && mark.state !== "off" ? signed(format.number, mark.difference) : "";
                 return <Box key={day} as="span" css={[styles.mark, styles.laneMark]} data-roster-lane-skill-mark={`${row.key}.${weekKey(week)}.${day}`} data-state={mark.state}
                     style={cupStyle(cup)}
-                    title={f === undefined ? undefined : `${label} · ${format.weekdayDate(new Date(week.getTime() + day * DAY))}: ${format.number(f.assigned)} of ${format.number(f.needed)} hours assigned`}>
+                    title={f === undefined ? undefined : `${label} · ${format.weekdayDate(new Date(week.getTime() + day * DAY))}: ${format.number(f.assigned)} of ${format.number(f.needed)} hours assigned${differenceSaid(format.number, mark.difference)}`}>
                     {cupParts(cup, mark.state, true)}
                     {figure !== "" && <span data-roster-mark-figure="">{figure}</span>}
                 </Box>;

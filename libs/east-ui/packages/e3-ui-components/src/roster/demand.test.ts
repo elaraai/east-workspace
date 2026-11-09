@@ -15,7 +15,7 @@ import { describe, expect, test } from "vitest";
 import { SortedMap, StringType, compareFor, none, printFor, some, type option } from "@elaraai/east";
 import { RosterCoverageType } from "@elaraai/e3-ui/internal";
 import { compareSlot, type Coverage, type Requirement, type RosterValue, type Slot } from "./model.js";
-import { barOf, demandOf, difference, laneCup, laneMark, signed, skillCup, skillMark, skillMet, stated, summedCoverage, toneOf, type DemandCup, type LooseHours } from "./demand.js";
+import { barOf, demandOf, difference, differenceSaid, laneCup, laneMark, signed, skillCup, skillMark, skillMet, stated, summedCoverage, toneOf, type DemandCup, type LooseHours } from "./demand.js";
 
 const byString = compareFor(StringType);
 const printCoverage = printFor(RosterCoverageType);
@@ -278,6 +278,13 @@ describe("a difference's figure and tone", () => {
     test("a figure: `+4`, `−6` with a true minus, nothing at zero — or the band's `+0`", () => {
         expect([signed(number, 4), signed(number, -6), signed(number, 1.5), signed(number, 0), signed(number, 1e-9)]).toEqual(["+4", "−6", "+1.5", "", ""]);
         expect(signed(number, 0, "+0")).toBe("+0");
+    });
+    test("a label's words after its hours: `, 2 short`, `, 13 over`, nothing at none — Thu 9's 8 short, though its net is −2 (K4)", () => {
+        expect([differenceSaid(number, -2), differenceSaid(number, 13), differenceSaid(number, 1.5), differenceSaid(number, 0), differenceSaid(number, -1e-9)])
+            .toEqual([", 2 short", ", 13 over", ", 1.5 over", "", ""]);
+        const [early] = demandOf(value, [{ requirements: k4Requirements, coverage: k4Coverage }], ["inbound", "picking"]).lanes;
+        const thursday = early!.days[4]!;
+        expect(differenceSaid(number, stated(thursday.rostered, thursday.needed, thursday.short))).toBe(", 8 short");
     });
 });
 

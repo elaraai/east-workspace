@@ -61,14 +61,23 @@ function partsOf(key: string): string[] {
     if (!read.success) throw new Error(`no parts in ${key}`);
     return read.value;
 }
-/** What a lane's day says of its hours, after its shift, day and group: `292 of 294 hours rostered`, or `no target`. */
+/**
+ * What a lane's day says of its hours, after its shift, day and group: `292 of 294 hours rostered, 2 short`, then the
+ * difference it states, or `no target`.
+ */
 const said = (label: string) => label.slice(label.lastIndexOf(": ") + 2);
-/** Hours rostered of needed, as a lane's day says them. */
+/** Hours rostered of needed, as a lane's day says them before the difference it states. */
 function laneFigures(words: string): { rostered: string; needed: string } {
-    const [, rostered, needed] = /^(.+) of (.+) hours rostered$/u.exec(words) ?? [];
+    const [, rostered, needed] = /^(.+?) of (.+?) hours rostered(?:, .+ (?:short|over))?$/u.exec(words) ?? [];
     expect([rostered, needed], words).not.toContain(undefined);
     return { rostered: rostered!, needed: needed! };
 }
+/** A number as the harness's locale prints it. */
+const enUS = new Intl.NumberFormat("en-US").format;
+/** Hours as a figure prints them, read back: `1,352` is 1352. */
+const hoursIn = (text: string) => Number(text.replace(/,/gu, ""));
+/** The difference a day's label states after its hours, as a viewer reads its figure: `, 2 short`, `, 13 over`, nothing at none. */
+const differenceWords = (d: number) => d === 0 ? "" : `, ${enUS(Math.abs(d))} ${d < 0 ? "short" : "over"}`;
 /** Hours rostered of needed, as a coverage bar under `el` says them — a slot with no work drawing none, nothing of either. */
 function figuresOf(el: Element): { rostered: string; needed: string } {
     const words = el.querySelector("[aria-label*=' hours rostered of ']")?.getAttribute("aria-label");
@@ -148,12 +157,15 @@ function cupFill(mark: HTMLElement): Fill {
 /** A lane of the People grid by week, as it is drawn: its band's group, its shift, what each of its days says and each one's bar. */
 interface Lane { readonly group: string | undefined; readonly shift: string; readonly days: readonly string[]; readonly bars: readonly (Fill | undefined)[] }
 /**
- * What a skill row's day says, as a skill's mark by month says it: `16 of 24 hours assigned`; `undefined` where none of
- * the day's slots needs the skill.
+ * What a skill row's day says, as a skill's mark by month says it: `16 of 24 hours assigned, 8 short`, its figure's
+ * difference in words after its hours; `undefined` where none of the day's slots needs the skill.
  */
 function assigned(cell: Element): string | undefined {
     const rostered = cell.querySelector("[data-rostered]"), needed = cell.querySelector("[data-needed]");
-    return rostered === null || needed === null ? undefined : `${rostered.textContent} of ${needed.textContent!.replace(/^\/ /u, "")} hours assigned`;
+    if (rostered === null || needed === null) return undefined;
+    const figure = cell.querySelector("[data-roster-lane-difference]")?.textContent ?? "";
+    const words = figure === "" ? "" : `, ${figure.slice(1)} ${figure.startsWith("−") ? "short" : "over"}`;
+    return `${rostered.textContent} of ${needed.textContent!.replace(/^\/ /u, "")} hours assigned${words}`;
 }
 /**
  * The People grid's work requirement by week, every band's: the grid scrolled from its top three rows at a time until
@@ -317,11 +329,11 @@ describe("the People layout's work requirement by week (#1568)", () => {
             // The eyebrow: each day's hours rostered of needed, as the Shifts layout's band says them of that day.
             expect(drawn.eyebrows.get(group), group).toEqual(shown.days.get(group)!.map(f => `${f.rostered} / ${f.needed} h`));
         }
-        // Each lane's day: its slot's hours as the Shifts layout draws them, or `no target` where the slot has none.
+        // Each lane's day: its slot's hours as the Shifts layout draws them, then their difference, or `no target` where the slot has none.
         for (const lane of drawn.lanes.values()) lane.days.forEach((words, d) => {
             const key = slotKey({ day: BigInt(d), group: lane.group!, shift: lane.shift });
             const f = shown.slots.get(key)!;
-            expect(said(words), key).toBe(targets.has(key) ? `${f.rostered} of ${f.needed} hours rostered` : "no target");
+            expect(said(words), key).toBe(targets.has(key) ? `${f.rostered} of ${f.needed} hours rostered${differenceWords(hoursIn(f.rostered) - hoursIn(f.needed))}` : "no target");
         });
     });
 
@@ -370,6 +382,8 @@ describe("the People layout's work requirement by week (#1568)", () => {
                 const day = sum(groups.map(group => slotKey({ day: BigInt(d), group, shift })));
                 if (stated(day) !== day.rostered - day.needed) netted.push(`${shift} ${d}`);
                 expect(laneDay(c, shift, d).querySelector("[data-roster-lane-difference]")?.textContent, `${shift} ${d}`).toBe(signed(number, stated(day)));
+                // Its label, which a screen reader hears in place of its figures, says that difference after the hours.
+                expect(said(laneDay(c, shift, d).getAttribute("aria-label")!), `${shift} ${d}`).toBe(`${number(day.rostered)} of ${number(day.needed)} hours rostered${differenceWords(stated(day))}`);
                 await press(laneDay(c, shift, d));
                 expect(laneDay(c, shift, d).getAttribute("aria-pressed")).toBe("true");
                 const end = slot(c, "end");
@@ -587,13 +601,18 @@ describe("the People layout's work requirement by month (#1568)", () => {
         } finally { calls.mockRestore(); }
     });
 
-    test("with no bands a mark selects the shift's day across the groups in its week, the inspector summing them as the mark says it", async () => {
+    test("with no bands a mark selects the shift's day across the groups in its week, the inspector summing them as the mark says it; each mark says its day as the lane by week does, the difference it states among it (K4)", async () => {
         const { container: c } = await open(ex.rosterPeopleNoBands);
+        // The first lane's days of the open week, as its lane by week says them.
+        const shift = slot(c, "main").querySelector<HTMLElement>("[data-roster-lane]")!.getAttribute("data-roster-lane-shift")!;
+        const byWeek = DAYS.map(d => said(laneDay(c, shift, d).getAttribute("aria-label")!));
         await press(toolbar(c).getByRole("radio", { name: "Month" }));
         const lane = slot(c, "main").querySelector<HTMLElement>("[data-roster-lane]")!;
         expect(lane.hasAttribute("data-roster-lane-group")).toBe(false);
         expect(slot(c, "main").querySelector('[data-index="0"] [data-roster-demand]')).not.toBeNull();
         const key = lane.getAttribute("data-roster-lane")!;
+        expect(lane.getAttribute("data-roster-lane-shift")).toBe(shift);
+        expect(DAYS.map(d => said(laneMarks(c, key, START)[d]!.getAttribute("aria-label")!))).toEqual(byWeek);
         const day = DAYS.find(d => said(laneMarks(c, key, START)[d]!.getAttribute("aria-label")!) !== "no target");
         expect(day).toBeDefined();
         await press(laneMarks(c, key, START)[day!]);
@@ -882,7 +901,7 @@ describe("the work requirement on a phone (#1568)", () => {
                 for (const line of day.lines) {
                     const key = slotKey({ day: BigInt(d), group, shift: line.shift });
                     const f = shown.slots.get(key)!;
-                    expect(line.said, key).toBe(targets.has(key) ? `${f.rostered} of ${f.needed} hours rostered` : "no target");
+                    expect(line.said, key).toBe(targets.has(key) ? `${f.rostered} of ${f.needed} hours rostered${differenceWords(hoursIn(f.rostered) - hoursIn(f.needed))}` : "no target");
                 }
             });
             const people = [...staff.values()].filter(person => person.team === group).length;
