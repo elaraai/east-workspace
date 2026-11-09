@@ -223,8 +223,10 @@ export function buildStrip(input: StripInput): StripModel {
             }
             const n = parseQuantity(edit.val, words.separators);
             // An integer column's fraction is unrecognised, as its commit has it — never offered with the keys that commit it.
+            // The strip says what was typed and why it isn't taken, with no number of its own beside it to read as the
+            // cell's (#1585).
             if (n === null || n === undefined || (meta.kind === "integer" && !Number.isSafeInteger(n))) {
-                return { on: true, label: header, chips: flat(m.stripUnrecognised()), meta: "", keys: accepts };
+                return { on: true, label: header, chips: flat(m.stripUnrecognised()), meta: m.stripNotNumber({ text: edit.val.trim(), whole: meta.kind === "integer" }), keys: "" };
             }
             const unit = meta.kind === "quantity" && input.unit !== undefined ? ` ${input.unit}` : "";
             return { on: true, label: header, chips: flat(`${formatQuantity(n, meta.kind === "quantity" ? meta.format : undefined, words)}${unit}`), meta: "", keys: m.stripKeysStep() };

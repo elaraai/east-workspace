@@ -350,6 +350,8 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     stripNumber: (p: { unit: boolean }) => string;
     /** A text that could not be read. */
     stripUnrecognised: () => string;
+    /** Why a number field's text isn't taken, in the field's words for what it takes — `2.5 isn't a whole number` (#1585). */
+    stripNotNumber: (p: { text: string; whole: boolean }) => string;
     /** What a custom column accepts when it says nothing. */
     stripValue: () => string;
     /** The days between the base column's date and this one. */
@@ -850,6 +852,7 @@ export const sheetMessages: SheetMessages = {
     stripIncomplete: () => "incomplete",
     stripNumber: ({ unit }) => (unit ? "number + unit" : "number"),
     stripUnrecognised: () => "unrecognised",
+    stripNotNumber: ({ text, whole }) => `${text} isn't ${whole ? "a whole number" : "a number"}`,
     stripValue: () => "a value",
     stripDays: ({ n, count }) => `${count} ${plural(Math.abs(n), "day", "days")}`,
     stripAdd: ({ label }) => `Add ${label}`,

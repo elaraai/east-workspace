@@ -169,6 +169,9 @@ test("a fraction typed into an integer column is unrecognised in the strip, as i
     expect(strip()).toBe("1,500");
     await ui.edit("2.5");
     expect(strip()).toBe("unrecognised");
+    // What it holds and why it isn't taken, and no number of the strip's own at its far end (#1585).
+    const said = ui.container.querySelector('[data-slot="strip"]')!;
+    expect([said.querySelector('[data-slot="stripMeta"]')!.textContent, said.lastElementChild!.textContent]).toEqual(["2.5 isn't a whole number", ""]);
     await act(async () => { fireEvent.keyDown(ui.input(), { key: "Enter" }); });
     expect(ui.input()).toBeNull();
     expect(ui.cell().getAttribute("aria-invalid")).toBe("true");
