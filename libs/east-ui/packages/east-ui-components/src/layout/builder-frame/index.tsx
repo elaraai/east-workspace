@@ -671,9 +671,10 @@ export function BuilderFrame(props: BuilderFrameProps) {
         if (drawer === null || drawer.contains(drawer.ownerDocument.activeElement)) return;
         (drawer.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? drawer.querySelector<HTMLElement>("button, [href], input, [tabindex]"))?.focus({ preventScroll: true });
     });
-    // The pane a click began in with the focus in it — its rail's control, its collapse — read as the click starts,
-    // before the control it pressed goes with the change. A host that opens or closes a pane from code, clicking its
-    // control as a selection in main does, clicks it with the focus elsewhere.
+    // The pane the viewer pressed — its rail, its collapse — read as the click starts, before the control it pressed goes
+    // with the change: a click the browser dispatched for a press, which need focus nothing (the rail's tile, a button in
+    // Safari), or one begun with the focus in the pane. A host that opens or closes a pane from code, clicking its control
+    // as a selection in main does, dispatches the click itself, with the focus elsewhere.
     const pressedIn = useRef<Side | undefined>(undefined);
     /** A strip tab: its drawer opens, or, open, closes; one of the pane's own tabs opens it there. */
     const onPaneTab = (side: Side, tab?: string) => {
@@ -741,7 +742,9 @@ export function BuilderFrame(props: BuilderFrameProps) {
             <Box ref={slotRefs[side]} css={styles.pane} data-frame-slot={side} data-pane-mode={placedAt}
                 data-collapsed={collapsed ? "" : undefined}
                 style={{ width: placedAt === "overlay" || collapsed ? `${RAIL}px` : size }}
-                onClickCapture={() => { pressedIn.current = slotRefs[side].current?.contains(rootRef.current?.ownerDocument.activeElement ?? null) === true ? side : undefined; }}>
+                onClickCapture={(event) => {
+                    pressedIn.current = event.isTrusted || slotRefs[side].current?.contains(rootRef.current?.ownerDocument.activeElement ?? null) === true ? side : undefined;
+                }}>
                 <Box css={styles.sheet} style={floating ? { width: sheetWidth === undefined ? size : `${sheetWidth}px`, transform: aside } : undefined}>
                     <DockPane
                         storageKey={`${storageKey}.${side}`}
