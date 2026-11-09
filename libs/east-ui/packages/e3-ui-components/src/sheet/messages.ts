@@ -97,6 +97,17 @@ export type SheetDropRefusalWord =
     | { why: "lineOut"; noun: string };
 
 /**
+ * Why a paste, a clear or an edit left a cell as it was: a mark locks it
+ * (`words`, the lock's own); its column is read only; its value isn't an
+ * option, so it is never empty; or `text` is no value its column reads, and a
+ * column from data keeps none it can't read. `header` is the cell's column's.
+ */
+export type SheetCellRefusalWord =
+    | { why: "locked"; words: string }
+    | { why: "readOnly" | "noClear"; header: string }
+    | { why: "unread"; header: string; text: string };
+
+/**
  * The Sheet's message table — its own words, and the editing session's
  * ({@link EditingMessages}, #879: the history bar and the draft issues), so a
  * host translates the sheet's history bar where it translates the sheet.
@@ -509,8 +520,17 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     noticeRowFillDismissed: () => string;
     /** Rows, lines or groups deleted — `again`: the group is left empty, ⌫ again removes it. */
     noticeDeleted: (p: { n: number; count: string; what: "rows" | "lines" | "groups"; noun: string; nouns: string; again: boolean }) => string;
-    /** A paste — `wrote` whether any cell took it; `nActions` the action cells it passed by, which take no paste (T7). */
-    noticePasted: (p: { rows: string; cols: string; n: number; skipped: string; wrote: boolean; nActions: number; actions: string }) => string;
+    /**
+     * A paste — `wrote` whether any cell took it; `nActions` the action cells it passed by, which take no paste (T7); `why`
+     * the first cell it skipped was left as it was, in {@link SheetMessages.cellRefused}'s words, where it says.
+     */
+    noticePasted: (p: { rows: string; cols: string; n: number; skipped: string; wrote: boolean; nActions: number; actions: string; why: string | undefined }) => string;
+    /** Why a gesture left a cell as it was — `Mon can't be left empty`, `locked: Booked centrally`. */
+    cellRefused: (p: SheetCellRefusalWord) => string;
+    /** A clear that left `n` cells as they were beside the `nCleared` it cleared, and why the first was — `Nothing cleared — Mon can't be left empty`. */
+    noticeClearRefused: (p: { n: number; count: string; nCleared: number; cleared: string; why: string }) => string;
+    /** An edit its cell would not take, and why — `Mon can't be left empty — the edit was not kept`. */
+    noticeEditRefused: (p: { why: string }) => string;
     /** A copy. */
     noticeCopied: (p: { rows: string; cols: string }) => string;
     /** A new row discarded. */
@@ -937,9 +957,20 @@ export const sheetMessages: SheetMessages = {
             : `${count} ${what === "lines" ? plural(n, "line", "lines") : plural(n, "row", "rows")}`;
         return `Deleted ${deleted}${again ? ` — ⌫ again removes the ${noun}` : ""}`;
     },
-    noticePasted: ({ rows, cols, n, skipped, wrote, nActions, actions }) => (!wrote
-        ? `Nothing pasted${nActions > 0 ? " — an action cell takes no paste" : ""}`
-        : `Pasted ${rows}×${cols} from clipboard${n > 0 ? ` · ${skipped} unrecognised` : ""}${nActions > 0 ? ` · ${actions} action ${plural(nActions, "cell", "cells")} skipped` : ""}`),
+    noticePasted: ({ rows, cols, n, skipped, wrote, nActions, actions, why }) => (!wrote
+        ? `Nothing pasted${why !== undefined ? ` — ${why}` : nActions > 0 ? " — an action cell takes no paste" : ""}`
+        : `Pasted ${rows}×${cols} from clipboard${n > 0 ? ` · ${skipped} ${why !== undefined ? `skipped — ${why}` : "unrecognised"}` : ""}${nActions > 0 ? ` · ${actions} action ${plural(nActions, "cell", "cells")} skipped` : ""}`),
+    cellRefused: (p) => {
+        switch (p.why) {
+            case "locked": return `locked: ${p.words}`;
+            case "readOnly": return `${p.header} is read only`;
+            case "noClear": return `${p.header} can't be left empty`;
+            case "unread": return `${p.header} can't hold "${p.text}"`;
+        }
+    },
+    noticeClearRefused: ({ count, nCleared, cleared, why }) => (nCleared === 0 ? `Nothing cleared — ${why}`
+        : `Cleared ${cleared} ${plural(nCleared, "cell", "cells")} · ${count} kept — ${why}`),
+    noticeEditRefused: ({ why }) => `${why} — the edit was not kept`,
     noticeCopied: ({ rows, cols }) => `Copied ${rows}×${cols} to clipboard`,
     noticeDiscarded: () => "Discarded new row",
     noticeNewRow: () => "New row",

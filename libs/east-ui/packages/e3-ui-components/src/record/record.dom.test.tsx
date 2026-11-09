@@ -2140,6 +2140,62 @@ describe("marks and locks", () => {
         expect(week()).toEqual(["4", "4"]);
         expect(rows(container)[0]!.hasAttribute("data-draft")).toBe(false);
     });
+
+    test("each refusal says why in the status line: ⌫, a blank pasted and an edit emptied where the value is never empty, and text a column from data can't hold, pasted or typed", async () => {
+        const { container } = await h.mount(ex.recordRosterByDay, { storageKey: "record-refusals-said" });
+        const week = () => ["week:mon", "week:tue"].map((k) => cellAt(container, 0, k).textContent);
+        const paste = async (text: string) => {
+            await act(async () => { fireEvent.paste(grid(container), { clipboardData: { getData: () => text } }); });
+            await settle();
+        };
+        await clear(container, 0, "week:mon");
+        expect(status(container)).toBe("Nothing cleared — Mon can't be left empty");
+        await paste("\t");
+        expect(status(container)).toBe("Nothing pasted — Mon can't be left empty");
+        // Text no day reads: a plain column keeps it, flagged, but a column from data keeps none.
+        await paste("lots");
+        expect([week(), status(container)]).toEqual([["4", "4"], "Nothing pasted — Mon can't hold \"lots\""]);
+        // Across Mon and Tue: Mon takes its 5, and Tue is said kept.
+        await paste("5\tlots");
+        expect([week(), status(container)]).toEqual([["5", "4"], "Pasted 1×2 from clipboard · 1 skipped — Tue can't hold \"lots\""]);
+        await typeInto(container, 0, "week:tue", "lots");
+        expect([week(), status(container)]).toEqual([["5", "4"], "Tue can't hold \"lots\" — the edit was not kept"]);
+        await press(cellAt(container, 0, "week:mon"));
+        await key(container, "7");
+        const input = await waitFor(() => {
+            const open = cellAt(container, 0, "week:mon").querySelector<HTMLInputElement>('[data-slot="editorInput"]');
+            expect(open).not.toBeNull();
+            return open!;
+        });
+        fireEvent.input(input, { target: { value: "" } });
+        await settle();
+        fireEvent.keyDown(input, { key: "Tab" });
+        await settle();
+        expect([week(), status(container)]).toEqual([["5", "4"], "Mon can't be left empty — the edit was not kept"]);
+    });
+
+    test("a lock's refusal says its words, ⌫ and a paste alike, and a range ⌫ clears what it can and counts what it kept", async () => {
+        const { container } = await h.mount({ fn: hoursMarked }, { storageKey: "record-refusals-locked" });
+        const training = () => cellAt(container, 1, "hours:P-900").textContent;
+        // B. Ellis's training: 6, booked centrally.
+        await clear(container, 1, "hours:P-900");
+        expect([training(), status(container)]).toEqual(["6hrsBooked centrally", "Nothing cleared — locked: Booked centrally"]);
+        await act(async () => { fireEvent.paste(grid(container), { clipboardData: { getData: () => "7" } }); });
+        await settle();
+        expect([training(), status(container)]).toEqual(["6hrsBooked centrally", "Nothing pasted — locked: Booked centrally"]);
+        // Her stair rebuild's 30 to her training: the 30 cleared, the training kept.
+        await press(cellAt(container, 1, "hours:P-101"));
+        await press(cellAt(container, 1, "hours:P-900"), { shiftKey: true });
+        await key(container, "Backspace");
+        expect([cellAt(container, 1, "hours:P-101").textContent, training()]).toEqual(["", "6hrsBooked centrally"]);
+        expect(status(container)).toBe("Cleared 1 cell · 1 kept — locked: Booked centrally");
+    });
+
+    test("a cell its column holds read only says so as ⌫ leaves it", async () => {
+        const { container } = await h.mount(ex.recordEveryKind, { storageKey: "record-refusals-read-only" });
+        await clear(container, 0, "days_since");
+        expect(status(container)).toBe("Nothing cleared — Days since is read only");
+    });
 });
 
 /** The fields of an element of Details, by their keys, in order. */

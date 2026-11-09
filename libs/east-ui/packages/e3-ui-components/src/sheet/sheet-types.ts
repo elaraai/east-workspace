@@ -18,7 +18,7 @@
 import type { EditIssue } from "@elaraai/east-ui-components";
 import type { SheetCandidate } from "./candidates.js";
 import type { SheetKind } from "./model.js";
-import type { SheetDropRefusalWord } from "./messages.js";
+import type { SheetCellRefusalWord, SheetDropRefusalWord } from "./messages.js";
 import type { ParseOutcome } from "./parse/index.js";
 import type { LinkCandidate } from "./link/predict.js";
 import type { LinkHalves } from "./link/sides.js";
@@ -154,8 +154,15 @@ export type SheetNotice =
     | { id: "proposalRejected"; to: string | undefined; from: string | undefined }
     | { id: "fillDismissed"; column: string }
     | { id: "deleted"; n: number; what: "rows" | "lines" | "groups"; noun: string | undefined; nouns: string | undefined; again: boolean }
-    /** A paste: `actions` the action cells it passed by, which take no paste (T7), and `wrote` false when no cell took it. */
-    | { id: "pasted"; rows: number; cols: number; skipped: number; actions?: number | undefined; wrote?: boolean | undefined }
+    /**
+     * A paste: `actions` the action cells it passed by, which take no paste (T7), `wrote` false when no cell took it, and
+     * `refused` why the first cell it skipped was left as it was, where that is known.
+     */
+    | { id: "pasted"; rows: number; cols: number; skipped: number; actions?: number | undefined; wrote?: boolean | undefined; refused?: SheetCellRefusalWord | undefined }
+    /** A clear that left `n` cells as they were beside the `cleared` ones it cleared, and why the first was left. */
+    | { id: "clearRefused"; n: number; cleared: number; word: SheetCellRefusalWord }
+    /** An edit its cell would not take — a lock come since it opened, a blank where the value is never empty, text a column from data can't hold — and why. */
+    | { id: "editRefused"; word: SheetCellRefusalWord }
     | { id: "copied"; rows: number; cols: number }
     | { id: "newGroup"; noun: string | undefined }
     /** An issue gone to: where it is, as the sheet names it, and the issue — the note goes once the session no longer holds it. */

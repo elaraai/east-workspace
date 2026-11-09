@@ -13,8 +13,9 @@
 
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { none, some, variant } from "@elaraai/east";
-import { focusKeySearch } from "@elaraai/east-ui-components";
-import { NULL_CELL, cellIsBlank, latencyOf, takesClear, type SheetBodyItem } from "./model.js";
+import { focusKeySearch, getSomeorUndefined } from "@elaraai/east-ui-components";
+import { NULL_CELL, cellIsBlank, latencyOf, markOf, takesClear, type SheetBodyItem, type SheetColumnMeta } from "./model.js";
+import type { SheetCellRefusalWord } from "./messages.js";
 import { SHEET_PAGE_SIZE } from "./paging.js";
 import { writeNarrowing, writeSheetViews } from "./view-state.js";
 import { parseCell } from "./parse/index.js";
@@ -115,14 +116,30 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
             }
             if (rerun && copilotOn && res.ids[0] !== undefined) requestRun(res.ids[0], 0);
         };
+        /** Why a cell takes no edit: a mark's lock, in its words, else its column is read only. */
+        const lockedAt = (r: number, meta: SheetColumnMeta): SheetCellRefusalWord => {
+            const it = rowAt(r);
+            const mark = markOf(meta, it?.kind === "real" || it?.kind === "group" ? it.row.cells : undefined);
+            return mark?.lock === true ? { why: "locked", words: mark.words } : { why: "readOnly", header: meta.header };
+        };
         for (const eff of effects) {
             switch (eff.t) {
                 case "write": {
                     const meta = metaAt(eff.r, eff.c);
-                    // A cell locked since the editor opened takes no write, nor a blank a cell that takes no clear (#1560).
-                    if (!writableAt(eff.r, eff.c) || (meta !== undefined && cellIsBlank(eff.cell ?? NULL_CELL) && !takesClear(meta))) break;
-                    const res = writeCells([{ r: eff.r, c: eff.c, cell: eff.cell ?? NULL_CELL }], "typed");
-                    afterWrite(eff.r, res, meta !== undefined && (triggers.size === 0 || triggers.has(meta.key)));
+                    const cell = eff.cell ?? NULL_CELL;
+                    if (meta === undefined) break;
+                    // A cell locked since the editor opened takes no write, nor a blank a cell whose value is never empty,
+                    // nor text no column reads a column from data, which keeps none: the footer says why.
+                    const refused: SheetCellRefusalWord | undefined = !writableAt(eff.r, eff.c) ? lockedAt(eff.r, meta)
+                        : cellIsBlank(cell) && !takesClear(meta) ? { why: "noClear", header: meta.header }
+                            : cell.type === "Invalid" && getSomeorUndefined(meta.raw.from) !== undefined ? { why: "unread", header: meta.header, text: cell.value }
+                                : undefined;
+                    if (refused !== undefined) {
+                        dispatchStore({ t: "patch", patch: { msg: { id: "editRefused", word: refused } } });
+                        break;
+                    }
+                    const res = writeCells([{ r: eff.r, c: eff.c, cell }], "typed");
+                    afterWrite(eff.r, res, triggers.size === 0 || triggers.has(meta.key));
                     break;
                 }
                 case "write.many": {
@@ -166,17 +183,28 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                 }
                 case "clear": {
                     const writes: CellWrite[] = [];
+                    // The cells it leaves as they were, and why the first was: the footer says so.
+                    let kept = 0;
+                    let refused: SheetCellRefusalWord | undefined;
                     for (let r = eff.r0; r <= eff.r1; r++) {
                         for (let c = eff.c0; c <= eff.c1; c++) {
                             const meta = metaAt(r, c);
-                            // A cell that edits out of place is cleared where it edits, never in the grid (#1531); a locked cell,
-                            // or one whose value isn't an option, is never cleared (#1560).
-                            if (meta === undefined || meta.kind === "stamped" || meta.kind === "action" || editsOutOfPlace(meta, hostGrid) || !writableAt(r, c) || !takesClear(meta) || !canEdit) continue;
+                            // A cell that edits out of place is cleared where it edits, never in the grid (#1531).
+                            if (meta === undefined || meta.kind === "stamped" || meta.kind === "action" || editsOutOfPlace(meta, hostGrid) || !canEdit) continue;
                             if (cellIsBlank(cellAt(r, c))) continue;
+                            // A locked cell, or one whose value isn't an option, is never cleared.
+                            const why: SheetCellRefusalWord | undefined = !writableAt(r, c) ? lockedAt(r, meta)
+                                : !takesClear(meta) ? { why: "noClear", header: meta.header } : undefined;
+                            if (why !== undefined) {
+                                kept += 1;
+                                refused ??= why;
+                                continue;
+                            }
                             writes.push({ r, c, cell: NULL_CELL });
                         }
                     }
                     if (writes.length > 0) writeCells(writes, "typed");
+                    if (refused !== undefined) dispatchStore({ t: "patch", patch: { msg: { id: "clearRefused", n: kept, cleared: writes.length, word: refused } } });
                     break;
                 }
                 case "delete.rows": {
@@ -215,6 +243,8 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                     let skipped = 0;
                     // The action cells it passes by (T7): said apart, never as unrecognised (the hand test's F18).
                     let actions = 0;
+                    // Why the first cell it skips is left as it was, where that is known: the footer says so.
+                    let refused: SheetCellRefusalWord | undefined;
                     // On a grouped sheet a paste lands on the anchor's group — its lines from the ring, its blank line, then new lines past it — never across a band (G9).
                     const anchor = rowAt(eff.r);
                     const gid = group !== undefined && anchor !== undefined && (anchor.kind === "real" || anchor.kind === "blank") ? anchor.group?.row.id : undefined;
@@ -233,15 +263,23 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                         const r = eff.r + p.dr;
                         const outcome = parseCell(meta, p.text, parseCtxFor(Math.min(r, blankR ?? r), meta));
                         const cell = outcome.kind === "unrecognised" ? variant("Invalid", p.text) : outcome.kind === "cell" ? outcome.cell : NULL_CELL;
-                        // A blank lands only where the cell takes a clear, and a cell it lands on in place only when no
-                        // mark locks it (#1560): either is said as skipped.
-                        if (cellIsBlank(cell) && !takesClear(meta)) { skipped += 1; continue; }
+                        // A blank lands only where the cell takes a clear, text no column reads only where it can stand —
+                        // a column from data keeps none — and a cell it lands on in place only when it takes an edit: each
+                        // is said as skipped, and why.
+                        const kept: SheetCellRefusalWord | undefined = cellIsBlank(cell) && !takesClear(meta) ? { why: "noClear", header: meta.header }
+                            : outcome.kind === "unrecognised" && getSomeorUndefined(meta.raw.from) !== undefined ? { why: "unread", header: meta.header, text: p.text }
+                                : undefined;
+                        if (kept !== undefined) {
+                            skipped += 1;
+                            refused ??= kept;
+                            continue;
+                        }
                         const inPlace = { r, c: p.c, cell };
                         const lands = writableAt(r, p.c);
                         if (looseEnd !== undefined) {
                             if (r > looseEnd) writes.push({ r: looseEnd, c: p.c, cell, extra: r - looseEnd });
                             else if (lands) writes.push(inPlace);
-                            else skipped += 1;
+                            else { skipped += 1; refused ??= lockedAt(r, meta); }
                             continue;
                         }
                         if (gid !== undefined) {
@@ -253,14 +291,14 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                             continue;
                         }
                         if (lands) writes.push(inPlace);
-                        else skipped += 1;
+                        else { skipped += 1; refused ??= lockedAt(r, meta); }
                     }
                     // A paste whose new rows' keys are refused writes nothing, and the footer says why (#1536).
                     if (writes.length > 0 && writeCells(writes, "pasted").refused === true) break;
                     const wide = Math.max(1, laid.width);
                     dispatchStore({ t: "patch", patch: {
                         selEnd: { r: eff.r + matrix.length - 1, c: Math.min(colCount - 1, eff.c + wide - 1) },
-                        msg: { id: "pasted", rows: matrix.length, cols: matrix[0]?.length ?? 0, skipped, actions, wrote: writes.length > 0 },
+                        msg: { id: "pasted", rows: matrix.length, cols: matrix[0]?.length ?? 0, skipped, actions, wrote: writes.length > 0, refused },
                     } });
                     break;
                 }

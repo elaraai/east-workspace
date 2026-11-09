@@ -127,7 +127,12 @@ export function noticeText(notice: SheetNotice, w: SheetWords): string {
         case "pasted": return m.noticePasted({
             rows: w.number(notice.rows), cols: w.number(notice.cols), n: notice.skipped, skipped: w.number(notice.skipped),
             wrote: notice.wrote ?? true, nActions: notice.actions ?? 0, actions: w.number(notice.actions ?? 0),
+            why: notice.refused === undefined ? undefined : m.cellRefused(notice.refused),
         });
+        case "clearRefused": return m.noticeClearRefused({
+            n: notice.n, count: w.number(notice.n), nCleared: notice.cleared, cleared: w.number(notice.cleared), why: m.cellRefused(notice.word),
+        });
+        case "editRefused": return m.noticeEditRefused({ why: m.cellRefused(notice.word) });
         case "copied": return m.noticeCopied({ rows: w.number(notice.rows), cols: w.number(notice.cols) });
         case "discarded": return m.noticeDiscarded();
         case "newRow": return m.noticeNewRow();
