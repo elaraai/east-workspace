@@ -21,7 +21,7 @@ import { shiftCalendar } from "../shared/time/scale.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
 import type { RosterCommands } from "./actions.js";
 import type { RosterEditing } from "./editing.js";
-import { DAY, byDay, monthWords, weekNumber, type Issue, type RosterPeriod, type RosterStyles, type RosterValue, type Status } from "./model.js";
+import { DAY, byDay, issuesSaid, monthWords, weekNumber, type Issue, type RosterPeriod, type RosterStyles, type RosterValue, type Status } from "./model.js";
 import type { RosterWindow } from "./window.js";
 
 const LAYOUTS = [{ key: "shifts", label: "Shifts" }, { key: "people", label: "People" }] as const;
@@ -141,7 +141,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     }}>
         {switches && <>{layouts.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}<ChakraMenu.Separator /></>}
         {picksPeriod && <>{periods.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}<ChakraMenu.Separator /></>}
-        <ChakraMenu.Item value="previous">Previous {unit}</ChakraMenu.Item><ChakraMenu.Item value="next">Next {unit}</ChakraMenu.Item>{value.inspector && <ChakraMenu.Item value="issues">{count} issues</ChakraMenu.Item>}<ChakraMenu.Separator />{displayItems}
+        <ChakraMenu.Item value="previous">Previous {unit}</ChakraMenu.Item><ChakraMenu.Item value="next">Next {unit}</ChakraMenu.Item>{value.inspector && <ChakraMenu.Item value="issues">{issuesSaid(count)}</ChakraMenu.Item>}<ChakraMenu.Separator />{displayItems}
         {heldPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish" disabled={!publishable}>{publishWords}</ChakraMenu.Item></>}
     </ChipMenu>;
     // The Elara eye (#1409) and its entry: at the row's floor the eye goes into the View, which lists it in its place
@@ -155,7 +155,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         {switches && <Seg label="Layout" scope="roster" name="compact-layout" items={layouts} active={view.layout} onPick={args.setLayout} />}
         {picksPeriod && <Seg label="Period" scope="roster" name="compact-period" items={periods} active={view.period} onPick={period} />}
         <ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>
-        {value.inspector && <Button size="xs" variant="ghost" onClick={args.onIssues}>{count} issues</Button>}
+        {value.inspector && <Button size="xs" variant="ghost" onClick={args.onIssues}>{issuesSaid(count)}</Button>}
         {withEye && eye?.entry}
         {heldPublish && <Button size="xs" variant="solid" disabled={!publishable} loading={args.publishing} aria-label={publishWords} aria-busy={args.publishing ? true : undefined}
             onClick={() => commands.publish()}>{publishWords}</Button>}
@@ -202,7 +202,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
             : <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-roster-status="">{status}</Box>, null] },
         value.inspector && { key: "roster.issues", side: "end", rank: HOST_RANK + 3, forms: [unread
             ? <Box css={styles.heldSlot} data-roster-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
-            : count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn" }), coarseHitArea({ position: true })]} data-roster-issues="" data-opn={args.issuesFlash === true ? "" : undefined} onClick={args.onIssues} aria-label={`${count} roster issues`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{count} issues</span></chakra.button>
+            : count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn" }), coarseHitArea({ position: true })]} data-roster-issues="" data-opn={args.issuesFlash === true ? "" : undefined} onClick={args.onIssues} aria-label={`${count} roster ${count === 1 ? "issue" : "issues"}`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{issuesSaid(count)}</span></chakra.button>
                 : <Box css={styles.heldSlot} data-roster-issues="" aria-hidden="true" />, null] },
         search !== undefined && { ...search, forms: [...search.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "roster.controls"] },
         // The Elara eye (#1409), between the issues item and the history item, whose actions a run out locks (R2): in the row
@@ -213,6 +213,6 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         // its spinner while it publishes, until every record reads back as saved (#1573) — named as it is, `aria-busy`: the
         // spinner hides its words.
         heldPublish && { key: "roster.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!publishable} loading={args.publishing}
-            aria-label="Publish" aria-busy={args.publishing ? true : undefined} onClick={() => commands.publish()}>Publish</Button>, null] },
+            aria-label={publishWords} aria-busy={args.publishing ? true : undefined} onClick={() => commands.publish()}>{publishWords}</Button>, null] },
     ];
 }

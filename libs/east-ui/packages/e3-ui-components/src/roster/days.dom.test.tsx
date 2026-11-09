@@ -27,7 +27,7 @@ const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
 const status = (c: HTMLElement) => c.querySelector("[data-roster-status]")?.textContent;
 /** Whether the board offers a gesture on a duty it draws: a grip, or a chip's own action. */
 const gestures = (c: HTMLElement) => slot(c, "main").querySelector("[data-roster-grip], [data-roster-chip-action]") !== null;
-const publishOff = (c: HTMLElement) => history(c, "Publish").hasAttribute("disabled");
+const publishOff = (c: HTMLElement, unit: "day" | "week" = "day") => history(c, `Publish ${unit}`).hasAttribute("disabled");
 /** The caption under the ghost, as the shared drag layer says it: a refusal's words, marked refused. */
 const refusal = () => { const caption = document.querySelector<HTMLElement>("[data-drag-caption]"); return [caption?.textContent, caption?.hasAttribute("data-refused")]; };
 /** A step of the day in view, by the toolbar's own control: the keys `[` and `]` step a week. */
@@ -44,7 +44,7 @@ describe("the Roster publishing a day at a time (#1550)", () => {
         const { container: c } = await h.mount(ex.rosterDaily);
         expect([status(c), gestures(c), publishOff(c)]).toEqual(["Draft", true, false]);
         const deployed = await commits(ex.rosterDays);
-        await press(history(c, "Publish"));
+        await press(history(c, "Publish day"));
         // No draft to save: the day's row alone, one patch of the days.
         expect(h.requests("mutate").map(r => r.record)).toEqual([ex.rosterDays.name]);
         expect(await commits(ex.rosterDays)).toEqual(["patch", ...deployed]);
@@ -98,7 +98,7 @@ describe("the Roster publishing a day at a time (#1550)", () => {
         await release();
         await press(history(c, editingMessages.discard()));
         const deployed = await commits(ex.rosterDays);
-        await press(history(c, "Publish"));
+        await press(history(c, "Publish week"));
         expect(h.requests("mutate").map(r => r.record)).toEqual([ex.rosterDays.name]);
         expect(await commits(ex.rosterDays)).toEqual(["patch", ...deployed]);
         const days = await h.read(ex.rosterDays);
@@ -107,7 +107,7 @@ describe("the Roster publishing a day at a time (#1550)", () => {
         expect([days.get(FRI)!.dismissed.size, days.get(SAT)!.dismissed.size]).toEqual([0, 0]);
         expect(daysFrom(SUN, 4).every(day => sameDay(days.get(day)!, ex.rosterDayRows.get(day)!))).toBe(true);
         expect(days.has(NEXT)).toBe(false);
-        expect([status(c), publishOff(c)]).toEqual(["Published", true]);
+        expect([status(c), publishOff(c, "week")]).toEqual(["Published", true]);
         expect(c.textContent).toContain("Published week");
         expect(c.querySelector("[data-roster-readonly]")).not.toBeNull();
     });

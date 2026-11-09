@@ -96,7 +96,7 @@ test("a step to a week not read yet never covers the frame (#1398, CL5): the too
     const status = toolbar().querySelector("[data-roster-status]")!;
     expect([status.hasAttribute("data-pending"), status.textContent]).toEqual([true, ""]);
     expect(toolbar().querySelector("[data-roster-issues]")!.hasAttribute("data-pending")).toBe(true);
-    expect(within(toolbar()).getByRole("button", { name: "Publish" }).hasAttribute("disabled")).toBe(true);
+    expect(within(toolbar()).getByRole("button", { name: "Publish week" }).hasAttribute("disabled")).toBe(true);
     // The history keeps its slot as the week read last had it: the toolbar never shifts as the week lands.
     expect(within(toolbar()).getByRole("button", { name: editingMessages.apply() })).toBeTruthy();
     // The week's slots draw at once, unread: no duty, no figure of another week's, and no false empty.

@@ -111,3 +111,26 @@ describe("a Roster's vocabulary", () => {
         await act(async () => { held.release(); }); await settle();
     });
 });
+
+describe("a count of one takes the singular (#1595)", () => {
+    /** Each button main has mounted, by its words. */
+    const buttons = (c: HTMLElement) => [...slot(c, "main").querySelectorAll("button")].map(el => el.textContent ?? "");
+    test("a slot's head says `1 issue`, never `1 issues`", async () => {
+        const { container: c } = await open(ex.rosterNoGroup);
+        await press(toolbar(c).getByRole("radio", { name: "Day" }));
+        expect(buttons(c)).toContain("0 / 1 positions · 1 issue");
+        expect(buttons(c).filter(words => /\b1 issues$/u.test(words))).toEqual([]);
+    });
+    test("a group's assignment head says `1 person`, never `1 people`", async () => {
+        const { container: c } = await open(ex.rosterMinimal);
+        await press(toolbar(c).getByRole("radio", { name: "Day" }));
+        const said = [...slot(c, "main").querySelectorAll("button > div")].map(el => el.textContent);
+        expect(said).toContain("1 person");
+        expect(said).not.toContain("1 people");
+    });
+    test("the toolbar's count says `1 issue`, and its screen-reader name `1 roster issue`", async () => {
+        const { container: c } = await open(ex.rosterPublished);
+        const count = c.querySelector("[data-roster-issues]")!;
+        expect([count.textContent, count.getAttribute("aria-label")]).toEqual(["1 issue", "1 roster issue"]);
+    });
+});

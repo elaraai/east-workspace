@@ -705,6 +705,15 @@ export function emptyWeek(): Week {
 /** Whether a period is open to edits by its status: a draft — Not started among them — and never the published case or another. */
 export function editableStatus(status: Status): boolean { return status.type === "draft"; }
 
+/**
+ * A count of a roster's issues as it is said: `1 issue`, `3 issues`.
+ *
+ * @param n - How many issues
+ * @returns The count in words
+ */
+export function issuesSaid(n: number): string {
+    return `${n} ${n === 1 ? "issue" : "issues"}`;
+}
 /** A period's status chip's words: Not started, Draft, Published, or the app's own case by its name. */
 export function statusText(period: PlacedPeriod): string {
     if (!started(period)) return "Not started";

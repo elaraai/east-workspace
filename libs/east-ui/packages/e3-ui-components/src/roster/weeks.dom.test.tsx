@@ -110,7 +110,7 @@ describe("Roster week lifecycle", () => {
         const { container } = await h.mount(ex.rosterWarehouse);
         const deployed = { duties: await commits(ex.rosterDuties), weeks: await commits(ex.rosterWeeks) };
         await press(within(assignment(container, "s37")).getByRole("button", { name: "Remove C. Clover" }));
-        await press(history(container, "Publish"));
+        await press(history(container, "Publish week"));
         expect((await h.read(ex.rosterWeeks)).get(START)!.state.type).toBe("issued");
         expect((await h.read(ex.rosterDuties)).has("s37")).toBe(false);
         expect(container.querySelector("[data-roster-readonly]")).not.toBeNull();
@@ -121,7 +121,7 @@ describe("Roster week lifecycle", () => {
         const { container } = await h.mount(ex.rosterWarehouse);
         await weekKey(container, "]");
         await press(within(container).getByRole("button", { name: "Copy previous week" }));
-        await press(history(container, "Publish"));
+        await press(history(container, "Publish week"));
         const week = (await h.read(ex.rosterWeeks)).get(NEXT)!;
         expect([week.state.type, week.approver, week.dismissed.size]).toEqual(["issued", some("Ops"), 0]);
     });
@@ -130,7 +130,7 @@ describe("Roster week lifecycle", () => {
         await press(within(assignment(container, "s37")).getByRole("button", { name: "Remove C. Clover" }));
         // The duties' Save held on its way to e3, and the week stepped on meanwhile.
         const held = h.e3.hold((request) => request.kind === "mutate" && request.record === ex.rosterDuties.name);
-        await act(async () => { fireEvent.click(history(container, "Publish")); });
+        await act(async () => { fireEvent.click(history(container, "Publish week")); });
         await settle();
         await weekKey(container, "]");
         await act(async () => { held.release(); }); await settle();
@@ -141,7 +141,7 @@ describe("Roster week lifecycle", () => {
     test("Publish shows that it works from its press until the week reads back published: its spinner, and Save's live dot while the duties' Save is out (#1573)", async () => {
         const { container } = await h.mount(ex.rosterWarehouse);
         await press(within(assignment(container, "s37")).getByRole("button", { name: "Remove C. Clover" }));
-        const publish = () => history(container, "Publish");
+        const publish = () => history(container, "Publish week");
         expect(publish().hasAttribute("data-loading")).toBe(false);
         // The duties' write held on its way to e3: Publish's Save is out.
         const writes = h.e3.hold((request) => request.kind === "mutate" && request.record === ex.rosterDuties.name);
@@ -240,7 +240,7 @@ describe("Roster week lifecycle", () => {
         // The Publish lands on e3, and every answer to it is lost on the way back: the client tries again under the same id
         // until it gives up, which leaves the write unknown.
         const losing = h.e3.fail((request) => request.kind === "mutate" && request.record === ex.rosterWeeks.name, "lost");
-        await act(async () => { fireEvent.click(history(container, "Publish")); });
+        await act(async () => { fireEvent.click(history(container, "Publish week")); });
         await waitFor(() => expect(container.querySelector('[data-session-banner="unknown"]')).not.toBeNull(), { timeout: 15_000 });
         losing();
         await press(history(container, editingMessages.retryRequest()));

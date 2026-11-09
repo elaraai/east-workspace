@@ -63,7 +63,7 @@ function fixLabel(issue: Issue, props: Args) {
     const fix = issue.fix.value;
     switch (fix.type) {
         case "accept": return "Accept";
-        case "request": return "Request agency";
+        case "request": return `Request from ${props.value.agencies.find(agency => agency.key === fix.value)?.name ?? fix.value}`;
         case "move": return `Move to ${props.value.shifts.find(s => s.key === fix.value)?.label ?? fix.value}`;
         case "start": return `Start at ${props.format.time(fix.value)}`;
         case "find": return issue.slot.type === "some" && props.find.finding({ need: fix.value, slot: issue.slot.value }) ? "Finding…"

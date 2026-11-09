@@ -92,7 +92,7 @@ describe("one history over the Roster's records (#1369)", () => {
     test("B7 — Publish saves the week's records first, then writes its status, and the week is read-only", async () => {
         const { container: c } = await h.mount(ex.rosterWarehouse);
         await press(within(assignment(c, "s37")).getByRole("button", { name: "Remove C. Clover" }));
-        await press(history(c, "Publish"));
+        await press(history(c, "Publish week"));
         // The duties' Save first; the week's status once the duties read back as saved.
         expect(mutated()).toEqual([ex.rosterDuties.name, ex.rosterWeeks.name]);
         expect((await h.read(ex.rosterDuties)).has("s37")).toBe(false);
@@ -115,7 +115,7 @@ describe("one history over the Roster's records (#1369)", () => {
         await press(within(proposal(c, "s318")!).getByRole("button", { name: "Reject proposal for B. Pumice" }));
         // The weeks' Save commits, and another session dismisses N. Ochre's suggestion just after it, before the Roster
         // reads its own back: what it reads back is its own dismissal beside the other's.
-        await h.followed(ex.rosterWeeks, () => { fireEvent.click(history(c, "Publish")); }, now => {
+        await h.followed(ex.rosterWeeks, () => { fireEvent.click(history(c, "Publish week")); }, now => {
             const week = now.get(START)!;
             now.set(START, { ...week, dismissed: new SortedSet([...week.dismissed, "s317"], compareFor(StringType)) });
             return now;
@@ -130,7 +130,7 @@ describe("one history over the Roster's records (#1369)", () => {
     test("B7 — a Save that fails leaves the week a draft, its drafts kept: the status is never written over unsaved duties", async () => {
         const { container: c } = await h.mount(warehouseRoster({ locked: true }));
         await press(within(assignment(c, "s37")).getByRole("button", { name: "Remove C. Clover" }));
-        await press(history(c, "Publish"));
+        await press(history(c, "Publish week"));
         expect(mutated()).toEqual([ex.rosterLockedDuties.name]);
         expect((await h.read(ex.rosterWeeks)).get(START)!.state.type).toBe("open");
         expect(assignment(c, "s37").hasAttribute("data-removed")).toBe(true);
@@ -148,7 +148,7 @@ describe("one history over the Roster's records (#1369)", () => {
             await settle();
             const before = await h.read(ex.rosterDuties);
             await press(within(cell(c, 4, "inbound", "night")).getByRole("button", { name: "Request Northside Staffing" }));
-            await press(history(c, "Publish"));
+            await press(history(c, "Publish week"));
             // The duties' Save commits; the week's row, made only as its status is written, fails, and none of it is written.
             expect(mutated()).toEqual([ex.rosterDuties.name]);
             expect([...(await h.read(ex.rosterDuties)).keys()].filter(key => !before.has(key))).toHaveLength(1);
@@ -170,7 +170,7 @@ describe("one history over the Roster's records (#1369)", () => {
         expect(c.querySelector("[data-roster-grip], [data-roster-chip-action], [data-roster-action]")).toBeNull();
         expect(toolbar.queryByRole("button", { name: editingMessages.apply() })).toBeNull();
         // Publish keeps its slot, as on every week of a Roster that publishes and edits (#1398, CL1): there, and off.
-        expect(toolbar.getByRole("button", { name: "Publish" }).hasAttribute("disabled")).toBe(true);
+        expect(toolbar.getByRole("button", { name: "Publish week" }).hasAttribute("disabled")).toBe(true);
         await press(toolbar.getByRole("radio", { name: "People" }));
         expect(within(slot(c, "main")).queryAllByRole("button", { name: /assign/i })).toEqual([]);
         await width(390);

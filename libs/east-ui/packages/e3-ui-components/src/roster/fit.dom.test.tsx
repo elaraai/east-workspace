@@ -163,7 +163,7 @@ describe("without a fit, no Find fix is offered (R2)", () => {
         expect(within(slot(c, "end")).getByText("No lead on Dispatch · Early")).toBeTruthy();
         expect(within(slot(c, "end")).getByText("B. Swale · trainee without trainer")).toBeTruthy();
         expect(finds(c)).toEqual([]);
-        expect(within(slot(c, "end")).getAllByRole("button", { name: "Request agency" }).length).toBeGreaterThan(0);
+        expect(within(slot(c, "end")).getAllByRole("button", { name: "Request from Northside Staffing" }).length).toBeGreaterThan(0);
         expect(h.fits.requests()).toHaveLength(0);
     });
 
