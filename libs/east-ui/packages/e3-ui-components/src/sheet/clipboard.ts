@@ -8,8 +8,8 @@
  * numbers bare with the viewer's decimal separator (`1234,5` in German, what
  * a spreadsheet in that language reads, #852), a link cell as TWO columns
  * (From, To) printed through the grammar; paste lands at the selection, each
- * cell parsed by its kind, a stamped column skipped, a link column consuming
- * two clipboard cells.
+ * cell parsed by its kind — a stamped or read-only column's left as it was,
+ * and said so — a link column consuming two clipboard cells.
  *
  * @packageDocumentation
  */
@@ -109,8 +109,8 @@ export interface PastedCell {
 
 /**
  * Lay a clipboard matrix over the columns from an anchor column: a link
- * column consumes two cells; a stamped column is skipped (its clipboard cell
- * is consumed, nothing is written).
+ * column consumes two cells. A stamped or read-only column's cell is laid
+ * too: the paste leaves it as it was, and says why (#1585).
  */
 export function layoutPaste(matrix: readonly (readonly string[])[], columns: readonly SheetColumnMeta[], c0: number): { cells: PastedCell[]; width: number } {
     const cells: PastedCell[] = [];
@@ -122,7 +122,7 @@ export function layoutPaste(matrix: readonly (readonly string[])[], columns: rea
             const meta = columns[c]!;
             let text = line[k++] ?? "";
             if (meta.kind === "link") text = joinHalves(text, k < line.length ? line[k++] : undefined);
-            if (meta.kind !== "stamped" && meta.editable) cells.push({ dr, c, text });
+            cells.push({ dr, c, text });
             c++;
         }
         width = Math.max(width, c - c0);

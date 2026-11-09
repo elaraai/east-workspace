@@ -395,7 +395,8 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
         const { r, c } = s.sel;
         const write = (cell: SheetCellValue | undefined): Transition => ({ state: s, effects: ctx.editableAt(r, c) && cell !== undefined ? [{ t: "write", r, c, cell, text: "" }] : [] });
         if (e.key === " " || e.key === "Enter") return write(stepAt(r, c, e.shift ? -1 : 1));
-        if (e.key === "Backspace" || e.key === "Delete") return write(stepAt(r, c, "first"));
+        // ⌫ on one no step reaches is a clear, which leaves it as it is and says why (#1585).
+        if ((e.key === "Backspace" || e.key === "Delete") && ctx.editableAt(r, c)) return write(stepAt(r, c, "first"));
         if (e.key.length === 1) return write(ctx.keyAt?.(r, c, e.key));
     }
     const dropPick = (t: Transition): Transition => (t.state.gsel === null ? t : { ...t, state: { ...t.state, gsel: null } });

@@ -9,7 +9,8 @@
  *
  * The clipboard matrix (B§10 — Sheet Spec §5 row 20): dates `d/m/yyyy`,
  * numbers bare in the viewer's language (#852), a link cell as two columns;
- * paste lays two cells over a link column and skips a stamped one.
+ * paste lays two cells over a link column, and a stamped one's for the paste
+ * to say it left it.
  */
 
 import { describe, test, expect } from "vitest";
@@ -72,8 +73,8 @@ describe("paste", () => {
         expect(joinHalves("S1104", "")).toBe("S1104 >");
         expect(joinHalves("S1104 > bay", undefined)).toBe("S1104 > bay");
         const laid = layoutPaste([["16/2/2026", "1200", "S1104", "bay", "STAMP", "note"]], columns.list, 0);
-        // The link consumed two cells; the stamped column was consumed but not written.
-        expect(laid.cells.map((c) => [c.c, c.text])).toEqual([[0, "16/2/2026"], [1, "1200"], [2, "S1104 > bay"], [4, "note"]]);
+        // The link consumed two cells; the stamped column's is laid, for the paste to say it left it (#1585).
+        expect(laid.cells.map((c) => [c.c, c.text])).toEqual([[0, "16/2/2026"], [1, "1200"], [2, "S1104 > bay"], [3, "STAMP"], [4, "note"]]);
         expect(laid.width).toBe(5);
     });
 

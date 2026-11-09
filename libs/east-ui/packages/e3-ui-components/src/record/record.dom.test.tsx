@@ -2254,6 +2254,42 @@ describe("marks and locks", () => {
         expect(status(container)).toBe("Nothing cleared — Days since is read only");
     });
 
+    test("⌫ and Delete say why on the skills page as a paste does: a cycle its licence locks, holding a level or none, and a name made from data (#1585)", async () => {
+        // The 10th of November where the browser is: A. Morgan's forklift licence in force, B. Ellis holding none.
+        vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+        vi.setSystemTime(new Date(2026, 10, 10, 10, 0));
+        try {
+            const { container } = await h.mount(ex.recordSkillHistory, { storageKey: "record-refusals-kinds" });
+            const forklift = (r: number) => cellAt(container, r, "skills:Forklift");
+            // A. Morgan's 2, its licence's lock: ⌫ sets no first, and says why.
+            await clear(container, 0, "skills:Forklift");
+            expect([forklift(0).textContent, status(container)]).toEqual(["2licence", "Nothing cleared — locked: licence"]);
+            // B. Ellis's, which holds none: Delete says why all the same.
+            await press(forklift(1));
+            await key(container, "Delete");
+            expect([forklift(1).textContent, status(container)]).toEqual(["no licence", "Nothing cleared — locked: no licence"]);
+            // The third has no name yet, and the page names the row by its id: read only, as ⌫ and a paste say.
+            await clear(container, 2, "name");
+            expect([cellAt(container, 2, "name").textContent, status(container)]).toEqual(["P-0415", "Nothing cleared — Name is read only"]);
+            await act(async () => { fireEvent.paste(grid(container), { clipboardData: { getData: () => "C. Patel" } }); });
+            await settle();
+            expect([cellAt(container, 2, "name").textContent, status(container)]).toEqual(["P-0415", "Nothing pasted — Name is read only"]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    test("⌫ says why on a stamped cell, and on a title the inspector edits — where a paste says it is edited too (#1585)", async () => {
+        const { container } = await h.mount(ex.recordEveryKind, { storageKey: "record-refusals-stamped" });
+        await clear(container, 0, "badge");
+        expect([cellAt(container, 0, "badge").textContent, status(container)]).toEqual(["EXT-88213", "Nothing cleared — Badge is read only"]);
+        await clear(container, 0, "name");
+        expect(status(container)).toBe("Nothing cleared — Name is edited where ⏎ opens it");
+        await act(async () => { fireEvent.paste(grid(container), { clipboardData: { getData: () => "R. Morgan" } }); });
+        await settle();
+        expect([part(cellAt(container, 0, "name"), "titleCell")!.textContent, status(container)]).toEqual(["A. Morgan", "Nothing pasted — Name is edited where ⏎ opens it"]);
+    });
+
     test("several rows set a column only where a cell takes it: a set a lock keeps from a row says why, and a column every row's mark locks is no input", async () => {
         const { container } = await h.mount({ fn: operatorsOnNights }, { storageKey: "record-bulk-locked" });
         const at = (r: number, k: string) => cellAt(container, r, k);

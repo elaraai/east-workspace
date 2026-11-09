@@ -516,6 +516,25 @@ test("a paste over an action cell says so, never that it pasted (hand test F18)"
     expect(slot(container, "footer")!.textContent).toContain("Nothing pasted — an action cell takes no paste");
 });
 
+test("⌫ on an action cell says why it is left, as a paste does — nothing taken on it yet, or a case (#1585)", async () => {
+    const { container } = await h.mount(ex.sheetActionsBasic);
+    const footer = () => slot(container, "footer")!.textContent;
+    fireEvent.mouseDown(cellOf(container, "J-0003", "state"), { button: 0 });
+    await settle();
+    fireEvent.keyDown(card(container), { key: "Backspace" });
+    await settle();
+    expect(footer()).toContain("Nothing cleared — State changes only through its actions");
+    // A paste between, so the next words are the next ⌫'s own.
+    await act(async () => { fireEvent.paste(card(container), { clipboardData: { getData: () => "finished" } }); });
+    await settle();
+    expect(footer()).not.toContain("Nothing cleared");
+    fireEvent.mouseDown(cellOf(container, "J-0002", "state"), { button: 0 });
+    await settle();
+    fireEvent.keyDown(card(container), { key: "Delete" });
+    await settle();
+    expect([stateOf(cellOf(container, "J-0002", "state")), footer()?.includes("Nothing cleared — State changes only through its actions")]).toEqual(["started", true]);
+});
+
 test("▾ on a range whose rows share no further case opens no Menu, and the footer says why (T8, hand test F12)", async () => {
     const { container } = await h.mount(ex.sheetActionsWorkOrders);
     // WO-1044: step 20 is alerted, offered Start and Complete; step 10 is verified, offered nothing.

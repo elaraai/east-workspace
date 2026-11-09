@@ -23,7 +23,7 @@ import { exportMatrix, layoutPaste, parseMatrix } from "./clipboard.js";
 import { isBlankRowId, type SheetEffect } from "./sheet-state.js";
 import type { SheetNotice } from "./sheet-types.js";
 import { LATENCY_MS } from "./suggest.js";
-import { editsOutOfPlace } from "./steps.js";
+import { editsOutOfPlace, stepsInPlace } from "./steps.js";
 import type { EditorFocusRequest } from "./Editor.js";
 import type { SheetSelectionValue } from "./values.js";
 import type { SheetDecode } from "./use-decode.js";
@@ -186,15 +186,24 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                     // The cells it leaves as they were, and why the first was: the footer says so.
                     let kept = 0;
                     let refused: SheetCellRefusalWord | undefined;
+                    // ⌫ on one cell alone (#1585): it says why it leaves that cell as it is, though the cell is blank.
+                    const one = eff.r0 === eff.r1 && eff.c0 === eff.c1;
                     for (let r = eff.r0; r <= eff.r1; r++) {
                         for (let c = eff.c0; c <= eff.c1; c++) {
                             const meta = metaAt(r, c);
-                            // A cell that edits out of place is cleared where it edits, never in the grid (#1531).
-                            if (meta === undefined || meta.kind === "stamped" || meta.kind === "action" || editsOutOfPlace(meta, hostGrid) || !canEdit) continue;
-                            if (cellIsBlank(cellAt(r, c))) continue;
-                            // A locked cell, or one whose value isn't an option, is never cleared.
-                            const why: SheetCellRefusalWord | undefined = !writableAt(r, c) ? lockedAt(r, meta)
-                                : !takesClear(meta) ? { why: "noClear", header: meta.header } : undefined;
+                            if (meta === undefined || !canEdit) continue;
+                            // A cell that steps in place takes no clear on an owned row, as it takes no step there (T9).
+                            const it = rowAt(r);
+                            if (hostGrid !== undefined && stepsInPlace(meta) && (it?.kind === "real" || it?.kind === "group") && it.row.owned) continue;
+                            // Each cell a clear leaves as it is says why, as a paste does (#1585): an action cell, which only its
+                            // actions change; a locked one, and one read only — a stamped one's among them; one that edits out of
+                            // place, which is cleared where it edits, never in the grid (#1531); one whose value isn't an option.
+                            const why: SheetCellRefusalWord | undefined = meta.kind === "action" ? { why: "action", header: meta.header }
+                                : meta.kind === "stamped" || !writableAt(r, c) ? lockedAt(r, meta)
+                                    : editsOutOfPlace(meta, hostGrid) ? { why: "opens", header: meta.header }
+                                        : !takesClear(meta) ? { why: "noClear", header: meta.header } : undefined;
+                            // A blank has nothing to clear — but that one cell is told why all the same, unless only that it can't be empty.
+                            if (cellIsBlank(cellAt(r, c)) && (!one || why === undefined || why.why === "noClear")) continue;
                             if (why !== undefined) {
                                 kept += 1;
                                 refused ??= why;
@@ -257,10 +266,17 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                     for (const p of laid.cells) {
                         const meta = columns.list[p.c];
                         if (meta === undefined) continue;
-                        // An action cell takes no paste (T7); a cell that edits out of place takes it where it edits (#1531).
+                        // An action cell takes no paste (T7); a cell that edits out of place takes it where it edits (#1531) —
+                        // said so, or why it takes none there either (#1585).
                         if (meta.kind === "action") { actions += 1; continue; }
-                        if (editsOutOfPlace(meta, hostGrid)) { skipped += 1; continue; }
                         const r = eff.r + p.dr;
+                        // A stamped or read-only column takes none, and is said as skipped, and why (#1585).
+                        if (meta.kind === "stamped" || !meta.editable) { skipped += 1; refused ??= lockedAt(r, meta); continue; }
+                        if (editsOutOfPlace(meta, hostGrid)) {
+                            skipped += 1;
+                            refused ??= writableAt(r, p.c) ? { why: "opens", header: meta.header } : lockedAt(r, meta);
+                            continue;
+                        }
                         const outcome = parseCell(meta, p.text, parseCtxFor(Math.min(r, blankR ?? r), meta));
                         const cell = outcome.kind === "unrecognised" ? variant("Invalid", p.text) : outcome.kind === "cell" ? outcome.cell : NULL_CELL;
                         // A blank lands only where the cell takes a clear, text no column reads only where it can stand —
