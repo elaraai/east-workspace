@@ -619,6 +619,10 @@ export function createRosterPayload<R extends EastType, P extends EastType = nev
             : `Roster: \`events\` holds one kind, the duties — and it holds ${kinds.length} (${kinds.map(([slot]) => slot).join(", ")})`);
     }
     const [slot, kind] = kinds[0]!;
+    // The slice's `reference` source is the record the check reads (#1551): no duty kind takes its name.
+    if (slot === SCHEDULE_REFERENCE) {
+        throw new Error("Roster: events.reference names the slice's `reference` source, the record the check reads beside the duties — name the duty kind otherwise: events={{ duty: … }}");
+    }
     // Who is rostered: the people, and optionally the agencies.
     const resources = (props.resources ?? {}) as Readonly<Record<string, ScheduleResourceKind<EastType, EastType>>>;
     for (const name of Object.keys(resources)) {
@@ -671,9 +675,6 @@ export function createRosterPayload<R extends EastType, P extends EastType = nev
 
     // The narrowing: a source per record it narrows, named after what it narrows.
     const library = props.library ?? [];
-    if (slot === SCHEDULE_REFERENCE) {
-        throw new Error("Roster: events.reference names the slice's `reference` source, the record the check reads beside the duties — name the duty kind otherwise: events={{ duty: … }}");
-    }
     const named = new Set([slot, ...(props.targets === undefined ? [] : ["targets"]), "people", "activities", ...(props.patterns === undefined ? [] : ["patterns"]),
         ...library.flatMap(tab => tab.kind === "tab" && tab.config.source !== undefined ? [tab.config.source] : []), SCHEDULE_REFERENCE]);
     const narrowing = recordSources(props.slice, {

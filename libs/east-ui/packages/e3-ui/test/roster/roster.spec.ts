@@ -256,9 +256,13 @@ describe("the reference record the check reads beside the duties (#1551)", () =>
             /Roster: `check` reads reference rows of \.Struct.*, and the slice's `reference` source reads \.Struct.* — make it from Roster\.Types\.CheckContext\(/);
     });
 
-    test("a duty kind in the slot `reference` is refused, naming the slice's source", () => {
-        assert.throws(() => payload((base) => ({ events: { reference: base.props.events.duty! } })),
-            /Roster: events\.reference names the slice's `reference` source, the record the check reads beside the duties — name the duty kind otherwise: events=\{\{ duty: … \}\}/);
+    test("a duty kind in the slot `reference` is refused, naming the slice's source — before the slice is read", () => {
+        const named = /Roster: events\.reference names the slice's `reference` source, the record the check reads beside the duties — name the duty kind otherwise: events=\{\{ duty: … \}\}/;
+        assert.throws(() => payload((base) => ({ events: { reference: base.props.events.duty! } })), named);
+        // Its source named after it, as each source of a builder is: the slot's name is what is refused, never the duties
+        // read as the check's reference record, whose refusal would ask for a check the app never meant to give.
+        assert.throws(() => payload((base) => ({ events: { reference: base.props.events.duty! },
+            slice: { slice: Slice.bindRecords("spec.rota", { reference: { source: dutySource(), range: "start" } }) } })), named);
     });
 });
 
