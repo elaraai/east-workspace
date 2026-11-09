@@ -14,7 +14,9 @@
  * sits over its columns in view, clear of the pinned title, and the jump
  * menu lists the columns with no `Row number`: a Record's rows have no
  * numbers. Columns from data (`Record Columns From Data - DX Proposal.md`
- * §4) page as any others, each group's label over its columns in view.
+ * §4) page as any others, each group's label over its columns in view. An
+ * example over a record of a few rows shows each whole under its toolbar's
+ * rows, the pager and the head, nothing scrolled.
  *
  * Run: `pnpm exec playwright test record-phone`.
  */
@@ -29,8 +31,11 @@ const ROOT = "[data-builder-frame]";
 /** Every example of the Record's. */
 const EXAMPLES = ["recordBasic", "recordSkillsMatrix", "recordShiftPreferences", "recordEveryKind", "recordSkillsReadOnly", "recordLooks", "recordFinishes", "recordHoursByProject"] as const;
 
+/** Every example of the Record's over a record of a few rows: each tall enough to show them all on a phone. */
+const FEW_ROWS = [...EXAMPLES, "recordOrderStatus", "recordRosterByDay", "recordSkillHistory", "recordPreferenceSnapshots"] as const;
+
 /** An example of the Record's on the phone's page: its grid, the element that takes the keys. */
-async function openRecord(page: Page, name: (typeof EXAMPLES)[number]): Promise<Locator> {
+async function openRecord(page: Page, name: (typeof FEW_ROWS)[number]): Promise<Locator> {
     const entry = await visitBuilder(page, `e3/record/record/${name}`, ROOT, "light");
     await expect(entry.locator('[data-record] [data-slot="row"]').first()).toBeVisible({ timeout: 30_000 });
     await settled(page);
@@ -115,6 +120,22 @@ test.describe("The Record on a phone", () => {
             // The second column comes to rest beside the title.
             expect(Math.abs(paged.paged[1]!.left - paged.title.right)).toBeLessThan(1);
             expect(await sideways(page, grid)).toEqual({ page: 0, frame: 0 });
+        });
+    }
+
+    for (const name of FEW_ROWS) {
+        test(`${name}: every row whole in a phone's frame, under its toolbar's rows, the pager and its head, with nothing scrolled @mobile`, async ({ page }) => {
+            const grid = await openRecord(page, name);
+            const rows = await grid.evaluate((el) => {
+                const view = el.querySelector<HTMLElement>("[data-virtual-rows]")!;
+                const bottom = view.getBoundingClientRect().top + view.clientTop + view.clientHeight;
+                // The header row is held over the rows, at the top of their view.
+                const top = el.querySelector('[data-slot="headerRow"]')!.getBoundingClientRect().bottom;
+                const all = [...el.querySelectorAll('[data-slot="row"]')].map((row) => row.getBoundingClientRect());
+                return { n: all.length, whole: all.filter((b) => b.top >= top - 0.5 && b.bottom <= bottom + 0.5).length, scrolled: view.scrollTop };
+            });
+            expect(rows.n).toBeGreaterThan(0);
+            expect(rows).toEqual({ n: rows.n, whole: rows.n, scrolled: 0 });
         });
     }
 

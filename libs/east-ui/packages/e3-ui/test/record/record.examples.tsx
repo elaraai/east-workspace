@@ -458,7 +458,7 @@ export const recordLooks = example({
                                 items={densities.map((_$, d) => SegmentGroup.Item(d.getTag(), <Text>{d.getTag().upperCase()}</Text>))} />),
                     ]}
                     preview={
-                        <Box height="360px" width="100%">
+                        <Box height="440px" width="100%">
                             <Record
                                 record={rota}
                                 title="Rota"
@@ -674,7 +674,7 @@ export const recordHoursByProject = example({
             const clientRows = $.let(Data.bind(recordClients));
             const projectRows = $.let(Data.bind(recordProjects));
             return (
-                <Box height="320px">
+                <Box height="440px">
                     <Record
                         record={staff}
                         title="Hours"
@@ -729,7 +729,7 @@ export const recordRosterByDay = example({
         <Reactive>{$ => {
             const shifts = $.let(Record.bind(recordRoster));
             return (
-                <Box height="320px">
+                <Box height="440px">
                     <Record
                         record={shifts}
                         title="Roster"
@@ -1016,7 +1016,7 @@ export const recordSkillHistory = example({
             const teamRows = $.let(Data.bind(recordTeams));
             const skillRows = $.let(Data.bind(recordSkillList));
             return (
-                <Box height="360px">
+                <Box height="440px">
                     <Record
                         record={staff}
                         title="Skills"
@@ -1065,7 +1065,7 @@ export const recordPreferenceSnapshots = example({
         <Reactive>{$ => {
             const staff = $.let(Record.bind(recordPeople));
             return (
-                <Box height="360px">
+                <Box height="440px">
                     <Record
                         record={staff}
                         title="Shift preferences"
