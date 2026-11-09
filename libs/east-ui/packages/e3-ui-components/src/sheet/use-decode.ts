@@ -133,8 +133,8 @@ export function useSheetDecode(value: SheetRootValue, host: SheetHost) {
     // A phone's frame (`Mobile Sheet Spec.md`): 560 wide or less — a frame not laid out yet (0 wide) is none. The
     // columns are a window the pager pages (SH1), no gutter (R5) — and a host's grid no lead (#1536); the column the
     // sheet's `narrow.pin` names, where it names one the grid draws, leads the row pinned at the left (SH4) — none by
-    // default (ruled 3 Nov 2026).
-    const phoneFrame = framePx !== undefined && framePx > 0 && framePx <= 560;
+    // default (ruled 3 Nov 2026). A host's grid is a phone's as its host's frame is, where the host says.
+    const phoneFrame = hostGrid?.phone ?? (framePx !== undefined && framePx > 0 && framePx <= 560);
     const narrow = useMemo(() => getSomeorUndefined(value.narrow), [value.narrow]);
     const pinKey = narrow === undefined ? undefined : getSomeorUndefined(narrow.pin);
     const columns = useMemo(() => {

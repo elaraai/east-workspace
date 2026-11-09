@@ -23,7 +23,8 @@
  * - **main** — the grid, filling the room the inspector leaves and scrolling
  *   its own rows, the strip docked under it. Beside the inspector it keeps
  *   more than a phone's frame, and where it could not the inspector overlays
- *   it, so the grid draws as on a phone only in a phone's frame;
+ *   it. The grid draws as on a phone only in a phone's frame: the frame's
+ *   width decides, never the room an overlaid inspector's rail leaves main;
  * - **the inspector**, the end pane, 320 wide, when the Record is given one —
  *   Details for the ring's row (`inspector.tsx`, IN1–IN8), and the batch's
  *   Issues, each naming its row by its title — a new row with none yet as
@@ -69,8 +70,8 @@ import { Box, useToken } from "@chakra-ui/react";
 import { equivalentFor, fromEastTypeValue, type ValueTypeOf } from "@elaraai/east";
 import { RecordComponent, RecordPayloadType, type sheetKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, NARROW_FRAME, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, usePersistedState,
-    type EditIssue, type HistoryAction,
+    BannerView, BuilderFrame, NARROW_FRAME, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, useContainerWidth,
+    usePersistedState, type EditIssue, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, keptRead, useDensity, useSlotStyles, type SlotStyles } from "@elaraai/east-ui-components/internal";
 import {
@@ -110,8 +111,7 @@ const SELECT_PX = 46;
 
 /**
  * The narrowest main gets beside a pinned inspector, px: wider than a phone's
- * frame, which the grid draws as a phone's whatever frame it sits in — the
- * pager, no select column — while the toolbar is still a desktop's.
+ * frame, so a pinned inspector never leaves the grid less room than a phone's.
  */
 const MIN_MAIN_PX = NARROW_FRAME + 1;
 
@@ -166,6 +166,10 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const [status] = useState(createRecordStatus);
     // A title opens where it edits (P4): the inspector, on Details — its open tab kept per viewer.
     const frameRef = useRef<HTMLDivElement | null>(null);
+    // The grid is a phone's as its frame is, 560 wide or less — never as main is, which an overlaid inspector's rail
+    // leaves narrower than the frame. Until the frame is laid out, the grid's own width decides.
+    const frameWidth = useContainerWidth(frameRef);
+    const phone = frameWidth > 0 ? frameWidth <= NARROW_FRAME : undefined;
     const { state: pane, setState: setPane } = usePersistedState<{ tab: string }>(`${keys.frame}.inspector.tab`, { tab: "details" }, readTab);
     const inspectorPane = words.m.inspectorPane();
     const openDetails = useCallback(() => {
@@ -203,12 +207,12 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const inspector = value.inspector.type === "some";
     const host = useMemo((): SheetHost => ({
         grid: {
-            rowPx, leadPx: readOnly ? 0 : SELECT_PX, leadRun: "check", runStyles: styles, Row: RecordRow, Header: RecordHeader, Empty: RecordEmpty, Strip: RecordStrip,
-            onOpen: inspector ? onOpen : undefined,
+            rowPx, leadPx: readOnly ? 0 : SELECT_PX, phone, leadRun: "check", runStyles: styles, Row: RecordRow, Header: RecordHeader, Empty: RecordEmpty,
+            Strip: RecordStrip, onOpen: inspector ? onOpen : undefined,
         },
         onHistory,
         cellEditor,
-    }), [rowPx, readOnly, styles, inspector, onOpen, onHistory, cellEditor]);
+    }), [rowPx, readOnly, phone, styles, inspector, onOpen, onHistory, cellEditor]);
     const noun = useMemo((): RecordNoun => getSomeorUndefined(value.noun) ?? rm.rowNoun(), [value.noun]);
     const title = getSomeorUndefined(value.title);
     const grid = useMemo((): RecordGrid => ({ styles, ticks, groups: value.columnGroups, noun, title, inspector }), [styles, ticks, value.columnGroups, noun, title, inspector]);

@@ -396,6 +396,12 @@ export interface SheetGridHost {
     rowPx: number;
     /** The lead track before the columns, px — a Record's select column; `0` for none. */
     leadPx: number;
+    /**
+     * Whether the grid is laid out as on a phone's frame: the host's frame's own judgement, which the grid takes for its
+     * own. Main can be narrower than the frame — a pane's rail beside it — and a grid judging by its own width would
+     * draw as on a phone under a frame that is not one. Unset, the grid's own width decides: a phone's at 560 or less.
+     */
+    phone?: boolean | undefined;
     /** What a run of rows not drawn yet shows in the lead track: a select column's box. */
     leadRun: PlaceholderKind;
     /** The slot styles a run of rows not drawn yet draws with — `run`, `runRow`, `runGutter` (the lead), `runCell`, `runActionCell`. */

@@ -173,6 +173,40 @@ describe("the grid in the Table's anatomy", () => {
 /** The pinned title, 150 wide, then a slot of a 390 frame's other 240 for each of the shift preferences' nine other columns: two in view. */
 const PHONE_TRACKS = `150px ${Array(9).fill("120px").join(" ")}`;
 
+/**
+ * A desktop's frame too narrow to pin the inspector, the pointer fine: the builder's frame `frame` px wide, and the
+ * frame the rows scroll in `main` px wide — what main keeps beside the overlaid inspector's rail.
+ *
+ * @param frame - The builder's frame's width (px)
+ * @param main - The rows' frame's width (px)
+ * @returns The restore
+ */
+function overlaidFrame(frame: number, main: number): () => void {
+    const saved = {
+        rect: Element.prototype.getBoundingClientRect,
+        offsetWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth")!,
+        clientWidth: Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!,
+    };
+    const rowsFrame = (el: Element) => el.getAttribute("data-virtual-rows") === "bounded";
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+        const box = saved.rect.call(this);
+        return this.hasAttribute("data-builder-frame")
+            ? { x: 0, y: 0, top: 0, left: 0, right: frame, bottom: box.height, width: frame, height: box.height, toJSON: () => ({}) } as DOMRect
+            : box;
+    };
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+        configurable: true, get(this: HTMLElement) { return rowsFrame(this) ? main : saved.offsetWidth.get!.call(this); },
+    });
+    Object.defineProperty(Element.prototype, "clientWidth", {
+        configurable: true, get(this: Element) { return rowsFrame(this) ? main : saved.clientWidth.get!.call(this); },
+    });
+    return () => {
+        Element.prototype.getBoundingClientRect = saved.rect;
+        Object.defineProperty(HTMLElement.prototype, "offsetWidth", saved.offsetWidth);
+        Object.defineProperty(Element.prototype, "clientWidth", saved.clientWidth);
+    };
+}
+
 describe("on a phone", () => {
     test("the title is pinned at the left and the other columns are a window of slots, with no select column — no box, no track, no tick-all (FR1, SL1)", async () => {
         const restore = touchFrame(390);
@@ -340,6 +374,25 @@ describe("on a phone", () => {
             expect(part(cellAt(container, 0, "preference"), "chip")!.textContent).toBe("can't");
             await press(cellAt(container, 0, "name"));
             expect(cellEditor()).toBeNull();
+        } finally {
+            restore();
+        }
+    });
+
+    test("a desktop's frame too narrow to pin the inspector is no phone's, though main beside the inspector's rail is as narrow as one: the grid keeps its select column and tick-all, so Delete takes only the rows it shows ticked", async () => {
+        // A frame of 580: the inspector overlays main, which keeps 536 beside its rail.
+        const restore = overlaidFrame(580, 536);
+        try {
+            const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-overlaid" });
+            expect(container.querySelector("[data-builder-frame]")!.hasAttribute("data-phone")).toBe(false);
+            expect(pane(container).getAttribute("data-pane-mode")).toBe("overlay");
+            expect(grid(container).hasAttribute("data-phone")).toBe(false);
+            for (const row of rows(container)) expect(row.style.gridTemplateColumns.startsWith("46px ")).toBe(true);
+            expect(container.querySelector('[data-record] [data-tick] [role="checkbox"]')).not.toBeNull();
+            await press(tick(container, 1));
+            expect(ticked(container)).toEqual(["P-0415"]);
+            expect(status(container)).toBe("1 selected of 3");
+            expect(action(container, "delete")!.disabled).toBe(false);
         } finally {
             restore();
         }
