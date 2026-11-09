@@ -107,7 +107,10 @@ export interface SheetEditingResult {
      * the origin and label named. Answers whether the session recorded it.
      */
     recordVersions: (updates: readonly EntryUpdate[], origin: Origin, label: string) => boolean;
-    /** An entry's version before any gesture: the session's, else the source's, lifted into its draft. */
+    /**
+     * An entry's version before any gesture: the session's; else, for one a Save landed that the rows have still to read,
+     * the version the Save left (#1583); else the source's, lifted into its draft.
+     */
     original: (id: string) => EntryVersion;
     /** Each drafted entry's draft, encoded. */
     drafts: Map<string, Uint8Array>;
@@ -172,17 +175,38 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         return revision !== undefined && refresh !== undefined ? { ...source, revision, refresh, readCurrent: recordSlice?.readEntry } : undefined;
     }, [source, recordSlice]);
     const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
-    const { session, observed, draftType, codecs, rowIndex, original, drafts, available, version } =
+    const { session, observed, draftType, codecs, rowIndex, original: asRead, drafts, available, version } =
         useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare, wireOf, drawsLanded: true, wireType: Sheet.Types.Row });
+    // Each row's copies past its first: a window read again at a new revision beside one still standing from before it
+    // holds a row twice where a change moved it from the one to the other.
+    const copies = useMemo(() => {
+        const later = new Map<string, number[]>();
+        currentRows.forEach((row, i) => {
+            if (rowIndex.get(row.id) === i) return;
+            const held = later.get(row.id);
+            if (held === undefined) later.set(row.id, [i]);
+            else held.push(i);
+        });
+        return later;
+    }, [currentRows, rowIndex]);
     // What a Save landed is drawn over the rows as it left them until they read it (`EditSession.landed`): while their
     // source still reads at the revision it was drafted at, the rows taken from another query or held by a key's jump,
-    // or its entry's row — any row, for one not drawn — read before the revision its source reads at now.
+    // or a copy of its entry's row — any row, for one not drawn — read before the revision its source reads at now.
     const awaiting = useCallback((id: string, from: string): boolean => {
         if (rowsRead === undefined) return false;
         if (replacing || retained || rowsRead.revision === undefined || stringEqual(rowsRead.revision, from)) return true;
         const at = rowIndex.get(id);
-        return rowsRead.before(at === undefined ? undefined : currentPositions[at]);
-    }, [rowsRead, replacing, retained, rowIndex, currentPositions]);
+        if (at === undefined) return rowsRead.before(undefined);
+        // A copy read since the Save never lets the Save's version go while another copy was read before it (#1583).
+        return rowsRead.before(currentPositions[at]) || (copies.get(id)?.some((i) => rowsRead.before(currentPositions[i])) ?? false);
+    }, [rowsRead, replacing, retained, rowIndex, copies, currentPositions]);
+    // An entry a Save landed that the rows have still to read begins a gesture from what the Save left (#1583): never from
+    // the rows read before it, nor from nothing for one it added — the session holds no version of either once a write
+    // beside the Save had its confirmation read them back otherwise.
+    const original = useCallback((id: string): EntryVersion => {
+        const saved = session.entries.has(id) ? undefined : session.landed.get(id);
+        return saved !== undefined && awaiting(id, saved.from) ? saved.after : asRead(id);
+    }, [session, asRead, awaiting]);
 
     /** Aggregate the renderer's writes — the draft edits beside them, its new entries seeded as it says — into one transaction at the effect boundary. */
     const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds, named?: string, joins?: string, held?: ReadonlyMap<string, EntryVersion>): boolean => {
@@ -258,6 +282,10 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         // the Save's — the session takes no gesture until it has been — at the base the session holds still.
         const savedFrom = new Map<string, string>();
         const committedFrom = session.status === "reconciling" ? session.drafts.revision : undefined;
+        // Whether the rows draw an entry: while another query's rows stand in, theirs — which the session indexes none
+        // of, and which may have read a Save's new entry already (#1583).
+        const drawnIds = replacing ? new Set(rows.map(sheetRowId)) : undefined;
+        const drawn = (id: string): boolean => drawnIds?.has(id) ?? rowIndex.has(id);
         for (const [id, entry] of session.entries) {
             const before = session.originals.get(id) ?? absent;
             const same = codecs.draftEqual(before.draft === undefined ? none : some(before.draft), entry.draft === undefined ? none : some(entry.draft));
@@ -274,9 +302,18 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             }
             drafted.add(id);
             if (committedFrom !== undefined) savedFrom.set(id, committedFrom);
+            // A draft over what a Save landed is drawn over the rows as that Save's version is, against what they hold
+            // of it from before the Save (#1583): one the Save added stands where it placed it, never off the rows.
+            const saved = session.landed.get(id);
+            const landed = saved !== undefined && awaiting(id, saved.from) ? saved : undefined;
+            const held = landed?.before ?? before;
             if (entry.wire === undefined) { removed.add(id); continue; }
-            if (before.draft === undefined) appended.push(entry.wire); else edits.set(id, entry.wire);
-            if (!samePlace(before.place, entry.place)) placements.set(id, entry.place);
+            if (held.draft === undefined && !drawn(id)) {
+                appended.push(entry.wire);
+                // The Save's new entry still: a count read since that Save holds it.
+                if (landed !== undefined) savedFrom.set(id, landed.from);
+            } else edits.set(id, entry.wire);
+            if (!samePlace(held.place, entry.place)) placements.set(id, entry.place);
         }
         // What a Save landed, over the rows read before it: an entry it removed stays off them, one it added stands where
         // it placed it until a row read again brings it, and one the rows hold is drawn as the Save left it.
@@ -285,13 +322,13 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             savedFrom.set(id, saved.from);
             const { before, after } = saved;
             if (after.wire === undefined) { removed.add(id); continue; }
-            if (before.draft === undefined && !rowIndex.has(id)) appended.push(after.wire); else edits.set(id, after.wire);
+            if (before.draft === undefined && !drawn(id)) appended.push(after.wire); else edits.set(id, after.wire);
             if (!samePlace(before.place, after.place)) placements.set(id, after.place);
         }
         return { layer: { edits, appended, removed, placements }, savedFrom };
         // The version tracks mutations to the session's maps.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [session, codecs, version, rows, rowIndex, awaiting]);
+    }, [session, codecs, version, rows, rowIndex, awaiting, replacing]);
     // A landed entry its rows have read again is the source's to draw: the session lets it go.
     useLayoutEffect(() => {
         const read: string[] = [];

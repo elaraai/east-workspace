@@ -138,11 +138,13 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
     // target: a sheet with no inspector pane reads nothing for it.
     const originalOf = editingState.original;
     // What the source holds for an entry no gesture has touched, lifted into
-    // its draft — read once while the resident rows stand, so a paged source's
-    // page is read again only when its windows move or its revision does.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the resident rows are the cache's key: rows that move empty it.
-    const lifted = useMemo(() => new Map<string, EntryVersion | undefined>(), [sourceRows]);
-    // An entry's version as it stands: the session's, else the source's — or none while its page is not in.
+    // its draft — read once while the resident rows and the session stand, so a
+    // paged source's page is read again only when its windows move, its
+    // revision does, or a Save lands what it saved over the rows read before
+    // it and lets it go as they read it again (#1583).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the resident rows and the session's version are the cache's key: either moving empties it.
+    const lifted = useMemo(() => new Map<string, EntryVersion | undefined>(), [sourceRows, draftVersion]);
+    // An entry's version as it stands: the session's, else what a Save left of it or the source's — or none while its page is not in.
     const versionOf = useCallback((id: string): EntryVersion | undefined => {
         const held = session.entries.get(id);
         if (held !== undefined) return held;

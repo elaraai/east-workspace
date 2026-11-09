@@ -7,15 +7,17 @@
 import { afterEach, expect, test } from "vitest";
 import { useMemo } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { ArrayType, East, IntegerType, NullType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, East, IntegerType, NullType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
-import { Paged, State } from "@elaraai/east-ui/internal";
+import { Paged, State, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { StateImpl, UIStore } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { applyLayer } from "./local-rows.js";
 import { useSheetEditing, type SheetRowsRead } from "./use-editing.js";
 import type { SheetCellValue, SheetEditValue, SheetRootValue, SheetRowValue } from "./values.js";
 
 afterEach(cleanup);
+const stringEqual = equalFor(StringType);
 // No column sets a row's `hidden` (#1536): the sheets over it edit their rows, and add none.
 const Row = StructType({ id: StringType, qty: IntegerType, hidden: ArrayType(StringType) });
 const Rows = ArrayType(Row);
@@ -305,6 +307,171 @@ test("a paged Save's rows are drawn as it left them over the rows read before it
     expect(hook.result.current.layer.edits.size).toBe(0);
     expect(hook.result.current.layer.removed.size).toBe(0);
     expect(hook.result.current.savedFrom.size).toBe(0);
+});
+
+test.each([["exactly", false], ["beside another write", true]] as const)("a Save's new row and the row it changed, read back %s, are edited from what the Save left — the new row drawn where it was placed, its edit one more change of it and never a second add — and drawn once over another query's rows that read it already (#1583)", async (_how, beside) => {
+    initializeStore(new UIStore());
+    const Item = StructType({ id: StringType, qty: IntegerType, note: StringType });
+    const Items = ArrayType(Item);
+    let domain: ValueTypeOf<typeof Items> = [{ id: "a", qty: 1n, note: "first" }, { id: "b", qty: 2n, note: "second" }];
+    let revision = "r0";
+    let saves = 0;
+    const compile = East.function([], Sheet.Types.Root, ($) => {
+        const source = $.const({
+            id: "items-source",
+            page: East.function([IntegerType, IntegerType], OptionType(Items), () => none),
+            total: East.function([], OptionType(IntegerType), () => none),
+            seek: none,
+            revision: East.function([], OptionType(StringType), () => none),
+            refresh: East.function([OptionType(StringType)], NullType, () => null),
+        }, Paged.Types.PinnedSource(Items));
+        return Sheet.Root(source, { qty: Sheet.column.integer(Item), note: Sheet.column.text(Item) }, { id: "id", onApply: East.function([Sheet.Types.ChangeSet(Item)], Sheet.Types.ApplyResult, () => variant("conflict", [])) });
+    }).toIR().compile([]);
+    const root = compile();
+    if (root.rows.type !== "pinned") throw new Error("Expected a pinned Sheet");
+    const apply = East.compile(Sheet.apply(Item, "id"), []);
+    const decodeBatch = decodeBeast2For(Sheet.Types.ChangeSet(Item));
+    const encode = encodeBeast2For(Item);
+    const decodeWire = decodeBeast2For(Sheet.Types.Row);
+    // The source's rows as the sheet projects them, at the revision it serves.
+    const projected = () => domain.map((row) => decodeWire(root.editing.project(encode(row), row.id)) as SheetRowValue);
+    const source = {
+        ...root.rows.value,
+        page: (offset: bigint, count: bigint) => some(projected().slice(Number(offset), Number(offset + count))),
+        revision: () => some(revision),
+        refresh: () => null,
+        total: () => some(BigInt(domain.length)),
+    };
+    const editing = { ...root.editing, readEntry: (id: string, offset: bigint) => {
+        const row = domain[Number(offset)];
+        return row !== undefined && stringEqual(row.id, id) ? some(encode(row)) : none;
+    }, onApply: some(variant("sync", (payload: Uint8Array) => {
+        const applied = apply(domain, decodeBatch(payload), some(revision));
+        if (applied.type === "conflict") return variant("conflict", applied.value);
+        domain = applied.value;
+        saves += 1;
+        return variant("applied", { revision: some(`saved-${saves}`) });
+    })) };
+    // A Record's reader of its record by key: what a Save's new row is read back by, wherever the rows drawn are.
+    const slice: ValueTypeOf<RecordSliceBindType> = {
+        key: "items", sourceId: "items-source",
+        config: { fields: [], indexes: [], range: none, search: [], presets: [] },
+        read: () => ({ where: new Map(), preset: none, resolution: none }),
+        write: () => null, choose: () => null, range: () => null, prefix: () => null, clear: () => null, clearAll: () => null,
+        count: () => none, countWhere: () => none, total: () => none, domain: () => none, values: () => [], suggest: () => none,
+        replaces: () => [], togglePreset: () => null, setResolution: () => null, retry: () => null,
+        readEntry: (id) => {
+            const row = domain.find((held) => stringEqual(held.id, id));
+            return some(row === undefined ? none : some(encode(row)));
+        },
+        contains: () => none, containsRow: () => none,
+    };
+    // What the sheet draws, and how it was read: the rows read at r0.
+    const before = projected();
+    let drawn: { rows: readonly SheetRowValue[]; positions: readonly number[]; read: SheetRowsRead; replacing: boolean } =
+        { rows: before, positions: [0, 1], read: { revision: "r0", before: () => false }, replacing: false };
+    const hook = renderHook(() => useSheetEditing(editing, { ...source }, drawn.rows, drawn.positions, "landed-edited", undefined, slice, drawn.replacing, false, undefined, undefined, drawn.read));
+    const ids = () => applyLayer(drawn.rows, hook.result.current.layer).map((row) => row.id);
+    const cellsOf = (id: string, key: string) => applyLayer(drawn.rows, hook.result.current.layer).filter((row) => stringEqual(row.id, id)).map((row) => row.cells.get(key));
+    act(() => hook.result.current.record([
+        variant("commit", { rowId: "a", offset: 0n, key: "qty", row: { ...before[0]!, cells: new Map(before[0]!.cells).set("qty", variant("Integer", 7n)) }, source: variant("typed", null) }),
+        variant("insert", { afterRowId: some("b"), row: { id: "c", owned: false, cells: new Map<string, SheetCellValue>([["qty", variant("Integer", 3n)], ["note", variant("String", "third")]]), lines: [], band: none, subRows: [] }, source: variant("typed", null) }),
+    ]));
+    await act(async () => { await hook.result.current.session.apply(); });
+    expect(domain).toEqual([{ id: "a", qty: 7n, note: "first" }, { id: "b", qty: 2n, note: "second" }, { id: "c", qty: 3n, note: "third" }]);
+    // Another write lands beside the Save before its confirmation reads it back: a's note, at a revision of its own.
+    if (beside) domain = domain.map((row) => (stringEqual(row.id, "a") ? { ...row, note: "elsewhere" } : row));
+    revision = beside ? "written" : "saved-1";
+    // The rows read at r0 stand in while the pages are read again there.
+    drawn = { ...drawn, read: { revision, before: () => true } };
+    hook.rerender();
+    expect(hook.result.current.session.status).toBe("idle");
+    expect([...hook.result.current.session.landed.keys()].sort()).toEqual(["a", "c"]);
+    // Read back otherwise, the session holds no version of either: what the Save left is drawn from what it landed.
+    expect(hook.result.current.session.entries.size).toBe(beside ? 0 : 2);
+    expect(ids()).toEqual(["a", "b", "c"]);
+    expect(cellsOf("a", "note")).toEqual([variant("String", beside ? "elsewhere" : "first")]);
+    // Over another query's rows, read since the Save: they hold the new row already, and it is drawn once.
+    drawn = { rows: projected(), positions: [0, 1, 2], read: { revision, before: () => true }, replacing: true };
+    hook.rerender();
+    expect(ids()).toEqual(["a", "b", "c"]);
+    drawn = { rows: before, positions: [0, 1], read: { revision, before: () => true }, replacing: false };
+    hook.rerender();
+    // The new row edited: from what the Save left, one more change of it — drawn where it stands, never a second add.
+    const added = hook.result.current.layer.appended[0]!;
+    act(() => hook.result.current.record([variant("commit", { rowId: "c", offset: 2n, key: "qty", row: { ...added, cells: new Map(added.cells).set("qty", variant("Integer", 9n)) }, source: variant("typed", null) })]));
+    expect(ids()).toEqual(["a", "b", "c"]);
+    expect(cellsOf("c", "qty")).toEqual([variant("Integer", 9n)]);
+    expect(hook.result.current.session.drafts.entries.get("c")?.before.type).toBe("some");
+    // So is the row it changed: from what the Save left of it, never the rows' value from before it.
+    const changed = hook.result.current.layer.edits.get("a")!;
+    act(() => hook.result.current.record([variant("commit", { rowId: "a", offset: 0n, key: "note", row: { ...changed, cells: new Map(changed.cells).set("note", variant("String", "mine")) }, source: variant("typed", null) })]));
+    expect(cellsOf("a", "qty")).toEqual([variant("Integer", 7n)]);
+    // Drafted again, over another query's rows that read it already, the new row is drawn once still.
+    drawn = { rows: projected(), positions: [0, 1, 2], read: { revision, before: () => true }, replacing: true };
+    hook.rerender();
+    expect(ids()).toEqual(["a", "b", "c"]);
+    drawn = { rows: before, positions: [0, 1], read: { revision, before: () => true }, replacing: false };
+    hook.rerender();
+    // Saved: a change of each, as the record holds them.
+    await act(async () => { await hook.result.current.session.apply(); });
+    expect(hook.result.current.session.status).toBe("reconciling");
+    expect(domain).toEqual([{ id: "a", qty: 7n, note: "mine" }, { id: "b", qty: 2n, note: "second" }, { id: "c", qty: 9n, note: "third" }]);
+});
+
+test("a row the rows hold twice — a window read again beside one still standing from before it — is drawn as a Save left it in both, until neither copy was read before it (#1583)", async () => {
+    initializeStore(new UIStore());
+    let domain = [...rows];
+    let revision = "r0";
+    const compile = East.function([], Sheet.Types.Root, ($) => {
+        const source = $.const(PINNED_ROWS, Paged.Types.PinnedSource(Rows));
+        return Sheet.Root(source, { qty: Sheet.column.integer(Row) }, { id: "id", onApply: East.function([Sheet.Types.ChangeSet(Row)], Sheet.Types.ApplyResult, () => variant("conflict", [])), edits: { insertRows: false } });
+    }).toIR().compile([]);
+    const root = compile();
+    if (root.rows.type !== "pinned") throw new Error("Expected a pinned Sheet");
+    const apply = East.compile(Sheet.apply(Row, "id"), []);
+    const decodeBatch = decodeBeast2For(Sheet.Types.ChangeSet(Row));
+    const encode = encodeBeast2For(Row);
+    const decodeWire = decodeBeast2For(Sheet.Types.Row);
+    // The source's rows as the sheet projects them, at the revision it serves.
+    const projected = () => domain.map((row) => decodeWire(root.editing.project(encode(row), row.id)) as SheetRowValue);
+    const source = {
+        ...root.rows.value,
+        page: (offset: bigint, count: bigint) => some(projected().slice(Number(offset), Number(offset + count))),
+        revision: () => some(revision),
+        refresh: () => null,
+        total: () => some(BigInt(domain.length)),
+    };
+    const editing = { ...root.editing, readEntry: (id: string, offset: bigint) => {
+        const row = domain[Number(offset)];
+        return row !== undefined && stringEqual(row.id, id) ? some(encode(row)) : none;
+    }, onApply: some(variant("sync", (payload: Uint8Array) => {
+        const applied = apply(domain, decodeBatch(payload), some(revision));
+        if (applied.type === "conflict") return variant("conflict", applied.value);
+        domain = applied.value;
+        return variant("applied", { revision: some("r1") });
+    })) };
+    const before = projected();
+    let drawn: { rows: readonly SheetRowValue[]; positions: readonly number[]; read: SheetRowsRead } = { rows: before, positions: [0, 1], read: { revision: "r0", before: () => false } };
+    const hook = renderHook(() => useSheetEditing(editing, { ...source }, drawn.rows, drawn.positions, "landed-twice", undefined, undefined, false, false, undefined, undefined, drawn.read));
+    const qtys = () => applyLayer(drawn.rows, hook.result.current.layer).filter((row) => stringEqual(row.id, "a")).map((row) => row.cells.get("qty"));
+    act(() => hook.result.current.record([variant("commit", { rowId: "a", offset: 0n, key: "qty", row: { ...before[0]!, cells: new Map(before[0]!.cells).set("qty", variant("Integer", 7n)) }, source: variant("typed", null) })]));
+    await act(async () => { await hook.result.current.session.apply(); });
+    // Read again at r1, the first window holds a; a window from 50 on still stands from r0, and holds it too — a move
+    // had carried it from the one to the other.
+    revision = "r1";
+    const again = projected();
+    drawn = { rows: [...again, before[0]!], positions: [0, 1, 60], read: { revision: "r1", before: (position) => position !== undefined && position >= 50 } };
+    hook.rerender();
+    expect(hook.result.current.session.status).toBe("idle");
+    expect([...hook.result.current.session.landed.keys()]).toEqual(["a"]);
+    expect(qtys()).toEqual([variant("Integer", 7n), variant("Integer", 7n)]);
+    // The standing window read again: the Save's version goes, the rows holding it.
+    drawn = { rows: again, positions: [0, 1], read: { revision: "r1", before: () => false } };
+    hook.rerender();
+    expect(hook.result.current.session.landed.size).toBe(0);
+    expect(hook.result.current.layer.edits.size).toBe(0);
+    expect(qtys()).toEqual([variant("Integer", 7n)]);
 });
 
 test("creation defaults survive a multi-event gesture, later clearing, and applied undo/redo", async () => {
