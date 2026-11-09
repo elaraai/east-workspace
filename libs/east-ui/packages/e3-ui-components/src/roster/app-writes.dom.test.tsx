@@ -11,10 +11,10 @@
  * Bracken's Sunday early made a night. Times the write leaves as they were
  * move with the shift, kept against its start; times it gives are its own,
  * refused where they start on another day. A write that changes a duty's team
- * keeps its activity only where the new team offers it: D. Bracken's Sunday
- * cross-dock made Picking's loses it, and B. Swale's Sunday general duties made
- * Inbound's keep them, a shared duty; an activity the write gives is held to
- * the new team.
+ * clears the activity it leaves as it was, as a move across teams does: D.
+ * Bracken's Sunday cross-dock made Picking's loses it, and B. Swale's Sunday
+ * general duties made Inbound's lose them too, though every team offers a
+ * shared duty; an activity the write gives is held to the new team.
  */
 import { describe, expect, test } from "vitest";
 import { within } from "@testing-library/react";
@@ -110,8 +110,8 @@ describe("A write that changes a duty's shift keeps it on its day (#1584)", () =
     });
 });
 
-describe("A write that changes a duty's team keeps its activity only where the new team offers it (#1584)", () => {
-    test("the duty's own form: Sunday's cross-dock early made Picking's loses its cross-dock, which Picking doesn't offer; one given order picking with it takes it, and one given put-away, which Picking doesn't offer, is refused", async () => {
+describe("A write that changes a duty's team clears the activity it leaves as it was, as a move does, and holds one it gives to the new team (#1584)", () => {
+    test("the duty's own form: Sunday's cross-dock early made Picking's loses its cross-dock; one given order picking with it takes it, and one given put-away, which Picking doesn't offer, is refused", async () => {
         const { container: c } = await h.mount(appWrites);
         const before = await h.read(ex.rosterDuties);
         const end = () => slot(c, "end");
@@ -120,7 +120,7 @@ describe("A write that changes a duty's team keeps its activity only where the n
         await press(within(end()).getByRole("button", { name: "Picking team, put-away" }));
         expect([...c.querySelectorAll("[role='alert']")].map(alert => alert.textContent)).toContain("Choose an activity for this group, or a shared duty.");
         expect(cell(c, 0, "inbound", "early").contains(assignment(c, "s15"))).toBe(true);
-        // The team alone: its cross-dock, an Inbound skill, goes.
+        // The team alone: its cross-dock goes, as a move across teams clears the activity.
         await press(within(end()).getByRole("button", { name: "Picking team" }));
         expect(cell(c, 0, "picking", "early").contains(assignment(c, "s15"))).toBe(true);
         // H. Aspen's Sunday early given order picking with the team: Picking's own skill, so taken.
@@ -132,17 +132,18 @@ describe("A write that changes a duty's team keeps its activity only where the n
         expect([sameDuty(saved.get("s15")!, { ...before.get("s15")!, team: "picking", task: none }),
             sameDuty(saved.get("s6")!, { ...before.get("s6")!, team: "picking", task: some("pick") })]).toEqual([true, true]);
     });
-    test("a library card: the Picking card dropped on Sunday's cross-dock early clears the cross-dock, and the Inbound card dropped on Sunday's late general duties keeps them, a shared duty every team offers", async () => {
+    test("a library card: the Picking card dropped on Sunday's cross-dock early clears the cross-dock, and the Inbound card dropped on Sunday's late general duties clears them too: across teams the activity clears, as a move does", async () => {
         const { container: c } = await h.mount(appWrites);
         const before = await h.read(ex.rosterDuties);
         await press(within(slot(c, "start")).getByRole("tab", { name: /^Teams/ }));
         await drop(await libraryCard(c, "Picking"), assignment(c, "s15"));
         expect(cell(c, 0, "picking", "early").contains(assignment(c, "s15"))).toBe(true);
+        // General duties are a shared duty every team offers, but across teams the activity clears, as a move does.
         await drop(await libraryCard(c, "Inbound"), assignment(c, "s227"));
         expect(cell(c, 0, "inbound", "late").contains(assignment(c, "s227"))).toBe(true);
         await press(within(slot(c, "toolbar")).getByRole("button", { name: "Save" }));
         const saved = await h.read(ex.rosterDuties);
         expect([sameDuty(saved.get("s15")!, { ...before.get("s15")!, team: "picking", task: none }),
-            sameDuty(saved.get("s227")!, { ...before.get("s227")!, team: "inbound" })]).toEqual([true, true]);
+            sameDuty(saved.get("s227")!, { ...before.get("s227")!, team: "inbound", task: none })]).toEqual([true, true]);
     });
 });
