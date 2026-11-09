@@ -124,8 +124,9 @@ export class DatasetSegments {
     // What the dataset costs in the store: every segment object plus the
     // manifest naming them. A page reports this as the value's total, and a
     // status call reports the same number — the manifest object alone would
-    // say a 10 MiB dataset is 12 KiB.
-    const manifestBytes = (opened.hash === hash ? size : undefined) ?? (await storage.objects.stat(repo, opened.hash)).size;
+    // say a 10 MiB dataset is 12 KiB. A manifest the head read held whole is
+    // its size already, so no store call asks it (#1573).
+    const manifestBytes = (opened.hash === hash ? size : undefined) ?? opened.size ?? (await storage.objects.stat(repo, opened.hash)).size;
     return new DatasetSegments(storage, repo, opened.hash, opened.manifest, manifestByteSize(opened.manifest) + manifestBytes);
   }
 
@@ -350,36 +351,38 @@ const decodeRecordState = decodeBeast2For(RecordStateType);
  * @param hash - the dataset object's content hash
  * @param size - the object's byte size, when the caller already has it
  * @returns the collection object's hash and its manifest, or `null` for a
- *   dataset that is not stored as one
+ *   dataset that is not stored as one; and its byte size, when it is known
+ *   without asking the store — given, or read whole by the probe
  */
 export async function openDatasetObject(
   storage: StorageBackend,
   repo: string,
   hash: string,
   size?: number,
-): Promise<{ hash: string; manifest: CollectionManifest | null }> {
+): Promise<{ hash: string; manifest: CollectionManifest | null; size?: number }> {
   const length = size === undefined ? HEAD_PROBE_BYTES : Math.min(size, HEAD_PROBE_BYTES);
   const head = await storage.objects.readRange(repo, hash, 0, length);
   // The head is the whole object when the object ended inside the probe —
   // then nothing is read twice.
   const whole = head.length < HEAD_PROBE_BYTES || (size !== undefined && head.length >= size);
+  const known = size ?? (whole ? head.length : undefined);
   let typeValue: EastTypeValue;
   try {
     typeValue = readBeast2Type(head);
   } catch {
     // A type section wider than the probe is not a manifest's or a state's:
     // both carry one small struct type, and every other object is a leaf here.
-    return { hash, manifest: null };
+    return { hash, manifest: null, ...(known !== undefined && { size: known }) };
   }
   if (isRecordStateType(typeValue)) {
     const state = decodeRecordState(whole ? head : await storage.objects.read(repo, hash));
     // A struct of this shape carrying another tag is a user value, not a state.
     if (state.kind === RECORD_STATE_KIND) return openDatasetObject(storage, repo, state.primary);
-    return { hash, manifest: null };
+    return { hash, manifest: null, ...(known !== undefined && { size: known }) };
   }
-  if (!isCollectionManifestType(typeValue)) return { hash, manifest: null };
+  if (!isCollectionManifestType(typeValue)) return { hash, manifest: null, ...(known !== undefined && { size: known }) };
   const manifest = decodeCollectionManifest(whole ? head : await storage.objects.read(repo, hash));
-  return { hash, manifest: manifest.kind === COLLECTION_MANIFEST_KIND ? manifest : null };
+  return { hash, manifest: manifest.kind === COLLECTION_MANIFEST_KIND ? manifest : null, ...(known !== undefined && { size: known }) };
 }
 
 /**

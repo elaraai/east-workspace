@@ -435,7 +435,7 @@ export interface RecordIndexDef<
   readonly keyType: IK;
   /** `P`; `NullType` when the index carries no value. */
   readonly valueType: P;
-  /** Runtime the index's functions run on; defaults to DEFAULT_RUNNER. */
+  /** Runtime the index's functions run on; defaults to DEFAULT_RECORD_RUNNER, east-c. */
   readonly runner: Runner;
 }
 
@@ -475,7 +475,7 @@ export interface MutationDef<
    *  program reaches it through its IR alone, so no call signature is claimed
    *  here. */
   readonly fn?: { toIR(): unknown };
-  /** Runtime the reducer runs on; defaults to DEFAULT_RUNNER. */
+  /** Runtime the mutation's program runs on; defaults to DEFAULT_RECORD_RUNNER, east-c. */
   readonly runner: Runner;
 }
 

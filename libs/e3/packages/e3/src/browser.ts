@@ -48,7 +48,7 @@ export type {
   EastNodePlatform,
   EastCPlatform,
 } from './runner.js';
-export { runnerToVariant, DEFAULT_RUNNER } from './runner.js';
+export { runnerToVariant, DEFAULT_RUNNER, DEFAULT_RECORD_RUNNER } from './runner.js';
 
 // Authoring builders + their singleton trees — all browser-safe (they build
 // in-memory East IR; only `export_`/`sha256` touch node:fs, and are omitted).

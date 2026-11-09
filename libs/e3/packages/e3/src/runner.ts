@@ -181,3 +181,22 @@ export const DEFAULT_RUNNER: Runner = {
   runtime: 'east-node',
   platforms: ['@elaraai/east-node-std'],
 };
+
+/**
+ * Default runner of a record's mutations and indexes, when their declaration
+ * names none (east-workspace#1573): east-c, with no platform.
+ *
+ * @remarks
+ * A record program is pure by construction — a mutation's body and an index's
+ * functions are refused a platform call or an async body — so it needs no
+ * platform, and every runtime computes the same result from it. east-c starts
+ * in milliseconds, where east-node spends most of a small write starting up and
+ * interpreting the program. A local runner whose east-c cannot run — none is
+ * found, or the one found records no result — runs a record's program on
+ * east-node, as it runs an intake. A migration step, a task and a function
+ * default to {@link DEFAULT_RUNNER}, and none of them falls back.
+ */
+export const DEFAULT_RECORD_RUNNER: Runner = {
+  runtime: 'east-c',
+  platforms: [],
+};

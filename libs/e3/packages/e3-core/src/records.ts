@@ -56,14 +56,14 @@ import { DeltaConflictError, SummaryIntegrityError, applyDelta, applyDeltaEntrie
 import { readManifest } from './dataset-open.js';
 import { storedDatasetValue } from './dataset-adopt.js';
 import { manifestCutElsewhere } from './store-collection.js';
-import { OBJECT_CONCURRENCY, eachAtMost, storeObjects } from './concurrency.js';
+import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
 import { computeHash } from './objects.js';
 import { inputsHash } from './executions.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
 import { DatasetRefConflictError, WorkspaceLockError, checkName, lockStateToHolderInfo } from './errors.js';
 import { touchReachable } from './gc-graph.js';
-import { withRunningWork } from './running-work.js';
+import { acquireRunningWork } from './running-work.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskResult, TaskRunner } from './execution/interfaces.js';
 
@@ -263,11 +263,22 @@ export interface RecordMutateOptions {
 /**
  * Run a record operation under a shared workspace lock (acquired internally
  * unless the caller already holds one), so mutations coexist with dataflow but
- * are fenced out by an exclusive deploy/remove — the §8 concurrency contract.
+ * are fenced out by an exclusive deploy/remove — the §8 concurrency contract —
+ * and the repository's tasks lock, shared, since a record write produces
+ * objects before anything names them: a delta, the new segments, a build's
+ * partials and the slices it carved, which only its commit roots.
+ *
+ * @remarks
+ * The two are taken at once, and let go at once: each is shared, and neither
+ * waits, so the one taken when the other is refused is let go before the
+ * refusal (#1573). A store whose locks are round trips is waited on once for
+ * both.
  *
  * @throws {InvalidNameError} When `ws` is no workspace's name, before the lock
  *   is taken
  * @throws {WorkspaceLockError} When a deploy or a removal holds the workspace
+ * @throws {Error} When a garbage collection or an upgrade holds the
+ *   repository
  */
 async function withSharedWorkspaceLock<T>(
   storage: StorageBackend,
@@ -281,21 +292,27 @@ async function withSharedWorkspaceLock<T>(
   // refuse a malformed one, if at all, as a lock's, and `main#dataflow` would
   // read as locked while main's dataflow runs.
   checkName('workspace', ws);
-  let lock: LockHandle | null = externalLock ?? null;
-  if (!lock) {
-    lock = await storage.locks.acquire(repo, ws, variant('dataset_write', null), { mode: 'shared' });
-    if (!lock) {
+  const [workspace, tasks] = await Promise.allSettled([
+    externalLock !== undefined
+      ? Promise.resolve(externalLock)
+      : storage.locks.acquire(repo, ws, variant('dataset_write', null), { mode: 'shared' }),
+    acquireRunningWork(storage, repo),
+  ]);
+  // The workspace's lock, when this took it
+  const own = externalLock === undefined && workspace.status === 'fulfilled' ? workspace.value : null;
+  if (workspace.status === 'rejected' || workspace.value === null || tasks.status === 'rejected') {
+    await Promise.all([own?.release(), tasks.status === 'fulfilled' ? tasks.value.release() : undefined]);
+    if (workspace.status === 'rejected') throw workspace.reason;
+    if (workspace.value === null) {
       const state = await storage.locks.getState(repo, ws);
       throw new WorkspaceLockError(ws, state ? lockStateToHolderInfo(state) : undefined);
     }
+    throw (tasks as PromiseRejectedResult).reason;
   }
   try {
-    // A record write produces objects before anything names them — a delta,
-    // the new segments, a build's partials and the slices it carved — which
-    // only its commit roots.
-    return await withRunningWork(storage, repo, fn);
+    return await fn();
   } finally {
-    if (!externalLock) await lock.release();
+    await Promise.all([tasks.value.release(), own?.release()]);
   }
 }
 
@@ -375,6 +392,18 @@ export async function readRecordState(storage: StorageBackend, repo: string, has
 }
 
 /**
+ * The commit a keyed retry is answered with (OPS-3): the one the record's last
+ * mutation committed under the same idempotency key.
+ *
+ * @param versions - The record ref's version vector
+ * @param key - The mutation's idempotency key, when it has one
+ * @returns The commit, or `undefined` when the ref answers no such key
+ */
+function keyedCommit(versions: ReadonlyMap<string, string>, key: string | undefined): string | undefined {
+  return key !== undefined && versions.get(IDEM_SLOT) === key ? versions.get(IDEM_COMMIT_SLOT) : undefined;
+}
+
+/**
  * Write a record's state object and return what the ref should name.
  *
  * @remarks
@@ -404,6 +433,49 @@ function recordStateObject(state: RecordStateRefs): Uint8Array | null {
   });
 }
 
+/** The most of one kind of object {@link keptObject} keeps. */
+const OBJECTS_KEPT = 64;
+
+/** Objects a record write decodes by their hash, by the decoder that decodes
+ *  them, then by the repository and the hash, the least recently used first. */
+const keptObjects = new WeakMap<(bytes: Uint8Array) => unknown, Map<string, unknown>>();
+
+/**
+ * An object a record write reads by its hash — a package's, a record's, a
+ * mutation's — decoded, and kept: its hash names its content, so it is the
+ * same object every time, and a write in a process that has made one reads
+ * none of them again (#1573). The {@link OBJECTS_KEPT} most recently used of
+ * each kind are kept.
+ *
+ * @remarks
+ * What it returns is every caller's: read it, and never change it. What is
+ * handed on out of this module is a copy ({@link resolveRecord}).
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param hash - The object's hash
+ * @param decode - Its decoder
+ * @returns The object, decoded
+ */
+async function keptObject<T>(storage: StorageBackend, repo: string, hash: string, decode: (bytes: Uint8Array) => T): Promise<T> {
+  let kept = keptObjects.get(decode) as Map<string, T> | undefined;
+  if (kept === undefined) {
+    kept = new Map();
+    keptObjects.set(decode, kept);
+  }
+  const key = `${repo}\n${hash}`;
+  const held = kept.get(key);
+  if (held !== undefined) {
+    kept.delete(key);
+    kept.set(key, held);
+    return held;
+  }
+  const object = decode(await storage.objects.read(repo, hash));
+  kept.set(key, object);
+  if (kept.size > OBJECTS_KEPT) kept.delete(kept.keys().next().value!);
+  return object;
+}
+
 /** An object's bytes, and the hash its content gives it before it is
  *  stored. */
 interface NamedObject {
@@ -417,14 +489,14 @@ function named(bytes: Uint8Array): NamedObject {
 }
 
 /**
- * Stores objects named before they were stored, together, and checks each was
- * stored under the name its content gave it.
+ * Stores objects named before they were stored, in one batch, and checks each
+ * was stored under the name its content gave it.
  *
  * @throws {Error} When the store names an object otherwise: what names it here
  *   would name nothing there.
  */
 async function storeNamed(storage: StorageBackend, repo: string, objects: readonly NamedObject[]): Promise<void> {
-  const stored = await storeObjects(storage, repo, objects.map((object) => object.bytes));
+  const stored = await storage.objects.writeMany(repo, objects.map((object) => object.bytes));
   for (const [i, hash] of stored.entries()) {
     if (hash !== objects[i]!.hash) {
       throw new Error(`the store named an object ${hash}, whose content's hash is ${objects[i]!.hash}`);
@@ -439,7 +511,7 @@ async function storeNamed(storage: StorageBackend, repo: string, objects: readon
  * @remarks
  * Every object is named by its content's hash, so the commit is encoded from
  * the state's hash and the tuple's before either is stored, and the three go
- * to the store together: a store whose writes are round trips is waited on
+ * to the store in one batch: a store whose writes are round trips is waited on
  * once, not three times. The manifests the state names are stored already,
  * and the ref that names the commit is written once this returns, so a crash
  * leaves only objects nothing names, which gc reclaims. A record with no index
@@ -488,7 +560,8 @@ async function storeCommit(
  * @param ws - Workspace name
  * @param recordName - The record's name, as the package declares it
  * @returns The record, or null when the deployed package declares no record
- *   of the name, or its path names no dataset
+ *   of the name, or its path names no dataset. Its declarations are the
+ *   caller's own to change; its type is the deployed package's, to read.
  * @throws {WorkspaceNotFoundError} When the workspace does not exist
  * @throws {WorkspaceNotDeployedError} When the workspace has no package deployed
  */
@@ -499,20 +572,56 @@ export async function resolveRecord(
   recordName: string,
 ): Promise<ResolvedRecord | null> {
   const { hash } = await workspaceGetPackage(storage, repo, ws);
-  const pkg = decodePackageObject(await storage.objects.read(repo, hash));
+  // Both named by their hashes, so kept once read (#1573)
+  const pkg = await keptObject(storage, repo, hash, decodePackageObject);
   const recHash = pkg.records.get(recordName);
   if (!recHash) return null;
-  const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
+  const recObj = await keptObject(storage, repo, recHash, decodeRecordObject);
   const type = recordLeafType(pkg.data.structure, recObj.path);
   if (type === undefined) return null;
+  // Copies of what is kept: a caller that changes its own changes nothing
+  // the next resolves
   return {
     refPath: recObj.path,
     selfKeypath: refPathToKeypath(recObj.path),
     type,
-    mutations: recObj.mutations,
-    indexes: recObj.indexes,
-    migrations: recObj.migrations,
+    mutations: new Map(recObj.mutations),
+    indexes: new Map(recObj.indexes),
+    migrations: recObj.migrations.map((step) => ({ ...step })),
   };
+}
+
+/**
+ * The task object a mutation's program runs as: the delta program, into a
+ * `dict` output — or, for a record whose collection has no delta addressed by
+ * key, the reducer, into the new state. Its inputs are the state and each
+ * argument, unnamed, so it is the same object for every attempt.
+ *
+ * @param mutObj - The mutation
+ * @param argCount - How many arguments the mutation takes
+ * @returns The task object's bytes
+ */
+function programTask(mutObj: MutationObject, argCount: number): Uint8Array {
+  const whole = mutObj.programIr === '';
+  return encodeTaskObject({
+    kind: TASK_OBJECT_KIND,
+    body: variant('east', { program: whole ? mutObj.bodyIr : mutObj.programIr }),
+    runner: mutObj.runner,
+    inputs: Array.from({ length: 1 + argCount }, () => ({ path: [], partition: none })),
+    output: { path: [], kind: whole ? variant('value', null) : variant('dict', { merge: none }) },
+    role: variant('data', null),
+    environment: none,
+  });
+}
+
+/**
+ * Stores the task object a mutation's program runs as and its arguments, in
+ * one batch.
+ *
+ * @returns The task object's hash, then each argument's
+ */
+function storeProgram(storage: StorageBackend, repo: string, mutObj: MutationObject, args: Uint8Array[]): Promise<string[]> {
+  return storage.objects.writeMany(repo, [programTask(mutObj, args.length), ...args]);
 }
 
 /**
@@ -551,6 +660,8 @@ async function runUnit(
     result = await runner.execute(storage, taskHash, inputs, {
       signal: run.signal === undefined ? deadline.signal : AbortSignal.any([run.signal, deadline.signal]),
       ...(run.verbose !== undefined && { verbose: run.verbose }),
+      // A record's program is pure: any runtime runs it alike (#1573)
+      anyRuntime: true,
     });
   } finally {
     clearTimeout(timer);
@@ -578,12 +689,14 @@ async function runUnit(
  * and the loop retries against fresher state. Two mutations on the same record
  * serialize; mutations on different records never contend.
  *
- * A write's objects go to the store in waves, the objects of each together:
- * the run's task object and its arguments; the new state's segments, then each
- * target's manifest; and the state object, the arguments' tuple and the
- * commit. A wave is stored before the next names it, and every one before the
- * ref does. Nothing written is read back: a patch's delta is applied from the
- * entries in hand while it is stored.
+ * A write's objects go to the store in waves, the objects of each in one
+ * batch: the run's task object and its arguments, the same for every attempt,
+ * stored once beside the state's first read, once the record's ref shows the
+ * call runs; the new state's segments, then each target's manifest; and the
+ * state object, the arguments' tuple and the commit. A wave is stored before
+ * the next names it, and every one before the ref does. Nothing written is
+ * read back: a patch's delta is applied from the entries in hand while it is
+ * stored.
  *
  * @throws {InvalidNameError} When `ws` is no workspace's name, before a lock
  *   is taken
@@ -605,7 +718,11 @@ export async function recordMutate(
 
     const mutHash = resolved.mutations.get(mutationName);
     if (!mutHash) return { kind: 'invalid', message: `mutation '${mutationName}' not found on record '${recordName}'` };
-    const mutObj = decodeMutationObject(await storage.objects.read(repo, mutHash));
+    // The record's ref is read beside the mutation's object, which the first
+    // attempt does not wait on to read it (#1573)
+    const firstRef = storage.datasets.readVersioned(repo, ws, resolved.refPath);
+    firstRef.catch(() => { /* raised when the first attempt takes it */ });
+    const mutObj = await keptObject(storage, repo, mutHash, decodeMutationObject);
 
     if (args.length !== mutObj.argTypes.length) {
       return { kind: 'invalid', message: `mutation '${mutationName}' expects ${mutObj.argTypes.length} argument(s), got ${args.length}` };
@@ -620,87 +737,101 @@ export async function recordMutate(
     const limits = opts.limits ?? DEFAULT_LIMITS;
     // The arguments as the commit records them, named once for every attempt
     const argsTuple = args.length > 0 ? named(encodeArgsTuple(args)) : undefined;
+    // The program's task object and its arguments, the same for every attempt:
+    // stored once, beside the state's first read, once the record's ref shows
+    // the call runs (#1573) — never for a patch to a record that declares no
+    // index, which is its own delta and runs none
+    const ownDelta = mutObj.programIr !== '' && mutObj.form.type === 'patch' && resolved.indexes.size === 0 && args.length > 0;
+    let program: Promise<string[]> | undefined;
     const deadline = Date.now() + (opts.maxRetryMs ?? DEFAULT_MAX_RETRY_MS);
     // Hard wall-clock cap for the whole call (OPS-1): when set, no reducer run
     // may overrun it and the loop returns a typed terminal before a caller's
     // gateway would cut the connection.
     const hardDeadline = opts.budgetMs !== undefined ? Date.now() + opts.budgetMs : undefined;
 
-    for (let attempt = 1; ; attempt++) {
-      if (opts.signal?.aborted) return { kind: 'failed', exitCode: -1, stderr: 'aborted' };
-      // Stop before starting another reducer run once the budget is spent.
-      if (hardDeadline !== undefined && Date.now() >= hardDeadline) {
-        return { kind: 'conflict', attempts: attempt - 1 };
-      }
+    try {
+      for (let attempt = 1; ; attempt++) {
+        if (opts.signal?.aborted) return { kind: 'failed', exitCode: -1, stderr: 'aborted' };
+        // Stop before starting another reducer run once the budget is spent.
+        if (hardDeadline !== undefined && Date.now() >= hardDeadline) {
+          return { kind: 'conflict', attempts: attempt - 1 };
+        }
 
-      const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
-      if (!existing || existing.ref.type !== 'value') return noStateYet(recordName);
+        const existing = attempt === 1 ? await firstRef : await storage.datasets.readVersioned(repo, ws, resolved.refPath);
+        if (!existing || existing.ref.type !== 'value') return noStateYet(recordName);
 
-      // Idempotent retry (OPS-3): if the record's last mutation already committed
-      // under this key, return that commit, and the state it wrote, without
-      // re-running the reducer.
-      if (opts.idempotencyKey !== undefined && existing.ref.value.versions.get(IDEM_SLOT) === opts.idempotencyKey) {
-        const keyed = existing.ref.value.versions.get(IDEM_COMMIT_SLOT);
+        // Idempotent retry (OPS-3): if the record's last mutation already committed
+        // under this key, return that commit, and the state it wrote, without
+        // re-running the reducer — or reading the state it would run over.
+        const keyed = keyedCommit(existing.ref.value.versions, opts.idempotencyKey);
         if (keyed !== undefined) {
           return { kind: 'committed', commitHash: keyed, stateHash: decodeRecordCommit(await storage.objects.read(repo, keyed)).state };
         }
-      }
-
-      // Clamp the program's time budget to what remains of the hard deadline,
-      // so a single run cannot overrun it.
-      const runLimits = hardDeadline !== undefined
-        ? { ...limits, timeoutMs: Math.max(1, Math.min(limits.timeoutMs, hardDeadline - Date.now())) }
-        : limits;
-      const state = await readRecordState(storage, repo, existing.ref.value.hash);
-      // Objects written before the conditional ref swing are invisible until the
-      // ref references them; a conflict simply orphans them for GC.
-      const run: RunContext = {
-        limits: runLimits,
-        ...(opts.signal !== undefined && { signal: opts.signal }),
-        ...(opts.verbose !== undefined && { verbose: opts.verbose }),
-      };
-      const write = mutObj.programIr === ''
-        ? await writeWholeState(storage, runner, repo, mutObj, state, args, run)
-        : await writeDelta(storage, runner, repo, mutObj, state, args, run);
-      if ('failure' in write) return write.failure;
-      if ('conflictDetail' in write) return { kind: 'conflict', attempts: attempt, detail: write.conflictDetail };
-
-      const prevCommit = existing.ref.value.versions.get(resolved.selfKeypath);
-      const { stateHash: newStateHash, commitHash } = await storeCommit(storage, repo,
-        { primary: write.primary, indexes: write.indexes },
-        {
-          parent: prevCommit !== undefined ? some(prevCommit) : none,
-          mutation: mutationName,
-          actor: opts.actor,
-          at: new Date(),
-          delta: write.delta !== undefined ? some(write.delta) : none,
-        },
-        argsTuple);
-
-      // Self-vector carries the head commit; the idempotency slots (when keyed)
-      // let the next retry short-circuit. Every mutation rewrites them — one
-      // with no key drops them — so the map stays bounded; any other reserved
-      // slot rides along untouched.
-      const versions = nextVersions(existing.ref.value.versions, resolved.selfKeypath, commitHash, {
-        [IDEM_SLOT]: opts.idempotencyKey,
-        [IDEM_COMMIT_SLOT]: opts.idempotencyKey !== undefined ? commitHash : undefined,
-      });
-
-      try {
-        await storage.datasets.writeIf(
-          repo, ws, resolved.refPath,
-          variant('value', { hash: newStateHash, versions }),
-          existing.revision,
-        );
-        return { kind: 'committed', commitHash, stateHash: newStateHash };
-      } catch (err) {
-        if (!(err instanceof DatasetRefConflictError)) throw err;
-        const budgetSpent = hardDeadline !== undefined && Date.now() >= hardDeadline;
-        if ((opts.maxAttempts !== undefined && attempt >= opts.maxAttempts) || Date.now() >= deadline || budgetSpent) {
-          return { kind: 'conflict', attempts: attempt };
+        // The call runs: its program is stored beside the state's read
+        if (program === undefined && !ownDelta) {
+          program = storeProgram(storage, repo, mutObj, args);
+          program.catch(() => { /* raised when the run takes it */ });
         }
-        await new Promise((resolve) => setTimeout(resolve, casBackoffMs(attempt)));
+        const state = await readRecordState(storage, repo, existing.ref.value.hash);
+
+        // Clamp the program's time budget to what remains of the hard deadline,
+        // so a single run cannot overrun it.
+        const runLimits = hardDeadline !== undefined
+          ? { ...limits, timeoutMs: Math.max(1, Math.min(limits.timeoutMs, hardDeadline - Date.now())) }
+          : limits;
+        // Objects written before the conditional ref swing are invisible until the
+        // ref references them; a conflict simply orphans them for GC.
+        const run: RunContext = {
+          limits: runLimits,
+          ...(opts.signal !== undefined && { signal: opts.signal }),
+          ...(opts.verbose !== undefined && { verbose: opts.verbose }),
+        };
+        const write = mutObj.programIr === ''
+          ? await writeWholeState(storage, runner, repo, mutObj, state, args, run, program)
+          : await writeDelta(storage, runner, repo, mutObj, state, args, run, program);
+        if ('failure' in write) return write.failure;
+        if ('conflictDetail' in write) return { kind: 'conflict', attempts: attempt, detail: write.conflictDetail };
+
+        const prevCommit = existing.ref.value.versions.get(resolved.selfKeypath);
+        const { stateHash: newStateHash, commitHash } = await storeCommit(storage, repo,
+          { primary: write.primary, indexes: write.indexes },
+          {
+            parent: prevCommit !== undefined ? some(prevCommit) : none,
+            mutation: mutationName,
+            actor: opts.actor,
+            at: new Date(),
+            delta: write.delta !== undefined ? some(write.delta) : none,
+          },
+          argsTuple);
+
+        // Self-vector carries the head commit; the idempotency slots (when keyed)
+        // let the next retry short-circuit. Every mutation rewrites them — one
+        // with no key drops them — so the map stays bounded; any other reserved
+        // slot rides along untouched.
+        const versions = nextVersions(existing.ref.value.versions, resolved.selfKeypath, commitHash, {
+          [IDEM_SLOT]: opts.idempotencyKey,
+          [IDEM_COMMIT_SLOT]: opts.idempotencyKey !== undefined ? commitHash : undefined,
+        });
+
+        try {
+          await storage.datasets.writeIf(
+            repo, ws, resolved.refPath,
+            variant('value', { hash: newStateHash, versions }),
+            existing.revision,
+          );
+          return { kind: 'committed', commitHash, stateHash: newStateHash };
+        } catch (err) {
+          if (!(err instanceof DatasetRefConflictError)) throw err;
+          const budgetSpent = hardDeadline !== undefined && Date.now() >= hardDeadline;
+          if ((opts.maxAttempts !== undefined && attempt >= opts.maxAttempts) || Date.now() >= deadline || budgetSpent) {
+            return { kind: 'conflict', attempts: attempt };
+          }
+          await new Promise((resolve) => setTimeout(resolve, casBackoffMs(attempt)));
+        }
       }
+    } finally {
+      // The program's objects are stored, or have failed, before it returns
+      await program?.catch(() => undefined);
     }
   });
 }
@@ -771,6 +902,9 @@ interface RunContext {
  * an index: only a Dict record declares one, and every Dict record's mutation
  * writes a delta. It is O(state) per write, which is the cost the delta exists
  * to remove.
+ *
+ * `program` is the run's task object and arguments, stored, when the caller
+ * stored them already ({@link storeProgram}).
  */
 async function writeWholeState(
   storage: StorageBackend,
@@ -780,17 +914,9 @@ async function writeWholeState(
   state: RecordStateRefs,
   args: Uint8Array[],
   run: RunContext,
+  program: Promise<string[]> | undefined,
 ): Promise<MutationWrite> {
-  // The run's task object and its arguments, stored together
-  const [taskHash, ...argHashes] = await storeObjects(storage, repo, [encodeTaskObject({
-    kind: TASK_OBJECT_KIND,
-    body: variant('east', { program: mutObj.bodyIr }),
-    runner: mutObj.runner,
-    inputs: [state.primary, ...args].map(() => ({ path: [], partition: none })),
-    output: { path: [], kind: variant('value', null) },
-    role: variant('data', null),
-    environment: none,
-  }), ...args]);
+  const [taskHash, ...argHashes] = await (program ?? storeProgram(storage, repo, mutObj, args));
   const ran = await runUnit(storage, runner, repo, taskHash!, [state.primary, ...argHashes], run);
   if ('failure' in ran) return ran;
   return { primary: ran.output, indexes: state.indexes };
@@ -813,6 +939,9 @@ async function writeWholeState(
  * client already computed the change, and with no index function to evaluate
  * there is no user East to run. That is the interactive door — its cost is the
  * rows the edit touched, with no process anywhere.
+ *
+ * `program` is the run's task object and arguments, stored, when the caller
+ * stored them already ({@link storeProgram}).
  */
 async function writeDelta(
   storage: StorageBackend,
@@ -822,6 +951,7 @@ async function writeDelta(
   state: RecordStateRefs,
   args: Uint8Array[],
   run: RunContext,
+  program: Promise<string[]> | undefined,
 ): Promise<MutationWrite> {
   const targets = new Map<string, string>([['primary', state.primary]]);
   for (const [name, entry] of state.indexes) targets.set(name, entry.manifest);
@@ -845,16 +975,7 @@ async function writeDelta(
         storeDelta(storage, repo, patch),
       );
     } else {
-      // The run's task object and its arguments, stored together
-      const [taskHash, ...argHashes] = await storeObjects(storage, repo, [encodeTaskObject({
-        kind: TASK_OBJECT_KIND,
-        body: variant('east', { program: mutObj.programIr }),
-        runner: mutObj.runner,
-        inputs: [state.primary, ...args].map(() => ({ path: [], partition: none })),
-        output: { path: [], kind: variant('dict', { merge: none }) },
-        role: variant('data', null),
-        environment: none,
-      }), ...args]);
+      const [taskHash, ...argHashes] = await (program ?? storeProgram(storage, repo, mutObj, args));
       const ran = await runUnit(storage, runner, repo, taskHash!, [state.primary, ...argHashes], run);
       if ('failure' in ran) return ran;
       deltaHash = ran.output;
@@ -889,11 +1010,11 @@ function* heldEntries(delta: HeldDelta): Generator<DeltaEntry> {
   for (const [key, op] of delta.ops) yield { target: 'primary', key, op };
 }
 
-/** Stores a held delta, which the commit names: its segments together, then
+/** Stores a held delta, which the commit names: its segments in batches, then
  *  its manifest. */
 async function storeDelta(storage: StorageBackend, repo: string, delta: HeldDelta): Promise<string> {
   return storage.objects.write(repo,
-    await encodeDatasetBlob(delta.type, delta.entries, (bytes) => storage.objects.write(repo, bytes)));
+    await encodeDatasetBlob(delta.type, delta.entries, (objects) => storage.objects.writeMany(repo, objects)));
 }
 
 /**
@@ -1010,6 +1131,8 @@ async function buildRecordIndexes(
     const result = await runner.execute(storage, taskHash, [primary], {
       ...(opts.signal !== undefined && { signal: opts.signal }),
       ...(opts.verbose !== undefined && { verbose: opts.verbose }),
+      // An index's program is pure: any runtime runs it alike (#1573)
+      anyRuntime: true,
     });
     if (result.cancelled) return { failure: { kind: 'failed', exitCode: -1, stderr: 'aborted' } };
     if (result.state === 'failed') {

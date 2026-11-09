@@ -345,9 +345,10 @@ const PLACE_CHUNK = 1024 * 1024;
  * @remarks
  * A write of bytes the store does not hold records its write in flight, writes
  * a new blob, and then names it in the catalogue, in two transactions around
- * the blob's write; one of bytes it holds re-references them instead. Every
- * write and {@link touch} clears the object's unreachable note in the
- * transaction that finds it.
+ * the blob's write; one of bytes it holds re-references them instead. A batch
+ * ({@link writeMany}) takes the two transactions for every object in it, its
+ * blobs written at once between them. Every write and {@link touch} clears the
+ * object's unreachable note in the transaction that finds it.
  *
  * East's SHA-256 names bytes whole, so a streamed write, and a file adopted,
  * are held whole to be named.
@@ -364,8 +365,16 @@ export class WebObjectStore implements ObjectStore {
 
   async write(repo: string, data: Uint8Array): Promise<string> {
     const hash = computeHash(data);
-    await this.store(repo, hash, data);
+    await this.store(repo, [{ hash, data }]);
     return hash;
+  }
+
+  /** Stores the objects in the two transactions a write takes, their blobs
+   *  written at once between them ({@link store}). */
+  async writeMany(repo: string, objects: readonly Uint8Array[]): Promise<string[]> {
+    const hashes = objects.map((data) => computeHash(data));
+    await this.store(repo, objects.map((data, i) => ({ hash: hashes[i]!, data })));
+    return hashes;
   }
 
   async writeStream(repo: string, stream: AsyncIterable<Uint8Array>): Promise<string> {
@@ -386,54 +395,88 @@ export class WebObjectStore implements ObjectStore {
    * @internal
    */
   async writeHashed(repo: string, hash: string, data: Uint8Array): Promise<string> {
-    await this.store(repo, hash, data);
+    await this.store(repo, [{ hash, data }]);
     return hash;
   }
 
   /**
-   * Stores bytes under their hash, or re-references the object when the store
-   * holds it.
+   * Stores bytes under their hashes, re-referencing each object the store
+   * holds: one transaction finds the objects it holds and records a write in
+   * flight for each of the rest, their blobs are written at once, and one more
+   * transaction names them in the catalogue. An object given twice is stored
+   * once.
    *
-   * @throws {Error} When a sweep took the write in flight for abandoned, as
-   *   one with no age gate beside running work may: nothing is stored
+   * @remarks
+   * Each object stands on its own, as a write of each would: one whose blob's
+   * write failed, or whose write in flight a sweep took for abandoned, is not
+   * stored, and the rest are. Nothing is left of one that is not — its record
+   * in flight goes in the naming transaction, and its blob after it.
+   *
+   * @throws {Error} When a blob's write fails, or a sweep took a write in
+   *   flight for abandoned, as one with no age gate beside running work may:
+   *   the first such failure, once every other object is stored
    */
-  private async store(repo: string, hash: string, data: Uint8Array): Promise<void> {
-    const blob = crypto.randomUUID();
-    const held = await this.records.transact(async (tx) => {
-      const record = await readObject(tx, repo, hash);
-      if (record !== null) {
-        tx.put(recordKeys.object(repo, hash), referenced(record, Date.now()));
-        return true;
+  private async store(repo: string, objects: ReadonlyArray<{ readonly hash: string; readonly data: Uint8Array }>): Promise<void> {
+    // One write of each object: a transaction names its record once
+    const distinct = new Map<string, Uint8Array>();
+    for (const { hash, data } of objects) if (!distinct.has(hash)) distinct.set(hash, data);
+    if (distinct.size === 0) return;
+    const fresh = await this.records.transact(async (tx) => {
+      const now = Date.now();
+      const writes: Array<{ hash: string; blob: string; data: Uint8Array }> = [];
+      for (const [hash, data] of distinct) {
+        const record = await readObject(tx, repo, hash);
+        if (record !== null) {
+          tx.put(recordKeys.object(repo, hash), referenced(record, now));
+          continue;
+        }
+        const blob = crypto.randomUUID();
+        tx.put(recordKeys.pending(repo, blob), encodePending({ hash, at: BigInt(now) }));
+        writes.push({ hash, blob, data });
       }
-      tx.put(recordKeys.pending(repo, blob), encodePending({ hash, at: BigInt(Date.now()) }));
-      return false;
+      return writes;
     });
-    if (held) return;
-    try {
-      await this.blobs.write(blobKey(repo, blob), data);
-    } catch (err) {
-      // The blob store kept nothing of it; the record in flight goes too, or
-      // else gc's sweep takes it once it is past the age gate.
-      await writeRecords(this.records, (tx) => tx.delete(recordKeys.pending(repo, blob))).catch(() => undefined);
-      throw err;
+    if (fresh.length === 0) return;
+    const written = await Promise.allSettled(fresh.map(({ blob, data }) => this.blobs.write(blobKey(repo, blob), data)));
+    // Each object whose blob was written is named, and each whose blob was
+    // not — which leaves none — or whose write in flight a sweep took, is
+    // not: its record in flight goes here, and a blob it wrote below.
+    const { unnamed, taken } = await this.records.transact(async (tx) => {
+      const now = Date.now();
+      const unnamed: string[] = [];
+      const taken: string[] = [];
+      for (const [i, { hash, blob, data }] of fresh.entries()) {
+        if (written[i]!.status === 'rejected') {
+          tx.delete(recordKeys.pending(repo, blob));
+          continue;
+        }
+        if ((await tx.get(recordKeys.pending(repo, blob))) === null) {
+          unnamed.push(blob);
+          taken.push(hash);
+          continue;
+        }
+        tx.delete(recordKeys.pending(repo, blob));
+        const record = await readObject(tx, repo, hash);
+        if (record !== null) {
+          // Another write stored the same bytes first: this blob names nothing
+          tx.put(recordKeys.object(repo, hash), referenced(record, now));
+          unnamed.push(blob);
+          continue;
+        }
+        tx.put(recordKeys.object(repo, hash), encodeObject({
+          blob, size: BigInt(data.length), writtenAt: BigInt(now), unreachableSince: none,
+        }));
+      }
+      return { unnamed, taken };
+    });
+    // The blobs nothing names: bytes another write stored first, and those of
+    // a write the sweep took, which may have landed after its sweep deleted it.
+    await Promise.all(unnamed.map((blob) => this.blobs.delete(blobKey(repo, blob))));
+    const failed = written.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected');
+    if (failed !== undefined) throw failed.reason;
+    if (taken.length > 0) {
+      throw new Error(`the write of object ${taken[0]} was taken for abandoned by gc's sweep before it finished: write it again`);
     }
-    const redundant = await this.records.transact(async (tx) => {
-      if ((await tx.get(recordKeys.pending(repo, blob))) === null) {
-        throw new Error(`the write of object ${hash} was taken for abandoned by gc's sweep before it finished: write it again`);
-      }
-      tx.delete(recordKeys.pending(repo, blob));
-      const record = await readObject(tx, repo, hash);
-      if (record !== null) {
-        tx.put(recordKeys.object(repo, hash), referenced(record, Date.now()));
-        return true;
-      }
-      tx.put(recordKeys.object(repo, hash), encodeObject({
-        blob, size: BigInt(data.length), writtenAt: BigInt(Date.now()), unreachableSince: none,
-      }));
-      return false;
-    });
-    // Another write stored the same bytes first: this one's blob names nothing.
-    if (redundant) await this.blobs.delete(blobKey(repo, blob));
   }
 
   async touch(repo: string, hashes: readonly string[]): Promise<boolean[]> {
@@ -484,7 +527,7 @@ export class WebObjectStore implements ObjectStore {
     if (hash !== undefined && digest !== hash) {
       throw new Error(`adoptFile: ${file} holds ${digest}, not the ${hash} it was adopted as`);
     }
-    await this.store(repo, digest, data);
+    await this.store(repo, [{ hash: digest, data }]);
     return { hash: digest, size: data.length };
   }
 

@@ -200,7 +200,8 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         {timeline && focus !== undefined && focusChip(false)}
         {value.inspector && summary.count > 0 && <Button size="xs" variant="ghost" onClick={args.onIssues}>{summary.label}</Button>}
         {withEye && eye?.entry}
-        {heldPublish && <Button size="xs" variant="solid" disabled={!canPublish} onClick={() => commands.publish()}>Publish</Button>}
+        {heldPublish && <Button size="xs" variant="solid" disabled={!canPublish} loading={args.publishing} aria-label="Publish" aria-busy={args.publishing ? true : undefined}
+            onClick={() => commands.publish()}>Publish</Button>}
     </Box>;
     const menu = <ChipMenu label="View" icon={faCalendarDay} onSelect={key => {
         if (key === "table" || key === "timeline") layout(key);
@@ -260,8 +261,11 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         // width the ladder and the rail's caret leave it room, and else the View's entry, never out of the toolbar.
         eye === undefined ? args.optimise : { ...eye.item, forms: [...eye.item.forms, null], rank: OPTIMISE_RANK, bundle: EYE_INTO_VIEW },
         showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssue, onConflict: args.onConflict, where: args.where, onAction: args.onAction, locked: args.locked === true }),
-        // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the day can't publish.
-        heldPublish && { key: "allocation.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!canPublish} onClick={() => commands.publish()}>Publish</Button>, null] },
+        // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the day can't publish, and
+        // its spinner while it publishes, until every record reads back as saved (#1573) — named as it is, `aria-busy`: the
+        // spinner hides its words.
+        heldPublish && { key: "allocation.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!canPublish} loading={args.publishing}
+            aria-label="Publish" aria-busy={args.publishing ? true : undefined} onClick={() => commands.publish()}>Publish</Button>, null] },
     ];
 }
 

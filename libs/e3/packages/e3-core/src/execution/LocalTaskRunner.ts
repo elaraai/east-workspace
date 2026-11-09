@@ -16,6 +16,7 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { variant } from '@elaraai/east';
 import type { TaskObject } from '@elaraai/e3-types';
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
@@ -28,7 +29,7 @@ import { ExecutionAttempt, readTaskObject, toTaskResult } from './attempt.js';
 import { probeExecutionCache as probeCache, type ExecuteOptions, type ExecutionIds, type ExecutionResult } from './cache.js';
 import { runIntake } from './intake.js';
 import { getBootId, getPidStartTime, isProcessAlive, processOwner } from './processHelpers.js';
-import { checkProcessSettings, giveDirectory, marshalInputsToDir, spawnAndCapture, type ProcessSettings } from './processExec.js';
+import { checkProcessSettings, giveDirectory, marshalInputsToDir, pathOf, spawnAndCapture, type ProcessSettings } from './processExec.js';
 import { SegmentFetcher } from './segment-fetch.js';
 import { storeDatasetFile } from '../store-collection-file.js';
 import { materializeEnvironment } from './environment.js';
@@ -37,8 +38,8 @@ import { executionScratchDir } from './scratch.js';
 import { unitThreads, type Budget, type Grant, type GrantKind } from './budget.js';
 import { unitCap, unitCgroups } from './cgroups.js';
 import {
-  clearUnitOutput, readUnitResult, stageMergeUnit, stageOutputMerge, stageRunUnit, storeUnitOutput, unitArgv,
-  type StagedUnit, type TaskUnit,
+  clearUnitOutput, readUnitResult, runnerEnded, stageMergeUnit, stageOutputMerge, stageRunUnit, storeUnitOutput, unitArgv,
+  type StagedUnit, type StockRunner, type TaskUnit,
 } from './units.js';
 import { executeSplitTask as runSplitTask, isSplitTask, type SplitTaskDriver as SharedSplitTaskDriver, type UnitExecutor } from './engine.js';
 import { readTestPieceBytesFrom } from './pieces.js';
@@ -126,6 +127,17 @@ declare module './cache.js' {
     /** Replaces the standard body of a task or split unit after its cache
      *  probe missed. Runtime-only; no grant is held unless it calls local. */
     body?: TaskBodyExecutor;
+    /** Whether any stock runtime may run the execution in place of the one
+     *  its task names: a record's program, which runs on east-node where its
+     *  east-c cannot run (`TaskExecuteOptions.anyRuntime`, #1573).
+     *  Runtime-only, and never hashed. */
+    anyRuntime?: boolean;
+    /** Where the runner the execution runs under could not run an east-c
+     *  ({@link runnerSearchKey}): a unit {@link anyRuntime} lets run anywhere
+     *  runs on east-node at once from there, and the unit that finds one adds
+     *  where. Kept by the runner, so a runner that searches elsewhere tries its
+     *  east-c again. Runtime-only. */
+    eastCUnusable?: Set<string>;
   }
 }
 
@@ -181,6 +193,10 @@ export class LocalTaskRunner implements TaskRunner {
    *  why: not tried again by this runner. */
   private readonly intakeUnusable = new Map<string, string>();
 
+  /** Where this runner could not run an east-c for a unit any runtime may run
+   *  (`ExecuteOptions.eastCUnusable`): not tried again from there. */
+  private readonly eastCUnusable = new Set<string>();
+
   /** A local runner takes in whole any delivery its machine holds. */
   readonly wholeIntakeLimit = null;
 
@@ -214,6 +230,8 @@ export class LocalTaskRunner implements TaskRunner {
       onWaiting: options?.onWaiting,
       onRequeued: options?.onRequeued,
       extraEnv: options?.extraEnv,
+      anyRuntime: options?.anyRuntime,
+      eastCUnusable: this.eastCUnusable,
       ...this.settings,
     }));
   }
@@ -237,6 +255,8 @@ export class LocalTaskRunner implements TaskRunner {
       onWaiting: options?.onWaiting,
       onRequeued: options?.onRequeued,
       extraEnv: options?.extraEnv,
+      anyRuntime: options?.anyRuntime,
+      eastCUnusable: this.eastCUnusable,
       ...this.settings,
     }));
   }
@@ -546,6 +566,36 @@ async function runningCanFinish(
   return isProcessAlive(Number(owner.pid), Number(owner.pidStartTime), owner.bootId);
 }
 
+/** Where a unit's runner is searched for, as {@link runCommand} searches: from
+ *  the repository's parent and this process's working directory, along the
+ *  `PATH` the runner starts from — as one key. */
+function runnerSearchKey(repo: string, options: ExecuteOptions): string {
+  return [path.dirname(repo), process.cwd(), pathOf(options.env ?? process.env) ?? ''].join('\n');
+}
+
+/**
+ * Whether a unit may run on east-node where its east-c cannot run: its caller
+ * lets any runtime run it — a record's program (#1573) — and its runner is
+ * east-c naming no platform, so its program calls none and every runtime runs
+ * it alike, and its task names no environment, whose own bins are where it
+ * would find its runner.
+ */
+function eastNodeMayStandIn(runner: StockRunner, task: TaskObject, options: ExecuteOptions): boolean {
+  return options.anyRuntime === true && runner.type === 'east_c' && runner.value.platforms.length === 0 && task.environment.type === 'none';
+}
+
+/** East-node, reading a unit's inputs as its east-c runner was to. */
+function eastNodeFor(runner: StockRunner): StockRunner {
+  return variant('east_node', { platforms: [], decode: runner.value.decode });
+}
+
+/** The runner a unit runs on here: east-node in place of an east-c its runner
+ *  could not run from where it searches ({@link ExecuteOptions.eastCUnusable}),
+ *  else its own. */
+function unitRunnerHere(runner: StockRunner, task: TaskObject, repo: string, options: ExecuteOptions): StockRunner {
+  return eastNodeMayStandIn(runner, task, options) && options.eastCUnusable?.has(runnerSearchKey(repo, options)) === true ? eastNodeFor(runner) : runner;
+}
+
 /** One attempt at an execution's runners: its hold on the budget, the cgroup
  *  they run in and the cap on it, and the memory the attempt reserves. */
 interface Attempt {
@@ -585,6 +635,16 @@ interface Requeue {
  *  runs again once the most it reached fits, or anything else (`task`).
  *  `isUnit` is what the execution's record says: every unit but the one a
  *  task whose input closes no piece runs as its own execution.
+ *
+ *  A unit any runtime may run (`anyRuntime`: a record's mutation or index,
+ *  #1573) whose runner is east-c naming no platform runs on east-node where
+ *  its east-c cannot run, as an intake does: an east-c that is not found,
+ *  whose launcher finds no native binary, or that crashes records no result
+ *  for the unit, so the unit runs again on east-node in the same attempt, its
+ *  log saying why, and every later such unit its runner searches for a runner
+ *  from the same place runs on east-node at once. An attempt e3 stopped, or
+ *  its cap killed, is no east-c that could not run; neither is a run that
+ *  recorded its failure.
  *  @internal */
 export async function taskExecuteBody(
   storage: StorageBackend,
@@ -640,15 +700,17 @@ export async function taskExecuteBody(
     const fetching = fetcher !== null && fetcher.size > 0;
     if (fetching) fetcher.start();
 
-    // Step 6: The runner's argv, by the body.
+    // Step 6: What the runner runs, by the body: a unit, on the runner it runs
+    // on — its own, or east-node in place of an east-c that could not run it
+    // (#1573) — whose argv is built at each spawn; or a command's argv.
     const outputPath = path.join(scratchDir, 'output.beast2');
-    let unit: TaskUnit | null = null;
-    let args: string[];
+    let toRun: { unit: TaskUnit; runner: StockRunner } | null = null;
+    let args: string[] = [];
     if (merge !== null) {
-      unit = merge.range === null
+      const unit = merge.range === null
         ? await stageMergeUnit(storage, repo, scratchDir, task, inputPaths, null, unitThreads(options.budget), fetching)
         : await stageMergeUnit(storage, repo, scratchDir, task, inputPaths.slice(1), inputPaths[0]!, unitThreads(options.budget), fetching);
-      args = unitArgv(unit.runner, unit, options.verbose);
+      toRun = { unit, runner: unitRunnerHere(unit.runner, task, repo, options) };
     } else if (task.body.type === 'command') {
       // The e3 SDK's `customTask` wraps the user command in `["bash", "-c",
       // "<cmd-with-paths-interpolated>"]`. Bash treats `\` as an escape
@@ -674,8 +736,8 @@ export async function taskExecuteBody(
       await storage.objects.materialize(repo, task.body.value.program, program, { link: false });
       args = [...task.runner.value.command, ...inputPaths.flatMap((input) => ['-i', input]), '-o', outputPath, program];
     } else {
-      unit = await stageRunUnit(storage, repo, scratchDir, task, inputPaths, unitThreads(options.budget), fetching);
-      args = unitArgv(unit.runner, unit, options.verbose);
+      const unit = await stageRunUnit(storage, repo, scratchDir, task, inputPaths, unitThreads(options.budget), fetching);
+      toRun = { unit, runner: unitRunnerHere(unit.runner, task, repo, options) };
     }
 
     // Step 6.5: Materialize the task's declared execution environment (warm
@@ -714,16 +776,16 @@ export async function taskExecuteBody(
      *  when it did not end well — `null` when it did, and what to run again
      *  with when the guard or the attempt's cap stopped it. A unit ends well
      *  only when its runner recorded an `ok` result. */
-    const spawnRunner = async (argv: string[], staged: StagedUnit | null, held: Attempt): Promise<ExecutionResult | Requeue | null> => {
+    const spawnRunner = async (argv: string[], spawned: StagedUnit | null, held: Attempt): Promise<ExecutionResult | Requeue | null> => {
       const { grant, cgroup, cap, reservation } = held;
       const result = await runCommand(attempt, cgroup === null ? argv : cgroups!.enter(cgroup, argv),
         bootId, scratchDir, options, envBins, stock,
         (pid, stop) => grant?.watch({ pid, stop, ...(cgroup !== null && { cgroup }) }));
       grant?.unwatch();
-      const recorded = staged === null ? null : await readUnitResult(staged);
+      const recorded = spawned === null ? null : await readUnitResult(spawned);
       if (recorded !== null) peakBytes = Math.max(peakBytes ?? 0, Number(recorded.peakBytes));
       if (result.exitCode === 0) {
-        if (staged === null || recorded?.outcome.type === 'ok') return null;
+        if (spawned === null || recorded?.outcome.type === 'ok') return null;
         return await errorResult('the runner exited 0 without recording an ok result for its unit', 0);
       }
       // e3 stopped the runner, or a signal ended it: the record names the
@@ -759,6 +821,28 @@ export async function taskExecuteBody(
       }
       if (result.timedOut) {
         return await stoppedResult('error', `timed out: e3 stopped the runner after ${options.timeout} ms`);
+      }
+      // An east-c that could not run the unit at all — none found, a launcher
+      // with no native binary, a crash — recorded no result for it, and e3
+      // stopped nothing: a unit any runtime may run runs on east-node, in the
+      // same attempt, and so does every later one its runner runs from here, as
+      // an intake falls back (#1573). Its log says why, after what east-c said.
+      // Only the unit itself: a merge of its output follows a run its runner
+      // completed, so one that fails is that runner's own failure.
+      if (toRun !== null && spawned === toRun.unit && recorded === null && !result.stoppedByE3 && eastNodeMayStandIn(toRun.runner, task, options)) {
+        options.eastCUnusable?.add(runnerSearchKey(repo, options));
+        toRun.runner = eastNodeFor(toRun.runner);
+        const said = result.exitCode === null && result.signal === null && result.error !== null ? ` (${result.error})` : '';
+        try {
+          await storage.logs.append(repo, taskHash, inHash, executionId, 'stderr',
+            `e3: east-c ${runnerEnded(result)}${said} without recording a result for the unit, so it runs on east-node\n`);
+        } catch (err) {
+          console.warn(`Failed to append stderr log: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        // What a crash wrote goes first: a runner writes its output only where
+        // nothing is.
+        await clearUnitOutput(toRun.unit);
+        return spawnRunner(unitArgv(toRun.runner, toRun.unit, options.verbose), toRun.unit, held);
       }
       if (result.exitCode === null && result.signal !== null) {
         return await stoppedResult('failed', `runner killed by ${result.signal}`);
@@ -814,10 +898,12 @@ export async function taskExecuteBody(
           cgroup = await cgroups.create(`unit-${executionId.replaceAll('-', '')}-${attempts}`, cap).catch(() => null);
         }
         const held: Attempt = { grant, cgroup, cap: cgroup === null ? null : cap, reservation };
-        ended = await spawnRunner(args, unit, held);
-        if (ended === null && unit !== null) {
-          const merge = await stageOutputMerge(unit);
-          if (merge !== null) ended = await spawnRunner(unitArgv(unit.runner, merge, options.verbose), merge, held);
+        // A unit runs on the runner it has come to: east-node, once its east-c
+        // could not run
+        ended = await spawnRunner(toRun === null ? args : unitArgv(toRun.runner, toRun.unit, options.verbose), toRun?.unit ?? null, held);
+        if (ended === null && toRun !== null) {
+          const merge = await stageOutputMerge(toRun.unit);
+          if (merge !== null) ended = await spawnRunner(unitArgv(toRun.runner, merge, options.verbose), merge, held);
         }
       } finally {
         grant?.release();
@@ -831,8 +917,8 @@ export async function taskExecuteBody(
         console.warn(`Failed to append stderr log: ${err instanceof Error ? err.message : String(err)}`);
       }
       options.onRequeued?.({ reason: ended.reason, peak: ended.peak, reserves: ended.requeue });
-      if (unit !== null) {
-        await clearUnitOutput(unit);
+      if (toRun !== null) {
+        await clearUnitOutput(toRun.unit);
       } else {
         await fs.rm(outputPath, { recursive: true, force: true });
       }
@@ -848,15 +934,18 @@ export async function taskExecuteBody(
     // user wrote it, so no object is that user's file. A multi-gigabyte
     // output never lands on this process's heap. Done before the scratch
     // cleanup in the `finally` below.
+    // Its log is flushed while the output is stored: its runners have exited,
+    // and a store that holds appends is waited on once for both (#1573)
+    const flushed = attempt.flushLog();
     let outputHash: string;
     try {
-      outputHash = unit !== null
-        ? await storeUnitOutput(storage, repo, unit)
+      outputHash = toRun !== null
+        ? await storeUnitOutput(storage, repo, toRun.unit)
         : await storeDatasetFile(storage, repo, outputPath, { canonical: stock });
     } catch (err) {
-      return await errorResult(`Failed to read output: ${err}`, 0);
+      return await attempt.recordError(`Failed to read output: ${err}`, 0, flushed);
     }
-    return await attempt.recordSuccess(outputHash, peakBytes);
+    return await attempt.recordSuccess(outputHash, peakBytes, flushed);
   } finally {
     // Nothing more is asked for once the runners have exited.
     await fetcher?.stop();

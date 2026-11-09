@@ -9,7 +9,10 @@
  * editable collection, in its collection's words, on the `editHistory` slot
  * recipe. While a part of a draft another write changed differently waits to
  * be chosen, the conflicts button leads its buttons, and Apply waits for it
- * (`conflicts.tsx`).
+ * (`conflicts.tsx`). While a Save is out, and until the page reads back what it
+ * saved, Save shows it: the live dot in its place, `aria-busy`, at full strength
+ * (#1573). Retry refresh takes its place once that read back failed, or has not
+ * moved for ten seconds, to ask again.
  *
  * In a phone's frame it is the toolbar's second row (`phone`, `Mobile Builder
  * Frame Spec.md` FR6, FR8): the drafts' count at its start, then the issues —
@@ -36,6 +39,32 @@ import { layerOpen } from "../layout/builder-frame/view-escape.js";
 
 /** A history bar action. */
 export type HistoryAction = "undo" | "redo" | "discard" | "apply" | "refresh";
+
+/**
+ * How long a read back may not move — nothing read back, and no error — before
+ * Retry refresh takes the busy Save's place, to ask again (#1573): a source can
+ * go on answering the revision before the Save.
+ */
+const READ_BACK_STALLED_MS = 10_000;
+
+/**
+ * Whether a read back has not moved for {@link READ_BACK_STALLED_MS}: its
+ * session's change counter has stood since the read back began waiting, or
+ * last moved.
+ *
+ * @param waiting - Whether a read back waits
+ * @param moved - The session's change counter
+ * @returns Whether it has stalled
+ */
+function useStalled(waiting: boolean, moved: number): boolean {
+    const [stalledAt, setStalledAt] = useState<number | undefined>(undefined);
+    useEffect(() => {
+        if (!waiting) return;
+        const timer = setTimeout(() => setStalledAt(moved), READ_BACK_STALLED_MS);
+        return () => clearTimeout(timer);
+    }, [waiting, moved]);
+    return waiting && stalledAt === moved;
+}
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -122,12 +151,14 @@ export interface HistoryBarProps<W> {
 }
 
 /** Keep an accessible name and a hover/focus tooltip when the control has no text. */
-function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onClick, ready, content, expanded, buttonRef }: {
+function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onClick, ready, busy, content, expanded, buttonRef }: {
     label: string; tip?: string | undefined; icon: IconDefinition; disabled: boolean; locked: boolean;
     styles: Styles; onClick: () => void;
     /** Save while it would save: filled, on a phone. */
     ready?: boolean | undefined;
-    /** What it shows in place of its icon: the live dot while a Save is out, on a phone. */
+    /** Save while a Save is out or its saved state is read back (#1573): `aria-busy`, at full strength over its disabled look. */
+    busy?: boolean | undefined;
+    /** What it shows in place of its icon: the live dot while a Save is out or read back. */
     content?: ReactNode;
     /** Whether what it opens shows: Discard's question, on a phone. */
     expanded?: boolean | undefined;
@@ -144,7 +175,8 @@ function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onC
         <Tooltip.Trigger asChild>
             <span>
                 <chakra.button ref={buttonRef} type="button" css={[iconStyles, styles.button]} aria-label={label} aria-expanded={expanded}
-                    disabled={disabled && !focused} aria-disabled={locked || held ? true : undefined} data-ready={ready === true ? "" : undefined}
+                    disabled={disabled && !focused} aria-disabled={locked || held ? true : undefined} aria-busy={busy === true ? true : undefined}
+                    data-ready={ready === true ? "" : undefined}
                     onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
                     onMouseDown={event => event.preventDefault()} onClick={locked || disabled ? undefined : onClick}>
                     {content ?? <FontAwesomeIcon icon={icon} />}
@@ -223,6 +255,12 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onCo
         : session.carrying ? m.historyStatus({ status: "carrying" })
         : status !== "idle" ? m.historyStatus({ status })
         : undefined;
+    // A Save out, or its saved state being read back, until the page holds it (#1573): Save shows it, the live dot in its
+    // place. A read back that failed, or has not moved for a while, is Retry refresh's to ask again — read from the
+    // sessions that read back, not from another's error.
+    const readBack = session.readBack;
+    const stalled = useStalled(readBack === "waiting", session.getSnapshot());
+    const saving = status === "applying" || (status === "reconciling" && readBack === "waiting" && !stalled);
     const n = issues.length;
     const unsettled = session.unsettled;
     // Save waits for the conflicts to be chosen aria-disabled, never disabled: it keeps the focus, and its Tooltip says why.
@@ -262,11 +300,11 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onCo
                 <HistoryButton styles={styles} label={m.redo()} tip={m.redoTip()} icon={faArrowRotateRight} disabled={!session.canRedo} locked={locked} onClick={() => onAction("redo")} />
                 <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={discardOff} locked={locked} expanded={askingNow} buttonRef={discardRef}
                     onClick={() => setAsking(!asking)} />
-                {status === "reconciling" ? <HistoryButton styles={styles} label={m.retryRefresh()} icon={faRotate} disabled={false} locked={locked} onClick={() => onAction("refresh")} />
+                {status === "reconciling" && !saving ? <HistoryButton styles={styles} label={m.retryRefresh()} icon={faRotate} disabled={false} locked={locked} onClick={() => onAction("refresh")} />
                     : <HistoryButton styles={styles} label={status === "unknown" ? m.retryRequest() : m.apply()}
-                        tip={waiting ? m.applySettleFirst({ n: unsettled, count: words.number(unsettled) }) : undefined}
-                        icon={status === "unknown" ? faRotate : faCheck} disabled={saveOff} ready={!saveOff && !waiting && status === "idle"}
-                        content={status === "applying" ? <Box as="span" css={styles.live} aria-hidden /> : undefined}
+                        tip={waiting ? m.applySettleFirst({ n: unsettled, count: words.number(unsettled) }) : saving ? message : undefined}
+                        icon={status === "unknown" ? faRotate : faCheck} disabled={saveOff} ready={!saveOff && !waiting && status === "idle"} busy={saving}
+                        content={saving ? <Box as="span" css={styles.live} aria-hidden data-history-live="" /> : undefined}
                         locked={locked || waiting} onClick={() => onAction("apply")} />}
             </Box>
             {ask !== false && (band !== null ? createPortal(ask, band) : ask)}
@@ -285,10 +323,11 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onCo
             <HistoryButton styles={styles} label={m.undo()} tip={m.undoTip()} icon={faArrowRotateLeft} disabled={!session.canUndo && !commitEditor} locked={locked} onClick={() => onAction("undo")} />
             <HistoryButton styles={styles} label={m.redo()} tip={m.redoTip()} icon={faArrowRotateRight} disabled={!session.canRedo} locked={locked} onClick={() => onAction("redo")} />
             <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={discardOff} locked={locked} onClick={() => onAction("discard")} />
-            {status === "reconciling" ? <HistoryButton styles={styles} label={m.retryRefresh()} icon={faRotate} disabled={false} locked={locked} onClick={() => onAction("refresh")} />
+            {status === "reconciling" && !saving ? <HistoryButton styles={styles} label={m.retryRefresh()} icon={faRotate} disabled={false} locked={locked} onClick={() => onAction("refresh")} />
                 : <HistoryButton styles={styles} label={status === "unknown" ? m.retryRequest() : m.apply()}
-                    tip={waiting ? m.applySettleFirst({ n: unsettled, count: words.number(unsettled) }) : undefined}
-                    icon={status === "unknown" ? faRotate : faCheck} disabled={saveOff}
+                    tip={waiting ? m.applySettleFirst({ n: unsettled, count: words.number(unsettled) }) : saving ? message : undefined}
+                    icon={status === "unknown" ? faRotate : faCheck} disabled={saveOff} busy={saving}
+                    content={saving ? <Box as="span" css={styles.live} aria-hidden data-history-live="" /> : undefined}
                     locked={locked || waiting} onClick={() => onAction("apply")} />}
         </Box>
         {showError && session.error !== undefined && <Text css={styles.error} role="alert">{sessionErrorText(session.error, words)}</Text>}

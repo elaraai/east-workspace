@@ -45,9 +45,23 @@ import {
   type EastTypeValue,
 } from '@elaraai/east';
 import { DELTA_CONFLICT, type RecordSummaryOp, type RecordSummaryTotals } from '@elaraai/e3-types';
+import { OBJECT_CONCURRENCY, readInOrder } from './concurrency.js';
 import { DatasetSegments } from './dataset-open.js';
 import { storeCollection, type CollectionSource } from './store-collection.js';
 import type { StorageBackend } from './storage/interfaces.js';
+
+/**
+ * How many of a target's ops the apply takes ahead of the segment it applies:
+ * the segments they fall in are read while it does, {@link OBJECT_CONCURRENCY}
+ * at a time, rather than each when the apply reaches it — a remote store's
+ * round trip each (#1573). What it holds is bounded by this, and by the
+ * segments in flight.
+ */
+const OPS_AHEAD = 4096;
+
+/** How many of a delta's own segments are read ahead of the one its entries
+ *  are taken from. */
+const DELTA_SEGMENTS_AHEAD = 4;
 
 /** One entry of a delta: the target it changes, the key, and the op. */
 export interface DeltaEntry {
@@ -167,18 +181,33 @@ export async function applyDeltaEntries(
   targets: Map<string, string>,
   entries: Iterable<DeltaEntry> | AsyncIterable<DeltaEntry>,
 ): Promise<Map<string, string>> {
-  const written = new Map<string, string>();
   const cursor = new DeltaCursor(inOrder(entries));
-  for (let entry = await cursor.peek(); entry !== undefined; entry = await cursor.peek()) {
-    if (entry.target === DELTA_CONFLICT) throw new DeltaConflictError(entry.key as string);
-    const hash = targets.get(entry.target);
-    if (hash === undefined) {
-      throw new Error(
-        `the mutation delta names target '${entry.target}', which this record does not hold` +
-        ` — it has ${[...targets.keys()].join(', ')}`);
+  // Each target's write, in the delta's order. A target is written while the
+  // next takes its ops: the cursor is a target's until it has taken its last
+  // (#1573), and every write has ended before the apply returns or throws.
+  // A target's manifest is opened as the delta reaches it — beside the write
+  // of the one before — so one the delta does not name is never read.
+  const writes: Array<{ target: string; written: Promise<string> }> = [];
+  try {
+    for (let entry = await cursor.peek(); entry !== undefined; entry = await cursor.peek()) {
+      if (entry.target === DELTA_CONFLICT) throw new DeltaConflictError(entry.key as string);
+      const hash = targets.get(entry.target);
+      if (hash === undefined) {
+        throw new Error(
+          `the mutation delta names target '${entry.target}', which this record does not hold` +
+          ` — it has ${[...targets.keys()].join(', ')}`);
+      }
+      const write = applyTarget(storage, repo, entry.target, await DatasetSegments.open(storage, repo, hash), cursor);
+      write.written.catch(() => { /* raised in the delta's order, below */ });
+      writes.push({ target: entry.target, written: write.written });
+      // A write that fails before its target has taken its ops stops the apply
+      await Promise.race([write.taken, write.written]);
     }
-    written.set(entry.target, await applyTarget(storage, repo, entry.target, hash, cursor));
+  } finally {
+    await Promise.allSettled(writes.map(({ written }) => written));
   }
+  const written = new Map<string, string>();
+  for (const write of writes) written.set(write.target, await write.written);
   return written;
 }
 
@@ -202,8 +231,9 @@ async function* deltaEntries(
 ): AsyncGenerator<DeltaEntry> {
   const delta = await DatasetSegments.open(storage, repo, deltaHash);
   const decode = decodeBeast2For(delta.typeValue);
-  for (let i = 0; i < delta.segmentCount; i++) {
-    const entries: SortedMap<unknown, unknown> = decode(await delta.segment(i));
+  // Its segments are read a few ahead of the one taken from (#1573)
+  for await (const segment of readInOrder(delta.segmentCount, DELTA_SEGMENTS_AHEAD, (i) => delta.segment(i))) {
+    const entries: SortedMap<unknown, unknown> = decode(segment);
     for (const [key, op] of entries) {
       // Each entry is a target's: its key and its op are variants of the target's name.
       if (!isVariant(key) || !isVariant(op)) throw new Error(`delta ${deltaHash} holds an entry that is no target's`);
@@ -264,16 +294,49 @@ export async function summarizeDelta(
  * segment at it. A target an older e3 wrote — one blob, or a manifest cut
  * under an earlier rule — is refused, by the opener or the door.
  *
- * @returns the new manifest object's hash
+ * The ops are taken a batch at a time, {@link OPS_AHEAD} of them, and the
+ * segments a batch falls in are read in order, {@link OBJECT_CONCURRENCY} at
+ * a time, while the segments before them are applied and written (#1573). A
+ * segment's ops are never split between two batches. Once the target has
+ * taken its last op it touches the cursor no more, and says so, so the next
+ * target's ops are taken while its segments are written.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param target - The target, as the delta names it
+ * @param segments - The manifest it holds, opened
+ * @param cursor - The delta, at the target's first op
+ * @returns `taken`, settled once the target has taken its last op from the
+ *   cursor, or its write has failed; and `written`, the new manifest object's
+ *   hash
  */
-async function applyTarget(
+function applyTarget(
   storage: StorageBackend,
   repo: string,
   target: string,
-  hash: string,
+  segments: DatasetSegments,
   cursor: DeltaCursor,
+): { taken: Promise<void>; written: Promise<string> } {
+  let release!: () => void;
+  const taken = new Promise<void>((resolve) => { release = resolve; });
+  const written = writeTarget(storage, repo, target, segments, cursor, release);
+  // A write that fails before its last op is taken releases the cursor too
+  written.then(release, release);
+  return { taken, written };
+}
+
+/**
+ * The write of {@link applyTarget}: `release` is called once the target's
+ * last op is taken, and the cursor is not touched again.
+ */
+async function writeTarget(
+  storage: StorageBackend,
+  repo: string,
+  target: string,
+  segments: DatasetSegments,
+  cursor: DeltaCursor,
+  release: () => void,
 ): Promise<string> {
-  const segments = await DatasetSegments.open(storage, repo, hash);
   const typeValue = segments.typeValue;
   const keyType = segmentKeyTypeOf(typeValue);
   if (keyType === null) {
@@ -295,11 +358,11 @@ async function applyTarget(
   const segmentOf = async (key: unknown): Promise<number> =>
     segments.segmentCount === 0 ? 0 : segments.segmentFor(key);
 
-  /** Segment `i` with `ops` applied, as elements. */
-  async function* editedElements(i: number, ops: Array<[unknown, unknown]>): AsyncGenerator<unknown> {
-    const before = i < segments.segmentCount
-      ? decodeSegment(await segments.segment(i))
-      : emptyOf(typeValue, keyCompare);
+  /** A segment, as its bytes were read — or `null`, one past the last, which
+   *  an insert after every key joins — with `ops` applied, as elements, once
+   *  the door reads them. */
+  function* editedElements(bytes: Uint8Array | null, ops: Array<[unknown, unknown]>): Generator<unknown> {
+    const before = bytes !== null ? decodeSegment(bytes) : emptyOf(typeValue, keyCompare);
     const after = summary
       ? addToTotals(target, before as SortedMap<unknown, Totals>, ops, keyCompare, printKey!)
       : applyOps(apply, target, before, new SortedMap<unknown, unknown>(ops, keyCompare));
@@ -308,26 +371,57 @@ async function applyTarget(
       : (after as SortedMap<unknown, unknown>).entries();
   }
 
+  /** Whether the target's last op is taken: the cursor is the next target's. */
+  let ended = false;
+
+  /** The target's next ops by the segment each falls in, which arrive
+   *  together — the ops ascend, and so do the segments they fall in — at
+   *  least {@link OPS_AHEAD} of them unless its run ends first, and none of a
+   *  segment held back for the next batch. Once the run ends, the cursor is
+   *  released and none is taken. */
+  async function nextBatch(): Promise<Array<{ segment: number; ops: Array<[unknown, unknown]> }>> {
+    const groups: Array<{ segment: number; ops: Array<[unknown, unknown]> }> = [];
+    let taken = 0;
+    while (!ended) {
+      const entry = await cursor.peek();
+      if (entry === undefined || entry.target !== target) {
+        ended = true;
+        release();
+        break;
+      }
+      const segment = await segmentOf(entry.key);
+      let last = groups.at(-1);
+      if (last === undefined || last.segment !== segment) {
+        if (taken >= OPS_AHEAD) break;
+        last = { segment, ops: [] };
+        groups.push(last);
+      }
+      last.ops.push([entry.key, entry.op]);
+      cursor.take();
+      taken++;
+    }
+    return groups;
+  }
+
+  /** The target's segments `[from, to)`, as they are stored: carrying the
+   *  manifest, which the door then reads no part of again (#1573). */
+  const untouched = (from: number, to: number): CollectionSource => ({ stored: segments.hash, from, to, manifest: segments.manifest });
+
   async function* sources(): AsyncGenerator<CollectionSource> {
     let at = 0;
-    let entry = await cursor.peek();
-    let seg = entry !== undefined && entry.target === target ? await segmentOf(entry.key) : 0;
-    while (entry !== undefined && entry.target === target) {
-      // The ops of one segment, which arrive together: the ops ascend, and so
-      // do the segments they fall in.
-      const i = seg;
-      const ops: Array<[unknown, unknown]> = [];
-      while (entry !== undefined && entry.target === target && seg === i) {
-        ops.push([entry.key, entry.op]);
-        cursor.take();
-        entry = await cursor.peek();
-        if (entry !== undefined && entry.target === target) seg = await segmentOf(entry.key);
+    for (let groups = await nextBatch(); groups.length > 0; groups = await nextBatch()) {
+      const reads = readInOrder(groups.length, OBJECT_CONCURRENCY, (k) => {
+        const i = groups[k]!.segment;
+        return i < segments.segmentCount ? segments.segment(i) : Promise.resolve(null);
+      });
+      for (const { segment, ops } of groups) {
+        if (at < segment) yield untouched(at, segment);
+        const read = await reads.next();
+        yield { elements: editedElements(read.done === true ? null : read.value, ops) };
+        at = segment + 1;
       }
-      if (at < i) yield { stored: hash, from: at, to: i };
-      yield { elements: editedElements(i, ops) };
-      at = i + 1;
     }
-    if (at < segments.segmentCount) yield { stored: hash, from: at, to: segments.segmentCount };
+    if (at < segments.segmentCount) yield untouched(at, segments.segmentCount);
   }
 
   return storeCollection(storage, repo, typeValue, sources());

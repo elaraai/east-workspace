@@ -381,6 +381,16 @@ export class LocalObjectStore implements ObjectStore {
     return objectWrite(repo, data);
   }
 
+  /** Writes each object as {@link objectWrite} does, a file each,
+   *  {@link OBJECT_CONCURRENCY} at a time. */
+  async writeMany(repo: string, objects: readonly Uint8Array[]): Promise<string[]> {
+    const hashes = new Array<string>(objects.length);
+    await eachAtMost([...objects.keys()], OBJECT_CONCURRENCY, async (i) => {
+      hashes[i] = await objectWrite(repo, objects[i]!);
+    });
+    return hashes;
+  }
+
   async writeStream(repo: string, stream: AsyncIterable<Uint8Array>): Promise<string> {
     return objectWriteStreamIterable(repo, stream);
   }

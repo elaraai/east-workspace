@@ -160,6 +160,22 @@ export class EditHistory<W> {
         for (const session of this.all) if (session.error !== undefined) return session.error;
         return undefined;
     }
+    /**
+     * Where its sessions' read backs stand (#1573): `"failed"` once one has
+     * failed, else `"waiting"` while one reads its saved state back, else
+     * `undefined` — read from the sessions that read back
+     * ({@link EditSession.readBack}), never from another's error, as one whose
+     * Save could not be prepared holds.
+     */
+    get readBack(): "waiting" | "failed" | undefined {
+        let waiting = false;
+        for (const session of this.all) {
+            const readBack = session.readBack;
+            if (readBack === "failed") return "failed";
+            if (readBack === "waiting") waiting = true;
+        }
+        return waiting ? "waiting" : undefined;
+    }
     /** Every session's issues with its latest request, in order. */
     get issues(): EditIssue[] { return this.all.flatMap((session) => session.issues); }
     /** Every session's drafts' readiness together: ready while each is; invalid when one is. */

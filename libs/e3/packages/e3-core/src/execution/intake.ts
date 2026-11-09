@@ -46,7 +46,7 @@ import { uuidv7 } from '../uuid.js';
 import type { IntakeOptions, IntakeResult, IntakeSpec } from './interfaces.js';
 import { giveDirectory, spawnAndCapture, type ProcessSettings, type SpawnAndCaptureResult } from './processExec.js';
 import { callScratchDir } from './scratch.js';
-import { readUnitResult, runnerCommand, stageIntakeUnit, unitArgv, type IntakeUnit, type StockRunner } from './units.js';
+import { readUnitResult, runnerCommand, runnerEnded, stageIntakeUnit, unitArgv, type IntakeUnit, type StockRunner } from './units.js';
 import { unitThreads, type Budget, type Grant, type GuardStop } from './budget.js';
 import { unitCgroups } from './cgroups.js';
 
@@ -197,9 +197,8 @@ async function stageAndRun(
       throw new DeliveryRefusedError(candidate.command, piece === null ? refusal : piece.inDelivery(refusal), result.stderrTail);
     }
     // No result that reads: the runner could not run the unit at all.
-    const ended = result.exitCode !== null ? `exited ${result.exitCode}` : result.signal !== null ? `was ended by ${result.signal}` : 'did not start';
     const said = tellingLine(result.stderrTail) ?? result.error ?? undefined;
-    const reason = `${candidate.command} ${ended} without recording a result for the intake unit${said === undefined ? '' : ` (${said})`}`;
+    const reason = `${candidate.command} ${runnerEnded(result)} without recording a result for the intake unit${said === undefined ? '' : ` (${said})`}`;
     if (at === candidates.length - 1) {
       throw new Error(result.stderrTail.trim() === '' ? reason : `${reason}\nstderr:\n${result.stderrTail.trim()}`);
     }

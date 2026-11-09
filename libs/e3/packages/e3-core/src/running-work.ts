@@ -49,13 +49,29 @@ export const TASKS_LOCK = '#tasks';
  *   repository.
  */
 export async function withRunningWork<T>(storage: StorageBackend, repo: string, fn: () => Promise<T>): Promise<T> {
-  const lock = await storage.locks.acquire(repo, TASKS_LOCK, variant('dataflow', null), { mode: 'shared' });
-  if (!lock) throw new Error('a garbage collection or an upgrade holds this repository — retry when it finishes');
+  const lock = await acquireRunningWork(storage, repo);
   try {
     return await fn();
   } finally {
     await lock.release();
   }
+}
+
+/**
+ * Takes the tasks lock shared, as {@link withRunningWork} holds it: for work
+ * that takes it beside another lock, at once, rather than one after the
+ * other.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @returns The lock, which the caller releases
+ * @throws {Error} When a garbage collection or an upgrade holds the
+ *   repository.
+ */
+export async function acquireRunningWork(storage: StorageBackend, repo: string): Promise<LockHandle> {
+  const lock = await storage.locks.acquire(repo, TASKS_LOCK, variant('dataflow', null), { mode: 'shared' });
+  if (!lock) throw new Error('a garbage collection or an upgrade holds this repository — retry when it finishes');
+  return lock;
 }
 
 /** How {@link withRepositoryHeld} takes the repository. */

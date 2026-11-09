@@ -200,9 +200,11 @@ export class ExecutionAttempt {
    *
    * @param message - What went wrong
    * @param exitCode - The runner's exit code, when it had exited
+   * @param flushed - The flush of its log {@link flushLog} began once its
+   *   runners had exited, which the record waits for in place of its own
    * @returns The execution's result
    */
-  async recordError(message: string, exitCode: number | null = null): Promise<ExecutionResult> {
+  async recordError(message: string, exitCode: number | null = null, flushed?: Promise<void>): Promise<ExecutionResult> {
     const { inputHashes, unit } = this;
     const { inHash, executionId, startTime } = this.ids;
     await this.end(variant('error', {
@@ -212,7 +214,7 @@ export class ExecutionAttempt {
       completedAt: new Date(),
       message,
       unit,
-    }));
+    }), flushed);
     return {
       inputsHash: inHash,
       executionId,
@@ -304,14 +306,33 @@ export class ExecutionAttempt {
   }
 
   /**
+   * Flushes the attempt's log (`LogStore.flush`) once its runners have
+   * exited, so that a host storing the output meanwhile does not wait for the
+   * flush after it (#1573): {@link recordSuccess}, or {@link recordError} when
+   * the output does not store, takes what this returns. A log that cannot be
+   * flushed is warned of, as {@link end} warns of it.
+   *
+   * @returns Once the flush has settled
+   */
+  flushLog(): Promise<void> {
+    const { storage, repo, taskHash } = this;
+    const { inHash, executionId } = this.ids;
+    return storage.logs.flush(repo, taskHash, inHash, executionId).catch((err: unknown) => {
+      console.warn(`Failed to flush the log: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }
+
+  /**
    * Records the attempt's success: the output it stored through the store's
    * door.
    *
    * @param outputHash - The output's hash
    * @param peakBytes - The highest peak its runners reported
+   * @param flushed - The flush of its log {@link flushLog} began once its
+   *   runners had exited, which the record waits for in place of its own
    * @returns The execution's result
    */
-  async recordSuccess(outputHash: string, peakBytes?: number): Promise<ExecutionResult> {
+  async recordSuccess(outputHash: string, peakBytes?: number, flushed?: Promise<void>): Promise<ExecutionResult> {
     const { inputHashes, unit } = this;
     const { inHash, executionId, startTime } = this.ids;
     await this.end(variant('success', {
@@ -323,7 +344,7 @@ export class ExecutionAttempt {
       peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)),
       plan: none,
       unit,
-    }));
+    }), flushed);
     return {
       inputsHash: inHash,
       executionId,
@@ -345,15 +366,13 @@ export class ExecutionAttempt {
    * same, as one that cannot be appended to is.
    *
    * @param status - How it ended
+   * @param flushed - A flush begun already ({@link flushLog}), waited for in
+   *   place of another
    */
-  private async end(status: ExecutionStatus): Promise<void> {
+  private async end(status: ExecutionStatus, flushed?: Promise<void>): Promise<void> {
     const { storage, repo, taskHash } = this;
     const { inHash, executionId } = this.ids;
-    try {
-      await storage.logs.flush(repo, taskHash, inHash, executionId);
-    } catch (err) {
-      console.warn(`Failed to flush the log: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    await (flushed ?? this.flushLog());
     await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
   }
 }

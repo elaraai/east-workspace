@@ -7,13 +7,17 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { variant } from '@elaraai/east';
-import { DEFAULT_RUNNER, runnerToVariant, type Runner } from './runner.js';
+import { DEFAULT_RECORD_RUNNER, DEFAULT_RUNNER, runnerToVariant, type Runner } from './runner.js';
 
 const LAZY = variant('lazy', null);
 
 describe('runnerToVariant', () => {
   it('default is east-node + east-node-std (cheap to resolve in any e3 project)', () => {
     assert.deepEqual(runnerToVariant(DEFAULT_RUNNER), variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: LAZY }));
+  });
+
+  it('a record program\'s default is east-c, naming no platform: its program calls none (#1573)', () => {
+    assert.deepEqual(runnerToVariant(DEFAULT_RECORD_RUNNER), variant('east_c', { platforms: [], decode: LAZY }));
   });
 
   it('east-py with multiple stock platforms', () => {

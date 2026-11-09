@@ -138,6 +138,28 @@ describe("Roster week lifecycle", () => {
         expect((await h.read(ex.rosterWeeks)).has(NEXT)).toBe(false);
         expect((await h.read(ex.rosterDuties)).has("s37")).toBe(false);
     });
+    test("Publish shows that it works from its press until the week reads back published: its spinner, and Save's live dot while the duties' Save is out (#1573)", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        await press(within(assignment(container, "s37")).getByRole("button", { name: "Remove C. Clover" }));
+        const publish = () => history(container, "Publish");
+        expect(publish().hasAttribute("data-loading")).toBe(false);
+        // The duties' write held on its way to e3: Publish's Save is out.
+        const writes = h.e3.hold((request) => request.kind === "mutate" && request.record === ex.rosterDuties.name);
+        await act(async () => { fireEvent.click(publish()); });
+        await writes.holding;
+        await waitFor(() => {
+            const save = history(container, editingMessages.apply());
+            expect([publish().hasAttribute("data-loading"), publish().getAttribute("aria-busy"), save.getAttribute("aria-busy"), save.querySelector("[data-history-live]") !== null])
+                .toEqual([true, "true", "true", true]);
+        });
+        expect(slot(container, "toolbar").querySelector("[data-roster-status]")?.textContent).toBe("Publishing");
+        await act(async () => { writes.release(); });
+        await settle();
+        // Its spinner stays until the week's status is saved and read back.
+        await waitFor(() => expect(slot(container, "toolbar").querySelector("[data-roster-status]")?.textContent).toBe("Published"), { timeout: 15_000 });
+        expect([publish().hasAttribute("data-loading"), publish().getAttribute("aria-busy")]).toEqual([false, null]);
+        expect((await h.read(ex.rosterWeeks)).get(START)!.state.type).toBe("issued");
+    });
     test("a failed Save retains the draft and explains the record failure", async () => {
         // The warehouse has locked its duties: their patch door refuses every change, naming why.
         const { container } = await h.mount(warehouseRoster({ locked: true }));

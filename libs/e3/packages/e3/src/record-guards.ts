@@ -14,7 +14,7 @@
 import type { EastType } from '@elaraai/east';
 import { AsyncEastIR, EastTypeType, Expr, FunctionExpr, FunctionType, equalFor, printType, toEastTypeValue, walkIR } from '@elaraai/east';
 import type { IRBundle, RecordDef } from './types.js';
-import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
+import { DEFAULT_RECORD_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
 
 // Structural East-type equality, the same primitive the redeploy type-change
 // guard uses (e3-core workspaces.ts): compare the encoded EastTypeValues.
@@ -205,14 +205,14 @@ export function onlyOptions(constructor: IndexConstructor, name: string, spec: o
 }
 
 /**
- * An index's runner: the one it declares, or the default, checked now so a bad
- * runner fails at definition time, not at export.
+ * An index's runner: the one it declares, or {@link DEFAULT_RECORD_RUNNER},
+ * checked now so a bad runner fails at definition time, not at export.
  *
  * @param config - The declaration's runner selection
  * @returns The runner
  */
 export function indexRunner(config: { runner?: FunctionRunner } | undefined): FunctionRunner {
-  const runner = config?.runner ?? DEFAULT_RUNNER;
+  const runner = config?.runner ?? DEFAULT_RECORD_RUNNER;
   runnerToVariant(runner);
   return runner;
 }
