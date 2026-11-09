@@ -425,19 +425,31 @@ function RosterFrame(props: FrameProps) {
         return there === undefined ? undefined : { a: there.a, there };
     };
     // A duty shown on its day and selected, as its issue's click in the Issues tab does — in its own week, where it is a
-    // duty of another: a conflict's Go to, a refusal pressed, and the warning button's first issue (#1525). A week's or a
-    // target's, or a duty the Roster can't place, opens the Issues tab.
+    // duty of another: a conflict's Go to, a refusal pressed, and the warning button's first issue (#1525). In Month,
+    // which draws no one duty, its week in Week (P24), the duty selected once that week is read; with Week not offered the
+    // month holding its week stays, and its person's week is selected. A week's or a target's, a duty the Roster can't
+    // place, or a request's in a Month with no Week, opens the Issues tab.
     const goTo = (kind: string | undefined, entry: string) => {
         const found = dutyOf(kind, entry);
         if (found === undefined) { onIssues(); return; }
         const { a, there } = found;
+        const at = there?.start ?? start;
+        const date = at.getTime() + Number(a.slot.day) * DAY;
         // Its group opened where it is folded: its shift's on the board, its person's in the People layout.
         groups.open(a.slot.group);
         const person = a.who.type === "person" ? value.people.find((p) => keyEqual(p.key, a.who.value)) : undefined;
         if (person !== undefined) groups.open(person.group);
-        window.setView({ ...window.view, date: (there?.start ?? start).getTime() + Number(a.slot.day) * DAY });
-        if (there === undefined) select({ type: "assignment", key: entry });
-        else setGoing({ key: entry, week: there.start });
+        const month = window.view.period === "month";
+        if (month && !window.opensWeek) {
+            if (person === undefined) { onIssues(); return; }
+            // Its day moves the month only to bring its week into view: a day of a week that starts in the month before would move it.
+            if (!span.weeks.some((week) => compareDate(week, at) === 0)) window.setView({ ...window.view, date });
+            select({ type: "personWeek", key: person.key, start: at.getTime() });
+            return;
+        }
+        window.setView({ ...window.view, period: month ? "week" : window.view.period, date });
+        if (there === undefined && !month) select({ type: "assignment", key: entry });
+        else setGoing({ key: entry, week: at });
     };
     const onConflict = (issue: EditIssue) => {
         const key = history?.sourceOf(issue);

@@ -4,7 +4,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { within } from "@testing-library/react";
+import { waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { equalFor, none, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
@@ -134,6 +134,29 @@ describe('Roster shared and custom forms', () => {
         expect(toolbar().getByRole('button', { name: 'Save' })).toHaveProperty('disabled', false);
         expect(details()?.querySelector('[data-roster-refusals]')).toBeNull();
         expect(chip()).toBe(counted - 1);
+    });
+    test("a refusal pressed in Month opens its duty's week in Week, the duty selected and the refusal over its form — never the month's first week's Summary (#1584)", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse); const user = userEvent.setup();
+        const toolbar = () => within(slot(container, 'toolbar'));
+        const end = () => slot(container, 'end');
+        // Its cost centre cleared: the warehouse's check on a draft refuses the duty, on the Thursday of the month's second week.
+        await press(assignment(container, 's37'));
+        const costCentre = within(end().querySelector<HTMLElement>('[data-field="costCentre"]')!).getByRole('textbox');
+        await user.clear(costCentre); await user.type(costCentre, '{Enter}'); await settle();
+        expect(toolbar().getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true);
+        await press(toolbar().getByRole('radio', { name: 'People' }));
+        await press(toolbar().getByRole('radio', { name: 'Month' }));
+        expect(slot(container, 'main').querySelector('[data-roster-grid="people-month"]')).not.toBeNull();
+        await press(within(end()).getByRole('tab', { name: /^Issues/ }));
+        const line = end().querySelector('[data-roster-issue="refusal"] button');
+        expect(line?.textContent).toBe('C. Clover · Thu, Mar 9, 2028 · Early');
+        await press(line);
+        // Its week in Week, and once that week is read the duty selected: its Details, the refusal over its form.
+        expect(toolbar().getByRole('radio', { name: 'Week' }).getAttribute('aria-checked')).toBe('true');
+        expect(slot(container, 'main').querySelector('[data-roster-column-header]')!.textContent).toMatch(/^Sun\s*5$/);
+        const details = () => end().querySelector('[data-roster-inspector="details"]');
+        await waitFor(() => expect(details()?.querySelector('[data-roster-refusals]')).not.toBeNull());
+        expect(details()?.querySelector('[data-inspector-title]')?.textContent).toBe('C. Clover');
     });
     test('live configuration and suggestions refresh without replacing a pending duty', async () => {
         const { container } = await h.mount(ex.rosterWarehouse);
