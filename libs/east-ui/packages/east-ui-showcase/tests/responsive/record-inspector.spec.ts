@@ -202,3 +202,28 @@ test("a read-only Record's inspector: each member printed on its field's line, t
     await expect(row.locator("[data-field-choice]")).toHaveCount(0);
     await expect(row.locator("[data-inspector-actions]")).toHaveCount(0);
 });
+
+test("a line of more choices than fit beside its label wraps them under it, within the pane: none cut, and nothing in the pane scrolls sideways @desktop", async ({ page }) => {
+    // The orders' Status, four steps, in a wide window's pinned inspector.
+    const entry = await openRecord(page, "recordOrderStatus", "light", 1662);
+    const { pane, open } = paneOf(entry);
+    await expect(pane).toHaveAttribute("data-pane-mode", "pinned");
+    await cellOf(entry, "SO-1042", "customer").click();
+    const row = open.locator('[data-record-details="row"]');
+    await expect(row).toHaveAttribute("data-record-entry", "SO-1042");
+    const status = row.locator('[data-field="status"]');
+    await expect(status.locator('[data-part="item"]')).toHaveCount(4);
+    const within = await status.evaluate((field) => {
+        const box = field.getBoundingClientRect();
+        return [...field.querySelectorAll('[data-part="item"]')].map((item) => {
+            const b = item.getBoundingClientRect();
+            return [item.textContent, b.left >= box.left - 0.5 && b.right <= box.right + 0.5];
+        });
+    });
+    expect(within).toEqual([["Received", true], ["Picked", true], ["Packed", true], ["Shipped", true]]);
+    const sideways = await pane.evaluate((root) => [root, ...root.querySelectorAll("*")].some((el) => {
+        const s = getComputedStyle(el);
+        return (s.overflowX === "auto" || s.overflowX === "scroll") && el.scrollWidth > el.clientWidth + 1;
+    }));
+    expect(sideways, "a scroller in the pane wider than its box").toBe(false);
+});

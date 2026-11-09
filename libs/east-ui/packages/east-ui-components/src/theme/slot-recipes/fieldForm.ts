@@ -23,8 +23,10 @@
  *
  * A field drawn on one line (#1534) is that line: its label at the start, as
  * strong as a field's label, one line and an ellipsis, and its radios at the
- * end, which hold the line to the Input's height; its help, where it has one,
- * wraps under it, the shared `Field`'s help line (#1561). Lines that follow
+ * end, which hold the line to the Input's height — under the label where they
+ * can't sit beside it, and wrapping where the form is narrower than they are,
+ * so no choice is cut; its help, where it has one, wraps under it, the shared
+ * `Field`'s help line (#1561). Lines that follow
  * one another sit closer than fields do, rows of choices. A field an issue
  * names takes the warn wash a Record's empty required cell wears, spread as
  * the drafts' tint is — so a new row's empty lines read as one block.
@@ -136,13 +138,17 @@ export const fieldFormSlotRecipe = defineSlotRecipe({
             fontWeight: "semibold",
             color: "fg",
         },
-        /* The choices hold the line to the Input's height, with a help under it as without. */
+        /* The choices hold the line to the Input's height, with a help under it as without — never wider than the form:
+         * more than its width holds wrap onto a line of their own, as close as lines of choices sit. */
         lineChoices: {
-            flex: "none",
+            flex: "0 1 auto",
+            minWidth: 0,
+            maxWidth: "100%",
             display: "flex",
             alignItems: "center",
             minHeight: fieldHeights.md,
             _coarse: { minHeight: "44px" },
+            "& [role=radiogroup] > *": { flexWrap: "wrap", rowGap: "{spacing.1}" },
         },
         /* Read only: the choice made, where the radios would be, on the same line. */
         lineValue: {
