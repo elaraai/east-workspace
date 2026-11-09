@@ -5,7 +5,8 @@
 
 /**
  * Optional Calendar inspector: shared fields over the same Schedule drafts. An event's overlaps are the ones the toolbar
- * counts: on the timeline, those in the days it shows (#1398).
+ * counts: on the timeline, those in the days it shows (#1398). A placement the event refuses — its start, its end, its
+ * resource — and a bulk edit the selection refuses go back to what the fields hold, the reason under the field changed.
  *
  * It keeps the keyboard (#1398): a control that goes with the view it was pressed in — Delete, Return to backlog,
  * Duplicate, an overlapping event's link, Remove from selection, Delete selected — leaves the focus on the heading of the
@@ -138,7 +139,6 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
     const format = useFormatters();
     // Its overlaps as the toolbar counts them: on the timeline, those in the days it shows, read as they move.
     const overlaps = useShownOverlaps(all, visible);
-    const [error, setError] = useState<string>();
     const rowType = useMemo(() => fromEastTypeValue(kind.editing.entryType) as StructType, [kind.editing.entryType]);
     const row = useMemo(() => decodeBeast2For(rowType)(event.row), [rowType, event.row]);
     // Each reference field's Chooser offers the rows the rail shows, and the event's own whatever it hides.
@@ -185,7 +185,7 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
         <Box css={styles.fields}><Box css={styles.sectionHead}>Schedule</Box>
         <FieldForm specs={roleSpecs} words={fieldWords} value={row} baseline={baseline} options={options} onChange={onField} readOnly={fieldsReadOnly} renderControl={chooser === undefined ? undefined : renderReference} />
         {commands !== undefined && item.start.type === "some" && item.end.type === "some" && <PlacementFields source={{ kind, item }} value={value} shown={shown} readOnly={!commands.editing.available(kind.key)}
-            placement={{ start: item.start.value, end: item.end.value, resource: item.resource }} onChange={at => setError(commands.place({ kind, item }, at))} />}
+            placement={{ start: item.start.value, end: item.end.value, resource: item.resource }} onChange={at => commands.place({ kind, item }, at)} />}
         {commands === undefined && <Box css={styles.detail}>{item.start.type === "some" ? `${format.dateTime(item.start.value)} – ${item.end.type === "some" ? format.dateTime(item.end.value) : ""}` : value.vocabulary.unscheduled}</Box>}
         </Box>
         <Box css={styles.fields}><Box css={styles.sectionHead}>{kind.name} fields</Box>
@@ -194,7 +194,6 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
                 renderControl={chooser === undefined ? undefined : renderReference} />}
         </Box>
         {own?.error !== undefined && <Box role="alert" css={styles.error}>{own.error}</Box>}
-        {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}
         {commands !== undefined && <EventActions item={item} value={value} shown={shown} commands={commands} day={range.from} styles={styles} />}
     </>;
 }
@@ -204,7 +203,7 @@ function ManyEvents({ events, commands, styles, select, value, shown }: Inspecto
     return <>
         <Box css={styles.head} {...FOCUS_HOME_PROPS}><Box css={styles.summary}>{events.length} events</Box></Box>
         {events.map(event => <Button key={eventKey(event.item)} size="xs" variant="ghost" onClick={() => select(events.filter(other => other !== event).map(other => ({ kind: other.item.kind, key: other.item.key })))}>{event.item.title} · Remove from selection</Button>)}
-        {commands !== undefined && <Box css={styles.bulk}><Box css={styles.sectionHead}>Bulk edit</Box><BulkFields events={events} value={value} shown={shown} commands={commands} onError={setError} /></Box>}
+        {commands !== undefined && <Box css={styles.bulk}><Box css={styles.sectionHead}>Bulk edit</Box><BulkFields events={events} value={value} shown={shown} commands={commands} onEdit={() => setError(undefined)} /></Box>}
         {commands !== undefined && <Box css={styles.actions}>
             {[-24, -1, 1, 24].map(hours => <Button key={hours} size="xs" variant="outline" disabled={events.some(event => !commands.editing.available(event.kind.key))} onClick={() => setError(commands.move(items, hours * 3_600_000))}>{hours > 0 ? "+" : ""}{hours} h</Button>)}
             <Button size="xs" variant="outline" disabled={events.some(event => !commands.editing.available(event.kind.key))} onClick={() => setError(commands.duplicate(items))}>Duplicate selected</Button>
@@ -221,8 +220,10 @@ const isBulkResource = (spec: FieldSpecValue) => spec.path[0] === "resource";
 /**
  * Bulk edits retain each event's type and pass through the same checked commands; their resource Chooser offers the
  * rows the rail shows — or, for events every one of which is placed on the paged resource kind, searches it by key (#1424).
+ * One the selection refuses goes back, the reason under its field; each edit tells `onEdit`, which clears what the
+ * selection's actions last said.
  */
-function BulkFields({ events, value, shown, commands, onError }: { events: Inspected[]; value: CalendarValue; shown: CalendarShownResources; commands: CalendarCommands; onError: (error: string | undefined) => void }) {
+function BulkFields({ events, value, shown, commands, onEdit }: { events: Inspected[]; value: CalendarValue; shown: CalendarShownResources; commands: CalendarCommands; onEdit: () => void }) {
     const items = events.map(event => event.item);
     const statuses = events[0]!.kind.status.filter(status => events.every(event => event.kind.status.some(other => other.case === status.case)));
     const resources = resourceChoices(value.resources, shown, []).filter(kind => events.every(event => event.kind.takes.includes(kind.key)));
@@ -236,17 +237,20 @@ function BulkFields({ events, value, shown, commands, onError }: { events: Inspe
     const resourceWord = value.vocabulary.resources.one;
     const specs = useMemo(() => BULK_SPECS.map(spec => (isBulkResource(spec) ? { ...spec, label: resourceWord } : spec)), [resourceWord]);
     const fieldWords = useCalendarFieldWords(value);
-    const renderControl = useCallback((spec: FieldSpecValue) => pagedControl(paged, spec, isBulkResource, undefined,
-        key => { if (paged !== undefined) onError(commands.move(items, 0, some({ kind: paged.paged.kind, key }))); }, readOnly),
-    [paged, commands, items, onError, readOnly]);
+    // A resource picked is the field's own edit, so one the selection refuses is said under it.
+    const renderControl = useCallback((spec: FieldSpecValue, change: (next: unknown) => void) => pagedControl(paged, spec, isBulkResource, undefined,
+        key => { if (paged !== undefined) change(resourceKey({ kind: paged.paged.kind, key })); }, readOnly),
+    [paged, readOnly]);
     return <FieldForm specs={specs.filter(spec => spec.path[0] === "status" ? statuses.length > 0 : resources.length > 0)} value={form} options={options} words={fieldWords}
         renderControl={paged === undefined ? undefined : renderControl} readOnly={readOnly} onChange={(path, next) => {
+            onEdit();
             const picked = next as ValueTypeOf<OptionType<StringType>>;
-            if (path[0] === "status" && picked.type === "some") onError(commands.status(items, picked.value));
-            else if (path[0] === "resource") {
+            if (path[0] === "status" && picked.type === "some") return commands.status(items, picked.value);
+            if (path[0] === "resource") {
                 const parsed = picked.type === "some" ? parseResourceKey(picked.value) : undefined;
-                if (parsed?.success) onError(commands.move(items, 0, some(parsed.value)));
-                else if (picked.type === "none") onError(commands.move(items, 0, none));
+                if (parsed?.success) return commands.move(items, 0, some(parsed.value));
+                if (picked.type === "none") return commands.move(items, 0, none);
             }
+            return undefined;
         }} />;
 }

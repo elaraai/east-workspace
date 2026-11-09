@@ -562,3 +562,55 @@ describe("the inspector keeps the keyboard as a control goes with its view (#139
         expect([focused.hasAttribute("data-focus-home"), focused.textContent]).toEqual([true, "Nothing selectedSelect an event to inspect its schedule and fields."]);
     });
 });
+
+describe("an inspector's edit the Calendar refuses goes back to what its field holds, saying why under it (#1585)", () => {
+    /** The jobs on their machines, a day in view, every placement refused: the shop closed for maintenance. */
+    const closed = { fn: East.function([], UIComponentType, _$ => Reactive.Root(East.function([], UIComponentType, $ => {
+        const machines = $.let(Record.bind(ex.calendarMachines, []));
+        const jobs = $.let(Record.bind(ex.calendarJobs, ["patch"]));
+        return Calendar({ inspector: true, view: { period: "day", date: new Date("2026-10-01T00:00:00Z") },
+            resources: { machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) },
+            events: { job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" } }) },
+            canDrop: East.function([Calendar.Types.Candidate], OptionType(StringType), () => some("Closed for maintenance")),
+        });
+    }))) };
+    /** What a field says under it of an edit it shows what it holds in place of. */
+    const refusalOf = (field: Element) => field.querySelector("[data-scope=field][data-part=error-text]")?.textContent;
+    /** How many times the inspector says a refusal: once, under the field. */
+    const said = (c: HTMLElement) => slot(c, "end").textContent!.split("Closed for maintenance").length - 1;
+
+    test("a start it refuses, as the keyboard moves on: the box shows the start the event holds, the reason under it once, and no draft", async () => {
+        const { container } = await h.mount(closed);
+        await press(event(container, "job", "job1"));
+        const start = slot(container, "end").querySelector<HTMLElement>('[data-field="start"]')!;
+        const hour = () => start.querySelector<HTMLElement>('[role="spinbutton"][aria-label^="hour"]')!;
+        const held = hour().textContent;
+        // An hour later, taken as the focus leaves the field.
+        const user = userEvent.setup();
+        await user.click(hour());
+        await user.keyboard("{ArrowUp}");
+        await settle();
+        expect(hour().textContent).not.toBe(held);
+        while (start.contains(document.activeElement)) await user.tab();
+        await settle();
+        expect(hour().textContent).toBe(held);
+        expect(refusalOf(start)).toBe("Closed for maintenance");
+        expect(said(container)).toBe(1);
+        expect(event(container, "job", "job1").hasAttribute("data-drafted")).toBe(false);
+    });
+
+    test("a bulk resource it refuses: the select shows none chosen again, the reason under it once, and no draft", async () => {
+        const { container } = await h.mount(closed);
+        await press(event(container, "job", "job1"));
+        await act(async () => { fireEvent.click(event(container, "job", "job2"), { ctrlKey: true }); }); await settle();
+        const resource = slot(container, "end").querySelector<HTMLElement>('[data-field="resource"]')!;
+        const trigger = () => resource.querySelector<HTMLElement>("[data-scope=select][data-part=trigger]")!;
+        expect(trigger().textContent).toBe("Unassigned");
+        await press(trigger());
+        await press(within(within(document.body).getByRole("listbox")).getByRole("option", { name: "Lathe 2" }));
+        expect(trigger().textContent).toBe("Unassigned");
+        expect(refusalOf(resource)).toBe("Closed for maintenance");
+        expect(said(container)).toBe(1);
+        expect(container.querySelectorAll("[data-calendar-event][data-drafted]")).toHaveLength(0);
+    });
+});

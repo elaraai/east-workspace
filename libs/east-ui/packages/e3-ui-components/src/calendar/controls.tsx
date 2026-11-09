@@ -47,10 +47,11 @@ const isResource = (spec: FieldSpecValue) => spec.path[0] === "resource";
 /**
  * The placement form is one shared FieldForm in both the inspector and popovers. Its resource Chooser offers the
  * rows the rail shows, and the placement's own resource whatever the rail hides (#1343) — or, for a kind placed on the
- * paged resource kind, searches that kind by key (#1424, `chooser.tsx`).
+ * paged resource kind, searches that kind by key (#1424, `chooser.tsx`). A placement the event refuses (`onChange`
+ * saying why) goes back to the one it holds, the reason under the field changed.
  */
 export function PlacementFields({ source, value, shown, placement, onChange, readOnly = false }: {
-    source: CalendarSource; value: CalendarValue; shown: CalendarShownResources; placement: CalendarPlacement; onChange: (at: CalendarPlacement) => void; readOnly?: boolean;
+    source: CalendarSource; value: CalendarValue; shown: CalendarShownResources; placement: CalendarPlacement; onChange: (at: CalendarPlacement) => string | void; readOnly?: boolean;
 }) {
     const form = formOf(placement);
     const own = placement.resource;
@@ -65,15 +66,16 @@ export function PlacementFields({ source, value, shown, placement, onChange, rea
     const chooser = useCalendarChooser();
     const paged = chooser !== undefined && source.kind.takes.includes(chooser.paged.kind) ? chooser : undefined;
     const chosen = own.type === "some" && paged !== undefined && own.value.kind === paged.paged.kind ? own.value.key : undefined;
-    const renderControl = useCallback((spec: FieldSpecValue) => pagedControl(paged, spec, isResource, chosen, key => {
-        if (paged !== undefined) onChange({ start: placement.start, end: placement.end, resource: some({ kind: paged.paged.kind, key }) });
-    }, readOnly), [paged, chosen, onChange, placement.start, placement.end, readOnly]);
+    // A resource picked is the field's own edit, so one the event refuses is said under it.
+    const renderControl = useCallback((spec: FieldSpecValue, change: (next: unknown) => void) => pagedControl(paged, spec, isResource, chosen, key => {
+        if (paged !== undefined) change(resourceKey({ kind: paged.paged.kind, key }));
+    }, readOnly), [paged, chosen, readOnly]);
     return <FieldForm specs={specs} words={words} readOnly={readOnly} value={form} options={options} renderControl={paged === undefined ? undefined : renderControl} onChange={(path, next) => {
         let changed = { ...form, [path[0]!]: next };
         if (path[0] === "start" && next instanceof Date) changed = { ...changed, end: new Date(next.getTime() + form.end.getTime() - form.start.getTime()) };
         if (path[0] === "end" && next instanceof Date && next <= changed.start) changed = { ...changed, end: new Date(next.getTime() + 86_400_000) };
         const at = placementOf(changed);
-        if (at !== undefined) onChange(at);
+        return at === undefined ? undefined : onChange(at);
     }} />;
 }
 /** An anchored action uses the same Schedule command as a desktop drop. */
