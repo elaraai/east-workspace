@@ -225,6 +225,13 @@ export type SheetMarkInput<R extends StructType> = SubtypeExprOrValue<FunctionTy
  * a cell's value is an `Option` — a `Dict`'s entry, a struct's optional
  * field, a `write` taking an `Option` — and is refused where it isn't.
  *
+ * Each of its columns is keyed by the column's key and its member's — the
+ * member's key, or the struct's field: `hours:P-100`, `week:mon`. An issue the
+ * app's `ready` raises about one member's cell names that key as its `field`,
+ * and the cell is marked as any cell's issue marks it, Details and the Issues
+ * tab naming it by its member. An issue naming the field the columns write
+ * (`hours`) holds Apply, and marks no cell.
+ *
  * The day each function takes is the Record's clock: the browser's local
  * calendar date, at UTC midnight. A Record draws columns from data; a Sheet
  * refuses them.

@@ -217,7 +217,7 @@ export function useSheetInspector({ value, keys, words, hidden, lastCommit, host
             { key: "details", label: m.inspectorTab({ tab: "details" }),
                 body: <SheetInspectorDetails value={value} pane={pane} keys={keys} words={words} hidden={hidden} lastCommit={lastCommit} host={host} noun={noun} /> },
             { key: "issues", label: m.inspectorTab({ tab: "issues" }), count: words.number(issues),
-                body: <SheetInspectorIssues forms={pane.forms} words={words} noun={noun} where={host?.where} /> },
+                body: <SheetInspectorIssues forms={pane.forms} columns={value.sheet.columns} words={words} noun={noun} where={host?.where} /> },
         ],
     };
 }
@@ -574,7 +574,7 @@ export function useTargetForm({ value, words, hidden, styles, inspect, target, f
 export interface TargetIssue {
     /** Its place among the batch's issues: the list's key. */
     key: string;
-    /** The field it names, by its label — else its name; `undefined` for an issue of the whole row. */
+    /** The field it names, by its label — a member's cell of a column from data by its column's header — else its name; `undefined` for an issue of the whole row. */
     field: string | undefined;
     /** The field's name, as the form keys it; `undefined` for an issue of the whole row. */
     name: string | undefined;
@@ -597,10 +597,12 @@ function labelsOf(fields: readonly FormField[]): (readonly [string, string])[] {
 }
 
 /**
- * A target's issues, by field: each its field's label (else its name) and its text in the sheet's words.
+ * A target's issues, by field: each its field's label — else the header of the column it names, as one of a column
+ * from data's cells is named by its column key, which no form field holds — else its name, and its text in the sheet's
+ * words.
  *
  * @param target - The row, line or band
- * @param inspect - The sheet's reads: the batch's issues
+ * @param inspect - The sheet's reads: the batch's issues, and the columns at the target's row
  * @param form - The target's form: its fields' labels
  * @param words - The sheet's words
  * @returns Its issues, in the batch's order
@@ -614,7 +616,8 @@ export function targetIssues(target: SheetInspectTarget, inspect: SheetInspect, 
         // A line's issues are addressed to its place in the group; a row's and a band's to none.
         if (target.index === undefined ? row !== undefined : row === undefined || Number(row) !== target.index) return;
         const field = getSomeorUndefined(issue.field);
-        out.push({ key: `${i}`, field: field === undefined ? undefined : labels.get(field) ?? field, name: field, text: issueText(issue.message, words), kind: inspect.kindOf(issue) });
+        const label = field === undefined ? undefined : labels.get(field) ?? inspect.columnAt(target.r, field)?.header ?? field;
+        out.push({ key: `${i}`, field: label, name: field, text: issueText(issue.message, words), kind: inspect.kindOf(issue) });
     });
     return out;
 }
@@ -1350,14 +1353,18 @@ function NothingSelected({ styles, inspect, words, record, lastCommit }: {
 // ============================================================================
 
 /** The Issues tab: every issue of the batch by row, each a control that goes to its cell. */
-const SheetInspectorIssues = memo(function SheetInspectorIssues({ forms, words, noun, where: hostWhere }: {
-    forms: PaneValue["forms"]; words: SheetWords; noun: string; where?: SheetInspectorHost["where"];
+const SheetInspectorIssues = memo(function SheetInspectorIssues({ forms, columns, words, noun, where: hostWhere }: {
+    forms: PaneValue["forms"]; columns: SheetInspectorValue["sheet"]["columns"]; words: SheetWords; noun: string; where?: SheetInspectorHost["where"];
 }) {
     const { m } = words;
     const inspect = useSheetInspect();
     const styles = useSlotRecipe({ key: "sheetInspector" })() as Styles;
-    // A field's words: its label in the row's form or the group's, else its name.
-    const labels = useMemo(() => new Map([...labelsOf(getSomeorUndefined(forms.group)?.fields ?? []), ...labelsOf(forms.row.fields)]), [forms]);
+    // A field's words: its label in the row's form or the group's — else the header of the column it names, as one of a
+    // column from data's cells is named by its column key, which no form field holds — else its name.
+    const labels = useMemo(() => new Map([
+        ...columns.map((column) => [column.key, column.header] as const),
+        ...labelsOf(getSomeorUndefined(forms.group)?.fields ?? []), ...labelsOf(forms.row.fields),
+    ]), [forms, columns]);
     // An issue's place: a host's words for it, given where its row stands among the rows drawn (#1534) — else its entry,
     // or a line of its group.
     const placeOf = inspect.placeOf;

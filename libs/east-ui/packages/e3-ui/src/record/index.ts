@@ -114,7 +114,10 @@ export interface RecordNamespace extends RecordTagType {
         DraftContext: typeof sheetContextType;
         /** A row's readiness, as `ready.row` answers. */
         Readiness: typeof SheetReadinessType;
-        /** One field's issue in a readiness answer. */
+        /**
+         * One field's issue in a readiness answer: its `field` the row's field — or one cell of a column from data, by
+         * the cell's column key (`hours:P-100`); an issue naming the field such columns write marks no cell.
+         */
         FieldIssue: typeof SheetFieldIssueType;
         /** The typed link a set column holds — `{ from, to }` member lists. */
         Link: typeof SheetLinkType;

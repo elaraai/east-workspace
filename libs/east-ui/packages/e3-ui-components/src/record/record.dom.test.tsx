@@ -1766,6 +1766,35 @@ const hoursCodedByProject = East.function([], UIComponentType, (_$) => Reactive.
     });
 })));
 
+/** The hours by project, the app's `ready` refusing A. Morgan's: her kitchen fit-out's cell, by its column key, and her week, by the field the columns write. */
+const hoursReady = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const staff = $.let(Record.bind(ex.recordHours));
+    const projectRows = $.let(Data.bind(ex.recordProjects));
+    const ready = $.const(East.function([Record.Types.Draft(ex.Person), Record.Types.DraftContext(ex.Person)], Record.Types.Readiness, ($2, row) => {
+        const morgan = $2.const(row.name.match({ value: (_$3, name) => name.equals("A. Morgan") }, () => false));
+        $2.if(morgan, ($3) => {
+            $3.return(East.value(variant("invalid", [
+                { field: "hours:P-100", message: "The kitchen fit-out is closed to new hours" },
+                { field: "hours", message: "The week waits for the lead's sign-off" },
+            ]), Record.Types.Readiness));
+        });
+        return East.value(variant("ready", null), Record.Types.Readiness);
+    }));
+    return Record({
+        record: staff,
+        title: "Hours",
+        noun: { singular: "person", plural: "people" },
+        registers: { projects: Record.register.members(projectRows.read(), { kind: "project", key: (_p, code) => code, label: (p) => p.name }) },
+        columns: {
+            name: Record.column.title(ex.Person, { header: "Name" }),
+            hours: Record.column.quantity(ex.Person, { each: "projects", unit: "hrs" }),
+        },
+        inspector: true,
+        ready: { row: ready },
+        name: "hoursReady",
+    });
+})));
+
 /** A value typed into a cell: the ring on it, its editor opened by the first key, the text in it and Tab — ⏎ on the last row would add one under it. */
 async function typeInto(container: HTMLElement, r: number, column: string, text: string) {
     await press(cellAt(container, r, column));
@@ -1924,6 +1953,31 @@ describe("columns from data, read and written at the day", () => {
         });
         await waitFor(() => expect(cellAt(container, 0, "week:mon").hasAttribute("data-conflict")).toBe(true));
         expect(cellAt(container, 0, "week:tue").hasAttribute("data-conflict")).toBe(false);
+    });
+
+    test("a refusal of the app's `ready` naming a member's cell by its column key marks that cell as any cell's issue does — read out as its description, its Details line ringed, and Details and the Issues tab naming it by its member — and one naming the field the columns write holds Apply and marks no cell", async () => {
+        const { container } = await h.mount({ fn: hoursReady }, { storageKey: "record-data-ready" });
+        const projects = ["hours:P-100", "hours:P-101", "hours:P-200", "hours:P-900"];
+        await typeInto(container, 0, "hours:P-100", "14");
+        // The kitchen fit-out's cell alone is invalid, its issue read out; no cell is the week's.
+        expect(["name", ...projects].map((k) => cellAt(container, 0, k).getAttribute("aria-invalid"))).toEqual([null, "true", null, null, null]);
+        expect(describedBy(cellAt(container, 0, "hours:P-100"))).toBe("The kitchen fit-out is closed to new hours");
+        expect(history(container, editingMessages.apply()).disabled).toBe(true);
+        // The ring on B. Ellis's row, then the history bar's Issues: both hold Apply, and the first takes the ring to the kitchen fit-out.
+        await press(cellAt(container, 1, "hours:P-101"));
+        await press(history(container, editingMessages.issues({ n: 2, count: "2" })));
+        expect(status(container)).toBe("2 issues hold Apply");
+        expect(active(container)).toBe(cellAt(container, 0, "hours:P-100"));
+        await waitFor(() => expect(inspected(container)).toBe("H-01"));
+        const issues = details(container)!.querySelector<HTMLElement>("[data-inspector-issues]")!;
+        expect([...issues.querySelectorAll("[data-kind]")].map((text) => [text.previousElementSibling?.textContent, text.textContent]))
+            .toEqual([["Kitchen fit-out", "The kitchen fit-out is closed to new hours"], ["hours", "The week waits for the lead's sign-off"]]);
+        expect([...details(container)!.querySelectorAll("[data-field][data-issue]")].map((field) => field.getAttribute("data-field"))).toEqual(["hours:P-100"]);
+        await waitFor(() => expect(detailsField(container, "hours:P-100").contains(document.activeElement)).toBe(true));
+        fireEvent.click(inspectorTab(container, /^Issues/));
+        await settle();
+        expect([...openPanel(container).querySelectorAll<HTMLElement>("[data-inspector-issue]")].map((line) => [line.firstElementChild!.textContent, line.querySelector("[data-kind]")!.textContent]))
+            .toEqual([["A. Morgan · Kitchen fit-out", "The kitchen fit-out is closed to new hours"], ["A. Morgan · hours", "The week waits for the lead's sign-off"]]);
     });
 });
 
