@@ -21,10 +21,10 @@
  *   the pane floats over main from its edge, full height — never so wide
  *   that less than 48px of main shows beside it ({@link MIN_SCRIM},
  *   {@link paneWidths}). Opened from its rail, it takes the focus — its open
- *   tab, or its first control. Esc closes it and returns the focus to its rail —
- *   but a layer open in it that takes Esc itself, marked `data-escape-layer`
- *   (a Chooser laid in a pane), closes first — and one overlay pane is open
- *   at a time;
+ *   tab, or its first control — and closed, by its own collapse or by Esc, it
+ *   returns the focus to its rail. Esc closes it — but a layer open in it that
+ *   takes Esc itself, marked `data-escape-layer` (a Chooser laid in a pane),
+ *   closes first — and one overlay pane is open at a time;
  * - **auto** (the default) — pinned while main keeps `minMain` beside the
  *   pinned panes, the start pane placed first; overlaid otherwise, and at
  *   560px and narrower always ({@link placePanes}). The width is the frame's
@@ -751,8 +751,12 @@ export function BuilderFrame(props: BuilderFrameProps) {
                         collapsible={described.collapsible}
                         collapsed={collapsed}
                         onCollapsedChange={(next) => {
-                            // Opened from its rail, whose control goes with it, an overlay pane takes the focus, so Esc reaches it.
-                            if (!next && placedAt === "overlay") drawerFocus.current = side;
+                            // The control pressed goes with the change: opened from its rail, an overlay pane takes the focus,
+                            // so Esc reaches it; closed by its own collapse, it gives the focus back to its rail, as Esc does.
+                            if (placedAt === "overlay") {
+                                if (next) railFocus.current = side;
+                                else drawerFocus.current = side;
+                            }
                             toggled(side, next);
                         }}
                     />

@@ -380,6 +380,19 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
         expect([paneOf("end"), document.activeElement]).toEqual([["overlay", false], screen.getByRole("button", { name: "Collapse Properties" })]);
     });
 
+    test("an overlay pane closed by its own collapse gives the focus back to its rail, as Esc's close does — floating over a live main or over the scrim (#1584)", async () => {
+        mount({ start: library({ mode: "overlay" }), end: properties() });
+        frameAt(1200);
+        expect(paneOf("start")).toEqual(["overlay", false]);
+        await press("Collapse Library");
+        expect([paneOf("start"), document.activeElement]).toEqual([["overlay", true], screen.getByRole("button", { name: "Expand Library" })]);
+        // An auto pane overlaying for lack of room, its scrim over main.
+        frameAt(700);
+        await press("Expand Properties");
+        await press("Collapse Properties");
+        expect([paneOf("end"), scrim(), document.activeElement]).toEqual([["overlay", true], null, screen.getByRole("button", { name: "Expand Properties" })]);
+    });
+
     test("Esc in a layer laid in the open overlay pane that takes Esc itself (`data-escape-layer`) is the layer's; anywhere else in the pane it closes the pane", () => {
         const closed: string[] = [];
         const layer = (
