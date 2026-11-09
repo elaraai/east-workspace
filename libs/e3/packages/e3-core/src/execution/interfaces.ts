@@ -71,6 +71,14 @@ export interface TaskExecuteOptions {
    *  (`PATH`, `E3_RUNNER_SEARCH_DIRS`, `E3_FETCH_SEGMENTS`, which only a unit
    *  turns on). */
   extraEnv?: Readonly<Record<string, string>>;
+  /** Whether any stock runtime may run the execution in place of the one its
+   *  task names: a record's mutation or index, whose program `checkPure`
+   *  refused a platform call and an async body in, so every runtime runs it
+   *  alike (#1573). A local runner that cannot run its east-c — finds none,
+   *  or the one it finds records no result — runs it on east-node; no other
+   *  execution falls back. Runtime-only: never hashed, so the execution's
+   *  identity does not depend on it. */
+  anyRuntime?: boolean;
 }
 
 /** A unit stopped and run again (see {@link TaskExecuteOptions.onRequeued}). */

@@ -99,14 +99,18 @@ async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Pr
 }
 
 /** What a store was asked during a call: an object write's start and end,
- *  with the object's hash and kind; a read of an object; and a ref's
- *  compare-and-swap, with the object writes then in flight. */
+ *  with the object's hash and kind and the batch it was written in; a read of
+ *  an object; and a ref's compare-and-swap, with the object writes then in
+ *  flight. */
 interface StoreEvent {
   event: 'start' | 'end' | 'read' | 'ref';
   hash: string;
   kind: string;
   /** Whether a unit's run asked it: a run reads what it is handed. */
   unit: boolean;
+  /** The call that wrote the object: a `write` of it alone, or a `writeMany`
+   *  of every object of its batch. */
+  batch?: number;
   /** The object writes in flight when a ref was written. */
   inFlight?: number;
 }
@@ -116,6 +120,7 @@ interface WriteSpan {
   hash: string;
   kind: string;
   unit: boolean;
+  batch: number;
   start: number;
   end: number;
 }
@@ -153,9 +158,10 @@ function typeOfObject(bytes: Uint8Array): string {
  * unit's run asks is marked the unit's.
  *
  * @param inner - The store asked
- * @param options - `holdFirst`: the first object written waits, until a write
- *   of an object of another type begins, for 10 s — what shows two stores
- *   overlap whatever the timing
+ * @param options - `holdFirst`: the first call to write objects waits, until
+ *   a write of an object of another type begins, for 10 s — what shows two
+ *   stores overlap whatever the timing; a batch is of the type of its first
+ *   object
  */
 function watchedStore(inner: StorageBackend, options: { holdFirst?: boolean } = {}): {
   storage: StorageBackend;
@@ -165,6 +171,7 @@ function watchedStore(inner: StorageBackend, options: { holdFirst?: boolean } = 
   const log: StoreEvent[] = [];
   let units = 0;
   let inFlight = 0;
+  let batches = 0;
   let held: { type: string; release: () => void } | null | undefined = options.holdFirst === true ? undefined : null;
   /** Releases the held write once a write of another type begins. */
   const begun = async (type: string): Promise<void> => {
@@ -182,7 +189,7 @@ function watchedStore(inner: StorageBackend, options: { holdFirst?: boolean } = 
     get(target, property, receiver) {
       if (property === 'write') {
         return async (repo: string, bytes: Uint8Array): Promise<string> => {
-          const write = { hash: sha256Hex(bytes), kind: objectKind(bytes), unit: units > 0 };
+          const write = { hash: sha256Hex(bytes), kind: objectKind(bytes), unit: units > 0, batch: ++batches };
           log.push({ event: 'start', ...write });
           inFlight++;
           try {
@@ -191,6 +198,21 @@ function watchedStore(inner: StorageBackend, options: { holdFirst?: boolean } = 
           } finally {
             inFlight--;
             log.push({ event: 'end', ...write });
+          }
+        };
+      }
+      if (property === 'writeMany') {
+        return async (repo: string, objects: readonly Uint8Array[]): Promise<string[]> => {
+          const batch = ++batches;
+          const writes = objects.map((bytes) => ({ hash: sha256Hex(bytes), kind: objectKind(bytes), unit: units > 0, batch }));
+          for (const write of writes) log.push({ event: 'start', ...write });
+          inFlight += writes.length;
+          try {
+            if (objects.length > 0) await begun(typeOfObject(objects[0]!));
+            return await target.writeMany(repo, objects);
+          } finally {
+            inFlight -= writes.length;
+            for (const write of writes) log.push({ event: 'end', ...write });
           }
         };
       }
@@ -252,7 +274,7 @@ function writesOf(log: readonly StoreEvent[]): WriteSpan[] {
   const open: WriteSpan[] = [];
   for (const [at, event] of log.entries()) {
     if (event.event === 'start') {
-      const write = { hash: event.hash, kind: event.kind, unit: event.unit, start: at, end: -1 };
+      const write = { hash: event.hash, kind: event.kind, unit: event.unit, batch: event.batch!, start: at, end: -1 };
       writes.push(write);
       open.push(write);
     } else if (event.event === 'end') {
@@ -264,9 +286,9 @@ function writesOf(log: readonly StoreEvent[]): WriteSpan[] {
   return writes;
 }
 
-/** Whether two writes were in flight together. */
-function together(a: WriteSpan, b: WriteSpan): boolean {
-  return a.start < b.end && b.start < a.end;
+/** Whether objects were written in one batch: one call to the store. */
+function oneBatch(...writes: readonly WriteSpan[]): boolean {
+  return writes.every((write) => write.batch === writes[0]!.batch);
 }
 
 /**
@@ -397,7 +419,7 @@ describe('records', () => {
     assert.strictEqual((await storage.objects.list(repo)).length, objectsBefore + 2, 'only the run\'s task object and its argument');
   });
 
-  it('a whole-state write stores its run\'s task object and argument together, then its tuple and commit together (#1088)', async () => {
+  it('a whole-state write stores its run\'s task object and argument in one batch, then its tuple and commit in one batch (#1088, #1573)', async () => {
     const watched = watchedStore(storage);
     const by = encodeInt(5n);
     const outcome = await recordMutate(watched.storage, watched.watch(successRunner(encodeInt(5n))), repo, ws, 'counter', 'increment', [by],
@@ -406,8 +428,8 @@ describe('records', () => {
 
     const writes = await assertSafelyStored(storage, repo, watched.log);
     const argument = writes.find((write) => write.hash === sha256Hex(by) && !write.unit);
-    assert.ok(argument !== undefined && together(writeOf(writes, 'task'), argument), 'the run\'s task object and its argument are stored together');
-    assert.ok(together(writeOf(writes, 'args'), writeOf(writes, 'commit')), 'the arguments\' tuple and the commit are stored together');
+    assert.ok(argument !== undefined && oneBatch(writeOf(writes, 'task'), argument), 'the run\'s task object and its argument are stored in one batch');
+    assert.ok(oneBatch(writeOf(writes, 'args'), writeOf(writes, 'commit')), 'the arguments\' tuple and the commit are stored in one batch');
   });
 
   it('refuses a store that names an object otherwise than by its content\'s hash, and writes no ref naming it (#1088)', async () => {
@@ -415,17 +437,17 @@ describe('records', () => {
     // are stored, so a store naming them otherwise would leave it naming
     // nothing.
     const objects = storage.objects;
-    const write = objects.write.bind(objects);
-    objects.write = async (r: string, bytes: Uint8Array) => {
-      const hash = await write(r, bytes);
-      return objectKind(bytes) === 'args' ? 'f'.repeat(64) : hash;
+    const writeMany = objects.writeMany.bind(objects);
+    objects.writeMany = async (r: string, batch: readonly Uint8Array[]) => {
+      const hashes = await writeMany(r, batch);
+      return hashes.map((hash, i) => (objectKind(batch[i]!) === 'args' ? 'f'.repeat(64) : hash));
     };
     try {
       await assert.rejects(
         recordMutate(storage, successRunner(encodeInt(5n)), repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test' }),
         { message: `the store named an object ${'f'.repeat(64)}, whose content's hash is ${sha256Hex(encodeBeast2For(ArrayType(BlobType))([encodeInt(5n)]))}` });
     } finally {
-      objects.write = write;
+      objects.writeMany = writeMany;
     }
     assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 0n, 'the record holds what it held');
     assert.strictEqual((await recordHistory(storage, repo, ws, 'counter')).length, 1, 'and no commit');
@@ -1988,12 +2010,13 @@ describe('the mutation delta', () => {
   });
 
   // A store whose writes are round trips is waited on once per wave of an
-  // edit, and an edit is stored crash-safely: every object before the ref
-  // names it, and a manifest after the segments it names (#1088).
+  // edit, each wave one batch (#1573), and an edit is stored crash-safely:
+  // every object before the ref names it, and a manifest after the segments
+  // it names (#1088).
 
-  it('a patch stores its delta while it applies it from the entries in hand, then its tuple and commit together, and reads back nothing it wrote', async () => {
+  it('a patch stores its delta while it applies it from the entries in hand, then its tuple and commit in one batch, and reads back nothing it wrote', async () => {
     assert.strictEqual((await recordMutate(storage, realRunner, repo, plain, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
-    // The delta's first object is held until the new state's first is begun.
+    // The delta's first batch is held until the new state's first is begun.
     const watched = watchedStore(storage, { holdFirst: true });
     const outcome = await recordMutate(watched.storage, noRunner, repo, plain, 'plans', 'patch',
       [encodePlansPatch(variant('patch', new SortedMap<string, PlanOp>([
@@ -2007,10 +2030,10 @@ describe('the mutation delta', () => {
     assert.strictEqual(outcome.kind, 'committed', JSON.stringify(outcome));
 
     const writes = await assertSafelyStored(storage, repo, watched.log);
-    assert.ok(together(writeOf(writes, 'args'), writeOf(writes, 'commit')), 'the arguments\' tuple and the commit are stored together');
+    assert.ok(oneBatch(writeOf(writes, 'args'), writeOf(writes, 'commit')), 'the arguments\' tuple and the commit are stored in one batch');
   });
 
-  it('an edit stores its run\'s task object and argument together, then its state, tuple and commit together', async () => {
+  it('an edit stores its run\'s task object and argument in one batch, then its state, tuple and commit in one batch', async () => {
     assert.strictEqual((await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
     const watched = watchedStore(storage);
     const key = encodeBeast2For(StringType)('p-7');
@@ -2019,23 +2042,22 @@ describe('the mutation delta', () => {
 
     const writes = await assertSafelyStored(storage, repo, watched.log);
     const argument = writes.find((write) => write.hash === sha256Hex(key) && !write.unit);
-    assert.ok(argument !== undefined && together(writeOf(writes, 'task'), argument), 'the run\'s task object and its argument are stored together');
+    assert.ok(argument !== undefined && oneBatch(writeOf(writes, 'task'), argument), 'the run\'s task object and its argument are stored in one batch');
     const [state, tuple, commit] = ['state', 'args', 'commit'].map((kind) => writeOf(writes, kind));
-    assert.ok(together(state!, tuple!) && together(tuple!, commit!) && together(state!, commit!),
-      'the state, the arguments\' tuple and the commit are stored together');
+    assert.ok(oneBatch(state!, tuple!, commit!), 'the state, the arguments\' tuple and the commit are stored in one batch');
   });
 
-  it('a reindex stores its state and commit together', async () => {
+  it('a reindex stores its state and commit in one batch', async () => {
     assert.strictEqual((await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
     const watched = watchedStore(storage);
     const outcome = await recordReindex(watched.storage, watched.watch(realRunner), repo, ws, 'plans', { actor: 'cli:test' });
     assert.strictEqual(outcome.kind, 'committed', JSON.stringify(outcome));
 
     const writes = await assertSafelyStored(storage, repo, watched.log);
-    assert.ok(together(writeOf(writes, 'state'), writeOf(writes, 'commit')), 'the state and the commit are stored together');
+    assert.ok(oneBatch(writeOf(writes, 'state'), writeOf(writes, 'commit')), 'the state and the commit are stored in one batch');
   });
 
-  it('a system commit stores its state, arguments and commit together', async () => {
+  it('a system commit stores its state, arguments and commit in one batch', async () => {
     assert.strictEqual((await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
     const [seeded] = await recordHistory(storage, repo, ws, 'plans', { limit: 1 });
     assert.strictEqual((await recordMutate(storage, realRunner, repo, ws, 'plans', 'retitle',
@@ -2048,11 +2070,10 @@ describe('the mutation delta', () => {
 
     const writes = await assertSafelyStored(storage, repo, watched.log);
     const [state, tuple, commit] = ['state', 'args', 'commit'].map((kind) => writeOf(writes, kind));
-    assert.ok(together(state!, tuple!) && together(tuple!, commit!) && together(state!, commit!),
-      'the state, the arguments\' tuple and the commit are stored together');
+    assert.ok(oneBatch(state!, tuple!, commit!), 'the state, the arguments\' tuple and the commit are stored in one batch');
   });
 
-  it('a deploy\'s index commit stores its state and commit together', async () => {
+  it('a deploy\'s index commit stores its state and commit in one batch', async () => {
     assert.strictEqual((await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
     const ref = await storage.datasets.read(repo, ws, 'records/plans');
     assert.ok(ref && ref.type === 'value');
@@ -2062,7 +2083,7 @@ describe('the mutation delta', () => {
       [{ path: 'records/plans', state: ref.value.hash, primary: held.primary, indexes: held.indexes }]);
 
     const writes = await assertSafelyStored(storage, repo, watched.log);
-    assert.ok(together(writeOf(writes, 'state'), writeOf(writes, 'commit')), 'the state and the commit are stored together');
+    assert.ok(oneBatch(writeOf(writes, 'state'), writeOf(writes, 'commit')), 'the state and the commit are stored in one batch');
   });
 });
 

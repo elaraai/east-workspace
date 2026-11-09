@@ -69,13 +69,22 @@ export const buttonRecipe = defineRecipe({
             zIndex: 1,
         },
         /* `bg.emphasized` keeps the light look (gray.200) and stays a muted
-         * slab in dark (gray.600) instead of a washed light block (#362). */
-        _disabled: {
+         * slab in dark (gray.600) instead of a washed light block (#362) —
+         * for a button that cannot act: Chakra's own `_disabled`, less one
+         * that is loading. */
+        "&:is(:disabled, [disabled], [data-disabled], [aria-disabled=true]):not([data-loading])": {
             background: "bg.emphasized",
             color: "fg.muted",
             cursor: "not-allowed",
             boxShadow: "none",
             _hover: { background: "bg.emphasized" },
+        },
+        /* Loading (`loading`, which disables it): working, not off — its
+         * variant's own look under its spinner, at full strength over
+         * Chakra's disabled fade, the pointer saying so (#1573). */
+        "&[data-loading]:is(:disabled, [disabled], [data-disabled], [aria-disabled=true])": {
+            opacity: 1,
+            cursor: "progress",
         },
         _active: {
             transform: "scale(0.98)",

@@ -783,3 +783,19 @@ Each wire changed under this rule, with the kind it is.
   was set in the workspace is reset to the package's value, as any input whose
   type changed. No repository upgrade step ships, since no type e3 stores for
   itself holds such a variant.
+- **A record's programs run on east-c unless they name a runner (#1573)** —
+  package-borne, and no type changes. A mutation or an index declared with no
+  `runner` names east-c with no platform (`DEFAULT_RECORD_RUNNER`) where it
+  named east-node with east-node-std: its program calls no platform function
+  (`checkPure` refuses one), and east-c runs a write's program in tens of
+  milliseconds where east-node took a quarter of a second. A mutation's and an
+  index's object name their runner, so a package re-exported changes each
+  such object: a deploy of it keeps each record's state and history, with a
+  `$deploy` commit, as for any changed mutation, and rebuilds each index once,
+  under its new object, as for any changed index. A package an earlier SDK
+  exported deploys as it did, its programs on the runners it named. A local e3
+  whose east-c cannot run — none is found, or the one found records no result,
+  as a launcher with no native binary does — runs a record's program on
+  east-node, saying so in the execution's log, and e3 in a browser runs it as
+  it runs every unit. No stored form changes, so no repository upgrade step
+  ships.

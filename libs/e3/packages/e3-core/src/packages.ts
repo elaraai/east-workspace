@@ -673,6 +673,7 @@ export async function packageZipOpenFrom(
       upgrades: storage.upgrades,
       objects: {
         write: refuse('write an object'),
+        writeMany: refuse('write objects'),
         writeStream: refuse('write an object'),
         touch: refuse('re-reference an object'),
         adoptFile: refuse('adopt a file'),

@@ -73,6 +73,16 @@ import type { StorageBackend } from './storage/interfaces.js';
 export const READ_CHUNK_BYTES = 1024 * 1024;
 
 /**
+ * How many of a stored run's segments a read reads with it, those after it in
+ * the run, once it follows a read of the segment before it: a re-cut reads a
+ * carried segment only to look inside it, at a seam or after an edit, where
+ * the cut mostly realigns at once; one that has gone on to the next goes on
+ * until the cut realigns, a segment or a few later, and on a remote store each
+ * would be a round trip after the last (#1573).
+ */
+const SEAM_READ_AHEAD = 2;
+
+/**
  * One source of a collection, in order, as {@link storeCollection} takes it.
  */
 export type CollectionSource =
@@ -221,9 +231,30 @@ export async function storeCollectionThrough<S extends object>(
 
   /** A current manifest's segments `[from, to)`, by reference: each carries
    *  the entry that names it, and the fence that followed it, which decides a
-   *  seam after it without a read when the same key follows again. */
+   *  seam after it without a read when the same key follows again. A read of
+   *  one that follows a read of the one before it reads the next
+   *  {@link SEAM_READ_AHEAD} of the run with it. */
   const manifestRefs = (manifest: CollectionManifest, from: number, to: number): CollectionSegmentRef[] => {
     const entries = manifest.entries;
+    const reads = new Map<number, Promise<Uint8Array>>();
+    /** The segment of the run read last. */
+    let last: number | undefined;
+    /** Segment `i`'s bytes, and the reads of the next of the run begun when
+     *  the re-cut is going through it. */
+    const readSegment = (i: number): Promise<Uint8Array> => {
+      const ahead = last !== undefined && i === last + 1 ? SEAM_READ_AHEAD : 0;
+      last = i;
+      for (let j = i; j < Math.min(to, i + 1 + ahead); j++) {
+        if (reads.has(j)) continue;
+        const reading = storage.objects.read(repo, entries[j]!.hash);
+        reading.catch(() => { /* raised when its segment is read */ });
+        reads.set(j, reading);
+      }
+      const reading = reads.get(i)!;
+      // Read once: the re-cut holds what it read for as long as it needs it
+      reads.delete(i);
+      return reading;
+    };
     const refs: CollectionSegmentRef[] = [];
     for (let i = from; i < to; i++) {
       const entry = entries[i]!;
@@ -231,7 +262,7 @@ export async function storeCollectionThrough<S extends object>(
         count: Number(entry.count),
         fence: entry.fence,
         ...(i + 1 < entries.length && { nextFence: entries[i + 1]!.fence }),
-        read: () => storage.objects.read(repo, entry.hash),
+        read: () => readSegment(i),
         entry,
       });
     }
@@ -279,10 +310,10 @@ export async function storeCollectionThrough<S extends object>(
     }
   }
 
-  // The segments are written at once, and the manifest after every one it
-  // names is stored
-  const manifest = await writeCollectionManifest(typeValue, pieces(), (bytes) => storage.objects.write(repo, bytes),
-    { inFlight: OBJECT_CONCURRENCY });
+  // The segments go to the store in batches, and the manifest after every one
+  // it names is stored
+  const manifest = await writeCollectionManifest(typeValue, pieces(), (objects) => storage.objects.writeMany(repo, objects),
+    { batch: OBJECT_CONCURRENCY });
   return storage.objects.write(repo, manifest);
 }
 

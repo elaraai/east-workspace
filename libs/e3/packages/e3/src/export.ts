@@ -262,7 +262,7 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
         // them, exactly as the store's own door writes one, so a deployed
         // input is in the layout before anything writes it.
         const valueData = await encodeDatasetBlob(item.type, inline,
-          (bytes) => Promise.resolve(addObject(zipfile, Buffer.from(bytes))));
+          (objects) => Promise.resolve(objects.map((bytes) => addObject(zipfile, Buffer.from(bytes)))));
         const valueHash = addObject(zipfile, Buffer.from(valueData));
         datasetRef = variant('value', { hash: valueHash, versions: new Map() });
       } else {

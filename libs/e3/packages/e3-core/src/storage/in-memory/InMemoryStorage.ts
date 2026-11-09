@@ -71,6 +71,10 @@ class InMemoryObjectStore implements ObjectStore {
     return hash;
   }
 
+  async writeMany(repo: string, objects: readonly Uint8Array[]): Promise<string[]> {
+    return Promise.all(objects.map((data) => this.write(repo, data)));
+  }
+
   async touch(repo: string, hashes: readonly string[]): Promise<boolean[]> {
     for (const hash of hashes) checkHash('object hash', hash);
     const repoObjects = this.getRepoObjects(repo);

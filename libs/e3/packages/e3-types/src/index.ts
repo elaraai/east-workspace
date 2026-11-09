@@ -311,7 +311,7 @@ export {
   isCollectionRoot,
   encodeDatasetBlob,
   writeCollectionManifest,
-  SEGMENT_WRITES_IN_FLIGHT,
+  SEGMENT_WRITE_BATCH,
   type CollectionSegmentRef,
   type CollectionPiece,
   type SegmentSink,

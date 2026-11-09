@@ -145,7 +145,8 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         <ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>
         {value.inspector && <Button size="xs" variant="ghost" onClick={args.onIssues}>{count} issues</Button>}
         {withEye && eye?.entry}
-        {heldPublish && <Button size="xs" variant="solid" disabled={!publishable} onClick={() => commands.publish()}>Publish week</Button>}
+        {heldPublish && <Button size="xs" variant="solid" disabled={!publishable} loading={args.publishing} aria-label="Publish week" aria-busy={args.publishing ? true : undefined}
+            onClick={() => commands.publish()}>Publish week</Button>}
     </Box>;
     // The People layout's labels (#1406, P2): the week and its number — `Mar 12 – 18, 2028 · W11` — or the month, its weeks
     // and its range — `March 2028 · W10–W14 · Mar 5 – Apr 1`. Shifts keeps the shared navigator's own words.
@@ -184,7 +185,10 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         // at every width the ladder and the rail's caret leave it room, and else the View's entry, never out of the toolbar.
         eye === undefined ? args.optimise : { ...eye.item, forms: [...eye.item.forms, null], rank: OPTIMISE_RANK, bundle: EYE_INTO_VIEW },
         showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onConflict: args.onConflict, where: args.where, onAction: args.onAction, locked: args.locked === true }),
-        // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the week can't publish.
-        heldPublish && { key: "roster.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!publishable} onClick={() => commands.publish()}>Publish</Button>, null] },
+        // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the week can't publish, and
+        // its spinner while it publishes, until every record reads back as saved (#1573) — named as it is, `aria-busy`: the
+        // spinner hides its words.
+        heldPublish && { key: "roster.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!publishable} loading={args.publishing}
+            aria-label="Publish" aria-busy={args.publishing ? true : undefined} onClick={() => commands.publish()}>Publish</Button>, null] },
     ];
 }

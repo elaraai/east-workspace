@@ -50,6 +50,29 @@ export function objectStoreTests(setup: BackendSetup): void {
       assert.ok((await storage.objects.list(repo)).includes(hash));
     });
 
+    it('writes a batch of objects as it writes each, and answers their hashes in the order given', async (t) => {
+      const { storage, repo } = await setup(t);
+      const held = await storage.objects.write(repo, bytes('held already'));
+      const before = await storage.objects.count(repo);
+
+      const batch = ['one', 'held already', 'two', 'one'].map(bytes);
+      const hashes = await storage.objects.writeMany(repo, batch);
+      assert.deepEqual(hashes, batch.map((data) => computeHash(data)));
+      assert.equal(hashes[1], held);
+      assert.deepEqual(await Promise.all(hashes.map(async (hash) => text(await storage.objects.read(repo, hash)))), ['one', 'held already', 'two', 'one']);
+      assert.equal(await storage.objects.count(repo), before + 2, 'an object given twice, or held, is stored once');
+      assert.deepEqual(await storage.objects.writeMany(repo, []), []);
+    });
+
+    it('re-references the objects of a batch it holds, as a write of each does', async (t) => {
+      const { storage, repo } = await setup(t);
+      const start = Date.now();
+      const held = await storage.objects.write(repo, bytes('held'));
+      assert.deepEqual(await storage.repos.gcNoteUnreachable(repo, [held], start), [start]);
+      await storage.objects.writeMany(repo, [bytes('new'), bytes('held')]);
+      assert.deepEqual(await storage.repos.gcNoteUnreachable(repo, [held], start + 1), [start + 1], 'the write cleared the note');
+    });
+
     it('writes a stream of chunks as the object of their bytes', async (t) => {
       const { storage, repo } = await setup(t);
       async function* chunks(): AsyncIterable<Uint8Array> {

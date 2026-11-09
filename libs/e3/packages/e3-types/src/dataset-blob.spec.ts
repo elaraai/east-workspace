@@ -25,7 +25,7 @@ import {
   encodeBeast2PagedFor,
   sha256Hex,
 } from '@elaraai/east';
-import { encodeDatasetBlob, writeCollectionManifest, type CollectionSegmentRef } from './dataset-blob.js';
+import { encodeDatasetBlob, writeCollectionManifest, type CollectionSegmentRef, type SegmentSink } from './dataset-blob.js';
 
 const TableType = DictType(StringType, IntegerType);
 
@@ -36,29 +36,32 @@ function rowsOf(n: number): SortedMap<string, bigint> {
     compareFor(StringType));
 }
 
-/** A write the test ends, as the store would: stored, or failed. */
-interface HeldWrite {
-  hash: string;
+/** A sink that stores nothing, and answers each object's hash. */
+const hashing: SegmentSink = (batch) => Promise.resolve(batch.map((bytes) => sha256Hex(bytes)));
+
+/** A batch the test ends, as the store would: stored, or failed. */
+interface HeldBatch {
+  hashes: string[];
   end: (failure?: Error) => void;
 }
 
-/** A sink whose writes are held until the test ends each one: the writes in
- *  flight, and the hash of every object it was handed, in order. */
-function heldSink(): { sink: (bytes: Uint8Array) => Promise<string>; open: HeldWrite[]; calls: string[] } {
-  const open: HeldWrite[] = [];
-  const calls: string[] = [];
-  const sink = (bytes: Uint8Array): Promise<string> => new Promise((resolve, reject) => {
-    const hash = sha256Hex(bytes);
-    calls.push(hash);
-    const write: HeldWrite = {
-      hash,
+/** A sink whose batches are held until the test ends each one: the batches in
+ *  flight, and the hashes of every batch it was handed, in order. */
+function heldSink(): { sink: SegmentSink; open: HeldBatch[]; calls: string[][] } {
+  const open: HeldBatch[] = [];
+  const calls: string[][] = [];
+  const sink: SegmentSink = (batch) => new Promise((resolve, reject) => {
+    const hashes = batch.map((bytes) => sha256Hex(bytes));
+    calls.push(hashes);
+    const held: HeldBatch = {
+      hashes,
       end: (failure) => {
-        open.splice(open.indexOf(write), 1);
-        if (failure === undefined) resolve(hash);
+        open.splice(open.indexOf(held), 1);
+        if (failure === undefined) resolve(hashes);
         else reject(failure);
       },
     };
-    open.push(write);
+    open.push(held);
   });
   return { sink, open, calls };
 }
@@ -83,11 +86,11 @@ describe('writeCollectionManifest', () => {
       Array.from({ length: 20_000 }, (_, i): [string, bigint] => [`k${String(i).padStart(6, '0')}`, BigInt(i)]),
       compareFor(StringType));
     const objects = new Map<string, Uint8Array>();
-    const manifest = await writeCollectionManifest(TableType, [{ elements: value.entries() }], async (bytes) => {
+    const manifest = await writeCollectionManifest(TableType, [{ elements: value.entries() }], async (batch) => batch.map((bytes) => {
       const hash = sha256Hex(bytes);
       objects.set(hash, bytes);
       return hash;
-    });
+    }));
 
     const expectedObjects = new Map<string, Uint8Array>();
     let expected: Uint8Array | undefined;
@@ -108,11 +111,11 @@ describe('writeCollectionManifest', () => {
       Array.from({ length: 20_000 }, (_, i): [string, bigint] => [`k${String(i).padStart(6, '0')}`, BigInt(i)]),
       compareFor(StringType));
     const objects = new Map<string, Uint8Array>();
-    const sink = async (bytes: Uint8Array): Promise<string> => {
+    const sink: SegmentSink = async (batch) => batch.map((bytes) => {
       const hash = sha256Hex(bytes);
       objects.set(hash, bytes);
       return hash;
-    };
+    });
     const whole = await writeCollectionManifest(TableType, [{ elements: value.entries() }], sink);
     const entries = decodeCollectionManifest(whole).entries;
     const half = entries.length >> 1;
@@ -134,10 +137,10 @@ describe('writeCollectionManifest', () => {
     const again = await writeCollectionManifest(TableType, [
       { segments: carried },
       { elements: value.entries(decodeBeast2FenceFor(StringType)(entries[half]!.fence) as string) },
-    ], async (bytes) => {
-      const hash = await sink(bytes);
-      written.add(hash);
-      return hash;
+    ], async (batch) => {
+      const hashes = await sink(batch);
+      for (const hash of hashes) written.add(hash);
+      return hashes;
     });
 
     assert.deepEqual(again, whole, 'the same manifest');
@@ -145,34 +148,45 @@ describe('writeCollectionManifest', () => {
     for (const entry of entries.slice(0, half)) assert.ok(!written.has(entry.hash), `segment ${entry.hash.slice(0, 8)} is carried`);
   });
 
-  it('has the sink write the objects at once, as many as it is given, in order, and returns once every one is stored', async () => {
+  it('hands the sink the objects in order, in full batches, one in flight while the next is gathered, and returns once every one is stored', async () => {
     const value = rowsOf(20_000);
-    const expected = await writeCollectionManifest(TableType, [{ elements: value.entries() }], async (bytes) => sha256Hex(bytes));
-    const entries = decodeCollectionManifest(expected).entries;
-    const objects = entries.length + 1;
+    const expected = await writeCollectionManifest(TableType, [{ elements: value.entries() }], hashing);
+    const { entries, header } = decodeCollectionManifest(expected);
     const { sink, open, calls } = heldSink();
     let manifest: Uint8Array | undefined;
-    const writing = writeCollectionManifest(TableType, [{ elements: value.entries() }], sink, { inFlight: 3 })
+    const writing = writeCollectionManifest(TableType, [{ elements: value.entries() }], sink, { batch: 3 })
       .then((bytes) => {
         manifest = bytes;
       });
 
-    // Each write ends only when the test ends it, the last begun first, so the
-    // writes end in another order than they began. Between ends, the writer
-    // has as many in flight as it may: three, or the objects left.
+    // Each batch is stored only when the test ends it. Between ends, one batch
+    // is in flight, and the writer sends the next only once it is stored.
     while (manifest === undefined) {
-      const inFlight = (): number => Math.min(3, objects - (calls.length - open.length));
-      await until(() => manifest !== undefined || open.length === inFlight(), 'as many writes in flight as may be');
+      await until(() => manifest !== undefined || open.length > 0, 'a batch in flight');
       await turns(20);
       if (manifest !== undefined) break;
-      assert.equal(open.length, inFlight(), `${open.length} writes in flight, of ${calls.length} begun`);
-      open.at(-1)!.end();
+      assert.equal(open.length, 1, `${open.length} batches in flight, of ${calls.length} sent`);
+      open[0]!.end();
     }
     await writing;
 
-    assert.deepEqual(manifest, expected, 'the manifest a write at a time writes, each entry in its place');
-    assert.deepEqual(calls, [...entries.map((entry) => entry.hash), decodeCollectionManifest(expected).header],
-      'the segments, in order, and then the header');
+    assert.deepEqual(manifest, expected, 'the manifest a write of each object writes, each entry in its place');
+    assert.deepEqual(calls.flat(), [...entries.map((entry) => entry.hash), header], 'the segments, in order, and then the header');
+    assert.ok(calls.slice(0, -1).every((batch) => batch.length === 3), 'every batch but the last is full');
+    assert.ok(calls.at(-1)!.length <= 3, 'and the last holds what is left');
+  });
+
+  it('hands a collection of a few segments to the sink in one batch', async () => {
+    const value = rowsOf(4_000);
+    const { entries, header } = decodeCollectionManifest(await writeCollectionManifest(TableType, [{ elements: value.entries() }], hashing));
+    assert.ok(entries.length > 1, 'the value spans segments');
+    const calls: string[][] = [];
+    await writeCollectionManifest(TableType, [{ elements: value.entries() }], async (batch) => {
+      const hashes = await hashing(batch);
+      calls.push(hashes);
+      return hashes;
+    });
+    assert.deepEqual(calls, [[...entries.map((entry) => entry.hash), header]]);
   });
 
   /** A writer's failure, once it has failed: read through a function, which
@@ -187,57 +201,59 @@ describe('writeCollectionManifest', () => {
     return () => settled;
   }
 
-  it('starts no write after one fails, and throws its failure once the writes in flight have ended', async () => {
+  it('sends no batch after one fails, and throws its failure', async () => {
     const { sink, open, calls } = heldSink();
-    const writing = writeCollectionManifest(TableType, [{ elements: rowsOf(20_000).entries() }], sink, { inFlight: 3 });
+    const writing = writeCollectionManifest(TableType, [{ elements: rowsOf(20_000).entries() }], sink, { batch: 3 });
     const settled = failureOf(writing);
-    await until(() => open.length === 3, 'three writes in flight');
-    const failure = new Error('the store is gone');
-    open[1]!.end(failure);
+    await until(() => open.length === 1, 'a batch in flight');
+    // The next batch gathered, waiting for this one
     await turns(20);
-    assert.equal(calls.length, 3, 'nothing is begun after a write fails');
-    assert.equal(settled(), undefined, 'the writer waits for the writes still in flight');
-
-    for (const write of [...open]) write.end();
-    await writing.catch(() => {});
+    const failure = new Error('the store is gone');
+    open[0]!.end(failure);
+    await until(() => settled() !== undefined, "the writer's end");
+    assert.equal(calls.length, 1, 'nothing is sent after a batch fails');
     assert.equal(settled()?.failure, failure);
   });
 
-  it('throws a failure among the last writes, which no write after it meets', async () => {
+  it("throws a failure of the last batch, the header's", async () => {
     const value = rowsOf(20_000);
-    const { header } = decodeCollectionManifest(
-      await writeCollectionManifest(TableType, [{ elements: value.entries() }], async (bytes) => sha256Hex(bytes)));
+    const { header } = decodeCollectionManifest(await writeCollectionManifest(TableType, [{ elements: value.entries() }], hashing));
     const { sink, open } = heldSink();
-    const writing = writeCollectionManifest(TableType, [{ elements: value.entries() }], sink, { inFlight: 3 });
+    const writing = writeCollectionManifest(TableType, [{ elements: value.entries() }], sink, { batch: 3 });
     const settled = failureOf(writing);
-    // Every object is stored but the header, the last begun.
+    // Every batch is stored but the one holding the header, the last sent.
     const failure = new Error('the store is gone');
     for (;;) {
-      await until(() => settled() !== undefined || open.length > 0, 'a write in flight, or the writer\'s end');
+      await until(() => settled() !== undefined || open.length > 0, 'a batch in flight, or the writer\'s end');
       if (settled() !== undefined) break;
-      const write = open[0]!;
-      write.end(write.hash === header ? failure : undefined);
+      const batch = open[0]!;
+      batch.end(batch.hashes.includes(header) ? failure : undefined);
     }
     assert.equal(settled()?.failure, failure);
   });
 
-  it('throws a piece\'s failure once the writes in flight have ended', async () => {
-    const { sink, open } = heldSink();
-    // Rows in order, then one out of it.
+  it('throws a piece\'s failure once the batch in flight has ended', async () => {
+    // A batch larger than half the segments the rows before the one out of
+    // order are cut into, and no larger than they: one batch is sent, and the
+    // next is never full, so the row out of order is read with a batch in flight.
+    const segments = decodeCollectionManifest(await writeCollectionManifest(TableType, [{ elements: rowsOf(20_000).entries() }], hashing))
+      .entries.length;
+    const { sink, open, calls } = heldSink();
     let disordered = false;
     function* rows(): Generator<[string, bigint]> {
       yield* rowsOf(20_000).entries();
       disordered = true;
       yield ['a', 0n];
     }
-    const writing = writeCollectionManifest(TableType, [{ elements: rows() }], sink, { inFlight: 64 });
+    const writing = writeCollectionManifest(TableType, [{ elements: rows() }], sink, { batch: (segments >> 1) + 1 });
     const settled = failureOf(writing);
     await until(() => disordered, 'the row out of order');
     await turns(20);
-    assert.ok(open.length > 0, 'segments are in flight');
-    assert.equal(settled(), undefined, 'the writer waits for the writes still in flight');
+    assert.equal(calls.length, 1, 'one batch is sent');
+    assert.equal(open.length, 1, 'and in flight');
+    assert.equal(settled(), undefined, 'the writer waits for the batch in flight');
 
-    for (const write of [...open]) write.end();
+    open[0]!.end();
     await writing.catch(() => {});
     const failure = settled()?.failure;
     assert.ok(failure instanceof Error, 'the piece\'s failure');
@@ -255,9 +271,9 @@ describe('encodeDatasetBlob', () => {
     const whole = encodeBeast2For(RowType)(row);
     assert.deepEqual(encodeDatasetBlob(RowType, row), whole);
     const sunk: Uint8Array[] = [];
-    assert.deepEqual(await encodeDatasetBlob(RowType, row, async (bytes) => {
-      sunk.push(bytes);
-      return sha256Hex(bytes);
+    assert.deepEqual(await encodeDatasetBlob(RowType, row, async (batch) => {
+      sunk.push(...batch);
+      return hashing(batch);
     }), whole, 'a sink changes nothing for a value that is not a collection');
     assert.deepEqual(sunk, []);
   });

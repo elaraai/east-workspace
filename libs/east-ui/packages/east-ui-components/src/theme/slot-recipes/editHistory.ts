@@ -11,7 +11,10 @@
  * there are none), the history buttons (the `iconButton` recipe: on a coarse
  * pointer they keep their size and take a 44px touch target from its halo,
  * #346, so a phone's toolbar row holds them beside the rest — the user's
- * ruling, #1193), and under them the latest error in `fg.danger`. First among
+ * ruling, #1193), and under them the latest error in `fg.danger`. While a
+ * Save is out, and until its saved state is read back, Save holds the live dot
+ * in place of its tick, at full strength in `fg` over its disabled look (#1573,
+ * `aria-busy`). First among
  * the buttons, while a conflict waits, the conflicts button: the not-equal
  * icon in `--warn` and how many wait in mono 11/600 in its text step, at its
  * neighbours' height, on the third paper while its popover is open
@@ -70,11 +73,16 @@ export const editHistorySlotRecipe = defineSlotRecipe({
                 "&:has([data-history-issues])": { width: "auto", paddingX: "6px" },
                 borderColor: "border.strong", background: "bg.surface", color: "fg", "& svg": { fontSize: "16px" },
                 "&:disabled, &[aria-disabled=true]": { borderColor: "border.subtle", color: "fg.faint", opacity: 1 },
+                // Save while a Save is out or read back (#1573): acting, not off.
+                "&[aria-busy=true], &[aria-busy=true]:disabled": { borderColor: "border.strong", color: "fg", cursor: "progress" },
                 "&[data-ready]": { background: "brand.solid", borderColor: "brand.solid", color: "brand.contrast" },
                 "&[aria-expanded=true]": { background: "bg.subtle" },
             },
             // Locked while a run of the app's optimiser is out (#1409, R2): the disabled look, the control kept.
             "&[aria-disabled=true]": { color: "fg.muted", cursor: "not-allowed", opacity: 0.5 },
+            // Save while a Save is out or its saved state is read back (#1573): the live dot at full strength over the
+            // disabled look — working, not off.
+            "&[aria-busy=true], &[aria-busy=true]:disabled": { color: "fg", cursor: "progress", opacity: 1 },
         },
         issues: {
             display: "flex",

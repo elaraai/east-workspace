@@ -145,7 +145,7 @@ describe('the memory each door holds', { skip: process.platform === 'linux' ? fa
           name: variant('replace', { before: `row-${edited}`, after: 'RENAMED' }),
         })))]],
         compareFor(toEastTypeValue((deltaType as unknown as { key: EastType }).key)) as (a: unknown, b: unknown) => -1 | 0 | 1,
-      ), (bytes) => storage.objects.write(repo, bytes)));
+      ), (objects) => storage.objects.writeMany(repo, objects)));
 
       inputs[size] = {
         rows,

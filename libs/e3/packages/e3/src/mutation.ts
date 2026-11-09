@@ -27,7 +27,7 @@ import { editTypeOf } from '@elaraai/e3-types';
 import type { MutationDef, RecordDef } from './types.js';
 import { hasKeyedDelta } from './record-programs.js';
 import { checkPure, sameEastType, signatureOf, type IndexFunction } from './record-guards.js';
-import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
+import { DEFAULT_RECORD_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
 
 /** A mutation's name is an identifier, as a migration's and an index's are: it
  *  names the commits the mutation makes, beside e3's own, which begin with `$`,
@@ -87,7 +87,7 @@ function checkKeyed(words: string, name: string, rec: RecordDef): void {
  * @param name - The mutation
  * @param rec - The record it writes
  * @param fn - The reducer `(state, ...args) => state`
- * @param config - Its runner selection
+ * @param config - Its runner selection; {@link DEFAULT_RECORD_RUNNER} when it names none
  * @returns The definition
  * @throws {Error} When the name is not an identifier, the runner is not a known runtime, the body is async or calls a
  *   platform function, or its first parameter or its return is not the record's state
@@ -95,7 +95,7 @@ function checkKeyed(words: string, name: string, rec: RecordDef): void {
 export function reduceDefinition(
   words: string, name: string, rec: RecordDef, fn: IndexFunction, config: { runner?: FunctionRunner } | undefined,
 ): MutationDef {
-  const runner = config?.runner ?? DEFAULT_RUNNER;
+  const runner = config?.runner ?? DEFAULT_RECORD_RUNNER;
   // Validate eagerly so a bad runner fails at definition time, not export time.
   runnerToVariant(runner);
 
@@ -136,7 +136,7 @@ export function reduceDefinition(
  * @param name - The mutation
  * @param rec - The record it writes
  * @param fn - The body `(state, ...args, edit) => null`
- * @param config - Its runner selection
+ * @param config - Its runner selection; {@link DEFAULT_RECORD_RUNNER} when it names none
  * @returns The definition
  * @throws {Error} When the name is not an identifier, the runner is not a known runtime, the record is not a Dict or a
  *   Set, the body is async or calls a platform function, or its parameters or its return are not the form's
@@ -144,7 +144,7 @@ export function reduceDefinition(
 export function editDefinition(
   words: string, name: string, rec: RecordDef, fn: IndexFunction, config: { runner?: FunctionRunner } | undefined,
 ): MutationDef {
-  const runner = config?.runner ?? DEFAULT_RUNNER;
+  const runner = config?.runner ?? DEFAULT_RECORD_RUNNER;
   runnerToVariant(runner);
   checkKeyed(words, name, rec);
 
@@ -186,13 +186,14 @@ export function editDefinition(
  * @param words - The declaration, as a refusal names it
  * @param name - The mutation
  * @param rec - The record it writes
- * @param config - Its runner selection
+ * @param config - Its runner selection, which runs the program a record with
+ *   indexes maintains them by; {@link DEFAULT_RECORD_RUNNER} when it names none
  * @returns The definition
  * @throws {Error} When the name is not an identifier, the runner is not a known runtime, or the record is not a Dict or a Set
  */
 export function patchDefinition(words: string, name: string, rec: RecordDef, config: { runner?: FunctionRunner } | undefined): MutationDef {
   checkName(words, name);
-  const runner = config?.runner ?? DEFAULT_RUNNER;
+  const runner = config?.runner ?? DEFAULT_RECORD_RUNNER;
   runnerToVariant(runner);
   checkKeyed(words, name, rec);
 

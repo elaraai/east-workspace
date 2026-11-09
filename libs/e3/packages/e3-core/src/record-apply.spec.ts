@@ -75,7 +75,8 @@ function totalsOf(presses: number, weeks: number): SortedMap<SummaryEntry, Total
 /** A storage backend that counts what an apply actually reads and writes.
  *  The manifest a write produces is content-addressed, so re-announcing an
  *  untouched segment is a write of bytes already stored — counted here as the
- *  store sees it, which is the number that has to stay flat. */
+ *  store sees it, which is the number that has to stay flat. Each object of a
+ *  batch is counted as a write. */
 function countingStore(inner: StorageBackend): StorageBackend & { cost: { reads: number; writes: number; bytes: number } } {
   const cost = { reads: 0, writes: 0, bytes: 0 };
   // A Proxy, not a spread: the store is a class instance and its methods live
@@ -94,6 +95,14 @@ function countingStore(inner: StorageBackend): StorageBackend & { cost: { reads:
           cost.writes++;
           cost.bytes += bytes.byteLength;
           return hash;
+        };
+      }
+      if (property === 'writeMany') {
+        return async (repo: string, batch: readonly Uint8Array[]) => {
+          const hashes = await target.writeMany(repo, batch);
+          cost.writes += batch.length;
+          for (const bytes of batch) cost.bytes += bytes.byteLength;
+          return hashes;
         };
       }
       const value = Reflect.get(target, property, receiver) as unknown;
@@ -136,7 +145,7 @@ describe('applying a mutation delta', () => {
       ops.map(([key, op]) => [variant(target, key), variant(target, op)] as [unknown, unknown]),
       compareFor(toEastTypeValue(keyOf)) as (a: unknown, b: unknown) => -1 | 0 | 1);
     return storage.objects.write(repo,
-      await encodeDatasetBlob(type, entries, (bytes) => storage.objects.write(repo, bytes)));
+      await encodeDatasetBlob(type, entries, (objects) => storage.objects.writeMany(repo, objects)));
   }
 
   /** Apply `ops` to a stored Dict and answer with the new manifest hash. */
@@ -347,7 +356,7 @@ describe('applying a mutation delta', () => {
     entries.set(variant('primary', id(7)), variant('primary', variant('delete', row(7))));
     entries.set(variant('by_due', { ik: 7n, k: id(7) }), variant('by_due', variant('delete', 'Plan 7')));
     const deltaHash = await storage.objects.write(repo,
-      await encodeDatasetBlob(type, entries, (bytes) => storage.objects.write(repo, bytes)));
+      await encodeDatasetBlob(type, entries, (objects) => storage.objects.writeMany(repo, objects)));
 
     const written = await applyDelta(storage, repo,
       new Map([['primary', primary], ['by_due', index], ['untouched', primary]]), deltaHash);
@@ -414,7 +423,7 @@ describe('applying a mutation delta', () => {
         changes.map(([key, change]) => [variant('by_week', key), variant('by_week', variant('add', change))] as [unknown, unknown]),
         compareFor(toEastTypeValue((type as unknown as { key: EastType }).key)) as (a: unknown, b: unknown) => -1 | 0 | 1);
       const deltaHash = await storage.objects.write(repo,
-        await encodeDatasetBlob(type, entries, (bytes) => storage.objects.write(repo, bytes)));
+        await encodeDatasetBlob(type, entries, (objects) => storage.objects.writeMany(repo, objects)));
       return (await applyDelta(storage, repo, new Map([['by_week', hash]]), deltaHash)).get('by_week')!;
     }
 
