@@ -745,7 +745,7 @@ function cellsAtOf(root: Root): (from: ValueTypeOf<typeof SheetReadFromType>, da
 }
 
 describe("columns from data at the day", () => {
-    test("a wire column names the column and member it was made for and whether a clear writes none, and where its marks cross; a root reading nothing at the day has no `cellsAt`", () => {
+    test("a wire column names the column and member it was made for, the field it reads and writes and whether a clear writes none, and where its marks cross; a root reading nothing at the day has no `cellsAt`", () => {
         const From = ColumnType.fields.from;
         const Marks = ColumnType.fields.mark;
         const column = (root: Root, key: string) => root.columns.find((c) => c.key === key) ?? assert.fail(`no column ${key}`);
@@ -753,16 +753,17 @@ describe("columns from data at the day", () => {
         assert.ok(equalFor(From)(name.from, none), printFor(From)(name.from));
         assert.ok(equalFor(Marks)(name.mark, some({ words: "$mark:name", lock: "$lock:name" })), printFor(Marks)(name.mark));
         const booked = column(STAFF_AT_DAY, "hours:P-900");
-        assert.ok(equalFor(From)(booked.from, some({ column: "hours", member: "P-900", clears: true })), printFor(From)(booked.from));
+        assert.ok(equalFor(From)(booked.from, some({ column: "hours", field: "hours", member: "P-900", clears: true })), printFor(From)(booked.from));
         assert.ok(equalFor(Marks)(booked.mark, some({ words: "$mark:hours:P-900", lock: "$lock:hours:P-900" })), printFor(Marks)(booked.mark));
+        // Keyed by a name of its own, it names the field its `field` does.
         const client = column(STAFF_AT_DAY, "byClient:C-01");
-        assert.ok(equalFor(From)(client.from, some({ column: "byClient", member: "C-01", clears: true })), printFor(From)(client.from));
+        assert.ok(equalFor(From)(client.from, some({ column: "byClient", field: "hours", member: "C-01", clears: true })), printFor(From)(client.from));
         assert.ok(equalFor(Marks)(client.mark, none), printFor(Marks)(client.mark));
         // A struct's field takes a clear where it is an Option.
         const mon = column(WEEK_AT_DAY, "week:mon");
-        assert.ok(equalFor(From)(mon.from, some({ column: "week", member: "mon", clears: false })), printFor(From)(mon.from));
+        assert.ok(equalFor(From)(mon.from, some({ column: "week", field: "week", member: "mon", clears: false })), printFor(From)(mon.from));
         const sat = column(WEEK_AT_DAY, "week:sat");
-        assert.ok(equalFor(From)(sat.from, some({ column: "week", member: "sat", clears: true })), printFor(From)(sat.from));
+        assert.ok(equalFor(From)(sat.from, some({ column: "week", field: "week", member: "sat", clears: true })), printFor(From)(sat.from));
         assert.ok(equalFor(Marks)(sat.mark, some({ words: "$mark:week:sat", lock: "$lock:week:sat" })), printFor(Marks)(sat.mark));
         assert.equal(ROOT.cellsAt.type, "none");
     });

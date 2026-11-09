@@ -993,15 +993,17 @@ export type SheetColumnKindLiteral =
     | "title" | "person" | "boolean" | "toggle" | "cycle" | "age" | "audit";
 
 /**
- * The column from data and the member a wire column was made for, and whether
- * its cells take a clear.
+ * The column from data and the member a wire column was made for, the field
+ * it reads and writes, and whether its cells take a clear.
  *
  * @property column - The column from data, by its key in the columns map
+ * @property field - The row's field the column reads and writes: its key, or the one its `field` names
  * @property member - The register member's key, or the struct's field, whose value the column's cells show
  * @property clears - Whether a clear writes `none`: the cell's value is an `Option` — a `Dict`'s entry, a struct's optional field, or a `write` that takes one; where it isn't, the cell refuses a clear
  */
 export const SheetColumnFromType = StructType({
     column:  StringType,
+    field:   StringType,
     member:  StringType,
     clears:  BooleanType,
 });
@@ -1048,7 +1050,7 @@ export type SheetMarkCellsType = typeof SheetMarkCellsType;
  * @property editable - Whether the sheet writes the column
  * @property fill - The fill providers; the first that yields wins
  * @property detailCell - The unrendered cell whose text is the column's detail — the hover and the strip (#844)
- * @property from - A column from data's: the column and member it was made for, and whether its cells take a clear
+ * @property from - A column from data's: the column and member it was made for, the field it reads and writes, and whether its cells take a clear
  * @property mark - Where the column's marks cross, when it has a `mark`
  */
 export const SheetColumnType = StructType({

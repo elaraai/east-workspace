@@ -20,7 +20,8 @@
  *   hover. A cell's mark (#1560) draws its words: a note after the value, or
  *   in an empty cell in its place; a lock the design system's Tag, after the
  *   value or alone, and the cell it locks takes no hover and no gesture. A
- *   conflict not yet chosen rings its cell in the warn colour — or the row's
+ *   conflict not yet chosen rings its cell in the warn colour — a column from
+ *   data's where it falls on its member's place in the field — or the row's
  *   edge, where the row itself is one — as the Sheet's rows draw it; a row
  *   with a field still missing is marked incomplete, and a cell's issue is
  *   its description to a screen reader.
@@ -52,9 +53,10 @@ import { createContext, memo, useContext, useId, useMemo, useSyncExternalStore, 
 import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faMinus } from "@fortawesome/free-solid-svg-icons";
-import type { ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import type { RecordPayloadType } from "@elaraai/e3-ui/internal";
-import type { SlotStyles } from "@elaraai/east-ui-components/internal";
+import { getSomeorUndefined } from "@elaraai/east-ui-components";
+import type { ConflictMarks, SlotStyles } from "@elaraai/east-ui-components/internal";
 import type { SheetHostEmptyProps, SheetHostHeaderProps, SheetHostRowProps } from "../sheet/index.js";
 import { cellIsBlank, cellWritable, driverKeyOf, markOf, resolveMember, unitOf, type SheetColumnIndex, type SheetColumnMeta } from "../sheet/model.js";
 import { SheetCellContent } from "../sheet/cells/Cell.js";
@@ -73,6 +75,10 @@ import type { RecordTicks } from "./ticks.js";
 
 /** The Record's column groups, decoded. */
 type RecordColumnGroups = ValueTypeOf<typeof RecordPayloadType>["columnGroups"];
+
+const stringEqual = equalFor(StringType);
+/** A member's key as a conflict's step names a `Dict`'s key: as East prints it. */
+const printKey = printFor(StringType);
 
 /**
  * What the Record's grid parts read beside the Sheet's: the record recipe's styles, the ticks, the column groups, the
@@ -153,6 +159,23 @@ export function titleOf(row: SheetRowValue, columns: SheetColumnIndex): string |
  */
 export function nameOf(row: SheetRowValue, columns: SheetColumnIndex): string {
     return titleOf(row, columns) ?? row.id;
+}
+
+/**
+ * Whether a conflict not yet chosen falls on a cell: on its column's field — or a column from data's on its member's
+ * place in the field, a `Dict`'s entry keyed by the member or the struct's field, or on the field whole.
+ *
+ * @param meta - The cell's column
+ * @param conflicts - Where the row's conflicts are
+ * @returns Whether the cell wears the warn ring
+ */
+function conflicted(meta: SheetColumnMeta, conflicts: ConflictMarks | undefined): boolean {
+    if (conflicts === undefined) return false;
+    const from = getSomeorUndefined(meta.raw.from);
+    if (from === undefined) return conflicts.fields.has(meta.key);
+    return conflicts.within.get(from.field)?.some(([step]) => step === undefined
+        || (step.kind === "key" && stringEqual(step.key, printKey(from.member)))
+        || (step.kind === "field" && stringEqual(step.name, from.member))) === true;
 }
 
 /**
@@ -259,7 +282,7 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
                         data-align={alignOf(meta)}
                         data-still={still || locked ? "" : undefined}
                         data-locked={locked ? "" : undefined}
-                        data-conflict={draft?.conflicts?.fields.has(meta.key) === true ? "" : undefined}
+                        data-conflict={conflicted(meta, draft?.conflicts) ? "" : undefined}
                         // A required cell's one issue is that it is empty: it says so in the Record's words. A mark's words follow.
                         title={mark === undefined ? said : m.marked({ text: said, words: mark.words, lock: locked })}
                         aria-invalid={issue !== undefined ? true : undefined}

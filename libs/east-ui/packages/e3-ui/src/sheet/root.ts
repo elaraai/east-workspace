@@ -1074,7 +1074,7 @@ function buildSheet(
                     editable:    m.editable,
                     fill:        [],
                     detailCell:  ruleCellKey(m, "detail"),
-                    from:        some({ column: m.key, member: member.name, clears: member.clears }),
+                    from:        some({ column: m.key, field: m.field, member: member.name, clears: member.clears }),
                     mark:        markCells(key, data.mark !== undefined),
                 }, SheetColumnType));
             }
@@ -1100,7 +1100,7 @@ function buildSheet(
                 editable:    m.editable,
                 fill:        [],
                 detailCell:  ruleCellKey(m, "detail"),
-                from:        some({ column: m.key, member: member.key, clears: data.clears }),
+                from:        some({ column: m.key, field: m.field, member: member.key, clears: data.clears }),
                 mark:        markCells(key, data.mark !== undefined),
             }, SheetColumnType);
         }) as unknown as ExprType<ArrayType<SheetColumnType>>);

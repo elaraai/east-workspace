@@ -7,9 +7,10 @@
  */
 
 import { expect, test } from "vitest";
-import { ArrayType, IntegerType, StringType, StructType, none, some, variant } from "@elaraai/east";
+import { ArrayType, DictType, FloatType, IntegerType, SortedMap, StringType, StructType, compareFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
-import { liftDraft, presentDraft, raiseIssue, type BatchReadiness } from "./draft.js";
+import { conflictMarks, liftDraft, presentDraft, raiseIssue, type BatchReadiness } from "./draft.js";
+import { EntryMerger } from "./merge.js";
 import { DRAFT_ISSUE_TEXT } from "./messages.js";
 
 const Row = StructType({ id: StringType, qty: IntegerType });
@@ -57,4 +58,22 @@ test("each draft is marked for its OWN issues' kind — an incomplete entry stay
     // An issue raised without a kind — a host's, read back — takes its batch's.
     const hosts: BatchReadiness = variant("invalid", [{ entry: "b", row: none, field: some("qty"), message: "Refused upstream" }]);
     expect(presentDraft({ type: Draft, current: b, before: b, entry: "b", readiness: hosts, writable: true, text })).toMatchObject({ invalid: true });
+});
+
+test("a conflict marks the field it is in, and says where in it: a keyed map's key as East prints it, none for the field whole — and a child row's, that row's alone", () => {
+    const Person = StructType({ name: StringType, crew: DictType(StringType, FloatType) });
+    const PersonDraft = Editing.Types.Draft(Person);
+    const crew = (hours: [string, number][]) => new SortedMap(hours, compareFor(StringType));
+    const person = (value: ValueTypeOf<typeof Person>) => some(liftDraft(PersonDraft, value));
+    // Both sides changed the name, and crew a's hours; crew b's they left.
+    const was = person({ name: "A. Morgan", crew: crew([["a", 1], ["b", 2]]) });
+    const ours = person({ name: "A. Morgan, lead", crew: crew([["a", 5], ["b", 2]]) });
+    const theirs = person({ name: "A. Morgan, nights", crew: crew([["a", 6], ["b", 2]]) });
+    const marks = conflictMarks(new EntryMerger(PersonDraft).merge(was, ours, theirs).points, PersonDraft);
+    expect(marks).toEqual({ fields: new Set(["name", "crew"]), within: new Map([["name", [[]]], ["crew", [[{ kind: "key", key: '"a"' }]]]]), whole: false });
+    // A group's second row's quantity, changed on both sides: that row's mark, and none on the first.
+    const group = (qty: bigint) => some(liftDraft(GroupDraft, { id: "g", rows: [{ id: "r0", qty: 1n }, { id: "r1", qty }] }));
+    const lines = new EntryMerger(GroupDraft).merge(group(2n), group(3n), group(4n)).points;
+    expect(conflictMarks(lines, GroupDraft, { field: "rows", index: 1 })).toEqual({ fields: new Set(["qty"]), within: new Map([["qty", [[]]]]), whole: false });
+    expect(conflictMarks(lines, GroupDraft, { field: "rows", index: 0 })).toBeUndefined();
 });

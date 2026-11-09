@@ -54,6 +54,8 @@ export function draftPresentation(session: SheetTransactions, type: EastType, fi
     if (entry?.draft === undefined) return CLEAN_DRAFT;
     const points = session.conflicts.get(id)?.points;
     const original = session.originals.get(id);
+    // A conflict's steps run from the entry, whatever row of it is presented.
+    const entryType = type;
     let current: unknown = entry.draft;
     let before = original?.draft;
     let row: number | undefined;
@@ -71,7 +73,7 @@ export function draftPresentation(session: SheetTransactions, type: EastType, fi
         text: (message) => issueText(message, words),
     });
     // Where it holds a conflict not yet chosen: the cells that wear the warn ring, or the row whole.
-    const conflicts = conflictMarks(points, child === undefined || field === undefined || row === undefined ? undefined : { field, index: row });
+    const conflicts = conflictMarks(points, entryType, child === undefined || field === undefined || row === undefined ? undefined : { field, index: row });
     return conflicts === undefined ? presented : { ...presented, conflicts };
 }
 

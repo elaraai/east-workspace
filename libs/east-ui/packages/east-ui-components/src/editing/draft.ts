@@ -13,7 +13,7 @@
 import { OptionType, StringType, equalFor, none, some, variant, type EastType, type VariantType, type ValueTypeOf } from "@elaraai/east";
 import { EditingBatchReadinessType, EditingIssueType, EditingReadinessType } from "@elaraai/east-ui/internal";
 import { DRAFT_ISSUE_TEXT } from "./messages.js";
-import type { ConflictPoint } from "./merge.js";
+import { conflictSteps, type ConflictPoint, type ConflictStep } from "./merge.js";
 
 type Issue = ValueTypeOf<typeof EditingIssueType>;
 /** A batch's readiness — every draft's issues together. */
@@ -206,6 +206,12 @@ const nameEqual = equalFor(StringType);
 export interface ConflictMarks {
     /** Each field a conflict is in. */
     readonly fields: ReadonlySet<string>;
+    /**
+     * Where in each field its conflicts are: each one's steps past the field — a `Dict`'s key as East prints it, a
+     * struct's field, an item, a case — none for one at the field whole. What a part shown on its own, a column
+     * made from a field's members, is marked by.
+     */
+    readonly within: ReadonlyMap<string, readonly (readonly ConflictStep[])[]>;
     /** Whether the entry — or the child row — is one itself: both added it, or one side removed it. */
     readonly whole: boolean;
 }
@@ -214,29 +220,38 @@ export interface ConflictMarks {
  * Where an entry's conflicts are, field by field — or, given a child row
  * (its group's children field and its index), that row's: what the warn
  * ring marks on a canvas, a field's part for each conflict in it and the
- * whole for one at the entry itself. A choice of a variant on the way down
- * (a group or a row of a sheet with loose rows) is passed over.
+ * whole for one at the entry itself. The draft's own wrappers are no step of
+ * the entry's, and a choice of a variant on the way down (a group or a row
+ * of a sheet with loose rows) is passed over.
  *
  * @param points - The entry's conflicts still to choose
+ * @param type - The entry's draft type
  * @param child - A child row: its group's children field and its index there
  * @returns Its marks; `undefined` where none falls on it
  */
-export function conflictMarks(points: readonly ConflictPoint[] | undefined, child?: { readonly field: string; readonly index: number }): ConflictMarks | undefined {
+export function conflictMarks(points: readonly ConflictPoint[] | undefined, type: EastType, child?: { readonly field: string; readonly index: number }): ConflictMarks | undefined {
     if (points === undefined || points.length === 0) return undefined;
     const fields = new Set<string>();
+    const within = new Map<string, (readonly ConflictStep[])[]>();
     let whole = false;
     for (const point of points) {
-        let at = point.at.filter((step, i) => !(step.kind === "variant" && point.at.slice(0, i).every((before) => before.kind === "variant")));
+        const steps = conflictSteps(type, point.at);
+        const lead = steps.findIndex((step) => step.kind !== "case");
+        let at = lead < 0 ? [] : steps.slice(lead);
         if (child !== undefined) {
-            const [field, index] = at;
-            if (field?.kind !== "field" || !nameEqual(field.name, child.field) || index?.kind !== "index" || Number(index.index) !== child.index) continue;
+            const [field, item] = at;
+            if (field?.kind !== "field" || !nameEqual(field.name, child.field) || item?.kind !== "item" || Number(item.index) !== child.index) continue;
             at = at.slice(2);
         }
-        const first = at.find((step) => step.kind !== "variant");
+        const head = at.findIndex((step) => step.kind !== "case");
+        const first = head < 0 ? undefined : at[head]!;
         if (first === undefined) whole = true;
-        else if (first.kind === "field") fields.add(first.name);
+        else if (first.kind === "field") {
+            fields.add(first.name);
+            within.set(first.name, [...(within.get(first.name) ?? []), at.slice(head + 1)]);
+        }
     }
-    return fields.size === 0 && !whole ? undefined : { fields, whole };
+    return fields.size === 0 && !whole ? undefined : { fields, within, whole };
 }
 
 /** A draft with nothing to show. */

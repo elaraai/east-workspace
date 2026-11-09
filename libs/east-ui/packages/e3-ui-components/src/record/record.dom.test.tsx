@@ -22,9 +22,10 @@
  * Apply writing the case — and columns from data (§5.2, §5.3, #1559): their
  * cells read at the Record's day over a row's entry or its draft, an edit
  * written over the field, two columns on one field chaining in one gesture,
- * Save's difference of each field, the data moving under them and the day
- * turning — and marks and locks (§4, §5.3, #1560): a note and a lock drawn in
- * a cell, a plain column's mark over its row, a lock refusing every gesture
+ * Save's difference of each field, a conflict ringing the member's cell it
+ * falls on, the data moving under them and the day turning — and marks and
+ * locks (§4, §5.3, #1560): a note and a lock drawn in a cell, a plain
+ * column's mark over its row, a lock refusing every gesture
  * and lifting as the draft it reads changes — but standing while that draft
  * isn't whole, and over a row whose marks can't be read — and a clear refused
  * where a cell's value isn't an option — and columns from data in the side panel
@@ -1895,6 +1896,34 @@ describe("columns from data, read and written at the day", () => {
         expect(details(container)!.querySelector("[data-inspector-id]")!.textContent).toBe("A. Morgan");
         await press(action(container, "add")!);
         expect(active(container)).toBe(cellOf(drafted(container), "name"));
+    });
+
+    test("a conflict not yet chosen rings the cell of the member it falls on: a project's hours another Save changed under the draft, and none of the field's other projects, nor the row", async () => {
+        const { container } = await h.mount(ex.recordHoursByProject, { storageKey: "record-data-conflict" });
+        // A. Morgan's kitchen hours typed here; another Save lands first, moving them.
+        await typeInto(container, 0, "hours:P-100", "10");
+        await h.race(ex.recordHours, () => fireEvent.click(history(container, editingMessages.apply())), (staff) => {
+            const next = new Map(staff);
+            const morgan = staff.get("H-01")!;
+            next.set("H-01", { ...morgan, hours: new Map(morgan.hours).set("P-100", 11) });
+            return next;
+        });
+        await waitFor(() => expect(cellAt(container, 0, "hours:P-100").hasAttribute("data-conflict")).toBe(true));
+        expect(["hours:P-101", "hours:P-200", "hours:P-900"].map((k) => cellAt(container, 0, k).hasAttribute("data-conflict"))).toEqual([false, false, false]);
+        expect(rows(container)[0]!.hasAttribute("data-conflict")).toBe(false);
+    });
+
+    test("a conflict not yet chosen in a struct the columns from data write rings the field it falls on: Monday's heads, and not Tuesday's", async () => {
+        const { container } = await h.mount(ex.recordRosterByDay, { storageKey: "record-data-conflict-struct" });
+        await typeInto(container, 0, "week:mon", "5");
+        await h.race(ex.recordRoster, () => fireEvent.click(history(container, editingMessages.apply())), (roster) => {
+            const next = new Map(roster);
+            const early = roster.get("S-1")!;
+            next.set("S-1", { ...early, week: { ...early.week, mon: 6n } });
+            return next;
+        });
+        await waitFor(() => expect(cellAt(container, 0, "week:mon").hasAttribute("data-conflict")).toBe(true));
+        expect(cellAt(container, 0, "week:tue").hasAttribute("data-conflict")).toBe(false);
     });
 });
 
