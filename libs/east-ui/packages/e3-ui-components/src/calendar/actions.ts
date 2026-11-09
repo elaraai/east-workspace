@@ -10,7 +10,7 @@ import type { ScheduleChange, ScheduleEditing } from "../shared/schedule/editing
 import { durationMinutes } from "../shared/schedule/due.js";
 import { lowerWord } from "../shared/schedule/words.js";
 import {
-    QUARTER, sameResource, type CalendarItem, type CalendarKind, type CalendarRef, type CalendarResource, type CalendarRow, type CalendarTemplate, type CalendarValue,
+    QUARTER, resourceKey, type CalendarItem, type CalendarKind, type CalendarRef, type CalendarResource, type CalendarRow, type CalendarTemplate, type CalendarValue,
 } from "./model.js";
 
 const compareDate = compareFor(DateTimeType);
@@ -97,6 +97,22 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
         catch { return "This event cannot use that placement"; }
         return undefined;
     };
+    // The key a check of a template's placement makes its event under, minted once a template while these commands stand
+    // — the record and the drafts they were made over — so a drag checking each place it rests on never walks the record's
+    // keys at each (#1594); one not mintable yet is asked again. A placement made mints its own.
+    const checkKeys = new Map<string, Map<string, string>>();
+    const keyFor = (kind: string, template: string, checkOnly: boolean): string | undefined => {
+        if (!checkOnly) return editing.mint(kind, template, new Set());
+        const held = checkKeys.get(kind)?.get(template);
+        if (held !== undefined) return held;
+        const minted = editing.mint(kind, template, new Set());
+        if (minted !== undefined) {
+            let ofKind = checkKeys.get(kind);
+            if (ofKind === undefined) { ofKind = new Map(); checkKeys.set(kind, ofKind); }
+            ofKind.set(template, minted);
+        }
+        return minted;
+    };
     return {
         editing,
         place(source, given, origin = "typed", checkOnly = false) {
@@ -104,7 +120,7 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
                 ? { ...given, resource: firstResource({ ...value, resources: shown }, source.kind, given, scheduled, paged) } : given;
             const refusal = validate(source, at); if (refusal !== undefined) return refusal;
             const creating = "template" in source;
-            const id = creating ? editing.mint(source.kind.key, source.template.key, new Set()) : source.item.key;
+            const id = creating ? keyFor(source.kind.key, source.template.key, checkOnly) : source.item.key;
             if (id === undefined) return "This record's key type needs an application-provided new key";
             const gesture = creating ? variant("create", { template: source.template.key, ...at }) : variant("place", at);
             const refused = checkedWrite(source.kind, id, gesture); if (refused !== undefined) return refused;
@@ -212,10 +228,15 @@ export function firstResource(value: CalendarValue, kind: CalendarKind, at: Pick
     const resources = value.resources.filter(resource => kind.takes.includes(resource.key)).flatMap((resource): CalendarResource[] => resource.key === pagedKind
         ? paged.rows.flatMap(row => row.resource.type === "some" && row.resource.value.kind === pagedKind ? [row.resource.value] : [])
         : resource.rows.map(row => ({ kind: resource.key, key: row.key })));
-    // A row is free when no event read is on it then — a paged kind's only where its events are read.
+    // A row is free when no event read is on it then — a paged kind's only where its events are read. The rows busy then
+    // are found in one pass over the events, never the events walked again for each row (#1594).
     const known = (resource: CalendarResource) => resource.kind !== pagedKind || paged.known === undefined || paged.known.has(resource.key);
-    const free = resources.find(resource => known(resource) && !items.some(item => item.resource.type === "some" && sameResource(resource, item.resource.value)
-        && item.start.type === "some" && item.end.type === "some" && compareDate(item.start.value, at.end) < 0 && compareDate(item.end.value, at.start) > 0));
+    const busy = new Set<string>();
+    for (const item of items) {
+        if (item.resource.type === "some" && item.start.type === "some" && item.end.type === "some"
+            && compareDate(item.start.value, at.end) < 0 && compareDate(item.end.value, at.start) > 0) busy.add(resourceKey(item.resource.value));
+    }
+    const free = resources.find(resource => known(resource) && !busy.has(resourceKey(resource)));
     const selected = free ?? resources[0];
     return selected === undefined ? none : some(selected);
 }

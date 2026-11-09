@@ -816,6 +816,9 @@ function DropLane({ props, from, to, resource, along = "y", wholeDay = false, ch
                 const next = props.drag.preview(coordinate(x, y, payload), payload);
                 setLanding(before => before?.start.getTime() === next?.start.getTime() && before?.end.getTime() === next?.end.getTime() ? before : next);
             },
+            // A drag resting elsewhere, or let go or cancelled, leaves no preview behind: a lane rested on again shows
+            // where the drop lands now, never first where it landed before (#1594).
+            onLeave: () => setLanding(undefined),
             stopAxis: along,
             stops: () => {
                 const rect = ref.current?.getBoundingClientRect();

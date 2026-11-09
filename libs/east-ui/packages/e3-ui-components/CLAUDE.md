@@ -1478,6 +1478,19 @@ repeated hover, source immutability and cache invalidation. A completed edit may
 update selection, but must preserve collapsed panes and the active inspector
 tab. Only an explicit inspection action opens Details.
 
+The Calendar's drag keeps each place's verdict while what it was asked of
+holds — the events and the Backlog read, the drafts, the selection, the
+templates (`calendar/drag.ts`, #1594): a place is asked once a drag however
+often the pointer moves within it, the cell, the caption and what a screen
+reader hears given the one verdict, and the drop itself is checked afresh
+through the commands. A dragged event is found by its key, a template's first
+free resource in one pass over the events (`actions.ts`' `firstResource`), and
+its new key is minted once for the checks and afresh for the drop. A lane lets
+its preview go as the drag leaves it, lets go or is cancelled (`views.tsx`'
+`DropLane`, the drag layer's `onLeave`), so a lane rested on again never shows
+first where the drop landed before (`calendar-windows.dom.test.tsx`, the
+showcase's `calendar.spec.ts`).
+
 Keep a proposal's compact placement and detailed explanation separate in the
 existing regions: a dashed single-line chip in the desktop grid, the complete
 reason and labelled actions in Details, and explicit-action cards on phones.

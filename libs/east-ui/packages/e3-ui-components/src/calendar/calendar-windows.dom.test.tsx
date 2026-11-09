@@ -63,7 +63,29 @@ import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { eventKey, resourceKey, DAY } from "./model.js";
 import { TIMELINE_GUTTER, timelinePixels } from "./timeline.js";
+import type { CalendarCommands } from "./actions.js";
 import "./index.js";
+
+/** The placements the Calendar's commands were asked for: each a drag checked where it rests, and each one made. */
+const placed = vi.hoisted(() => ({ checks: 0, made: 0 }));
+
+vi.mock("./actions", async (importOriginal) => {
+    const real = await importOriginal<typeof import("./actions.js")>();
+    return {
+        ...real,
+        // The real commands, each placement counted as it is asked: checked only, or made.
+        calendarCommands: (...args: Parameters<typeof real.calendarCommands>): CalendarCommands => {
+            const commands = real.calendarCommands(...args);
+            return {
+                ...commands,
+                place: (source, placement, origin, checkOnly) => {
+                    if (checkOnly === true) placed.checks++; else placed.made++;
+                    return commands.place(source, placement, origin, checkOnly);
+                },
+            };
+        },
+    };
+});
 
 // The print works' module beside the windows': its job templates are what a job made on a paged press is made from.
 const h = e3Harness({ "calendar/calendar-windows": cw, "plan/plan-windows": ex, "plan/plan-events": pe }, { main: "data-calendar-main" });
@@ -862,5 +884,84 @@ describe("a job made on a paged press from a template (#1424)", () => {
             { title: "Board run", press: some("P-1460"), start: some(new Date("2026-10-05T09:00:00Z")) },
             { title: "Brochure run", press: some("P-1004"), start: some(new Date("2026-10-08T06:00:00Z")) },
         ]);
+    });
+});
+
+describe("a template carried over the timeline of 2,000 paged presses (#1594)", () => {
+    const pointer = { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1 };
+    /** The brochure run's template card, laid out below the timeline, and the plots of the presses' rows given, one under another from 100px down, 40px each, a day 100px. */
+    function layOutRows(c: HTMLElement, presses: readonly string[]) {
+        const card = slot(c, "start").querySelector<HTMLElement>(`[data-library-item=${JSON.stringify(eventKey({ kind: "job", key: "brochure" }))}]`)!;
+        const plots = presses.map((press) => pressRow(c, press)!.querySelector<HTMLElement>("[data-calendar-cell]")!);
+        const from = Number(plots[0]!.dataset["calendarFrom"]), to = Number(plots[0]!.dataset["calendarTo"]);
+        const width = (to - from) / DAY * 100;
+        layOut(new Map<Element, { left: number; top: number; width: number; height: number }>([
+            [card, { left: 0, top: 880, width: 240, height: 40 }], ...plots.map((plot, i) => [plot, { left: 0, top: 100 + i * 40, width, height: 40 }] as const)]));
+        /** Where an instant is along a row, a pixel past it. */
+        const x = (at: string) => (new Date(at).getTime() - from) / (to - from) * width + 1;
+        return { card, x };
+    }
+    /** Picks the card up, as a mouse does past its few pixels of travel. */
+    async function pickUp(card: HTMLElement) {
+        await act(async () => {
+            fireEvent.pointerDown(card, { ...pointer, clientX: 10, clientY: 900 });
+            fireEvent.pointerMove(document, { ...pointer, clientX: 20, clientY: 900 });
+        });
+        await settle();
+    }
+    async function moveTo(clientX: number, clientY: number) {
+        await act(async () => { fireEvent.pointerMove(document, { ...pointer, clientX, clientY }); });
+        await settle();
+    }
+    async function letGo(clientX: number, clientY: number) {
+        await act(async () => { fireEvent.pointerUp(document, { ...pointer, buttons: 0, clientX, clientY }); });
+        await settle();
+    }
+
+    test("is checked once a place it rests on: moving within the place asks nothing more and the next place once; its drop is made through the commands, and a drag after it is checked afresh, of what the drop changed", async () => {
+        const { container: c } = await h.mount(windowsTemplates, { storageKey: "windows-checks" });
+        await settle();
+        const { card, x } = layOutRows(c, ["P-1004"]);
+        await pickUp(card);
+        const thursday = x("2026-10-08T06:00:00Z"), friday = x("2026-10-09T06:00:00Z");
+        await moveTo(thursday, 110);
+        const rested = placed.checks;
+        // Ten moves down the row at six on Thursday: the same place, the same drop.
+        for (let i = 1; i <= 10; i++) await moveTo(thursday, 110 + i * 2);
+        expect(placed.checks - rested, "checks as the pointer moves within one place").toBe(0);
+        // Six on Friday: another place, asked once.
+        await moveTo(friday, 112);
+        expect(placed.checks - rested, "checks at the next place").toBe(1);
+        // A check drafts nothing.
+        expect(c.querySelectorAll("[data-calendar-event][data-drafted]")).toHaveLength(0);
+        // Let go: made through the commands, once.
+        const made = placed.made;
+        await letGo(friday, 112);
+        expect(placed.made - made, "placements the drop made").toBe(1);
+        await waitFor(() => expect(c.querySelectorAll("[data-calendar-event][data-drafted]")).toHaveLength(1));
+        // The drop drafted a job: a place checked before it is checked again, of the data as the drop left it.
+        await pickUp(card);
+        const again = placed.checks;
+        await moveTo(thursday, 110);
+        expect(placed.checks - again, "checks at a place checked before the drop").toBe(1);
+        await act(async () => { fireEvent.keyDown(document, { key: "Escape", code: "Escape" }); });
+        await settle();
+    });
+
+    test("previews where it would land on the row it rests on alone — the row it leaves lets its preview go — and on none once let go", async () => {
+        const { container: c } = await h.mount(windowsTemplates, { storageKey: "windows-landing" });
+        await settle();
+        const { card, x } = layOutRows(c, ["P-1003", "P-1004"]);
+        /** The rows that preview where the drop would land: each a press's key. */
+        const landing = () => [...c.querySelectorAll("[data-calendar-landing]")].map((ghost) => ghost.closest("[data-calendar-resource-row]")?.getAttribute("data-calendar-resource-row"));
+        const row = (press: string) => resourceKey({ kind: "presses", key: press });
+        await pickUp(card);
+        const thursday = x("2026-10-08T06:00:00Z");
+        await moveTo(thursday, 110);
+        expect(landing(), "resting on Press 1003's row").toEqual([row("P-1003")]);
+        await moveTo(thursday, 150);
+        expect(landing(), "resting on Press 1004's row").toEqual([row("P-1004")]);
+        await letGo(thursday, 150);
+        expect(landing(), "let go").toEqual([]);
     });
 });
