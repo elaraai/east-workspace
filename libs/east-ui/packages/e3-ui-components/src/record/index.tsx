@@ -207,9 +207,10 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const inspector = value.inspector.type === "some";
     const host = useMemo((): SheetHost => ({
         grid: {
-            rowPx, leadPx: readOnly ? 0 : SELECT_PX, phone, leadRun: "check", runStyles: styles, Row: RecordRow, Header: RecordHeader, Empty: RecordEmpty,
+            rowPx, leadPx: readOnly ? 0 : SELECT_PX, leadRun: "check", runStyles: styles, Row: RecordRow, Header: RecordHeader, Empty: RecordEmpty,
             Strip: RecordStrip, onOpen: inspector ? onOpen : undefined,
         },
+        phone,
         onHistory,
         cellEditor,
     }), [rowPx, readOnly, phone, styles, inspector, onOpen, onHistory, cellEditor]);
