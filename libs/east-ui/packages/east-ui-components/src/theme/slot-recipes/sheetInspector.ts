@@ -102,13 +102,14 @@ export const sheetInspectorSlotRecipe = defineSlotRecipe({
         issueHidden: { textStyle: "body.sm", color: "fg.muted", overflowWrap: "anywhere" },
         /* A phone's Details (`Mobile Sheet Spec.md` SH12, the designer's `WorkOrdersPhone`): its head padded 16 20 — the
          * eyebrow mono 10/600 in `--ink-4`, the name DM Sans 16/700, a draft's chip 20 tall on the brand's tint, 4 under
-         * it, and a lock after the chip — their row kept while it holds neither (#1584): a chip arriving with the first
-         * edit moves nothing under it. */
+         * it, and a lock after the chip — their row kept while it holds neither where its view takes edits (`data-writes`,
+         * #1584): a chip arriving with the first edit moves nothing under it. */
         phoneHead: {
-            display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", gridTemplateRows: "auto auto 24px", rowGap: "4px",
+            display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", rowGap: "4px",
             paddingY: "16px", paddingX: "20px",
             borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
             _focusVisible: { outline: "none", boxShadow: "{shadows.focusInset}" },
+            "&[data-writes]": { gridTemplateRows: "auto auto 24px" },
             "& > [data-inspector-lock]": { gridRow: "3", gridColumn: "2", alignSelf: "end", minHeight: "20px" },
         },
         phoneEyebrow: {

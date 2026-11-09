@@ -695,17 +695,19 @@ function TargetView(props: TargetProps) {
 
     const subRows = target.subRows;
     const can = inspect.can;
+    // A sheet that takes edits keeps its chip's row while there is none (#1584): the first edit's chip moves nothing.
+    const writes = !(getSomeorUndefined(value.sheet.readOnly) ?? false) && value.sheet.editing.onApply.type === "some";
     // In a phone's drawer (SH12): its head, each field a section of its own at touch size, and its gestures at 44.
     const phone = useContext(FrameDrawer);
     if (phone && own === undefined && target.value !== undefined) {
-        return <PhoneTarget {...props} edit={edit} issues={issues} isNew={isNew} ownId={ownId as string | undefined} />;
+        return <PhoneTarget {...props} edit={edit} issues={issues} isNew={isNew} ownId={ownId as string | undefined} writes={writes} />;
     }
     return (
         <Box css={styles.root} data-sheet-inspector={target.kind}>
             <Box css={styles.head}>
                 <Box css={styles.eyebrow} data-inspector-what="">{whatOf(target, words, noun)}</Box>
                 <Box css={styles.name} data-inspector-id="">{ownId !== undefined ? ownId as string : target.entry}</Box>
-                <Box css={styles.marks}>
+                <Box css={styles.marks} data-writes={writes ? "" : undefined}>
                     {isNew ? <Box as="span" css={styles.chip} data-state="new">{m.inspectorChip({ state: "new" })}</Box>
                         : target.presentation.pending ? <Box as="span" css={styles.chip} data-state="pending">{m.inspectorChip({ state: "pending" })}</Box>
                             : null}
@@ -782,6 +784,8 @@ interface PhoneTargetProps extends TargetProps {
     issues: TargetIssue[];
     isNew: boolean;
     ownId: string | undefined;
+    /** Whether the sheet takes edits: its head keeps its chip's row. */
+    writes: boolean;
 }
 
 /**
@@ -794,7 +798,7 @@ interface PhoneTargetProps extends TargetProps {
  * every other kind its form's own input at touch size), its sub rows, and its
  * gestures as Default 44 buttons.
  */
-function PhoneTarget({ value, words, hidden, styles, inspect, target, form, noun, edit, issues, isNew, ownId }: PhoneTargetProps) {
+function PhoneTarget({ value, words, hidden, styles, inspect, target, form, noun, edit, issues, isNew, ownId, writes }: PhoneTargetProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const bar = useSlotStyles("sheetAction");
@@ -834,7 +838,7 @@ function PhoneTarget({ value, words, hidden, styles, inspect, target, form, noun
     const can = inspect.can;
     return (
         <Box css={styles.root} data-sheet-inspector={target.kind} data-phone="">
-            <Box css={styles.phoneHead}>
+            <Box css={styles.phoneHead} data-writes={writes ? "" : undefined}>
                 <Box as="span" css={styles.phoneEyebrow} data-inspector-what="">{eyebrow}</Box>
                 <Box as="span" css={styles.phoneName} data-inspector-id="">{title ?? id}</Box>
                 {chip !== undefined && <Box as="span" css={styles.phoneChip} data-state={chip}>{m.inspectorChip({ state: chip })}</Box>}

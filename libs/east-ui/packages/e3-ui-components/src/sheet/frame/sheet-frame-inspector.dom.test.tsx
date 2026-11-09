@@ -16,7 +16,8 @@
  * them as one step; the batch's issues, each going to its cell; and the
  * author's own Details for a complete row — the form while the row is missing a
  * field, and its update one step: a column's field through its cell, a
- * read-only column's left as it is, a field with no column on the draft.
+ * read-only column's left as it is, a field with no column on the draft; and a
+ * head keeping its chip's row only where the sheet takes edits (#1584).
  */
 
 import { test, expect, vi } from "vitest";
@@ -44,6 +45,15 @@ const jobsPayload = East.function([], SheetPayloadType, ($) => {
         task:  Sheet.column.text(ex.SheetJob, { header: "Task", width: "240px" }),
         start: Sheet.column.date(ex.SheetJob, { header: "Start", width: "96px" }),
         qty:   Sheet.column.quantity(ex.SheetJob, { header: "Qty", width: "96px" }),
+    } });
+});
+
+/** The jobs as `jobsPayload` declares them, read only: the pane shows every field, and no edit reaches them. */
+const readOnlyPayload = East.function([], SheetPayloadType, ($) => {
+    const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
+    return Sheet.Payload({ record: jobs, name: "readOnly", inspector: true, readOnly: true, columns: {
+        task:  Sheet.column.text(ex.SheetJob, { header: "Task", width: "240px" }),
+        start: Sheet.column.date(ex.SheetJob, { header: "Start", width: "96px" }),
     } });
 });
 
@@ -275,6 +285,17 @@ test("one row: its number and id, each field by its column's kind; an edit is on
     await undo(container);
     expect(column(container, "task")[4]).toBe("");
 });
+
+for (const [sheet, payload, writes] of [["a sheet that takes edits", jobsPayload, true], ["a read-only sheet", readOnlyPayload, false]] as const) {
+    test(`a row's head keeps its chip's row while there is none only where the sheet takes edits, so its first edit's chip moves nothing: ${sheet}${writes ? "" : " keeps none"} (#1584)`, async () => {
+        const { container } = await h.mountPayload(payload);
+        await select(cell(container, 0, "task"));
+        expect(showing(container)).toBe("row");
+        // Its marks, after its id: the row the recipe keeps a chip tall where they say the view writes.
+        const marks = panel(container).querySelector<HTMLElement>("[data-inspector-id] + *")!;
+        expect([marks.childElementCount, marks.hasAttribute("data-writes")]).toEqual([0, writes]);
+    });
+}
 
 test("each selection its own form: what was typed for one line and not yet committed never lands on the next, though both hold the same value", async () => {
     const { container } = await h.mount(ex.sheetWorkshop);

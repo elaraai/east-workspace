@@ -15,7 +15,10 @@
  * head is the schedule builders' own, a fibre run's cable — a head with no
  * status: Logical, then Fibre where it stood. Each press is the pointer's,
  * where the choice stood, never a locator's, which would find the choice
- * wherever it went.
+ * wherever it went. A view no edit reaches keeps no row for a chip that can't
+ * come: the depot's states read only through their sources
+ * (`flowchartDepotDimmed`), and the skills matrix read only
+ * (`recordSkillsReadOnly`), pinned beside main and in a phone's own Details.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test inspector-chip`.
@@ -38,6 +41,19 @@ async function choicesOf(page: Page, field: Locator): Promise<Record<string, { x
     })));
 }
 
+/**
+ * How far a view's head reaches past the last of its parts that holds anything, its padding and its rule aside: the
+ * row it keeps for a chip while there is none, or nothing.
+ */
+function slackOf(head: Locator): Promise<number> {
+    return head.evaluate((el) => {
+        const s = getComputedStyle(el);
+        const held = [...el.children].filter((part) => part.childElementCount > 0 || (part.textContent ?? "").trim() !== "");
+        const last = Math.max(...held.map((part) => part.getBoundingClientRect().bottom));
+        return Math.round((el.getBoundingClientRect().bottom - last - parseFloat(s.paddingBottom) - parseFloat(s.borderBottomWidth)) * 100) / 100;
+    });
+}
+
 /** A press where the pointer is — a click, or a tap on a phone — and the page at rest after it. */
 async function pressAt(page: Page, at: { x: number; y: number } | undefined, phone: boolean): Promise<void> {
     if (at === undefined) throw new Error("no choice stands there");
@@ -58,6 +74,8 @@ test.describe("A draft's chip arriving moves nothing under it (#1584)", () => {
         const portion = pane.locator("[data-flowchart-inspector='state'] [data-field='portion']");
         const chip = pane.locator("[data-inspector-chip][data-state='pending']");
         await expect(chip).toHaveCount(0);
+        // The row it keeps for the chip, empty: the bakery's states take edits.
+        expect(await slackOf(pane.locator("[data-flowchart-inspector='state'] > :first-child"))).toBeGreaterThan(0);
         const stood = await choicesOf(page, portion);
         expect(Object.keys(stood)).toEqual(["Whole loaf", "Sliced", "By weight"]);
         await pressAt(page, stood["Sliced"], false);
@@ -130,4 +148,41 @@ test.describe("A draft's chip arriving moves nothing under it (#1584)", () => {
         await pressAt(page, stood["Fibre"], false);
         await expect(cable.locator("[data-part=item]", { hasText: "Fibre" }).locator("input")).toBeChecked();
     });
+});
+
+test.describe("A view no edit reaches keeps no row for a chip (#1584)", () => {
+    test("the depot read only through its sources: Held's head ends under its name", { tag: "@desktop" }, async ({ page }) => {
+        const { root } = await openFlowchart(page, "flowchartDepotDimmed");
+        await root.evaluate((el) => { (el as HTMLElement).style.width = "1200px"; });
+        await settled(page);
+        const pane = root.locator("[data-frame-slot='end']");
+        await expect(pane).toHaveAttribute("data-pane-mode", "pinned");
+        await root.locator("[data-flowchart-node='HLD']").click();
+        await settled(page);
+        expect(await slackOf(pane.locator("[data-flowchart-inspector='state'] > :first-child"))).toBe(0);
+    });
+
+    for (const phone of [false, true]) {
+        test(`the skills matrix read only${phone ? ", in a phone's own Details" : ""}: a person's head ends under their name`, { tag: phone ? "@mobile" : "@desktop" }, async ({ page }) => {
+            if (!phone) await page.setViewportSize({ width: 1600, height: 1000 });
+            const entry = await visitBuilder(page, "e3/record/record/recordSkillsReadOnly", "[data-builder-frame]", "light");
+            await expect(entry.locator("[data-record] [data-slot=row]").first()).toBeVisible({ timeout: 30_000 });
+            await settled(page);
+            const frame = entry.locator("[data-builder-frame]").first();
+            const pane = frame.locator("[data-frame-slot=end]");
+            const role = frame.locator("[data-record] [data-slot=row]").first().locator("[data-slot=cell][data-key=role]");
+            if (phone) {
+                await role.tap();
+                await settled(page);
+                await frame.locator("[data-pane-tab='end']").tap();
+            } else {
+                await expect(pane).toHaveAttribute("data-pane-mode", "pinned");
+                await role.click();
+            }
+            await settled(page);
+            const details = pane.locator("[data-record-details='row']");
+            await expect(details).toBeVisible();
+            expect(await slackOf(details.locator(":scope > :first-child"))).toBe(0);
+        });
+    }
 });

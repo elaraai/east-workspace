@@ -318,10 +318,12 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
     const heading = title !== "" ? title : <Box as="span" css={record.absent}>{rm.absent()}</Box>;
     // Duplicate and Delete: a phone's touch-sized Default buttons, as the Sheet's phone Details draw theirs.
     const gesture = phone ? [button({ variant: "outline", size: "md" }), styles.phoneButton] : [button({ variant: "outline", size: "xs" })];
+    // A Record that takes edits keeps its chip's row while there is none (#1584): the first edit's chip moves nothing.
+    const writes = readOnly ? undefined : "";
     return (
         <Box css={styles.root} data-sheet-inspector={target.kind} data-record-details="row" data-record-entry={target.entry} data-phone={phone ? "" : undefined}>
             {phone ? (
-                <Box css={styles.phoneHead}>
+                <Box css={styles.phoneHead} data-writes={writes}>
                     <Box as="span" css={styles.phoneEyebrow} data-inspector-what="">{whatOf(target, words, noun)}</Box>
                     <Box as="span" css={styles.phoneName} data-inspector-id="">{heading}</Box>
                     {chip}
@@ -331,7 +333,7 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
                 <Box css={styles.head}>
                     <Box css={styles.eyebrow} data-inspector-what="">{whatOf(target, words, noun)}</Box>
                     <Box css={styles.name} data-inspector-id="">{heading}</Box>
-                    <Box css={styles.marks}>
+                    <Box css={styles.marks} data-writes={writes}>
                         {chip}
                         {target.owned && (
                             <Box as="span" css={styles.lock} role="img" aria-label={m.inspectorOwned()} title={m.inspectorOwned()} data-inspector-lock="">

@@ -291,13 +291,19 @@ export function flowchartInspectorPane(props: FlowchartInspectorProps): BuilderF
 // The shared parts
 // ============================================================================
 
-/** A view's head: what it shows, its name under that, and its chips — its view's home, where the keyboard lands as a control goes with the view. */
-function Head({ styles, what, name, chips, words }: { styles: Styles; what: string; name: string | undefined; chips: readonly Chip[]; words: FlowchartWords }) {
+/**
+ * A view's head: what it shows, its name under that, and its chips — their row kept while there is none where its view
+ * takes edits (`writes`, #1584), so a draft's chip arriving moves nothing under it — its view's home, where the keyboard
+ * lands as a control goes with the view.
+ */
+function Head({ styles, what, name, chips, writes = false, words }: {
+    styles: Styles; what: string; name: string | undefined; chips: readonly Chip[]; writes?: boolean; words: FlowchartWords;
+}) {
     return (
         <Box css={styles.head} {...FOCUS_HOME_PROPS}>
             <Box css={styles.eyebrow} data-inspector-what="">{what}</Box>
             {name !== undefined && <Box css={styles.name} data-inspector-name="">{name}</Box>}
-            <Box css={styles.marks}>
+            <Box css={styles.marks} data-writes={writes ? "" : undefined}>
                 {chips.map((chip) => (
                     <Box as="span" key={chip} css={styles.chip} data-inspector-chip="" data-state={chip}>{words.m.inspectorChip({ state: chip })}</Box>
                 ))}
@@ -755,7 +761,7 @@ function StateView(props: RowViewProps) {
     return (
         <Box css={styles.root} data-flowchart-inspector="state">
             <Head styles={styles} words={words} what={m.inspectorWhat({ what: "row", kind: value.states.name, name: at })} name={label}
-                chips={side.state.chip === undefined ? [] : [side.state.chip]} />
+                chips={side.state.chip === undefined ? [] : [side.state.chip]} writes={side.writes} />
             <FlowchartPaneReads styles={styles} kind={props.details.states} at={at} words={words} />
             <Edits styles={styles} available={side.available} actions={actions}>
                 <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.states`} roles={(
@@ -848,7 +854,7 @@ function LinkView(props: RowViewProps) {
     return (
         <Box css={styles.root} data-flowchart-inspector="transition">
             <Head styles={styles} words={words} what={m.inspectorWhat({ what: "row", kind: name, name: endsOf(roles) })}
-                name={`${stateName(model, roles.from)} → ${stateName(model, roles.to)}`} chips={chips} />
+                name={`${stateName(model, roles.from)} → ${stateName(model, roles.to)}`} chips={chips} writes={side.writes} />
             <FlowchartPaneReads styles={styles} kind={props.details.transitions} at={at} words={words} />
             <Edits styles={styles} available={side.available} actions={actions}>
                 <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.transitions`} roles={(
@@ -915,7 +921,7 @@ function DecisionView(props: RowViewProps) {
     return (
         <Box css={styles.root} data-flowchart-inspector="decision">
             <Head styles={styles} words={words} what={m.inspectorWhat({ what: "row", kind: name, name: trigger.letter })}
-                name={trigger.label.length === 0 ? undefined : trigger.label} chips={side.state.chip === undefined ? [] : [side.state.chip]} />
+                name={trigger.label.length === 0 ? undefined : trigger.label} chips={side.state.chip === undefined ? [] : [side.state.chip]} writes={side.writes} />
             <Edits styles={styles} available={side.available} actions={actions}>
                 <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.decisions`} roles={(
                     <Box css={styles.roleForms} data-inspector-form="roles">
@@ -965,7 +971,7 @@ function LaneView(props: RowViewProps) {
     return (
         <Box css={styles.root} data-flowchart-inspector="lane">
             <Head styles={styles} words={words} what={m.inspectorWhat({ what: "row", kind: name, name: laneLabel(model, at) })} name={undefined}
-                chips={side.state.chip === undefined ? [] : [side.state.chip]} />
+                chips={side.state.chip === undefined ? [] : [side.state.chip]} writes={side.writes} />
             <Edits styles={styles} available={side.available} actions={actions}>
                 <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.lanes`} roles={(
                     <Box css={styles.roleForms} data-inspector-form="roles">

@@ -70,14 +70,16 @@ export const inspectorBase = {
     head: { ...INSPECTOR_SECTION, gap: "5px", _focusVisible: { outline: "none", boxShadow: "{shadows.focusInset}" } },
     eyebrow: { textStyle: "caption.eyebrow" },
     name: { textStyle: "title.card.md", color: "fg", overflowWrap: "anywhere" },
-    /* Its marks — a draft's chip, a lock — their row kept, a chip tall, while it holds none (#1584): a chip arriving with
-     * a view's first edit moves nothing under it, never the control just pressed. */
+    /* Its marks — a draft's chip, a lock — gone while it holds none; but a view that takes edits (`data-writes`) keeps
+     * their row, a chip tall (#1584): a chip arriving with its first edit moves nothing under it, never the control just
+     * pressed, and a view no edit reaches has no empty row. */
     marks: {
         display: "flex",
         flexWrap: "wrap",
         alignItems: "center",
         gap: "6px",
-        minHeight: CHIP_HEIGHT,
+        "&:empty:not([data-writes])": { display: "none" },
+        "&[data-writes]": { minHeight: CHIP_HEIGHT },
     },
     /* A draft's chip: Pending (changed since the record held it), New (never applied) — its line set, so its row is kept
      * at its height. */
