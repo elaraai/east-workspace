@@ -692,17 +692,40 @@ function sameEventBlock(a: EventBlockProps, b: EventBlockProps): boolean {
     return a.along === b.along && a.chip === b.chip && sameFields(a.facts, b.facts) && sameFields(a.geometry, b.geometry) && sameFields(a.size, b.size)
         && (Object.is(a.item, b.item) || itemEqual(a.item, b.item));
 }
+/** What an event's face draws. */
+interface EventFaceProps {
+    readonly item: EventBlockProps["item"];
+    readonly facts: EventBlockProps["facts"];
+    readonly fits: EventFits;
+    readonly timeText: string;
+    readonly resourceText: string;
+    readonly coord: Required<CellCoord>;
+    readonly along: "x" | "y";
+    readonly chip: boolean;
+    readonly enabled: boolean;
+    readonly time: RefObject<HTMLDivElement | null>;
+    readonly title: RefObject<HTMLDivElement | null>;
+    readonly resource: RefObject<HTMLDivElement | null>;
+}
+/** A face's props kept as they are, each the same value or object while it holds. */
+const FACE_HELD = ["fits", "timeText", "resourceText", "along", "chip", "enabled", "time", "title", "resource"] as const;
+/**
+ * Whether an event's face draws as it did (#1594), as {@link sameEventBlock} holds its block: its facts and its handle's
+ * place field by field, and its event as East compares it. A block whose bar has moved draws again, a lane taken beside
+ * it — a row of hundreds, as a drop lands among them — and its row hands it its event and its facts anew: what its face
+ * shows has not moved.
+ */
+function sameEventFace(a: EventFaceProps, b: EventFaceProps): boolean {
+    return FACE_HELD.every(prop => Object.is(a[prop], b[prop])) && sameFields(a.coord, b.coord) && sameFields(a.facts, b.facts)
+        && (Object.is(a.item, b.item) || itemEqual(a.item, b.item));
+}
 /**
  * What an event's block shows inside it, apart from the block itself, which is its drag handle. Every draggable draws
  * again as any drag starts or ends (dnd-kit's `useDraggable` reads the drag in flight), and a busy timeline has a
  * thousand of them: so the block alone does (#1594), nothing here hearing the drag and its props holding across those
  * draws.
  */
-const EventBlockFace = memo(function EventBlockFace({ item, facts, fits, timeText, resourceText, coord, along, chip, enabled, time, title, resource }: {
-    item: EventBlockProps["item"]; facts: EventBlockProps["facts"]; fits: EventFits; timeText: string; resourceText: string; coord: Required<CellCoord>;
-    along: "x" | "y"; chip: boolean; enabled: boolean;
-    time: RefObject<HTMLDivElement | null>; title: RefObject<HTMLDivElement | null>; resource: RefObject<HTMLDivElement | null>;
-}) {
+const EventBlockFace = memo(function EventBlockFace({ item, facts, fits, timeText, resourceText, coord, along, chip, enabled, time, title, resource }: EventFaceProps) {
     const { styles, kind, id } = facts;
     eventFaceRenderProbe?.(id);
     const slot = useSlotClass();
@@ -719,7 +742,7 @@ const EventBlockFace = memo(function EventBlockFace({ item, facts, fits, timeTex
             {facts.endEdge && <EventEdge coord={coord} edge="end" label={item.title} styles={styles} along={along} />}
         </>}
     </>;
-});
+}, sameEventFace);
 /**
  * The same full event facts, in a card, a block, a month chip or a timeline bar — drawn again only as what it shows
  * moves (#1398, CL9: `sameEventBlock`), its handle, its edges, its fit measured again as it resizes, its ring, its marks,

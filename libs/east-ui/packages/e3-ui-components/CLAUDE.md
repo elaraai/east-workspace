@@ -651,7 +651,10 @@ aborted.
 It reads them in a tracked read of their own beside the period's
 (`useReadAhead`, called after the period's read in the same reader): a page
 of theirs landing re-runs that read alone, never the period's, which would
-hand the frame a new read of a period that has not moved, once a page.
+hand the frame a new read of a period that has not moved, once a page. The
+Calendar asks it with no drafts (`calendar/data.ts`, #1594): what a read ahead
+works out is never drawn and the drafts read nothing a step waits on, so a
+drop works out neither period again.
 Use the shared session's bounded primary-read batches and retain only confirmed
 facts at the committed revision. Save membership checks also accumulate facts
 at one revision. Partial provider pages must resume within their bounded window.

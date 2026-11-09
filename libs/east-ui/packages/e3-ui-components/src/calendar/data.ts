@@ -11,7 +11,9 @@
  *   landed, what a step goes to is read ahead (`shared/schedule/read-ahead.ts`,
  *   CL7) in a read of its own, so a step to it shows it at once and a page of
  *   it landing hands the frame nothing: the periods either side, on every
- *   layout. A step further drops their reads.
+ *   layout. A step further drops their reads. It reads what a step will find,
+ *   and draws nothing it works out, so the drafts are no part of it: a drop
+ *   works out neither period again (#1594).
  * - **The backlog apart**: each backlog kind's not narrowed through a source
  *   of the slice — read whole, or through its backlog index — which follows no
  *   window. Read once, no date change reads it again: it stands through every
@@ -39,7 +41,7 @@
  * @packageDocumentation
  */
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { DateTimeType, SortedMap, StringType, compareFor, none, some } from "@elaraai/east";
+import { DateTimeType, SetType, SortedMap, SortedSet, StringType, compareFor, equalFor, none, some } from "@elaraai/east";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { scheduleWithinCap, type ScheduleCellResources, type ScheduleCellSpan, type ScheduleCellsRead } from "../shared/schedule/cells.js";
 import { EMPTY_SCHEDULE_DRAFTS, type ScheduleEditing, type ScheduleEventDraftsValue } from "../shared/schedule/editing.js";
@@ -68,8 +70,13 @@ export interface CalendarData {
 const NONE_CAPPED: ReadonlySet<string> = new Set();
 const EMPTY: CalendarData = { items: [], loading: true, saved: undefined, capped: NONE_CAPPED, cells: undefined };
 const compareDate = compareFor(DateTimeType);
+const compareString = compareFor(StringType);
 /** No drafts: a read-only Calendar's. */
-const NO_DRAFTS: ScheduleEventDraftsValue = new SortedMap([], compareFor(StringType));
+const NO_DRAFTS: ScheduleEventDraftsValue = new SortedMap([], compareString);
+/** No kinds, by their slots: those a reader gives cells before it has read. */
+const NO_SLOTS = new SortedSet<string>([], compareString);
+/** Whether two sets of kinds, by their slots, are the same kinds. */
+const sameSlots = equalFor(SetType(StringType));
 
 /**
  * The backlog of every kind whose backlog follows no window, read apart from
@@ -109,6 +116,20 @@ const NO_APART: CalendarApartBacklog = { items: [], ready: false, loading: true,
  */
 export function initialCalendarData(range: CalendarRange): CalendarDataState {
     return { ...EMPTY, range, ready: false, error: undefined, apart: NO_APART };
+}
+
+/**
+ * Test-only probe — lets "a drop works out the periods either side no more" be asserted as the reads ahead themselves
+ * (#1594). `undefined` outside tests.
+ */
+let readAheadProbe: ((next: CalendarRange) => void) | undefined;
+/**
+ * Install (or clear) the read-ahead probe. Test use only.
+ *
+ * @param fn - Called with a period each time it is read ahead; `undefined` clears it
+ */
+export function setCalendarReadAheadProbe(fn: ((next: CalendarRange) => void) | undefined): void {
+    readAheadProbe = fn;
 }
 
 /** The whole of time: what a kind whose backlog follows no window is asked its backlog over — it takes no notice of it. */
@@ -192,14 +213,22 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
     // Once the window has landed, what a step goes to is read ahead (CL7), each as it is read — in a read of its own, so a
     // page of it landing runs the window's read no more.
     const ahead = useMemo(() => calendarAhead(view, value.settings), [view, value.settings]);
+    // All a read ahead asks of the reader, which hands on a new read as a draft moves: the kinds it gives cells, the same
+    // object while they are the same kinds.
+    const givenCells = useRef(NO_SLOTS);
+    const nowGiven = new SortedSet(cells.reads.keys(), compareString);
+    if (!sameSlots(givenCells.current, nowGiven)) givenCells.current = nowGiven;
+    const byCells = givenCells.current;
+    // Asked with no drafts: what it works out is never drawn, and they read nothing a step waits on (#1594).
     const readNext = useCallback((next: CalendarRange) => {
+        readAheadProbe?.(next);
         for (const kind of value.events) {
             // A kind the reader gives cells is never read over a window (#1424). Every other is counted there first, and
             // read only within the cap.
-            if (cells.reads.has(kind.key)) continue;
-            kind.items(next.from, next.to, cells.drafts.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS, none);
+            if (byCells.has(kind.key)) continue;
+            kind.items(next.from, next.to, EMPTY_SCHEDULE_DRAFTS, none);
         }
-    }, [value.events, cells]);
+    }, [value.events, byCells]);
     useReadAhead(result.ok && !result.value.loading, ahead, readNext);
     const held = useRef(EMPTY);
     const heldRange = useRef(range);

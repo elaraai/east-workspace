@@ -61,9 +61,10 @@ import * as pe from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
 import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { eventKey, resourceKey, DAY } from "./model.js";
+import { eventKey, parseResourceKey, resourceKey, DAY } from "./model.js";
 import { TIMELINE_GUTTER, timelinePixels } from "./timeline.js";
 import type { CalendarCommands } from "./actions.js";
+import { setCalendarReadAheadProbe } from "./data.js";
 import { setCalendarFrameRenderProbe } from "./index.js";
 import { setCalendarDetailsRenderProbe } from "./inspector.js";
 import { setEventFaceRenderProbe, setTimelineRowRenderProbe } from "./views.js";
@@ -1011,5 +1012,58 @@ describe("a template carried over the timeline of 2,000 paged presses (#1594)", 
         expect([...rows], "the rows drawn again").toEqual([resourceKey({ kind: "presses", key: "P-1004" })]);
         expect(frames, "the frame's renders").toBe(2);
         expect(draftedAtDetails[0], "drafted jobs drawn as the Details first draw").toBe(1);
+    });
+
+    test("a drop draws the face of the job it makes and of the job it overlaps, and no other: a job its row's new lane only moves keeps its face", async () => {
+        const { container: c } = await h.mount(windowsTemplates, { storageKey: "windows-drop-faces" });
+        await settle();
+        // The first job drawn: the drop lands on it, so its row takes a second lane, and the row's next job moves with it.
+        const held = c.querySelector<HTMLElement>("[data-calendar-event]")!;
+        const rowElement = held.closest("[data-calendar-resource-row]")!;
+        const beside = [...rowElement.querySelectorAll<HTMLElement>("[data-calendar-event]")].find((job) => job !== held)!;
+        const row = parseResourceKey(rowElement.getAttribute("data-calendar-resource-row")!);
+        if (!row.success) throw new Error("the first job drawn is on no press's row");
+        const plot = held.closest<HTMLElement>("[data-calendar-cell]")!;
+        const from = Number(plot.dataset["calendarFrom"]), to = Number(plot.dataset["calendarTo"]);
+        const besideTop = beside.style.top;
+        const { card, x } = layOutRows(c, [row.value.key]);
+        await pickUp(card);
+        const onIt = x(new Date(from + Number.parseFloat(held.style.left) / 100 * (to - from)).toISOString());
+        await moveTo(onIt, 110);
+        const faces: string[] = [];
+        setEventFaceRenderProbe((id) => { faces.push(id); });
+        try {
+            await letGo(onIt, 110);
+            await waitFor(() => expect(c.querySelectorAll("[data-calendar-event][data-drafted]")).toHaveLength(1));
+            await settle();
+        } finally {
+            setEventFaceRenderProbe(undefined);
+        }
+        const made = c.querySelector("[data-calendar-event][data-drafted]")!.getAttribute("data-calendar-event")!;
+        expect(held.hasAttribute("data-overlap"), "the job the drop landed on, overlapped").toBe(true);
+        expect(beside.style.top, "the row's other job, moved by its new lane").not.toBe(besideTop);
+        expect(new Set(faces), "the faces drawn again").toEqual(new Set([made, held.getAttribute("data-calendar-event")!]));
+    });
+
+    test("a drop works out the periods either side no more, and a step reads ahead what it goes to", async () => {
+        const { container: c } = await h.mount(windowsTemplates, { storageKey: "windows-drop-ahead" });
+        await settle();
+        const { card, x } = layOutRows(c, ["P-1003", "P-1004"]);
+        await pickUp(card);
+        const thursday = x("2026-10-08T06:00:00Z");
+        await moveTo(thursday, 150);
+        let ahead = 0;
+        setCalendarReadAheadProbe(() => { ahead += 1; });
+        try {
+            await letGo(thursday, 150);
+            await settle();
+            expect(c.querySelectorAll("[data-calendar-event][data-drafted]"), "the job the drop made").toHaveLength(1);
+            expect(ahead, "the periods either side, worked out as the drop landed").toBe(0);
+            await act(async () => { fireEvent.keyDown(c.querySelector("[data-calendar-main]")!, { key: "]" }); });
+            await settle();
+            expect(ahead, "the periods either side of the one stepped to").toBeGreaterThan(0);
+        } finally {
+            setCalendarReadAheadProbe(undefined);
+        }
     });
 });
