@@ -97,27 +97,24 @@ export function calendarRange(view: CalendarView, settings: CalendarValue["setti
     }
     return { from, to, days };
 }
-/** No period read ahead. */
-const NO_RANGES: readonly CalendarRange[] = [];
 /**
  * The periods either side of the view, read ahead once its window lands
- * (#1398, CL7): the ranges a step to the next and the previous period reads.
- * The timeline reads none of these: once its window lands it reads the next
- * window of its grid the way its view last moved, by its scroll or a step
- * (`timeline.ts`' `timelineAhead`, ruled 25 Oct 2026).
+ * (#1398, CL7): the ranges a step to the next and the previous period reads,
+ * on every layout — the timeline's among them, which shows its period as the
+ * others do (ruled 9 Nov 2026).
  *
  * @param view - The view
  * @param settings - The Calendar's settings: its week's first day and its weekends
- * @returns The next period's range, then the previous one's; none on the timeline
+ * @returns The next period's range, then the previous one's
  */
 export function calendarAhead(view: CalendarView, settings: CalendarValue["settings"]): readonly CalendarRange[] {
-    return view.layout === "timeline" ? NO_RANGES : [calendarRange(navigate(view, 1), settings), calendarRange(navigate(view, -1), settings)];
+    return [calendarRange(navigate(view, 1), settings), calendarRange(navigate(view, -1), settings)];
 }
 /**
  * The period a window is, as the footer's loading line names it (#1398, CL3):
  * where the window is the view's own period, a day's name or a month's —
  * `Tue, Nov 3, 2026`, `November 2026` — else its days, from its first to its
- * last: a week, the timeline's window, a range the slice holds.
+ * last: a week, or a range the slice holds.
  *
  * @param view - The view
  * @param range - The window read
@@ -129,7 +126,7 @@ export function periodWords(view: CalendarView, range: CalendarRange, settings: 
     format: Pick<Formatters, "weekdayDate" | "monthYear" | "range">): string {
     const own = calendarRange(view, settings);
     const period = view.layout === "resources" ? "day" : view.period;
-    const same = view.layout !== "timeline" && compareDate(range.from, own.from) === 0 && compareDate(range.to, own.to) === 0;
+    const same = compareDate(range.from, own.from) === 0 && compareDate(range.to, own.to) === 0;
     if (same && period === "day") return format.weekdayDate(range.from);
     if (same && period === "month") return format.monthYear(dayStart(view.date));
     return format.range(range.from, new Date(range.to.getTime() - 1));

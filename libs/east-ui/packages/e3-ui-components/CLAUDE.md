@@ -307,8 +307,8 @@ the Roster's week and the Allocation's day keep too, #1398): a step writes the t
 one without the other, and storage keeps the view for a reload alone, read once
 as the page's first Calendar under its key mounts and never followed. Followed,
 a second tab's step moved this page's date without its window, which put the
-date back at its first day, and the timeline, centred there, re-centred a window
-back, which the other tab heard in turn: both ran back a window at a time. A
+date back at the window's first day: the day the viewer stood on, and every
+step from it, moved to the window's start. A
 narrowed kind's backlog is paged by the Backlog tab itself (#1424,
 `calendar/backlog-pages.ts`), as the Schematic's is: the events in hand first —
 every other kind's, read apart, and a paged kind's drafted events with no start
@@ -645,12 +645,8 @@ subscriber, a microtask after the last one leaves, so a read the next render
 asks again keeps its request. A period builder's reader reads its period's
 neighbours ahead once its period has landed (`shared/schedule/read-ahead.ts`,
 CL7) — the Roster's weeks, the Allocation's days, the Calendar's days, weeks
-and months (`calendarAhead`) — and the Calendar's timeline the next window of
-its grid the way its view last moved, as its scroll travels or as a step of
-its dates went — Prev/Next, Today, a date picked, a pick of Search Records
-(`timeline.ts`' `timelineAhead`, #1398, ruled 25 Oct 2026) — none before the
-view has moved, and none after a layout or a period: a step or a re-centre to
-one shows it at once, and the reads of the periods moved away from are
+and months on every layout, its timeline's among them (`calendarAhead`): a
+step to one shows it at once, and the reads of the periods moved away from are
 aborted.
 It reads them in a tracked read of their own beside the period's
 (`useReadAhead`, called after the period's read in the same reader): a page
@@ -1733,14 +1729,15 @@ Sunday/Monday week start.
 Pass date changes through the host's existing window/Slice owner. Preserve
 whole-week Roster reads and every week's drafts, and request status only for
 the open picker's month. Cancel and browsing must not write the Slice. Calendar's
-timeline labels the visible range and steps from its visible center; Today
-recenters even if the persisted date was already today. Do not duplicate the
+timeline labels its period and steps it as every layout does (ruled 9 Nov
+2026); Today brings the now line into view even if the persisted date was
+already today. Do not duplicate the
 current date as detached toolbar text. Counts remain a separate folding item.
 
 Test all three consumers at 1440/1024/768/390/360 and a 294px parent:
 popup Today, all valid units, keyboard selection/cancel, hover versus selected
-styles, bounded reads, Slice writes, month/year boundaries and timeline
-recentring. Rebuild and check the actual HTTPS showcase before reporting that
+styles, bounded reads, Slice writes, month/year boundaries and the timeline's
+Today. Rebuild and check the actual HTTPS showcase before reporting that
 navigation changed.
 
 Plan's time navigator uses its active scale unit (including hour, quarter and
@@ -1890,30 +1887,22 @@ history as the last period read had it, and Publish in its slot, off,
 wherever it cannot publish; the rail's summary keeps a narrowed source's place
 while its count is read.
 
-The Calendar's timeline continues what it shows (#1398): the timeline draws a
-bounded window of days on a fixed grid — 15 on Day, 56 on Week, 154 on
-Month, each starting a whole number of half windows (7, 28 and 77 days) from
-the epoch (`calendar/timeline.ts`) — and as the view comes within 240px of an
-end of it, the window moves on to the grid's next one that way, the scroll by
-as much, every instant where it was on screen; the view's date becomes the
-day under its middle, so a reload opens that window again where the view was.
-Every route that moves the timeline's dates behaves as its scroll does (ruled
-25 Oct 2026): a re-centre, Prev/Next from the view's middle, Today, a date
-picked, a pick of Search Records and a period changed on the timeline. Until
-the window it goes to lands, the held read stands in — the frame's
-`continuing`, while the held read was drawn on the timeline: its events at
-their real dates, wherever they cover the instants on screen, in the lanes the
-period they were drawn at gave them (the views' `lanesPeriod`) — every row
-its height, so the scroll keeps its offset — its booked hours, its overlaps
-and its Backlog, stale and retained (CL5, CL8), and no commit marks it unread.
-Beyond the held read, placeholders only: the days of the window it does not
-cover are washed (the views' `covered`), and a figure over the days shown says
-`…` only where the view has passed beyond it. Landed, the rows take the new
-lanes with the row in view anchored, and the next window the way the view
-moved is read ahead. The grids keep their own rule: a step of a time or month
-grid, or of the agenda, to a period not read yet — or a layout changed, into
-the timeline too — holds none of the old period's events, whose columns are
-another period's days.
+The Calendar's timeline shows the period chosen and scrolls only within it
+(ruled 9 Nov 2026, over the moving window of 25 Oct), as the Roster's grid
+shows its week (`calendar/timeline.ts`): a Day, a Week or a Month, laid out
+from the period's first day to its end, each day at least its period's own
+width (`timelinePixels`: 1,920px at Day, 216 at Week, 40 at Month) and wider
+where the view leaves room beside the resource column (`timelineDayWidth`),
+so a period narrower than the view fills it. A scroll never moves the period,
+and nothing past its ends is drawn or read: only Previous and Next, Today, a
+date picked and a pick of Search Records move it. The view opens its period
+once, as the timeline mounts and as its period changes — at Day on the
+working hours, at Week and Month on the view's date (`timelineOpensAt`) — and
+keeps where it is along the period across a step, a date picked and a
+resize; Today brings the now line a third of the way across, and a pick
+brings its event's time to the middle. A step to a period not read yet holds
+none of the old period's events, as the grids' and the agenda's do: their
+columns, and the timeline's days, are another period's.
 
 The Schematic (#1398) keeps what it drew while a read is in flight: its last
 complete drawing, and once it has settled once, a kind's rows as they land,
@@ -2182,33 +2171,35 @@ library reads the plan recipe's styles made once (`useSlotStyles`), so a
 landing draws and measures nothing of the toolbar again and works out no
 recipe's styles (`plan-landing-draws.dom.test.tsx`).
 The Calendar's timeline virtualises its resources' rows in their groups, and
-their events by what the view shows of the period, one view either side. An
+draws each row's events in the period, every one (ruled 9 Nov 2026), as the
+Roster's week draws its duties, so a scroll along the period draws none of
+them again. An
 event's block is a memo of what it shows (`calendar/views.tsx`' `EventBlock`,
 `sameEventBlock`): its facts — its selection ring, its overlap mark, its draft
 and the optimiser's marks, its drag handle and edges, a pick's reveal, the
 window it is clipped to and the handlers it calls (`eventFacts`, each made once
 while what it reads holds) — where it stands, and its event as East compares
-it; so a move of the span it mounts draws only the events it brings in, each
+it; so a step draws only the events it brings in, each
 once — a bar guesses which of its parts fit from the box its plot gives it
 (`size`), less what a bar the browser laid out showed its measure takes off
 its box (`chromeOf`), never the recipe's rule and padding repeated, so its
-measure keeps the guess — and a window read again draws none it holds as it
+measure keeps the guess — and a period read again draws none it holds as it
 was. A block is measured as the browser hands its box over, once it has laid
 the frame out — the views' one ResizeObserver (`BlockBoxes`), every fit a
 delivery moves applied in one render before the frame paints — never in the
 commit that mounts it, which forced the new blocks' style and layout before
 the frame laid them out. It draws plain elements of its slots' classes (east-ui-components'
 `useSlotClass`), never Chakra's styled elements, which work their styles out
-again at every element they draw: a glide mounts a thousand blocks. A row's
+again at every element they draw: a month of a busy timeline mounts a
+thousand blocks — and the footer's legend draws its kinds' icons so too, the
+rail drawing again at every step. A row's
 plot draws its shading — its weekends, its hours off — once while its bands
-hold, of the shade slot's class (`PlotShading`), so a move of the span draws
+hold, of the shade slot's class (`PlotShading`), so its events moving draw
 none of it again. A row's events take their lanes once a read, and a time
 grid's column's as it draws them, each lane searched by its events' starts
 (`shared/time/lanes.ts`' `packLanes`), never the event's cluster swept for
 every lane it stretches over: a year-long reservation joins a press's every
-job in one cluster, and the Month's whole-day spans join more. Each bar is
-placed from an origin a re-centre never moves, its plot moving by one variable
-(`--calendar-origin`), so a re-centre draws no event both windows hold whole.
+job in one cluster, and the Month's whole-day spans join more.
 An event keeps its handle, its edges, its draft and its marks through a read in
 flight (the views' `grips` and `editing`): retained content refuses the gesture
 itself — the shared drag sensors pick nothing up inside the `aria-disabled`
@@ -2224,27 +2215,15 @@ caption of the period the view starts in stays beside the resource column, and
 its neighbours either side are sticky too, so a scroll the compositor draws
 ahead of the page finds the next one sticky already; every other caption
 stands where its column starts. A sticky caption is a layer of the
-compositor's own, and a band of them, one a period — 375 at Day — was most of
-what a frame of a glide spent compositing (`calendar.spec.ts` counts them). Its
-scroll publishes the days it shows to a store only what says them reads
-(`calendar/visible.ts`: the navigator's date and label, the count, each row's
-hours, the overlaps chip and the inspector's overlaps), so a scroll draws
-nothing else, and a day crossed only those — a row's hours read off its booked
-time up to each instant its events start or end at, made once a read (the
-views' `bookedHours`), so a day crossed sums none of its events again; the
-navigator and its popover drawn with their styles made once for the theme
-(`useSlotStyles`, `shared/time/navigation.tsx`, east-ui-components'
-`SliceEditPopover`), never their recipes' slots worked out again. The
-overlaps chip counts the
-overlaps in the days shown (`shared/schedule/overlaps.ts`'
-`scheduleOverlapsIn`, #1398), so it moves as days come into view and never as
-the window re-centres; the frame hears only whether there is one to show
-(`scheduleOverlapsAnyIn`). Each reads them off the read's pairs indexed by the
-days their overlaps touch, made once a read with each pair's events' keys, so
-a day crossed reads the pairs of the days shown alone and prints no key. Its
-scroll, and a step of its dates, publish which way it travels to a store of its
-own, which the window's read alone reads, to read ahead the next window of its
-grid that way.
+compositor's own, and a band of them, one a period, was most of what a frame
+of a scroll spent compositing (`calendar.spec.ts` counts them). Its scroll
+draws nothing else: the navigator's label, the count, each row's hours and
+the overlaps are the period's, as every layout's are — a row's hours its
+events summed once a read, as they are first said (the views'
+`TimelineLayout`); the navigator and its popover drawn with their styles made
+once for the theme (`useSlotStyles`, `shared/time/navigation.tsx`,
+east-ui-components' `SliceEditPopover`), never their recipes' slots worked out
+again.
 
 A kind read by its cells (#1039) over a paged kind says which resources' rows
 draw what is known of them (the shared reader's `drawn`, through `usePlanCells`;

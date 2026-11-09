@@ -19,8 +19,8 @@
  *   entries in one more — never a page of the window through the interval
  *   index, which reads the backlog alone.
  * - A scroll down reads the presses' windows and the cells it brings into
- *   view alone; a scroll on to the window's end re-centres, and reads the cells
- *   of the weeks it brings in alone.
+ *   view alone; a scroll along to the week's end moves no period and reads
+ *   nothing: the timeline shows the period chosen (ruled 9 Nov 2026).
  * - Fifty thousand presses: the timeline lays them out in as many lines as the
  *   windows it holds, the places between one run each, and the Resources view
  *   places the columns it draws at their own offsets — no line, column or grid
@@ -267,7 +267,7 @@ describe("a Calendar over 2,000 presses paged, the jobs on them read a cell at a
         for (const job of ["W-0001", "W-0002", "W-0003", "W-0004"]) expect(jobEvent(c, job), job).not.toBeNull();
     });
 
-    test("a scroll down reads the presses' windows and the cells it brings into view alone; a scroll on to the window's end re-centres and reads the tiles it brings in alone", async () => {
+    test("a scroll down reads the presses' windows and the cells it brings into view alone; a scroll along to the week's end moves no period and reads nothing", async () => {
         const { container: c } = await h.mount(cw.calendarWindows, { storageKey: "windows-scroll" });
         await settle();
         // Down to Press 1201, the first of the second window, held already: the window after it read ahead, and the blocks
@@ -286,17 +286,17 @@ describe("a Calendar over 2,000 presses paged, the jobs on them read a cell at a
         expect(askedOf(PRESSES, since)).toEqual([]);
         expect(searchedPresses(since)).toEqual(pressesFrom(300, 399));
         expect(pressRows(c)).toContain("Press 1333");
-        // Along the timeline to its window's end: it re-centres four weeks on, and reads the tiles it brings in alone.
+        // Along the timeline to the week's end: the timeline shows the week chosen, so the scroll moves no period and reads
+        // nothing more — no press, no cell, no page of the window (ruled 9 Nov 2026).
         const was = windowOf(timelineOf(c));
         since = h.requests().length;
-        await scrollTimeline(c, { left: timelineOf(c).scrollWidth - VIEW_WIDTH - 100 });
-        await waitFor(() => expect(windowOf(timelineOf(c)).from.getTime()).toBe(was.from.getTime() + 28 * DAY));
-        await settle();
-        const tiles = [...new Set(cellSearches(since).flatMap(({ tile }) => (tile === undefined ? [] : [tile])))];
-        expect(tiles.length).toBeGreaterThan(0);
-        // Each level's tiles were read before through the one after the tile after the window's last: none is read again.
-        expect(tiles.every((tile) => tile >= was.to.getTime() + 7 * DAY), tiles.map((tile) => new Date(tile).toISOString()).join(", ")).toBe(true);
-        expect(searchedPresses(since)).toEqual(pressesFrom(300, 399));
+        await scrollTimeline(c, { left: timelineOf(c).scrollWidth - VIEW_WIDTH });
+        const now = windowOf(timelineOf(c));
+        expect([now.from.getTime(), now.to.getTime()], "the week shown").toEqual([was.from.getTime(), was.to.getTime()]);
+        expect(askedOf(PRESSES, since)).toEqual([]);
+        expect(indexAsked(SERIES, since)).toEqual([]);
+        expect(windowReads(since)).toEqual([]);
+        expect(pressRows(c)).toContain("Press 1333");
     });
 });
 

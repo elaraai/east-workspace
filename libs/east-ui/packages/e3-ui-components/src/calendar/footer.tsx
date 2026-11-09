@@ -7,7 +7,7 @@ import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { OptimiseLegendItem } from "@elaraai/east-ui-components";
-import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useRevealed, useSlotClass, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import type { CalendarKind, CalendarStyles } from "./model.js";
 import type { CalendarEventPart } from "./window.js";
 
@@ -21,7 +21,10 @@ import type { CalendarEventPart } from "./window.js";
  * fit. The line shows on the frame's one reveal clock (CL4, its
  * `LoadingReveal`), which the period's placeholders keep too — or says what a
  * run of the app's optimiser does (#1409), at once. During a run's highlight
- * the legend ends with `Elara change`.
+ * the legend ends with `Elara change`. A kind's icon is the event blocks'
+ * own, a plain element of its slot's class (`useSlotClass`), made once a
+ * theme: the rail draws again with every step of the period, and Chakra's
+ * styled element works its styles out again at every draw.
  */
 export function CalendarFooter({ styles, kinds, parts, locale, line, elara = false }: {
     styles: CalendarStyles;
@@ -40,10 +43,11 @@ export function CalendarFooter({ styles, kinds, parts, locale, line, elara = fal
     const fit = useFooterFit(ref);
     const shown = useRevealed() === true;
     const units = kinds.length + (elara ? 1 : 0);
+    const slot = useSlotClass();
     return <Box ref={ref} css={styles.footer} data-calendar-footer="">
         {kinds.map((kind, i) => <Box as="span" key={kind.key} css={styles.footerItem} data-calendar-legend={kind.key}
             data-footer-unit="" data-footer-cut={footerCut(i, fit)}>
-            <Box as="span" css={styles.eventIcon}><FontAwesomeIcon icon={["fas", kind.icon as IconName]} /></Box> {kind.name}
+            <span className={slot(styles.eventIcon)}><FontAwesomeIcon icon={["fas", kind.icon as IconName]} /></span> {kind.name}
         </Box>)}
         {elara && <OptimiseLegendItem css={styles.footerItem} cut={footerCut(kinds.length, fit)} />}
         <FooterMore shown={fit.kept < units} />

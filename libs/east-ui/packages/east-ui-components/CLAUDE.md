@@ -435,7 +435,7 @@ component, nothing in east-ui.
   is; a test walking a toolbar's ladder tells the row's observer of each
   width, as the browser does (`toolbar.dom.test.tsx`' `resize`), never draws
   its host again for it. A part drawn a thousand times at once — the
-  Calendar timeline's event blocks, as a glide mounts them — draws plain
+  Calendar timeline's event blocks, as a month of them mounts — draws plain
   elements of its slots' classes (`useSlotClass`, `./internal`): each slot's
   styles made a class once for the theme, the class Chakra gives an element
   drawn with them, its rules inserted in the page's emotion cache once.

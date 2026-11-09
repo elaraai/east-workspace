@@ -68,7 +68,7 @@ export function setNavigatorStylesProbe(fn: ((styles: object) => void) | undefin
 export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, rangeLabel, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, dayMarker, legend, controls, rangeEditor, onToday }: TimeNavigatorProps) {
     const format = useFormatters();
     const now = useNow(givenNow);
-    // Its styles made once for the theme (#1398, CL9): a timeline's navigator draws again with each day its view crosses.
+    // Its styles made once for the theme (#1398, CL9): the navigator draws again with every step of its builder's dates.
     const styles = useSlotStyles("timeNavigator");
     navigatorStylesProbe?.(styles);
     const [open, setOpen] = useState(false);

@@ -220,10 +220,11 @@ describe("a kind counted past the cap, through its source of the rail (#1424)", 
         await bookProofs();
         const { container: c } = await h.mount(summaryCalendar, { storageKey: "cap-summary" });
         await settle();
-        // The timeline's window at Week, Thursday 27 August to Thursday 22 October: the proofs, and the thirteen jobs before
-        // the ticket books, counted — never read.
-        expect(windowOf(c)).toEqual({ from: new Date("2026-08-27T00:00:00Z"), to: new Date("2026-10-22T00:00:00Z") });
-        expect(notice(c)?.textContent).toContain("10,014 print job events in view");
+        // The timeline's window at Week, the week of Monday 5 October it shows (ruled 9 Nov 2026): the proofs, and the six
+        // jobs that week — the brochure run, the night catalogue, the museum guide, the course handbooks, the timetables and
+        // the gift boxes — counted, never read.
+        expect(windowOf(c)).toEqual({ from: MONDAY, to: new Date("2026-10-12T00:00:00Z") });
+        expect(notice(c)?.textContent).toContain("10,007 print job events in view");
         expect(notice(c)?.textContent).toContain("open the timeline at Month to see where they fall");
         expect(eventsDrawn(c)).toHaveLength(0);
         expect(hatched(pressRow(c, "P-1001"))).toBeGreaterThan(0);

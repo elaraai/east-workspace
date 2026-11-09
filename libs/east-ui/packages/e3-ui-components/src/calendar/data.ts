@@ -10,14 +10,12 @@
  * - **The window**: every event kind's events over it. Once the window has
  *   landed, what a step goes to is read ahead (`shared/schedule/read-ahead.ts`,
  *   CL7) in a read of its own, so a step to it shows it at once and a page of
- *   it landing hands the frame nothing: the periods either side, or on the
- *   timeline the next window of its grid the way its view last moved — as it
- *   scrolls, or as a step moved its dates (`timelineAhead`, ruled 25 Oct
- *   2026). A step further drops their reads.
+ *   it landing hands the frame nothing: the periods either side, on every
+ *   layout. A step further drops their reads.
  * - **The backlog apart**: each backlog kind's not narrowed through a source
  *   of the slice — read whole, or through its backlog index — which follows no
  *   window. Read once, no date change reads it again: it stands through every
- *   re-centre and every step. A kind narrowed through its source has its
+ *   step. A kind narrowed through its source has its
  *   backlog read a page at a time by the Backlog tab itself (`backlog-pages.ts`,
  *   #1424), through the source with its start Unset, never with the window:
  *   its window's read reads the window's rows alone, and its drafts are the
@@ -49,8 +47,6 @@ import { useReadAhead } from "../shared/schedule/use-read-ahead.js";
 import { calendarCellSpan, calendarCellsPaged, useCalendarCells, type CalendarBucket } from "./cells.js";
 import { calendarAhead, chronological, resourceKey, type CalendarItem, type CalendarRange, type CalendarRow, type CalendarValue, type CalendarView } from "./model.js";
 import type { CalendarPagedDemand, CalendarPagedView, CalendarPages } from "./pages.js";
-import { timelineAhead } from "./timeline.js";
-import { useTravel, type TravelStore } from "./visible.js";
 import { calendarEventParts } from "./window.js";
 
 /** A window read: every kind's events over it. */
@@ -145,11 +141,10 @@ export function windowedBacklogKinds(value: CalendarValue): ReadonlySet<string> 
  * @param view - The view: what a step from it goes to is read ahead
  * @param cells - What the shared reader read of the kinds (#1424): a kind it gives cells — past the cap, none — is read
  *   from them; every other is counted over the window and read only within the cap
- * @param travel - On the timeline, which way its view last moved, by its scroll or a step: the next window of its grid that way is read ahead
  * @returns What the frame shows
  */
 export function useCalendarData(value: CalendarValue, range: CalendarRange, editing: ScheduleEditing | undefined, view: CalendarView,
-    cells: ScheduleCellsRead, travel?: TravelStore): CalendarDataState {
+    cells: ScheduleCellsRead): CalendarDataState {
     const drafts = editing?.drafts;
     const windowed = useMemo(() => windowedBacklogKinds(value), [value]);
     const read = useCallback((): CalendarData => {
@@ -196,9 +191,7 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
     const { result: apartResult } = useTrackedEvaluation(readApart);
     // Once the window has landed, what a step goes to is read ahead (CL7), each as it is read — in a read of its own, so a
     // page of it landing runs the window's read no more.
-    const toward = useTravel(travel);
-    const ahead = useMemo(() => travel !== undefined ? timelineAhead(range, toward, view.period) : calendarAhead(view, value.settings),
-        [travel, range, toward, view, value.settings]);
+    const ahead = useMemo(() => calendarAhead(view, value.settings), [view, value.settings]);
     const readNext = useCallback((next: CalendarRange) => {
         for (const kind of value.events) {
             // A kind the reader gives cells is never read over a window (#1424). Every other is counted there first, and
@@ -248,14 +241,14 @@ const NO_VIEW = (): CalendarPagedView | undefined => undefined;
  * the paged resource kind's resources, the cells of a kind placed on it, around the rows the views say they show, which
  * they report to a store this component alone hears: a scroll renders nothing of the frame.
  *
- * @param props - The payload, the range read, the editing whose drafts the read holds, the view and, on the timeline,
- *   which way its view travels (what is read ahead once the window lands); the resource kinds the view lays out, each its
- *   rows the rail shows, and the periods a resource's shading is cut into — none in a view with no resource axis; what
- *   the frame holds of the paged resource kind and where the views report its places they show; and where the data goes
+ * @param props - The payload, the range read, the editing whose drafts the read holds, the view (what a step from it goes
+ *   to is read ahead once the window lands); the resource kinds the view lays out, each its rows the rail shows, and the
+ *   periods a resource's shading is cut into — none in a view with no resource axis; what the frame holds of the paged
+ *   resource kind and where the views report its places they show; and where the data goes
  * @returns Nothing: it reads
  */
-export function CalendarDataReader({ value, range, editing, view, travel, resources, bucket, pages, demand, onData }: {
-    value: CalendarValue; range: CalendarRange; editing: ScheduleEditing | undefined; view: CalendarView; travel?: TravelStore | undefined;
+export function CalendarDataReader({ value, range, editing, view, resources, bucket, pages, demand, onData }: {
+    value: CalendarValue; range: CalendarRange; editing: ScheduleEditing | undefined; view: CalendarView;
     resources: readonly ScheduleCellResources[]; bucket: CalendarBucket | undefined;
     pages: CalendarPages | undefined; demand: CalendarPagedDemand | undefined;
     onData: (data: CalendarDataState) => void;
@@ -269,7 +262,7 @@ export function CalendarDataReader({ value, range, editing, view, travel, resour
     const span = calendarCellSpan(places, pages, standing.current);
     standing.current = span;
     const cells = useCalendarCells({ kinds: value.events, parts, resources, range, bucket, drafts: editing?.drafts ?? NO_DRAFTS, paged, span: paged === undefined ? undefined : span });
-    const data = useCalendarData(value, range, editing, view, cells, travel);
+    const data = useCalendarData(value, range, editing, view, cells);
     const reported = useRef<CalendarDataState | undefined>(undefined);
     useLayoutEffect(() => {
         const was = reported.current;

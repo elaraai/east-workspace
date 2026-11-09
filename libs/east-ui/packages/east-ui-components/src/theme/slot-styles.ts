@@ -16,7 +16,7 @@
  * caller as the same object.
  *
  * A part drawn a thousand times at once — the Calendar timeline's event
- * blocks, as a glide mounts them — draws plain elements with its slots'
+ * blocks, as a month of them mounts — draws plain elements with its slots'
  * classes (`useSlotClass`), each made once a theme: Chakra's styled element
  * works its styles out again at every element it draws — its css function
  * keys its cache by the whole style object, printed, and emotion serialises

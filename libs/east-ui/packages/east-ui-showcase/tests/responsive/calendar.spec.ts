@@ -145,8 +145,12 @@ for (const theme of LAYOUT_THEMES) {
                 const b = cell.getBoundingClientRect(); return Math.abs(b.left - ruler.left) < 1 && Math.abs(b.width - ruler.width) < 1;
             });
         })).toBe(true);
-        const before = await timeline.evaluate(el => { el.scrollLeft = 1; return Number(el.querySelector<HTMLElement>('[data-calendar-cell]')!.dataset.calendarFrom); });
-        await expect.poll(async () => Number(await timeline.locator('[data-calendar-cell]').first().getAttribute('data-calendar-from'))).toBeLessThan(before);
+        // A scroll to either end of the period moves no period: the timeline shows the period chosen (ruled 9 Nov 2026).
+        const before = await timeline.locator('[data-calendar-cell]').first().getAttribute('data-calendar-from');
+        for (const end of ['end', 'start'] as const) {
+            await timeline.evaluate((el, to) => { el.scrollLeft = to === 'start' ? 0 : el.scrollWidth; }, end); await settled(page);
+            expect(await timeline.locator('[data-calendar-cell]').first().getAttribute('data-calendar-from'), `scrolled to its ${end}`).toBe(before);
+        }
         await viewChoice(page, frame, "Calendar"); await viewChoice(page, frame, "Month");
         await expect(frame.locator('[data-calendar-month-grid]')).toBeVisible();
         await expect(frame.locator('[data-outside]').first()).toBeVisible();
@@ -580,15 +584,18 @@ for (const theme of LAYOUT_THEMES) {
             const row = [...scroller.querySelectorAll("[data-calendar-resource-row]")].find(r => r.querySelector("[data-calendar-now]") !== null);
             if (row === undefined) return "no today line";
             const head = row.firstElementChild!, line = row.querySelector<HTMLElement>("[data-calendar-now]")!;
-            // Scrolled right until the today line sits under the resource column's middle.
-            const at = line.getBoundingClientRect(), h0 = head.getBoundingClientRect(), room = scroller.scrollWidth - scroller.clientWidth;
-            const want = scroller.scrollLeft + (at.left + at.width / 2) - (h0.left + h0.width / 2);
-            if (want <= scroller.scrollLeft || want > room) return `the timeline does not scroll its today line under its resource column (${Math.round(want)} from ${scroller.scrollLeft} of ${room}px)`;
-            scroller.scrollLeft = want;
-            const h = head.getBoundingClientRect(), l = line.getBoundingClientRect();
+            // Scrolled right as far as the week goes (ruled 9 Nov 2026: the timeline scrolls within its period alone), far
+            // enough for its start to pass under the resource column's middle.
+            const room = scroller.scrollWidth - scroller.clientWidth;
+            if (room < head.getBoundingClientRect().width / 2) return `the timeline does not scroll under its resource column (${room}px)`;
+            scroller.scrollLeft = room;
+            // Today's line is wherever the clock puts it: run along to the resource column's middle, it is where a scroll
+            // would take it.
+            const h = head.getBoundingClientRect(), at = line.getBoundingClientRect(), left = line.style.left;
+            line.style.left = `${parseFloat(getComputedStyle(line).left) + (h.left + h.width / 2) - (at.left + at.width / 2)}px`;
             line.style.pointerEvents = "auto";
-            const hit = document.elementFromPoint(l.left + l.width / 2, h.top + h.height / 2);
-            line.style.pointerEvents = "";
+            const l = line.getBoundingClientRect(), hit = document.elementFromPoint(l.left + l.width / 2, h.top + h.height / 2);
+            line.style.pointerEvents = ""; line.style.left = left;
             return hit !== null && head.contains(hit) ? "under" : `over the resource column: ${hit === null ? "nothing" : hit.closest("[data-calendar-now]") !== null ? "the today line" : hit.tagName}`;
         });
         expect(timeline).toBe("under");

@@ -27,22 +27,18 @@
  * kept (the shared hidden pick, `shared/schedule/hidden-pick.tsx`, each kind's
  * read through its source in `HideSources`).
  * Each layout's view keeps its place across a step and a remount — the time
- * grid's hour, the timeline's line — and Today brings the time grid to the now
+ * grid's hour, the timeline's line — and the timeline its place along the
+ * period across a step; Today brings the time grid and the timeline to the now
  * line. Every key it acts on goes no further than the Calendar: `[` and `]`
  * step its period from anywhere in the frame.
  *
- * The timeline continues what it shows (#1398): its view nearing an end of its
- * window, the window moves on along a fixed grid (`timeline.ts`), and every
- * route that moves its dates — Prev/Next, Today, a date picked, a pick of
- * Search Records, a period — moves it as its scroll does (ruled 25 Oct 2026).
- * The next window the way it went is read ahead once the one shown lands, so it
- * is normally read already; until a window lands the held read stands in: its
- * events at their real dates where they cover the view, in the lanes the period
- * they were drawn at gave them, so every row keeps its height, and its booked
- * hours, overlaps and Backlog, stale and retained, only the days it does not
- * cover washed. A grid keeps its own rule: a step of a time or month grid, or
- * of the agenda, to a period not read yet — or a layout changed — draws none
- * of the old period's events, whose columns are another period's days.
+ * The timeline shows the period chosen and scrolls only within it (ruled 9 Nov
+ * 2026), as the Roster's grid does: Day a day, Week a week, Month a month
+ * (`timeline.ts`). Its period moves only by Previous and Next, Today, a date
+ * picked or a pick of Search Records, never by its scroll, and the periods
+ * either side are read ahead once the one shown lands, as every layout's are.
+ * A step to a period not read yet — or a layout changed — draws none of the
+ * old period's events, whose days are another period's.
  *
  * Its Backlog is each kind's, and never blinks (ruled 25 Oct 2026): no step
  * of the dates reads it again. A kind narrowed through its source has its
@@ -124,12 +120,10 @@ import { useBacklogNarrowing } from "../shared/schedule/backlog.js";
 import { calendarNouns, calendarSaid, followedSources } from "./sources.js";
 import { useCalendarToolbar } from "./toolbar.js";
 import { useCalendarWindow, type CalendarWindow } from "./window.js";
-import { createTravel, createVisibleDays, useOverlapsShown } from "./visible.js";
 import { CalendarViews, calendarHour, readCalendarAnchor, type CalendarAnchor } from "./views.js";
 import {
     NOTHING_UNCOUNTED, calendarRange, chronological, dayStart, eventKey, inWindow, NARROW_WIDTH, navigate, periodWords,
     type CalendarItem, type CalendarRange, type CalendarRef, type CalendarRow, type CalendarStyles, type CalendarUncounted, type CalendarValue,
-    type CalendarView,
 } from "./model.js";
 
 export type { CalendarValue } from "./model.js";
@@ -387,32 +381,8 @@ export function setCalendarFrameRenderProbe(fn: (() => void) | undefined): void 
 function CalendarFrame(props: HostProps) {
     calendarFrameRenderProbe?.();
     const { value, storageKey, editing, now, followed, dates, onHeld, onBacklog, picks } = props;
-    const { view, range } = dates;
-    // What the timeline shows: exactly, for a change of layout or period to keep its centre; and in whole days, in a store
-    // of its own, read only by what says them — so its scroll draws nothing of the frame (#1398, CL9).
-    const visible = useRef<ReturnType<typeof calendarRange> | undefined>(undefined);
-    const [visibleDays] = useState(createVisibleDays);
-    // Which way the timeline's view travels along time (#1398): set as it scrolls, and as a step moves its dates the way
-    // the step goes — Prev/Next, Today, a date picked, a pick of Search Records — read by the window's read alone, which
-    // once the window shown has landed reads ahead the next window of its grid that way (CL7, ruled 25 Oct 2026). A
-    // layout or a period places the view, which has travelled nowhere since.
-    const [travel] = useState(createTravel);
-    const [navigationRevision, setNavigationRevision] = useState(0);
-    const onNavigate = (date: number) => {
-        const from = visibleDays.get()?.center ?? view.date;
-        travel.set(date > from ? 1 : date < from ? -1 : 0);
-        dates.setView({ ...view, date }); setNavigationRevision(before => before + 1);
-    };
-    const setView = (next: CalendarView) => {
-        travel.set(0);
-        const middle = visible.current;
-        dates.setView(view.layout === "timeline" && middle !== undefined && next.date === view.date && (next.layout !== view.layout || next.period !== view.period)
-            ? { ...next, date: dayStart((middle.from.getTime() + middle.to.getTime()) / 2).getTime() } : next);
-    };
-    const showRange = useCallback((next: ReturnType<typeof calendarRange>) => {
-        visible.current = next;
-        visibleDays.show(next);
-    }, [visibleDays]);
+    const { view, range, setView } = dates;
+    const onNavigate = (date: number) => setView({ ...view, date });
     const recipe = useSlotRecipe({ key: "calendar" });
     const styles = useMemo(() => recipe({}) as unknown as CalendarStyles, [recipe]);
     // The Calendar's words: its message table — the editing session's, and what Search Records searches — and the app's formatters.
@@ -422,8 +392,6 @@ function CalendarFrame(props: HostProps) {
     // The frame's panes, as the Calendar's own code opens them: the Inspector an event shown as asked reveals, Enter's Details.
     const panes = useRef<BuilderFramePanes>(null);
     const narrow = useContainerBelow(main, NARROW_WIDTH);
-    // The timeline's days, date and count are read from its store by what says them; every other layout's are its window's.
-    const timeline = !narrow && view.layout === "timeline";
     // The period, as the footer's line, the eye and the banner name it (#1398, CL3; #1409).
     const periodName = periodWords(view, range, value.settings, format);
     const [refs, setRefs] = useState<CalendarRef[]>([]);
@@ -434,8 +402,7 @@ function CalendarFrame(props: HostProps) {
     }, [value.onSelect]);
     const selected = useMemo(() => new Set(refs.map(ref => eventKey(ref))), [refs]);
     // The window read reports from a component of its own, so a search landing re-renders it alone (#1343); once the
-    // window lands, it reads ahead what a step goes to (#1398, CL7): the periods either side, or on the timeline the next
-    // window of its grid the way its view last moved — its scroll's way, or a step's.
+    // window lands, it reads ahead what a step goes to (#1398, CL7): the periods either side.
     const [data, setData] = useState<CalendarDataState>(() => initialCalendarData(range));
     // The rows a kind read by its cells holds (#1424): the editing, the selection and Search Records find its events there.
     const cellRows = data.cells?.held;
@@ -446,25 +413,10 @@ function CalendarFrame(props: HostProps) {
     const pagedKind = pagedValue === undefined ? undefined : value.resources.find(kind => kind.key === pagedValue.kind);
     const [demand] = useState(createPagedDemand);
     const [pages, setPages] = useState<CalendarPages | undefined>(undefined);
-    // The period shown has landed when the held read is of the window read now (#1398): a grid's step to a period not read
-    // yet holds none of the old period's events, which never show under its labels (CL5); a newer read of the same period
-    // keeps them meanwhile, as the timeline's continuations do.
+    // The period shown has landed when the held read is of the window read now (#1398): a step to a period not read yet
+    // holds none of the old period's events, which never show under its labels (CL5); a newer read of the same period
+    // keeps them meanwhile.
     const current = data.ready && sameRange(data.range, range);
-    // What the held read was drawn on (#1398): the timeline at a period, or a grid. On the timeline every route that moves
-    // the dates continues it, as its scroll does (ruled 25 Oct 2026) — a re-centre, Prev/Next, Today, a date picked, a
-    // pick of Search Records, a period: its events stay drawn, stale, at their real dates where they cover the view, its
-    // rows laid out at the period it was drawn at, and only the days it does not cover washed, until the window lands. A
-    // grid's columns are another period's days: a grid, or a layout changed, draws none of it.
-    const drawnOn = useRef<{ readonly timeline: boolean; readonly period: CalendarView["period"] } | undefined>(undefined);
-    const lastDrawn = drawnOn.current;
-    if (current && (lastDrawn === undefined || lastDrawn.timeline !== timeline || lastDrawn.period !== view.period)) drawnOn.current = { timeline, period: view.period };
-    const heldOn = drawnOn.current;
-    const continuing = timeline && !current && data.ready && heldOn?.timeline === true;
-    const drawn = current || continuing;
-    // The period the drawn events' lanes are laid out at: the held read's while it continues, so every row keeps its height.
-    const lanesPeriod = continuing && heldOn !== undefined ? heldOn.period : view.period;
-    // A re-centre continues what the timeline shows, as every step of it does.
-    const onRecentre = (next: CalendarView) => { dates.setView(next); };
     // An event shown as asked: brought into view, the inspector opened on it. One drawn already is shown at once; one the
     // timeline has not drawn — a row out of its view, a time out of its span — tells the frame once it brings it in.
     const revealed = useCallback((element: HTMLElement) => {
@@ -483,7 +435,7 @@ function CalendarFrame(props: HostProps) {
         const element = main.current.querySelector<HTMLElement>(`[data-calendar-event="${key}"], [data-calendar-card="${key}"]`);
         if (element !== null) revealed(element);
     }, [reveal, data.items, view, narrow, revealed]);
-    // Today pressed (#1398): the time grid brings the now line into view.
+    // Today pressed (#1398): the time grid and the timeline bring the now line into view.
     const [nowAsked, setNowAsked] = useState(0);
     const onToday = useCallback(() => setNowAsked(n => n + 1), []);
     // Where each layout's view rests (#1398): saved under the Calendar's key, so a layout comes back to it as it mounts.
@@ -515,8 +467,8 @@ function CalendarFrame(props: HostProps) {
     // As the window read, the selection's read reports from a component of its own (#1343).
     const [selection, setSelection] = useState<CalendarSelection>(NO_SELECTION);
     const selectedItems = useMemo(() => selection.ok ? selection.value.map(event => event.item) : NO_ITEMS, [selection]);
-    // What the drawn events were read over (#1398): the window once read; the held read's, while a continuation's window is read.
-    const covered = current ? range : continuing ? data.range : undefined;
+    // What the drawn events were read over (#1398): the window, once read.
+    const covered = current ? range : undefined;
     // The events drawn: the window's read — and, of a kind past the cap, which draws none of its events but its drafts
     // (#1424), the selected ones the window holds, read by their keys as the inspector reads them and drawn as its drafts
     // are: a pick of Search Records among them shows it where it is, selected and given the keyboard there (#1398).
@@ -622,9 +574,8 @@ function CalendarFrame(props: HostProps) {
     }, [pagedValue, pagedKind, pagedRows, format.locale, chrome, value.vocabulary.unassigned]);
     const shownRows = useMemo(() => [...resourceRows(shown), unassigned], [shown, unassigned]);
     const overlaps = useMemo(() => scheduleOverlaps([items.filter(item => value.events.find(kind => kind.key === item.kind)?.overlaps.type === "warn")]), [items, value.events]);
-    // Whether the overlaps chip shows (#1398): an overlap among what is drawn — on the timeline, one in the days it shows,
-    // which the frame hears only as it turns, never as a day is crossed.
-    const overlapsShown = useOverlapsShown(overlaps, timeline ? visibleDays : undefined, covered, range);
+    // Whether the overlaps chip shows (#1398): an overlap among what is drawn.
+    const overlapsShown = overlaps.pairs.length > 0;
     // The templates the rail shows: the Templates tab's cards, and what a drop or a drawn event is made from.
     const templates = useMemo(() => templatesTab(value, followed, format), [value, followed, format]);
     const [pickedTemplate, setTemplate] = useState<string>();
@@ -632,7 +583,7 @@ function CalendarFrame(props: HostProps) {
     const start = useCalendarLibrary({ value, backlog, backlogRead, backlogRetained, backlogPages, backlogCount, selection: selectedItems, key: storageKey, narrow, now,
         day: dayStart(view.date), styles, commands: gestures, activeTemplate, onTemplate: setTemplate, templates, backlogNarrowing, followed, shown, rows,
         backlogFlash: optimised?.backlogChanged === true && landing.lit, locked });
-    const end = useCalendarInspector({ value, refs, range, commands: gestures, styles, storageKey, overlaps, visible: timeline ? visibleDays : undefined, select, selection, shown });
+    const end = useCalendarInspector({ value, refs, range, commands: gestures, styles, storageKey, overlaps, select, selection, shown });
     const { acted } = parts;
     // The history's acts: a field typed into lets go first, committing what it holds — the history's buttons take no
     // focus from it. Anything else keeps the focus, the board or an event on it, so the next key — a Redo after an
@@ -645,12 +596,12 @@ function CalendarFrame(props: HostProps) {
     }, [editing, acted]);
     const displayRange = narrow ? (dates.windowParts.length > 0 ? range : calendarRange(view, value.settings)) : range;
     const standardRange = calendarRange(view, value.settings);
-    const rangeLabel = timeline || displayRange.from.getTime() !== standardRange.from.getTime() || displayRange.to.getTime() !== standardRange.to.getTime()
+    const rangeLabel = displayRange.from.getTime() !== standardRange.from.getTime() || displayRange.to.getTime() !== standardRange.to.getTime()
         ? format.range(displayRange.from, new Date(displayRange.to.getTime() - 1)) : undefined;
     const navigationDate = view.date;
-    // A step of the period, as Previous and Next take it (#1398): on the timeline from the day under its middle as the key
-    // is pressed — what `[` and `]` do from anywhere in the frame, as the Roster's and the Allocation's do.
-    const step = (by: -1 | 1) => onNavigate(navigate({ ...view, date: (timeline ? visibleDays.get()?.center : undefined) ?? view.date }, by).date);
+    // A step of the period, as Previous and Next take it (#1398): what `[` and `]` do from anywhere in the frame, as the
+    // Roster's and the Allocation's do.
+    const step = (by: -1 | 1) => onNavigate(navigate(view, by).date);
     const nouns = useMemo(() => calendarNouns(value, format.locale), [value, format.locale]);
     // Search Records (#1398): an event found by its key steps the view to its period, is selected and is brought into view;
     // a pick gives it the keyboard there, once the box has let it go and the window it is drawn in has landed — after a
@@ -703,10 +654,10 @@ function CalendarFrame(props: HostProps) {
     // and so comes into view (`../shared/schedule/field-ask.tsx`).
     const { asks: fieldAsks, request: askField } = useFieldAsks();
     // The window's own count: "…" while the period is read, never a count of another period's (#1398, CL13).
-    const toolbar = useCalendarToolbar({ view, setView, resourcesWord: value.vocabulary.resources.other, layouts: dates.layouts, periods: dates.periods, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now,
+    const toolbar = useCalendarToolbar({ view, setView, resourcesWord: value.vocabulary.resources.other, layouts: dates.layouts, periods: dates.periods, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", now,
         count: current ? items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length : undefined, uncounted,
         chrome: dates.chrome, affordances: dates.affordances, nouns, windowParts: dates.windowParts,
-        ...(timeline ? { visible: visibleDays, events: { items, covered } } : {}), onToday, search, optimise: parts.toolbarItem, locked,
+        onToday, search, optimise: parts.toolbarItem, locked,
         styles, words, commands, onAction, overlaps, overlapsShown, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some"),
         warnings: breaches.warnings, askField });
     // No drag source or target while a run is out (R2).
@@ -762,21 +713,18 @@ function CalendarFrame(props: HostProps) {
         ?? (pagedNoun === undefined || pagedRetry === undefined ? undefined : pagedLoadingLine(pagedLine, pagedNoun, pagedLoadingMessages, format.number, pagedRetry))
         ?? (cellsReading && cellsNoun !== undefined ? pagedLoadingLine(CELLS_LOADING, cellsNoun, pagedLoadingMessages, format.number, retryWindow) : undefined),
     [reading, failure, retryWindow, followed, periodName, pagedNoun, pagedLine, pagedRetry, format.number, cellsReading, cellsNoun]);
-    // What the views draw of the period (#1398): the period as read — or a continuation's window, the held read standing in;
-    // one not read yet, its grid at once and its placeholders, unseen until the frame's one reveal clock says so (CL4:
-    // `LoadingReveal` below, which the footer's line and each placeholder read where they show, so its flip renders them
-    // and never this frame); or one whose read failed, its grid and the failure said once (CL11) — never "Calendar
-    // unavailable" over the grid. A continuation's window whose read failed says so as a period's does, the held read's
-    // events kept drawn.
-    const read = useMemo(() => periodRead({ current: current || (continuing && data.error === undefined), error: data.error, name: periodName, retry: retryWindow }),
-        [current, continuing, data.error, periodName, retryWindow]);
-    // A newer read of what is shown — a narrowing, a revision, a continuation's window, a paged kind's new narrowing — keeps
-    // its events, stale (#1398, CL5): their words in the third ink, the grid's rules dashed, and nothing dragged or dropped
-    // until it lands.
-    const stale = drawn && (reading || [...followed.values()].some(source => source.shown.busy) || pages?.stale === true);
+    // What the views draw of the period (#1398): the period as read; one not read yet, its grid at once and its
+    // placeholders, unseen until the frame's one reveal clock says so (CL4: `LoadingReveal` below, which the footer's line
+    // and each placeholder read where they show, so its flip renders them and never this frame); or one whose read failed,
+    // its grid and the failure said once (CL11) — never "Calendar unavailable" over the grid.
+    const read = useMemo(() => periodRead({ current, error: data.error, name: periodName, retry: retryWindow }),
+        [current, data.error, periodName, retryWindow]);
+    // A newer read of what is shown — a narrowing, a revision, a paged kind's new narrowing — keeps its events, stale
+    // (#1398, CL5): their words in the third ink, the grid's rules dashed, and nothing dragged or dropped until it lands.
+    const stale = current && (reading || [...followed.values()].some(source => source.shown.busy) || pages?.stale === true);
     // Whether the events carry their drag handles and edges (#1398, CL9): wherever the board takes edits — through a read
     // in flight too, whose retained content refuses the gesture itself (the shared drag sensors, inside the aria-disabled
-    // main, CL8) while `gestures` are withheld — so an event draws the same through a read, a re-centre's among them;
+    // main, CL8) while `gestures` are withheld — so an event draws the same through a read;
     // never while a run of the optimiser is out (R2), nor where the read failed and main takes the pointer for its Retry.
     const grips = editing !== undefined && !locked && read.state !== "failed";
     // The cold load's cover at the board's own pitch: an hour of its time grid (CL1).
@@ -788,10 +736,9 @@ function CalendarFrame(props: HostProps) {
             && <CalendarPagesReader paged={pagedValue} name={pagedKind.name} icon={pagedKind.icon} demand={demand} onPages={setPages} />}
         {backlogPages !== undefined && <CalendarBacklogCountReader pages={backlogPages} onCount={setBacklogCount} />}
         {editing !== undefined && <CalendarBoundsReader kinds={value.events} items={items} editing={editing} onBreaches={setBreaches} />}
-        <CalendarDataReader value={value} range={range} editing={editing} view={view} travel={timeline ? travel : undefined}
+        <CalendarDataReader value={value} range={range} editing={editing} view={view}
             resources={cellResources} bucket={bucket} pages={pages} demand={pagedValue === undefined ? undefined : demand} onData={setData} />
-        {/* The selection is read where its events are drawn: the held read, while a continuation's window is read. */}
-        <CalendarSelectionReader value={value} refs={refs} range={continuing ? data.range : range} commands={commands} held={cellRows} onSelection={setSelection} />
+        <CalendarSelectionReader value={value} refs={refs} range={range} commands={commands} held={cellRows} onSelection={setSelection} />
         <LoadingReveal waiting={line?.kind === "loading"}>
         <CalendarChooserContext.Provider value={chooser}>
         <BuilderFrame storageKey={`${storageKey}.frame`} label="Calendar" loading={(!data.ready && data.loading && data.error === undefined) || cold} loadingPitch={pitch}
@@ -833,8 +780,8 @@ function CalendarFrame(props: HostProps) {
                 its period, and an event Delete takes away leaves it here. */}
             <Box ref={main} css={styles.main} data-calendar-main="" tabIndex={-1} aria-disabled={!available && read.state !== "failed" ? true : undefined} data-calendar-stale={stale ? "" : undefined}
                 data-calendar-narrow={narrow ? "" : undefined}>
-                <CalendarViews navigationRevision={navigationRevision} format={format} value={value} view={view} setView={setView} range={narrow ? displayRange : range} visible={visibleDays} onVisible={showRange} items={items}
-                    rows={rows} shownRows={shownRows} shown={shown} now={now} narrow={narrow} styles={styles} read={read} covered={covered} lanesPeriod={lanesPeriod} onRecentre={onRecentre} travel={travel}
+                <CalendarViews format={format} value={value} view={view} setView={setView} range={narrow ? displayRange : range} items={items}
+                    rows={rows} shownRows={shownRows} shown={shown} now={now} narrow={narrow} styles={styles} read={read}
                     uncounted={uncounted} shading={data.cells?.shading} bucket={bucket} pages={pages} demand={demand} drawnRows={data.cells?.drawn}
                     selected={selected} select={pick} clear={clear} overlaps={overlaps} commands={gestures} drag={drag}
                     nowRevision={nowAsked} anchor={anchor} onAnchor={onAnchor} reveal={reveal === undefined ? undefined : eventKey(reveal)} onRevealed={revealed}

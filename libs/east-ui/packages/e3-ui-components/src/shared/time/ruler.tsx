@@ -127,7 +127,7 @@ interface TimeRulerRowProps<I> {
      * inside its column beside the timeline's sticky column — that caption and its neighbours alone (`data-sticks`), its
      * host's recipe making them sticky; every other caption stands where its column starts, as one that cannot stick
      * stands. A sticky caption is a layer of the compositor's own: a band of them, one a period, was most of what a frame
-     * of the timeline's glide spent compositing.
+     * of a timeline's scroll spent compositing.
      */
     sticky?: ViewStart | undefined;
     highlight?: number | undefined;

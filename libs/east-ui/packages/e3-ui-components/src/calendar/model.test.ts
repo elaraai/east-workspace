@@ -11,8 +11,8 @@
 import { expect, test } from "vitest";
 import { decodeBeast2For, encodeBeast2For, none, some, variant } from "@elaraai/east";
 import { formatters } from "@elaraai/east-ui-components";
-import { calendarAhead, calendarRange, DAY, dayStart, inputInstant, inWindow, navigate, periodWords, type CalendarValue, type CalendarView } from "./model.js";
-import { RECENTRE_PX, TIMELINE_GUTTER, recentredView, shiftedScroll, timelineAhead, timelineDays, timelinePixels, timelineRange, timelineStep, timelineVisible } from "./timeline.js";
+import { calendarAhead, calendarRange, DAY, inputInstant, inWindow, navigate, periodWords, type CalendarValue, type CalendarView } from "./model.js";
+import { TIMELINE_GUTTER, timelineDayWidth, timelineDays, timelineOpensAt, timelinePixels, timelineScrollTo, timelineVisible } from "./timeline.js";
 import { ScheduleItemType } from "@elaraai/e3-ui/internal";
 const settings: CalendarValue["settings"] = { layout: variant("calendar", null), views: [], viewPeriods: [], period: variant("week", null), date: none,
     hours: { from: 6n, to: 22n }, weekStart: variant("monday", null), weekends: true, density: variant("comfortable", null), now: none, readOnly: false };
@@ -25,7 +25,7 @@ test("UTC week/month/day windows and weekends, including a year boundary", () =>
     expect(month.from.toISOString()).toBe("2026-11-30T00:00:00.000Z"); expect(month.to.toISOString()).toBe("2027-01-04T00:00:00.000Z");
     expect(navigate({ ...view, period: "month", date: Date.UTC(2026, 0, 31) }, 1).date).toBe(Date.UTC(2026, 1, 28));
 });
-test("the periods read ahead are the ones a step either way reads; the timeline, whose step follows its scroll, reads none ahead of a step (#1398, CL7)", () => {
+test("the periods read ahead are the ones a step either way reads, the timeline's as every layout's (#1398, CL7; ruled 9 Nov 2026)", () => {
     const [next, previous] = calendarAhead(view, settings);
     expect([next!.from.toISOString(), next!.to.toISOString()]).toEqual(["2026-10-05T00:00:00.000Z", "2026-10-12T00:00:00.000Z"]);
     expect([previous!.from.toISOString(), previous!.to.toISOString()]).toEqual(["2026-09-21T00:00:00.000Z", "2026-09-28T00:00:00.000Z"]);
@@ -33,7 +33,11 @@ test("the periods read ahead are the ones a step either way reads; the timeline,
     const month = calendarAhead({ ...view, period: "month" }, settings);
     expect(month.map(range => range.from.toISOString())).toEqual([calendarRange(navigate({ ...view, period: "month" }, 1), settings).from.toISOString(),
         calendarRange(navigate({ ...view, period: "month" }, -1), settings).from.toISOString()]);
-    expect(calendarAhead({ ...view, layout: "timeline" }, settings)).toEqual([]);
+    // The timeline's week is the week's; its month the month itself, from its 1st, with no week around it.
+    expect(calendarAhead({ ...view, layout: "timeline" }, settings)).toEqual(calendarAhead(view, settings));
+    const months = calendarAhead({ ...view, layout: "timeline", period: "month" }, settings);
+    expect(months.map(range => [range.from.toISOString(), range.to.toISOString()])).toEqual([
+        ["2026-11-01T00:00:00.000Z", "2026-12-01T00:00:00.000Z"], ["2026-09-01T00:00:00.000Z", "2026-10-01T00:00:00.000Z"]]);
 });
 test("the loading line names a window as the view names its period: a day or a month by its name, else its days (#1398, CL3)", () => {
     const en = formatters("en-US");
@@ -47,79 +51,63 @@ test("the loading line names a window as the view names its period: a day or a m
     // A range the slice holds, not the view's own period: its days.
     const held = { from: new Date("2026-10-03T00:00:00Z"), to: new Date("2026-10-05T00:00:00Z"), days: [] };
     expect(periodWords(day, held, settings, en)).toBe(en.range(new Date("2026-10-03T00:00:00Z"), new Date("2026-10-04T00:00:00Z")));
-    // The timeline's window: its days, whatever its period.
+    // The timeline names its period as every layout does (ruled 9 Nov 2026).
     const timeline = { ...view, layout: "timeline" as const, period: "day" as const };
-    expect(periodWords(timeline, calendarRange(day, settings), settings, en)).toBe(en.range(new Date("2026-10-01T00:00:00Z"), new Date("2026-10-01T00:00:00Z")));
+    expect(periodWords(timeline, calendarRange(timeline, settings), settings, en)).toBe(en.weekdayDate(new Date("2026-10-01T00:00:00Z")));
+    const timelineMonth = { ...timeline, period: "month" as const };
+    expect(periodWords(timelineMonth, calendarRange(timelineMonth, settings), settings, en)).toBe(en.monthYear(new Date("2026-10-01T00:00:00Z")));
 });
 test("invalid UTC input never rolls into another day", () => {
     expect(inputInstant("2026-02-30", "09:00")).toBeUndefined(); expect(inputInstant("2026-10-01", "24:30")).toBeUndefined();
     expect(inputInstant("2026-10-01", "09:15")?.toISOString()).toBe("2026-10-01T09:15:00.000Z");
 });
 for (const period of ["day", "week", "month"] as const) {
-    test(`${period} timeline windows sit on a fixed grid of half windows, and a date opens one it sits a quarter window inside (#1398)`, () => {
-        const step = timelineStep(period), count = timelineDays(period);
-        expect(step).toBe(Math.floor(count / 2));
-        for (let d = 0; d < 400; d++) {
-            const date = Date.UTC(2026, 0, 1 + d, 13);
-            const window = timelineRange({ ...view, layout: "timeline", period, date });
-            // Its start a whole number of steps from the epoch, its days whole.
-            expect(Number.isInteger(window.from.getTime() / (step * DAY))).toBe(true);
-            expect(window.to.getTime() - window.from.getTime()).toBe(count * DAY);
-            expect(window.days).toHaveLength(count);
-            // The date's day, at least a quarter window from either end.
-            const at = (dayStart(date).getTime() - window.from.getTime()) / DAY;
-            expect(Math.min(at, count - 1 - at)).toBeGreaterThanOrEqual(Math.floor(count / 4));
-        }
+    test(`${period} timeline draws its period and no more: a day, a week from its first day, a month from its 1st — weekends included (ruled 9 Nov 2026)`, () => {
+        const timeline = { ...view, layout: "timeline" as const, period };
+        const range = calendarRange(timeline, { ...settings, weekends: false });
+        const bounds = period === "day" ? ["2026-10-01", "2026-10-02"] : period === "week" ? ["2026-09-28", "2026-10-05"] : ["2026-10-01", "2026-11-01"];
+        expect([range.from.toISOString(), range.to.toISOString()]).toEqual(bounds.map(day => `${day}T00:00:00.000Z`));
+        expect(timelineDays(range)).toBe(period === "day" ? 1 : period === "week" ? 7 : 31);
     });
 
-    test(`${period} timeline re-centres as its view nears an end of its window: on the next window of the grid that way, dated where the view's middle is, so a reload opens it again (#1398)`, () => {
-        const shown = timelineRange({ ...view, layout: "timeline", period });
-        const px = timelinePixels(period), width = 1000, scrollWidth = timelineDays(period) * px + TIMELINE_GUTTER;
-        const step = timelineStep(period) * DAY;
-        // Away from both ends: none.
-        expect(recentredView({ ...view, layout: "timeline", period }, shown, (scrollWidth - width) / 2, width, scrollWidth)).toBeUndefined();
-        for (const [left, toward] of [[RECENTRE_PX - 10, -1], [scrollWidth - width - RECENTRE_PX + 10, 1]] as const) {
-            const next = recentredView({ ...view, layout: "timeline", period }, shown, left, width, scrollWidth)!;
-            const moved = timelineRange(next);
-            expect(moved.from.getTime()).toBe(shown.from.getTime() + toward * step);
-            // Its date is the day under the view's middle.
-            const visible = timelineVisible(shown, left, width, period);
-            expect(next.date).toBe(dayStart((visible.from.getTime() + visible.to.getTime()) / 2).getTime());
-            // The view keeps every instant where it was.
-            const shifted = timelineVisible(moved, shiftedScroll(left, shown, moved, period), width, period);
-            expect([shifted.from, shifted.to]).toEqual([visible.from, visible.to]);
-        }
-        // A view wider than half a window, whose middle opens the window shown: still the next window toward the end it
-        // nears, dated on the nearest day that opens it.
-        const wide = timelineDays(period) * px * 0.7;
-        const next = recentredView({ ...view, layout: "timeline", period }, shown, scrollWidth - wide - RECENTRE_PX + 10, wide, scrollWidth)!;
-        expect(timelineRange(next).from.getTime()).toBe(shown.from.getTime() + step);
-        expect(next.date % DAY).toBe(0);
+    test(`${period} timeline's day is the period's own width at least, and as wide as the view leaves it beside the resource column where that is wider`, () => {
+        const range = calendarRange({ ...view, layout: "timeline", period }, settings);
+        const days = timelineDays(range), own = timelinePixels(period);
+        // Not laid out yet, or a view narrower than the period: the period's own.
+        expect(timelineDayWidth(range, period, 0)).toBe(own);
+        expect(timelineDayWidth(range, period, TIMELINE_GUTTER + days * own - 100)).toBe(own);
+        // A view wider than it: the period across the whole view.
+        expect(timelineDayWidth(range, period, TIMELINE_GUTTER + days * own + 700)).toBeCloseTo(own + 700 / days, 9);
     });
 
-    test(`${period} timeline reads ahead the window a re-centre the way its view travels goes to, none before it travels, and none for a window off the grid (#1398, CL7)`, () => {
-        const shown = timelineRange({ ...view, layout: "timeline", period });
-        const step = timelineStep(period) * DAY;
-        expect(timelineAhead(shown, 0, period)).toEqual([]);
-        for (const toward of [-1, 1] as const) {
-            const [ahead] = timelineAhead(shown, toward, period);
-            expect([ahead!.from.getTime(), ahead!.to.getTime()]).toEqual([shown.from.getTime() + toward * step, shown.to.getTime() + toward * step]);
-        }
-        // A range the slice's Range panel wrote: no window of the grid.
-        expect(timelineAhead({ from: new Date("2026-10-03T00:00:00Z"), to: new Date("2026-10-05T00:00:00Z"), days: [] }, 1, period)).toEqual([]);
-    });
-
-    test(`${period} timeline pans in either direction without moving the visible dates, and keeps a bounded window`, () => {
-        const current = timelineRange({ ...view, period, layout: "timeline" });
-        const left = 2 * timelinePixels(period); const visible = timelineVisible(current, left, 1000, period);
-        for (const days of [-2, 2]) {
-            const next = timelineRange({ ...view, period, layout: "timeline", date: view.date + days * DAY });
-            const shifted = timelineVisible(next, shiftedScroll(left, current, next, period), 1000, period);
-            expect(shifted.from).toEqual(visible.from); expect(shifted.to).toEqual(visible.to);
-            expect(next.days).toHaveLength(current.days.length); expect(next.days.length).toBe(period === "day" ? 15 : period === "week" ? 56 : 154);
-        }
+    test(`${period} timeline's scroll to an instant puts it the share asked across the view, held within the period`, () => {
+        const range = calendarRange({ ...view, layout: "timeline", period }, settings);
+        const dayWidth = timelinePixels(period), width = 1000, days = timelineDays(range);
+        const most = days * dayWidth + TIMELINE_GUTTER - width;
+        // Its middle: the view's middle on it.
+        const at = range.from.getTime() + days * DAY / 2;
+        const shown = timelineVisible(range, timelineScrollTo(range, at, 1 / 2, dayWidth, width), width, dayWidth);
+        expect(Math.abs((shown.from.getTime() + shown.to.getTime()) / 2 - at)).toBeLessThan(1);
+        // A third of the way across, as Today brings the now line.
+        const third = timelineVisible(range, timelineScrollTo(range, at, 1 / 3, dayWidth, width), width, dayWidth);
+        expect(Math.abs(third.from.getTime() + (third.to.getTime() - third.from.getTime()) / 3 - at)).toBeLessThan(1);
+        // Held within the period, at its start and at its end.
+        expect(timelineScrollTo(range, range.from.getTime(), 1 / 2, dayWidth, width)).toBe(0);
+        expect(timelineScrollTo(range, range.to.getTime(), 1 / 2, dayWidth, width)).toBe(most);
+        // A view wider than the period scrolls nowhere.
+        expect(timelineScrollTo(range, at, 1 / 2, timelineDayWidth(range, period, 4000), 4000)).toBe(0);
     });
 }
+
+test("the timeline opens a Day on the middle of its working hours, and a Week or a Month on the view's date (ruled 9 Nov 2026)", () => {
+    const hours = { from: 6, to: 22 };
+    const day = { ...view, layout: "timeline" as const, period: "day" as const };
+    expect(new Date(timelineOpensAt(day, calendarRange(day, settings), hours)).toISOString()).toBe("2026-10-01T14:00:00.000Z");
+    for (const period of ["week", "month"] as const) {
+        const at = { ...view, layout: "timeline" as const, period, date: Date.UTC(2026, 9, 7, 9) };
+        expect(new Date(timelineOpensAt(at, calendarRange(at, settings), hours)).toISOString()).toBe("2026-10-07T12:00:00.000Z");
+    }
+});
 
 test("half-open Calendar windows preserve spans and instants at the lower boundary", () => {
     const from = new Date("2026-10-02T00:00:00Z");

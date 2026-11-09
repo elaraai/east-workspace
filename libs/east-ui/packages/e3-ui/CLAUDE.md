@@ -757,14 +757,15 @@ Sunday/Monday week start.
 Pass date changes through the host's existing window/Slice owner. Preserve
 whole-week Roster reads and every week's drafts, and request status only for
 the open picker's month. Cancel and browsing must not write the Slice. Calendar's
-timeline labels the visible range and steps from its visible center; Today
-recenters even if the persisted date was already today. Do not duplicate the
-current date as detached toolbar text. Counts remain a separate folding item.
+timeline labels its period and steps it as every layout does, a scroll never
+moving it (ruled 9 Nov 2026); Today brings the now line into view even if the
+persisted date was already today. Do not duplicate the current date as detached
+toolbar text. Counts remain a separate folding item.
 
 Test all three consumers at 1440/1024/768/390/360 and a 294px parent:
 popup Today, all valid units, keyboard selection/cancel, hover versus selected
-styles, bounded reads, Slice writes, month/year boundaries and timeline
-recentring. Rebuild and check the actual HTTPS showcase before reporting that
+styles, bounded reads, Slice writes, month/year boundaries and the timeline's
+Today. Rebuild and check the actual HTTPS showcase before reporting that
 navigation changed.
 
 Plan's time navigator uses its active scale unit (including hour, quarter and

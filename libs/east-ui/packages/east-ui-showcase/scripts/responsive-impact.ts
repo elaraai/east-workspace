@@ -23,8 +23,8 @@ const componentSpecs = {
         "allocation-timeline.spec.ts", "optimise-allocation.spec.ts",
     ],
     calendar: [
-        "calendar.spec.ts", "calendar-glide.spec.ts", "calendar-loading.spec.ts", "calendar-narrowing.spec.ts", "calendar-paged-columns.spec.ts",
-        "calendar-recentre.spec.ts", "calendar-records.spec.ts", "calendar-search.spec.ts", "calendar-steps.spec.ts", "optimise-calendar.spec.ts",
+        "calendar.spec.ts", "calendar-loading.spec.ts", "calendar-narrowing.spec.ts", "calendar-paged-columns.spec.ts", "calendar-records.spec.ts",
+        "calendar-search.spec.ts", "calendar-steps.spec.ts", "calendar-timeline-period.spec.ts", "optimise-calendar.spec.ts",
     ],
     // The Flowchart's frame, library, drops and records, its details' looks and its phone's window of one lane over them.
     flowchart: [
