@@ -904,8 +904,9 @@ describe("the footer", () => {
     });
 
     test("a new row is never stale: a copy of a stale row, which the grid draws with no age, counts in neither the stale note nor the Stale count with no row selected", async () => {
+        // The 18th, as the test beside it: K. Lund's October change turns 90 days old on the 19th.
         vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
-        vi.setSystemTime(new Date("2027-01-19T10:14:00Z"));
+        vi.setSystemTime(new Date(2027, 0, 18, 10, 14));
         try {
             const first = await h.mount(ex.recordShiftPreferences, { storageKey: "record-stale-new" });
             // D. Novak's, from May, copied: every field but the name hers.
