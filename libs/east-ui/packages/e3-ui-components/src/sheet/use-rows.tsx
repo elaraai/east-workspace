@@ -156,7 +156,7 @@ export function useSheetRows(sheetDecode: SheetDecode, sheetSession: SheetSessio
                     folded={item.folded}
                     count={item.count}
                     first={i === 0}
-                    selC={ui.sel.r === r ? ui.sel.c : undefined}
+                    selC={!ui.ringless && ui.sel.r === r ? ui.sel.c : undefined}
                     range={inRangeRow ? rangeCols : undefined}
                     picked={wr !== null && r >= wr.r0 && r <= wr.r1}
                     mixed={bandMixed(r, wr !== null && r >= wr.r0 && r <= wr.r1)}
@@ -239,7 +239,7 @@ export function useSheetRows(sheetDecode: SheetDecode, sheetSession: SheetSessio
                 draft={item.kind === "real" ? draftOf(lg?.row.id ?? item.row.id, lg?.key) : undefined}
                 onDiscard={item.kind === "real" ? onRowDiscard : undefined}
                 linkCtx={linkCellCtx}
-                selC={ui.sel.r === r ? ui.sel.c : undefined}
+                selC={!ui.ringless && ui.sel.r === r ? ui.sel.c : undefined}
                 range={inRangeRow ? rangeCols : undefined}
                 picked={wr !== null && r >= wr.r0 && r <= wr.r1}
                 hit={item.kind === "real" && item.hit}

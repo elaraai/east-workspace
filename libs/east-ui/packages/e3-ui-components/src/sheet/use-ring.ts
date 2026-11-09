@@ -160,7 +160,8 @@ export function useSheetRing(sheetDecode: SheetDecode, sheetSession: SheetSessio
     const ariaRowCount = group !== undefined ? (unreadRuns ? -1 : body.length + 1)
         : pagedSource !== undefined && total === undefined ? -1
             : Math.max(total ?? 0, endPosition) + blankRows + 1;
-    const ringItem = rowAt(ui.sel.r);
+    // No row is the ring's before it is placed (#1531): no phone's column head is marked for it, no hint speaks of it.
+    const ringItem = ui.ringless ? undefined : rowAt(ui.sel.r);
     const ringCol = ringItem?.kind === "group" && group !== undefined && (ui.sel.c < group.titleSpan || !group.cells.has(columns.list[ui.sel.c]?.key ?? "")) ? 0 : ui.sel.c;
     const activeCell = !ui.ringless && ringItem !== undefined && colCount > 0 ? `${gridId}-${ui.sel.r}-${ringCol}` : undefined;
     // What a keyboard move's reveal reads (`use-scroll.tsx`): the ring's cell, and the column it sits under.
@@ -168,7 +169,7 @@ export function useSheetRing(sheetDecode: SheetDecode, sheetSession: SheetSessio
     ringCellRef.current = { id: activeCell, col: ringCol };
     const hasFills = ui.sugg !== null && ui.sugg.fill.size > 0;
     const hasRows = ui.sugg !== null && ui.sugg.rows.length > 0;
-    const ringKind = ctx.rowKindAt?.(ui.sel.r);
+    const ringKind = ui.ringless ? undefined : ctx.rowKindAt?.(ui.sel.r);
     const ringSubRows = ringKind === "row" ? ctx.lineSubRowsAt?.(ui.sel.r) : undefined;
     const picked = wr !== null ? wr.r1 - wr.r0 + 1 : 0;
     const hint = ui.gsel !== null

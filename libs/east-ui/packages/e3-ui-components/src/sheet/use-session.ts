@@ -69,7 +69,7 @@ interface SheetSessionValues {
  */
 export function useSheetSession(value: SheetRootValue, storageKey: string, host: SheetHost, sheetDecode: SheetDecode) {
     const {
-        activeView, bandPx, blanks, columns, declaredNoun, decodedRows, driverColumn, group, hostGrid, keyOrder,
+        activeView, bandPx, blanks, canInsertRows, columns, declaredNoun, decodedRows, driverColumn, group, hostGrid, keyOrder,
         lensWanted, loose, mintAmong, minted, pagedSource, readOnly, rowPx, rowsPart, rowsWhere, subRowPx, words,
     } = sheetDecode;
     // ── What survives a remount (#857) ────────────────────────────────────
@@ -93,14 +93,18 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
         const restoredFolds = restored.view === opening && restored.folds.length > 0 ? new Map(restored.folds) : undefined;
         // The ring opens on the first blank row's driver column (else its first
         // column) — the prototype's "type an activity on the empty row"; a
-        // grouped sheet: the first group's blank line — or a first loose row
-        // itself (#846).
+        // grouped sheet: the first group's blank line.
         const c = Math.max(0, driverColumn !== undefined ? columns.list.findIndex((col) => col.key === driverColumn) : 0);
         const first = decodedRows?.[0];
         const firstFolded = first !== undefined && (restoredFolds?.get(first.id) ?? getSomeorUndefined(first.band)?.folded === true);
-        const r = group !== undefined ? (first !== undefined && !isLooseRow(first) && !firstFolded ? 1 + first.lines.length : 0) : decodedRows?.length ?? 0;
-        // A host's grid opens with no ring (#1531): a press, or the first move key, places it.
-        return initialSheetStore({ r, c }, opening, restoredFolds, hostGrid !== undefined);
+        const blankLine = first !== undefined && !isLooseRow(first) && !firstFolded;
+        const r = group !== undefined ? (blankLine ? 1 + first.lines.length : 0) : decodedRows?.length ?? 0;
+        // Anywhere else the sheet opens with no ring placed (#1531) — a press places it, or the first move key: a ring
+        // nobody placed would sit on an entry, or a band, as if someone had chosen it (#1585). A host's grid draws no
+        // blank row; a sheet that adds no rows, or is read only, types none; a paged sheet's lie past rows not read yet;
+        // a grouped sheet whose first group is folded, or that opens on a loose row (#846), has no blank line to open on.
+        const onBlank = hostGrid === undefined && canInsertRows && blanks > 0 && decodedRows !== undefined && (group === undefined || blankLine);
+        return initialSheetStore({ r, c }, opening, restoredFolds, !onBlank);
     });
     const ui = store.ui;
     const folds = ui.folds;

@@ -276,11 +276,12 @@ export function useSheetDrops(sheetDecode: SheetDecode, sheetSession: SheetSessi
         onDrag: (event) => dropApi.current?.drop(event) ?? false,
     }), [dropHost, dropOn, dropApi]);
     useDragTarget(dropTarget);
-    // A library card's ⏎ (SB45): the drop below the ring's row — or, where it is refused, why, in the footer.
+    // A library card's ⏎ (SB45): the drop below the ring's row — or, where it is refused, why, in the footer. Before the
+    // ring is placed there is no row to drop below (#1531).
     const enterCard = (library: string, key: string) => {
         if (dropHost === undefined) return;
         const source = cardSource(dropHost, library, key);
-        const item = rowAt(uiRef.current.sel.r);
+        const item = uiRef.current.ringless ? undefined : rowAt(uiRef.current.sel.r);
         const row = item === undefined ? undefined : dropRowOf(item);
         if (source === undefined || row === undefined) return;
         const plan = planBelow(source, row, dropCtx);
@@ -295,9 +296,11 @@ export function useSheetDrops(sheetDecode: SheetDecode, sheetSession: SheetSessi
     enterRef.current = enterCard;
     const enter = useCallback((library: string, key: string) => enterRef.current(library, key), []);
     // A phone's Library (SH11): a tap on an author's card is its drop on the row it lands on — a group's card on the ring's
-    // band, or the band of the line the ring is on; a tap on a template its ⏎.
-    const cardRing = ui.sel.r;
+    // band, or the band of the line the ring is on; a tap on a template its ⏎. Before the ring is placed no card has a
+    // row to land on, and the view asks for one (#1531).
+    const cardRing = ui.ringless ? undefined : ui.sel.r;
     const cardTargetR = (lands: "row" | "group"): number | undefined => {
+        if (cardRing === undefined) return undefined;
         const item = rowAt(cardRing);
         if (lands === "row") return item?.kind === "real" ? cardRing : undefined;
         if (item?.kind === "group") return cardRing;
