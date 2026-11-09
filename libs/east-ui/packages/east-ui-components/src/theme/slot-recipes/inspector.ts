@@ -42,6 +42,9 @@ export const INSPECTOR_SECTION = {
     minWidth: 0,
 } as const satisfies SystemStyleObject;
 
+/** A draft's chip's height: its line — the caption tier's size at the normal line height — its padding and its rule. */
+const CHIP_HEIGHT = "calc({fontSizes.label.sm} * {lineHeights.normal} + 4px)";
+
 /** The slots the shared parts style. */
 export const inspectorSlots = [
     "root", "home", "head", "eyebrow", "name", "marks", "chip", "sectionHead", "fields", "actions", "bulk", "summary",
@@ -67,16 +70,20 @@ export const inspectorBase = {
     head: { ...INSPECTOR_SECTION, gap: "5px", _focusVisible: { outline: "none", boxShadow: "{shadows.focusInset}" } },
     eyebrow: { textStyle: "caption.eyebrow" },
     name: { textStyle: "title.card.md", color: "fg", overflowWrap: "anywhere" },
+    /* Its marks — a draft's chip, a lock — their row kept, a chip tall, while it holds none (#1584): a chip arriving with
+     * a view's first edit moves nothing under it, never the control just pressed. */
     marks: {
         display: "flex",
         flexWrap: "wrap",
         alignItems: "center",
         gap: "6px",
-        "&:empty": { display: "none" },
+        minHeight: CHIP_HEIGHT,
     },
-    /* A draft's chip: Pending (changed since the record held it), New (never applied). */
+    /* A draft's chip: Pending (changed since the record held it), New (never applied) — its line set, so its row is kept
+     * at its height. */
     chip: {
         textStyle: "mono.xs",
+        lineHeight: "{lineHeights.normal}",
         display: "inline-flex",
         alignItems: "center",
         paddingX: "6px",

@@ -101,19 +101,23 @@ export const sheetInspectorSlotRecipe = defineSlotRecipe({
         /* An issue whose row the rail's filters hide: which, and that a click clears them. */
         issueHidden: { textStyle: "body.sm", color: "fg.muted", overflowWrap: "anywhere" },
         /* A phone's Details (`Mobile Sheet Spec.md` SH12, the designer's `WorkOrdersPhone`): its head padded 16 20 — the
-         * eyebrow mono 10/600 in `--ink-4`, the name DM Sans 16/700, a draft's chip 20 tall on the brand's tint. */
+         * eyebrow mono 10/600 in `--ink-4`, the name DM Sans 16/700, a draft's chip 20 tall on the brand's tint, 4 under
+         * it, and a lock after the chip — their row kept while it holds neither (#1584): a chip arriving with the first
+         * edit moves nothing under it. */
         phoneHead: {
-            display: "grid", gap: "4px", paddingY: "16px", paddingX: "20px",
+            display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", gridTemplateRows: "auto auto 24px", rowGap: "4px",
+            paddingY: "16px", paddingX: "20px",
             borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
             _focusVisible: { outline: "none", boxShadow: "{shadows.focusInset}" },
+            "& > [data-inspector-lock]": { gridRow: "3", gridColumn: "2", alignSelf: "end", minHeight: "20px" },
         },
         phoneEyebrow: {
-            fontFamily: "mono", fontSize: "label.sm", fontWeight: 600, lineHeight: "1.4", letterSpacing: "0.14em",
+            gridColumn: "1 / -1", fontFamily: "mono", fontSize: "label.sm", fontWeight: 600, lineHeight: "1.4", letterSpacing: "0.14em",
             textTransform: "uppercase", color: "fg.subtle", overflowWrap: "anywhere",
         },
-        phoneName: { fontFamily: "heading", fontSize: "title.md", fontWeight: 700, letterSpacing: "-0.01em", lineHeight: "1.25", color: "fg", overflowWrap: "anywhere" },
+        phoneName: { gridColumn: "1 / -1", fontFamily: "heading", fontSize: "title.md", fontWeight: 700, letterSpacing: "-0.01em", lineHeight: "1.25", color: "fg", overflowWrap: "anywhere" },
         phoneChip: {
-            justifySelf: "start", marginTop: "4px", height: "20px", display: "inline-flex", alignItems: "center", paddingX: "8px",
+            gridRow: "3", gridColumn: "1", justifySelf: "start", marginTop: "4px", marginInlineEnd: "8px", height: "20px", display: "inline-flex", alignItems: "center", paddingX: "8px",
             boxSizing: "border-box", borderRadius: "sm", fontFamily: "mono", fontSize: "label.sm", fontWeight: 500,
             "&[data-state=pending]": { background: "brandTint", color: "brandPressed" },
             "&[data-state=new]": { background: "bg.subtle", color: "fg.strong" },
