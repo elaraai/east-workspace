@@ -358,6 +358,21 @@ describe("FieldForm — each field the shared Field around the shared input its 
         for (const key of ["note", "status", "bench"]) expect(within(field(key)).queryByRole("button", { name: /^(Set|Clear)/ })).toBeNull();
     });
 
+    test("Set gives the box it makes the keyboard, its start selected: what is typed next replaces it, never the Clear that took Set's place", async () => {
+        const { field, edits } = mount();
+        const user = userEvent.setup();
+        await user.click(within(field("batch")).getByRole("button", { name: "Set" }));
+        await settle();
+        expectEdit(edits, "batch", equalFor(OptionType(IntegerType)), some(1n));
+        const box = within(field("batch")).getByRole("spinbutton") as HTMLInputElement;
+        expect(document.activeElement).toBe(box);
+        expect([box.selectionStart, box.selectionEnd]).toEqual([0, box.value.length]);
+        edits.length = 0;
+        await user.keyboard("7{Enter}");
+        await settle();
+        expectEdit(edits, "batch", equalFor(OptionType(IntegerType)), some(7n));
+    });
+
     test("a field that differs from the baseline is tinted, and one the drafts change becomes so", async () => {
         const { field, container } = mount({ baseline: { ...JOB, crew: 3n } });
         const user = userEvent.setup();

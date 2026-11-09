@@ -33,7 +33,9 @@
  * Option has a Clear beside it, and a Set while it holds none. A field with
  * no value yet — a draft's field not given, whatever its type — shows Not
  * set: a text empty, a select or a reference with nothing chosen, any other
- * with a Set beside it (#1188). A date's input takes its editor's precision.
+ * with a Set beside it (#1188). Set gives the box it makes the keyboard, its
+ * start selected, so what is typed next replaces it. A date's input takes its
+ * editor's precision.
  * A field that differs from `baseline` — what the drafts began from — is
  * tinted. A nested struct's fields sit under its name. Read-only, every field
  * is printed, and tags and a checklist keep their shape without their
@@ -603,6 +605,17 @@ const FieldRow = memo(function FieldRow({
     const done = checklist === undefined ? 0 : items.filter((item) => item[checklist.done] as boolean).length;
     const typed = useRef("");
     const fieldRef = useRef<HTMLDivElement | null>(null);
+    // Set pressed: the box it makes takes the keyboard, its start selected, once the host holds the value — the button
+    // under the keyboard is Clear by then. Focus leaving for anything outside the field first ends the wait.
+    const setting = useRef(false);
+    useEffect(() => {
+        if (!setting.current || held === undefined) return;
+        setting.current = false;
+        const box = fieldRef.current?.querySelector<HTMLElement>("input:not([type=hidden]):not([disabled]), textarea:not([disabled])")
+            ?? fieldRef.current?.querySelector<HTMLElement>(FOCUSABLE);
+        box?.focus();
+        if (box instanceof HTMLInputElement || box instanceof HTMLTextAreaElement) box.select();
+    }, [held]);
     // An Option's Clear, beside a line's choices or an input that cannot show none.
     const clear = (
         <chakra.button type="button" css={iconButton({ variant: "ghost", size: "xs" })} aria-label={m.clear({ label: spec.label })}
@@ -677,6 +690,7 @@ const FieldRow = memo(function FieldRow({
     const onBlur = (e: FocusEvent<HTMLDivElement>) => {
         const to = e.relatedTarget;
         if (to !== null && e.currentTarget.contains(to as Node)) return;
+        if (to !== null) setting.current = false;
         queueMicrotask(commit);
     };
 
@@ -856,7 +870,7 @@ const FieldRow = memo(function FieldRow({
                 <Box css={styles.side} data-field-side={side}>
                     {side === "set" ? (
                         <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-field-set=""
-                            onClick={() => emit(startOf(inner, editor))}>
+                            onClick={() => { setting.current = true; emit(startOf(inner, editor)); }}>
                             {m.set()}
                         </chakra.button>
                     ) : clear}
