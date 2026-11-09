@@ -316,7 +316,7 @@ export type ScheduleReadType = typeof ScheduleReadType;
 /**
  * The fields whose edits are owned by the schedule section of an inspector.
  *
- * @property title - The field of an event's title
+ * @property title - The field of an event's title; empty for a title worked out from the row, or a kind with none
  * @property start - The field of its start
  * @property end - The field of its end
  * @property resource - The field naming its resource, if it is on one

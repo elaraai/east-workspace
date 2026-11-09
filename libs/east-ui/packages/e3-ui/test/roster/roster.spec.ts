@@ -286,7 +286,7 @@ describe("the People layout's periods, its patterns and its display props (#1406
         assert.doesNotThrow(() => payload(() => ({ views: ["people"], viewPeriods: ["month"] })));
         assert.throws(() => payload(() => ({ viewPeriods: ["month"] })), /Roster: `viewPeriods` leaves the Shifts layout no period — it takes "day" or "week"/);
         assert.throws(() => payload(() => ({ views: ["people"], viewPeriods: ["day"] })), /Roster: `viewPeriods` leaves the People layout no period — it takes "week" or "month"/);
-        assert.throws(() => payload(() => ({ viewPeriods: ["week"], view: { period: "day" } })), /Roster: it opens on "day", and `viewPeriods` leaves it out/);
+        assert.throws(() => payload(() => ({ viewPeriods: ["week"], view: { period: "day" } })), /Roster: `view\.period` is "day", and `viewPeriods` leaves it out/);
     });
 
     test("Roster.library.patterns() lists the app's patterns: refused without `patterns`, naming it; with them, a tab under their name; listed twice, refused", () => {

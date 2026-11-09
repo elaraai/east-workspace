@@ -451,7 +451,7 @@ export const Ontology = {
                 : options.defaultView;
         const views = options.views === undefined
             ? none
-            : some(viewsProp('Ontology', OntologyViewType, options.views, typeof options.defaultView === 'string' ? options.defaultView : undefined) as never);
+            : some(viewsProp('Ontology', OntologyViewType, options.views, typeof options.defaultView === 'string' ? options.defaultView : undefined, 'views', 'defaultView') as never);
         return OntologyComponent.Root({
             binding:     view.binding,
             readonly:    options.readonly    ?? none,

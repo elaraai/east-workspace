@@ -7,9 +7,10 @@
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { East, OptionType, StringType, some } from "@elaraai/east";
+import { East, OptionType, StringType, some, variant } from "@elaraai/east";
+import { Slice } from "@elaraai/east-ui";
 import { editingMessages } from "@elaraai/east-ui-components";
-import { Calendar, Record } from "@elaraai/e3-ui";
+import { Calendar, Data, Record } from "@elaraai/e3-ui";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import { act, calendarHarness, card, event, settle, slot, width } from "./harness.test-utils.js";
@@ -470,6 +471,66 @@ describe("Calendar explicit action forms", () => {
         expect(await commits(ex.calendarServices)).toEqual(["patch", ...deployed.services]);
     });
 
+});
+
+describe("an event's title worked out from its row (#1588)", () => {
+    const title = (el: HTMLElement) => el.querySelector("[data-calendar-event-title]")?.textContent;
+    const inspected = (c: HTMLElement) => slot(c, "end").querySelector("[data-inspector-title]")?.textContent;
+    /** The jobs titled by two of their fields, with the Backlog and the job templates in the library. */
+    const twoFields = { fn: East.function([], UIComponentType, _$ => Reactive.Root(East.function([], UIComponentType, $ => {
+        const machines = $.let(Record.bind(ex.calendarMachines, []));
+        const jobs = $.let(Record.bind(ex.calendarJobs, ["patch"]));
+        const templates = $.let(Data.bind(ex.calendarJobTemplates));
+        const templateIndex = $.let(Data.bindPaged(ex.calendarJobTemplates, { indexes: ["calendar_job_templates_by_group"] }));
+        const slice = $.let(Slice.bindRecords("spec.titles", { jobTemplates: { source: templateIndex, fields: { group: { label: "Job template", hints: ["Fabrication", "Machining"] } } } }));
+        return Calendar({ inspector: true, view: { date: new Date("2026-10-01T00:00:00Z") }, slice: { slice },
+            resources: { machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) },
+            library: [Calendar.library.templates(), Calendar.library.backlog()],
+            events: { job: Calendar.events(jobs, { name: "Production", icon: "industry", title: row => East.str`${row.customer} · ${row.title}`, start: "start", end: "end", resource: { field: "machine", of: "machines" },
+                backlog: { duration: row => variant("hours", row.hours), due: row => row.due },
+                templates: Calendar.templates(templates.read(), { name: row => row.name, group: row => some(row.group), duration: row => variant("hours", row.hours), values: row => row.values, source: "jobTemplates" }) }) },
+        });
+    }))) };
+
+    test("a variant's case titles each event: on its block on the Timeline, in the inspector and on the agenda's card", async () => {
+        const { container } = await h.mount(ex.calendarEventTitles);
+        expect(["b1", "b2", "b3", "b4"].map(key => title(event(container, "booking", key)))).toEqual(["Preventive", "Calibration", "Repair", "Preventive"]);
+        await press(event(container, "booking", "b3"));
+        expect(inspected(container)).toBe("Repair");
+        await width(390);
+        expect(card(container, "booking", "b3").textContent).toContain("Repair");
+    });
+
+    test("two fields title an event: on its block and in the inspector, a Backlog card and a template's new event; an edit of either retitles it", async () => {
+        const { container } = await h.mount(twoFields);
+        expect(title(event(container, "job", "job1"))).toBe("Alder Works · Mounting brackets · batch 42");
+        // A template's new event, as soon as its row exists: the template holds its title and no customer.
+        await press(within(slot(container, "start")).getByRole("button", { name: "Create" }));
+        await press(within(document.body).getByRole("dialog").querySelector<HTMLButtonElement>('[data-part="footer"] button:last-child')
+            ?? within(within(document.body).getByRole("dialog")).getByRole("button", { name: "Create" }));
+        expect([...container.querySelectorAll<HTMLElement>("[data-calendar-event][data-drafted]")].map(title)).toEqual([" · Bracket batch"]);
+        await press(within(slot(container, "start")).getByRole("tab", { name: /Backlog/ }));
+        expect([...slot(container, "start").querySelectorAll("[data-library-item]")].some(item => item.textContent?.includes("Alder Works · Torque-test fixtures"))).toBe(true);
+        await press(event(container, "job", "job1"));
+        expect(inspected(container)).toBe("Alder Works · Mounting brackets · batch 42");
+        // Both fields stay in the form, and an edit of one retitles the event at once, as a draft.
+        const input = slot(container, "end").querySelector<HTMLInputElement>('[data-field="customer"] input')!;
+        expect(slot(container, "end").querySelector('[data-field="title"] input')).not.toBeNull();
+        const user = userEvent.setup(); await user.clear(input); await user.type(input, "Elm Yard{Enter}"); await settle();
+        expect(title(event(container, "job", "job1"))).toBe("Elm Yard · Mounting brackets · batch 42");
+        expect(inspected(container)).toBe("Elm Yard · Mounting brackets · batch 42");
+        expect((await jobs()).get("job1")!.customer).toBe("Alder Works");
+    });
+});
+
+describe("the layouts and periods an app offers (#1589)", () => {
+    test("`views` the Timeline alone and `viewPeriods` two periods: the Timeline drawn, no layout switch, those two periods offered", async () => {
+        const { container } = await h.mount(ex.calendarTimelineAlone);
+        const bar = slot(container, "toolbar");
+        expect(container.querySelector("[data-calendar-timeline]")).not.toBeNull();
+        expect(bar.querySelector('[data-calendar-seg="layout"], [data-calendar-seg="compact-layout"]')).toBeNull();
+        expect(within(bar.querySelector<HTMLElement>('[data-calendar-seg="period"]')!).getAllByRole("radio").map(radio => radio.textContent)).toEqual(["Week", "Month"]);
+    });
 });
 
 describe("the conflicts example (calendarConflicts)", () => {

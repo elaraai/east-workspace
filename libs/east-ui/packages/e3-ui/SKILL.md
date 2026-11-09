@@ -361,8 +361,8 @@ launches a call from a button and shows its result;
 `<Flowchart>` and `<Schematic>` share one contract:
 
 - **Data is the app's own records.** Each builder maps roles onto the app's
-  fields (`title: "title", start: "start", resource: { field, of }`) and
-  stores nothing in a shape of its own. Editable data is
+  fields (`title: "title"` or a function of the row, `start: "start"`,
+  `resource: { field, of }`) and stores nothing of its own. Editable data is
   `Record.bind(record)` over a record declaring `mutation.patch()`.
   `Schedule.events` / `resources` / `templates` / `periods` are the shared
   vocabulary for kinds of events and resources (Plan, Calendar, Roster,

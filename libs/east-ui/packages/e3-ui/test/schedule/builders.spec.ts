@@ -266,6 +266,10 @@ export function builderTypeChecks(): void {
     Schedule.events(bins, { name: "Bin", icon: "i", at: "at", parts: { field: "m3", of: "kilns" } });
     // @ts-expect-error — `arrival` is an Option of a String field, and "bay" is a String one
     Schedule.events(bins, { name: "Bin", icon: "i", at: "at", arrival: "bay" });
+    // @ts-expect-error — `title` is a String field or a function of the row, and "unpaidBreak" is a Float field
+    Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end", title: "unpaidBreak" });
+    // @ts-expect-error — a `title` function returns a String, and this one a Float
+    Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end", title: (duty) => duty.unpaidBreak });
     // @ts-expect-error — `status.published` names a case of the status field, and "sent" is none of them
     Schedule.periods(Record.bind(weeksRecord, ["patch"]), { every: "week", status: { field: "state", draft: "open", published: "sent" } });
 }

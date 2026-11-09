@@ -492,6 +492,54 @@ export const calendarViews = example({
     }}</Reactive>),
 });
 
+/** What a machine's booking is for: a variant, so no String field of the row says it. */
+export const CalendarBookingKind = VariantType({ preventive: NullType, calibration: NullType, repair: NullType });
+/** A machine's booking: which machine and what for. */
+export const CalendarBooking = StructType({ machine: StringType, kind: CalendarBookingKind, start: DateTimeType, end: DateTimeType });
+export const calendarBookings = e3.record("calendar_bookings", DictType(StringType, CalendarBooking), {
+    initial: new Map([
+        ["b1", { machine: "press1", kind: variant("preventive", null), start: new Date("2026-09-29T08:00:00Z"), end: new Date("2026-09-29T12:00:00Z") }],
+        ["b2", { machine: "lathe1", kind: variant("calibration", null), start: new Date("2026-10-01T09:00:00Z"), end: new Date("2026-10-01T11:00:00Z") }],
+        ["b3", { machine: "press2", kind: variant("repair", null), start: new Date("2026-10-01T13:00:00Z"), end: new Date("2026-10-01T17:00:00Z") }],
+        ["b4", { machine: "lathe2", kind: variant("preventive", null), start: new Date("2026-10-02T07:00:00Z"), end: new Date("2026-10-02T10:00:00Z") }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+export const calendarEventTitles = example({
+    inputs: [],
+    description: "Events titled by what they are, where no String field of the row says it: a machine's bookings hold their kind as a variant, so `title` is a function of the row, a word per case. Its value is the event's title wherever one is drawn or read: the grids, the Timeline, the agenda, the inspector and a search. The title is a String field's name everywhere else.",
+    keywords: ["Calendar", "Calendar.events", "Schedule.events", "title", "function of the row", "accessor", "variant", "match", "status", "Timeline", "Record.bind"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const machines = $.let(Record.bind(calendarMachines, []));
+        const bookings = $.let(Record.bind(calendarBookings));
+        return <Box height="560px"><Calendar id="bookings" inspector view={{ layout: "timeline", period: "week", date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
+            resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}
+            events={{ booking: Calendar.events(bookings, { name: "Maintenance", icon: "screwdriver-wrench",
+                title: row => row.kind.match({ preventive: () => "Preventive", calibration: () => "Calibration", repair: () => "Repair" }),
+                start: "start", end: "end", resource: { field: "machine", of: "machines" },
+                status: { field: "kind", cases: { preventive: { label: "Preventive", tone: variant("info", null), ring: false }, calibration: { label: "Calibration", tone: variant("neutral", null), ring: false }, repair: { label: "Repair", tone: variant("success", null), ring: false } } },
+            }) }} />
+        </Box>;
+    }}</Reactive>),
+});
+
+export const calendarTimelineAlone = example({
+    inputs: [],
+    description: "A Calendar offering the Timeline alone, over two of its periods: `views` lists the layouts it offers and `viewPeriods` the periods, by the names `view.layout` and `view.period` take. One layout listed, no layout switch shows, and events laid out by resource never pile into a day's cell. A `view` outside either list is refused as the page is built, naming both.",
+    keywords: ["Calendar", "views", "viewPeriods", "Timeline", "layout", "period", "view", "resources", "no switch", "Record.bind"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const machines = $.let(Record.bind(calendarMachines, []));
+        const jobs = $.let(Record.bind(calendarJobs));
+        return <Box height="560px"><Calendar id="timelineAlone" views={["timeline"]} viewPeriods={["week", "month"]} view={{ layout: "timeline", period: "week", date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
+            resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}
+            events={{ job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" } }) }} />
+        </Box>;
+    }}</Reactive>),
+});
+
 export const calendarWindowed = example({
     inputs: [],
     description: "The jobs calendar read by its day and backlog indexes, with by-key reads for the inspector and checked saves. The calendar's own navigation picks the days read. Counts describe the loaded window. The same mobile agenda and explicit actions work over the paged record.",

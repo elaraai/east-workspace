@@ -117,8 +117,8 @@ export function scheduleCheck(
 
 /**
  * The check a builder that draws each event's title makes (#1367): every
- * event kind names its `title`, which `Schedule.events` takes as optional for
- * the builders that draw none.
+ * event kind gives its `title`, a String field of its row or a function of
+ * it, which `Schedule.events` takes as optional for the builders that draw none.
  *
  * @param events - The builder's event kinds, by slot
  * @param builder - The builder, for the refusal (`Calendar`, `Plan`)
@@ -126,8 +126,8 @@ export function scheduleCheck(
  */
 export function scheduleTitled(events: Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>, builder: string): void {
     for (const [slot, kind] of Object.entries(events)) {
-        if (kind.title === undefined) {
-            throw new Error(`${builder}: events.${slot} has no title — the ${builder} draws each event's title: give the kind a \`title\`, a String field of its row`);
+        if (!kind.titled) {
+            throw new Error(`${builder}: events.${slot} has no title — the ${builder} draws each event's title: give the kind a \`title\`, a String field of its row or a function of it`);
         }
     }
 }

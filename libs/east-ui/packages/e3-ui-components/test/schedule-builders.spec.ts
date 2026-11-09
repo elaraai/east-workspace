@@ -379,20 +379,74 @@ describe("Schedule.events — the Allocation's roles (buildAllocation)", () => {
 });
 
 // ============================================================================
-// An optional title (B3)
+// An event's title: optional (B3), a field or a function of its row (#1588)
 // ============================================================================
 
-describe("Schedule.events — `title` is optional (B3)", () => {
+describe("Schedule.events — `title`, optional (B3), a field of the row or a function of it (#1588)", () => {
+    /** A kind with no title. */
+    const untitled = East.function([], Schedule.Types.Kind, ($) => {
+        const duties = $.let(Record.bind(sx.schedulePlainDuties, ["patch"]));
+        return Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end" }).build("duty");
+    });
+    /** A kind built over e3, as a UI task's preview builds it. */
+    async function built(program: typeof untitled): Promise<Kind> {
+        const { platform } = await h.platform(program);
+        return East.compile(program, platform)();
+    }
+    /** Each event of a kind overlapping [from, to), by its key and its title, as every view reads it. */
+    async function titles(program: typeof untitled, from: string, to: string): Promise<(readonly [string, string])[]> {
+        const items = (await built(program)).items(at(from), at(to), new SortedMap([], byString), none);
+        if (items.type !== "some") assert.fail("expected the items");
+        return items.value.map((i) => [i.key, i.title] as const);
+    }
+    const MARCH_8 = ["2027-03-08T00:00:00Z", "2027-03-09T00:00:00Z"] as const;
+
     test("a kind with no title builds, its events titled with nothing", async () => {
+        assert.deepEqual(await titles(untitled, ...MARCH_8), [["p1", ""]]);
+    });
+
+    test("a title from a variant's case: a function of the row, worked out for each event", async () => {
+        const program = East.function([], Schedule.Types.Kind, ($) => {
+            const shifts = $.let(Record.bind(sx.scheduleShifts, ["patch"]));
+            return Schedule.events(shifts, {
+                name: "Shift", icon: "i", start: "start", end: "end",
+                title: (shift) => shift.status.match({ tentative: () => "To confirm", confirmed: () => "Confirmed", in_progress: () => "Running", done: () => "Finished" }),
+            }).build("shift");
+        });
+        assert.deepEqual(await titles(program, "2026-10-01T00:00:00Z", "2026-10-02T00:00:00Z"), [["s1", "Confirmed"], ["s2", "To confirm"]]);
+    });
+
+    test("a title from two fields, the row's key beside them", async () => {
         const program = East.function([], Schedule.Types.Kind, ($) => {
             const duties = $.let(Record.bind(sx.schedulePlainDuties, ["patch"]));
-            return Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end" }).build("duty");
+            return Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end", title: (duty, key) => East.str`${key}: ${duty.team} · ${duty.shift}` }).build("duty");
         });
-        const { platform } = await h.platform(program);
-        const kind: Kind = East.compile(program, platform)();
-        const items = kind.items(at("2027-03-08T00:00:00Z"), at("2027-03-09T00:00:00Z"), new SortedMap([], byString), none);
-        if (items.type !== "some") assert.fail("expected the items");
-        assert.deepEqual(items.value.map((i) => [i.key, i.title]), [["p1", ""]]);
+        assert.deepEqual(await titles(program, ...MARCH_8), [["p1", "p1: inbound · early"]]);
+    });
+
+    test("a function names no field: every field it reads stays in the form, and the inspector holds none as the title's", async () => {
+        const program = East.function([], Schedule.Types.Kind, ($) => {
+            const duties = $.let(Record.bind(sx.schedulePlainDuties, ["patch"]));
+            return Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end", title: (duty) => duty.shift }).build("duty");
+        });
+        const kind = await built(program);
+        assert.deepEqual(kind.fields.map((f) => f.path.join(".")), ["person", "shift", "team"]);
+        assert.equal(kind.schedule.title, "");
+        // A field is the form's no longer, and the inspector's title.
+        const named = East.function([], Schedule.Types.Kind, ($) => {
+            const duties = $.let(Record.bind(sx.schedulePlainDuties, ["patch"]));
+            return Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end", title: "shift" }).build("duty");
+        });
+        const fielded = await built(named);
+        assert.deepEqual(fielded.fields.map((f) => f.path.join(".")), ["person", "team"]);
+        assert.equal(fielded.schedule.title, "shift");
+    });
+
+    test("a function returning another type is refused at build, naming what it returns", () => {
+        assert.throws(() => East.function([], Schedule.Types.Kind, ($) => {
+            const duties = $.let(Record.bind(sx.schedulePlainDuties, ["patch"]));
+            return Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end", title: ((duty: { start: unknown }) => duty.start) as never }).build("duty");
+        }), /Schedule\.events: "Duty": `title` returns a String, the event's title — and this one returns \.DateTime/);
     });
 });
 

@@ -11,7 +11,7 @@
  * Field names say what a gesture writes (`title`, `start`, `end`, `resource`,
  * `status`), so a move, a resize or a drop writes the app's own fields; an
  * accessor `(row, key) => …` gives what is not a field (a backlog row's
- * duration and due date). Every name is checked against the record's row type
+ * duration and due date, a title no String field holds). Every name is checked against the record's row type
  * at compile time, and again at build, naming itself.
  *
  * Plan's options sit beside the Calendar's (#1190, `Plan Builder Spec.md`
@@ -28,8 +28,9 @@
  * and the Allocation's — the fields a bin's arrival, parts, hold and kind are
  * (`arrival`, `parts`, `hold`, `kind`). A kind is one builder's or the
  * other's. A builder ignores the roles it has no use for, so one record of
- * duties drives a Calendar and the Roster at once. `title` is optional: the
- * Calendar and Plan, which draw it, refuse a kind without one.
+ * duties drives a Calendar and the Roster at once. `title`, a String field or
+ * a function of the row, is optional: the Calendar and Plan, which draw it,
+ * refuse a kind without one.
  *
  * The kind closes the record behind East functions over beast2 bytes
  * ({@link ScheduleKindType}): its events over a window and its backlog, each
@@ -324,10 +325,12 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
     /** Its Font Awesome icon. */
     icon: string;
     /**
-     * The String field an event's title is: drawn on its block, edited in the inspector. The Calendar and Plan, which
-     * draw it, require it; the Roster and the Allocation draw a duty and a bin by their roles, and take no notice of it.
+     * An event's title, wherever one is drawn or read: the String field it is, edited in the inspector, or a function of
+     * the row returning a String, for a row where no String field says what the event is (one holding its kind as a
+     * variant) — the fields it reads are edited as any others. The Calendar and Plan, which draw it, require it; the
+     * Roster and the Allocation draw a duty and a bin by their roles, and take no notice of it.
      */
-    title?: ScheduleStringField<R>;
+    title?: ScheduleStringField<R> | ((row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<StringType>);
     /** The resource an event is on: a key field of one kind (`of: "people"`), or a variant field with a kind per case. Omitted, no resource. */
     resource?: { field: F; of: ScheduleResourceOf<R["fields"][F]> };
     /** A variant field shown as the event's status, a Status per case. On a Plan, a warning tone rings the element. */
@@ -486,8 +489,8 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
     readonly name: string;
     /** Its Font Awesome icon: what each of its elements on a Plan wears (#1192). */
     readonly icon: string;
-    /** The String field its events' titles are; `undefined` for a kind with none, which the Calendar and Plan refuse (#1367). */
-    readonly title: string | undefined;
+    /** Whether its events have titles, of a field or a function of the row; a kind with none the Calendar and Plan refuse (#1367). */
+    readonly titled: boolean;
     /** The resource kinds its events may be on, by slot name: `resource.of`'s. */
     readonly takes: readonly string[];
     /** Plan: how it draws — bars, tiles, chips or marks; a resource draws a row for each way its kinds draw (#1192). */
@@ -605,7 +608,7 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
 interface AnyConfig {
     name: string;
     icon: string;
-    title?: string;
+    title?: string | ((row: ExprType<EastType>, key: ExprType<EastType>) => SubtypeExprOrValue<StringType>);
     start?: string;
     end?: string;
     at?: string;
@@ -681,7 +684,7 @@ function heldKind<T extends EastType>(build: (once: Once) => ExprType<T>): ExprT
  * @param config - The kind's options: its name and icon, the fields a gesture writes, its status, backlog, form, templates, check and windows, and Plan's
  * @returns The kind, for a builder's `events`
  * @throws {Error} Naming the option: a record that is not a `Dict` of structs or is not bound with its patch mutation; a
- *   `title` that is not a String field; a `start` or `end` that is not a DateTime field or an Option of one, or one of each;
+ *   `title` that is not a String field or a function of the row returning a String; a `start` or `end` that is not a DateTime field or an Option of one, or one of each;
  *   an `at` that is not a DateTime field, or given with `start` and `end`; a `resource` field that holds no resource key, an
  *   `of` that is not a slot name for a key field, or whose cases are not the variant's; a `status` that is not a variant;
  *   `backlog` without Option times; a template key repeated, a span kind's template without a duration, or values of
@@ -787,7 +790,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     };
 
     // The title: optional, as the Roster and the Allocation draw none (#1367); the Calendar and Plan refuse a kind without one.
-    const titleField = config.title;
+    // A function of the row is reified once and called per row, as the kind's other accessors are; a field names itself.
+    const titleOf = typeof config.title === "function" ? scheduleAccessor(rowType, keyType, StringType, config.title,
+        (returns) => `${where}: \`title\` returns a String, the event's title — and this one returns ${returns}`) : undefined;
+    const titleField = typeof config.title === "function" ? undefined : config.title;
     if (titleField !== undefined && !isTypeEqual(fieldType("title", titleField), StringType)) {
         throw new Error(`${where}: \`title\` names a String field — "${titleField}" holds ${typeText(fields[titleField]!)}`);
     }
@@ -1589,11 +1595,15 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 const dueFn = $.const(dueOf);
                 return dueFn(row, entry.key);
             })();
+            // Its title: worked out from the row, or its field's. A kind with no title titles its events with nothing (#1367): the Calendar and Plan refuse one.
+            const title = titleOf === undefined ? (titleField === undefined ? "" : fieldOf(row, titleField) as ExprType<StringType>) : (() => {
+                const titleFn = $.const(titleOf);
+                return titleFn(row, entry.key);
+            })();
             return East.value({
                 kind: slot,
                 key: entry.id,
-                // A kind with no title titles its events with nothing (#1367): the Calendar and Plan refuse one.
-                title: titleField === undefined ? "" : fieldOf(row, titleField) as ExprType<StringType>,
+                title,
                 start,
                 end,
                 resource: ref(row),
@@ -1708,7 +1718,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             entries: entriesSeam,
             history: session.history,
             event: seams.event,
-            // A kind with no title names none: the Calendar and Plan, whose inspectors draw it, refuse one.
+            // A title worked out from the row names no field, its fields being the form's; nor does a kind with no title, which the
+            // Calendar and Plan, whose inspectors draw one, refuse.
             schedule: { title: titleField ?? "", start: startField, end: endField,
                 resource: resource === undefined ? none : some(resource.field),
                 status: config.status === undefined ? none : some(config.status.field),
@@ -1785,7 +1796,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         rowType,
         name: config.name,
         icon: config.icon,
-        title: titleField,
+        titled: config.title !== undefined,
         takes,
         draw: draw as PlanDrawLiteral,
         templatesSource,

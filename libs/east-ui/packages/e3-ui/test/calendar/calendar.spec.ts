@@ -15,7 +15,7 @@ import * as ex from "./calendar.examples.js";
 describeEast("Calendar — bound examples", test => {
     Assert.examples(test, { calendarMinimal: ex.calendarMinimal, calendarViews: ex.calendarViews, calendarOperations: ex.calendarOperations, calendarWording: ex.calendarWording,
         calendarMobile: ex.calendarMobile, calendarReadOnly: ex.calendarReadOnly, calendarWindowed: ex.calendarWindowed, calendarQuickstart: ex.calendarQuickstart, calendarCustomInspector: ex.calendarCustomInspector,
-        calendarConflicts: ex.calendarConflicts });
+        calendarConflicts: ex.calendarConflicts, calendarEventTitles: ex.calendarEventTitles, calendarTimelineAlone: ex.calendarTimelineAlone });
 }, { platformFns: TestImpl });
 
 // What the payload and its kinds read of e3 — the machines, the jobs and their templates, a window, the backlog, an
@@ -72,6 +72,25 @@ function build(props: (sources: { jobs: unknown; machines: unknown; templates: u
         } as never);
     });
 }
+
+describe("the layouts and periods a Calendar offers (#1589)", () => {
+    /** A payload over the jobs, with these props beside its kind, built (not run). */
+    const offered = (props: object) => East.function([], CalendarPayloadType, $ => {
+        const jobs = $.let(Record.bind(ex.calendarJobs));
+        return createCalendarPayload({ events: { job: Calendar.events(jobs, { name: "Jobs", icon: "industry", title: "title", start: "start", end: "end" }) }, ...props } as never);
+    });
+
+    test("a `view.layout` outside `views` or a `view.period` outside `viewPeriods` is refused as it builds, naming both", () => {
+        assert.throws(() => offered({ views: ["timeline"], view: { layout: "calendar" } }),
+            /^Error: Calendar: `view\.layout` is "calendar", and `views` leaves it out — list it, or open on one of "timeline"$/);
+        assert.throws(() => offered({ viewPeriods: ["week", "month"], view: { period: "day" } }),
+            /^Error: Calendar: `view\.period` is "day", and `viewPeriods` leaves it out — list it, or open on one of "week", "month"$/);
+    });
+
+    test("a `view` both lists hold builds", () => {
+        assert.doesNotThrow(() => offered({ views: ["timeline"], viewPeriods: ["week", "month"], view: { layout: "timeline", period: "week" } }));
+    });
+});
 
 describe("Calendar's narrowing is one Slice.bindRecords (#1343)", () => {
     test("a source per event kind, resource kind and templates record builds, each kind narrowed through its own", () => {
