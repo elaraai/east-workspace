@@ -402,24 +402,37 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
     useLayoutEffect(() => { latest.current = { holding, selection, context }; });
     const record = editing.record;
     // Every gesture's one way into the history, a drop's too: every row whose kind builds its key from it following its
-    // fields (#1549); a refusal said in the footer; and what is selected following a row the gesture moves.
-    const commit = useCallback((made: GestureEdits, origin: Origin, label: string): GestureEdits | undefined => {
+    // fields (#1549); a refusal said in the footer, its words handed back; and what is selected following a row the
+    // gesture moves.
+    const recordGesture = useCallback((made: GestureEdits, origin: Origin, label: string):
+        { readonly done: GestureEdits } | { readonly said: string } | undefined => {
         const { holding: now, selection: picked } = latest.current;
         const followed = followBuiltKeys(now, made);
         if (followed.refused !== undefined) {
-            setNotice(m.gestureRefused(refusalWord(followed.refused, now)));
-            return undefined;
+            const said = m.gestureRefused(refusalWord(followed.refused, now));
+            setNotice(said);
+            return { said };
         }
         if (followed.edits.length > 0 && !record(followed.edits, origin, label)) return undefined;
         setNotice(undefined);
         const follows = followMoves(picked, followed.moved);
         if (follows !== undefined) setSelected(follows);
-        return followed;
+        return { done: followed };
     }, [record, m]);
+    const commit = useCallback((made: GestureEdits, origin: Origin, label: string): GestureEdits | undefined => {
+        const got = recordGesture(made, origin, label);
+        return got === undefined || "said" in got ? undefined : got.done;
+    }, [recordGesture]);
     const act = useCallback((gesture: FlowchartGesture, build: (holding: FlowchartHolding) => GestureEdits | undefined): GestureEdits | undefined => {
         const made = build(latest.current.holding);
         return made === undefined ? undefined : commit(made, EDIT_ORIGIN[gesture], m.editLabel({ gesture }));
     }, [commit, m]);
+    // A form's edit in the inspector, as every gesture's: refused, why, which Details says under the field too.
+    const edit = useCallback((gesture: FlowchartGesture, build: (holding: FlowchartHolding) => GestureEdits | undefined): boolean | string => {
+        const made = build(latest.current.holding);
+        const got = made === undefined ? undefined : recordGesture(made, EDIT_ORIGIN[gesture], m.editLabel({ gesture }));
+        return got === undefined ? false : "said" in got ? got.said : true;
+    }, [recordGesture, m]);
     const edits = editing.edits;
     const editable = editing.editable;
     const untyped = editing.untyped;
@@ -621,7 +634,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
     const saves = useLastSaves(value, words);
     const start = useFlowchartLibrary({ value, keys, words, enter: drop.enter, followed, narrow, off: keysOff });
     const end = flowchartInspectorPane({
-        value, model, rows: drafted.rows, held: data.held, selection, editing, act, refuse: setNotice, reveal: revealSelection,
+        value, model, rows: drafted.rows, held: data.held, selection, editing, act, edit, refuse: setNotice, reveal: revealSelection,
         issues, picks, goToWaiting, saves, details: detailsModel, storageKey: keys.frame, words,
     });
 

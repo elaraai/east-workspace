@@ -57,10 +57,14 @@
  * bound read only, or the Flowchart `readOnly` (R13) — Details prints every
  * field and edits none, an own Details giving way to the form; while a record
  * takes no edit — a Save in flight, or what the canvas draws standing in while
- * a new narrowing is read — its controls are off. A key typed that a row of
- * the Flowchart stands under already, or one left empty, is refused, the footer
- * saying why, and the field shows the key it has; a key whose row a draft
- * deletes is free (#1581).
+ * a new narrowing is read — its controls are off. A field's edit refused leaves
+ * the field showing what its row holds: one the Flowchart says why of — a key
+ * typed that a row stands under already, or left empty; a key its fields build
+ * that another row holds; a row that would move while what may name it isn't
+ * held — says so under the field, as the footer does, the keyboard where the
+ * edit left it (`FieldForm`'s refusal); one refused with nothing to say — its
+ * kind's own `set` or `write` refusing it — draws its form again. A key whose
+ * row a draft deletes is free (#1581).
  *
  * Details keeps the keyboard (#1398): a control that goes with the view it
  * belongs to — Delete, which leaves nothing selected; Duplicate and a
@@ -172,6 +176,15 @@ export interface FlowchartInspectorProps {
      * @returns The edits recorded; `undefined` where nothing was
      */
     readonly act: (gesture: FlowchartGesture, edits: (holding: FlowchartHolding) => GestureEdits | undefined) => GestureEdits | undefined;
+    /**
+     * Records a form's edit as one step, as `act` does a gesture's: refused, why — the footer's words, which the form says
+     * under its field too.
+     *
+     * @param gesture - The gesture
+     * @param edits - Its edits, over what it reads; `undefined` where it makes none
+     * @returns `true` once recorded; refused, why — or `false` where nothing says
+     */
+    readonly edit: (gesture: FlowchartGesture, edits: (holding: FlowchartHolding) => GestureEdits | undefined) => boolean | string;
     /** Says why an edit was refused, in the footer. */
     readonly refuse: (words: string) => void;
     /** Selects something, or nothing — a transition in a state's Details, an issue's row — bringing it into view unless `scroll` is `false`. */
@@ -376,7 +389,7 @@ function KeyForm({ styles, keyField, draft, keyed, refused, baseline, writes, wo
     );
 }
 
-/** A remount counter for a form whose edit was refused: its inputs show what the row holds again. */
+/** A remount counter for a form whose edit was refused with nothing to say: its inputs show what the row holds again. */
 function useRefused(): [number, () => void] {
     const [refused, setRefused] = useState(0);
     const bump = useCallback(() => setRefused((n) => n + 1), []);
@@ -495,18 +508,22 @@ function useRowState(editing: FlowchartEditing, sort: FlowchartSort, kind: AnyKi
  * @returns The kind, whether it writes and takes an edit now, the row's state, the form's edit, and the own Details
  */
 function useSide(props: ViewProps, sort: FlowchartSort, key: string, what: string) {
-    const { value, editing, held, act } = props;
+    const { value, editing, held, act, edit } = props;
     const kind = kindOf(value, sort);
     const writes = kind !== undefined && editing.editable(sort);
     const available = writes && editing.available(sort);
     const rows: ReadonlyMap<string, { readonly row: Uint8Array }> | undefined = held[sort];
     const state = useRowState(editing, sort, kind, key, rows?.get(key)?.row);
     const [refused, bump] = useRefused();
-    const onField = useCallback((path: readonly string[], next: unknown) => {
-        if (kind === undefined) return;
+    // A field's edit refused shows what the row holds again: saying why under the field, or with nothing to say, the
+    // form drawn again.
+    const onField = useCallback((path: readonly string[], next: unknown): string | undefined => {
+        if (kind === undefined) return undefined;
         const write = fieldWrite(kind.fields, kind.rowType, path, next);
-        if (write === undefined || act("form", (holding) => setFields(holding, sort, key, [write])) === undefined) bump();
-    }, [kind, sort, key, act, bump]);
+        const done = write === undefined ? false : edit("form", (holding) => setFields(holding, sort, key, [write]));
+        if (done === false) bump();
+        return done === true || done === false ? undefined : done;
+    }, [kind, sort, key, edit, bump]);
     const update = useCallback((edited: Uint8Array): null => {
         if (writes) act("details", (holding) => setRow(holding, sort, key, edited));
         return null;
@@ -683,39 +700,43 @@ function detailsView(view: ViewProps): ReactNode {
 }
 
 /**
- * A key typed for a new row (R9): refused — the footer saying why, the field
- * showing the key it has — when it is empty or a row of the Flowchart stands
- * under it already; else the row under it, the rows naming it following, and
- * the selection with it. A key whose row a draft deletes is free (#1581).
+ * A key typed for a new row (R9): refused — the field showing the key it has,
+ * saying why under it as the footer does — when it is empty or a row of the
+ * Flowchart stands under it already; else the row under it, the rows naming it
+ * following, and the selection with it. A key whose row a draft deletes is free
+ * (#1581).
  *
  * @param props - The view's props
  * @param sort - The row's kind: a state's or a lane's
  * @param from - Its key
  * @param typed - The key typed
  * @param bump - Draws the form again, showing the key it has
+ * @returns Why it was refused, where the Flowchart says: what the form says under the field
  */
-function typedKey(props: RowViewProps, sort: "states" | "lanes", from: string, typed: string, bump: () => void): void {
-    const { value, editing, act, refuse, reveal, words } = props;
+function typedKey(props: RowViewProps, sort: "states" | "lanes", from: string, typed: string, bump: () => void): string | undefined {
+    const { value, editing, edit, refuse, reveal, words } = props;
     const to = typed.trim();
     if (stringEqual(to, from)) {
         bump();
-        return;
+        return undefined;
     }
     const why = to.length === 0 ? "empty" as const : editing.stands(sort, to) ? "taken" as const : undefined;
     if (why !== undefined) {
-        refuse(words.m.inspectorKeyRefused({ name: kindName(value, sort).toLocaleLowerCase(words.locale), key: to, why }));
-        bump();
-        return;
+        const said = words.m.inspectorKeyRefused({ name: kindName(value, sort).toLocaleLowerCase(words.locale), key: to, why });
+        refuse(said);
+        return said;
     }
-    if (act("rekey", (holding) => rekey(holding, sort, from, to)) === undefined) bump();
-    else reveal(sort === "states" ? { kind: "state", key: to } : { kind: "lane", key: to }, false);
+    const done = edit("rekey", (holding) => rekey(holding, sort, from, to));
+    if (done === true) reveal(sort === "states" ? { kind: "state", key: to } : { kind: "lane", key: to }, false);
+    else if (done === false) bump();
+    return done === true || done === false ? undefined : done;
 }
 
 // ── A state ─────────────────────────────────────────────────────────────────
 
 /** A state: its head, its roles and its kind's form — or own Details — Duplicate and Delete, and its transitions. */
 function StateView(props: RowViewProps) {
-    const { at, styles, words, value, model, rows, held, editing, act, reveal, storageKey } = props;
+    const { at, styles, words, value, model, rows, held, editing, act, edit, reveal, storageKey } = props;
     const m = words.m;
     const side = useSide(props, "states", at, value.states.name);
     const { created } = side.state;
@@ -734,11 +755,12 @@ function StateView(props: RowViewProps) {
     const stored = held.states.get(at)?.roles;
     const { bump, refused } = side;
     const draft = useKeyDraft(keys, at, useCallback((typed: string) => typedKey(props, "states", at, typed, bump), [props, at, bump]));
-    const onRole = useCallback((path: readonly string[], next: unknown) => {
-        if (stringEqual(path[0]!, "label")) {
-            if (act("renameState", (holding) => renameState(holding, at, next as string)) === undefined) bump();
-        } else if (act("moveStates", (holding) => moveStates(holding, [at], next as string)) === undefined) bump();
-    }, [at, act, bump]);
+    const onRole = useCallback((path: readonly string[], next: unknown): string | undefined => {
+        const done = stringEqual(path[0]!, "label") ? edit("renameState", (holding) => renameState(holding, at, next as string))
+            : edit("moveStates", (holding) => moveStates(holding, [at], next as string));
+        if (done === false) bump();
+        return done === true || done === false ? undefined : done;
+    }, [at, edit, bump]);
     if (roles === undefined) return null;
     const transitions = stateGroups(props, at);
     // Off where the states' keys can't be typed and their kind builds none: no copy has a key (#1549).
@@ -810,7 +832,7 @@ function GhostView(props: RowViewProps) {
 
 /** A transition: its head, its ends and its decision, its kind's form — or own Details — Delete, and its evidence. */
 function LinkView(props: RowViewProps) {
-    const { at, styles, words, value, model, rows, held, act, reveal, storageKey } = props;
+    const { at, styles, words, value, model, rows, held, act, edit, reveal, storageKey } = props;
     const m = words.m;
     const name = kindName(value, "transitions");
     const side = useSide(props, "transitions", at, name);
@@ -830,13 +852,15 @@ function LinkView(props: RowViewProps) {
             .map((trigger): FieldOption => ({ key: trigger.key, label: trigger.label.length === 0 ? trigger.key : trigger.label }))),
     }), [model, rows.keys, m]);
     const { bump, refused } = side;
-    const onRole = useCallback((path: readonly string[], next: unknown) => {
+    const onRole = useCallback((path: readonly string[], next: unknown): string | undefined => {
         const field = path[0]!;
         const write = stringEqual(field, "from") ? { from: some(next as string), to: none, decision: none }
             : stringEqual(field, "to") ? { from: none, to: some(next as string), decision: none }
                 : { from: none, to: none, decision: some(next as option<string>) };
-        if (act("editLink", (holding) => editLink(holding, at, write)) === undefined) bump();
-    }, [at, act, bump]);
+        const done = edit("editLink", (holding) => editLink(holding, at, write));
+        if (done === false) bump();
+        return done === true || done === false ? undefined : done;
+    }, [at, edit, bump]);
     const transition = transitionAt(rows, at);
     if (transition === undefined) return null;
     const roles = transition.roles;
@@ -939,7 +963,7 @@ function DecisionView(props: RowViewProps) {
 
 /** A lane: its head, its key and its label, its kind's form — or own Details — how many states it holds, and Delete. */
 function LaneView(props: RowViewProps) {
-    const { at, styles, words, value, model, rows, held, editing, act, reveal, storageKey } = props;
+    const { at, styles, words, value, model, rows, held, editing, act, edit, reveal, storageKey } = props;
     const m = words.m;
     const name = kindName(value, "lanes");
     const side = useSide(props, "lanes", at, name);
@@ -952,9 +976,11 @@ function LaneView(props: RowViewProps) {
     }), [m]);
     const { bump, refused } = side;
     const draft = useKeyDraft(keys, at, useCallback((typed: string) => typedKey(props, "lanes", at, typed, bump), [props, at, bump]));
-    const onRole = useCallback((_path: readonly string[], next: unknown) => {
-        if (act("renameLane", (holding) => renameLane(holding, at, next as string)) === undefined) bump();
-    }, [at, act, bump]);
+    const onRole = useCallback((_path: readonly string[], next: unknown): string | undefined => {
+        const done = edit("renameLane", (holding) => renameLane(holding, at, next as string));
+        if (done === false) bump();
+        return done === true || done === false ? undefined : done;
+    }, [at, edit, bump]);
     const lane = rows.lanes?.find((row) => stringEqual(row.key, at));
     if (lane === undefined) return null;
     const stored = held.lanes?.get(at)?.roles;
@@ -992,7 +1018,7 @@ function LaneView(props: RowViewProps) {
 
 /** Several states: how many; the lane every one moves to; and Delete. */
 function SeveralView(props: ViewProps & { readonly picked: readonly string[] }) {
-    const { picked, styles, words, value, model, editing, act, reveal } = props;
+    const { picked, styles, words, value, model, editing, act, edit, reveal } = props;
     const m = words.m;
     const lanes = getSomeorUndefined(value.lanes);
     const writes = editing.editable("states");
@@ -1004,9 +1030,11 @@ function SeveralView(props: ViewProps & { readonly picked: readonly string[] }) 
         lanes: inKeyOrder(keys, model.lanes.filter((lane) => lane.band === "lane").map((lane): FieldOption => ({ key: lane.key, label: lane.label }))),
     }), [model.lanes, keys]);
     const [refused, bump] = useRefused();
-    const onChange = useCallback((_path: readonly string[], next: unknown) => {
-        if (act("moveStates", (holding) => moveStates(holding, picked, next as string)) === undefined) bump();
-    }, [act, picked, bump]);
+    const onChange = useCallback((_path: readonly string[], next: unknown): string | undefined => {
+        const done = edit("moveStates", (holding) => moveStates(holding, picked, next as string));
+        if (done === false) bump();
+        return done === true || done === false ? undefined : done;
+    }, [edit, picked, bump]);
     // The lane they share, when they do.
     const held = picked.map((key) => model.nodesByKey.get(key)?.lane);
     const first = held[0];

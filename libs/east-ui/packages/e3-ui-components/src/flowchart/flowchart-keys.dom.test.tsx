@@ -718,3 +718,28 @@ describe("a key of several parts, and a key stored apart from its fields (#1581)
             .toBe(printFor(fx.placedSteps.type)(withRows(steps, compareFor(fx.StepPlace), [[{ station: 2n, name: "Fold" }, { name: "Fold", station: 2n }]])));
     });
 });
+
+// ============================================================================
+// An edit in Details a key refuses (#1585)
+// ============================================================================
+
+describe("an edit in Details a key refuses goes back to what the row holds, saying why under its field as the footer does (#1585)", () => {
+    test("keyed by station and name, Mix renamed Weigh in Details — a step the bench holds — is refused, naming it: its label shows Mix again, and nothing is recorded", async () => {
+        const place = printFor(fx.StepPlace);
+        const c = await open(($) => {
+            const stepsBound = $.let(Record.bind(fx.placedSteps));
+            const stationsBound = $.let(Data.bind(fx.keyedStations));
+            return {
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station", key: (step) => ({ station: step.station, name: step.name }) }),
+                lanes: Flowchart.lanes(stationsBound, { label: "label" }),
+            };
+        }, place({ station: 2n, name: "Weigh" }));
+        await gesture(() => { fireEvent.click(node(c, place({ station: 2n, name: "Mix" }))!); });
+        await retypeText(c, "label", "Weigh");
+        const said = m.gestureRefused({ refusal: "taken", sort: "states", name: "Weigh" });
+        expect(said).toBe("A state Weigh is there already");
+        const label = field(c, "label");
+        expect([within(label).getByRole<HTMLInputElement>("textbox").value, label.querySelector("[data-scope=field][data-part=error-text]")?.textContent, footer(c), pending(c)])
+            .toEqual(["Mix", said, said, pendingText(0)]);
+    });
+});

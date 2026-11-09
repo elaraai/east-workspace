@@ -401,6 +401,18 @@ describe("Details: a state (R16, R9)", () => {
         expect(editors(c, "roles")[0]).toBe("key:readonly");
     });
 
+    test("a new state's key refused — held by another, or left empty — shows the key it has, saying why under its field as the footer does (#1585)", async () => {
+        const c = await open(ex.flowchartDepotEditing);
+        await click(node(c, "CH*")!);
+        await click(action(c, "duplicate")!);
+        const said = (key: string, why: "empty" | "taken") => m.inspectorKeyRefused({ name: "state", key, why });
+        const under = () => field(c, "key").querySelector("[data-scope=field][data-part=error-text]")?.textContent ?? null;
+        await retype(c, "key", "SRD");
+        expect([box(c, "key").value, under(), footerMessage(c)]).toEqual(["CH*-2", said("SRD", "taken"), said("SRD", "taken")]);
+        await retype(c, "key", "");
+        expect([box(c, "key").value, under(), footerMessage(c)]).toEqual(["CH*-2", said("", "empty"), said("", "empty")]);
+    });
+
     test("Delete takes it with every transition naming it, and selects nothing", async () => {
         const c = await open(ex.flowchartDepotEditing);
         await click(node(c, "CH*")!);
