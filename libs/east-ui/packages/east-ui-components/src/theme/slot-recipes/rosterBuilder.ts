@@ -330,9 +330,11 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         // staff's, the agencies' requests' on top in the teal's tint, solid, a dash being too small to read in a cup. What
         // a short day lacks is open above them on the warning's 6% wash, its edge — the cup's top and sides along it —
         // dashed in the warning's colour, drawn inside it and clipped to it, so a sliver of a gap never draws its dashes
-        // over the fill; an off mark, with no target, is an empty cup. Its difference whole or not at all, never cut, in
-        // each part's ink where that part is under it: its box spans the cup's height, so the ink's levels are the parts'.
-        // A lane's is a button that selects its slot, ringed over its parts while selected.
+        // over the fill. A cup nothing fills is open whole (`data-whole`), its dashed edge closed along its bottom too,
+        // round at the cup's corners (ruled 9 Nov 2026); an off mark, with no target, is an empty cup. Its difference
+        // whole or not at all, never cut, in each part's ink where that part is under it: its box spans the cup's height,
+        // so the ink's levels are the parts'. A lane's is a button that selects its slot, ringed over its parts while
+        // selected.
         laneMark: { ...wholeOrNone("100%"), position: "relative", borderWidth: 0, fontSize: "label.xs", background: "bg.subtle", color: "fg.muted",
             "--roster-cup-permanent": "0%", "--roster-cup-agency": "0%", "--roster-cup-fill": "0%", "--roster-cup-ink": "{colors.fg.muted}",
             "&:is(button)": { cursor: "pointer", ...planElementFocus },
@@ -343,7 +345,8 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
                 background: "color-mix(in srgb, {colors.accent.teal} 40%, {colors.bg.panel})" },
             "& > [data-roster-cup-part=open]": { top: 0, bottom: "var(--roster-cup-fill)", overflow: "hidden", background: "bg.warning.subtle", borderTopRadius: "inherit",
                 "&::before": { content: '""', position: "absolute", inset: "0 0 -1px 0", borderWidth: "1px", borderStyle: "dashed", borderColor: "border.warning",
-                    borderTopRadius: "inherit" } },
+                    borderTopRadius: "inherit" },
+                "&[data-whole]": { borderBottomRadius: "inherit", "&::before": { bottom: 0, borderBottomRadius: "inherit" } } },
             "& > [data-roster-mark-figure]": { position: "relative", alignSelf: "stretch", display: "flex", alignItems: "center", color: "transparent",
                 backgroundClip: "text", backgroundImage: { base: cupInk("{colors.fg}"), _dark: cupInk("{colors.bg.surface}") } },
             "&[data-state=short]": { background: "transparent", "--roster-cup-ink": "{colors.fg.warning}" },

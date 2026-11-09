@@ -13,7 +13,8 @@
  * density (#1569); and the work requirement (#1568) at every width — by week
  * its eyebrow and lanes, each day's figures whole over its bar inside its
  * cell; by month each lane's marks cups filled to their hours rostered of
- * needed, holding their figures whole; on a phone
+ * needed, holding their figures whole, and a cup nothing fills — a lane's or
+ * a skill row's — closed along its bottom; on a phone
  * each band's day cards, a line its shift's swatch, label and figures on one
  * row over its bar, every word whole, and on a touch screen each line a 44px
  * target.
@@ -222,6 +223,32 @@ const laneMarkFaults = (scope: Locator) => scope.locator("[data-roster-lane-mark
         if (open !== (mark.getAttribute("data-state") === "short")) faults.add(`${at}: ${open ? "open" : "not open"} on a day ${mark.getAttribute("data-state")}`);
     }
     return { said, parts, faults: [...faults] };
+});
+/**
+ * What a month's cup nothing fills leaves open at its bottom (#1568): a short day's cup with nothing rostered — a
+ * skill row's, nothing assigned — is what it lacks whole, and its dashed edge, drawn inside that part and clipped to it,
+ * closes along the cup's bottom too, round its corners as the cup's (ruled 9 Nov 2026). Over the lanes' and the skill
+ * rows' cups mounted in `scope`, with how many of each nothing fills.
+ */
+const emptyCupFaults = (scope: Locator) => scope.locator("[data-roster-lane-mark], [data-roster-lane-skill-mark]").evaluateAll((marks) => {
+    const faults: string[] = [], empty = { lanes: 0, skills: 0 };
+    for (const mark of marks) {
+        const open = mark.querySelector('[data-roster-cup-part="open"]');
+        if (open === null || mark.querySelector('[data-roster-cup-part]:not([data-roster-cup-part="open"])') !== null) continue;
+        const skill = mark.hasAttribute("data-roster-lane-skill-mark");
+        if (skill) empty.skills += 1;
+        else empty.lanes += 1;
+        const at = mark.getAttribute(skill ? "data-roster-lane-skill-mark" : "data-roster-lane-mark");
+        const cup = mark.getBoundingClientRect(), part = open.getBoundingClientRect(), edge = getComputedStyle(open, "::before");
+        // The dashed edge's bottom, where its inset puts it: inside the part, which clips it, at the cup's bottom.
+        const bottom = part.bottom - parseFloat(edge.bottom), round = getComputedStyle(mark).borderBottomLeftRadius;
+        if (Math.abs(part.bottom - cup.bottom) > 0.5 || bottom > part.bottom + 0.5 || edge.borderBottomStyle !== "dashed" || parseFloat(edge.borderBottomWidth) < 1) {
+            faults.push(`${at}: nothing fills it, and its dashed edge leaves its bottom open`);
+        } else if (edge.borderBottomLeftRadius !== round || edge.borderBottomRightRadius !== round) {
+            faults.push(`${at}: its dashed edge's bottom corners are not the cup's ${round}`);
+        }
+    }
+    return { empty, faults };
 });
 /**
  * What the work requirement's block of day cards draws wrongly on a phone (#1568): its eyebrow not 28px, its heading
@@ -518,7 +545,7 @@ for (const theme of LAYOUT_THEMES) {
         expect(grids, "a width with the grid").toBeGreaterThan(0);
         expect(phones, "a width with the phone's cards").toBeGreaterThan(0);
     });
-    test(`the work requirement by month fits 1880/1440/1024/900/768/640: its eyebrows 28px, each week's hours whole in the richest form every week holds — with its unit, without, or rostered over needed — a lane's marks cups filled to their hours, holding their figures whole, no word cut or touching another (#1568, A3.5) (${theme}) @desktop`, async ({ page }) => {
+    test(`the work requirement by month fits 1880/1440/1024/900/768/640: its eyebrows 28px, each week's hours whole in the richest form every week holds — with its unit, without, or rostered over needed — a lane's marks cups filled to their hours, holding their figures whole, a cup nothing fills — a lane's or a skill row's — closed along its bottom, no word cut or touching another (#1568, A3.5) (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "rosterWorkRequirement", theme), frame = entry.locator("[data-roster-frame]").first();
         const main = frame.locator("[data-roster-main]");
@@ -526,8 +553,12 @@ for (const theme of LAYOUT_THEMES) {
         await frame.locator('[data-frame-slot="toolbar"]').getByRole("radio", { name: "Month", exact: true }).click();
         await settled(page);
         await expect(main.locator('[data-roster-grid="people-month"]')).toBeVisible();
+        // The first lane's skill rows open, so their cups are measured beside the lanes'.
+        await main.locator("[data-roster-lane-head]").first().click();
+        await settled(page);
+        await expect(main.locator("[data-roster-lane-skill]").first()).toBeVisible();
         let said = 0;
-        const forms = new Set<string | null>(), parts = new Set<string>();
+        const forms = new Set<string | null>(), parts = new Set<string>(), empty = { lanes: 0, skills: 0 };
         // 1880px first: a lane's day is 22px or wider beside the panes only there, so its marks say their figures.
         for (const width of [1880, 1440, 1024, 900, 768, 640]) {
             await size(page, entry, width);
@@ -547,8 +578,15 @@ for (const theme of LAYOUT_THEMES) {
             expect(marks.faults, where).toEqual([]);
             said += marks.said;
             for (const kind of Object.keys(marks.parts)) parts.add(kind);
+            const cups = await emptyCupFaults(main);
+            expect(cups.faults, where).toEqual([]);
+            empty.lanes += cups.empty.lanes;
+            empty.skills += cups.empty.skills;
         }
         expect(said, "a width whose lane marks show figures").toBeGreaterThan(0);
+        // A week with targets and no one rostered draws cups nothing fills, a lane's and a skill row's.
+        expect(empty.lanes, "a lane's cup nothing fills").toBeGreaterThan(0);
+        expect(empty.skills, "a skill row's cup nothing fills").toBeGreaterThan(0);
         // The cups in view fill with the permanent staff's hours, and a short day's is open above them.
         expect([...parts].filter(kind => kind === "permanent" || kind === "open").sort()).toEqual(["open", "permanent"]);
         // The widths take the eyebrow through each of its forms.

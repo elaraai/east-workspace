@@ -1749,7 +1749,8 @@ function cupStyle(cup: DemandCup): CSSProperties | undefined {
 }
 /**
  * A cup's parts by month (ruled 8 Nov 2026): each part of the hours that fills it from the bottom — a lane's permanent
- * staff's, agency staff's and the agencies' requests', or a skill's hours assigned — then, on a short day, what it lacks.
+ * staff's, agency staff's and the agencies' requests', or a skill's hours assigned — then, on a short day, what it lacks:
+ * where nothing fills the cup, the whole cup (`data-whole`), its edge closed along the bottom too (ruled 9 Nov 2026).
  *
  * @param cup - The cup's levels
  * @param state - Its mark's state
@@ -1763,7 +1764,7 @@ function cupParts(cup: DemandCup, state: DemandMark["state"], skill: boolean): R
             {cup.agency > cup.permanent && <span data-roster-cup-part="agency" />}
             {cup.fill > cup.agency && <span data-roster-cup-part="requested" />}
         </>}
-        {state === "short" && <span data-roster-cup-part="open" />}
+        {state === "short" && <span data-roster-cup-part="open" data-whole={cup.fill === 0 ? "" : undefined} />}
     </>;
 }
 /**
