@@ -552,6 +552,8 @@ export interface SheetInspect {
     columnAt: (r: number, key: string) => SheetColumnMeta | undefined;
     /** The cell under a column at a row. */
     cellAt: (r: number, key: string) => SheetCellValue | undefined;
+    /** Whether the cell under a column at a row takes an edit, as the grid's one check has it: its column writes, and no mark locks it. */
+    writableAt: (r: number, key: string) => boolean;
     /** What a row's drafts changed against what the record holds, as the grid tints its cells by it (#1561); `undefined` for a row no gesture has touched, and for a line or a band. */
     changesAt: (r: number) => SheetRowChanges | undefined;
     /** A quantity's unit at a row: its driver member's. */

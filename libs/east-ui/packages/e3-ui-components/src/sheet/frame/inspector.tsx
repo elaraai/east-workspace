@@ -1221,11 +1221,14 @@ function SeveralRows({ value, pane, words, styles, inspect, rs, r0, r1 }: Severa
     const button = useRecipe({ key: "button" });
     const form = pane.forms.row;
     const lines = getSomeorUndefined(value.sheet.group) !== undefined;
-    // The columns a bulk edit sets: the editable ones the form edits — never a stamped, a link or a set column, which the grid edits.
+    // The columns a bulk edit sets: the editable ones the form edits — never a stamped, a link or a set column, which the grid
+    // edits — and of those only one a cell of the rows takes: a column every row's mark locks is no input at all.
     const editable = useMemo(() => form.fields.filter((f) => {
         const key = getSomeorUndefined(f.column);
-        const meta = key === undefined ? undefined : inspect.columnAt(rs[0]!, key);
-        return meta !== undefined && meta.editable && meta.kind !== "stamped" && meta.kind !== "link" && meta.kind !== "set" && f.spec.editor.type !== "readonly";
+        if (key === undefined) return false;
+        const meta = inspect.columnAt(rs[0]!, key);
+        return meta !== undefined && meta.editable && meta.kind !== "stamped" && meta.kind !== "link" && meta.kind !== "set" && f.spec.editor.type !== "readonly"
+            && rs.some((r) => inspect.writableAt(r, key));
     }), [form.fields, inspect, rs]);
     const [column, setColumn] = useState<string | undefined>(undefined);
     const [held, setHeld] = useState<unknown>(undefined);

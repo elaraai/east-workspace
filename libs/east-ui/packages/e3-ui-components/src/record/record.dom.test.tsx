@@ -2196,6 +2196,35 @@ describe("marks and locks", () => {
         await clear(container, 0, "days_since");
         expect(status(container)).toBe("Nothing cleared — Days since is read only");
     });
+
+    test("several rows set a column only where a cell takes it: a set a lock keeps from a row says why, and a column every row's mark locks is no input", async () => {
+        const { container } = await h.mount({ fn: operatorsOnNights }, { storageKey: "record-bulk-locked" });
+        const at = (r: number, k: string) => cellAt(container, r, k);
+        const several = () => openPanel(container).querySelector<HTMLElement>('[data-sheet-inspector="several"]');
+        const both = async () => {
+            await press(at(0, "hours"));
+            await press(at(1, "hours"), { shiftKey: true });
+            await waitFor(() => expect(several()).not.toBeNull());
+        };
+        /** The bulk edit's column choice: a select over many columns, radios over a few. */
+        const choice = () => several()!.querySelector<HTMLElement>('[data-field="$column"]')!;
+        /** The select's options, its listbox open. */
+        const options = async () => {
+            const trigger = choice().querySelector<HTMLElement>("[data-scope=select][data-part=trigger]")!;
+            await act(async () => { fireEvent.click(trigger); });
+            return within(document.getElementById(trigger.getAttribute("aria-controls") ?? "")!).getAllByRole("option");
+        };
+        // B. Ellis is on nights, A. Morgan not: Shifts is offered, and Set sets A. Morgan's alone.
+        await both();
+        await press((await options()).find((option) => option.textContent === "Shifts")!);
+        await press(several()!.querySelector('[data-field="shifts"] [data-field-set]')!);
+        expect([at(0, "shifts").textContent, at(1, "shifts").textContent]).toEqual(["0", "96On nights"]);
+        expect(status(container)).toBe("locked: On nights — the edit was not kept");
+        // A. Morgan on nights too: no row takes Notes, Shifts or Overtime, and the range is offered none of them.
+        await press(at(0, "night"));
+        await both();
+        expect(choicesOf(choice())).toEqual(["Name", "Hours", "Nights"]);
+    });
 });
 
 /** The fields of an element of Details, by their keys, in order. */

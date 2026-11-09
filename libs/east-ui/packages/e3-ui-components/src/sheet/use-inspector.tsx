@@ -19,8 +19,9 @@ import { getSomeorUndefined, type EditIssue } from "@elaraai/east-ui-components"
 import { kindOfIssue } from "@elaraai/east-ui-components/internal";
 import { EditingIssueType } from "@elaraai/east-ui/internal";
 import {
-    NULL_CELL, TITLE_KEY, cellIsBlank, cellText, cellWritable, driverKeyOf, lineAddress, resolveMember as resolveRegisterMember, takesClear, unitOf, type SheetColumnMeta,
+    NULL_CELL, TITLE_KEY, cellIsBlank, cellText, cellWritable, driverKeyOf, lineAddress, markOf, resolveMember as resolveRegisterMember, takesClear, unitOf, type SheetColumnMeta,
 } from "./model.js";
+import type { SheetCellRefusalWord } from "./messages.js";
 import { clearSearch, narrowingQuery, writeNarrowing } from "./view-state.js";
 import { askHiding, hiddenLine } from "../shared/schedule/hidden.js";
 import { parseCell } from "./parse/index.js";
@@ -237,17 +238,31 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         const cellWrites: CellWrite[] = [];
         const draftEdits = new Map<string, DraftEdit>();
         const touched: { r: number; keys: string[] }[] = [];
+        // Why the first cell it leaves as it was is left: the footer says so.
+        let refused: SheetCellRefusalWord | undefined;
         for (const w of writes) {
             const it = rowAt(w.r);
             if (it === undefined || (it.kind !== "real" && it.kind !== "group")) continue;
             const keys: string[] = [];
-            // The one check each cell asks, as the grid's gestures do: a cell its mark locks takes nothing, and one whose
-            // column has no blank — a column from data's value that is no option — no clear.
+            // The one check each cell asks, as the grid's gestures do: a cell its mark locks takes nothing, one whose column
+            // has no blank — a column from data's value that is no option — no clear, and a column from data no text it
+            // can't read, of which it keeps none.
             const metaOf = (key: string) => (it.kind === "group" ? group?.cells.get(key) : allColumns.byKey.get(key));
-            const takes = (meta: SheetColumnMeta | undefined, cell: SheetCellValue) =>
-                meta === undefined || (cellWritable(meta, it.row.cells) && (!cellIsBlank(cell) || takesClear(meta)));
+            const refusal = (meta: SheetColumnMeta | undefined, cell: SheetCellValue): SheetCellRefusalWord | undefined => {
+                if (meta === undefined) return undefined;
+                if (!cellWritable(meta, it.row.cells)) {
+                    const mark = markOf(meta, it.row.cells);
+                    return mark?.lock === true ? { why: "locked", words: mark.words } : { why: "readOnly", header: meta.header };
+                }
+                if (cellIsBlank(cell) && !takesClear(meta)) return { why: "noClear", header: meta.header };
+                return cell.type === "Invalid" && getSomeorUndefined(meta.raw.from) !== undefined ? { why: "unread", header: meta.header, text: cell.value } : undefined;
+            };
             for (const [key, cell] of w.cells ?? []) {
-                if (!takes(metaOf(key), cell)) continue;
+                const why = refusal(metaOf(key), cell);
+                if (why !== undefined) {
+                    refused ??= why;
+                    continue;
+                }
                 cellWrites.push({ r: w.r, c: -1, key, cell });
                 keys.push(key);
             }
@@ -257,7 +272,11 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
                 if (meta === undefined) continue;
                 const outcome = parseCell(meta, text, parseCtxFor(w.r, meta));
                 const cell = outcome.kind === "cell" ? outcome.cell : outcome.kind === "unrecognised" ? variant("Invalid", text) : NULL_CELL;
-                if (!takes(meta, cell)) continue;
+                const why = refusal(meta, cell);
+                if (why !== undefined) {
+                    refused ??= why;
+                    continue;
+                }
                 cellWrites.push({ r: w.r, c: -1, key, cell });
                 keys.push(key);
             }
@@ -284,12 +303,17 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
                 return { ...before, draft: looseDraft ? variant(arm!, next) : next };
             });
         }
+        const said = refused === undefined ? undefined : { id: "editRefused" as const, word: refused };
         // A write every cell of which was refused is no gesture.
-        if (cellWrites.length === 0 && draftEdits.size === 0) return;
+        if (cellWrites.length === 0 && draftEdits.size === 0) {
+            if (said !== undefined) dispatchStore({ t: "patch", patch: { msg: said } });
+            return;
+        }
         if (cellWrites.length > 0) writeCells(cellWrites, "typed");
         try { recordGesture(gestureEvents.current, undefined, "typed", draftEdits, undefined, undefined, joins); }
         catch (error) { failed(error); }
         finally { gestureEvents.current = []; }
+        if (said !== undefined) dispatchStore({ t: "patch", patch: { msg: said } });
         // The copilot asks again for a row whose trigger column changed, as typing in it does.
         if (copilotOn) {
             for (const { r, keys } of touched) {
@@ -298,7 +322,7 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
                 if (id !== undefined) requestRun(id, 0);
             }
         }
-    }, [canEdit, editingState.available, rowAt, group, allColumns, parseCtxFor, structOf, draftType, childField, writeCells, recordGesture, failed, copilotOn, triggers, idAt, requestRun, gestureEvents]);
+    }, [canEdit, editingState.available, rowAt, group, allColumns, parseCtxFor, structOf, draftType, childField, writeCells, recordGesture, failed, copilotOn, triggers, idAt, requestRun, gestureEvents, dispatchStore]);
     const editInSheet = useCallback((r: number, key: string): boolean => {
         const c = columns.list.findIndex((col) => stringEqual(col.key, key));
         if (c < 0 || rowAt(r) === undefined) return false;
@@ -486,6 +510,11 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         const it = rowAt(r);
         return it !== undefined && (it.kind === "real" || it.kind === "group") ? it.row.cells.get(key) : undefined;
     }, [rowAt]);
+    const inspectWritableAt = useCallback((r: number, key: string): boolean => {
+        const it = rowAt(r);
+        const meta = columnAt(r, key);
+        return meta !== undefined && it !== undefined && (it.kind === "real" || it.kind === "group") && cellWritable(meta, it.row.cells);
+    }, [rowAt, columnAt]);
     // What a row's drafts changed, as the grid tints its cells by it: a line's and a band's are their group's.
     const changesAt = useCallback((r: number): SheetRowChanges | undefined => {
         const it = rowAt(r);
@@ -623,9 +652,9 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         issues: issueList,
         kindOf,
         write: inspectWrite, editInSheet, remove: removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, placeOf: placeOfIssue,
-        columnAt, cellAt: inspectCellAt, changesAt, unitAt, levelAt: inspectLevelAt, allowedAt, drawCell, drawAction,
+        columnAt, cellAt: inspectCellAt, writableAt: inspectWritableAt, changesAt, unitAt, levelAt: inspectLevelAt, allowedAt, drawCell, drawAction,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks the session's pending count.
-    }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, placeOfIssue, columnAt, inspectCellAt, changesAt, unitAt, inspectLevelAt, allowedAt, drawCell, drawAction, draftVersion]);
+    }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, placeOfIssue, columnAt, inspectCellAt, inspectWritableAt, changesAt, unitAt, inspectLevelAt, allowedAt, drawCell, drawAction, draftVersion]);
     return { addRow, conflictValue, goToIssue, holdRow, inspect, removeRowsById, rowWhere, versionOf };
 }
 
