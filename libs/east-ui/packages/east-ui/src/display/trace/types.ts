@@ -23,7 +23,7 @@ import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
  * Colour encoding for a Trace's heat fills.
  *
  * @property brand - Sequential brand-tint ramp; one hue, intensity scales with value
- * @property diverge - Two-sided ramp centred on each track's midpoint (cool below, warm above)
+ * @property diverge - Two-sided about each track's midpoint, cool below and warm above, intensity scaling with a value's distance from it; in the theme's own hue, three steps a side — the brand's heat ramp below, the warning hue built the same way above — each side's strongest step its deepest colour, a predicted step on the lighter two
  * @property categorical - One hue per track, intensity scales with value within the track
  */
 export const TraceScaleType = VariantType({

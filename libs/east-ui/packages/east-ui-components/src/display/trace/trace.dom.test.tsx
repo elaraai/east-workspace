@@ -17,6 +17,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { declaredStyle } from "../../testing/styles.js";
+import { traceSlotRecipe } from "../../theme/slot-recipes/trace.js";
 import { EastChakraTrace, type TraceValue } from "./index.js";
 
 afterEach(cleanup);
@@ -149,5 +150,64 @@ describe("Trace's categorical scale on the design system's series order", () => 
         expect(steps.slice(0, 5).map((s) => [s.getAttribute("data-level"), s.hasAttribute("data-predicted")]))
             .toEqual([["0", false], ["1", false], ["2", false], ["3", false], ["2", true]]);
         expect(steps.map((s) => declaredStyle(s, "background"))).toEqual(Array.from({ length: 30 }, () => undefined));
+    });
+});
+
+describe("Trace's diverging scale: the brand below each track's midpoint, the warning hue above", () => {
+    /** Values at equal distances either side of the midpoint, 5, the last two predicted. */
+    const tracks = [
+        { name: "X", values: [0, 2, 4, 5, 6, 8, 10] },
+        { name: "Y", values: [10, 8, 6, 5, 4, 6, 0] },
+    ];
+    const diverge = some(variant("diverge", null));
+    const stepsOf = (container: HTMLElement) => [...gridOf(container).querySelectorAll<HTMLElement>("[title$='measured'], [title$='predicted']")];
+
+    test("a measured step takes its side of the midpoint and one of three equal steps of its distance from it, a predicted one the lighter two, for the recipe to fill", () => {
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <EastChakraTrace value={traceValue(tracks, { scale: diverge, now: some(5n) })} storageKey="diverge" />
+            </ChakraProvider>,
+        );
+        expect(stepsOf(container).map((s) => [s.textContent, s.getAttribute("data-side"), s.getAttribute("data-level"), s.hasAttribute("data-predicted")])).toEqual([
+            ["0", "below", "2", false], ["2", "below", "1", false], ["4", "below", "0", false], ["5", "above", "0", false],
+            ["6", "above", "0", false], ["8", "above", "1", true], ["10", "above", "1", true],
+            ["10", "above", "2", false], ["8", "above", "1", false], ["6", "above", "0", false], ["5", "above", "0", false],
+            ["4", "below", "0", false], ["6", "above", "0", true], ["0", "below", "1", true],
+        ]);
+        expect(stepsOf(container).map((s) => declaredStyle(s, "background"))).toEqual(Array.from({ length: 14 }, () => undefined));
+    });
+
+    test("the recipe fills each side from the theme — below, the heat ramp's first two steps and the brand; above, the warning hue mixed into the paper and its text step — each side's strongest step in the paper's ink, a lighter one in the ink, a predicted one edged in the brand scale's edge below and the warning text step above", () => {
+        const base = traceSlotRecipe.base as Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+        expect([base.root!["--t-warm"], base.root!["--t-warm-deep"]]).toEqual(["{colors.status.warn}", "{colors.fg.warning}"]);
+        const step = base.step!;
+        expect(step["&[data-side='below']"]).toEqual({
+            "&[data-level='0']": { "--t-fill": "{colors.heat.1}" },
+            "&[data-level='1']": { "--t-fill": "{colors.heat.2}" },
+            "&[data-level='2']": { "--t-fill": "{colors.heat.4}", color: "bg.surface" },
+        });
+        expect(step["&[data-side='above']"]).toEqual({
+            "--t-edge": "var(--t-warm-deep)",
+            "&[data-level='0']": { "--t-fill": "color-mix(in oklab, var(--t-warm) 12%, {colors.bg.surface})" },
+            "&[data-level='1']": { "--t-fill": "color-mix(in oklab, var(--t-warm) 32%, {colors.bg.surface})" },
+            "&[data-level='2']": { "--t-fill": "var(--t-warm-deep)", color: "bg.surface" },
+        });
+        // A lighter step keeps the step's ink; below, a predicted step's edge is the brand's, as the brand scale's is.
+        expect([step.color, step["--t-edge"]]).toEqual(["fg", "{colors.brandPressed}"]);
+    });
+
+    test("an author's own hue keeps its fills, mixed on each step, and takes no side", () => {
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <EastChakraTrace value={traceValue(tracks, {
+                    scale: diverge,
+                    now: some(5n),
+                    style: some({ brandColor: some("#123456"), nowLineColor: none, labelWidth: none, plotGutter: none }),
+                })} storageKey="diverge-hue" />
+            </ChakraProvider>,
+        );
+        const steps = stepsOf(container);
+        expect(steps.map((s) => s.getAttribute("data-side"))).toEqual(Array.from({ length: 14 }, () => null));
+        expect(steps.some((s) => declaredStyle(s, "background")?.includes("#123456") === true)).toBe(true);
     });
 });

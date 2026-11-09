@@ -6,9 +6,9 @@
  * continuous now-line dividing measured steps from predicted ones.
  *
  * The recipe (`theme/slot-recipes/trace.ts`) owns density sizing, static
- * chrome and the brand and categorical scales' fills; this renderer computes the
- * dynamic parts — grid column count, each step's level on its ramp (or its
- * fill, in an author's hue or the diverging scale), and the now-line position.
+ * chrome and every scale's fills; this renderer computes the dynamic parts —
+ * grid column count, each step's level on its ramp (or its fill, in an
+ * author's own hue), and the now-line position.
  */
 
 import { memo, Fragment, useEffect, useMemo } from "react";
@@ -79,10 +79,11 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const ownHue = style ? getSomeorUndefined(style.brandColor) : undefined;
     const brandHue = ownHue ?? "var(--chakra-colors-brand-600)";
-    // The brand scale in the theme's own hue is the design system's heat ramp, and the categorical scale its series
-    // hues built the same way, drawn by the recipe from each step's level, so their values read on their fills in both
-    // themes; an author's hue, and the diverging scale, mix their fills here.
-    const onRamp = (scale === "brand" && ownHue === undefined) || scale === "categorical";
+    // The brand scale in the theme's own hue is the design system's heat ramp, the categorical scale its series hues
+    // built the same way, and the diverging scale the brand's ramp below each track's midpoint and the warning hue's
+    // above it, all drawn by the recipe from each step's level, so their values read on their fills in both themes; an
+    // author's hue mixes its fills here.
+    const onRamp = ownHue === undefined || scale === "categorical";
     const nowColor = style ? getSomeorUndefined(style.nowLineColor) : undefined;
     // Optional label-gutter width override (#137) — overrides the density
     // default `--t-stub-w`, which both the grid columns and now-line read.
@@ -173,13 +174,20 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
                                 // symmetric margin so the cell centre stays on-track.
                                 const gap = gutterActive ? { marginInline: "calc(var(--t-gap) / 2)" } : undefined;
                                 if (onRamp) {
-                                    // Five equal-width steps of the track's range, the top one closed; a predicted
-                                    // step on the ramp's lighter three, so it reads paler than a measured one.
-                                    const t = max > min ? (v - min) / (max - min) : 0.5;
-                                    const level = isFuture ? Math.min(2, Math.floor(t * 3)) : Math.min(4, Math.floor(t * 5));
+                                    // Diverging, a step's side of the track's midpoint and its distance from it in
+                                    // three equal steps; else five equal-width steps of the track's range, the top one
+                                    // closed. A predicted step takes its ramp's lighter steps — two, or three — so it
+                                    // reads paler than a measured one.
+                                    const d = scale === "diverge" ? (v - mid) / (Math.max(max - mid, mid - min) || 1) : undefined;
+                                    const t = d !== undefined ? Math.min(Math.abs(d), 1) : max > min ? (v - min) / (max - min) : 0.5;
+                                    const level = d !== undefined
+                                        ? (isFuture ? Math.min(1, Math.floor(t * 2)) : Math.min(2, Math.floor(t * 3)))
+                                        : (isFuture ? Math.min(2, Math.floor(t * 3)) : Math.min(4, Math.floor(t * 5)));
+                                    const side = d === undefined ? undefined : d >= 0 ? "above" : "below";
                                     return (
                                         <ChakraBox key={`step.${ti}.${i}`} css={styles.step} style={gap} title={title}
-                                            data-level={level} data-series={series > 0 ? series : undefined} data-predicted={isFuture ? "" : undefined}>
+                                            data-level={level} data-side={side} data-series={series > 0 ? series : undefined}
+                                            data-predicted={isFuture ? "" : undefined}>
                                             <ChakraBox as="span" css={styles.value}>{words.tick(v)}</ChakraBox>
                                         </ChakraBox>
                                     );

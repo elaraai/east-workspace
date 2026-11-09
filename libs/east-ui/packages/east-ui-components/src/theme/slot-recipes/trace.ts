@@ -10,9 +10,9 @@
  * height and font size deliberately track the `chipRail` chip at the same
  * density (15 / 22 / 34 px), so a Trace cell and a ChipRail cell line up when
  * they share a table row. The dynamic parts — the grid's column count, the
- * now-line position, and the fills of an author's own hue or of the diverging
- * scale — are set inline by the renderer; everything density- or theme-derived
- * lives here, the brand and categorical scales' fills among it.
+ * now-line position, and the fills of an author's own hue — are set inline by
+ * the renderer; everything density- or theme-derived lives here, every scale's
+ * fills among it.
  *
  * @packageDocumentation
  */
@@ -27,6 +27,10 @@ export const traceSlotRecipe = defineSlotRecipe({
             position: "relative",
             display: "inline-block",
             fontFamily: "mono",
+            // The diverging scale's warm pole, above each track's midpoint: the warning hue, and its text step, on which
+            // the paper's ink reads in both themes — where on the hue itself no one ink reads in both.
+            "--t-warm": "{colors.status.warn}",
+            "--t-warm-deep": "{colors.fg.warning}",
             /* NO overflow/max-width here: `overflow-x` would couple the
              * vertical axis to `auto` (a stray scrollbar on every trace) and
              * the width clamp breaks the plot-gutter contract (#147).
@@ -90,6 +94,21 @@ export const traceSlotRecipe = defineSlotRecipe({
                 "&[data-level='2']": { "--t-fill": "color-mix(in oklab, var(--t-hue) 56%, {colors.bg.surface})" },
                 "&[data-level='3']": { "--t-fill": "color-mix(in oklab, var(--t-hue) 60%, {colors.fg})" },
                 "&[data-level='4']": { "--t-fill": "color-mix(in oklab, var(--t-hue) 40%, {colors.fg})" },
+            },
+            // A diverging step (`data-side`, below or above its track's midpoint, its level 0 to 2 by its distance from
+            // it): below, the heat ramp's first two steps and the brand; above, the warm pole mixed into the paper as the
+            // ramp is, and its text step. Each side's strongest step takes the paper's ink; a predicted step's edge is the
+            // brand scale's below and the warm text step above.
+            "&[data-side='below']": {
+                "&[data-level='0']": { "--t-fill": "{colors.heat.1}" },
+                "&[data-level='1']": { "--t-fill": "{colors.heat.2}" },
+                "&[data-level='2']": { "--t-fill": "{colors.heat.4}", color: "bg.surface" },
+            },
+            "&[data-side='above']": {
+                "--t-edge": "var(--t-warm-deep)",
+                "&[data-level='0']": { "--t-fill": "color-mix(in oklab, var(--t-warm) 12%, {colors.bg.surface})" },
+                "&[data-level='1']": { "--t-fill": "color-mix(in oklab, var(--t-warm) 32%, {colors.bg.surface})" },
+                "&[data-level='2']": { "--t-fill": "var(--t-warm-deep)", color: "bg.surface" },
             },
             "&[data-series='1']": { "--t-hue": "{colors.accent.teal}" },
             "&[data-series='2']": { "--t-hue": "{colors.accent.purple}" },
