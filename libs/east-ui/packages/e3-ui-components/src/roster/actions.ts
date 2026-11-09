@@ -14,7 +14,9 @@
  * unique among every key the Roster has read and drafted
  * (`crypto.randomUUID()`, retried): a record read whole holds every key, and a
  * key a record read a window at a time holds unread is its Save's own
- * conflict, never an overwrite (`shared/schedule/records.ts`). A find edits
+ * conflict, never an overwrite (`shared/schedule/records.ts`). A duty's own
+ * form or a library card that changes its shift keeps it on its day: times it
+ * leaves as they were move with the shift, as a move moves them. A find edits
  * nothing: it asks the app's fit (#1334). Publish runs Save, then writes the
  * week's status once every record reads back as saved (`publishPeriod`). A
  * pattern dropped on a person's week (#1406, D4) replaces its seven days as
@@ -179,9 +181,9 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
     const rowOf = (id: string) => state.duties.rows.get(id);
     const personDay = (person: string, day: bigint, except?: string) => [...week.assignments].find(([key, a]) =>
         key !== except && a.who.type === "person" && a.who.value === person && a.slot.day === day);
-    /** A duty's roles, held to §5.5's times and to what its slot takes. */
+    /** A duty's roles, held to §5.5's times and to what its slot takes: its start to its day, by its shift as the write drafts it. */
     const validRoles = (a: Pick<Assignment, "slot" | "who">, roles: Roles): string | undefined => {
-        const reach = startReach(value, a.slot, start);
+        const reach = startReach(value, { ...a.slot, shift: roles.shift }, start);
         if (reach === undefined) return "Choose a configured shift.";
         // Its reach is half open, as its day is: a start twelve hours after its shift's is the next day's.
         if (compareDate(roles.start, reach.from) < 0 || compareDate(roles.start, reach.to) >= 0) return "A duty starts up to 12 hours before its shift's start, or less than 12 hours after it.";
@@ -204,6 +206,19 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
         const roles = a.slot.group === slot.group ? next.value : { ...next.value, activity: none };
         const written = value.duty.write(row.bytes, roles);
         return written.type === "some" ? { roles, bytes: written.value } : "This duty cannot be moved there.";
+    };
+    /**
+     * A duty's row as a write of its own form or a library card's leaves it, kept on its day: one that changes its shift
+     * and leaves its times as they were moves them with the shift, as a move does — kept where they stood against the
+     * shift's start. Times the write gives are its own, and `validRoles` holds them to the day.
+     */
+    const onItsDay = (a: Pick<Assignment, "slot">, row: { bytes: Uint8Array; roles: Roles }, roles: Roles, bytes: Uint8Array): { roles: Roles; bytes: Uint8Array } | string => {
+        if (roles.shift === row.roles.shift || compareDate(roles.start, row.roles.start) !== 0 || compareDate(roles.end, row.roles.end) !== 0) return { roles, bytes };
+        const next = times.move({ ...roles, shift: row.roles.shift }, start, { ...a.slot, shift: roles.shift }, context);
+        if (next.type !== "some") return "Choose a configured shift.";
+        const kept: Roles = { ...roles, start: next.value.start, end: next.value.end };
+        const written = value.duty.write(bytes, kept);
+        return written.type === "some" ? { roles: kept, bytes: written.value } : "This duty cannot take that.";
     };
     /** A new duty on a slot, its key minted: made by no pattern, its own fields the duty kind's `values` of it (#1526). */
     const created = (who: Who, slot: Slot, minted: Set<string>): { id: string; bytes: Uint8Array } | string => {
@@ -326,10 +341,11 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
                 if (written === undefined || written.type !== "some") return "This card has no duty action.";
                 bytes = written.value;
             }
-            const roles = value.duty.read(bytes, id);
-            if (!sameResource(roles.resource, row.roles.resource)) return "A card cannot replace the duty's person.";
-            const invalid = validRoles(a, roles); if (invalid !== undefined) return invalid;
-            if (!checkOnly && !sameBytes(bytes, row.bytes)) record([{ kind: duty, id, row: bytes }], "drop", "Update duty");
+            const read = value.duty.read(bytes, id);
+            if (!sameResource(read.resource, row.roles.resource)) return "A card cannot replace the duty's person.";
+            const next = onItsDay(a, row, read, bytes); if (typeof next === "string") return next;
+            const invalid = validRoles(a, next.roles); if (invalid !== undefined) return invalid;
+            if (!checkOnly && !sameBytes(next.bytes, row.bytes)) record([{ kind: duty, id, row: next.bytes }], "drop", "Update duty");
             return undefined;
         },
         field(id, path, next) {
@@ -344,10 +360,11 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const refused = blocked(); if (refused !== undefined) return refused;
             const a = week.assignments.get(id), row = rowOf(id);
             if (a === undefined || row === undefined) return "This duty is no longer present.";
-            const roles = value.duty.read(bytes, id);
-            if (!sameResource(roles.resource, row.roles.resource)) return "A duty's own form cannot replace its person.";
-            const invalid = validRoles(a, roles); if (invalid !== undefined) return invalid;
-            record([{ kind: duty, id, row: bytes }], "typed", "Edit duty");
+            const read = value.duty.read(bytes, id);
+            if (!sameResource(read.resource, row.roles.resource)) return "A duty's own form cannot replace its person.";
+            const next = onItsDay(a, row, read, bytes); if (typeof next === "string") return next;
+            const invalid = validRoles(a, next.roles); if (invalid !== undefined) return invalid;
+            record([{ kind: duty, id, row: next.bytes }], "typed", "Edit duty");
             return undefined;
         },
         remove(id) {
