@@ -306,7 +306,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         ...planElementFocus,
         ...planElementConflict,
         // A confirmed tile keeps its inset brand ring inside the warn.
-        "&[data-conflict][data-state='appr']": { boxShadow: `inset 0 0 0 1px {colors.brand.solid}, ${CONFLICT_RING}` },
+        "&:is([data-conflict], [data-bounds])[data-state='appr']": { boxShadow: `inset 0 0 0 1px {colors.brand.solid}, ${CONFLICT_RING}` },
     },
     // A tile's label (`data-plan-label`) — a labelled tile's, or a resting
     // proposal's `plan`. Its own flex item, so a label wider than the tile
@@ -470,7 +470,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         ...planElementFocus,
         ...planElementConflict,
         // A confirmed chip keeps its inset brand ring inside the warn.
-        "&[data-conflict][data-state='appr']": { boxShadow: `inset 0 0 0 1px {colors.brand.solid}, ${CONFLICT_RING}` },
+        "&:is([data-conflict], [data-bounds])[data-state='appr']": { boxShadow: `inset 0 0 0 1px {colors.brand.solid}, ${CONFLICT_RING}` },
     },
     // A chip's icon (`data-plan-icon`) — Font Awesome's, 1.25em wide in the
     // chip's font; a chip narrower inside than that draws none, never a part

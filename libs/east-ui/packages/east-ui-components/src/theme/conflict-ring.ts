@@ -17,6 +17,12 @@
  * edge with the warn just inside it. The ring goes once the conflict is chosen,
  * and comes back if Undo returns it. A part marks itself `data-conflict`.
  *
+ * A mark, a card, a node or a tile whose row holds a number outside its
+ * field's bounds wears the same ring, at the same edge and beside the same
+ * rings (#1585) — a stored row's warns, a changed one's holds Save — and marks
+ * itself `data-bounds`: each of the ring's rules there keys on either
+ * (`:is([data-conflict], [data-bounds])`), so a part holding both wears one.
+ *
  * @packageDocumentation
  */
 
@@ -35,9 +41,9 @@ export const CONFLICT_RING_INSET = `inset 0 0 0 1px {colors.status.warn}, inset 
  */
 export const CONFLICT_RING_INSIDE_FOCUS = `inset 0 0 0 3px {colors.status.warn}, inset 0 0 8px 2px ${GLOW}`;
 
-/** A part holding a conflict, ringed outside its edge. */
+/** A part holding a conflict, or a number outside its field's bounds, ringed outside its edge. */
 export const conflictRing = {
-    "&[data-conflict]": { boxShadow: CONFLICT_RING },
+    "&:is([data-conflict], [data-bounds])": { boxShadow: CONFLICT_RING },
 } as const;
 
 /** A part holding a conflict, ringed inside its edge. */

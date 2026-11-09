@@ -316,7 +316,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
                 outlineOffset: "-1px",
                 zIndex: "1",
             },
-            /* Holding a conflict not yet chosen, the conflicts' warn ring at the card's edge. */
+            /* Holding a conflict not yet chosen, or a number outside its bounds, the conflicts' warn ring at the card's edge. */
             ...conflictRing,
             /* Emphasis: a matched card gets a brand ring. `halo` is a static
              * ring; `pulse` breathes — its ring width tracks the `--pulse` var
@@ -330,9 +330,9 @@ export const schematicSlotRecipe = defineSlotRecipe({
             },
             /* Holding a conflict too, the warn ring stays at the card's edge: a match's ring under it, a selection's
              * outline just outside it. */
-            "&[data-emphasis][data-conflict]": { boxShadow: `${CONFLICT_RING}, ${EMPHASIS_RING}` },
-            "&[data-emphasis=pulse][data-conflict]": { boxShadow: `${CONFLICT_RING}, ${PULSE_RING}` },
-            "&[data-selected][data-conflict]": { outlineOffset: "1px" },
+            "&[data-emphasis]:is([data-conflict], [data-bounds])": { boxShadow: `${CONFLICT_RING}, ${EMPHASIS_RING}` },
+            "&[data-emphasis=pulse]:is([data-conflict], [data-bounds])": { boxShadow: `${CONFLICT_RING}, ${PULSE_RING}` },
+            "&[data-selected]:is([data-conflict], [data-bounds])": { outlineOffset: "1px" },
             /* canConnect veto (#176): the hovered FORBIDDEN target rings danger
              * while a connect draft is over it (dot/label rings are canvas). */
             "&[data-forbidden]": {

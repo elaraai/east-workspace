@@ -265,7 +265,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-selected][data-draft]": { borderStyle: "dashed" },
             // Outside the focus: the rule border and ink-4 words, unless the pointer is on it (A13).
             "&[data-dim]:not(:hover)": { borderColor: "border.subtle", background: "bg.surface" },
-            // A conflict not yet chosen: the warn ring at the bin's edge, over the bins beside it.
+            // A conflict not yet chosen, or a number outside its bounds: the warn ring at the bin's edge, over the bins beside it.
             ...planElementConflict,
             // Hovered or selected, it rises over the link layer with its connector (A21).
             "&:hover, &[data-selected], &:focus-within": { zIndex: 6 },
@@ -585,8 +585,9 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             background: "bg.surface", cursor: "default",
             "&:hover": { background: "bg.canvas" },
             "&[data-selected]": { background: "bg.subtle" },
-            // A conflict not yet chosen: the warn ring, inside the row's edge — it runs the table's width.
-            "&[data-conflict]": { outline: "1px solid {colors.status.warn}", outlineOffset: "-1px" },
+            // A conflict not yet chosen, or a number outside its bounds: the warn ring, inside the row's edge — it runs the
+            // table's width.
+            "&:is([data-conflict], [data-bounds])": { outline: "1px solid {colors.status.warn}", outlineOffset: "-1px" },
             // Retained while a narrowing is read (#1398, CL5): the shared retained row.
             "[data-allocation-stale] &": retainedRow,
         },
@@ -716,7 +717,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-tone=warning]": { color: "fg.warning", fontWeight: "semibold" },
         },
         // A bin on a resource's card: its line over its actions, under the rule; a draft's in the brand, the selected one in the ink;
-        // one holding a conflict not yet chosen in the warn ring at its edge.
+        // one holding a conflict not yet chosen, or a number outside its bounds, in the warn ring at its edge.
         agendaBin: {
             display: "flex", flexDirection: "column", gap: "8px", minWidth: 0, paddingTop: "8px", borderTopWidth: "1px", borderColor: "border.subtle",
             ...conflictRing,

@@ -114,7 +114,7 @@ export const elementsBase = {
         ...planElementFocus,
         ...planElementConflict,
         // A confirmed bar keeps its inset brand ring inside the warn.
-        "&[data-conflict][data-state='appr']": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${CONFLICT_RING}` },
+        "&:is([data-conflict], [data-bounds])[data-state='appr']": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${CONFLICT_RING}` },
     },
     // A span's label — whole, or ellipsized when it alone does not fit, its
     // line the bar's inside height (#1258). Below a letter and the ellipsis
@@ -235,9 +235,9 @@ export const elementsBase = {
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
-        // A conflict not yet chosen: the warn ring round its own brand edge, which is its outline; over the bar it sits on
-        // still, as the other marks' rings are over theirs.
-        "&[data-conflict]": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${CONFLICT_RING}` },
+        // A conflict not yet chosen, or a number outside its field's bounds: the warn ring round its own brand edge, which
+        // is its outline; over the bar it sits on still, as the other marks' rings are over theirs.
+        "&:is([data-conflict], [data-bounds])": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${CONFLICT_RING}` },
     },
     // ── Chart rows — the marks, axis ticks + ref labels ──
     // A chart row's marks (#949): the svg fills the plot, and every mark's
