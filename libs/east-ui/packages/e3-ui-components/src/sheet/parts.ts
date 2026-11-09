@@ -536,10 +536,16 @@ export interface SheetInspect {
     can: { insertRows: boolean; insertGroups: boolean; removeRows: boolean; removeGroups: boolean };
     /** The sheet's rows (not blank padding), the entries its drafts change, and the batch's issues. */
     counts: { rows: number; pending: number; issues: number };
-    /** Every issue of the batch: the drafts' and the author's checks', then an Apply's conflicts and refusals. */
+    /**
+     * Every issue of the batch: the drafts' and the author's checks', then an Apply's conflicts and refusals, then a stored
+     * row's numbers outside their bounds, which hold no Save (#1585).
+     */
     issues: readonly EditIssue[];
-    /** What an issue refuses its entry for: a field still missing, or one refused — an Apply's conflicts and refusals among them. */
-    kindOf: (issue: EditIssue) => "incomplete" | "invalid";
+    /**
+     * What an issue refuses its entry for: a field still missing, or one refused — an Apply's conflicts and refusals among
+     * them; or a stored row's number outside its bounds, which warns (#1585).
+     */
+    kindOf: (issue: EditIssue) => "incomplete" | "invalid" | "warning";
     /**
      * Write rows: every cell, text and field as one transaction, the copilot asked again for a row whose trigger column
      * changed. A write that `joins` the last one — given the same key — is one step of the history with it. Each cell

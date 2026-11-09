@@ -7,9 +7,9 @@
  * A number outside its field's bounds (#1585), over the machines' upkeep on e3
  * itself: an app's write leaves the beam saw's hours under their least, 0. The
  * stored row's cell wears the warn wash a field still missing wears, saying
- * the bound, and holds no Save; once the row is changed, Issues names it and
- * the field in the hint's own words, and Save waits. On a phone, the cell's
- * stepper says the bound under it, as Details does.
+ * the bound, and Issues lists it as a warning, holding no Save; once the row is
+ * changed, the issue is the row's own, as a field still missing is, and Save
+ * waits. On a phone, the cell's stepper says the bound under it, as Details does.
  */
 
 import { expect, test } from "vitest";
@@ -27,6 +27,11 @@ const cell = (c: HTMLElement, id: string, key: string) =>
 const saveWaits = (c: HTMLElement) => within(slot(c, "toolbar")!).getByRole<HTMLButtonElement>("button", { name: "Save" }).disabled;
 /** The inspector's tabs, as they read. */
 const inspector = (c: HTMLElement) => tabs(slot(c, "end")!);
+/** The Issues tab's entries: where each is, what it says, and its kind. */
+const listed = (c: HTMLElement) => [...slot(c, "end")!.querySelectorAll<HTMLElement>("[data-inspector-issue]")].map((issue) => {
+    const message = issue.querySelector<HTMLElement>("[data-kind]")!;
+    return [issue.firstElementChild?.textContent, message.textContent, message.getAttribute("data-kind")];
+});
 
 /** Types a cell's new text in the row's editor, committed with ⏎. */
 async function typeInto(target: Element, text: string) {
@@ -39,7 +44,7 @@ async function typeInto(target: Element, text: string) {
     await settle();
 }
 
-test("a stored number under its least wears the warn wash and holds no Save; changed, the row's issue names the field in the hint's words and Save waits (#1585)", async () => {
+test("a stored number under its least wears the warn wash, and Issues lists it as a warning, holding no Save; changed, the issue is the row's own and Save waits (#1585)", async () => {
     const machines = await h.read(ex.sheetMachineUpkeep);
     machines.set("S101", { ...machines.get("S101")!, hours: -10n });
     await h.patch(ex.sheetMachineUpkeep, machines);
@@ -47,18 +52,16 @@ test("a stored number under its least wears the warn wash and holds no Save; cha
     const hours = () => cell(container, "S101", "hours");
     expect([hours().hasAttribute("data-bounds"), hours().getAttribute("title")]).toEqual([true, "at least 0"]);
     expect(cell(container, "E201", "hours").hasAttribute("data-bounds")).toBe(false);
-    // Another machine changed: the stored one holds no Save.
+    // Another machine changed: the stored one holds no Save, and Issues lists it as a warning.
     await typeInto(cell(container, "E201", "name"), "Edge bander, two");
-    expect([saveWaits(container), inspector(container)]).toEqual([false, ["Details", "Issues 0"]]);
-    // The beam saw changed: its hours are an issue, and Save waits.
-    await typeInto(cell(container, "S101", "name"), "Beam saw, east");
-    expect([saveWaits(container), inspector(container)]).toEqual([true, ["Details", "Issues 1"]]);
+    expect([saveWaits(container), inspector(container)]).toEqual([false, ["Details", "Issues 1"]]);
     await act(async () => { fireEvent.click(within(slot(container, "end")!).getByRole("tab", { name: "Issues 1" })); });
     await settle();
-    const issue = slot(container, "end")!.querySelector<HTMLElement>("[data-inspector-issue]")!;
-    expect(issue.textContent).toContain("S101");
-    expect(issue.textContent).toContain("Hours");
-    expect(issue.textContent).toContain("at least 0");
+    expect(listed(container)).toEqual([["S101 · Hours", "at least 0", "warning"]]);
+    // The beam saw changed: its hours are its own issue, as a field still missing is, and Save waits.
+    await typeInto(cell(container, "S101", "name"), "Beam saw, east");
+    expect([saveWaits(container), inspector(container)]).toEqual([true, ["Details", "Issues 1"]]);
+    expect(listed(container)).toEqual([["S101 · Hours", "at least 0", "incomplete"]]);
     expect(hours().hasAttribute("data-bounds")).toBe(true);
 });
 

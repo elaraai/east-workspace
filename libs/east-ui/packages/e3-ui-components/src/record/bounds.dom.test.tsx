@@ -8,9 +8,9 @@
  * itself: an app's write leaves the window seat at bench 10, past the bench's
  * most, 9, and the hall door's paint at no coats, under their least, 1. The
  * window seat's bench cell wears the warn wash a field still missing wears,
- * saying the bound; the hall door's Details say it under Coats; neither holds
- * Save. Once the hall door is changed, Issues names it and Coats in the hint's
- * own words, and Save waits.
+ * saying the bound; the hall door's Details say it under Coats; Issues lists
+ * both as warnings, and neither holds Save. Once the hall door is changed, its
+ * issue is its own, as a field still missing is, and Save waits.
  */
 
 import { expect, test } from "vitest";
@@ -60,6 +60,11 @@ const pane = (c: HTMLElement) => slot(c, "end")!;
 const saveWaits = (c: HTMLElement) => within(slot(c, "toolbar")!).getByRole<HTMLButtonElement>("button", { name: "Save" }).disabled;
 /** The inspector's Issues tab, by its words. */
 const issuesTab = (c: HTMLElement) => within(pane(c)).getByRole("tab", { name: /^Issues/ });
+/** The Issues tab's entries: where each is, what it says, and its kind. */
+const listed = (c: HTMLElement) => [...pane(c).querySelectorAll<HTMLElement>("[data-inspector-issue]")].map((issue) => {
+    const message = issue.querySelector<HTMLElement>("[data-kind]")!;
+    return [issue.firstElementChild?.textContent, message.textContent, message.getAttribute("data-kind")];
+});
 
 /** Presses an element, as a pointer does. */
 async function press(el: Element) {
@@ -84,7 +89,7 @@ async function typeInto(c: HTMLElement, id: string, key: string, text: string) {
     await settle();
 }
 
-test("a stored number outside its bounds is washed and said, holding no Save; changed, Issues names the row and the field in the hint's words and Save waits (#1585)", async () => {
+test("a stored number outside its bounds is washed and said, and Issues lists it as a warning, holding no Save; changed, the issue is the row's own and Save waits (#1585)", async () => {
     const pieces = await h.read(ex.recordPieces);
     pieces.set("J-103", { ...pieces.get("J-103")!, bench: 10n });
     pieces.set("J-101", { ...pieces.get("J-101")!, finish: variant("paint", { colour: "Teal", coats: 0n, gloss: variant("matt", null) }) });
@@ -102,17 +107,14 @@ test("a stored number outside its bounds is washed and said, holding no Save; ch
         return field!;
     });
     expect(coats.querySelector("[data-scope=field][data-part=error-text]")?.textContent).toBe("at least 1");
-    expect(issuesTab(container).textContent).toBe("Issues 0");
-    // The stair rail changed: neither stored piece holds Save.
+    // The stair rail changed: neither stored piece holds Save, and Issues lists both as warnings.
     await typeInto(container, "J-102", "room", "Stairs, east");
-    expect([saveWaits(container), issuesTab(container).textContent]).toEqual([false, "Issues 0"]);
-    // The hall door changed: Issues names it and its coats, and Save waits.
-    await typeInto(container, "J-101", "room", "Hall, east");
-    expect([saveWaits(container), issuesTab(container).textContent]).toEqual([true, "Issues 1"]);
+    expect([saveWaits(container), issuesTab(container).textContent]).toEqual([false, "Issues 2"]);
     await act(async () => { fireEvent.click(issuesTab(container)); });
     await settle();
-    const issue = pane(container).querySelector<HTMLElement>("[data-inspector-issue]")!;
-    expect(issue.textContent).toContain("Hall door");
-    expect(issue.textContent).toContain("Coats");
-    expect(issue.textContent).toContain("at least 1");
+    expect(listed(container)).toEqual([["Hall door · Coats", "at least 1", "warning"], ["Window seat · Bench", "at most 9", "warning"]]);
+    // The hall door changed: its coats are its own issue, as a field still missing is, and Save waits.
+    await typeInto(container, "J-101", "room", "Hall, east");
+    expect([saveWaits(container), issuesTab(container).textContent]).toEqual([true, "Issues 2"]);
+    expect(listed(container)).toEqual([["Hall door · Coats", "at least 1", "incomplete"], ["Window seat · Bench", "at most 9", "warning"]]);
 });

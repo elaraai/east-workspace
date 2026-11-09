@@ -122,7 +122,7 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
     } = sheetDecode;
     const {
         canEdit, changesOf, childField, dispatchStore, draftOf, draftType, draftVersion, editingState, layerRef, mintLineId,
-        readiness, recordGesture, rows, session, setLayer, sourceRows, store, takenKeys, ui,
+        readiness, recordGesture, rows, session, setLayer, sourceRows, store, storedBreaches, takenKeys, ui,
     } = sheetSession;
     const { allowedFor, body, idAt, levelAt, linkCellCtx, parseCtxFor, rowAt, rowSpace } = sheetBody;
     const { dispatch, expectedNarrowing, keyIsText, uiRef } = sheetMachine;
@@ -609,11 +609,12 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         if (state === undefined || !state.hidden) return undefined;
         return hiddenLine([{ pick: rowsPick, answer: state.answer }], words, { hiddenByFilters: words.m.inspectorIssueHidden, hiddenBy: words.m.inspectorIssueHiddenBy });
     }, [lensWanted, drawnEntries, rowsPick, words]);
+    // The batch's issues, then a stored row's numbers outside their bounds, which hold no Save (#1585).
     const issueList = useMemo((): readonly EditIssue[] => {
         const ready = session.readiness;
-        return [...(ready.type === "ready" ? [] : ready.value), ...session.issues];
+        return [...(ready.type === "ready" ? [] : ready.value), ...session.issues, ...storedBreaches];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
-    }, [session, readiness, draftVersion]);
+    }, [session, readiness, draftVersion, storedBreaches]);
     // The footer's note of an issue gone to goes once the session no longer holds the issue: a conflict chosen, a
     // check met, a refusal answered. The session is mutable: draftVersion moves with its conflicts.
     const noted = ui.msg?.id === "issue" ? ui.msg.issue : undefined;
@@ -624,12 +625,14 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         }
         dispatchStore({ t: "patch", patch: { msg: null } });
     }, [noted, issueList, session, draftVersion, dispatchStore]);
-    const kindOf = useCallback((issue: EditIssue): "incomplete" | "invalid" => {
+    const kindOf = useCallback((issue: EditIssue): "incomplete" | "invalid" | "warning" => {
         const ready = session.readiness;
-        // The very issue the readiness raised (identity, not equality): an Apply's look alike and are not its.
-        return ready.type !== "ready" && ready.value.some((raised) => Object.is(raised, issue)) ? kindOfIssue(issue, ready) : "invalid";
+        // The very issue the readiness raised (identity, not equality): an Apply's look alike and are not its; nor are a
+        // stored row's numbers outside their bounds, which warn.
+        if (ready.type !== "ready" && ready.value.some((raised) => Object.is(raised, issue))) return kindOfIssue(issue, ready);
+        return storedBreaches.some((stored) => Object.is(stored, issue)) ? "warning" : "invalid";
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
-    }, [session, readiness, draftVersion]);
+    }, [session, readiness, draftVersion, storedBreaches]);
     // Where an issue's row stands among the rows drawn (#1534), as Go to issue finds it: a row or a band by its entry, a
     // line by its place in its group — none where the body does not draw it.
     const placeOfIssue = useCallback((issue: EditIssue): SheetInspectPlace | undefined => {

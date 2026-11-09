@@ -579,8 +579,8 @@ export interface TargetIssue {
     name: string | undefined;
     /** What is wrong, in the sheet's words. */
     text: string;
-    /** A field still missing, or one refused. */
-    kind: "incomplete" | "invalid";
+    /** A field still missing, or one refused; or a stored row's number outside its bounds, which warns (#1585). */
+    kind: "incomplete" | "invalid" | "warning";
 }
 
 /**
