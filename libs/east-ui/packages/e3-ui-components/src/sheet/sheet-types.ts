@@ -383,6 +383,11 @@ export interface SheetMachineCtx {
      * sheet whose cells all edit.
      */
     stepAt?: ((r: number, c: number, step: 1 | -1 | "first") => SheetCellValue | undefined) | undefined;
+    /**
+     * Whether a cell steps in place, whether or not a step is there to take — given wherever {@link stepAt} is. A cycle
+     * over a register with no members steps nowhere, and is no text to type into either: no editor opens on it.
+     */
+    stepsAt?: ((r: number, c: number) => boolean) | undefined;
     /** The cell a key sets on a cell that steps in place (#1531): a cycle's member whose label, key or alias it is. */
     keyAt?: ((r: number, c: number, key: string) => SheetCellValue | undefined) | undefined;
     /**

@@ -59,9 +59,10 @@
  *   fill or the selected proposal rejects it and remembers.
  * - **Cells that step in place (#1531)** — a Record's cycle, toggle and
  *   boolean: a press, Space or ⏎ takes the next state (⇧ the one before),
- *   ⌫ a cycle's first and a member's key sets it; none opens an editor. One
- *   no step reaches — an owned row's, a read-only one, a locked one — takes a
- *   ⇧ press as any other cell does: the range stretches to it. A
+ *   ⌫ a cycle's first and a member's key sets it; none opens an editor — a
+ *   cycle over no members neither. One no step reaches — an owned row's, a
+ *   read-only one, a locked one, that cycle — takes a ⇧ press as any other
+ *   cell does: the range stretches to it. A
  *   cell that edits out of place — a Record's title — opens through the host
  *   on a press, ⏎ or F2. A grid a host draws opens with no ring: a press
  *   places it, or the first move key, on the first row's first cell that
@@ -152,8 +153,8 @@ function stepColumn(r: number, c: number, dir: 1 | -1, ctx: SheetMachineCtx): nu
 /** Open the editor on a cell — `seed` is a printable key that starts a fresh edit. */
 function startEdit(s: SheetUiState, r: number, c: number, seed: string | undefined, ctx: SheetMachineCtx): Transition {
     if (r < 0 || r >= ctx.rowCount || c < 0 || c >= ctx.colCount) return { state: s, effects: [] };
-    // A cell that steps in place, or edits out of place, never opens an editor (#1531).
-    if (!ctx.editableAt(r, c) || ctx.stepAt?.(r, c, 1) !== undefined || ctx.opensAt?.(r, c) === true) return { state: s, effects: [] };
+    // A cell that steps in place — a step to take or none — or edits out of place, never opens an editor (#1531).
+    if (!ctx.editableAt(r, c) || ctx.stepsAt?.(r, c) === true || ctx.opensAt?.(r, c) === true) return { state: s, effects: [] };
     const effects: SheetEffect[] = [];
     const moved = moveTo(s, { r, c }, ctx, effects);
     const linkCtx = ctx.linkAt?.(r, c);
@@ -387,9 +388,10 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
         return toggleSubRows(s, s.sel.r, e.shift, ctx);
     }
     // A cell that steps in place (#1531): Space or ⏎ takes its next state (⇧ the one before), ⌫ a cycle's first, and a
-    // key that names a member sets it — none opens an editor, and a read-only cell takes none of them.
+    // key that names a member sets it — none opens an editor, and a read-only cell takes none of them; nor does a cycle
+    // over no members, which has no state to take.
     const stepAt = ctx.stepAt;
-    if (stepAt !== undefined && (s.selEnd === null || same(s.selEnd, s.sel)) && !e.meta && !e.alt && stepAt(s.sel.r, s.sel.c, 1) !== undefined) {
+    if (stepAt !== undefined && (s.selEnd === null || same(s.selEnd, s.sel)) && !e.meta && !e.alt && ctx.stepsAt?.(s.sel.r, s.sel.c) === true) {
         const { r, c } = s.sel;
         const write = (cell: SheetCellValue | undefined): Transition => ({ state: s, effects: ctx.editableAt(r, c) && cell !== undefined ? [{ t: "write", r, c, cell, text: "" }] : [] });
         if (e.key === " " || e.key === "Enter") return write(stepAt(r, c, e.shift ? -1 : 1));

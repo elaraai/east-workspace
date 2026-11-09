@@ -1018,6 +1018,7 @@ function hostCtxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
         kindAt: (_r, c) => kinds[c]!,
         stepAt: (_r, c, step) => (c === 1 ? cell("String", step === "first" ? "A" : step === 1 ? "B" : "C")
             : c === 3 && step !== "first" ? cell("Boolean", true) : undefined),
+        stepsAt: (_r, c) => c === 1 || c === 3,
         keyAt: (_r, c, k) => (c === 1 && ["A", "B", "C"].includes(k.toUpperCase()) ? cell("String", k.toUpperCase()) : undefined),
         opensAt: (_r, c) => c === 0,
         previewsHover: true,
@@ -1080,6 +1081,20 @@ describe("a grid a host draws", () => {
         expect(run(editing, [{ t: "cell.down", r: 0, c: 1, shift: false }], ctx).effects.filter((e) => e.t === "write" || e.t === "gesture.end")).toEqual([
             { t: "write", r: 0, c: 2, cell: cell("String", "x"), text: "x" }, { t: "gesture.end" }, stepTo(0, 1, "B"),
         ]);
+    });
+
+    test("a cycle over no members steps nowhere and is no text: no press, double press, key or ⌫ opens an editor or writes, and ⇧ stretches the range to it", () => {
+        // The cycle's register holds no one: it has no state to step to, and no key names a member.
+        const ctx = hostCtxOf({ stepAt: (_r, c, step) => (c === 3 && step !== "first" ? cell("Boolean", true) : undefined), keyAt: () => undefined });
+        const pressed = run(unplaced(), [{ t: "cell.down", r: 1, c: 1, shift: false }], ctx);
+        expect(pressed.state).toMatchObject({ sel: { r: 1, c: 1 }, edit: null });
+        expect(writesOf(pressed)).toEqual([]);
+        for (const e of [key("Enter"), key("F2"), key(" "), key("x"), key("Backspace"), { t: "cell.dbl", r: 1, c: 1 } as SheetEvent]) {
+            const t = run(pressed.state, [e], ctx);
+            expect(t.state.edit).toBeNull();
+            expect(t.effects.filter((effect) => effect.t === "write" || effect.t === "clear")).toEqual([]);
+        }
+        expect(run(pressed.state, [{ t: "cell.down", r: 0, c: 1, shift: true }], ctx).state).toMatchObject({ sel: { r: 1, c: 1 }, selEnd: { r: 0, c: 1 } });
     });
 
     test("a ⇧ press on a cell no step reaches — an owned row's, a read-only one, a locked one — stretches the range to it, and the ring stays", () => {
