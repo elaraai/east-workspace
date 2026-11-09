@@ -132,6 +132,9 @@ export {
 export {
     FieldForm,
     fieldFormMessages,
+    fieldBreaches,
+    fieldBreachText,
+    type FieldBreach,
     type FieldFormProps,
     type FieldOption,
     type FieldLineChoice,

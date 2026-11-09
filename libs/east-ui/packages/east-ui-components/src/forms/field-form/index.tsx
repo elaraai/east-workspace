@@ -17,7 +17,7 @@
  * | Editor | Input |
  * |---|---|
  * | `text` | `StringInput` |
- * | `number` | `IntegerInput` or `FloatInput`, by the field's type: moved by its step, clamped to its bounds, its unit and bounds in the help line |
+ * | `number` | `IntegerInput` or `FloatInput`, by the field's type: moved by its step, clamped to its bounds, its unit and bounds in the help line; a value given it that they don't hold said under it, in their words (`fieldBreaches`, #1585) |
  * | `checkbox` | `Checkbox` |
  * | `datetime` | `DateTimeInput` |
  * | `select` | `RadioGroup` of the variant's cases while it has up to four, Not set first for an Option (#1473); `Select` past four; a case holding data, its fields in a block under the choice |
@@ -77,7 +77,8 @@
  * Record's mark's words (#1561) — sits under it, as a field's does, in the
  * shared `Field`'s style for help. Lines that follow one another sit closer
  * than fields do, rows of choices. A field an issue names (`issues`) takes the
- * warn wash around it, as a changed one takes the brand's; and the field a
+ * warn wash around it, as a changed one takes the brand's — as does a number
+ * its bounds don't hold, whatever gave it; and the field a
  * host names (`focus`) takes the keyboard as it is named — a new row's title —
  * or, where a tab or a fold still hides the form, once it shows, kept in view
  * while a pane sliding open widens the form under it.
@@ -376,6 +377,75 @@ function clampOf(editor: NumberEditor, integer: boolean): (n: bigint | number) =
         if (max !== undefined && compareFloats(f, max) > 0) f = max;
         return f;
     };
+}
+
+/**
+ * A number its field's bounds don't hold (#1585): under its least, or over its most. The form holds what it makes to
+ * them, never a value given it — a new row's default, stored data, a card's values, an app's write — which is held as it
+ * is and flagged, as a field still missing is: here and in the host's issues.
+ */
+export interface FieldBreach {
+    /** The field's path, as its spec's. */
+    readonly path: readonly string[];
+    /** Its key: the path joined by ".". */
+    readonly key: string;
+    /** The bound it breaks: the field's least, or its most. */
+    readonly side: "min" | "max";
+    /** That bound, at the field's type: an Integer's a bigint. */
+    readonly bound: bigint | number;
+}
+
+/** Where a number stands against its editor's bounds: the one it breaks, or none — an Integer's as bigints, a Float's as numbers, compared by East. */
+function breachOf(editor: NumberEditor, n: bigint | number, integer: boolean): Pick<FieldBreach, "side" | "bound"> | undefined {
+    const min = getSomeorUndefined(editor.min);
+    const max = getSomeorUndefined(editor.max);
+    if (integer) {
+        const lo = min === undefined ? undefined : BigInt(Math.ceil(min));
+        const hi = max === undefined ? undefined : BigInt(Math.floor(max));
+        if (lo !== undefined && compareIntegers(n as bigint, lo) < 0) return { side: "min", bound: lo };
+        if (hi !== undefined && compareIntegers(n as bigint, hi) > 0) return { side: "max", bound: hi };
+        return undefined;
+    }
+    if (min !== undefined && compareFloats(n as number, min) < 0) return { side: "min", bound: min };
+    if (max !== undefined && compareFloats(n as number, max) > 0) return { side: "max", bound: max };
+    return undefined;
+}
+
+/**
+ * The fields of a struct whose numbers their bounds don't hold (#1585): what every builder flags as it flags a field
+ * still missing — a warning on the cell, a line under the field, an entry in Issues, and Save waiting while a changed
+ * row has one. A field under a case its variant doesn't hold, or holding no value, breaks none.
+ *
+ * @param specs - The fields, as `Fields.specs` resolved them
+ * @param value - The struct, as the form edits it
+ * @returns Each field outside its bounds, in the specs' order
+ */
+export function fieldBreaches(specs: readonly FieldSpecValue[], value: unknown): FieldBreach[] {
+    const out: FieldBreach[] = [];
+    for (const spec of specs) {
+        if (spec.editor.type !== "number") continue;
+        const at = valueAt(value, spec.path);
+        const held = spec.optional ? getSomeorUndefined(at as option<unknown>) : at;
+        if (held === undefined) continue;
+        const type = fromEastTypeValue(spec.type) as EastType;
+        const inner = spec.optional && type.type === "Variant" ? (type.cases as Record<string, EastType>)["some"]! : type;
+        const breach = breachOf(spec.editor.value, held as bigint | number, isTypeEqual(inner, IntegerType));
+        if (breach !== undefined) out.push({ path: spec.path, key: spec.path.join("."), ...breach });
+    }
+    return out;
+}
+
+/**
+ * A breach in its field's hint's own words — `at least 1`, `at most 12` — and the locale's figures: the line under the
+ * field, and what a host's issue says of it.
+ *
+ * @param breach - The bound broken
+ * @param words - The form's words: the host's, or English in the app's locale
+ * @returns The words
+ */
+export function fieldBreachText(breach: Pick<FieldBreach, "side" | "bound">, words: FieldFormWords): string {
+    const bound = words.number(breach.bound);
+    return words.m.numberHelp({ min: breach.side === "min" ? bound : undefined, max: breach.side === "max" ? bound : undefined, unit: undefined, step: undefined });
 }
 
 /** A number editor's help line — `1–20 people · step 1` — in the form's words and its locale's figures, or none for a bare number. */
@@ -938,8 +1008,11 @@ const FieldRow = memo(function FieldRow({
         editor.type === "number" && !printed ? numberLine(editor.value, words) : undefined,
         checklist !== undefined && !readOnly && held !== undefined ? m.checklistCount({ done: words.number(done), total: words.number(items.length) }) : undefined,
     ].filter((part): part is string => part !== undefined && part.length > 0);
-    // Why the field shows what it holds, under it — never where it prints its value.
-    const said = refusal === undefined || printed ? undefined : refusal;
+    // A number its bounds don't hold (#1585), given it from anywhere: the field takes the warn wash.
+    const breach = editor.type === "number" && held !== undefined ? breachOf(editor.value, held as bigint | number, isTypeEqual(inner, IntegerType)) : undefined;
+    // One line under the field: why it shows what it holds — never where it prints its value — else the bound its number
+    // breaks, in its hint's own words, printed or not.
+    const said = (printed ? undefined : refusal) ?? (breach === undefined ? undefined : fieldBreachText(breach, words));
     const field: FieldValue = {
         ...FIELD,
         label: spec.label,
@@ -983,7 +1056,7 @@ const FieldRow = memo(function FieldRow({
 
     return (
         <Box ref={rowRef} css={styles.field} data-field={key} data-editor={own !== undefined ? "custom" : printed ? "readonly" : editor.type} data-dirty={dirty ? "" : undefined}
-            data-issue={issue ? "" : undefined} onBlur={onBlur} onKeyDown={onKeyDown}>
+            data-issue={issue || breach !== undefined ? "" : undefined} onBlur={onBlur} onKeyDown={onKeyDown}>
             <EastChakraField key={revision} value={field} storageKey={`fieldForm.${key}`} controlNode={line} />
             {checklist !== undefined && items.length > 0 && (
                 <Box css={styles.items} data-checklist-items="">

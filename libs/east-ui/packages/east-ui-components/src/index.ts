@@ -309,6 +309,9 @@ export {
     // FieldForm — a builder inspector's typed form (#1147)
     FieldForm,
     fieldFormMessages,
+    fieldBreaches,
+    fieldBreachText,
+    type FieldBreach,
     type FieldFormProps,
     type FieldOption,
     type FieldLineChoice,
