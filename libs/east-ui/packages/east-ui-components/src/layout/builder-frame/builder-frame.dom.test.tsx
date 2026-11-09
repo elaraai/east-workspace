@@ -20,7 +20,7 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { system } from "../../theme/index.js";
 import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
 import { pointAt } from "../../testing/drag-layer.js";
@@ -408,17 +408,15 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
     });
 
     test("an overlay pane whose body takes the focus as it opens keeps it there — a field an issue gone to names: the pane takes it only where nothing in it has (#1585)", async () => {
-        /** A field that takes the keyboard as it is drawn, as a form gives it to the field an issue gone to names. */
-        function Asked() {
-            const ref = useRef<HTMLInputElement>(null);
-            useEffect(() => { ref.current?.focus(); }, []);
-            return <input ref={ref} aria-label="COST CENTRE" />;
-        }
-        mount({ start: library(), end: properties({ mode: "overlay", defaultCollapsed: true, body: <Asked /> }) });
+        mount({ start: library(), end: properties({ mode: "overlay", defaultCollapsed: true, body: <input aria-label="COST CENTRE" /> }) });
         frameAt(700);
-        await press("Expand Properties");
+        // The pane shows its body as it is pressed, and tells the frame a microtask later: the field a form gives the
+        // keyboard as it shows — the one an issue gone to names — takes it in between.
+        const expand = screen.getByRole("button", { name: "Expand Properties" });
+        const field = screen.getByRole("textbox", { name: "COST CENTRE", hidden: true });
+        await act(async () => { expand.focus(); fireEvent.click(expand); field.focus(); });
         await told();
-        expect([paneOf("end"), document.activeElement]).toEqual([["overlay", false], screen.getByRole("textbox", { name: "COST CENTRE" })]);
+        expect([paneOf("end"), document.activeElement]).toEqual([["overlay", false], field]);
     });
 
     test("Esc in a layer laid in the open overlay pane that takes Esc itself (`data-escape-layer`) is the layer's; anywhere else in the pane it closes the pane", () => {
