@@ -16,7 +16,8 @@
  *   segment for the next cell; the buffer the machine holds is the date's
  *   edit form, so the commit parses exactly what the field shows;
  * - a **quantity** / **integer** column mounts the common number field
- *   (the stepper column on its right edge, ↑ / ↓ step, digits only);
+ *   (the stepper column on its right edge, ↑ / ↓ step), which takes what the
+ *   quantity grammar reads — digits, the decimal separator, a `k` or `m`;
  * - a **text** / **custom** column mounts the common text input;
  * - the **register kinds** (lookup · reference) keep the typed buffer — one
  *   mono input with the inline ghost drawn in a mirror behind the caret, a
@@ -39,7 +40,7 @@
  * The editor stops keyboard propagation: the sheet owns every other key.
  */
 
-import { memo, useEffect, useMemo, useRef, type KeyboardEvent, type ChangeEvent, type FocusEvent, type MouseEvent, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, type KeyboardEvent, type ChangeEvent, type FocusEvent, type InputEvent, type MouseEvent, type ReactNode } from "react";
 import { Box, Combobox as ChakraCombobox, Input as ChakraInput, NumberInput as ChakraNumberInput, Portal, chakra, createListCollection, useCombobox } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRightLong, faChevronDown, faChevronUp, faMinus } from "@fortawesome/free-solid-svg-icons";
@@ -47,6 +48,7 @@ import type { DateValue } from "@internationalized/date";
 import { CompoundDateField, CompoundDateInput, CompoundDateSegment, dateToCalendarDate, dateValueToDate, useDensity } from "@elaraai/east-ui-components/internal";
 import { memberIsDashed, memberLabel, type SheetKind } from "./model.js";
 import { formatDateEdit, splitTimeToken, type WhenLevel } from "./parse/date.js";
+import { formatNumberBare, typedQuantity } from "./parse/quantity.js";
 import type { LinkVocabulary } from "./link/grammar.js";
 import type { LinkHalves } from "./link/sides.js";
 import type { LinkGroups } from "./sheet-state.js";
@@ -143,8 +145,8 @@ const COMBOBOX_MACHINE_KEYS = new Set(["Enter", "Escape", "Tab", "ArrowUp", "Arr
  * field reads with `parseFloat` and prints with `String` whatever its locale,
  * so `1234,5` would open as `1234`. Fifteen significant digits: a float prints
  * as it was written up to there (it carries about sixteen). The field shows
- * and takes the bare form, so a group separator is never typed into it; a
- * pasted grouped number still reads through the grammar. On ⏎ and on a blur
+ * the bare form; what it TAKES as it is typed is the grammar's to say, never
+ * this format's ({@link SheetEditor}'s number field). On ⏎ and on a blur
  * the field rewrites its value in this format, but its handlers run after
  * the editor's (Zag merges the given handlers first), so a commit always
  * reads the buffer, never that rewrite.
@@ -187,7 +189,8 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
     const density = useDensity();
     const controlSize = density === "comfortable" ? "md" : density === "condensed" ? "xs" : "sm";
     // The number field reads and steps the buffer in the viewer's language — the one the cells print and the grammar reads (#852) — and the editor speaks the sheet's words (#861).
-    const { locale, m } = useSheetWords();
+    const words = useSheetWords();
+    const { locale, m } = words;
     const rootRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLInputElement | null>(null);
     const lastFocus = useRef("");
@@ -259,12 +262,22 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
         const atEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
         if (forward(e, atEnd)) e.preventDefault();
     };
-    // The integer field takes digits and a leading minus, like the common integer input.
-    const handleIntegerKey = (e: KeyboardEvent<HTMLInputElement>) => {
-        const control = e.key.length > 1 || e.metaKey || e.ctrlKey || e.altKey;
-        const minus = e.key === "-" && e.currentTarget.selectionStart === 0 && !e.currentTarget.value.includes("-");
-        if (!control && !minus && !/^\d$/.test(e.key)) { e.preventDefault(); e.stopPropagation(); return; }
-        handleKey(e);
+    // The number field takes what the quantity grammar reads, not what its own
+    // format does: that dropped a key without a word, so `1.005k` read 1.005
+    // and `2.5` in an integer column 25. A `k` or `m` completing a number
+    // turns the text into that number, so the field steps from it; a fraction
+    // in an integer column stays, for the strip to call unrecognised and the
+    // commit to refuse. Judged here, on the way down, the key never reaches
+    // the field's own check on the input.
+    const handleNumberInput = (e: InputEvent<HTMLDivElement>) => {
+        const el = inputRef.current;
+        if (el === null || e.target !== el) return;
+        e.stopPropagation();
+        const at = el.selectionStart ?? el.value.length;
+        const typed = typedQuantity(`${el.value.slice(0, at)}${e.data}${el.value.slice(el.selectionEnd ?? at)}`, words.separators);
+        if (typed.kind === "take") return;
+        e.preventDefault();
+        if (typed.kind === "read") onChange(formatNumberBare(typed.n, words));
     };
     // The date field owns its keys (digits, arrows, backspace); ⏎ and esc are
     // the sheet's, and ⇥ is the sheet's only at the edge segments.
@@ -380,13 +393,14 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
             formatOptions={kind === "integer" ? INTEGER_FORMAT : NUMBER_FORMAT}
             inputMode={kind === "integer" ? "numeric" : "decimal"}
             onValueChange={(d) => onChange(d.value)}
+            onBeforeInputCapture={handleNumberInput}
         >
             <ChakraNumberInput.Input
                 ref={inputRef}
                 css={styles.editorNumberInput}
                 aria-label={ariaLabel}
                 data-slot="editorInput"
-                onKeyDown={kind === "integer" ? handleIntegerKey : handleKey}
+                onKeyDown={handleKey}
                 onBlur={handleBlur}
                 onCopy={stop}
                 onPaste={stop}

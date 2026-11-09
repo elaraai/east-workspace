@@ -161,6 +161,22 @@ test("invalid pasted integers stay visible, block the whole batch, and undo as o
     expect(quantity()).toBe(1n);
 });
 
+test("a fraction typed into an integer column is unrecognised in the strip, as its commit has it, and ⏎ leaves it in sight, invalid", async () => {
+    const ui = mount();
+    const strip = () => ui.container.querySelector('[data-slot="stripChip"]')!.textContent;
+    // A suffix that makes a whole number reads as it.
+    await ui.edit("1.5k");
+    expect(strip()).toBe("1,500");
+    await ui.edit("2.5");
+    expect(strip()).toBe("unrecognised");
+    await act(async () => { fireEvent.keyDown(ui.input(), { key: "Enter" }); });
+    expect(ui.input()).toBeNull();
+    expect(ui.cell().getAttribute("aria-invalid")).toBe("true");
+    expect(ui.cell().querySelector('[data-slot="cellText"]')!.textContent).toBe("2.5");
+    expect(quantity()).toBe(1n);
+    expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
 
 test("discarding a never-saved row emits one patch, preserves missing fields through Undo, and never writes the source", async () => {
     const journal = sheetJournal(view());

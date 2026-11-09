@@ -216,13 +216,14 @@ export function buildStrip(input: StripInput): StripModel {
         }
         case "quantity":
         case "integer": {
-            // The number field: digits and the viewer's decimal separator; a pasted `1.2k` still parses through the grammar (#852).
+            // The number field: the quantity grammar, in the viewer's language (#852).
             const accepts = meta.kind === "quantity" ? `${words.bare(1200)} · ${words.bare(1200.5)}` : words.bare(1200);
             if (empty) {
                 return { on: true, label: m.stripAccepts({ header }), chips: flat(m.stripNumber({ unit: meta.kind === "quantity" })), meta: accepts, keys: m.stripKeysStep() };
             }
             const n = parseQuantity(edit.val, words.separators);
-            if (n === null || n === undefined) {
+            // An integer column's fraction is unrecognised, as its commit has it — never offered with the keys that commit it.
+            if (n === null || n === undefined || (meta.kind === "integer" && !Number.isSafeInteger(n))) {
                 return { on: true, label: header, chips: flat(m.stripUnrecognised()), meta: "", keys: accepts };
             }
             const unit = meta.kind === "quantity" && input.unit !== undefined ? ` ${input.unit}` : "";
