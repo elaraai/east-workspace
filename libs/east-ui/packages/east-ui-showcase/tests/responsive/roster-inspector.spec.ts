@@ -113,3 +113,27 @@ test("A refused duty gone to — by the warning button, or by its line in the Is
     await end.locator('[data-roster-issue="refusal"] button').first().click(); await settled(page);
     await expect.poll(shown).toEqual({ banner: true, field: true, keyboard: true });
 });
+
+test("A duty's Start twelve hours past its shift's start is refused: its box shows the 6:00 AM the duty holds again, never the 6:00 PM it refused, the reason under it (#1585) @desktop", async ({ page }) => {
+    const route = "e3/roster/roster/rosterWarehouse";
+    await page.goto(`/#${route}`);
+    const entry = page.locator('[data-index]', { has: page.locator(`a[href="#${route}"]`) });
+    const frame = entry.locator('[data-roster-frame]').first();
+    await expect(frame).toBeVisible({ timeout: 30_000 });
+    await entry.scrollIntoViewIfNeeded(); await settled(page);
+    const end = frame.locator('[data-frame-slot="end"]');
+    const segment = (field: string, name: string) => end.locator(`[data-field="${field}"] [role="spinbutton"][aria-label^="${name}"]`);
+    // A. Alder's early on the day the example opens on, Thursday: 6:00 AM to 2:00 PM.
+    await frame.locator('[data-roster-assignment="s1"]').click(); await settled(page);
+    const expand = frame.getByRole('button', { name: 'Expand Inspector', exact: true });
+    if (await expand.isVisible()) { await expand.click(); await settled(page); }
+    await expect(segment('start', 'hour')).toHaveText('6');
+    // Its start on to 6:00 PM, and the keyboard away: refused, the box back at the 6:00 AM the duty holds.
+    await segment('start', 'AM/PM').click();
+    await page.keyboard.press('ArrowUp');
+    await expect(segment('start', 'AM/PM')).toHaveText('PM');
+    await end.locator('[data-inspector-title]').click(); await settled(page);
+    await expect(segment('start', 'hour')).toHaveText('6');
+    await expect(segment('start', 'AM/PM')).toHaveText('AM');
+    await expect(end.locator('[data-field="start"] [data-part="error-text"]')).toHaveText("A duty starts up to 12 hours before its shift's start, or less than 12 hours after it.");
+});
