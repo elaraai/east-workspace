@@ -753,6 +753,13 @@ function buildSheet(
     internal: SheetInternalOptions = {},
 ): SheetBuild {
     const opts = (options ?? {}) as SheetAnyOptions;
+    // The removed options, named (#1536) — a plain JS caller would otherwise lose them silently; a Record names them as its own.
+    if ("applyMode" in opts) {
+        throw new Error("Sheet: `applyMode` is removed (#1536) — every edit waits for Save: the changes are drafts, undone, redone, discarded or saved together");
+    }
+    if ("newRowId" in opts) {
+        throw new Error("Sheet: `newRowId` is removed (#1536) — a new row's key is the app's `newKey`, an East function from the keys taken to a new one; without it, one is made");
+    }
     const incoming = resolveRowSource(data, "Sheet");
     const ordered = incoming.kind === "ordered" ? orderedRowSource(incoming, "Sheet") : undefined;
     const resolved = ordered?.resolved ?? incoming;

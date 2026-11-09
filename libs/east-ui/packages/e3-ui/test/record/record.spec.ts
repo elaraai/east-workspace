@@ -389,6 +389,18 @@ describe("<Record> refuses", () => {
         assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns }), /^Error: Record: column "forklift" names register "levels", which `registers` does not declare/);
     });
 
+    test("the removed `applyMode` and `newRowId` by name, as a Sheet refuses them: every edit waits for Save, and a new row's key is the app's `newKey` (#1536, #1584)", () => {
+        const newRowId = East.function([], StringType, () => "R-9");
+        assert.throws(() => Sheet.Root(ROWS, { name: Sheet.column.text(Row, { header: "Name" }) }, { id: "id", applyMode: "auto" } as never),
+            /^Error: Sheet: `applyMode` is removed \(#1536\) — every edit waits for Save/);
+        assert.throws(() => Sheet.Root(ROWS, { name: Sheet.column.text(Row, { header: "Name" }) }, { id: "id", newRowId } as never),
+            /^Error: Sheet: `newRowId` is removed \(#1536\) — a new row's key is the app's `newKey`/);
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, applyMode: "batch" } as never),
+            /^Error: Record: `applyMode` is removed \(#1536\) — every edit waits for Save/);
+        assert.throws(() => Record.Payload({ record: Record.bind(ex.recordCrew), columns, registers, newRowId } as never),
+            /^Error: Record: `newRowId` is removed \(#1536\) — a new row's key is the app's `newKey`/);
+    });
+
     test("a new row's field no person can set — an audit on a `Change`, not its Option — with Add on and no `newRow`, naming it; a `newRow` leaving it unset builds, the field the renderer refuses an Add over (#1526)", () => {
         const audited = { name: Record.column.title(Audited, { header: "Name" }), updated: Record.column.audit(Audited, { header: "Last updated" }) };
         assert.throws(() => Record.Payload({ record: Record.bind(recordAudited), columns: audited }),
