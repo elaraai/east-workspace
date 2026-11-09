@@ -14,8 +14,8 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
 import { SortedSet, StringType, StructType, compareFor, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
-import { getSomeorUndefined, useCoarsePointer, useSlicesReactivity, useDataStable } from "@elaraai/east-ui-components";
-import { useDensityHeights, devicePixels, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { getSomeorUndefined, useCoarsePointer, useSlicesReactivity, useDataStable, type UIStoreInterface } from "@elaraai/east-ui-components";
+import { getStore, useDensityHeights, devicePixels, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { RecordSliceBindType, RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { DEFAULT_BLANKS, DEFAULT_GUTTER_PX, TITLE_KEY, cellWritable, densityOf, groupBandPx, indexColumns, indexGroup, indexRegisters, parseWidth } from "./model.js";
 import { keyOrderOf } from "./key-order.js";
@@ -40,6 +40,12 @@ const compareString = compareFor(StringType);
 
 /** A live source's rows under one narrowing, named apart (#1354): the source and its narrowing, as East prints them. */
 const printNarrowedSource = printFor(StructType({ source: StringType, narrowing: StringType }));
+
+/**
+ * Every key the sheets over a source have minted, by the source, per UI store — as its editing sessions are kept: a sheet
+ * mounted again knows a new row's key as one it made, which another Save taking it meanwhile makes again (#1583).
+ */
+const mintedKeys = new WeakMap<UIStoreInterface, Map<string, Set<string>>>();
 
 /**
  * The narrowing a live source serves as it stands (#1354); `undefined` for any
@@ -261,8 +267,18 @@ export function useSheetDecode(value: SheetRootValue, host: SheetHost) {
     // A new entry's key (#1536): the app's `newKey`'s, given every key taken, each as its text — else a UUID, as every
     // builder mints one. A key the app gives that is taken, or a `newKey` that throws, refuses the gesture.
     const newKeyFn = useMemo(() => getSomeorUndefined(value.newKey), [value.newKey]);
-    // Every key the sheet has minted, taken from then on: a gesture's own before the session holds them.
-    const minted = useRef(new Set<string>());
+    // Every key the sheets over the source have minted, taken from then on: a gesture's own before the session holds them.
+    // Kept beside the source's sessions, beyond this mount: a new row's key another Save takes meanwhile is one the sheet
+    // made, and it makes another (#1583).
+    const store = getStore();
+    const mintedSource = rowsPart?.sourceId ?? value.editing.sourceId;
+    const minted = useMemo(() => {
+        let bySource = mintedKeys.get(store);
+        if (bySource === undefined) { bySource = new Map(); mintedKeys.set(store, bySource); }
+        let keys = bySource.get(mintedSource);
+        if (keys === undefined) { keys = new Set(); bySource.set(mintedSource, keys); }
+        return { current: keys };
+    }, [store, mintedSource]);
     const mintAmong = useCallback((taken: Set<string>): string => {
         let key: string;
         if (newKeyFn === undefined) key = mintKey((k) => taken.has(k));
@@ -277,7 +293,7 @@ export function useSheetDecode(value: SheetRootValue, host: SheetHost) {
         taken.add(key);
         minted.current.add(key);
         return key;
-    }, [newKeyFn]);
+    }, [newKeyFn, minted]);
     // The controlled selection follows the host's DATA: a closure-only change
     // must not snap the ring back to it.
     const selection = useMemo(() => getSomeorUndefined(data.selection), [data.selection]);

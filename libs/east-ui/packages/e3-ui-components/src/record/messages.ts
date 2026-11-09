@@ -112,6 +112,11 @@ export interface RecordMessages {
     added: (p: { noun: string }) => string;
     /** The status line once Add drafted nothing: the field no person can set that the app left empty (AD2). */
     cantAdd: (p: { noun: string; label: string }) => string;
+    /**
+     * The status line once new rows took new keys as they were saved, another save having added rows under theirs
+     * (#1583): the first's keys, and how many.
+     */
+    renumbered: (p: { from: string; to: string; n: number; count: string; noun: string; nouns: string }) => string;
     /** The status line once Delete has taken rows out (AD5). */
     deleted: (p: { n: number; count: string; noun: string; nouns: string }) => string;
     /** The status line once Undo has put deleted rows back (AD5). */
@@ -208,6 +213,8 @@ export const recordMessages: RecordMessages = {
     deleteTip: ({ n, count }) => (n === 0 ? "Tick rows to delete them" : `Delete ${count} selected`),
     added: ({ noun }) => `Added ${withArticle(noun)}`,
     cantAdd: ({ noun, label }) => `Can't add ${withArticle(noun)} — the app gives no ${label}`,
+    renumbered: ({ from, to, n, count, noun, nouns }) => (n === 1 ? `${from} was taken by another save — the new ${noun} is ${to}`
+        : `${count} new ${nouns} renumbered — their keys were taken by another save`),
     deleted: (p) => `Deleted ${counted(p)} · Apply writes it, Undo restores`,
     restored: (p) => `Restored ${counted(p)}`,
     undid: () => "Undid one change",

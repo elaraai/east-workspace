@@ -520,6 +520,11 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     noticeKeyTaken: (p: { key: string }) => string;
     /** The app's `newKey` threw (#1536): nothing was drafted. */
     noticeKeyFailed: (p: { reason: string }) => string;
+    /**
+     * New rows given new keys as they were saved (#1583): another save had added rows under the keys the sheet gave them —
+     * `J-104 was taken by another save — the new row is J-105`; `from` and `to` the first's keys, `n` how many.
+     */
+    noticeRenumbered: (p: { from: string; to: string; n: number; count: string }) => string;
     /** A new row, line or group (`noun`) the app left a field of empty, one no person can set (#1536) — `Can't add a row — the app gives no Serial`: nothing was drafted. */
     noticeCantAdd: (p: { what: "row" | "line" | "group"; noun: string; label: string }) => string;
 
@@ -937,6 +942,8 @@ export const sheetMessages: SheetMessages = {
     noticeNewGroup: ({ noun }) => `New ${noun}`,
     noticeKeyTaken: ({ key }) => `The new key ${key} is taken`,
     noticeKeyFailed: ({ reason }) => `No new key could be made — ${reason}`,
+    noticeRenumbered: ({ from, to, n, count }) => (n === 1 ? `${from} was taken by another save — the new row is ${to}`
+        : `${count} new rows renumbered — their keys were taken by another save`),
     noticeCantAdd: ({ what, noun, label }) => {
         const entry = what === "group" ? noun : what;
         return `Can't add ${/^[aeiou]/i.test(entry) ? "an" : "a"} ${entry} — the app gives no ${label}`;

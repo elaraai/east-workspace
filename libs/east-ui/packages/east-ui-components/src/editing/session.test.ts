@@ -758,6 +758,50 @@ test("a refused Save carried over again before it is sent again goes once, at th
     expect([dropped.session.pending, dropped.bases]).toEqual([0, ["r1"]]);
 });
 
+test("a new entry whose key another write added meanwhile goes on under a key its collection makes again — a new entry still, sent again with nothing to choose; with no new key, the two are a conflict (#1583)", async () => {
+    const adding = (rekey: EditSessionBinding<Bar>["rekey"]) => {
+        const sent: string[][] = [];
+        const session = new EditSession<Bar>({
+            sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, rekey,
+            apply: (bytes) => {
+                sent.push(decodeBeast2For(JobBatch)(bytes).changes.map((change) => change.id));
+                return sent.length === 1 ? lastConflict() : variant("applied", { revision: some("r3") });
+            },
+            patch: undefined, refresh: undefined,
+        });
+        session.observeBase(variant("revision", "r1"));
+        session.record([{ id: "J4", before: absentJob, after: job(spray) }], "insert", "Insert row");
+        return { session, sent };
+    };
+    // Another write added J4 before this Save of a new J4 landed: the record holds theirs there now.
+    const theirs = (id: string) => (id === "J4" ? some(route) : none);
+
+    const made = adding((id, version) => (id === "J4" ? { id: "J5", version: { ...version, wire: { key: "J5", caption: version.wire!.caption } } } : undefined));
+    await made.session.apply();
+    expect(made.session.status).toBe("conflict");
+    made.session.observeBase(variant("revision", "r2"));
+    expect(made.session.merge(variant("revision", "r2"), theirs)).toBe("merged");
+    // Mine goes on as J5, new to the record still; theirs stands as J4, and nothing waits to be chosen.
+    expect([...made.session.entries.keys()]).toEqual(["J5"]);
+    expect(made.session.originals.get("J5")!.draft).toBeUndefined();
+    expect(made.session.entries.get("J5")!.wire).toEqual({ key: "J5", caption: "6" });
+    expect([...made.session.renumbered]).toEqual([["J4", "J5"]]);
+    expect(made.session.unsettled).toBe(0);
+    await answered();
+    // Sent again by itself: J5 added.
+    expect([made.session.status, made.sent]).toEqual(["reconciling", [["J4"], ["J5"]]]);
+
+    // A key its collection did not make — a person's, or a seed's — makes no new one: the two are a conflict at the entry.
+    const given = adding(() => undefined);
+    await given.session.apply();
+    given.session.observeBase(variant("revision", "r2"));
+    expect(given.session.merge(variant("revision", "r2"), theirs)).toBe("merged");
+    expect([...given.session.entries.keys()]).toEqual(["J4"]);
+    expect([given.session.renumbered.size, given.session.unsettled]).toEqual([0, 1]);
+    await answered();
+    expect(given.sent).toEqual([["J4"]]);
+});
+
 // ── Drafts carried over a source that moved (#1438) ─────────────────────────
 
 const Bench = StructType({ name: StringType, jobs: DictType(StringType, IntegerType) });

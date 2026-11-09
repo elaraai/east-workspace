@@ -25,6 +25,7 @@ import { sheetOptimiseTypes, type SheetOptimiseRequest, type SheetOptimiseResult
 import type { LensGeometry, LensWords } from "./lens-layout.js";
 import { useRecordLens } from "./use-lens.js";
 import { initialSheetStore, sheetStoreReducer } from "./sheet-state.js";
+import { SheetRefused } from "./creation.js";
 import { useSheetEditing, type LocalLayer, type SheetRowsRead } from "./use-editing.js";
 import { useCellsFromData } from "./cells-from-data.js";
 import { useSheetDay } from "./day.js";
@@ -168,6 +169,17 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     const takenRef = useRef<() => Set<string>>(() => new Set());
     // A new line beside loose rows (#846) takes a minted id: the field a loose row is identified by, a key of the same rows.
     const mintLineId = useCallback(() => mintAmong(takenRef.current()), [mintAmong]);
+    // A new row whose key another write added meanwhile takes the sheet's next where the sheet minted the first (#1583). A
+    // key it did not mint — or none it can mint now, the app's `newKey` refusing — leaves the two rows to choose between.
+    const renumber = useCallback((id: string): string | undefined => {
+        if (!minted.current.has(id)) return undefined;
+        try {
+            return mintAmong(takenRef.current());
+        } catch (error) {
+            if (error instanceof SheetRefused) return undefined;
+            throw error;
+        }
+    }, [minted, mintAmong]);
     // The rows a key's far jump holds stand in, retained, until its rows replace them (#1398, CL10): the source's own
     // rows still, which the session holds, but they take no gesture.
     const keyHeld = !lensDrawn && paging.held;
@@ -182,8 +194,19 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
             before: (position) => position === undefined ? pagesStanding.length > 0 : pagesStanding.includes(Math.floor(position / SHEET_PAGE_SIZE)),
         };
     }, [decodedRows, lensDrawn, lens.revision, lens.readBefore, paging.revision, pagesStanding]);
-    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular, day, rowsRead);
+    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular, day, rowsRead, renumber);
     const session = editingState.session;
+    // A new row given a new key as the drafts carried over, another write having added its own (#1583): the footer says
+    // so, once — never again as the sheet mounts over a session that did so before.
+    const renumbered = session.renumbered;
+    const renumberedSaid = useRef(renumbered);
+    useLayoutEffect(() => {
+        if (renumberedSaid.current === renumbered) return;
+        renumberedSaid.current = renumbered;
+        const first = [...renumbered][0];
+        if (first === undefined) return;
+        dispatchStore({ t: "patch", patch: { msg: { id: "renumbered", from: first[0], to: first[1], n: renumbered.size } } });
+    }, [renumbered, dispatchStore]);
     // ── The app's optimiser (#1409, #1418) ────────────────────────────────
     // One run over the current tab's rows, its result landed on them as one edit (`use-assembled.tsx`, once the rows and their
     // versions are read); while the call is out the sheet holds its lock: no cell, row or field edit, no drop, no

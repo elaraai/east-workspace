@@ -15,7 +15,7 @@
  * @packageDocumentation
  */
 import { useCallback, useLayoutEffect, useMemo } from "react";
-import { OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isVariant, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, SheetEditingType } from "@elaraai/e3-ui/internal";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useEditSession } from "@elaraai/east-ui-components";
@@ -149,9 +149,11 @@ export interface SheetEditingResult {
  * @param rowsRead - How the rows were read, where they are read apart from a Save's confirmation — a paged source's
  *   pages, read again at the revision it committed: what the Save landed is drawn over the rows read before it until
  *   they are read again. Without it the rows are the source's as it is, and a Save's entries are theirs at once.
+ * @param renumber - A new key for a new row whose key another write added meanwhile (#1583): the sheet's next, where it
+ *   minted that one; `undefined` for a key it did not mint, and the two rows are a conflict to choose between
  * @returns The session, its layer and gesture recorder, the drafts, and whether editing is available
  */
-export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string, recordSlice?: ValueTypeOf<RecordSliceBindType>, replacing = false, retained = false, noun?: string, day?: Date, rowsRead?: SheetRowsRead): SheetEditingResult {
+export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string, recordSlice?: ValueTypeOf<RecordSliceBindType>, replacing = false, retained = false, noun?: string, day?: Date, rowsRead?: SheetRowsRead, renumber?: (id: string) => string | undefined): SheetEditingResult {
     const currentRows = replacing ? NO_ROWS : rows;
     const currentPositions = replacing ? NO_POSITIONS : positions;
     const editing = useMemo(() => recordSlice === undefined ? declared : { ...declared, sourceId: recordSlice.sourceId }, [declared, recordSlice]);
@@ -166,6 +168,22 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             return entry === undefined ? prior : decodeRow(editing.project(encodeEntry(entry), id)) as SheetRowValue;
         };
     }, [editing]);
+    // A new row whose key another write added meanwhile goes on under the key the sheet mints next, where it minted the
+    // first (#1583): its draft's identity field — where its draft holds one — and its row with it.
+    const rekey = useMemo(() => {
+        if (renumber === undefined) return undefined;
+        const idField = editing.idField.type === "some" ? editing.idField.value : undefined;
+        return (id: string, version: EntryVersion): { id: string; version: EntryVersion } | undefined => {
+            const next = renumber(id);
+            if (next === undefined) return undefined;
+            const held = version.draft;
+            const fields = (isVariant(held) ? held.value : held) as Record<string, unknown>;
+            const renamed = idField !== undefined && idField in fields ? { ...fields, [idField]: variant("value", next) } : fields;
+            const draft = isVariant(held) ? variant(held.type, renamed) : renamed;
+            const prior = version.wire === undefined ? undefined : { ...version.wire, id: next };
+            return { id: next, version: { draft, wire: wireOf(next, draft, prior), place: version.place } };
+        };
+    }, [renumber, editing, wireOf]);
     // Only a PINNED source names the revision a session's base is (#880): an
     // unpinned one leaves the session without a base, so nothing is drafted —
     // and the factory refuses such a source an apply.
@@ -176,7 +194,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
     }, [source, recordSlice]);
     const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
     const { session, observed, draftType, codecs, rowIndex, original: asRead, drafts, available, version } =
-        useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare, wireOf, drawsLanded: true, wireType: Sheet.Types.Row });
+        useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare, wireOf, drawsLanded: true, wireType: Sheet.Types.Row, rekey });
     // Each row's copies past its first: a window read again at a new revision beside one still standing from before it
     // holds a row twice where a change moved it from the one to the other.
     const copies = useMemo(() => {

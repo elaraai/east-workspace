@@ -167,6 +167,11 @@ export type SheetNotice =
     /** The app's `newKey` threw (#1536): why — the gesture drafted nothing. */
     | { id: "keyFailed"; reason: string }
     /**
+     * New rows given new keys, another write having added rows under the keys the sheet minted them (#1583): the first's
+     * key and its new one, and how many.
+     */
+    | { id: "renumbered"; from: string; to: string; n: number }
+    /**
      * A new entry the app's `newRow` or `newGroup` left a required field of empty, one no person can set (#1536): what
      * it would have been, the host's word for a group, and the field as the sheet labels it — the gesture drafted nothing.
      */

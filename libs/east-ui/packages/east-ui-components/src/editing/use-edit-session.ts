@@ -76,6 +76,12 @@ export interface EditSessionOptions<W> {
      * tab, the projection with them (keep.ts).
      */
     wireType?: EastType | undefined;
+    /**
+     * A new id for an entry the drafts add whose id another write added
+     * meanwhile — one the collection made itself (`EditSession.renumbered`).
+     * None by default: the two are a conflict.
+     */
+    rekey?: EditSessionBinding<W>["rekey"];
 }
 
 const entryOffsets = new WeakMap<object, Map<string, number>>();
@@ -96,7 +102,7 @@ const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: 
  * @returns The session; the base it observed; its schemas' codecs; each resident row's index; an entry's placement and original version; the encoded drafts; whether editing is available; and the session's version
  */
 export function useEditSession<W>(editing: EditingValue, source: EditSource<W> | undefined, rows: readonly W[], positions: readonly number[], storageKey: string, options: EditSessionOptions<W>) {
-    const { idOf, ready, prepare, wireOf, carryOver, drawsLanded, wireType } = options;
+    const { idOf, ready, prepare, wireOf, carryOver, drawsLanded, wireType, rekey } = options;
     const store = getStore();
     const entryType = useMemo(() => fromEastTypeValue(editing.entryType), [editing.entryType]);
     const draftType = useMemo((): EastType => fromEastTypeValue(editing.draftType), [editing.draftType]);
@@ -107,8 +113,8 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
     // The data set its host names: another's source of the same name holds sessions and drafts of its own.
     const scope = useEditingScope();
     const sourceSessions = useMemo(() => sourceSessionsOf(store, scope, sourceId), [store, scope, sourceId]);
-    const binding = useMemo(() => ({ ...bindingOf<W>(editing, { entryType, draftType, keyType }, ready, source?.refresh), prepare, wireOf, carryOver, drawsLanded }),
-        [entryType, draftType, keyType, editing, source, ready, prepare, wireOf, carryOver, drawsLanded]);
+    const binding = useMemo(() => ({ ...bindingOf<W>(editing, { entryType, draftType, keyType }, ready, source?.refresh), prepare, wireOf, carryOver, drawsLanded, rekey }),
+        [entryType, draftType, keyType, editing, source, ready, prepare, wireOf, carryOver, drawsLanded, rekey]);
     const schemaKey = useMemo(() => sessionKeyOf(storageKey, editing.entryType, editing.draftType), [storageKey, editing.entryType, editing.draftType]);
     const session = useMemo(() => keptSession<W>(sourceSessions, schemaKey, () => {
         const next = new EditSession<W>(binding);

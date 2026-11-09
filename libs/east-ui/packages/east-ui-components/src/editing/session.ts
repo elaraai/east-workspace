@@ -393,6 +393,15 @@ export interface EditSessionBinding<W> {
      * by default, and nothing is held.
      */
     drawsLanded?: boolean | undefined;
+    /**
+     * A new identity for an entry the drafts add whose id the source has come
+     * to hold as another's — added meanwhile by another write (#1583): given
+     * the entry's id and its version, the id it goes on under and its version
+     * there, a new entry still ({@link EditSession.renumbered}). Only for an id
+     * the collection made itself: `undefined` — an id a person or a seed gave —
+     * keeps the two a conflict to choose between. None by default.
+     */
+    rekey?: ((id: string, version: EntryVersion<W>) => { readonly id: string; readonly version: EntryVersion<W> } | undefined) | undefined;
 }
 
 /** An entry a request changes: as its edit began, and as the request leaves it — `none` while it is absent. */
@@ -615,6 +624,8 @@ export class EditSession<W> {
     private confirmReason: string | undefined;
     /** What a Save landed that the host's rows may not show yet ({@link EditSession.landed}). */
     private landedEntries = new Map<string, LandedEntry<W>>();
+    /** Each new entry the last carry-over gave a new id, by the id it had ({@link EditSession.renumbered}). */
+    private renumberedIds: ReadonlyMap<string, string> = new Map();
     /** Each drafted entry's view, by its original and its draft: the same object while both hold (#1437). */
     private draftedViews = new WeakMap<EntryVersion<W>, WeakMap<EntryVersion<W>, DraftedEntry<W>>>();
     /** The drafts as last read, at the session's version and base: the same object while neither moves (#1437). */
@@ -859,6 +870,14 @@ export class EditSession<W> {
      * a host that draws them ({@link EditSessionBinding.drawsLanded}).
      */
     get landed(): ReadonlyMap<string, LandedEntry<W>> { return this.landedEntries; }
+    /**
+     * Each new entry the last carry-over gave a new id, by the id it had
+     * (#1583): the source had come to hold that one as another's, and the
+     * collection made the entry another ({@link EditSessionBinding.rekey}).
+     * A new map at each carry-over — empty where none was — so a host says so
+     * once.
+     */
+    get renumbered(): ReadonlyMap<string, string> { return this.renumberedIds; }
 
     /**
      * The host's rows show these entries as the source holds them now — read
@@ -1098,9 +1117,12 @@ export class EditSession<W> {
      * is settled ({@link EditSession.settle}), and Save waits. An entry whose
      * draft the source's value now holds whole is no draft any more. The
      * history starts over at the drafts: an undo would take an entry back to
-     * its version at the old base. A Save the source refused because another
-     * write got there first is sent again, once its drafts carry over with
-     * nothing to choose — a few times in a row at most ({@link RESENDS}).
+     * its version at the old base. A new entry whose id the source has come to
+     * hold as another's goes on under a new id, where its collection makes one
+     * ({@link EditSessionBinding.rekey}), and is no conflict. A Save the
+     * source refused because another write got there first is sent again,
+     * once its drafts carry over with nothing to choose — a few times in a row
+     * at most ({@link RESENDS}).
      *
      * @param base - The base the source moved to
      * @param read - Each drafted entry, as the source holds it at that base: `none` for one it does not hold, `undefined`
@@ -1127,9 +1149,19 @@ export class EditSession<W> {
         const baseline = new Map<string, EntryVersion<W>>();
         const current = new Map<string, EntryVersion<W>>();
         const ancestors = new Map<string, option<unknown>>();
+        const renumbered = new Map<string, string>();
         for (const [id, mine] of this.current) {
             const original = this.baseline.get(id) ?? ABSENT;
             const now = carrying.read.get(id)!;
+            // A new entry whose id another write added meanwhile is a second new entry, not the same one changed both
+            // ways: either choice between them would lose one. Where the collection made the id, it makes another.
+            const moved = original.draft === undefined && mine.draft !== undefined && now.type === "some" ? this.binding.rekey?.(id, mine) : undefined;
+            if (moved !== undefined && !this.current.has(moved.id) && !current.has(moved.id)) {
+                baseline.set(moved.id, ABSENT);
+                current.set(moved.id, moved.version);
+                renumbered.set(id, moved.id);
+                continue;
+            }
             const source: option<unknown> = now.type === "some" ? some(liftDraft(this.binding.draftType, now.value)) : none;
             const merged = this.merger.merge(this.ancestors.get(id) ?? draftOf(original), draftOf(mine), source, this.joined);
             // A draft the source's value holds whole is a draft no more.
@@ -1143,6 +1175,7 @@ export class EditSession<W> {
         const refused = this.status === "conflict";
         this.base = this.cloneBase(base);
         this.baseline = baseline; this.current = current; this.ancestors = ancestors; this.forgetConflicts(); this.said = said;
+        this.renumberedIds = renumbered;
         this.moving = undefined;
         this.history = []; this.cursor = 0;
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;

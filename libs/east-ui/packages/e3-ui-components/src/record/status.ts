@@ -191,6 +191,7 @@ export function recordNoticeText(notice: SheetNotice, words: SheetWords, noun: R
             return notice.what !== "rows" ? noticeText(notice, words)
                 : m.deleted({ n: notice.n, count: words.number(notice.n), noun: noun.singular, nouns: noun.plural });
         case "cantAdd": return notice.what === "row" ? m.cantAdd({ noun: noun.singular, label: notice.label }) : noticeText(notice, words);
+        case "renumbered": return m.renumbered({ from: notice.from, to: notice.to, n: notice.n, count: words.number(notice.n), noun: noun.singular, nouns: noun.plural });
         case "issue": {
             // The issues holding Apply: a new row's empty fields alone, or the app's refusals among them (AD3).
             if (issues.length === 0) return noticeText(notice, words);
