@@ -21,7 +21,7 @@
  * | `checkbox` | `Checkbox` |
  * | `datetime` | `DateTimeInput` |
  * | `select` | `RadioGroup` of the variant's cases while it has up to four, Not set first for an Option (#1473); `Select` past four; a case holding data, its fields in a block under the choice |
- * | `reference` | `Select` of the host's choices for its keyed set, Unassigned first for an Option; a key held as its text — a String as itself, any other key as East prints it, read back at the field's type |
+ * | `reference` | `Select` of the host's choices for its keyed set, Unassigned first for an Option — a String field's in the order the host gives them, any other field's in its keys' order at its type, never their text's (#1584); a key held as its text — a String as itself, any other key as East prints it, read back at the field's type — and a choice that reads as none of the field's values, chosen, saying so under the field |
  * | `tags` | `TagsInput`, its options suggested; a Set field's values held once, in East's order |
  * | `checklist` | a `StringInput` adding an item on Enter, the items done of all in the help line, and a `Checkbox` per item, labelled with its text, each with its remove |
  * | `readonly` | the value printed, in a read-only `StringInput` |
@@ -85,7 +85,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
@@ -140,7 +140,11 @@ export interface FieldFormProps {
     value: unknown;
     /** What the drafts began from: a field that differs from it is tinted. */
     baseline?: unknown;
-    /** The host's choices for each `reference` editor, by the keyed set it names (`of`). */
+    /**
+     * The host's choices for each `reference` editor, by the keyed set it names (`of`): a String field offers them in
+     * the order given — a register's in its app's order, a kind's keys in their order at its key type, the host's to
+     * order — and a field of any other type in its keys' order at that type, each key read once.
+     */
     options?: Readonly<Record<string, readonly FieldOption[]>> | undefined;
     /** Told each edit: the field's path, and its new value, typed as the field — an Option's `some` or `none`. */
     onChange: (path: readonly string[], value: unknown) => void;
@@ -209,6 +213,7 @@ const compareFloats = compareFor(FloatType);
 const NONE_CHOICE = "\u0000none";
 
 const NO_OPTIONS: Readonly<Record<string, readonly FieldOption[]>> = {};
+const NO_CHOICES: readonly FieldOption[] = [];
 const NO_SPECS: readonly FieldSpecValue[] = [];
 
 /** What takes the keyboard in a field: the first control in it that takes it. */
@@ -570,9 +575,25 @@ const FieldRow = memo(function FieldRow({
         : current === undefined || base === undefined ? current !== base : !stringEqual((current as variant).type, (base as variant).type));
     const key = spec.path.join(".");
     const editor = spec.editor;
-    // A reference's key by its text: a String as itself, a key of any other type as East prints it and reads it back.
+    // A reference's key by its text: a String as itself, a key of any other type as East prints it, reads it back and
+    // orders it.
     const keyText = useMemo(() => (editor.type !== "reference" || isTypeEqual(inner, StringType) ? undefined
-        : { print: printFor(inner), parse: parseFor(inner) }), [editor.type, inner]);
+        : { print: printFor(inner), parse: parseFor(inner), compare: compareFor(inner) as (a: unknown, b: unknown) => number }), [editor.type, inner]);
+    // A reference's choices as its select offers them: a String field's in the host's order; any other field's each read
+    // at its type once and in its keys' order there — never their text's, where 10 comes before 9 — a choice that reads as
+    // none of its values after every one that does, in its text's order.
+    const listed = editor.type === "reference" ? options[editor.value.of] : undefined;
+    const offered = useMemo((): readonly FieldOption[] => {
+        if (listed === undefined || keyText === undefined) return listed ?? NO_CHOICES;
+        return listed.map((choice) => {
+            const read = keyText.parse(choice.key);
+            return read.success ? { choice, reads: true, key: read.value as unknown } : { choice, reads: false, key: undefined };
+        }).sort((a, b) => (a.reads && b.reads ? keyText.compare(a.key, b.key) : a.reads ? -1 : b.reads ? 1 : compareStrings(a.choice.key, b.choice.key)))
+            .map(({ choice }) => choice);
+    }, [listed, keyText]);
+    // A choice chosen whose key reads as none of the field's values: no edit, and the field says why under it — until
+    // another choice, or a new value from the host.
+    const [unheld, setUnheld] = useState<string | undefined>(undefined);
     // A control the host draws itself, in the field.
     const own = renderControl?.(spec);
     // Read-only, a value is printed; tags and a checklist keep their shape.
@@ -589,7 +610,10 @@ const FieldRow = memo(function FieldRow({
     // it. A new value from the host drops it too: the input shows that one.
     const pending = useRef<{ value: unknown } | undefined>(undefined);
     const [revision, setRevision] = useState(0);
-    useValueSync(current, same, () => { pending.current = undefined; });
+    useValueSync(current, same, () => {
+        pending.current = undefined;
+        setUnheld(undefined);
+    });
     // Live, each typed edit is told at once (`FieldFormProps.live`).
     const hold = useCallback((next: unknown) => { if (live) emit(next); else pending.current = { value: next }; }, [live, emit]);
     const commit = useCallback(() => {
@@ -616,6 +640,14 @@ const FieldRow = memo(function FieldRow({
         box?.focus();
         if (box instanceof HTMLInputElement || box instanceof HTMLTextAreaElement) box.select();
     }, [held]);
+    // A reference's choice it can't hold: the field drawn afresh — its select, which keeps the choice last made, showing
+    // the key the field holds again — and the keyboard back on its control.
+    const refocus = useRef(false);
+    useLayoutEffect(() => {
+        if (!refocus.current) return;
+        refocus.current = false;
+        fieldRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+    }, [revision]);
     // An Option's Clear, beside a line's choices or an input that cannot show none.
     const clear = (
         <chakra.button type="button" css={iconButton({ variant: "ghost", size: "xs" })} aria-label={m.clear({ label: spec.label })}
@@ -771,25 +803,29 @@ const FieldRow = memo(function FieldRow({
                     style: SELECT_STYLE,
                 });
             case "reference": {
-                const listed = options[editor.value.of] ?? [];
                 const at = held === undefined ? undefined : keyText === undefined ? held as string : keyText.print(held);
                 // A key the host does not list still shows, as itself.
-                const unlisted = at !== undefined && !listed.some((o) => stringEqual(o.key, at));
+                const unlisted = at !== undefined && !offered.some((o) => stringEqual(o.key, at));
                 return variant("Select", {
                     ...SELECT,
                     value: at !== undefined ? some(at) : spec.optional ? some(NONE_CHOICE) : none,
                     items: [
                         ...(spec.optional ? [{ value: NONE_CHOICE, label: m.unassigned(), disabled: none }] : []),
-                        ...listed.map((o) => ({ value: o.key, label: o.label, disabled: none })),
+                        ...offered.map((o) => ({ value: o.key, label: o.label, disabled: none })),
                         ...(unlisted ? [{ value: at, label: at.length === 0 ? m.noValue() : at, disabled: none }] : []),
                     ],
-                    // The key chosen, read back at the field's type from its text: one that does not read is no edit.
+                    // The key chosen, read back at the field's type from its text: one that does not read is no edit, and
+                    // the field says why.
                     onChange: some((next: string) => {
-                        if (stringEqual(next, NONE_CHOICE) || keyText === undefined) emit(stringEqual(next, NONE_CHOICE) ? undefined : next);
-                        else {
-                            const read = keyText.parse(next);
-                            if (read.success) emit(read.value);
+                        const read = stringEqual(next, NONE_CHOICE) || keyText === undefined ? undefined : keyText.parse(next);
+                        if (read !== undefined && !read.success) {
+                            setUnheld(next);
+                            refocus.current = true;
+                            setRevision((r) => r + 1);
+                            return null;
                         }
+                        setUnheld(undefined);
+                        emit(stringEqual(next, NONE_CHOICE) ? undefined : read === undefined ? next : read.value);
                         return null;
                     }),
                     style: SELECT_STYLE,
@@ -840,11 +876,20 @@ const FieldRow = memo(function FieldRow({
         editor.type === "number" && !printed ? numberLine(editor.value, words) : undefined,
         checklist !== undefined && !readOnly && held !== undefined ? m.checklistCount({ done: words.number(done), total: words.number(items.length) }) : undefined,
     ].filter((part): part is string => part !== undefined && part.length > 0);
+    // Why the choice chosen changed nothing: its key reads as none of the field's values — what the field holds, in words.
+    const refusal = unheld === undefined || printed || own !== undefined ? undefined : m.unheld({
+        choice: offered.find((o) => stringEqual(o.key, unheld))?.label ?? unheld,
+        label: spec.label,
+        holds: isTypeEqual(inner, IntegerType) ? "integer" : isTypeEqual(inner, FloatType) ? "float" : isTypeEqual(inner, DateTimeType) ? "datetime"
+            : isTypeEqual(inner, BooleanType) ? "boolean" : "other",
+    });
     const field: FieldValue = {
         ...FIELD,
         label: spec.label,
         control,
         helperText: help.length === 0 ? none : some(help.join(" · ")),
+        errorText: refusal === undefined ? none : some(refusal),
+        invalid: refusal === undefined ? none : some(true),
         readOnly: printed || readOnly ? some(true) : none,
         style: some(FIELD_STYLE),
     };

@@ -37,7 +37,8 @@
  * type goes. A recursive type is printed whole, and so is a variant with a
  * case holding one, which no default starts. `Fields.reference` names a keyed
  * set's key in a field of any type a Dict may be keyed by, or an Option of
- * one: its choices are the keys' text.
+ * one: its choices are the keys' text, in their keys' order at the field's
+ * type — a String field's in the host's.
  *
  * A field's type is told by East's own `isTypeEqual`.
  *
@@ -374,7 +375,10 @@ export function fieldChecklist(options: FieldHintOptions & { readonly text?: str
  * A field holding a key of a keyed set the host lists, of any type a Dict may
  * be keyed by: a select of the host's choices for `of`, each a key's text,
  * with Unassigned first for an `Option`. The key chosen is held at the
- * field's type, read from its text.
+ * field's type, read from its text. A String field offers the choices in the
+ * host's order; a field of any other type in its keys' order at that type,
+ * never their text's — a choice whose text reads as none of its values last,
+ * and, chosen, no edit: the field says why under it.
  *
  * @param options - The keyed set's name, the field's label and a line under it
  * @returns The hint

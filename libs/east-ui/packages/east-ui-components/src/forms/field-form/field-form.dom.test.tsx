@@ -940,6 +940,65 @@ describe("FieldForm — a variant whose cases hold data, a block under its choic
     });
 });
 
+describe("FieldForm — a reference's choices in their keys' order, and a choice its field can't hold said so (#1584)", () => {
+    // A piece's bench and its spare keyed by number, the host listing the benches out of order and one by no number; its
+    // crew keyed by String.
+    const Placed = StructType({ bench: IntegerType, spare: OptionType(IntegerType), crew: StringType });
+    const PLACED_SPECS = Fields.specs(Placed, {
+        bench: Fields.reference({ of: "benches" }),
+        spare: Fields.reference({ of: "benches", label: "Spare bench" }),
+        crew: Fields.reference({ of: "crews" }),
+    });
+    const OPTIONS = {
+        benches: [{ key: "10", label: "Bench 10" }, { key: "B-1", label: "Back bench" }, { key: "2", label: "Bench 2" }, { key: "9", label: "Bench 9" }],
+        crews: [{ key: "north", label: "North" }, { key: "east", label: "East" }],
+    };
+
+    function mountPlaced() {
+        const edits: Edit[] = [];
+        function Host() {
+            const [current, setValue] = useState<Record<string, unknown>>({ bench: 9n, spare: none, crew: "north" });
+            return (
+                <FieldForm specs={PLACED_SPECS} value={current} options={OPTIONS}
+                    onChange={(path, next) => { edits.push({ path: path.join("."), value: next }); setValue((v) => setAt(v, path, next)); }} />
+            );
+        }
+        const utils = render(<ChakraProvider value={system}><I18nProvider locale={LOCALE}><Host /></I18nProvider></ChakraProvider>);
+        const field = (key: string) => utils.container.querySelector<HTMLElement>(`[data-field="${key}"]`)!;
+        return { ...utils, edits, field };
+    }
+    /** What a field says under it of a choice that changed nothing. */
+    const refusalOf = (el: HTMLElement) => el.querySelector("[data-scope=field][data-part=error-text]")?.textContent;
+
+    test("an Integer field's choices in number order, never their text's — one keyed by no number after them; a String field's as the host gives them", async () => {
+        const { field, edits } = mountPlaced();
+        expect(await open(field("bench"))).toEqual(["Bench 2", "Bench 9", "Bench 10", "Back bench"]);
+        await choose("Bench 9");
+        expect(await open(field("spare"))).toEqual(["Unassigned", "Bench 2", "Bench 9", "Bench 10", "Back bench"]);
+        await choose("Unassigned");
+        expect(await open(field("crew"))).toEqual(["North", "East"]);
+        await choose("North");
+        // Each the choice the field held: no edit.
+        expect(edits).toEqual([]);
+    });
+
+    test("a choice whose key the field can't hold is no edit, and the field says why under it, the key it holds still chosen — until a choice it holds is made", async () => {
+        const { field, edits } = mountPlaced();
+        expect(refusalOf(field("bench"))).toBeUndefined();
+        await open(field("bench"));
+        await choose("Back bench");
+        expect(edits).toEqual([]);
+        expect(refusalOf(field("bench"))).toBe("Can't choose Back bench — Bench holds whole numbers");
+        expect(field("bench").querySelector("[data-scope=field][data-part=root]")!.hasAttribute("data-invalid")).toBe(true);
+        expect(chosenOf(field, "bench")).toBe("Bench 9");
+        expect(field("bench").contains(document.activeElement)).toBe(true);
+        await open(field("bench"));
+        await choose("Bench 10");
+        expectEdit(edits, "bench", equalFor(IntegerType), 10n);
+        expect(refusalOf(field("bench"))).toBeUndefined();
+    });
+});
+
 /**
  * The names a field's controls of a role are given, as assistive technology reads them: of the controls the query
  * returns — its name test also sees the ones it then drops as hidden, a select's native `<select>`.
