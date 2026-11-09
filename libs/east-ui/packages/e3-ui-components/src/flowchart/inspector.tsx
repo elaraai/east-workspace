@@ -740,7 +740,7 @@ function StateView(props: RowViewProps) {
             <FlowchartPaneReads styles={styles} kind={props.details.states} at={at} words={words} />
             <Edits styles={styles} available={side.available} actions={actions}>
                 <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.states`} roles={(
-                    <Box data-inspector-form="roles">
+                    <Box css={styles.roleForms} data-inspector-form="roles">
                         <KeyForm styles={styles} keyField={key} draft={draft} keyed={keyed} refused={refused} words={words}
                             baseline={created || stored === undefined ? NEW_ROW : { key: keys.keyOf(at) }} writes={side.writes} />
                         <FieldForm key={refused} specs={specs} value={{ label: roles.label, lane: getSomeorUndefined(roles.lane) }}
@@ -831,7 +831,7 @@ function LinkView(props: RowViewProps) {
             <FlowchartPaneReads styles={styles} kind={props.details.transitions} at={at} words={words} />
             <Edits styles={styles} available={side.available} actions={actions}>
                 <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.transitions`} roles={(
-                    <Box data-inspector-form="roles">
+                    <Box css={styles.roleForms} data-inspector-form="roles">
                         <FieldForm key={refused} specs={specs} value={{ from: roles.from, to: roles.to, decision: roles.decision }}
                             baseline={side.state.created || stored === undefined ? NEW_ROW : { from: stored.from, to: stored.to, decision: stored.decision }}
                             options={options} onChange={side.writes ? onRole : NO_EDIT} readOnly={!side.writes} words={decisionWords} />
@@ -897,7 +897,7 @@ function DecisionView(props: RowViewProps) {
                 name={trigger.label.length === 0 ? undefined : trigger.label} chips={side.state.chip === undefined ? [] : [side.state.chip]} />
             <Edits styles={styles} available={side.available} actions={actions}>
                 <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.decisions`} roles={(
-                    <Box data-inspector-form="roles">
+                    <Box css={styles.roleForms} data-inspector-form="roles">
                         <FieldForm specs={specs} value={{ key: at }} onChange={NO_EDIT} readOnly />
                     </Box>
                 )} />
@@ -947,7 +947,7 @@ function LaneView(props: RowViewProps) {
                 chips={side.state.chip === undefined ? [] : [side.state.chip]} />
             <Edits styles={styles} available={side.available} actions={actions}>
                 <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.lanes`} roles={(
-                    <Box data-inspector-form="roles">
+                    <Box css={styles.roleForms} data-inspector-form="roles">
                         <KeyForm styles={styles} keyField={key} draft={draft} keyed={keyed} refused={refused} words={words}
                             baseline={created || stored === undefined ? NEW_ROW : { key: keys.keyOf(at) }} writes={side.writes} />
                         <FieldForm key={refused} specs={specs} value={{ label: lane.roles.label }}

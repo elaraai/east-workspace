@@ -163,14 +163,15 @@ for (const theme of RECORD_THEMES) {
         // IN5: none checked while unset.
         await expect(row.locator('[data-part="item-control"][data-state="checked"]')).toHaveCount(0);
 
-        // IN9: the Issues tab — each issue its row's place and its field, mono in capitals in the subtle ink, over its message.
+        // IN9: the Issues tab — each issue its row by its title and its field, mono in capitals in the subtle ink, over its message;
+        // a new row with no title yet is New and the record's noun.
         await pane.getByRole("tab", { name: /^Issues/ }).click();
         const lines = open.locator("[data-inspector-issue]");
         await expect(lines).toHaveCount(n);
         const nights = lines.filter({ hasText: "· Nights" });
         const said = await looks(nights, { where: ":scope > :first-child", message: ":scope > [data-kind]" });
         expect([said.where?.text, said.where?.family, said.where?.size, said.where?.caps, said.where?.ink], theme)
-            .toEqual([expect.stringMatching(/^row \d+ · Nights$/), t.mono, t.size["label-sm"], "uppercase", t.c["fg-subtle"]]);
+            .toEqual(["New person · Nights", t.mono, t.size["label-sm"], "uppercase", t.c["fg-subtle"]]);
         expect([said.message?.text, said.message?.ink], theme).toEqual(["Required", t.c["fg-warning"]]);
         // A press on one: the ring on its cell, Details open, the keyboard in its field.
         await nights.click();

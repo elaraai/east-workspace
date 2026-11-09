@@ -71,7 +71,7 @@ export const flowchartInspectorSlotRecipe = defineSlotRecipe({
     className: "elara-flowchart-inspector",
     slots: [
         ...inspectorSlots,
-        "edits", "rowForms", "custom", "section", "fact", "why",
+        "edits", "rowForms", "roleForms", "custom", "section", "fact", "why",
         "links", "linkGroup", "link", "linkText", "linkMeta", "linkVolume",
         "reads", "readsWeighed", "readStats", "readStat", "readStatLine", "readStatValue", "readStatUnit", "readStatLabel",
         "read", "readHead", "readTitle", "readTotal", "readTags", "tag",
@@ -99,6 +99,9 @@ export const flowchartInspectorSlotRecipe = defineSlotRecipe({
         edits: { border: "0", padding: "0", margin: "0", minWidth: 0, display: "flex", flexDirection: "column" },
         /* A row's fields: its roles' form over its kind's form, as one part — the two spaced as one form's fields are. */
         rowForms: { ...INSPECTOR_SECTION, gap: "{spacing.4}" },
+        /* A row's roles: its key's form — and a key of several parts' Set key — over the roles' own, spaced as one form's
+         * fields are, so a changed field's tint never meets the field beside it. */
+        roleForms: { display: "flex", flexDirection: "column", gap: "{spacing.4}", minWidth: 0 },
         /* The author's own Details, in place of the kind's form. */
         custom: { ...INSPECTOR_SECTION, gap: "{spacing.2}" },
         /* A part under the form: a row's transitions, a lane's states, the flowchart's split and its last saves, a
