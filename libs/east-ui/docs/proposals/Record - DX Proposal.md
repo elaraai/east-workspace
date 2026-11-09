@@ -92,7 +92,7 @@ Each builder takes the row type first and returns a column checked against its f
 | person | `Record.column.person(R, register, cfg)` | `String`, `Option<String>` | Menu of the register's people, typed by name (§2.8) · neutral initials, never a colour per person |
 | toggle | `Record.column.toggle(R, cfg)` | `Boolean` | Click or space flips · its two words |
 | cycle | `Record.column.cycle(R, register, cfg)` | `String` | Click → next · ⇧-click → previous · a member's label or alias sets · ⌫ the first state |
-| age | `Record.column.age(R, cfg)` | its own key | Read only · whole days (or `unit`) since `since`, to the browser's now · warns at `stale` |
+| age | `Record.column.age(R, cfg)` | its own key | Read only · days (or `unit`) since `since`: days and weeks to the viewer's own day, turning over at their midnight; hours elapsed, to the browser's clock · warns at `stale` |
 | audit | `Record.column.audit(R, cfg)` | `Record.Types.Change`, `Option<Change>` | Read only · the last change: its date, or its date, verb and who · Pending while the row holds drafts |
 
 `Record.column.lookup`, `link` and `custom` are not offered: a Record has no driver, and the link grammar is the Sheet's planning surface.
@@ -178,7 +178,7 @@ A solution that wants an audit trail adds a field of this type, or its `Option`,
 `age` has two halves:
 
 - **`since`, from the row:** an accessor that the factory compiles once and projects into the cell (`EAST_UI_PROP_PATTERNS` §3), as a date column's `actual` is.
-- **`now`, from the browser.** The factory compiles the elapsed count, `(since, now) => Integer`, whole `unit`s from `since` to `now` rounded down, into the column's kind. The renderer calls it for each age cell it draws, with the browser's clock read once per render. It reads the clock again each minute, so a day that turns over moves every age cell, the stale dots, the footer's stale count and the inspector's facts together.
+- **`now`, from the browser.** The factory compiles the count, `(since, now) => Integer`, into the column's kind. Days and weeks are the calendar's: they count from `since`'s date to the viewer's own day, so a count turns over at the viewer's midnight, whatever time of day `since` holds. Hours stay elapsed time: whole hours from `since` to the browser's clock, rounded down. The renderer calls it for each age cell it draws, with the browser's clock read once per render, and its day where the viewer is. It reads the clock again each minute, so a day that turns over moves every age cell, the stale dots, the footer's stale count and the inspector's facts together.
 
 So the payload never holds a clock's reading, and the count is East's (`durationMilliseconds`), never JavaScript date arithmetic.
 
