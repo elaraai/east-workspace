@@ -363,6 +363,18 @@ describe("the bakery's line: each kind keyed by its own type, every key as its t
         assert.equal(rules.unqueue.value(rule, "Mix").type, "none", "\"Mix\" is no step's number");
     });
 
+    test("a step's number retyped moves it in each rule's queue, both numbers read back from their text; a step not queued, or a text no step's number prints as, writes nothing", () => {
+        if (bakery.decisions.type !== "some") assert.fail("the rules cross");
+        const rules = bakery.decisions.value;
+        if (rules.requeue.type !== "some") assert.fail("a queue follows a step's new number");
+        const rule = ruleBytes({ name: "Proof first", queue: new Set([9n, 10n]) });
+        const out = rules.requeue.value(rule, "10", "12");
+        if (out.type !== "some") assert.fail("step 10 was queued");
+        assert.ok(ruleEqual(ruleOf(out.value), { name: "Proof first", queue: new Set([9n, 12n]) }));
+        assert.equal(rules.requeue.value(rule, "11", "12").type, "none", "a step not queued: nothing to write");
+        assert.equal(rules.requeue.value(rule, "10", "Mix").type, "none", "\"Mix\" is no step's number");
+    });
+
     test("the details: keyed as the steps are, read whole by their numbers' text", () => {
         if (bakery.states.details.type !== "some") assert.fail("the steps' details cross");
         const details = bakery.states.details.value;

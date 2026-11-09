@@ -90,7 +90,7 @@ export type SheetFieldType = typeof SheetFieldType;
  * @property type - The struct the form edits — the row (a grouped sheet's line), or the group
  * @property fields - Its fields: the hinted first, in hint order, then the rest in declared order
  * @property columns - The struct's fields its editable columns write — a column's own, a link's other half — whatever the form shows: a whole-row write sets these through `encode`
- * @property readonly - The struct's fields its read-only columns show — a stamped code, a `value` projection, a column `editable: false` — which a whole-row write leaves as they are, as the grid does; every other field a whole-row write sets on the draft
+ * @property readonly - The struct's fields its read-only columns show — a stamped code, a `value` projection, a column `editable: false` — and the fields columns from data write, through their members' cells alone: a whole-row write leaves these as they are, as the grid does; every other field a whole-row write sets on the draft
  * @property encode - A `Sheet.Types.Patch` of the struct, encoded (beast2) → the cells it sets through the sheet's editable columns (or the band's cells)
  */
 export const SheetFormType = StructType({
@@ -282,13 +282,15 @@ function formFields(
 /**
  * The fields a whole-row write sets through the columns — the fields `encode`
  * writes: an editable column's own and a link's other half — and the fields
- * it leaves, under the read-only columns.
+ * it leaves: those under the read-only columns, and those columns from data
+ * write, whose members' cells alone write them, through the columns' `write`
+ * and past their marks' locks.
  */
-function columnFields(metas: readonly SheetColumnMeta[]): { columns: string[]; readonly: string[] } {
+function columnFields(metas: readonly SheetColumnMeta[], data: readonly SheetColumnMeta[] = []): { columns: string[]; readonly: string[] } {
     const writes = (m: SheetColumnMeta) => m.editable && m.derived === undefined;
     const columns = new Set(metas.filter(writes).flatMap((m) => (m.otherField !== undefined ? [m.field, m.otherField] : [m.field])));
     // An age column shows no field of the struct: nothing of it to leave as it is.
-    const readonly = new Set(metas.filter((m) => !writes(m) && m.kind !== "age" && !columns.has(m.field)).map((m) => m.field));
+    const readonly = new Set([...metas.filter((m) => !writes(m) && m.kind !== "age" && !columns.has(m.field)).map((m) => m.field), ...data.map((m) => m.field)]);
     return { columns: [...columns], readonly: [...readonly] };
 }
 
@@ -338,7 +340,7 @@ export function buildForms(
     const row = East.value({
         type: toEastTypeValue(bridge.lineType),
         fields: formFields(bridge.lineType, new Map(metas.map((m) => [m.field, m])), hints ?? {}, lineLeave, "fields", named, fromData),
-        ...columnFields(metas),
+        ...columnFields(metas, data),
         encode: encodeOf(bridge.patchType, bridge.encodePatch),
     }, SheetFormType);
     if (groupHalf === undefined) return East.value({ row, group: none }, SheetFormsType);

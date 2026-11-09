@@ -165,7 +165,7 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                             const meta = metaAt(r, c);
                             // A cell that edits out of place is cleared where it edits, never in the grid (#1531); a locked cell,
                             // or one whose value isn't an option, is never cleared (#1560).
-                            if (meta === undefined || meta.kind === "stamped" || meta.kind === "action" || editsOutOfPlace(meta) || !writableAt(r, c) || !takesClear(meta) || !canEdit) continue;
+                            if (meta === undefined || meta.kind === "stamped" || meta.kind === "action" || editsOutOfPlace(meta, hostGrid) || !writableAt(r, c) || !takesClear(meta) || !canEdit) continue;
                             if (cellIsBlank(cellAt(r, c))) continue;
                             writes.push({ r, c, cell: NULL_CELL });
                         }
@@ -223,7 +223,7 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                         if (meta === undefined) continue;
                         // An action cell takes no paste (T7); a cell that edits out of place takes it where it edits (#1531).
                         if (meta.kind === "action") { actions += 1; continue; }
-                        if (editsOutOfPlace(meta)) { skipped += 1; continue; }
+                        if (editsOutOfPlace(meta, hostGrid)) { skipped += 1; continue; }
                         const r = eff.r + p.dr;
                         const outcome = parseCell(meta, p.text, parseCtxFor(Math.min(r, blankR ?? r), meta));
                         const cell = outcome.kind === "unrecognised" ? variant("Invalid", p.text) : outcome.kind === "cell" ? outcome.cell : NULL_CELL;

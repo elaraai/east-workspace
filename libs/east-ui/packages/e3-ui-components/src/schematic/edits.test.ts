@@ -15,7 +15,8 @@
  * pairs a change of a net's sides newly joins — an open net's new member's, an
  * Extend's (#1394); and a new row's key as its kind makes it, a gesture
  * naming an item still waiting for its key refused, and a row whose key its
- * fields build following them, what names it with it (#1549). Fixtures are
+ * fields build following them, what names it with it — and what names a new
+ * item following the key typed for it (#1549). Fixtures are
  * real East values typed from the Schematic's East types; each gesture's
  * edits are compared as East prints them.
  */
@@ -542,6 +543,20 @@ describe("a key built from the row follows the row (#1549)", () => {
         expect(followed.moved.map((move) => `${printRef(move.ref)} ${printString(move.to)}`)).toEqual([
             `${printRef(A01)} ${printString("A01-b")}`, `${printRef(U1)} ${printString("u1-b")}`,
         ]);
+    });
+
+    test("a new item's key typed in the inspector — a move the gesture makes itself — is followed by the run and the feed naming it, the run moving in turn", () => {
+        const typed = ref("racks", "A07");
+        const followed = followBuiltKeys(holding(), [{ op: "move", ref: A01, to: "A07" }]);
+        if ("refused" in followed) throw new Error("refused");
+        expect(followed.edits.map(printed)).toEqual([
+            `move ${printRef(U1)} ${printString("u1-b")}`,
+            `move ${printRef(A01)} ${printString("A07")}`,
+            `ends ${printRef(ref("fibre", "u1-b"))} ${printEnds({ from: typed, to: ODF })}`,
+            `sides ${printRef(FEED)} ${printSides({ sources: [PDU], destinations: [typed, A02] })}`,
+        ]);
+        // The rows moved by the keys they build: the run's, never the typed one, which the gesture moved itself.
+        expect(followed.moved.map((move) => `${printRef(move.ref)} ${printString(move.to)}`)).toEqual([`${printRef(U1)} ${printString("u1-b")}`]);
     });
 
     test("a link or a net bound read only naming the row is left as it is, and its details row stays where they are not edited", () => {

@@ -183,8 +183,9 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
                 const mark = markOf(meta, row?.cells);
                 const locked = mark?.lock === true;
                 const editable = writable && cellWritable(meta, row?.cells) && meta.kind !== "stamped" && meta.kind !== "action";
-                // A new row's empty cell a person must fill (ST8): washed, empty, and saying so on hover.
-                const required = changes?.added === true && editable && cellIsBlank(cell);
+                // A new row's empty cell a person must fill (ST8) — its field still missing: never an option's, nor a column
+                // from data's — washed, empty, and saying so on hover.
+                const required = changes?.added === true && editable && cellIsBlank(cell) && changes.missing.has(meta.key);
                 const issue = cell?.type === "Invalid" ? words.m.issueInvalid({ value: cell.value }) : draft?.issues.get(meta.key);
                 const detail = row !== undefined ? cellDetail(meta, row.cells, words) : undefined;
                 const member = namesMember(meta) && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;

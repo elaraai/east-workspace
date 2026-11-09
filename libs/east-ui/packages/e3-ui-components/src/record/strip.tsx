@@ -14,7 +14,8 @@
  *   ⇧-click take it; Space, the members' one-key labels and ⌫ in its keys —
  *   and a toggle and a boolean as two states a click flips;
  * - **a title** (SP3) — the Record's word for a row and its key; the title, a
- *   word of the row's, and where its details are;
+ *   word of the row's, and where its details are — with no inspector, ⏎ where
+ *   it edits, as any other kind's;
  * - **an age** (SP4) — its column and count; what it counts and its
  *   threshold, or for how long the row is stale;
  * - **an audit** (SP5) — when, its verb and who, or how many drafts wait;
@@ -106,7 +107,8 @@ export function recordStripOf(input: RecordStripInput): RecordStripText | undefi
     // Where the cell steps: a gesture may be made, the cell takes an edit — its column writes, and no mark locks it — and no
     // system owns the row.
     const steps = writable && cellWritable(meta, row.cells) && !row.owned;
-    if (changes?.added === true && cellWritable(meta, row.cells) && meta.kind !== "stamped" && meta.kind !== "action" && cellIsBlank(cell)) {
+    // A new row's empty field a person must fill, as the grid washes it.
+    if (changes?.added === true && cellWritable(meta, row.cells) && meta.kind !== "stamped" && meta.kind !== "action" && cellIsBlank(cell) && changes.missing.has(meta.key)) {
         const first = kind.type === "cycle" ? registers.byName.get(kind.value.register)?.[0] : undefined;
         const how = kind.type === "cycle" ? (first === undefined ? undefined : { cycle: first.label !== "" ? first.label : first.key })
             : kind.type === "toggle" || kind.type === "boolean" ? "click" as const : inspector ? "inspector" as const : undefined;
@@ -161,7 +163,11 @@ export function recordStripOf(input: RecordStripInput): RecordStripText | undefi
                 detail = valueText(other, value, registers, words);
                 break;
             }
-            return { label: m.stripTitle({ noun: noun.singular, id: row.id }), text: m.stripTitleText({ title: name, detail, inspector }), keys: m.stripMove() };
+            // With no inspector it edits in its cell, as a text does, and says so.
+            return {
+                label: m.stripTitle({ noun: noun.singular, id: row.id }), text: m.stripTitleText({ title: name, detail, inspector }),
+                keys: inspector ? m.stripMove() : m.stripEdit({ editable: steps }),
+            };
         }
         case "age": {
             const age = changes?.added === true ? undefined : ageOf(meta, cell, now);

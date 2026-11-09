@@ -21,7 +21,7 @@
  * help under it. Every value handed back is asserted with East's `equalFor`.
  */
 
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, vi } from "vitest";
 import { useState, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -768,6 +768,22 @@ describe("FieldForm — a field a host draws on one line, an issue's wash, and t
         } finally {
             if (was === undefined) delete prototype.checkVisibility;
             else prototype.checkVisibility = was;
+        }
+    });
+
+    test("two runs of one group apart — Other before another group and after it — are two sections, each holding its own fields", () => {
+        const grouped = SHIFT_SPECS.map((spec): FieldSpecValue => ({ ...spec, group: some(spec.path[0] === "name" || spec.path[0] === "note" ? "Other" : "Rota") }));
+        const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const { container } = mountShift({ name: "Early", kind: "day", active: true, lead: none, note: "" }, { specs: grouped });
+            const sections = [...container.querySelectorAll<HTMLElement>("[data-field-group]")];
+            expect(sections.map((section) => section.getAttribute("data-field-group"))).toEqual(["Other", "Rota", "Other"]);
+            expect(sections.map((section) => [...section.querySelectorAll("[data-field]")].map((el) => el.getAttribute("data-field"))))
+                .toEqual([["name"], ["kind", "active", "lead"], ["note"]]);
+            // Each section a child of its own: React is told no key twice.
+            expect(errors.mock.calls.filter((call) => /same key/.test(String(call[0])))).toEqual([]);
+        } finally {
+            errors.mockRestore();
         }
     });
 });

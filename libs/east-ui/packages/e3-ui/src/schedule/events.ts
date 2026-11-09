@@ -1865,25 +1865,27 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     return result;
                 });
                 // A new duty: its roles written, and every other field the kind's `values` of it — or, without them, its
-                // type's default.
+                // type's default. A resource the kind refuses makes none before the app's `values` are asked.
                 const blank = East.value(defaultValue(rowType) as never, rowType) as ExprType<EastType>;
                 const create = East.function([ScheduleRosterNewDutyType], OptionType(BlobType), ($, duty) => {
-                    let row: ExprType<EastType>;
-                    if (valuesOf === undefined) {
-                        row = $.const(blank);
-                    } else {
-                        // The app's fields, and every field a role writes its default: a position the duty holds none of keeps it.
-                        const ownOf = $.const(valuesOf);
-                        const given = $.const(ownOf(duty as never));
-                        row = $.const(East.value(Object.fromEntries(Object.entries(fields).map(([f, type]) =>
-                            [f, Object.hasOwn(own.fields, f) ? fieldOf(given, f) : East.value(defaultValue(type) as never, type)])) as never, rowType) as ExprType<EastType>);
-                    }
                     // Its roles, the pattern aside.
                     const roles = duty as unknown as ExprType<typeof Roles>;
                     const resolve = $.const(whoOf);
+                    const ownOf = valuesOf === undefined ? undefined : $.const(valuesOf);
                     const result = $.let(East.value(none, OptionType(BlobType)), OptionType(BlobType));
                     $.match(resolve(roles.resource), {
-                        some: ($2, value) => { $2.assign(result, East.value(some(East.Blob.encodeBeast(rosterRow(row, roles, value as ExprType<EastType>), "v2")), OptionType(BlobType))); },
+                        some: ($2, value) => {
+                            let row: ExprType<EastType>;
+                            if (ownOf === undefined) {
+                                row = $2.const(blank);
+                            } else {
+                                // The app's fields, and every field a role writes its default: a position the duty holds none of keeps it.
+                                const given = $2.const(ownOf(duty as never));
+                                row = $2.const(East.value(Object.fromEntries(Object.entries(fields).map(([f, type]) =>
+                                    [f, Object.hasOwn(own.fields, f) ? fieldOf(given, f) : East.value(defaultValue(type) as never, type)])) as never, rowType) as ExprType<EastType>);
+                            }
+                            $2.assign(result, East.value(some(East.Blob.encodeBeast(rosterRow(row, roles, value as ExprType<EastType>), "v2")), OptionType(BlobType)));
+                        },
                     });
                     return result;
                 });

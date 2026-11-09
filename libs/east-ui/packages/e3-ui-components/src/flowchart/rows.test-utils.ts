@@ -195,6 +195,7 @@ export function line(edit: FlowchartEdit): string {
         case "createLane": return `createLane ${edit.key} ${laneWrite(edit.write)} ${optionBytes(edit.values)}`;
         case "writeLane": return `writeLane ${edit.key} ${laneWrite(edit.write)}`;
         case "unqueue": return `unqueue ${edit.key} ${edit.state}`;
+        case "requeue": return `requeue ${edit.key} ${edit.from} → ${edit.to}`;
         case "set": return `set ${edit.sort} ${edit.key}`;
         case "row": return `row ${edit.sort} ${edit.key} ${bytes(edit.row)}`;
         case "copy": return `copy ${edit.sort} ${edit.key} from ${edit.from}${edit.order === undefined ? "" : ` at ${float(edit.order)}`}`;

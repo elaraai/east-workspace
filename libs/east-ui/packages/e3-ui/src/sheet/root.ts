@@ -237,8 +237,9 @@ export interface SheetOptions<R extends StructType, K extends EastType = StringT
     /**
      * A new row's key, in the app's own scheme: given the keys taken — every key the sheet has read, and every one its
      * batch has drafted — one that is not. Without it a String key is a UUID, and an Integer one one past the largest
-     * (#1549): of the keys taken, and of the last key a source paging the record's own entries serves. Any other key
-     * needs it.
+     * (#1549): of the keys taken, and of the last key a source paging the record's own entries serves, once it is read.
+     * Any other key needs it, and so does an Integer key read through an index's window or a narrowing, which can't say
+     * the record's largest.
      */
     newKey?: SubtypeExprOrValue<FunctionType<[SetType<K>], K>>;
     /** Never on a flat sheet — grouped rows take {@link SheetGroupedOptions}. */
@@ -832,12 +833,20 @@ function buildSheet(
     })();
     // With no `newKey`, an Integer key is one past the largest (#1549), as the Plan's is: of every key taken — the rows the
     // sheet has read, its drafts and what its gesture made — and, paging the record's own entries, of the last key they
-    // hold, once that read lands. A key the record holds unread is a conflict at Save, never written over; with no key at
-    // all, the first is 1.
-    const integerKey = opts.newKey !== undefined || keyType?.type !== "Integer" ? undefined : (() => {
-        // The record's own entries, paged, end at its largest key: an index's window ends at the last of its own order,
-        // and a narrowing at the last it keeps.
-        const lastKey = incoming.kind === "paged" && !incoming.query
+    // hold: until that read lands no key is made, and the gesture is refused, saying so. With no key at all, the first is
+    // 1. An index's window ends at the last of its own order, and a narrowing at the last it keeps: neither says the
+    // record's largest key, so a sheet that adds rows over one takes the app's `newKey`.
+    const unsaid = incoming.kind === "ordered" ? "an index's window" : incoming.kind === "paged" && incoming.query ? "a narrowing" : undefined;
+    if (keyType?.type === "Integer" && opts.newKey === undefined && unsaid !== undefined
+        && (groupDecl === undefined ? adds("insertRows") : adds("insertGroups"))) {
+        throw new Error(
+            `Sheet: the ${entry}s are keyed by Integer and read through ${unsaid}, which can't say the record's largest key — a new ${entry}'s is one past it — ` +
+            `pass \`newKey\`, an East function from the keys taken to a new one, or \`edits={{ ${groupDecl === undefined ? "insertRows" : "insertGroups"}: false }}\``,
+        );
+    }
+    const integerKey = opts.newKey !== undefined || keyType?.type !== "Integer" || unsaid !== undefined ? undefined : (() => {
+        // The record's own entries, paged, end at its largest key.
+        const lastKey = incoming.kind === "paged"
             ? scheduleLastKey(incoming.source as unknown as ExprType<EastType>, IntegerType)
             : undefined;
         return East.function([SetType(StringType)], StringType, ($, taken) => {
@@ -856,6 +865,8 @@ function buildSheet(
                             },
                         });
                     },
+                    // The record's last key still read, the largest is not known: a key past the keys taken alone may be one it holds.
+                    none: ($2) => { $2.error("the record's last key is still being read — try again in a moment"); },
                 });
             }
             return East.print(largest.add(1n));

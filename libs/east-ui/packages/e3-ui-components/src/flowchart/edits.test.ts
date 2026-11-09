@@ -189,17 +189,21 @@ describe("transitions and decisions", () => {
 });
 
 describe("a new row's key, and a row whole", () => {
-    test("a state's new key moves it, and the transitions naming it follow — drawn and waiting; a key taken, empty or unchanged is refused", () => {
+    test("a state's new key moves it, its key moving in each decision's queue, and the transitions naming it follow — drawn and waiting; a key taken, empty or unchanged is refused", () => {
         const holding = holdingOf(SORT, { waiting: [{ sort: "transitions", key: "t8", roles: transitionRow("t8", "SRD", "FAR").roles }] });
         expect(lines(rekey(holding, "states", "SRD", "SRT"))).toEqual({
             edits: [
-                "copy states SRT from SRD", "remove states SRD",
+                "copy states SRT from SRD", "remove states SRD", "requeue route SRD → SRT",
                 `writeTransition t2 ${transitionWrite({ from: none, to: some("SRT"), decision: none })}`,
                 `writeTransition t8 ${transitionWrite({ from: some("SRT"), to: none, decision: none })}`,
             ],
             key: "SRT",
         });
         expect([rekey(H, "states", "SRD", "IND"), rekey(H, "states", "SRD", ""), rekey(H, "states", "SRD", "SRD")]).toEqual([undefined, undefined, undefined]);
+        // Decisions with no queue to move a key in, or read only, are left as they are.
+        const unqueued = ["copy states SRT from SRD", "remove states SRD", `writeTransition t2 ${transitionWrite({ from: none, to: some("SRT"), decision: none })}`];
+        expect(lines(rekey(holdingOf(SORT, { unqueues: false }), "states", "SRD", "SRT"))?.edits).toEqual(unqueued);
+        expect(lines(rekey(holdingOf(SORT, { can: (s) => s !== "decisions" }), "states", "SRD", "SRT"))?.edits).toEqual(unqueued);
     });
 
     test("a lane's new key moves it, and the states naming it follow — drawn and waiting", () => {
@@ -350,6 +354,11 @@ describe("a key built from the row follows the row (#1549)", () => {
         expect(followed.moved).toEqual([
             { sort: "states", key: "Sorted", to: "Done" }, { sort: "transitions", key: IS, to: ID }, { sort: "transitions", key: SS, to: DD },
         ]);
+    });
+
+    test("a state moving under the key its label builds moves in each decision's queue too", () => {
+        const holding = holdingOf({ ...BUILT, decisions: [decisionRow("route", "route", ["Sorted"])] }, { moves: builtMoves });
+        expect(lines(followBuiltKeys(holding, renameState(holding, "Sorted", "Done")!))?.edits).toContain("requeue route Sorted → Done");
     });
 
     test("a key another row stands under refuses the gesture, naming it, with no edits — as do two rows moving under one; a key whose row a draft deletes stands free", () => {

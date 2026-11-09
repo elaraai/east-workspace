@@ -29,7 +29,7 @@ import { BlobType, OptionType, equalFor, none, some, variant, type option } from
 import { ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { ScheduleChange } from "../shared/schedule/editing.js";
-import { fieldChange, mintKey, periodPublishChange } from "../shared/schedule/records.js";
+import { fieldChange, madeFromValues, mintKey, periodPublishChange } from "../shared/schedule/records.js";
 import { PERIODS, TARGETS, type RosterEditing } from "./editing.js";
 import type { RosterFind } from "./fit.js";
 import {
@@ -148,6 +148,8 @@ export interface PatternPlan {
 
 const sameBytes = equalFor(BlobType);
 const sameResource: (a: Roles["resource"], b: Roles["resource"]) => boolean = equalFor(OptionType(ScheduleResourceRefType));
+/** A new duty the app's `values` failed to make, which the console says why. */
+const NO_DUTY = "A new duty could not be made.";
 
 /**
  * The Roster's commands over the week (see the module docs).
@@ -206,18 +208,23 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
     const created = (who: Who, slot: Slot, minted: Set<string>): { id: string; bytes: Uint8Array } | string => {
         const roles = times.newDuty(who, slot, start, positionFor(value, who), none, context);
         if (roles.type !== "some") return "Choose a configured shift.";
-        const bytes = value.duty.create({ ...roles.value, pattern: none });
+        const bytes = madeFromValues("Roster", "a new duty", () => value.duty.create({ ...roles.value, pattern: none }));
+        if (bytes === undefined) return NO_DUTY;
         if (bytes.type !== "some") return who.type === "request" ? "This roster takes no agency requests." : "This roster takes no people.";
         const id = mintKey(takenDuty(minted));
         minted.add(id);
         return { id, bytes: bytes.value };
     };
-    /** The week's own row, its dismissed suggestions the set given: `undefined` without a record to keep them in. */
+    /**
+     * The week's own row, its dismissed suggestions the set given: `undefined` without a record to keep them in, or for a
+     * new row the periods' `values` fail to make.
+     */
     const dismissal = (dismissed: ReadonlySet<string>): ScheduleChange | undefined => {
         if (value.periods.type !== "some" || !value.periods.value.dismissible) return undefined;
+        const periods = value.periods.value;
         const held = state.period.bytes;
-        const row = value.periods.value.dismiss(start, held === undefined ? none : some(held), new Set(dismissed));
-        return { kind: PERIODS, id: weekId, row };
+        const row = madeFromValues("Roster", "the week's row", () => periods.dismiss(start, held === undefined ? none : some(held), new Set(dismissed)));
+        return row === undefined ? undefined : { kind: PERIODS, id: weekId, row };
     };
     /** Whether a week of the span takes a gesture now: editable, as the week above is told, by its own status. */
     const availableIn = (held: WeekState) => editing !== undefined && schedule !== undefined && state.ready && !value.settings.readOnly
@@ -364,8 +371,13 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const hours = new Map([...target.hours].filter(([, h]) => h > 0));
             const roles = { day: dayOfSlot(start, slot), group: slot.group, shift: slot.shift, positions: target.positions, hours };
             const row = state.targets.rows.get(slot);
-            if (row !== undefined) record([{ kind: TARGETS, id: row.key, row: targets.write(row.bytes, roles) }], "typed", "Edit shift targets");
-            else record([{ kind: TARGETS, id: mintKey(takenTarget), row: targets.create(roles), created: true }], "typed", "Edit shift targets");
+            if (row !== undefined) {
+                record([{ kind: TARGETS, id: row.key, row: targets.write(row.bytes, roles) }], "typed", "Edit shift targets");
+                return undefined;
+            }
+            const made = madeFromValues("Roster", "a new shift's targets", () => targets.create(roles));
+            if (made === undefined) return "These targets could not be made.";
+            record([{ kind: TARGETS, id: mintKey(takenTarget), row: made, created: true }], "typed", "Edit shift targets");
             return undefined;
         },
         targetRow(slot, bytes) {
@@ -474,7 +486,8 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
                 // activity: the pattern's, its own fields the duty kind's `values` of it (#1526).
                 const roles = times.newDuty(whoRef, slot, at, positionFor(value, whoRef), none, context);
                 if (roles.type !== "some") return "Choose a configured shift.";
-                const bytes = value.duty.create({ ...roles.value, pattern: some(pattern.key) });
+                const bytes = madeFromValues("Roster", "a new duty", () => value.duty.create({ ...roles.value, pattern: some(pattern.key) }));
+                if (bytes === undefined) return NO_DUTY;
                 if (bytes.type !== "some") return "This roster takes no people.";
                 const id = mintKey(takenDuty(minted));
                 minted.add(id);
@@ -521,5 +534,5 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
  */
 export function publishChange(value: RosterPayload, editing: RosterEditing, start: Date, stored: Uint8Array | undefined, at: Date): ScheduleChange | undefined {
     if (value.periods.type !== "some") return undefined;
-    return periodPublishChange(value.periods.value, editing.schedule, PERIODS, weekKey(start), start, stored, at);
+    return periodPublishChange(value.periods.value, editing.schedule, PERIODS, weekKey(start), start, stored, at, "Roster");
 }

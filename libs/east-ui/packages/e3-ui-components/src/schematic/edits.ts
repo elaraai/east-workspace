@@ -40,6 +40,7 @@
  * a gesture writing the fields its kind's `key` reads moves the row under the
  * key they build, its details row with it, and the links and nets naming an
  * item follow — refused, naming the row, where another row holds that key.
+ * They follow a new item's key typed in the inspector too.
  *
  * A library card's drop (#1390, `drop.ts`) writes its rows as edits too: an
  * item template's new item, a backlog row placed, a link or net template's
@@ -825,14 +826,17 @@ function namers(holding: SchematicKeyHolding, moves: readonly SchematicMove[]): 
  * with it, where they are edited — so each writes it there; then what names
  * it following — an item's links and nets — whose own keys, built from what
  * they name, move them in turn. A key another row stands under, or another
- * moving row takes, refuses the gesture, naming that key.
+ * moving row takes, refuses the gesture, naming that key. A row the gesture
+ * moves itself — a new item's key typed in the inspector — is followed the
+ * same way by what names it.
  *
  * @param holding - What the gesture reads
  * @param made - The gesture's edits
- * @returns The edits with every move, and the rows moved; or the refusal, where a key is taken
+ * @returns The edits with every move, and the rows moved by the keys they build; or the refusal, where a key is taken
  */
 export function followBuiltKeys(holding: SchematicKeyHolding, made: readonly SchematicEdit[]): FollowedEdits {
-    let edits = made;
+    const typed = made.flatMap((edit): SchematicMove[] => (edit.op === "move" && edit.details !== true ? [{ ref: edit.ref, to: edit.to }] : []));
+    let edits: readonly SchematicEdit[] = typed.length === 0 ? made : [...made, ...namers(holding, typed)];
     const moved: SchematicMove[] = [];
     for (let pass = 0; pass < FOLLOWS && edits.length > 0; pass++) {
         const moves = holding.moves(edits);

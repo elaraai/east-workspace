@@ -571,6 +571,8 @@ export type FlowchartLaneKindType = typeof FlowchartLaneKindType;
  * @property rows - Its decisions, by their keys' text, each its roles and its row; `none` while the read is in flight
  * @property read - A drafted row's roles, from its bytes and its key's text
  * @property unqueue - The row with a state's key, from its text, taken out of its queue — a state's Del; `none` for a kind with no `queue`
+ * @property requeue - The row with a state's new key, from its text, in its old key's place in its queue — its key
+ *   retyped; `none` from it for a queue without the old key, and `none` for a kind with no `queue`
  * @property keyType - Its record's key type (#1549)
  */
 export const FlowchartDecisionKindType = StructType({
@@ -578,6 +580,7 @@ export const FlowchartDecisionKindType = StructType({
     rows: RowsOf(FlowchartDecisionEntryType),
     read: FunctionType([BlobType, StringType], FlowchartDecisionRolesType),
     unqueue: OptionType(FunctionType([BlobType, StringType], OptionType(BlobType))),
+    requeue: OptionType(FunctionType([BlobType, StringType, StringType], OptionType(BlobType))),
     keyType: EastTypeType,
 });
 

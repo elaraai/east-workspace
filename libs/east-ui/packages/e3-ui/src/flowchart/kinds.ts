@@ -1255,7 +1255,10 @@ export interface FlowchartDecisionsSpec<R extends StructType, K extends EastType
     owner?: Accessor<R, OptionType<StringType>, K>;
     /** Its outcomes' summary line. */
     outcomes?: Accessor<R, OptionType<StringType>, K>;
-    /** The Array or Set field naming the states queued at it, by key — of the type the states are keyed by: a state's Del takes its key out. */
+    /**
+     * The Array or Set field naming the states queued at it, by key — of the type the states are keyed by: a state's Del
+     * takes its key out, and a state moved to a new key takes it there.
+     */
     queue?: FlowchartKeysField<R>;
     /** Hints for the inspector's form over the fields no role writes (`Fields`). */
     fields?: FieldHints<R["fields"]>;
@@ -1344,6 +1347,31 @@ export function flowchartDecisions<R extends StructType, K extends EastType = St
         }).catch((_$2) => {});
         return result;
     });
+    // A state's key, read back from its text, replaced in the queue by its new one — in its place in an Array — as the
+    // state moves to a new key: the row, or `none` where the old key is not queued, or a text is no key's (#1549).
+    const requeue = queue === undefined ? undefined : East.function([BlobType, StringType, StringType], OptionType(BlobType), ($, bytes, from, to) => {
+        const parse = $.const(queueKey!);
+        const row = $.const(bytes.decodeBeast(rowType, "v2"));
+        const result = $.let(East.value(none, OptionType(BlobType)), OptionType(BlobType));
+        $.try(($2) => {
+            const was = $2.const(parse(from));
+            const now = $2.const(parse(to));
+            if (queue.set) {
+                const held = $2.let(fieldOf(row, queue.field) as unknown as ExprType<SetType<EastType>>);
+                $2.if(held.tryDelete(was as never), ($3) => {
+                    $3(held.tryInsert(now as never));
+                    $3.assign(result, East.value(some(East.Blob.encodeBeast(rowWith(rowType, row, { [queue.field]: held }), "v2")), OptionType(BlobType)));
+                });
+            } else {
+                const held = $2.const(fieldOf(row, queue.field) as unknown as ExprType<ArrayType<EastType>>);
+                $2.if(held.some((_$3, k) => East.equal(k as never, was as never)), ($3) => {
+                    const moved = $3.const(held.map((_$4, k) => East.equal(k as never, was as never).ifElse((_$5) => now, (_$5) => k)));
+                    $3.assign(result, East.value(some(East.Blob.encodeBeast(rowWith(rowType, row, { [queue.field]: moved }), "v2")), OptionType(BlobType)));
+                });
+            }
+        }).catch((_$2) => {});
+        return result;
+    });
 
     return {
         [FLOWCHART_DEF]: "decisions",
@@ -1363,6 +1391,7 @@ export function flowchartDecisions<R extends StructType, K extends EastType = St
                 rows: storedRows(kindWholeRows(bound.handle, bound.keyType, rowType), bound.keyType, rolesOf, FlowchartDecisionEntryType),
                 read: readOf(bound.keyType, rowType, rolesOf, FlowchartDecisionRolesType),
                 unqueue: unqueue === undefined ? none : some(unqueue),
+                requeue: requeue === undefined ? none : some(requeue),
                 // Its record's key type (#1549).
                 keyType: toEastTypeValue(bound.keyType),
             } as never, FlowchartDecisionKindType) as ExprType<typeof FlowchartDecisionKindType>;

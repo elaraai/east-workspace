@@ -1545,9 +1545,10 @@ function buildCellsAt(rowType: StructType, metas: readonly SheetColumnMeta[], da
  * the gesture changed — one its wire row holds that differs from what the
  * column's `read` gave over the field before the gesture — written through
  * its column's `write`, in the columns' order, each over the field as the
- * writes before it left it, whichever column made them. A field not yet set
- * starts from its type's default at its first write, as a nested struct the
- * inspector sets does; one holding text no column could read takes none.
+ * writes before it left it, whichever column made them. A field not yet set —
+ * a new row's — starts from its type's default, written or not: no person can
+ * set it but through its members, and a row is complete before any is typed
+ * in. One holding text no column could read takes none.
  *
  * @param rowType - The row type
  * @param dataMetas - The columns from data
@@ -1567,12 +1568,13 @@ function buildWriteData(rowType: StructType, dataMetas: readonly SheetColumnMeta
             const fieldType = fields[name]!;
             const draftField = SheetDraftFieldType(fieldType);
             // A field not yet set starts from its type's default; one of a type with none — a function — is never written.
-            let seed: ExprType<OptionType<EastType>>;
+            let blank: { value: unknown } | undefined;
             try {
-                seed = East.value(some(defaultValue(fieldType)) as never, OptionType(fieldType));
+                blank = { value: defaultValue(fieldType) };
             } catch {
-                seed = East.value(none, OptionType(fieldType));
+                blank = undefined;
             }
+            const seed = East.value((blank === undefined ? none : some(blank.value)) as never, OptionType(fieldType)) as ExprType<OptionType<EastType>>;
             const start = $.const(drafted[name]! as never, draftField) as unknown as ExprType<SheetDraftField>;
             // The field before the gesture, which the cells it showed were read over.
             const before = $.const(base.match({
@@ -1653,9 +1655,13 @@ function buildWriteData(rowType: StructType, dataMetas: readonly SheetColumnMeta
                     },
                 });
             }
+            // Unwritten, a field not yet set is its type's default all the same.
+            const unwritten = blank === undefined ? start : start.match({
+                missing: (_$2) => East.value(variant("value", blank.value) as never, draftField) as unknown as ExprType<SheetDraftField>,
+            }, (_$2) => start);
             out[name] = wrote.ifElse(
                 (_$2) => East.value(variant("value", now.unwrap("some")) as never, draftField),
-                (_$2) => start,
+                (_$2) => unwritten,
             );
         }
         return East.value(out as SubtypeExprOrValue<StructType>, draftType);

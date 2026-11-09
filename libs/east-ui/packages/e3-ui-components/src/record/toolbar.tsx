@@ -57,7 +57,12 @@ export interface RecordToolbarProps {
     onDelete: (() => void) | undefined;
     /** How many of the rows shown are ticked: Delete is off at none. */
     ticked: number;
-    /** Whether a gesture may be made now: Add and Delete are off while the session takes none — an Apply out. */
+    /** That count in the viewer's language: what Delete's tooltip says. */
+    tickedCount: string;
+    /**
+     * Whether a gesture may be made now: Add and Delete are off while the session takes none — an Apply out — and while
+     * the rows take none, a narrowing standing in or a far jump held.
+     */
     writable: boolean;
 }
 
@@ -98,14 +103,14 @@ function RecordAction({ css, icon, label, tip, disabled, labelled, part, onClick
  * @returns The items, a falsy entry for each the Record has no use for
  */
 export function useRecordToolbarItems(props: RecordToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
-    const { styles, parts, title, count, status, noun, onAdd, onDelete, ticked, writable } = props;
+    const { styles, parts, title, count, status, noun, onAdd, onDelete, ticked, tickedCount, writable } = props;
     const buttonRecipe = useRecipe({ key: "button" });
     const iconRecipe = useRecipe({ key: "iconButton" });
     const phoneStyles = useSlotStyles("toolbarPhone");
     const button = [buttonRecipe({ variant: "outline", size: "sm" }), styles.action] as SystemStyleObject[];
     const icon = [iconRecipe({ variant: "outline", size: "sm" }), styles.action] as SystemStyleObject[];
     const addTip = m.addTip({ noun: noun.singular });
-    const deleteTip = m.deleteTip({ n: ticked, count: String(ticked) });
+    const deleteTip = m.deleteTip({ n: ticked, count: tickedCount });
 
     const titleOf = (counted: boolean) => (
         <Box as="span" css={styles.title} data-slot="title">

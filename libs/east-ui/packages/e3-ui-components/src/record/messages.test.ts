@@ -4,7 +4,8 @@
  *
  * The status line's words for an Apply and for the issues holding one
  * (`Record - DX Proposal.md` AD3, AD4), each wording the Record's messages
- * give — those the DOM tests' examples never reach among them.
+ * give — those the DOM tests' examples never reach among them — and a row's
+ * word with its article, by its first sound.
  */
 
 import { describe, expect, test } from "vitest";
@@ -27,5 +28,13 @@ describe("the status line's words", () => {
         expect(m.issues({ n: 3, count: "3", refused: false })).toBe("3 required fields empty");
         expect(m.issues({ n: 1, count: "1", refused: true })).toBe("1 issue holds Apply");
         expect(m.issues({ n: 2, count: "2", refused: true })).toBe("2 issues hold Apply");
+    });
+
+    test("a row's word takes its article by its first sound, not its first letter (AD1)", () => {
+        const added = (noun: string) => m.added({ noun });
+        expect(["person", "operator", "user", "unit", "uniform", "umbrella stand", "usher", "euro account", "one-off", "hour entry", "honest broker", "hire"].map(added)).toEqual([
+            "Added a person", "Added an operator", "Added a user", "Added a unit", "Added a uniform", "Added an umbrella stand", "Added an usher",
+            "Added a euro account", "Added a one-off", "Added an hour entry", "Added an honest broker", "Added a hire",
+        ]);
     });
 });

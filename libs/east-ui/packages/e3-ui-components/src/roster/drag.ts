@@ -23,6 +23,7 @@
 import { useMemo } from "react";
 import { DateTimeType, SortedMap, StringType, StructType, none, parseFor, printFor, some, variant } from "@elaraai/east";
 import { dropEvent, useDragMessages, useDragTarget, type CellCoord, type DragEventValue, type DragMessages, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
+import { madeFromValues } from "../shared/schedule/records.js";
 import { rosterLibraryId } from "./library.js";
 import { readRosterSource } from "./identity.js";
 import {
@@ -138,8 +139,8 @@ function rosterDrag({ value, commands, week, duties, weeks, context, storageKey,
         const who = variant("person", person);
         const roles = times.newDuty(who, slot, start, positionFor(value, who), none, context);
         if (roles.type !== "some") return undefined;
-        const bytes = value.duty.create({ ...roles.value, pattern: none });
-        if (bytes.type !== "some") return undefined;
+        const bytes = madeFromValues("Roster", "a new duty", () => value.duty.create({ ...roles.value, pattern: none }));
+        if (bytes?.type !== "some") return undefined;
         return { slot, who, position: roles.value.position.type === "some" ? roles.value.position.value : "", activity: none,
             start: roles.value.start, end: roles.value.end, hours: roles.value.hours, row: domain.decodeRow(bytes.value) };
     };

@@ -4,13 +4,14 @@
  */
 
 /**
- * The local layer over the decoded rows: the rows with its edits, appends, removals and placements applied, a row
- * with one cell replaced, a blank row, a line's minted key, and the words a row is named by.
+ * The local layer over the decoded rows: the rows with its edits, appends, removals and placements applied, what it
+ * adds to a count of them and takes off it, a row with one cell replaced, a blank row, a line's minted key, and the
+ * words a row is named by.
  *
  * @packageDocumentation
  */
 
-import { none } from "@elaraai/east";
+import { StringType, equalFor, none } from "@elaraai/east";
 import { NEW_LINE_KEY, NULL_CELL, type SheetColumnIndex, type SheetColumnMeta } from "./model.js";
 import { placeInOrder } from "./placement.js";
 import type { LocalLayer } from "./use-editing.js";
@@ -39,6 +40,35 @@ export function applyLayer(source: readonly SheetRowValue[], layer: LocalLayer, 
     const placed = placeInOrder(out, (row) => row.id, layer.placements);
     if (keyOrder !== undefined) placed.sort((a, b) => keyOrder(a.id, b.id));
     return placed;
+}
+
+const stringEqual = equalFor(StringType);
+
+/**
+ * What the local layer adds to a count of the source's rows, and takes off it (#1536): each new row, and each row a
+ * draft removes — but a Save's, only over a count read at the revision it was drafted at, which holds nothing of it;
+ * a count read since holds it already.
+ *
+ * @param layer - The local layer
+ * @param savedFrom - Each entry the layer draws as a Save sent it, by the revision it was drafted at
+ * @param at - The revision the count was read at; `undefined` where it is not known, which counts each
+ * @param among - The rows a narrowing's count is of: only a removed one among them is taken off. None for the record's
+ * @returns The rows the layer adds, and those it takes off
+ */
+export function layerCounts(layer: LocalLayer, savedFrom: ReadonlyMap<string, string>, at: string | undefined, among?: readonly SheetRowValue[]): { added: number; removed: number } {
+    const counted = (id: string): boolean => {
+        const from = savedFrom.get(id);
+        return from === undefined || at === undefined || stringEqual(from, at);
+    };
+    let added = 0;
+    for (const row of layer.appended) if (counted(row.id)) added += 1;
+    let removed = 0;
+    if (among === undefined) {
+        for (const id of layer.removed) if (counted(id)) removed += 1;
+    } else {
+        for (const row of among) if (layer.removed.has(row.id) && counted(row.id)) removed += 1;
+    }
+    return { added, removed };
 }
 
 /** A row with one cell replaced. */

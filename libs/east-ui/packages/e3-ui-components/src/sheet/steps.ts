@@ -10,15 +10,17 @@
  * click, Space or ⏎ takes the next state and ⇧ the one before; ⌫ sets a
  * cycle's first member; a key that is a member's label, key or alias sets
  * that member at once. They never open an editor. A title edits out of place:
- * a click, ⏎ or F2 opens it where the host edits it, never in the cell. The
- * machine asks by the cell's kind, so the gesture is the shared grid's,
- * whatever draws it.
+ * a click, ⏎ or F2 opens it where the host edits it, never in the cell —
+ * unless the host opens it nowhere, and then it edits in its cell as a text
+ * does. The machine asks by the cell's kind, so the gesture is the shared
+ * grid's, whatever draws it.
  *
  * @packageDocumentation
  */
 
 import { StringType, equalFor, variant } from "@elaraai/east";
 import { resolveTyped, type SheetColumnMeta, type SheetRegisterIndex } from "./model.js";
+import type { SheetGridHost } from "./parts.js";
 import type { SheetCellValue } from "./values.js";
 
 const stringEqual = equalFor(StringType);
@@ -39,12 +41,15 @@ export function stepsInPlace(meta: SheetColumnMeta | undefined): boolean {
 /**
  * Whether a column's cells edit out of place: the host opens them where it
  * edits them, and no editor, typing, paste or clear reaches them in the grid.
+ * A host that opens nothing — a Record with no inspector — edits a title in
+ * its cell, as a text.
  *
  * @param meta - The column
- * @returns Whether its cell is a title
+ * @param host - The host's grid; `undefined` for the Sheet's own
+ * @returns Whether its cell is a title the host opens
  */
-export function editsOutOfPlace(meta: SheetColumnMeta | undefined): boolean {
-    return meta?.kind === "title";
+export function editsOutOfPlace(meta: SheetColumnMeta | undefined, host: Pick<SheetGridHost, "onOpen"> | undefined): boolean {
+    return meta?.kind === "title" && host?.onOpen !== undefined;
 }
 
 /**

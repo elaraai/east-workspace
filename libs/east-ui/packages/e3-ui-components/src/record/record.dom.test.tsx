@@ -25,8 +25,9 @@
  * Save's difference of each field, the data moving under them and the day
  * turning — and marks and locks (§4, §5.3, #1560): a note and a lock drawn in
  * a cell, a plain column's mark over its row, a lock refusing every gesture
- * and lifting as the draft it reads changes, and a clear refused where a
- * cell's value isn't an option — and columns from data in the side panel
+ * and lifting as the draft it reads changes — but standing while that draft
+ * isn't whole, and over a row whose marks can't be read — and a clear refused
+ * where a cell's value isn't an option — and columns from data in the side panel
  * (§4, #1561): each member a line in its group's section, the field they
  * write no field of its own, a locked line read only with its lock's words,
  * and a line's edit drafting as the grid's does — over the Record's examples
@@ -411,6 +412,32 @@ describe("the pointer", () => {
         expect(editor(container)).toBeNull();
     });
 
+    test("with no inspector a title edits in its cell, as a text does — a key opens its editor, ⏎ commits — and Add opens its editor in the new row, the keyboard in it (P4, AD1)", async () => {
+        const { container } = await h.mount(ex.recordBasic, { storageKey: "record-title-in-place" });
+        const name = () => cellAt(container, 1, "name");
+        const openIn = (cell: () => HTMLElement) => waitFor(() => {
+            const open = cell().querySelector<HTMLInputElement>('[data-slot="editorInput"]');
+            expect(open).not.toBeNull();
+            return open!;
+        });
+        await press(name());
+        expect(active(container)).toBe(name());
+        expect(editor(container)).toBeNull();
+        await key(container, "R");
+        const typed = await openIn(name);
+        fireEvent.input(typed, { target: { value: "R. Ellis" } });
+        await settle();
+        fireEvent.keyDown(typed, { key: "Enter" });
+        await settle();
+        expect(part(name(), "titleCell")!.textContent).toBe("R. Ellis");
+        expect(name().hasAttribute("data-dirty")).toBe(true);
+        await press(action(container, "add")!);
+        expect(status(container)).toBe("Added a crew member");
+        const added = drafted(container);
+        const input = await openIn(() => cellOf(added, "name"));
+        await waitFor(() => expect(document.activeElement).toBe(input));
+    });
+
     test("the select column ticks a row, and the header every row shown, or none once all are; a tick never moves the ring (P5, SL1, ST4)", async () => {
         const { container } = await h.mount(ex.recordBasic, { storageKey: "record-ticks" });
         const box = (r: number) => rows(container)[r]!.querySelector<HTMLElement>('[role="checkbox"]')!;
@@ -502,9 +529,9 @@ describe("the strip", () => {
         expect(stripSays(container)).toEqual(["Inducted · no", "B. Ellis · click → yes", "space flips"]);
         await press(cellAt(container, 1, "inducted"));
         expect(stripSays(container)).toEqual(["Inducted · yes", "B. Ellis · was no · click → no", "space flips"]);
-        // No inspector: a title names its row, and nowhere else to look.
+        // No inspector: a title names its row, nowhere else to look, and edits where it is.
         await hover(cellAt(container, 2, "name"));
-        expect(stripSays(container)).toEqual(["crew member · C-003", "C. Patel", "↑ ↓ ← → move"]);
+        expect(stripSays(container)).toEqual(["crew member · C-003", "C. Patel", "⏎ edit · ↑ ↓ ← → move"]);
     });
 
     test("with an inspector: a title a word of its row and where its details are; a boolean; a cycle its member's name; an age with no moment; an audit when, its verb and who, pending once a draft changes its row; any other kind its column and value (SP1, SP3–SP5, SP7)", async () => {
@@ -802,7 +829,10 @@ describe("the keys", () => {
     test("Space and ⏎ step a cycle, ⇧ back; ⌫ sets its first; a member's key sets it at once (K2, K3, K4)", async () => {
         const { container } = await h.mount(ex.recordBasic, { storageKey: "record-cycle-keys" });
         const forklift = () => cellAt(container, 0, "forklift");
+        // With no inspector the title edits in place: the first move lands on it.
         await key(container, "ArrowDown");
+        expect(active(container)).toBe(cellAt(container, 0, "name"));
+        await key(container, "ArrowRight");
         await key(container, "ArrowRight");
         expect(active(container)).toBe(forklift());
         await key(container, " ");
@@ -1016,6 +1046,39 @@ describe("the states", () => {
         expect(name.hasAttribute("data-required")).toBe(true);
         expect(name.getAttribute("title")).toBe("Name · required");
         expect(name.textContent).toBe("");
+    });
+
+    test("a new row's option is no field it lacks: the rota's supervisor is neither washed nor said to be required (ST8, SP6)", async () => {
+        const { container } = await h.mount(ex.recordLooks, { storageKey: "record-new-option" });
+        await press(action(container, "add")!);
+        const added = drafted(container);
+        expect([...added.querySelectorAll("[data-required]")].map((cell) => cell.getAttribute("data-key")))
+            .toEqual(["name", "inducted", "nights", "weekends", "forklift", "scanner", "days", "evenings"]);
+        // The rota has no inspector: Add opened the title's editor in its cell, which esc closes.
+        const title = await waitFor(() => {
+            const open = cellOf(added, "name").querySelector<HTMLInputElement>('[data-slot="editorInput"]');
+            expect(open).not.toBeNull();
+            return open!;
+        });
+        fireEvent.keyDown(title, { key: "Escape" });
+        await settle();
+        await hover(cellOf(added, "supervisor"));
+        expect(stripSays(container)).toEqual(["Supervisor", "—", "⏎ edit · ↑ ↓ ← → move"]);
+    });
+
+    test("a new row's field that columns from data write starts empty: only its name is washed, and Apply writes it with no hours (ST8)", async () => {
+        const { container } = await h.mount(ex.recordHoursByProject, { storageKey: "record-new-from-data" });
+        await press(action(container, "add")!);
+        const added = drafted(container);
+        expect([...added.querySelectorAll("[data-required]")].map((cell) => cell.getAttribute("data-key"))).toEqual(["name"]);
+        await waitFor(() => expect(inspected(container)).toBe(added.getAttribute("data-row-id")));
+        const user = userEvent.setup();
+        await user.type(within(detailsField(container, "name")).getByRole("textbox"), "D. Quinn{Enter}");
+        await settle();
+        await press(history(container, editingMessages.apply()));
+        await waitFor(() => expect(status(container)).toBe("Applied 1 new person"));
+        const quinn = [...(await h.read(ex.recordHours)).values()].find((person) => stringEqual(person.name, "D. Quinn"));
+        expect(quinn !== undefined && hoursEqual(quinn.hours, new Map())).toBe(true);
     });
 
     test("the narrowing leaving no row to show: the empty state says so, and clears the search — else the filters (EM1)", async () => {
@@ -1674,6 +1737,31 @@ const operatorsOnNights = East.function([], UIComponentType, (_$) => Reactive.Ro
     });
 })));
 
+/** The operators, their marks failing over A. Morgan's row — the app's code can't finish them — and B. Ellis on nights. */
+const operatorsUnread = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const operators = $.let(Record.bind(ex.recordOperators));
+    const choices = $.let(["can", "prefer", "cannot"], ArrayType(StringType));
+    const onNights = $.const(East.function([ex.Operator, DateTimeType], Mark, ($2, operator) => {
+        $2.if(operator.name.equal("A. Morgan"), ($3) => { $3.error("The rota is offline"); });
+        $2.if(operator.night, ($3) => { $3.return(some(variant("lock", "On nights"))); });
+        return none;
+    }));
+    return Record({
+        record: operators,
+        title: "Operators",
+        noun: { singular: "operator", plural: "operators" },
+        // No column sets an operator's notes or hours: this Record adds none.
+        edits: { insertRows: false },
+        registers: { choices: Record.register.members(choices, { kind: "choice", key: (c) => c, label: (c) => c }) },
+        columns: {
+            name: Record.column.title(ex.Operator, { header: "Name" }),
+            shifts: Record.column.integer(ex.Operator, { header: "Shifts", mark: onNights }),
+            preference: Record.column.cycle(ex.Operator, "choices", { header: "Overtime", mark: onNights }),
+        },
+        name: "operatorsUnread",
+    });
+})));
+
 describe("marks and locks", () => {
     test("a note draws after the value, or in an empty cell in its place; a lock is the Tag after the value, or alone, its cell read only and taking no hover; the hover and the strip say both; a plain column's mark reads its row", async () => {
         const { container } = await h.mount({ fn: hoursMarked }, { storageKey: "record-marks" });
@@ -1735,6 +1823,40 @@ describe("marks and locks", () => {
         await typeInto(container, 1, "hours", "15");
         await key(container, "Enter", { metaKey: true });
         expect(at(1, "notes").textContent).toBe("Covering nights");
+    });
+
+    test("a lock stands while the draft it reads isn't whole: text no column reads, typed in another of the row's cells, leaves its locks as they were", async () => {
+        const { container } = await h.mount({ fn: operatorsOnNights }, { storageKey: "record-locks-unwhole" });
+        const at = (r: number, k: string) => cellAt(container, r, k);
+        const locked = (r: number) => ["notes", "shifts", "preference"].map((k) => at(r, k).hasAttribute("data-locked"));
+        // B. Ellis's hours typed as words: her draft holds text no column reads, and her marks can't be read over it.
+        await typeInto(container, 1, "hours", "lots");
+        expect(rows(container)[1]!.hasAttribute("data-draft")).toBe(true);
+        expect(at(1, "hours").textContent).toContain("lots");
+        expect(locked(1)).toEqual([true, true, true]);
+        // Locked still: her overtime steps nowhere, and a key opens no editor in her shifts.
+        await press(at(1, "preference"));
+        expect(part(at(1, "preference"), "chip")!.textContent).toBe("can");
+        await press(at(1, "shifts"));
+        await key(container, "5");
+        expect(editor(container)).toBeNull();
+    });
+
+    test("a row whose marks can't be read keeps every marked cell locked, each saying it couldn't be read, and the console says why", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const { container } = await h.mount({ fn: operatorsUnread }, { storageKey: "record-locks-unread" });
+            const at = (r: number, k: string) => cellAt(container, r, k);
+            // A. Morgan's marks fail: her shifts and overtime locked, saying so; B. Ellis's are read, and she is on nights.
+            expect([0, 1].map((r) => ["shifts", "preference"].map((k) => at(r, k).hasAttribute("data-locked")))).toEqual([[true, true], [true, true]]);
+            expect([at(0, "shifts").textContent, at(1, "shifts").textContent]).toEqual(["1,482Couldn't be read", "96On nights"]);
+            expect(logged).toHaveBeenCalledWith("[Sheet] a column from data or a mark could not be read:", expect.anything());
+            // Locked, her overtime steps nowhere.
+            await press(at(0, "preference"));
+            expect(part(at(0, "preference"), "chip")!.textContent).toBe("prefer");
+        } finally {
+            logged.mockRestore();
+        }
     });
 
     test("a clear is refused where the cell's value isn't an option: ⌫, a blank pasted and an edit emptied each leave the roster's heads as they were", async () => {

@@ -157,7 +157,7 @@ describe("a record's whole Dict, read in key order", () => {
         assert.equal(root.newKey.value(new SortedSet([], compareFor(StringType))), "1");
     });
 
-    test("paging the record's own entries, an Integer key is one past the last they hold once that read lands; until then, and over a narrowing, one past the keys taken (#1549)", () => {
+    test("paging the record's own entries, an Integer key is one past the last they hold once that read lands, none made until then; over a narrowing it is the app's (#1549)", () => {
         const applied = East.asyncFunction([Editing.Types.ChangeSet(JobType, IntegerType)], Editing.Types.ApplyResult,
             (_$, _batch) => East.value(variant("applied", { revision: none }), Editing.Types.ApplyResult));
         // The record's own entries a window at a time, as `Data.bindPaged(record)` serves them: three, the last job 20, read.
@@ -184,8 +184,8 @@ describe("a record's whole Dict, read in key order", () => {
             }, PinnedSourceType(numberJobs));
             return createSheetRootWith(window, COLUMNS, {}, { applyKeyed: applied });
         }), [])();
-        // A narrowing of them, as a rail's `rows` source serves it: its last, job 20, the last it keeps.
-        const narrowed = East.compile(East.function([], Sheet.Types.Root, ($) => {
+        // A narrowing of them, as a rail's `rows` source serves it: its last, job 20, the last it keeps — never the record's.
+        const narrowed = (options: object) => East.function([], Sheet.Types.Root, ($) => {
             const window = $.const({
                 id: "jobs",
                 page: East.function([IntegerType, IntegerType], OptionType(numberJobs), (_$, _offset, _limit) => some(LAST_JOB)),
@@ -195,18 +195,20 @@ describe("a record's whole Dict, read in key order", () => {
                 refresh: East.function([OptionType(StringType)], NullType, (_$, _to) => null),
                 query: East.function([], StringType, (_$) => "status=Ready"),
             }, LiveSourceType(numberJobs));
-            return createSheetRootWith(window, COLUMNS, {}, { applyKeyed: applied });
-        }), [])();
-        if (landed.newKey.type !== "some" || reading.newKey.type !== "some" || narrowed.newKey.type !== "some") {
-            assert.fail("expected one past the largest on the wire");
-        }
+            return createSheetRootWith(window, COLUMNS, options, { applyKeyed: applied });
+        });
+        if (landed.newKey.type !== "some" || reading.newKey.type !== "some") assert.fail("expected one past the largest on the wire");
         const taken = new SortedSet(["9", "10"], compareFor(StringType));
         // 9 and 10 taken, and job 20 the record's last: 21.
         assert.equal(landed.newKey.value(taken), "21");
-        // The last key still being read: one past the keys taken, any key the record holds unread a conflict at Save.
-        assert.equal(reading.newKey.value(taken), "11");
-        // A narrowing's last is the last it keeps, not the record's: the keys taken alone.
-        assert.equal(narrowed.newKey.value(taken), "11");
+        // The last key still being read: no key is made, for one past the keys taken alone may be one the record holds.
+        const unread = reading.newKey.value;
+        assert.throws(() => unread(taken), /the record's last key is still being read — try again in a moment/);
+        // Over a narrowing the app makes it, or the sheet adds no row.
+        assert.throws(() => narrowed({}),
+            /the rows are keyed by Integer and read through a narrowing, which can't say the record's largest key — a new row's is one past it — pass `newKey`, an East function from the keys taken to a new one, or `edits=\{\{ insertRows: false \}\}`/);
+        narrowed({ edits: { insertRows: false } });
+        narrowed({ newKey: East.function([SetType(IntegerType)], IntegerType, (_$, keys) => keys.size().add(100n)) });
     });
 
     test("a keyed Apply takes the session's keyed batch, and no onApply or onUpdate beside it", () => {

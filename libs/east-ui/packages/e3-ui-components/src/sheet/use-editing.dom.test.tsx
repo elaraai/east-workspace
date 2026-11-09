@@ -229,8 +229,13 @@ test("a paged Save's rows are drawn as it left them over the rows read before it
     const hook = renderHook(() => useSheetEditing(editing, { ...source }, drawn.rows, useIndexes(drawn.rows), "paged-landed", undefined, undefined, false, false, undefined, undefined, drawn.read));
     const qty = () => hook.result.current.layer.edits.get("a")?.cells.get("qty");
     act(() => hook.result.current.record([commit(before[0]!, 7n), variant("remove", { rowIds: ["b"] })]));
+    expect(hook.result.current.savedFrom.size).toBe(0);
     await act(async () => { await hook.result.current.session.apply(); });
     expect(domain.map((row) => [row.id, row.qty])).toEqual([["a", 7n]]);
+    // Committed, and read back at no revision yet: the drafts are the Save's, drafted at r0 — a count read there holds
+    // nothing of them, one read since holds them (#1536).
+    expect(hook.result.current.session.status).toBe("reconciling");
+    expect([...hook.result.current.savedFrom].sort()).toEqual([["a", "r0"], ["b", "r0"]]);
     // The source moves to the revision the Save committed, and its rows read back there by position, while the pages
     // read again there stand in with the rows read at r0.
     revision = "r1";
@@ -240,13 +245,15 @@ test("a paged Save's rows are drawn as it left them over the rows read before it
     expect([...hook.result.current.session.landed.keys()].sort()).toEqual(["a", "b"]);
     expect(qty()).toEqual(variant("Integer", 7n));
     expect([...hook.result.current.layer.removed]).toEqual(["b"]);
+    expect([...hook.result.current.savedFrom].sort()).toEqual([["a", "r0"], ["b", "r0"]]);
     // Rows read still at the revision the Save was drafted at hold nothing of it either.
     drawn = { rows: before, read: { revision: "r0", before: () => false } };
     hook.rerender();
     expect(qty()).toEqual(variant("Integer", 7n));
-    // A new edit over them draws its draft; undone, the Save's value again.
+    // A new edit over them draws its draft, which no count holds; undone, the Save's value again.
     act(() => hook.result.current.record([commit(before[0]!, 8n)]));
     expect(qty()).toEqual(variant("Integer", 8n));
+    expect([...hook.result.current.savedFrom]).toEqual([["b", "r0"]]);
     act(() => hook.result.current.session.undo());
     expect(qty()).toEqual(variant("Integer", 7n));
     // Read again at r1: the rows are the source's, and nothing of the Save is held.
@@ -255,6 +262,7 @@ test("a paged Save's rows are drawn as it left them over the rows read before it
     expect(hook.result.current.session.landed.size).toBe(0);
     expect(hook.result.current.layer.edits.size).toBe(0);
     expect(hook.result.current.layer.removed.size).toBe(0);
+    expect(hook.result.current.savedFrom.size).toBe(0);
 });
 
 test("creation defaults survive a multi-event gesture, later clearing, and applied undo/redo", async () => {

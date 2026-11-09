@@ -258,13 +258,15 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
     const named = useMemo(() => new Set(issues.flatMap((issue) => (issue.name === undefined ? [] : [issue.name]))), [issues]);
 
     // The field asked to take the keyboard on this row, once the form is drawn to give it; then the request is answered —
-    // in a phone's drawer at once, the field left to a tap, so no keyboard rises over the drawer unasked.
+    // in a phone's drawer at once, the field left to a tap, so no keyboard rises over the drawer unasked. The author's own
+    // Details take no request: it is answered as they show, so it never fires once the form takes their place.
     const drawn = target.value !== undefined && own === undefined;
     const asked = focus !== undefined && focus.r === r && drawn ? focus.key : undefined;
     const focusKey = phone ? undefined : asked;
+    const ownShown = target.value !== undefined && own !== undefined;
     useEffect(() => {
-        if (focus !== undefined && asked !== undefined) focused(focus.seq);
-    }, [focus, asked, focused]);
+        if (focus !== undefined && (asked !== undefined || (ownShown && focus.r === r))) focused(focus.seq);
+    }, [focus, asked, ownShown, r, focused]);
 
     // Its facts (IN6): the audit's when, verb and who, and the age's count — none on a row the record does not hold yet.
     const facts = useMemo((): RecordFact[] => {

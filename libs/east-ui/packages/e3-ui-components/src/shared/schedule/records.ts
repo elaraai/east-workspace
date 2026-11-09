@@ -101,6 +101,26 @@ function randomUUID(): string {
 }
 
 /**
+ * What a builder makes over the app's `values` (#1526) — a new row, or the
+ * period's row it writes first — or `undefined` where they fail as they run,
+ * which the console says: a gesture then records nothing and a probe draws
+ * nothing, and the builder goes on.
+ *
+ * @param builder - The builder, as the console names it: `Roster`
+ * @param what - What it makes, as the console names it: `a new duty`
+ * @param make - Its kind's function over the app's `values`, called
+ * @returns What it makes
+ */
+export function madeFromValues<T>(builder: string, what: string, make: () => T): T | undefined {
+    try {
+        return make();
+    } catch (err) {
+        console.error(`[${builder}] ${what} could not be made from the app's values:`, err);
+        return undefined;
+    }
+}
+
+/**
  * An entry's drafted row, when its draft holds one: what a builder decodes a
  * draft of a record into once.
  *
@@ -207,13 +227,15 @@ export function periodRowsRead(periods: SchedulePeriodsValue, from: Date, to: Da
  * @param start - The period's start: its key
  * @param stored - The period's row as the builder read it
  * @param at - When it is published
- * @returns The change
+ * @param builder - The builder, as the console names it where the periods' `values` fail
+ * @returns The change; `undefined` for a new row the periods' `values` fail to make, which publishes nothing
  */
 export function periodPublishChange(periods: SchedulePeriodsValue, schedule: Pick<ScheduleEditing, "held">, record: string, id: string, start: Date,
-    stored: Uint8Array | undefined, at: Date): ScheduleChange {
+    stored: Uint8Array | undefined, at: Date, builder: string): ScheduleChange | undefined {
     const saved = schedule.held(record, id);
     const row = saved !== undefined ? rowCodec(periods.rowType).encode(saved) : stored;
-    return { kind: record, id, row: periods.publish(start, row === undefined ? none : some(row), at) };
+    const published = madeFromValues(builder, "the period's row", () => periods.publish(start, row === undefined ? none : some(row), at));
+    return published === undefined ? undefined : { kind: record, id, row: published };
 }
 
 /**

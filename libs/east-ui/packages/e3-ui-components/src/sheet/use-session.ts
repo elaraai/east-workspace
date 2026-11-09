@@ -15,6 +15,7 @@ import { useCallback, useLayoutEffect, useMemo, useReducer, useRef, useState } f
 import { StringType, StructType, equalFor, fromEastTypeValue, isVariant, printFor } from "@elaraai/east";
 import { Sheet, SheetBatchReadinessType } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, useLanding, useLandingStyles, useDataStable, usePersistedState, type BatchReadiness } from "@elaraai/east-ui-components";
+import { kindOfIssue } from "@elaraai/east-ui-components/internal";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { NULL_CELL, drawnPx, isLooseRow, layoutLensRun, layoutRun, type SheetGeometry } from "./model.js";
 import { SHEET_PAGE_SIZE, useSheetPaging } from "./paging.js";
@@ -28,6 +29,7 @@ import { useSheetEditing, type LocalLayer, type SheetRowsRead } from "./use-edit
 import { useCellsFromData } from "./cells-from-data.js";
 import { useSheetDay } from "./day.js";
 import { draftChanges, draftPresentation, type DraftPresentation } from "./draft-state.js";
+import { normalizeDraft } from "./draft-values.js";
 import type { SheetRowValue, SheetRootValue } from "./values.js";
 import type { SheetHost, SheetRowChanges } from "./parts.js";
 import type { SheetDecode } from "./use-decode.js";
@@ -151,12 +153,14 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     // Each row's cells from data and every column's marks, read at the day (#1559): over its entry here, over its draft
     // once it has one (the layer, below) — the source's rows carry none of them.
     const day = useSheetDay(value.cellsAt.type === "some");
-    const fromData = useCellsFromData(value, day);
+    const fromData = useCellsFromData(value, day, words.m.marksUnread());
     const sourceRows = useMemo(() => fromData.rows(drawnRows, sourcePositions), [fromData, drawnRows, sourcePositions]);
     // Every row resident: inline, or a paged source read to its end — never under the lens, which draws a part of the record.
     const exhausted = decodedRows !== undefined || (!lensDrawn && paging.exhausted);
-    // The source's element count, once known.
+    // The source's element count, once known, and the revision it was read at: a Save's rows are counted over a count
+    // read before it, never one read since, which holds them (#1536).
     const total = lensDrawn ? lens.total : paging.total;
+    const totalRevision = lensDrawn ? lens.revision : paging.totalRevision;
     // The rows shown are not the narrowing's yet — another narrowing's stand in, or nothing is read: they take no
     // gesture (#1345). A new revision's rows reading under the last ones still do.
     const standingIn = lensDrawn ? lens.replacing || lensStandsIn : paging.replacing || pagesStandIn || (lensWanted && !lensReady);
@@ -266,19 +270,28 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
             const draft = session.entries.get(id)?.draft;
             let found: SheetRowChanges | null = null;
             if (began !== undefined && draft !== undefined) {
-                if (began.draft === undefined) found = { added: true, dirty: NOTHING, held: undefined, fields: 0 };
-                else {
+                if (began.draft === undefined) {
+                    // Its fields still missing, as its readiness finds them: what a person must fill before Save.
+                    const checked = normalizeDraft(draftType, draft, id).readiness;
+                    const missing = new Set<string>();
+                    if (checked.type !== "ready") {
+                        for (const issue of checked.value) {
+                            if (issue.field.type === "some" && issue.row.type === "none" && kindOfIssue(issue, checked) === "incomplete") missing.add(issue.field.value);
+                        }
+                    }
+                    found = { added: true, dirty: NOTHING, held: undefined, fields: 0, missing };
+                } else {
                     const dirty = new Set<string>();
                     const held = fromData.held(began);
                     for (const [key, cell] of row.cells) if (!cellEqual(held?.get(key) ?? NULL_CELL, cell)) dirty.add(key);
-                    found = { added: false, dirty, held, fields: fieldChanges(began.draft, draft) };
+                    found = { added: false, dirty, held, fields: fieldChanges(began.draft, draft), missing: NOTHING };
                 }
             }
             byId.set(id, found);
             return found ?? undefined;
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session; the rows, what a change is read against.
-    }, [session, draftVersion, sourceRows, layer, fieldChanges, fromData]);
+    }, [session, draftVersion, sourceRows, layer, draftType, fieldChanges, fromData]);
     // Temporary writes within one reducer effect batch; the transaction session
     // publishes the completed gesture and owns the rendered layer thereafter.
     const layerRef = useRef(layer);
@@ -299,7 +312,7 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
         editingState, exhausted, foldedOf, folds, geometry, gestureCount, keyHeld, landRef, landing, landingRoot,
         landingStyles, layer, layerRef, lens, lensDrawn, locked, mintLineId, optimiseTypes, optimised, pagesReady,
         pagesStandIn, paging, persist, persistedRef, recordGesture, restored, rowsOffset, rowsQuery, run, runLayout,
-        session, setBarClosedAt, setLayer, setOptimised, standingIn, store, subRowsOpenOf, takenKeys, total, ui,
+        session, setBarClosedAt, setLayer, setOptimised, standingIn, store, subRowsOpenOf, takenKeys, total, totalRevision, ui,
         ...named,
     };
 }

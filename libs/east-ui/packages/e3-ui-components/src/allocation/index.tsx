@@ -39,7 +39,7 @@ import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
-import { publishPeriod } from "../shared/schedule/records.js";
+import { madeFromValues, publishPeriod } from "../shared/schedule/records.js";
 import { openFramePane } from "../shared/schedule/open-pane.js";
 import { refusalText, scheduleRefusals } from "../shared/schedule/refusals.js";
 import { readRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
@@ -347,8 +347,10 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         let derived = reservings.get(id);
         if (derived === undefined) {
             derived = domain.copyDay(plan);
-            const bytes = value.bin.create({ at, lane, arrival: none, quantity: 0, kind: none, hold: variant("days", 0), parts: new SortedMap<string, number>([], compareString) }, none);
-            const probe = domain.binOf(value.bin.read(bytes), domain.decodeRow(bytes), day);
+            // A probe the app's `values` fail to make draws none, as the Reserve it stands for makes none.
+            const bytes = madeFromValues("Allocation", `a probe ${one(value.labels.reservation)}`, () => value.bin.create({ at, lane, arrival: none, quantity: 0, kind: none,
+                hold: variant("days", 0), parts: new SortedMap<string, number>([], compareString) }, none));
+            const probe = bytes === undefined ? none : domain.binOf(value.bin.read(bytes), domain.decodeRow(bytes), day);
             if (probe.type === "some") derived.bins.set(RESERVE_PROBE, probe.value);
             reservings.set(id, derived);
         }

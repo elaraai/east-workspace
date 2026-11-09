@@ -24,7 +24,7 @@
 import { SortedMap, none, some, variant, type option } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { ScheduleChange } from "../shared/schedule/editing.js";
-import { fieldChange, mintKey, periodPublishChange } from "../shared/schedule/records.js";
+import { fieldChange, madeFromValues, mintKey, periodPublishChange } from "../shared/schedule/records.js";
 import { PERIODS, type AllocationEditing } from "./editing.js";
 import { one } from "./nouns.js";
 import {
@@ -232,9 +232,13 @@ export function allocationCommands(state: AllocationState, select: (next: Select
         change(next);
         return record(changesOf(next), origin, label);
     };
-    /** A new bin of the day: its row the kind's `create` of its roles and the values given, its roles as the kind reads them back; its key minted. */
+    /**
+     * A new bin of the day: its row the kind's `create` of its roles and the values given, its roles as the kind reads
+     * them back; its key minted. `undefined` where the app's `values` fail to make it.
+     */
     const created = (roles: Roles, values: option<Uint8Array>, minted: Set<string>): { id: string; bin: Bin } | undefined => {
-        const bytes = value.bin.create(roles, values);
+        const bytes = madeFromValues("Allocation", `a new ${one(value.labels.bin)}`, () => value.bin.create(roles, values));
+        if (bytes === undefined) return undefined;
         const bin = domain.binOf(value.bin.read(bytes), domain.decodeRow(bytes), day);
         if (bin.type !== "some") return undefined;
         const id = mintKey(taken(minted));
@@ -431,5 +435,5 @@ export function allocationCommands(state: AllocationState, select: (next: Select
  */
 export function publishChange(value: AllocationValue, editing: AllocationEditing, day: Date, stored: Uint8Array | undefined, at: Date): ScheduleChange | undefined {
     if (value.periods.type !== "some") return undefined;
-    return periodPublishChange(value.periods.value, editing.schedule, PERIODS, dayKey(day), day, stored, at);
+    return periodPublishChange(value.periods.value, editing.schedule, PERIODS, dayKey(day), day, stored, at, "Allocation");
 }

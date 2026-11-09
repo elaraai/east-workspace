@@ -119,11 +119,17 @@ export function kindKeys(keyType: EastTypeValue): KindKeys {
             return compareString(a.text, b.text);
         });
         const specs = keySpecsOf(keyType);
-        const standIn = print(defaultValue(fromEastTypeValue(keyType) as EastType));
+        // The key type's default, printed, made the first time a placeholder is read: a type with none — a recursive one,
+        // or one holding one — the form never types, so no row of it waits under a placeholder.
+        let standIn: string | undefined;
         keys = {
             keyType, text: false, textOf: (key) => print(key), keyOf, order, ranks: ranksOf(order), isKey: (text) => keyOf(text) !== undefined,
             specs, typed: specs.length > 0 && specs.every((spec) => spec.editor.type !== "readonly"),
-            readKey: (text) => (keyOf(text) === undefined ? standIn : text),
+            readKey: (text) => {
+                if (keyOf(text) !== undefined) return text;
+                standIn ??= print(defaultValue(fromEastTypeValue(keyType) as EastType));
+                return standIn;
+            },
         };
     }
     keysOf.set(keyType, keys);

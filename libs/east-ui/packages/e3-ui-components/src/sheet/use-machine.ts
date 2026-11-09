@@ -111,10 +111,10 @@ export function useSheetMachine(value: SheetRootValue, sheetDecode: SheetDecode,
         },
         kindAt: (r, c) => metaAt(r, c)?.kind ?? "text",
         // A host's grid (#1531): its cycles, toggles and booleans step in place, its titles open where the host edits
-        // them, and its strip shows the cell under the pointer.
+        // them — in their cells, for a host that opens them nowhere — and its strip shows the cell under the pointer.
         stepAt: hostGrid === undefined ? undefined : (r, c, step) => stepCell(metaAt(r, c), cellAt(r, c), registers, step),
         keyAt: hostGrid === undefined ? undefined : (r, c, key) => keyedCell(metaAt(r, c), key, registers),
-        opensAt: hostGrid === undefined ? undefined : (r, c) => editsOutOfPlace(metaAt(r, c)),
+        opensAt: hostGrid === undefined ? undefined : (r, c) => editsOutOfPlace(metaAt(r, c), hostGrid),
         previewsHover: hostGrid !== undefined,
         parse: (r, c, text) => {
             const meta = metaAt(r, c);

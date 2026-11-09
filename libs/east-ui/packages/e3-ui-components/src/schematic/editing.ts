@@ -72,7 +72,7 @@ import {
     type ScheduleChange, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead,
 } from "../shared/schedule/editing.js";
 import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
-import { draftedRow, heldInWindow, keptAtRevision, mintKey, rowCodec } from "../shared/schedule/records.js";
+import { draftedRow, heldInWindow, keptAtRevision, madeFromValues, mintKey, rowCodec } from "../shared/schedule/records.js";
 import type { SchematicRef } from "./canvas/drawn.js";
 import type { SchematicHeldRows, SchematicValue, SchematicWindowRows } from "./data.js";
 import type { DraftedRow, SchematicDrafts, SortDrafts } from "./drafted.js";
@@ -471,14 +471,17 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
                     break;
                 }
                 case "link": {
-                    const row = of(payload.links, slot)?.create(edit.ends, edit.values);
-                    if (row === undefined || row.type !== "some") return undefined;
+                    // A row the app's `values` fail to make (#1526), as one its kind refuses, records nothing.
+                    const kind = of(payload.links, slot);
+                    const row = kind === undefined ? undefined : madeFromValues("Schematic", `a new ${kind.name}`, () => kind.create(edit.ends, edit.values));
+                    if (row?.type !== "some") return undefined;
                     changes.push({ kind: slot, id, row: row.value, created: true });
                     break;
                 }
                 case "net": {
-                    const row = of(payload.nets, slot)?.create(edit.sides, edit.values);
-                    if (row === undefined || row.type !== "some") return undefined;
+                    const kind = of(payload.nets, slot);
+                    const row = kind === undefined ? undefined : madeFromValues("Schematic", `a new ${kind.name}`, () => kind.create(edit.sides, edit.values));
+                    if (row?.type !== "some") return undefined;
                     changes.push({ kind: slot, id, row: row.value, created: true });
                     break;
                 }

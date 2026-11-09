@@ -138,6 +138,11 @@ export interface SheetPaging {
     tail: SheetBand | undefined;
     /** The source's element count, once known. */
     total: number | undefined;
+    /**
+     * The revision that count was read at — the last one that gave a count, while it stands in for this one's (#851);
+     * `undefined` with no count. What a Save's rows are counted over: a count read since holds them (#1536).
+     */
+    totalRevision: string | undefined;
     /** Whether every source element is resident. */
     exhausted: boolean;
     /** Whether a requested window is still in flight — one the view shows, or one read ahead of it. */
@@ -201,7 +206,7 @@ const NONE_PENDING: readonly number[] = [];
 const NONE_STANDING: readonly number[] = [];
 
 const IDLE: SheetPaging = {
-    rows: [], positions: [], rowsOffset: 0, failures: [], head: undefined, tail: undefined, total: undefined,
+    rows: [], positions: [], rowsOffset: 0, failures: [], head: undefined, tail: undefined, total: undefined, totalRevision: undefined,
     exhausted: true, loading: false, pending: NONE_PENDING, standing: NONE_STANDING, revision: undefined, viewLoading: false, reading: undefined, replacing: false, held: false,
     sourceError: undefined, error: undefined, landedOnce: false, sizeVersion: 0, jump: undefined,
     reportViewport: () => {}, jumpToElement: () => {}, clearJump: () => {}, retry: () => {},
@@ -427,6 +432,8 @@ export function useSheetPaging(
         if (reads.resident.some(({ w }) => held.store.windows.has(w))) held.landedOnce = true;
         return {
             total,
+            // The revision the last count was read at: this one's, or the one before while this one gives none.
+            totalRevision: held.totalRevision,
             landed: reads.resident.map(({ w, read: rows }) => ({ w, rows })),
             failed: reads.failed,
             // The windows in flight, ascending: what the footer's loading line names (#1398).
@@ -719,6 +726,7 @@ export function useSheetPaging(
         head: bands.head,
         tail: bands.tail,
         total,
+        totalRevision: total === undefined ? undefined : value?.totalRevision,
         exhausted,
         loading: value?.loading ?? false,
         pending: allPending,
@@ -766,7 +774,7 @@ export function useSheetPaging(
         const reason = current.error ?? current.sourceError ?? current.failures[0]?.error;
         const standing: SheetPaging = { ...current, rows: previous.result.rows, positions: previous.result.positions,
             rowsOffset: previous.result.rowsOffset, failures: previous.result.failures,
-            head: previous.result.head, tail: previous.result.tail, total: previous.result.total,
+            head: previous.result.head, tail: previous.result.tail, total: previous.result.total, totalRevision: previous.result.totalRevision,
             exhausted: previous.result.exhausted, sizeVersion: previous.result.sizeVersion,
             jump: undefined, replacing: true, loading: reason === undefined, viewLoading: reason === undefined, reading: undefined,
             error: undefined, sourceError: reason };

@@ -252,6 +252,8 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     rowFailed: (p: { number: string; reason: string }) => string;
     /** A paged source that failed before anything landed. */
     noSource: (p: { reason: string }) => string;
+    /** Why each marked cell of a row whose marks could not be read is locked (#1560): it stays locked until they are. */
+    marksUnread: () => string;
 
     // ── Grouped rows (#740) ────────────────────────────────────────────────
     /** A band's rowheader — `plan 2, 5 lines`. */
@@ -776,6 +778,7 @@ export const sheetMessages: SheetMessages = {
     lensChanged: () => "the record changed while they were read",
     rowFailed: ({ number, reason }) => `Row ${number} could not be drawn — ${reason}`,
     noSource: ({ reason }) => `NO ROWS — the paged source could not be read. ${reason} `,
+    marksUnread: () => "Couldn't be read",
 
     groupName: ({ noun, number, n, count }) => `${noun} ${number}, ${count} ${plural(n, "line", "lines")}`,
     groupTitle: ({ noun }) => `Select the ${noun}'s lines — delete removes them`,

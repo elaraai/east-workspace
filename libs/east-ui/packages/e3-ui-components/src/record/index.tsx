@@ -37,9 +37,10 @@
  *
  * Add drafts a row — first in the rows, in its key's place where they are
  * keyed — the rail's search cleared so it shows, and the ring on its title,
- * which opens it on Details (AD1). Delete takes the ticked rows out as one
- * draft, and the ticks with them (AD5); Discard drops the ticks with every
- * draft (AD6).
+ * which opens it on Details (AD1). With no inspector a title edits in its
+ * cell, as a text does, and Add opens its editor there. Delete takes the
+ * ticked rows out as one draft, and the ticks with them (AD5); Discard drops
+ * the ticks with every draft (AD6).
  *
  * On a phone — the frame 560 wide or less — the frame is the BuilderFrame's
  * phone frame, the inspector its drawer, and the grid the Sheet's on a phone:
@@ -191,16 +192,21 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
         };
     }, [fields, ticks, status]);
     // A phone's cell editor (SH10): a cell of the Sheet's kinds edits in the bottom container, its inspector's field at
-    // touch size; a cycle, a toggle and a boolean step where they are pressed, and a title opens its Details.
+    // touch size; a cycle, a toggle and a boolean step where they are pressed, and a title opens its Details — or, with
+    // no inspector, edits there as a text does.
     const cellEditor = useMemo(() => sheetCellEditor(value, words, NO_COLUMN_HIDDEN), [value, words]);
+    // With no inspector a title opens nowhere: it edits in its cell, as a text does, and Add opens its editor there.
+    const inspector = value.inspector.type === "some";
     const host = useMemo((): SheetHost => ({
-        grid: { rowPx, leadPx: readOnly ? 0 : SELECT_PX, leadRun: "check", runStyles: styles, Row: RecordRow, Header: RecordHeader, Empty: RecordEmpty, Strip: RecordStrip, onOpen },
+        grid: {
+            rowPx, leadPx: readOnly ? 0 : SELECT_PX, leadRun: "check", runStyles: styles, Row: RecordRow, Header: RecordHeader, Empty: RecordEmpty, Strip: RecordStrip,
+            onOpen: inspector ? onOpen : undefined,
+        },
         onHistory,
         cellEditor,
-    }), [rowPx, readOnly, styles, onOpen, onHistory, cellEditor]);
+    }), [rowPx, readOnly, styles, inspector, onOpen, onHistory, cellEditor]);
     const noun = useMemo((): RecordNoun => getSomeorUndefined(value.noun) ?? rm.rowNoun(), [value.noun]);
     const title = getSomeorUndefined(value.title);
-    const inspector = value.inspector.type === "some";
     const grid = useMemo((): RecordGrid => ({ styles, ticks, groups: value.columnGroups, noun, title, inspector }), [styles, ticks, value.columnGroups, noun, title, inspector]);
     const inspection = useMemo((): RecordInspector => ({ focus, focused, status, ticks, readOnly }), [focus, focused, status, ticks, readOnly]);
     const onTab = useCallback((tab: string) => setPane({ tab }), [setPane]);
@@ -302,11 +308,13 @@ function RecordFrame({ value, keys, styles, frameRef, tab, onTab, onOpen, openDe
         remove(rowIds.filter((id) => ticks.has(id)));
         ticks.clear();
     }, [remove, rowIds, ticks]);
+    // Add and Delete are off while the rows take no gesture — a narrowing standing in, a far jump held — as the session's
+    // add and remove would refuse it then.
     const items = useRecordToolbarItems({
         styles, parts, title, count: total === undefined ? undefined : words.number(total), status: statusLine, noun,
         onAdd: readOnly || !capabilities.insertRows ? undefined : onAdd,
         onDelete: readOnly || !capabilities.removeRows ? undefined : onDelete,
-        ticked, writable: session.writable,
+        ticked, tickedCount: words.number(ticked), writable: session.writable && inspect.writable,
     });
     // The footer (FT1, FT2): the rows shown of the record's, the stale note over every row shown, and the legend.
     const count = shown === undefined || total === undefined ? undefined

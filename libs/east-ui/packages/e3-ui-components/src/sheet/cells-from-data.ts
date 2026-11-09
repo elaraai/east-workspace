@@ -14,13 +14,19 @@
  * place of the last read's, so a mark the draft no longer has goes with it
  * (#1560).
  *
+ * A lock never lifts for a read that can't see it: over a draft not yet whole —
+ * a field empty, or holding text no column reads — the row's marks are not
+ * read, and the last read's stand; and a row whose read fails keeps every
+ * marked cell locked, its words saying it couldn't be read, the console why.
+ *
  * @packageDocumentation
  */
 
 import { useMemo } from "react";
-import { encodeBeast2For, variant, type ValueTypeOf } from "@elaraai/east";
+import { encodeBeast2For, fromEastTypeValue, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import type { SheetReadFromType } from "@elaraai/e3-ui/internal";
+import { normalizeDraft } from "./draft-values.js";
 import type { EntryVersion } from "./transactions.js";
 import type { LocalLayer } from "./use-editing.js";
 import type { SheetRootValue, SheetRowValue } from "./values.js";
@@ -46,36 +52,50 @@ const NOTHING_READ: SheetCellsFromData = { rows: (rows) => rows, layer: (layer) 
  *
  * @param value - The sheet's root: its `cellsAt`, and its editing declaration's `readEntry` and draft type
  * @param day - The day the cells are read at
- * @returns The readers — the same ones while the root and the day hold
+ * @param unread - The words in each marked cell of a row whose read failed: why it is locked
+ * @returns The readers — the same ones while the root, the day and the words hold
  */
-export function useCellsFromData(value: SheetRootValue, day: Date): SheetCellsFromData {
+export function useCellsFromData(value: SheetRootValue, day: Date, unread: string): SheetCellsFromData {
     const { cellsAt, columns, editing } = value;
     return useMemo((): SheetCellsFromData => {
         if (cellsAt.type === "none") return NOTHING_READ;
         const cellsOf = cellsAt.value;
-        // The cells a read writes: each column from data's, and every column's marks.
+        // The cells a read writes: each column from data's, and every column's marks — each mark's two cells.
         const readKeys = new Set<string>();
+        const marks: { readonly words: string; readonly lock: string }[] = [];
         for (const column of columns) {
             if (getSomeorUndefined(column.from) !== undefined) readKeys.add(column.key);
             const mark = getSomeorUndefined(column.mark);
-            if (mark !== undefined) { readKeys.add(mark.words); readKeys.add(mark.lock); }
+            if (mark !== undefined) { readKeys.add(mark.words); readKeys.add(mark.lock); marks.push(mark); }
         }
+        const markKeys = new Set(marks.flatMap((mark) => [mark.words, mark.lock]));
+        const draftType = fromEastTypeValue(editing.draftType) as EastType;
         const encodeDraft = encodeBeast2For(editing.draftType) as (draft: unknown) => Uint8Array;
-        // An app's read or mark that throws leaves the row its own cells, and is said once.
+        // Whether a draft is whole: every field it needs set and read, so the marks over the row read too.
+        const whole = (draft: unknown, id: string): boolean => normalizeDraft(draftType, draft, id).domain !== undefined;
+        // An app's read or mark that throws leaves the row its own cells, every marked one locked, and is said once.
         let said = false;
-        const read = (row: SheetRowValue, from: ValueTypeOf<typeof SheetReadFromType>): SheetRowValue => {
+        const locked = (row: SheetRowValue): SheetRowValue => {
+            if (marks.length === 0) return row;
+            const out = new Map(row.cells);
+            for (const mark of marks) { out.set(mark.words, variant("String", unread)); out.set(mark.lock, variant("Boolean", true)); }
+            return { ...row, cells: out };
+        };
+        const read = (row: SheetRowValue, from: ValueTypeOf<typeof SheetReadFromType>, marked: boolean): SheetRowValue => {
             let cells: Cells;
             try {
                 cells = cellsOf(from, day);
             } catch (error) {
-                if (!said) console.error("[Sheet] a column from data could not be read:", error);
+                if (!said) console.error("[Sheet] a column from data or a mark could not be read:", error);
                 said = true;
-                return row;
+                return locked(row);
             }
-            // A read stands in for the last one: a cell it wrote that this one doesn't — a mark lifted — goes.
-            const stale = [...row.cells.keys()].some((key) => readKeys.has(key) && !cells.has(key));
+            // A read stands in for the last one: a cell it wrote that this one doesn't — a mark lifted — goes; but over a
+            // draft not yet whole, whose marks it can't read, the last read's marks stay.
+            const kept = (key: string): boolean => !readKeys.has(key) || cells.has(key) || (!marked && markKeys.has(key));
+            const stale = [...row.cells.keys()].some((key) => !kept(key));
             if (cells.size === 0 && !stale) return row;
-            const out = new Map([...row.cells].filter(([key]) => !readKeys.has(key) || cells.has(key)));
+            const out = new Map([...row.cells].filter(([key]) => kept(key)));
             for (const [key, cell] of cells) out.set(key, cell);
             return { ...row, cells: out };
         };
@@ -90,7 +110,7 @@ export function useCellsFromData(value: SheetRootValue, day: Date): SheetCellsFr
                 const position = positions[i];
                 const entry = position === undefined ? undefined : editing.readEntry(row.id, BigInt(position));
                 if (entry?.type !== "some") return row;
-                const out = read(row, variant("entry", entry.value));
+                const out = read(row, variant("entry", entry.value), true);
                 byEntry.set(row, out);
                 return out;
             }),
@@ -102,7 +122,7 @@ export function useCellsFromData(value: SheetRootValue, day: Date): SheetCellsFr
                     if (draft === undefined || bytes === undefined) return row;
                     const known = byDraft.get(row);
                     if (known !== undefined && Object.is(known.draft, draft)) return known.row;
-                    const out = read(row, variant("draft", bytes));
+                    const out = read(row, variant("draft", bytes), whole(draft, row.id));
                     byDraft.set(row, { draft, row: out });
                     return out;
                 };
@@ -111,11 +131,12 @@ export function useCellsFromData(value: SheetRootValue, day: Date): SheetCellsFr
             held: (began) => {
                 if (byBegan.has(began)) return byBegan.get(began);
                 // What the record held, as the day reads it now: a turn of the day since the gesture began marks no cell changed.
-                const cells = began.wire === undefined || began.draft === undefined ? began.wire?.cells
-                    : read(began.wire, variant("draft", encodeDraft(began.draft))).cells;
+                const wire = began.wire;
+                const cells = wire === undefined || began.draft === undefined ? wire?.cells
+                    : read(wire, variant("draft", encodeDraft(began.draft)), whole(began.draft, wire.id)).cells;
                 byBegan.set(began, cells);
                 return cells;
             },
         };
-    }, [cellsAt, columns, editing, day]);
+    }, [cellsAt, columns, editing, day, unread]);
 }

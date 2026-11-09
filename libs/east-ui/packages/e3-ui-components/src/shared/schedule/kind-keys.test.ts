@@ -6,16 +6,19 @@
  * `kind-keys.ts`): each key's text — a String key as itself, any other as East
  * prints it — a text read back at the record's key type, a text no key prints
  * as reading nothing, and the keys' order at their type, where text order
- * would put `10` before `9`; made once a key type; and a variant key's field
- * edited through the case it holds. Over real East values, compared by East.
+ * would put `10` before `9`; made once a key type; a variant key's field
+ * edited through the case it holds; and a recursive key type, which has no
+ * default, made all the same. Over real East values, compared by East.
  */
 
 import { describe, expect, test } from "vitest";
-import { DateTimeType, IntegerType, StringType, StructType, VariantType, equalFor, printFor, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, IntegerType, RecursiveType, StringType, StructType, VariantType, equalFor, printFor, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
 import { keyEdited, kindKeys } from "./kind-keys.js";
 
 const SpotKey = StructType({ row: IntegerType, col: IntegerType });
 const RackKey = VariantType({ wall: IntegerType, floor: StringType });
+/** A part's place in an assembly, down its parents: a type with no default. */
+const PathKey = RecursiveType((self) => VariantType({ top: StringType, under: StructType({ part: StringType, parent: self }) }));
 
 describe("kindKeys", () => {
     test("a String key is its own text, both ways: an app keyed by String reads as before", () => {
@@ -83,5 +86,15 @@ describe("kindKeys", () => {
         expect(rackEqual(edited(variant("wall", 3n), ["key"], variant("floor", "")), variant("floor", ""))).toBe(true);
         // A placeholder, typed no key yet, starts from its type's default: its first case.
         expect(rackEqual(edited(undefined, ["key", "floor"], "B"), variant("floor", "B"))).toBe(true);
+    });
+
+    test("a recursive key type, which has no default, is made all the same: its keys print and read back, a key's text is what a kind's read takes, and the form types none", () => {
+        const paths = kindKeys(toEastTypeValue(PathKey));
+        const pathEqual = equalFor(PathKey);
+        const motor: ValueTypeOf<typeof PathKey> = variant("under", { part: "motor", parent: variant("top", "pump") });
+        const text = paths.textOf(motor);
+        expect(pathEqual(paths.keyOf(text) as ValueTypeOf<typeof PathKey>, motor)).toBe(true);
+        expect(paths.readKey(text)).toBe(text);
+        expect(paths.typed).toBe(false);
     });
 });

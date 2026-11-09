@@ -33,8 +33,8 @@
  *   transition its values, its ends and its key kept; adds a lane from its
  *   values where it lands, keyed `lane-<n>`, its order between the lanes'.
  * - **A new row's key**, changed in the form before Save, moves the row to it,
- *   and the transitions naming a state, or the states naming a lane, follow
- *   (R9).
+ *   and the transitions naming a state and the decisions queuing it, or the
+ *   states naming a lane, follow (R9).
  * - **A new row's key is its kind's** (#1549, `editing.ts`' `newKey`): the
  *   text above where it is keyed by String; built from the row by its kind's
  *   `key`, a gesture refused that builds one a row holds; one past the largest
@@ -132,7 +132,7 @@ export interface FlowchartHolding {
      * @param minted - The keys the gesture has minted already
      */
     readonly mintTransition: (minted: ReadonlySet<string>) => string;
-    /** Whether the decisions take a state's key out of their queues. */
+    /** Whether the decisions queue states by their keys: a state's Del takes its key out, and its move to a new key takes it there. */
     readonly unqueues: boolean;
     /** Whether the lanes' order takes a whole number alone: an Integer field. */
     readonly wholeLaneOrders: boolean;
@@ -699,9 +699,9 @@ export function setRow(holding: FlowchartHolding, sort: FlowchartSort, key: stri
 
 /**
  * A new row's key, changed in the form before Save (R9): the row under its new
- * key, and the transitions naming a state, or the states naming a lane,
- * following it — those drawn, those hidden with their far end and those
- * waiting. A key the flowchart holds already is refused.
+ * key, and the transitions naming a state and the decisions queuing it, or the
+ * states naming a lane, following it — those drawn, those hidden with their far
+ * end and those waiting. A key the flowchart holds already is refused.
  *
  * @param holding - What the gesture reads
  * @param sort - The row's kind: a state's or a lane's
@@ -716,8 +716,9 @@ export function rekey(holding: FlowchartHolding, sort: "states" | "lanes", from:
 
 /**
  * What names a row moving to a new key, following it: a state's transitions —
- * those drawn, those hidden with their far end and those waiting — and a
- * lane's states, drawn and waiting; each while its kind takes a gesture.
+ * those drawn, those hidden with their far end and those waiting — and the
+ * decisions queuing it, and a lane's states, drawn and waiting; each while its
+ * kind takes a gesture.
  *
  * @param holding - What the gesture reads
  * @param sort - The row's kind
@@ -727,6 +728,11 @@ export function rekey(holding: FlowchartHolding, sort: "states" | "lanes", from:
  */
 function namers(holding: FlowchartHolding, sort: FlowchartSort, from: string, to: string): FlowchartEdit[] {
     const edits: FlowchartEdit[] = [];
+    if (sort === "states" && holding.unqueues && holding.can("decisions")) {
+        for (const decision of holding.rows.decisions) {
+            if (decision.roles.queue.some((state) => keyEqual(state, from))) edits.push({ op: "requeue", key: decision.key, from, to });
+        }
+    }
     if (sort === "states" && holding.can("transitions")) {
         const waiting = holding.waiting.flatMap((row) => (row.sort === "transitions" ? [{ key: row.key, roles: row.roles }] : []));
         for (const transition of [...heldTransitions(holding), ...waiting]) {
@@ -757,7 +763,7 @@ function sortOfEdit(edit: FlowchartEdit): FlowchartSort {
         case "createState": case "writeState": return "states";
         case "createTransition": case "writeTransition": case "retypeTransition": return "transitions";
         case "createLane": case "writeLane": return "lanes";
-        case "unqueue": return "decisions";
+        case "unqueue": case "requeue": return "decisions";
         default: return edit.sort;
     }
 }
@@ -770,8 +776,8 @@ const FOLLOWS = 4;
  * moved under the key its fields build once the gesture writes them (#1549):
  * the row copied under its new key before any of its edits, so each writes it
  * there; then gone from its old key; then what names it following — a lane's
- * states, a state's transitions — whose own keys, built from what they name,
- * move them in turn. A key another row holds, or another moving row takes,
+ * states, a state's transitions and the decisions queuing it — whose own keys,
+ * built from what they name, move them in turn. A key another row holds, or another moving row takes,
  * refuses the gesture, naming that key.
  *
  * @param holding - What the gesture reads

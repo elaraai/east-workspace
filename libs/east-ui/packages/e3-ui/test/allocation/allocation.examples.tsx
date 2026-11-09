@@ -255,8 +255,8 @@ export const allocationKilnYard = example({
                 at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
                 quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
                 fields: { specMeasured: Schedule.field.text({ label: "Spec measured" }), instruction: Schedule.field.text({ label: "Loading instruction" }) },
-                // A reservation's own fields, the yard's: the spec it is held for, booked and measured alike until a load comes, no
-                // grade yet, and its instruction. A bin booked from a load takes the load's `values` below.
+                // A reservation's own fields, the yard's: its kind's spec, booked and measured alike — empty, as a reservation holds
+                // no kind until a load comes — no grade yet, and its instruction. A bin booked from a load takes the load's `values` below.
                 values: r => ({
                     specBooked: r.kind.unwrap("some", () => ""), specMeasured: r.kind.unwrap("some", () => ""),
                     gradeBooked: "", gradeMeasured: "", instruction: some("Hold for the next load"),

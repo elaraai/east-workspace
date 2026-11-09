@@ -10,6 +10,7 @@ import { StringType, equalFor } from "@elaraai/east";
 import { BannerView, EastChakraComponent, FieldForm, useTrackedEvaluation, type BuilderFrameDock, type EditIssue } from "@elaraai/east-ui-components";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
+import { madeFromValues } from "../shared/schedule/records.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { AssignmentActions, AssignmentFields, PlaceAction, RequirementFields, TimesFields, dutyForm, type DutyFormValue } from "./controls.js";
 import { CoverageView, ProposalCard, assignmentName, costed, dismissible, money, type RosterViewsProps } from "./views.js";
@@ -170,9 +171,11 @@ function Targets({ props, slot }: { props: Args; slot: Slot }) {
     const form = kind?.inspector.type === "some" ? kind.inspector.value : undefined;
     const target = requirementOf(props.week, slot);
     const row = props.targets.rows.get(slot);
-    // A slot with no target row yet: a new one for the form to start from, written only once the form writes it.
+    // A slot with no target row yet: a new one for the form to start from, written only once the form writes it — the
+    // Roster's own fields in its place where the app's `values` fail to make one.
     const bytes = useMemo(() => row?.bytes ?? (kind === undefined || form === undefined ? undefined
-        : kind.create({ day: dayOfSlot(props.start, slot), group: slot.group, shift: slot.shift, positions: target.positions, hours: target.hours })), [row, kind, form, props.start, slot, target]);
+        : madeFromValues("Roster", "a new shift's targets", () => kind.create({ day: dayOfSlot(props.start, slot), group: slot.group, shift: slot.shift,
+            positions: target.positions, hours: target.hours }))), [row, kind, form, props.start, slot, target]);
     const update = useCallback((next: Uint8Array): null => { props.onError(props.commands.targetRow(slot, next)); return null; }, [props, slot]);
     const read = useCallback(() => form !== undefined && bytes !== undefined ? form(bytes, update) : undefined, [form, bytes, update]);
     const { result } = useTrackedEvaluation(read);

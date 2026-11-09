@@ -26,7 +26,8 @@
  *   only its roles' fields move (R8); a new row is its kind's `create`; a
  *   transition dropped a card is its kind's `create` over the ends its row
  *   holds, so they and its key stay; a decision's queue loses a deleted
- *   state's key through its kind's `unqueue`; a field of the form through its
+ *   state's key through its kind's `unqueue`, and takes a state's new key in
+ *   its old one's place through its `requeue`; a field of the form through its
  *   kind's `set`; the row a kind's own Details hands back, whole. A gesture any
  *   of whose rows its kind refuses records nothing.
  * - **A new key e3 holds already (R9, D3).** A kind read through its source
@@ -71,7 +72,7 @@ import {
     type ScheduleRowRead,
 } from "../shared/schedule/editing.js";
 import { kindKeys } from "../shared/schedule/kind-keys.js";
-import { draftedRow, heldInWindow, keptAtRevision, mintKey, rowCodec } from "../shared/schedule/records.js";
+import { draftedRow, heldInWindow, keptAtRevision, madeFromValues, mintKey, rowCodec } from "../shared/schedule/records.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import type { DraftedRow, FlowchartDrafts, KindDrafts } from "./drafted.js";
 import type {
@@ -114,6 +115,8 @@ export type FlowchartEdit =
     | { readonly op: "writeLane"; readonly key: string; readonly write: FlowchartLaneWrite }
     /** A deleted state's key taken out of a decision's queue. */
     | { readonly op: "unqueue"; readonly key: string; readonly state: string }
+    /** A state's key replaced in a decision's queue by the new key it moves to (#1549). */
+    | { readonly op: "requeue"; readonly key: string; readonly from: string; readonly to: string }
     /** Fields no role writes: the form's, or an author's card's. */
     | { readonly op: "set"; readonly sort: FlowchartSort; readonly key: string; readonly sets: FlowchartFieldWrites }
     /** A row whole: the one a kind's own Details hands back. */
@@ -166,7 +169,10 @@ export interface FlowchartEditing {
     readonly drafts: FlowchartDrafts;
     /** The history's version: it moves with every change of it or of its sessions. */
     readonly version: number;
-    /** Whether the decisions take a state's key out of their queues: a queue is given them. */
+    /**
+     * Whether the decisions queue states by their keys: a queue is given them — a state's Del takes its key out, and a
+     * state moved to a new key takes it there.
+     */
     readonly unqueues: boolean;
     /** Whether the lanes' order takes a whole number alone: an Integer field, whose write and create give none for another. */
     readonly wholeLaneOrders: boolean;
@@ -465,8 +471,9 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
         for (const edit of edits) {
             switch (edit.op) {
                 case "createState": {
-                    const row = payload.states.create(edit.write, edit.values);
-                    if (row.type !== "some") return undefined;
+                    // A row the app's `values` fail to make, as one its kind refuses, records nothing.
+                    const row = madeFromValues("Flowchart", `a new ${payload.states.name}`, () => payload.states.create(edit.write, edit.values));
+                    if (row?.type !== "some") return undefined;
                     changes.push({ kind: "states", id: edit.key, row: row.value, created: true });
                     break;
                 }
@@ -476,8 +483,9 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
                     break;
                 }
                 case "createTransition": {
-                    const row = transitions?.create(edit.write, edit.values);
-                    if (row === undefined || row.type !== "some") return undefined;
+                    const row = transitions === undefined ? undefined
+                        : madeFromValues("Flowchart", `a new ${transitions.name}`, () => transitions.create(edit.write, edit.values));
+                    if (row?.type !== "some") return undefined;
                     changes.push({ kind: "transitions", id: edit.key, row: row.value, created: true });
                     break;
                 }
@@ -498,8 +506,8 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
                     break;
                 }
                 case "createLane": {
-                    const row = lanes?.create(edit.write, edit.values);
-                    if (row === undefined || row.type !== "some") return undefined;
+                    const row = lanes === undefined ? undefined : madeFromValues("Flowchart", `a new ${lanes.name}`, () => lanes.create(edit.write, edit.values));
+                    if (row?.type !== "some") return undefined;
                     changes.push({ kind: "lanes", id: edit.key, row: row.value, created: true });
                     break;
                 }
@@ -515,6 +523,14 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
                     const state = edit.state;
                     // A queue no longer holding the key, as its session finds it, stays as it is.
                     changes.push({ kind: "decisions", id: edit.key, rewrite: (row) => someOf(unqueue(row, state)) ?? row });
+                    break;
+                }
+                case "requeue": {
+                    const requeue = decisions === undefined ? undefined : someOf(decisions.requeue);
+                    if (requeue === undefined) return undefined;
+                    const { from, to } = edit;
+                    // A queue no longer holding the old key, as its session finds it, stays as it is.
+                    changes.push({ kind: "decisions", id: edit.key, rewrite: (row) => someOf(requeue(row, from, to)) ?? row });
                     break;
                 }
                 case "set": {

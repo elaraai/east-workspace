@@ -26,6 +26,7 @@ import { SheetHeader } from "./Header.js";
 import { SheetRow, SheetGroupRow, SheetRetry } from "./Rows.js";
 import { SheetPager, useWindowFirst } from "./Pager.js";
 import { SheetStrip } from "./Strip.js";
+import { layerCounts } from "./local-rows.js";
 import type { SheetFooterProps } from "./Footer.js";
 import { sheetToolbarRow, useSheetToolbarPartsFor } from "./Toolbar.js";
 import type { SheetRootValue } from "./values.js";
@@ -96,7 +97,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     const {
         canEdit, changesOf, draftOf, draftType, draftVersion, editingState, exhausted, gestureCount, keyHeld, landRef,
         landing, landingRoot, landingStyles, layer, lens, lensDrawn, locked, optimiseTypes, optimised, paging, rows,
-        run, session, setOptimised, sourceRows, standingIn, total, ui,
+        run, session, setOptimised, sourceRows, standingIn, total, totalRevision, ui,
     } = sheetSession;
     const { body, colCount, lensLayout, linkCellCtx, memberships, rowAt, rowSpace } = sheetBody;
     const { emptyNarrowing } = sheetMachine;
@@ -180,15 +181,18 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     const toolbar = { items: sheetToolbarRow(toolbarParts), parts: toolbarParts, ref: toolbarRef };
     // What a host's own chrome counts and changes (#1533). The record's rows and the narrowing's, the drafts applied:
     // each new row one more of both — under the lens a planner's row stands among the narrowing's until the record says
-    // otherwise — and each row a draft removes one fewer.
-    const added = layer.appended.length;
-    const removedShown = lensDrawn ? sourceRows.reduce((n, row) => (layer.removed.has(row.id) ? n + 1 : n), 0) : layer.removed.size;
-    const recordTotal = decodedRows !== undefined ? rows.length : total === undefined ? undefined : total + added - layer.removed.size;
+    // otherwise — and each row a draft removes one fewer; a Save's, only while the count was read before it (#1536).
+    // The narrowing's count is the lens's placement, read with the record's count; else its layout's, read with the rows
+    // it draws — which a Save's rows are drawn over only while they were read before it.
+    const savedFrom = editingState.savedFrom;
+    const ofRecord = layerCounts(layer, savedFrom, totalRevision);
+    const recordTotal = decodedRows !== undefined ? rows.length : total === undefined ? undefined : total + ofRecord.added - ofRecord.removed;
     const narrowedCount = !lensDrawn ? undefined : lensMatches ?? lensLayout?.hits;
+    const ofNarrowing = narrowedCount === undefined ? undefined : layerCounts(layer, savedFrom, lensMatches !== undefined ? lens.revision : undefined, sourceRows);
     const entries: SheetEntries = {
         rows,
         whole: decodedRows !== undefined || (!unreadRuns && (lensDrawn ? lensLayout !== undefined : paging.exhausted)),
-        count: { shown: !lensDrawn ? recordTotal : narrowedCount === undefined ? undefined : narrowedCount + added - removedShown, total: recordTotal },
+        count: { shown: !lensDrawn ? recordTotal : narrowedCount === undefined || ofNarrowing === undefined ? undefined : narrowedCount + ofNarrowing.added - ofNarrowing.removed, total: recordTotal },
         notice: ui.msg,
         gestures: gestureCount.current,
         add: addRow,

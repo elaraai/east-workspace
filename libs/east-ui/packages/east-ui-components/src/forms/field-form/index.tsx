@@ -68,7 +68,8 @@
  * than fields do, rows of choices. A field an issue names (`issues`) takes the
  * warn wash around it, as a changed one takes the brand's; and the field a
  * host names (`focus`) takes the keyboard as it is named — a new row's title —
- * or, where a tab or a fold still hides the form, once it shows.
+ * or, where a tab or a fold still hides the form, once it shows, kept in view
+ * while a pane sliding open widens the form under it.
  *
  * It is a React part for renderers, as `BuilderFrame` is: no East component.
  * Each input's payload is East's `defaultValue` of its type with the field's
@@ -212,9 +213,31 @@ const NO_SPECS: readonly FieldSpecValue[] = [];
 const FOCUSABLE = "input:not([type=hidden]):not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
 /**
+ * Keeps the field whose control took the keyboard in view — its label with it — while its form changes width, until
+ * the control loses the keyboard: a pane sliding open shows the form narrow first, where the field sits far lower,
+ * and widens it under the scroll that brought the control into view.
+ *
+ * @param root - The form
+ * @param field - The field
+ * @param control - Its control that took the keyboard
+ */
+function keepInView(root: HTMLElement, field: HTMLElement, control: HTMLElement): void {
+    if (typeof ResizeObserver !== "function") return;
+    let width = root.getBoundingClientRect().width;
+    const observer = new ResizeObserver(() => {
+        if (control.ownerDocument.activeElement !== control) { observer.disconnect(); return; }
+        const now = root.getBoundingClientRect().width;
+        if (Math.abs(now - width) < 0.5) return;
+        width = now;
+        field.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+    observer.observe(root);
+}
+
+/**
  * Gives the keyboard to a field of a form — the first control in it that takes it — at once where it shows, else once
  * it does: the browser gives it to nothing hidden, and a change of an element around the form (a tab's panel shown, a
- * fold opened) is when it may show.
+ * fold opened) is when it may show. The control stays in view while the form settles.
  *
  * @param root - The form
  * @param key - The field, by key
@@ -226,9 +249,10 @@ function takeWhenShown(root: HTMLElement | null, key: string): (() => void) | un
     const take = (): boolean => {
         const field = [...root.querySelectorAll<HTMLElement>("[data-field]")].find((el) => stringEqual(el.getAttribute("data-field") ?? "", key));
         const control = field?.querySelector<HTMLElement>(FOCUSABLE);
-        if (control === undefined || control === null) return true;
+        if (field === undefined || control === undefined || control === null) return true;
         if (typeof control.checkVisibility === "function" && !control.checkVisibility()) return false;
         control.focus();
+        keepInView(root, field, control);
         return true;
     };
     if (take()) return undefined;
@@ -484,8 +508,9 @@ export const FieldForm = memo(function FieldForm({
     };
     return (
         <Box ref={rootRef} css={styles.root} data-field-form="">
+            {/* A section keyed by its first field: two runs of one group apart — `Other` twice — are two sections. */}
             {sections.map((section) => (section.group === undefined ? draw(section.specs) : (
-                <Box key={`group\u001f${section.group}`} css={styles.group} role="group" aria-label={section.group} data-field-group={section.group}>
+                <Box key={`group\u001f${section.specs[0]!.path.join("\u001f")}`} css={styles.group} role="group" aria-label={section.group} data-field-group={section.group}>
                     <Box as="span" css={styles.groupHead}>{section.group}</Box>
                     <Box css={styles.groupFields}>{draw(section.specs)}</Box>
                 </Box>

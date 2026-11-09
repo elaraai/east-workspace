@@ -86,6 +86,11 @@ export interface SheetEditingResult {
     /** The session's edits over the resident rows. */
     layer: LocalLayer;
     /**
+     * Each entry the layer draws as a Save sent it — committed and not yet read back, or landed — by the revision it was
+     * drafted at: a count read there holds nothing of it, and one read since holds it already (#1536).
+     */
+    savedFrom: ReadonlyMap<string, string>;
+    /**
      * Aggregate a gesture's wire edits, the draft edits beside them (by
      * entry), and the seeds its new entries take, into one transaction.
      * Answers whether the session recorded it. A gesture that names itself — an action taken (#1477), `Mark Done` —
@@ -234,7 +239,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         session.observeBase(observed.base);
         return session.record(updates, origin, label);
     }, [session, observed, replacing]);
-    const layer = useMemo<LocalLayer>(() => {
+    const { layer, savedFrom } = useMemo((): { layer: LocalLayer; savedFrom: ReadonlyMap<string, string> } => {
         const edits = new Map<string, SheetRowValue>();
         const appended: SheetRowValue[] = [];
         const removed = new Set<string>();
@@ -242,6 +247,10 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         const samePlace = equalFor(OptionType(Sheet.Types.EntryPlacement));
         // The entries drafted away from the source: what a Save landed of one is not drawn while it is.
         const drafted = new Set<string>();
+        // A Save's entries, by the revision they were drafted at: while the source's commit is read back, every draft is
+        // the Save's — the session takes no gesture until it has been — at the base the session holds still.
+        const savedFrom = new Map<string, string>();
+        const committedFrom = session.status === "reconciling" ? session.drafts.revision : undefined;
         for (const [id, entry] of session.entries) {
             const before = session.originals.get(id) ?? absent;
             const same = codecs.draftEqual(before.draft === undefined ? none : some(before.draft), entry.draft === undefined ? none : some(entry.draft));
@@ -257,6 +266,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
                 continue;
             }
             drafted.add(id);
+            if (committedFrom !== undefined) savedFrom.set(id, committedFrom);
             if (entry.wire === undefined) { removed.add(id); continue; }
             if (before.draft === undefined) appended.push(entry.wire); else edits.set(id, entry.wire);
             if (!samePlace(before.place, entry.place)) placements.set(id, entry.place);
@@ -265,12 +275,13 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         // it placed it until a row read again brings it, and one the rows hold is drawn as the Save left it.
         for (const [id, saved] of session.landed) {
             if (drafted.has(id) || !awaiting(id, saved.from)) continue;
+            savedFrom.set(id, saved.from);
             const { before, after } = saved;
             if (after.wire === undefined) { removed.add(id); continue; }
             if (before.draft === undefined && !rowIndex.has(id)) appended.push(after.wire); else edits.set(id, after.wire);
             if (!samePlace(before.place, after.place)) placements.set(id, after.place);
         }
-        return { edits, appended, removed, placements };
+        return { layer: { edits, appended, removed, placements }, savedFrom };
         // The version tracks mutations to the session's maps.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session, codecs, version, rows, rowIndex, awaiting]);
@@ -296,5 +307,5 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         // The version tracks mutations to the session's maps.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session, version, drafts, codecs, awaiting]);
-    return { session, layer, record, recordVersions, original, drafts, layerDrafts, project: wireOf, available: available && !replacing && !retained, version };
+    return { session, layer, savedFrom, record, recordVersions, original, drafts, layerDrafts, project: wireOf, available: available && !replacing && !retained, version };
 }

@@ -456,7 +456,7 @@ export function useSheetActions(host: SheetHost, sheetDecode: SheetDecode, sheet
     const ringR = ui.sel.r;
     const ringC = ui.sel.c;
     const cellEditor = !phoneFrame || hostEditor === undefined || ui.ringless || ui.selEnd !== null || barClosed || readOnly || ringMeta === undefined
-        || !writableAt(ringR, ringC) || ringMeta.kind === "action" || ringMeta.kind === "stamped" || (hostGrid !== undefined && (stepsInPlace(ringMeta) || editsOutOfPlace(ringMeta)))
+        || !writableAt(ringR, ringC) || ringMeta.kind === "action" || ringMeta.kind === "stamped" || (hostGrid !== undefined && (stepsInPlace(ringMeta) || editsOutOfPlace(ringMeta, hostGrid)))
         || (ringRow?.kind !== "real" && ringRow?.kind !== "group") ? undefined
         : hostEditor({ r: ringR, columnKey: ringMeta.key, band: ringRow.kind === "group", name: rowActionName(ringR), onClose: () => setBarClosedAt({ r: ringR, c: ringC }) });
     return { actionBar, actionOverlayNode, cellEditor, drawAction, rowActions };

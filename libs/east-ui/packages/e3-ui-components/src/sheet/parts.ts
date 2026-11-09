@@ -115,8 +115,9 @@ export interface SheetEntries {
     /**
      * Adds a row, one draft and one undo step: first in the rows where the rows keep an order, and where they are keyed
      * in its key's place — the app's `newKey`'s, else a UUID. The rail's search clears first, so the row is never
-     * hidden; the ring lands on the row at `column` — the driver's, else its first editable column, by default — and a
-     * column that edits out of place opens where the host edits it. The footer's notice says so. Stable.
+     * hidden; the ring lands on the row at `column` — the driver's, else its first editable column, by default — a
+     * column that edits out of place opening where the host edits it, and any other its editor. The footer's notice
+     * says so. Stable.
      */
     add: (column?: string) => void;
     /** Removes rows by id, one draft and one undo step; a new row is simply dropped, and the ring goes with its row. The footer's notice says how many. Stable. */
@@ -198,12 +199,12 @@ export interface SheetHost {
     /**
      * What draws the grid's rows and header in the Sheet's place (#1531) — the Record's, in the Table's anatomy, over
      * the Sheet's one machine, session and lens. Such a grid opens with no ring, which a press or the first move key
-     * places; its cycles, toggles and booleans step in place, and a title opens through `onOpen`; its strip shows the
-     * cell under the pointer, and the ring's once the pointer leaves; and it has no gutter — no row numbers, seams,
-     * insertion strip or padding under the rows. On a phone's frame it is the Sheet's (#1536): its lead goes as the
-     * gutter does, the column the sheet's `narrow.pin` names is held at the left, and the pager pages the rest — its
-     * rows and its header told so ({@link SheetHostLayout}), and its header which columns are in view as the window
-     * pages ({@link SheetColumnWindow}). Absent, the Sheet draws its own.
+     * places; its cycles, toggles and booleans step in place, and a title opens through `onOpen`, or with none edits
+     * in its cell; its strip shows the cell under the pointer, and the ring's once the pointer leaves; and it has no
+     * gutter — no row numbers, seams, insertion strip or padding under the rows. On a phone's frame it is the Sheet's
+     * (#1536): its lead goes as the gutter does, the column the sheet's `narrow.pin` names is held at the left, and the
+     * pager pages the rest — its rows and its header told so ({@link SheetHostLayout}), and its header which columns
+     * are in view as the window pages ({@link SheetColumnWindow}). Absent, the Sheet draws its own.
      */
     grid?: SheetGridHost | undefined;
     /**
@@ -228,6 +229,11 @@ export interface SheetRowChanges {
     held: ReadonlyMap<string, SheetCellValue> | undefined;
     /** How many of the row's fields its drafts change, a field no column shows among them — none on a new row. */
     fields: number;
+    /**
+     * A new row's fields still missing, by name — what a person must fill before Save: never an option, which is none
+     * unset, nor a field a column from data writes, which starts at its type's default. None on a row the record holds.
+     */
+    missing: ReadonlySet<string>;
 }
 
 /**
@@ -390,7 +396,10 @@ export interface SheetGridHost {
      * and cell editor take the strip's place either way.
      */
     Strip?: ComponentType<SheetHostStripProps> | undefined;
-    /** A press, ⏎ or F2 on a cell that edits out of place — a title: the host opens it where it edits it. */
+    /**
+     * A press, ⏎ or F2 on a cell that edits out of place — a title: the host opens it where it edits it. Absent, a title
+     * edits in its cell, as a text does.
+     */
     onOpen?: ((r: number, columnKey: string) => void) | undefined;
 }
 

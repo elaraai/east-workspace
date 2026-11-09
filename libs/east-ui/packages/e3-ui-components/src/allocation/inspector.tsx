@@ -9,7 +9,8 @@
  * during a drag or a pick (A34), else the selection — a bin (A56–A59), a free
  * slot (A60), a reservation (A61), a resource (A62) — else the summary (A63);
  * Issues groups every issue with its fix (A64), the refusals holding Save
- * ahead of them, each over its bin's form too (#1525). A bin's Assigned to holds its
+ * ahead of them, each over its bin's form too — a reservation's as well, its
+ * own fields a bin's (#1525). A bin's Assigned to holds its
  * parts (A70–A74, #1332): each part's quantity a field, the remainder in
  * warn, `Split…` to put the remainder — or, with none, some of a part — on
  * another resource (`split.tsx`, #1362), and Find a fit.
@@ -697,10 +698,11 @@ function SlotDetails({ lane, at, ...part }: Part & { lane: string; at: Date }) {
 }
 
 /**
- * A reservation (A61): what it is, the resource it holds with Remove and
- * `Open resource →`, its fill and meter, every arrival checked against the
- * resource — one take of it, asked of the day without the reservation — its
- * `was` line and Revert.
+ * A reservation (A61): what it is, its key and its own fields — the bin
+ * kind's, as a bin's are, each a refusal holding Save names ringed (#1525) —
+ * the resource it holds with Remove and `Open resource →`, its fill and
+ * meter, every arrival checked against the resource — one take of it, asked
+ * of the day without the reservation — its `was` line and Revert.
  */
 function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
     const { args, styles, words } = part;
@@ -708,6 +710,8 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
     const nouns = words.nouns;
     const editable = commands.canEdit();
     const committed = held?.bins.get(id);
+    const refused = refusalsOf(args, id);
+    const form = args.value.bin.kind.inspector.type === "some" ? args.value.bin.kind.inspector.value : undefined;
     const status = reservationStatus(bin, committed, domain.sameBin, nouns);
     const resource = partsOf(bin)[0]?.key;
     const at = resource === undefined ? undefined : resourcesAt(args, [resource])[0];
@@ -744,10 +748,13 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
             title={`${words.lane(bin.lane)} · ${timeText(bin.at)}`} when={name === undefined ? `${nouns.reserved} · no ${one(nouns.arrival)} yet` : `${nouns.reserved} on ${name} · no ${one(nouns.arrival)} yet`}
             status={statusOf(status)} pending={status.pending} home />
         {/* Its refusals holding Save (#1525), over what it holds. */}
-        <Banners styles={styles} banners={refusalsOf(args, id).banners} />
+        <Banners styles={styles} banners={refused.banners} />
         <Box css={styles.fields} data-allocation-reservation="">
             <Box css={styles.sectionHead}>{nouns.reservation.one}</Box>
             <FieldForm specs={keySpecs} value={keyValue} baseline={keyBaseline} onChange={NO_EDIT} readOnly />
+            {/* Its own fields, as a bin's: a field a refusal names is set right here. */}
+            {form !== undefined ? <CustomBin {...part} id={id} bin={bin} form={form} />
+                : <RowFields {...part} id={id} bin={bin} committed={committed} refused={refused.fields} />}
         </Box>
         <Box css={styles.section} data-allocation-assigned="">
             <Box css={styles.sectionRow}>

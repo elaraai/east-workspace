@@ -137,8 +137,9 @@ export function useSheetGestures(host: SheetHost, sheetDecode: SheetDecode, shee
      * The row a gesture made, set or moved, once the body holds it: its
      * editor opens on an insert of the sheet's own — or, where a host names
      * the column (#1533), the ring lands there, a cell that edits out of place
-     * opening where the host edits it; after a drop (#1187) it is selected —
-     * on the column a card set first, when the grid shows it.
+     * opening where the host edits it and any other its editor; after a drop
+     * (#1187) it is selected — on the column a card set first, when the grid
+     * shows it.
      */
     const pendingInsertFocus = useRef<{ id: string; child?: string; edit: boolean; key?: string | undefined } | undefined>(undefined);
     const anchorFor = useCallback((r: number, side: "before" | "after"): InsertionAnchor => anchorAt(rowAt(r), side), [rowAt]);
@@ -211,8 +212,15 @@ export function useSheetGestures(host: SheetHost, sheetDecode: SheetDecode, shee
         if (keyC >= 0) {
             // A host's column (#1533): the ring on it and the view on its row — and a cell that edits out of place opens
             // where the host edits it, as a press on it does.
+            if (ctxRef.current.opensAt?.(r, keyC) === true) {
+                dispatch({ t: "select.move", r, c: keyC });
+                dispatch({ t: "cell.down", r, c: keyC, shift: false });
+                return;
+            }
+            // Else its editor opens in the cell, as the sheet's own insert's does — the move after it then moving nothing
+            // — or, where the cell takes no editor, the move lands the ring on it.
+            dispatch({ t: "cell.dbl", r, c: keyC });
             dispatch({ t: "select.move", r, c: keyC });
-            if (ctxRef.current.opensAt?.(r, keyC) === true) dispatch({ t: "cell.down", r, c: keyC, shift: false });
             return;
         }
         const driverC = columns.list.findIndex(col => col.editable && col.key === driverColumn);

@@ -25,6 +25,8 @@ export const workOrders = East.function([], UIComponentType, (_$) => (
                 <Sheet
                     record={orders}
                     name="sheetActionsWorkOrders"
+                    // The orders and their steps come from planning: this sheet takes their actions, and adds neither.
+                    edits={{ insertRows: false, insertGroups: false }}
                     group={Sheet.group(WorkOrder, "steps", {
                         title: "name", sub: o => o.id, noun: { singular: "order", plural: "orders" },
                         cells: { action: Sheet.group.cell.enum(WorkOrder, "statuses", "status", { editable: false }) },
