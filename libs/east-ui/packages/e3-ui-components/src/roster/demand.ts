@@ -10,7 +10,10 @@
  * draws no bands (#1567), one block sums every group's. Rostered is every duty's hours — the permanent staff's, agency
  * staff's and the agencies' requests' — as the Shifts layout counts them (ruled 8 Nov 2026). A duty in no group yet
  * (#1548) stands in no slot: no band counts it, and the one block counts it on its shift's day beside the slots, its
- * hours going to what they are short — it may yet be placed in any of them.
+ * hours going to what they are short — it may yet be placed in any of them. A shortfall a figure states — a day's, a
+ * lane's week's, a skill's, a mark's — is what its slots are short, each slot's own summed, never their net: one slot's
+ * surplus fills no other's shortfall (K4, B3.2), so a day 8 hours short in one slot and 6 over in another states `−8`,
+ * though its net is −2.
  *
  * @packageDocumentation
  */
@@ -57,12 +60,14 @@ export interface DemandFigures {
     readonly shortSlots: number;
 }
 
-/** A skill's hours over a set of slots: those its duties are assigned against those the slots' targets need. */
+/** A skill's hours over a set of slots: those its duties are assigned against those the slots' targets need, and what the slots are short of it. */
 export interface SkillFigures {
     /** The hours the targets need of the skill. */
     readonly needed: number;
     /** The hours of duties assigned the skill. */
     readonly assigned: number;
+    /** The hours of it short, each slot's own summed: no slot's surplus nets another's shortfall (K4). */
+    readonly short: number;
 }
 
 /** A skill row under an open lane (A4): the skill's hours each day and over the span. */
@@ -101,12 +106,12 @@ export interface Demand {
 
 /**
  * A day's mark in a month's lane or skill row (A3.5, A4.4): its state — off where it has no target (a skill's, where
- * none of the day's slots needs it), short where it is, requested where requests make up part of its hours, else
- * covered — and the difference its figure says.
+ * none of the day's slots needs it), short where any of its slots is, requested where requests make up part of its
+ * hours, else covered — and the difference its figure says.
  */
 export interface DemandMark {
     readonly state: "off" | "short" | "requested" | "covered";
-    /** Rostered — a skill's assigned — less needed. */
+    /** The difference it states ({@link stated}): what its slots are short, below zero, where any is; else the hours over. */
     readonly difference: number;
 }
 
@@ -125,6 +130,20 @@ const WEEK_DAYS = 7;
 export function difference(rostered: number, needed: number): number {
     const d = rostered - needed;
     return Math.abs(d) < EPSILON ? 0 : d;
+}
+
+/**
+ * The difference a figure states (K4, B3.2): where any of its slots is short, what they are short, each slot's own
+ * summed, below zero — never their net, which would let one slot's surplus fill another's shortfall — else the hours
+ * over, or none.
+ *
+ * @param have - The hours rostered, or a skill's hours assigned
+ * @param needed - The hours needed
+ * @param short - What its slots are short, each slot's own summed
+ * @returns The difference: below zero where short, above where over, zero where exact
+ */
+export function stated(have: number, needed: number, short: number): number {
+    return short > EPSILON ? -short : difference(have, needed);
 }
 
 /**
@@ -152,35 +171,75 @@ export function signed(number: (n: number) => string, d: number, zero = ""): str
 }
 
 /**
- * A lane's day as a month's mark draws it (A3.5): off with no target; short by its difference; requested where the
- * agencies' requests make up part of its hours, which count as rostered, as the week's bar draws them dashed; else
- * covered, over by its difference or exact.
+ * A lane's day as a month's mark draws it (A3.5): off with no target; short where any of its slots is, by what they are
+ * short (K4); requested where the agencies' requests make up part of its hours, which count as rostered, as the week's
+ * bar draws them dashed; else covered, over by its difference or exact.
  *
  * @param f - The lane's day
  * @returns Its mark
  */
 export function laneMark(f: DemandFigures): DemandMark {
-    const d = difference(f.rostered, f.needed);
+    const d = stated(f.rostered, f.needed, f.short);
     return { state: !f.target ? "off" : d < 0 ? "short" : f.requested > EPSILON ? "requested" : "covered", difference: d };
 }
 
 /**
- * A skill row's day as a month's mark draws it (A4.4): off where none of the day's slots needs the skill; short by its
- * difference; else covered.
+ * A skill row's day as a month's mark draws it (A4.4): off where none of the day's slots needs the skill; short where
+ * any of its slots is short of it, by what they are short (K4); else covered.
  *
  * @param f - The skill's day, `undefined` where none of its slots needs it
  * @returns Its mark
  */
 export function skillMark(f: SkillFigures | undefined): DemandMark {
     if (f === undefined) return { state: "off", difference: 0 };
-    const d = difference(f.assigned, f.needed);
+    const d = stated(f.assigned, f.needed, f.short);
     return { state: d < 0 ? "short" : "covered", difference: d };
+}
+
+/** A part of a day's bar (A3.3): the permanent staff's, agency staff's or the agencies' requests' hours, or what is open. */
+export interface BarPart {
+    readonly kind: "permanent" | "agency" | "requested" | "open";
+    /** Where it starts, in hours from the bar's start. */
+    readonly left: number;
+    /** Its hours. */
+    readonly width: number;
+}
+
+/** A day's bar (A3.4): its parts, in hours, and the hours its whole length stands for. */
+export interface DemandBar {
+    readonly parts: readonly BarPart[];
+    /** The hours of its whole length: the larger of those needed and those its parts reach, an hour at least. */
+    readonly scale: number;
+}
+
+/**
+ * A day's bar (A3.3, A3.4) — a lane's day's, or a slot's coverage's: the permanent staff's, agency staff's and the
+ * agencies' requests' parts from its start, each it has some of, then what its slots are short open after them, each
+ * slot's own summed (K4) — so a day short in one slot and over in another draws its hours past the needed tick and its
+ * shortfall open after them — scaled to the larger of the hours needed and those its parts reach. A slot's bar, its
+ * shortfall its own, is open from its hours to the tick.
+ *
+ * @param hours - Its hours: the permanent staff's, agency staff's, the agencies' requests' and those needed
+ * @param short - What its slots are short, each slot's own summed
+ * @returns Its parts and its scale
+ */
+export function barOf(hours: Pick<Coverage["hours"], "permanent" | "agency" | "requested" | "needed">, short: number): DemandBar {
+    const parts: BarPart[] = [];
+    let left = 0;
+    for (const kind of ["permanent", "agency", "requested"] as const) {
+        const width = hours[kind];
+        if (width > 0) parts.push({ kind, left, width });
+        left += width;
+    }
+    const open = short > EPSILON ? short : 0;
+    if (open > 0) parts.push({ kind: "open", left, width: open });
+    return { parts, scale: Math.max(hours.needed, left + open, 1) };
 }
 
 /**
  * How far a day's mark by month fills as a cup (ruled 8 Nov 2026), from the bottom, each level a share of its height:
  * the permanent staff's hours first, then agency staff's, the agencies' requests' on top — a skill's, its hours
- * assigned, all three levels its one — full at the hours needed.
+ * assigned, all three levels its one — full where none of its slots is short.
  */
 export interface DemandCup {
     /** Where the permanent staff's part ends. */
@@ -195,31 +254,58 @@ export interface DemandCup {
 const EMPTY_CUP: DemandCup = { permanent: 0, agency: 0, fill: 0 };
 
 /**
- * A lane's day as its cup fills by month (ruled 8 Nov 2026): its parts as the day's bar by week draws them, over the
- * larger of the hours needed and rostered — so a short day fills to its hours rostered of needed, and a day covered or
- * over is full, its parts in proportion — and empty with no target, or with no hours of either. Each level ends where
- * the bar's part does, at the parts' hours summed, so a cup draws a part exactly where its bar does.
+ * The share of a day's hours needed its slots meet (K4): those needed less what the slots are short, each slot's own,
+ * so no slot's surplus fills another's shortfall; all of them where none is short, or where none are needed.
+ *
+ * @param needed - The hours needed
+ * @param short - What the slots are short, each slot's own summed
+ * @returns The share, from 0 to 1
+ */
+function metOf(needed: number, short: number): number {
+    return needed < EPSILON ? 1 : Math.min(Math.max(needed - short, 0) / needed, 1);
+}
+
+/**
+ * A lane's day as its cup fills by month (ruled 8 Nov 2026): to the share of its hours needed its slots meet — full
+ * where none of them is short, and where any is, open above by what they are short, each slot's own (K4), whatever
+ * another slot is over — its parts the permanent staff's, agency staff's and the agencies' requests' in proportion to
+ * its hours rostered; empty with no target, or with no hours of either. A day of one slot fills as its bar by week
+ * draws it, each level ending where the bar's part does: a short day to its hours rostered of needed, a day covered or
+ * over full, its parts in proportion.
  *
  * @param f - The lane's day
  * @returns Its cup's levels
  */
 export function laneCup(f: DemandFigures): DemandCup {
-    const scale = Math.max(f.needed, f.rostered);
-    if (!f.target || scale < EPSILON) return EMPTY_CUP;
-    const level = (hours: number) => Math.min(hours / scale, 1);
-    return { permanent: level(f.permanent), agency: level(f.permanent + f.agency), fill: level(f.permanent + f.agency + f.requested) };
+    const rostered = f.permanent + f.agency + f.requested;
+    if (!f.target || Math.max(f.needed, rostered) < EPSILON) return EMPTY_CUP;
+    const met = metOf(f.needed, f.short);
+    const level = (hours: number) => rostered < EPSILON ? 0 : met * hours / rostered;
+    return { permanent: level(f.permanent), agency: level(f.permanent + f.agency), fill: level(rostered) };
 }
 
 /**
- * A skill row's day as its cup fills by month (ruled 8 Nov 2026): its hours assigned of those needed, full at them, as
- * the day's bar by week draws them; empty where none of the day's slots needs the skill.
+ * The share of a skill's hours needed its slots meet (K4): those needed less what each slot is short of it, so no
+ * slot's surplus fills another's shortfall — a skill row's bar by week and its cup by month fill to it.
+ *
+ * @param f - The skill's day, or its week
+ * @returns The share, from 0 to 1; all of it where its slots need none
+ */
+export function skillMet(f: SkillFigures): number {
+    return metOf(f.needed, f.short);
+}
+
+/**
+ * A skill row's day as its cup fills by month (ruled 8 Nov 2026): to the share of its hours needed its slots meet
+ * ({@link skillMet}), full where none is short of it, as the day's bar by week draws it; empty where none of the day's
+ * slots needs the skill.
  *
  * @param f - The skill's day, `undefined` where none of its slots needs it
  * @returns Its cup's levels, each the one level
  */
 export function skillCup(f: SkillFigures | undefined): DemandCup {
     if (f === undefined) return EMPTY_CUP;
-    const fill = f.needed > EPSILON ? Math.min(f.assigned / f.needed, 1) : 1;
+    const fill = skillMet(f);
     return { permanent: fill, agency: fill, fill };
 }
 
@@ -286,7 +372,10 @@ export function looseOf(value: Pick<RosterValue, "people">, week: Week): readonl
     return days;
 }
 
-/** A lane's skill rows: each skill its slots' lines need, summed each day, in the activities' order as the lines are. */
+/**
+ * A lane's skill rows: each skill its slots' lines need, summed each day, in the activities' order as the lines are —
+ * what each slot is short of it summed on its own (K4), the week's its days'.
+ */
 function skillsOf(value: Pick<RosterValue, "activities">, days: readonly (readonly Entry[])[]): DemandSkill[] {
     const by = new Map<string, (SkillFigures | undefined)[]>();
     days.forEach((entries, day) => {
@@ -294,13 +383,17 @@ function skillsOf(value: Pick<RosterValue, "activities">, days: readonly (readon
             let row = by.get(line.skill);
             if (row === undefined) { row = Array.from({ length: days.length }, () => undefined); by.set(line.skill, row); }
             const at = row[day];
-            row[day] = { needed: (at?.needed ?? 0) + line.needed, assigned: (at?.assigned ?? 0) + line.assigned };
+            row[day] = {
+                needed: (at?.needed ?? 0) + line.needed, assigned: (at?.assigned ?? 0) + line.assigned,
+                short: (at?.short ?? 0) + Math.max(0, -difference(line.assigned, line.needed)),
+            };
         }
     });
     return value.activities.flatMap(activity => {
         const row = by.get(activity.key);
         if (row === undefined) return [];
-        const total = row.reduce<SkillFigures>((sum, day) => day === undefined ? sum : { needed: sum.needed + day.needed, assigned: sum.assigned + day.assigned }, { needed: 0, assigned: 0 });
+        const total = row.reduce<SkillFigures>((sum, day) => day === undefined ? sum
+            : { needed: sum.needed + day.needed, assigned: sum.assigned + day.assigned, short: sum.short + day.short }, { needed: 0, assigned: 0, short: 0 });
         return [{ skill: activity.key, days: row, total }];
     });
 }

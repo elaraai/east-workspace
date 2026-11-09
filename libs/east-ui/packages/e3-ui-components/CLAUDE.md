@@ -1279,13 +1279,15 @@ form laid out, the others unseen, so the fit measures each (`views.tsx`'
 a lane's and a skill row's day is a
 mark on the person marks' day columns, a cup (ruled 8 Nov 2026; `laneCup`,
 `skillCup`, its state `laneMark`'s and `skillMark`'s): filled from the bottom
-to its hours rostered of those needed — a skill's, assigned — full at them, in
-the parts and colours of the day's bar by week, the agencies' requests on top
-in the teal's tint, solid; what a short day lacks open above them on the
-warning's wash, its dashed edge drawn inside it and clipped to it, so a gap
-thinner than the dashes draws none over the fill; an empty cup with no
-target. Each level ends where the bar's part does, at the parts' hours summed
-over the larger of the hours needed and rostered. The cup's levels
+to the share of its hours needed its slots meet — full where none of them is
+short; where any is, open above by what they are short, each slot's own summed,
+whatever another slot is over (K4) — its parts the day's bar's by week, in
+their colours and in proportion to its hours rostered (a skill's, assigned),
+the agencies' requests on top in the teal's tint, solid; what a short day
+lacks open above them on the warning's wash, its dashed edge drawn inside it
+and clipped to it, so a gap thinner than the dashes draws none over the fill;
+an empty cup with no target. A day of one slot fills as its bar draws it, each
+level ending where the bar's part does. The cup's levels
 are CSS variables its style sets (`--roster-cup-permanent`, `-agency`,
 `-fill`), which the recipe places its parts by, and its figure's ink follows
 them, each part's ink where that part is under it (the figure's text clipping

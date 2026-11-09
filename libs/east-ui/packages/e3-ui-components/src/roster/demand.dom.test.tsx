@@ -9,7 +9,8 @@
  * name, in the shifts' order, each day's hours rostered of needed its slot's as the Shifts layout draws it, `no target`
  * where the slot has none; and the assignment's eyebrow. With no bands, one block at the list's head, a lane's day
  * opening the shift's day across the groups in the inspector — the sum as the lane says it, each group's slot as the
- * Shifts layout draws it. A lane opens to its skill rows and stays open across a remount; Hide requirements takes the
+ * Shifts layout draws it — the day, the lane's week and the sum each stating what its slots are short, never their net
+ * (K4). A lane opens to its skill rows and stays open across a remount; Hide requirements takes the
  * strip away and a Roster with no targets draws none; while a week is read, each figure is a placeholder.
  *
  * By month, each of the month's weeks as the Week layout draws it: the eyebrow's week its band's week, a lane's marks
@@ -32,6 +33,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { ArrayType, DateTimeType, IntegerType, SortedSet, StringType, compareFor, parseFor, variant } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import type { E3Request } from "../e3-web.test-utils.js";
+import { signed } from "./demand.js";
 import { DAY, slotKey, weekKey } from "./model.js";
 import { NEXT, START, act, narrow, open, press, rosterHarness, scrollsAsAPageDoes, settle, slot, width, type Choice } from "./harness.test-utils.js";
 
@@ -338,7 +340,7 @@ describe("the People layout's work requirement by week (#1568)", () => {
         expect(drawn.assigns.get(first), first).toBe("Assignment · 1 person");
     });
 
-    test("with no bands one block heads the list, a lane a shift any group's target names; a lane's day opens the shift's day across the groups in the inspector — the sum as the lane says it, each group's slot as the Shifts layout draws it", async () => {
+    test("with no bands one block heads the list, a lane a shift any group's target names; a lane's day opens the shift's day across the groups in the inspector — the sum as the lane says it, each group's slot as the Shifts layout draws it; the day, the lane's week and the sum each state what its slots are short, never their net (K4)", async () => {
         const { container: c } = await open(ex.rosterPeopleNoBands);
         const targets = await targeted(), shifts = ordered(await h.read(ex.rosterShiftTimes)), groups = ordered(await h.read(ex.rosterTeams));
         const lanes = () => [...slot(c, "main").querySelectorAll<HTMLElement>("[data-roster-lane]")];
@@ -349,17 +351,40 @@ describe("the People layout's work requirement by week (#1568)", () => {
         expect(slot(c, "main").querySelector('[data-index="0"] [data-roster-demand]')).not.toBeNull();
         const shown = await shiftsLayout(c, groups, shifts);
         await press(toolbar(c).getByRole("radio", { name: "People" }));
-        for (const shift of named) for (const d of DAYS) {
-            const any = groups.some(group => targets.has(slotKey({ day: BigInt(d), group, shift })));
-            if (!any) { expect(said(laneDay(c, shift, d).getAttribute("aria-label")!)).toBe("no target"); continue; }
-            await press(laneDay(c, shift, d));
-            expect(laneDay(c, shift, d).getAttribute("aria-pressed")).toBe("true");
-            const end = slot(c, "end");
-            const across = await waitFor(() => { const el = end.querySelector<HTMLElement>('[data-roster-shift-day="across"]'); expect(el).not.toBeNull(); return el!; });
-            expect(figuresOf(across), `${shift} ${d}`).toEqual(laneFigures(said(laneDay(c, shift, d).getAttribute("aria-label")!)));
-            for (const group of groups) expect(figuresOf(end.querySelector(`[data-roster-shift-day="${group}"]`)!), `${shift} ${d} ${group}`)
-                .toEqual(shown.slots.get(slotKey({ day: BigInt(d), group, shift }))!);
+        // What a set of the Shifts layout's slots says: their hours, and what they are short, each slot's own summed (K4).
+        const number = new Intl.NumberFormat("en-US").format;
+        const hours = (text: string) => Number(text.replace(/,/gu, ""));
+        const sum = (keys: readonly string[]) => keys.map(key => shown.slots.get(key)!).reduce((n, f) => ({
+            rostered: n.rostered + hours(f.rostered), needed: n.needed + hours(f.needed), short: n.short + Math.max(0, hours(f.needed) - hours(f.rostered)),
+        }), { rostered: 0, needed: 0, short: 0 });
+        const stated = (f: { rostered: number; needed: number; short: number }) => f.short > 0 ? -f.short : f.rostered - f.needed;
+        // The days whose net would say otherwise than their slots' own shortfall: a group short as another is over.
+        const netted: string[] = [];
+        for (const shift of named) {
+            const week = sum(DAYS.flatMap(d => groups.map(group => slotKey({ day: BigInt(d), group, shift }))));
+            const lane = lanes().find(el => el.getAttribute("data-roster-lane-shift") === shift)!;
+            expect(lane.querySelector("[data-roster-lane-head] [data-roster-lane-difference]")?.textContent, `${shift}'s week`).toBe(signed(number, stated(week)));
+            for (const d of DAYS) {
+                const any = groups.some(group => targets.has(slotKey({ day: BigInt(d), group, shift })));
+                if (!any) { expect(said(laneDay(c, shift, d).getAttribute("aria-label")!)).toBe("no target"); continue; }
+                const day = sum(groups.map(group => slotKey({ day: BigInt(d), group, shift })));
+                if (stated(day) !== day.rostered - day.needed) netted.push(`${shift} ${d}`);
+                expect(laneDay(c, shift, d).querySelector("[data-roster-lane-difference]")?.textContent, `${shift} ${d}`).toBe(signed(number, stated(day)));
+                await press(laneDay(c, shift, d));
+                expect(laneDay(c, shift, d).getAttribute("aria-pressed")).toBe("true");
+                const end = slot(c, "end");
+                const across = await waitFor(() => { const el = end.querySelector<HTMLElement>('[data-roster-shift-day="across"]'); expect(el).not.toBeNull(); return el!; });
+                expect(figuresOf(across), `${shift} ${d}`).toEqual(laneFigures(said(laneDay(c, shift, d).getAttribute("aria-label")!)));
+                // The sum's difference, and its bar's open part, what the slots are short: never the net.
+                expect(across.querySelector("[data-roster-coverage-delta]")?.textContent, `${shift} ${d}`).toBe(`${stated(day) >= 0 ? "+" : ""}${number(stated(day))} h`);
+                const open = across.querySelector<HTMLElement>('[data-kind="open"]');
+                expect(open === null ? 0 : parseFloat(open.style.width), `${shift} ${d}`).toBeCloseTo(day.short / Math.max(day.needed, day.rostered + day.short, 1) * 100, 6);
+                for (const group of groups) expect(figuresOf(end.querySelector(`[data-roster-shift-day="${group}"]`)!), `${shift} ${d} ${group}`)
+                    .toEqual(shown.slots.get(slotKey({ day: BigInt(d), group, shift }))!);
+            }
         }
+        // The week holds such a day, so the figures above are a shortfall a net would have hidden.
+        expect(netted.length).toBeGreaterThan(0);
     });
 
     test("a lane opens to its skill rows, one a skill its slots need in the activities' order, and stays open across a remount; pressed again, it closes", async () => {

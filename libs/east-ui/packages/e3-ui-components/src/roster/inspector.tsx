@@ -231,8 +231,9 @@ function OneSlot({ props, slot }: { props: Args; slot: Slot }) {
 /**
  * A shift's day across the groups (#1568): a day of the work requirement's lane where the People layout draws no bands.
  * Its head says the day's positions and hours over every group's slot of the shift, as the lane's cell sums them, and
- * the hours short, each slot's own summed (K4); then the coverage summed over the groups — the skill lines summed too —
- * and each group's slot as the coverage detail draws one. The day's duties of the shift in no group yet (#1548) count
+ * the hours short, each slot's own summed (K4); then the coverage summed over the groups — the skill lines summed too,
+ * its difference and its bar's open part that shortfall, never the net — and each group's slot as the coverage detail
+ * draws one. The day's duties of the shift in no group yet (#1548) count
  * as the lane counts them: rostered, their hours taken off what the slots are short, under a section of their own.
  */
 function ShiftDay({ props, shift: key, day }: { props: Args; shift: string; day: number }) {
@@ -252,7 +253,7 @@ function ShiftDay({ props, shift: key, day }: { props: Args; shift: string; day:
         when={`${format.number(sum.filled)} / ${format.number(sum.positions)} positions · ${format.number(sum.hours.rostered)} of ${format.number(sum.hours.needed)} h`}
         status={{ label: short > 0 ? `${format.number(short)} h short` : "Covered", tone: { type: short > 0 ? "warning" : "success" }, ring: false }} home />
         <RosterIssues props={props} issues={props.issues.filter(i => i.slot.type === "some" && i.slot.value.shift === key && Number(i.slot.value.day) === day)} />
-        <Box css={styles.section} data-roster-shift-day="across"><Box css={styles.sectionHead}>Across groups</Box><CoverageView coverage={sum} value={value} styles={styles} format={format} />
+        <Box css={styles.section} data-roster-shift-day="across"><Box css={styles.sectionHead}>Across groups</Box><CoverageView coverage={sum} short={short} value={value} styles={styles} format={format} />
             <Box css={styles.detail}>{value.vocabulary.permanent} · {value.vocabulary.agency} · Requested · Open · Needed</Box></Box>
         {slots.map(({ group, coverage: c }) => <Box key={group.key} css={styles.section} data-roster-shift-day={group.key}><Box css={styles.sectionHead}>{group.label}</Box>
             <CoverageView coverage={c} value={value} styles={styles} format={format} compact />

@@ -49,7 +49,7 @@ import { readRosterSource } from "./identity.js";
 import { isPatternCard, rosterCoord, rosterPersonWeekCoord, type RosterDrag } from "./drag.js";
 import type { PatternDay, RosterCommands } from "./actions.js";
 import type { RosterDutyOp, RosterOptimised } from "./optimise.js";
-import { demandOf, difference, laneCup, laneMark, looseOf, signed, skillCup, skillMark, toneOf, type Demand, type DemandCup, type DemandFigures, type DemandLane, type DemandMark, type DemandSkill, type DemandWeek, type SkillFigures } from "./demand.js";
+import { barOf, demandOf, difference, laneCup, laneMark, looseOf, signed, skillCup, skillMark, skillMet, stated, toneOf, type Demand, type DemandCup, type DemandFigures, type DemandLane, type DemandMark, type DemandSkill, type DemandWeek, type SkillFigures } from "./demand.js";
 import {
     DAY, NO_GROUP, activityOf, compareSlot, costsOf, groupName, groupOf, groupSkills, hourText, ownTimes, placeKey, placeOf, samePlace, sameSlot, shiftColor, shiftHoursText,
     shiftLetter, shiftOf, slotKey, slotOfPlace, weekKey, weekNumber,
@@ -367,22 +367,28 @@ function requestDays(index: PeopleIndex, group: Group | undefined): WeekDays | u
     return group === undefined ? index.allRequests : index.requests.get(group.key);
 }
 
-/** The same coverage bar and skill lines appear in a day cell and the inspector. */
-export function CoverageView({ coverage: c, value, styles, format, compact = false }: { coverage: Coverage; value: RosterValue; styles: RosterStyles; format: Formatters; compact?: boolean }) {
-    const max = Math.max(c.hours.needed, c.hours.rostered, 1);
-    let left = 0;
-    const parts: { kind: "permanent" | "agency" | "requested" | "open"; width: number; left: number }[] = (["permanent", "agency", "requested"] as const).map(kind => { const width = c.hours[kind]; const part = { kind, width, left }; left += width; return part; });
-    if (c.hours.needed > left) parts.push({ kind: "open", left, width: c.hours.needed - left });
+/**
+ * The same coverage bar and skill lines appear in a day cell and the inspector. A sum of several slots' coverage — a
+ * shift's day across the groups — is given what its slots are short, each slot's own (K4): its difference and its bar's
+ * open part say that, never their net; a slot's own is what it is short.
+ */
+export function CoverageView({ coverage: c, value, styles, format, compact = false, short: given }: {
+    coverage: Coverage; value: RosterValue; styles: RosterStyles; format: Formatters; compact?: boolean;
+    /** What the slots summed are short, each slot's own; by default, what the one slot is short. */
+    short?: number;
+}) {
+    const short = given ?? Math.max(0, -difference(c.hours.rostered, c.hours.needed));
+    const bar = barOf(c.hours, short), d = stated(c.hours.rostered, c.hours.needed, short);
     if (c.hours.needed === 0 && c.hours.rostered === 0) return <Box css={styles.empty}>No work · no hours targeted</Box>;
     return <>
         <Box css={styles.coverageHead}><Box as="span" css={styles.metric}>{format.number(c.hours.needed)} h</Box><Box as="span" css={styles.detail}>needed</Box>
             <Box as="span" css={styles.metric}>{format.number(c.hours.rostered)} h</Box><Box as="span" css={styles.detail}>rostered</Box>
-            <Box as="span" css={styles.delta} data-tone={c.hours.rostered < c.hours.needed ? "warning" : undefined}>{c.hours.rostered >= c.hours.needed ? "+" : ""}{format.number(c.hours.rostered - c.hours.needed)} h</Box></Box>
+            <Box as="span" css={styles.delta} data-roster-coverage-delta="" data-tone={d < 0 ? "warning" : undefined}>{d >= 0 ? "+" : ""}{format.number(d)} h</Box></Box>
         <Box css={styles.coverageBar} role="img" aria-label={`${format.number(c.hours.rostered)} hours rostered of ${format.number(c.hours.needed)} needed`}>
-            {parts.filter(p => p.width > 0).map(part => <Box key={part.kind} css={styles.coverageSegment} data-kind={part.kind} style={{ left: `${part.left / max * 100}%`, width: `${part.width / max * 100}%` }} />)}
-            <Box css={styles.coverageTick} style={{ left: `${c.hours.needed / max * 100}%` }} />
+            {bar.parts.map(part => <Box key={part.kind} css={styles.coverageSegment} data-kind={part.kind} style={{ left: `${part.left / bar.scale * 100}%`, width: `${part.width / bar.scale * 100}%` }} />)}
+            <Box css={styles.coverageTick} style={{ left: `${c.hours.needed / bar.scale * 100}%` }} />
         </Box>
-        <Box css={styles.detail}>{parts.filter(p => p.kind !== "open" && p.width > 0).map(p => `${format.number(p.width)} ${p.kind === "permanent" ? value.vocabulary.permanentShort : p.kind === "agency" ? value.vocabulary.agencyShort : p.kind}`).join(" · ") || "Nothing rostered"} h{costed(value) && ` · ${money(format, value, c.cost)}`}</Box>
+        <Box css={styles.detail}>{bar.parts.filter(p => p.kind !== "open").map(p => `${format.number(p.width)} ${p.kind === "permanent" ? value.vocabulary.permanentShort : p.kind === "agency" ? value.vocabulary.agencyShort : p.kind}`).join(" · ") || "Nothing rostered"} h{costed(value) && ` · ${money(format, value, c.cost)}`}</Box>
         {!compact && c.lines.map(line => { const activity = activityOf(value, line.skill); return <Box key={line.skill} css={styles.coverageLine} data-roster-coverage-line="" data-tone={line.gap > 0 ? "warning" : line.assigned >= line.needed ? "success" : undefined}
             title={`${activity?.label ?? line.skill} · ${format.number(line.assigned)} h assigned of ${format.number(line.needed)} h needed${line.capacity.type === "some" ? ` · ${format.number(line.capacity.value)} h capacity` : ""}`}>
             <Box as="span" css={styles.coverageName} data-roster-coverage-name="">{activity?.code && <Box as="span" css={styles.skillCode}>{activity.code}</Box>}{activity?.label ?? line.skill}</Box>
@@ -1300,22 +1306,19 @@ function Figure({ ctx, rostered, needed, skill = false, short = false }: { ctx: 
     </Box>;
 }
 /**
- * A lane's day's figures (A3.3): the hours rostered against needed and their difference, where there is one, over the
- * bar — the permanent staff's, agency staff's and the requests' parts from its start, what is open dashed after them to
- * the needed tick — scaled to the larger of the two (A3.4).
+ * A lane's day's figures (A3.3): the hours rostered against needed and the difference they state, where there is one —
+ * where any of its slots is short, what they are short, never their net (K4) — over the bar: the permanent staff's,
+ * agency staff's and the requests' parts from its start, what its slots are short open dashed after them, and the
+ * needed tick, scaled to the larger of the hours needed and those its parts reach (A3.4, {@link barOf}).
  */
 function LaneFigures({ ctx, figures: f }: { ctx: ViewContext; figures: DemandFigures }) {
     const { styles, format } = ctx;
-    const d = difference(f.rostered, f.needed);
-    const max = Math.max(f.needed, f.rostered, 1);
-    let left = 0;
-    const parts: { kind: "permanent" | "agency" | "requested" | "open"; width: number; left: number }[] = (["permanent", "agency", "requested"] as const).map(kind => { const width = f[kind]; const part = { kind, width, left }; left += width; return part; });
-    if (f.needed > left) parts.push({ kind: "open", left, width: f.needed - left });
+    const d = stated(f.rostered, f.needed, f.short), bar = barOf(f, f.short);
     return <>
-        <Box as="span" css={styles.laneLine} data-roster-lane-figures=""><Figure ctx={ctx} rostered={f.rostered} needed={f.needed} /><Box as="span" css={styles.laneDiff} data-tone={toneOf(d)}>{signed(format.number, d)}</Box></Box>
+        <Box as="span" css={styles.laneLine} data-roster-lane-figures=""><Figure ctx={ctx} rostered={f.rostered} needed={f.needed} /><Box as="span" css={styles.laneDiff} data-roster-lane-difference="" data-tone={toneOf(d)}>{signed(format.number, d)}</Box></Box>
         <Box as="span" css={styles.laneBar} data-roster-lane-bar="">
-            {parts.filter(part => part.width > 0).map(part => <Box as="span" key={part.kind} css={styles.coverageSegment} data-kind={part.kind} style={{ left: `${part.left / max * 100}%`, width: `${part.width / max * 100}%` }} />)}
-            <Box as="span" css={styles.laneTick} style={{ left: `${f.needed / max * 100}%` }} />
+            {bar.parts.map(part => <Box as="span" key={part.kind} css={styles.coverageSegment} data-kind={part.kind} style={{ left: `${part.left / bar.scale * 100}%`, width: `${part.width / bar.scale * 100}%` }} />)}
+            <Box as="span" css={styles.laneTick} style={{ left: `${f.needed / bar.scale * 100}%` }} />
         </Box>
     </>;
 }
@@ -1361,15 +1364,15 @@ const LaneDay = memo(function LaneDay({ ctx, rowKey, group, lane, day }: { ctx: 
 });
 /**
  * A lane (#1568, A3): a shift's row of the work requirement — its name cell the disclosure of its skill rows (A3.7),
- * holding the shift's swatch, label and hours and the week's hours rostered against needed over their difference — then
- * a day a cell.
+ * holding the shift's swatch, label and hours and the week's hours rostered against needed over the difference they
+ * state, what its days' slots are short where any is (K4: no day's surplus nets another's shortfall) — then a day a cell.
  */
 const LaneRow = memo(function LaneRow({ ctx, row, toggle, measure }: {
     ctx: ViewContext; row: Extract<DemandRow, { kind: "lane" }>; toggle: (lane: string) => void; measure: (el: HTMLElement | null) => void;
 }) {
     const { styles, format, read, value } = ctx;
     const { lane } = row;
-    const d = difference(lane.total.rostered, lane.total.needed);
+    const d = stated(lane.total.rostered, lane.total.needed, lane.total.short);
     return <Box ref={measure} css={styles.peopleRow} data-roster-lane={row.key} data-roster-lane-group={row.group?.key} data-roster-lane-shift={lane.shift.key} data-density={value.settings.density.type}>
         <chakra.button type="button" css={[styles.laneName, styles.laneToggle]} aria-expanded={row.open} data-roster-lane-head="" onClick={() => toggle(row.key)}>
             <FontAwesomeIcon icon={faAngleRight} />
@@ -1378,18 +1381,22 @@ const LaneRow = memo(function LaneRow({ ctx, row, toggle, measure }: {
             <Box as="span" css={styles.laneHours}>{shiftHoursText(lane.shift)}</Box>
             <Box as="span" css={styles.laneWeek} data-roster-lane-week="">{read.state !== "held" ? <Unread read={read} kind="number" index={0} /> : <>
                 <Figure ctx={ctx} rostered={lane.total.rostered} needed={lane.total.needed} />
-                <Box as="span" css={styles.laneDiff} data-tone={toneOf(d)}>{signed(format.number, d)}</Box></>}</Box>
+                <Box as="span" css={styles.laneDiff} data-roster-lane-difference="" data-tone={toneOf(d)}>{signed(format.number, d)}</Box></>}</Box>
         </chakra.button>
         {SEVEN_DAYS.map(day => <LaneDay key={day} ctx={ctx} rowKey={row.key} group={row.group} lane={lane} day={day} />)}
     </Box>;
 });
-/** A skill row's day's figures (A4.3): the hours assigned against needed, the warning's where short, their difference, and a 3px bar. */
+/**
+ * A skill row's day's figures (A4.3): the hours assigned against needed, the warning's where short, the difference they
+ * state — what the day's slots are short of the skill where any is, never their net (K4) — and a 3px bar filled to the
+ * share of the need its slots meet ({@link skillMet}).
+ */
 function SkillFigures({ ctx, figures: f }: { ctx: ViewContext; figures: SkillFigures }) {
     const { styles, format } = ctx;
-    const d = difference(f.assigned, f.needed);
+    const d = stated(f.assigned, f.needed, f.short);
     return <>
-        <Box css={styles.laneLine}><Figure ctx={ctx} rostered={f.assigned} needed={f.needed} skill short={d < 0} /><Box as="span" css={styles.laneDiff} data-tone={toneOf(d)}>{signed(format.number, d)}</Box></Box>
-        <Box css={styles.skillBar} data-roster-skill-bar=""><Box css={styles.weekFillValue} style={{ width: `${f.needed > 0 ? Math.min(f.assigned, f.needed) / f.needed * 100 : 100}%` }} /></Box>
+        <Box css={styles.laneLine}><Figure ctx={ctx} rostered={f.assigned} needed={f.needed} skill short={d < 0} /><Box as="span" css={styles.laneDiff} data-roster-lane-difference="" data-tone={toneOf(d)}>{signed(format.number, d)}</Box></Box>
+        <Box css={styles.skillBar} data-roster-skill-bar=""><Box css={styles.weekFillValue} style={{ width: `${skillMet(f) * 100}%` }} /></Box>
     </>;
 }
 /**
