@@ -1232,7 +1232,7 @@ describe("the states", () => {
         const name = added.querySelector<HTMLElement>('[data-key="name"]')!;
         expect(name.hasAttribute("data-required")).toBe(true);
         expect(name.getAttribute("title")).toBe("Name · required");
-        expect(name.textContent).toBe("");
+        expect(drawn(name)).toBe("");
     });
 
     test("a new row's option is no field it lacks: the rota's supervisor is neither washed nor said to be required (ST8, SP6)", async () => {
@@ -1326,6 +1326,9 @@ describe("the states", () => {
 
 /** What a cell's description reads: the text of what its `aria-describedby` names. */
 const describedBy = (cell: HTMLElement) => document.getElementById(cell.getAttribute("aria-describedby") ?? "")?.textContent;
+/** What a cell draws: its text but its description's, which is read out and never drawn. */
+const drawn = (cell: HTMLElement) => [...cell.childNodes].filter((node) => !(node instanceof Element && node.id === cell.getAttribute("aria-describedby")))
+    .map((node) => node.textContent).join("");
 
 /** A field of the row's Details, by its key. */
 const detailsField = (container: HTMLElement, key: string) => details(container)!.querySelector<HTMLElement>(`[data-field="${key}"]`)!;
@@ -1480,7 +1483,7 @@ describe("the inspector", () => {
         await waitFor(() => expect(rows(container)).toHaveLength(4));
         const copy = rows(container).find((row) => !held.includes(row.getAttribute("data-row-id")!))!;
         expect(copy.hasAttribute("data-draft")).toBe(true);
-        expect([cellOf(copy, "name").textContent, cellOf(copy, "name").hasAttribute("data-required")]).toEqual(["", true]);
+        expect([drawn(cellOf(copy, "name")), cellOf(copy, "name").hasAttribute("data-required")]).toEqual(["", true]);
         // Every other field C. Patel's.
         expect(["days", "afternoon", "nights", "sat", "sun", "overtime"].map((key) => part(cellOf(copy, key), "chip")!.textContent))
             .toEqual(["can", "prefer", "can't", "prefer", "can't", "can"]);
@@ -1610,7 +1613,7 @@ describe("the app's part (#1527)", () => {
         expect(apply().disabled).toBe(false);
         expect(cellAt(container, 2, "planning").textContent).toBe("0");
         await press(cellAt(container, 2, "planning"));
-        expect(cellAt(container, 2, "planning").textContent).toBe("1");
+        expect(drawn(cellAt(container, 2, "planning"))).toBe("1");
         expect(apply().disabled).toBe(true);
         // The ring elsewhere, then the history bar's Issues: C. Patel's Planning, open on Details.
         await press(cellAt(container, 0, "role"));
@@ -1665,7 +1668,7 @@ describe("the app's part (#1527)", () => {
         await press(details(container)!.querySelector('[data-inspector-action="duplicate"]')!);
         const copy = drafted(container);
         expect(copy.getAttribute("data-row-id")).not.toBe("C-002");
-        expect([cellOf(copy, "name").textContent, part(cellOf(copy, "inducted"), "chip")!.textContent, part(cellOf(copy, "forklift"), "chip")!.textContent])
+        expect([drawn(cellOf(copy, "name")), part(cellOf(copy, "inducted"), "chip")!.textContent, part(cellOf(copy, "forklift"), "chip")!.textContent])
             .toEqual(["", "no", "0"]);
         expect(status(container)).toBe("Duplicated B. Ellis");
     });

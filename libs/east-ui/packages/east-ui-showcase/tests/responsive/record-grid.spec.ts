@@ -275,12 +275,15 @@ for (const theme of RECORD_THEMES) {
             await expect(forklift, at).toHaveCSS("background-color", t.c["brand-tint"]);
             // ST7: a row holding drafts, and a new row, in the warn wash — under the pointer too.
             for (const row of [rowOf(entry, "R-01"), added]) await expect(row, at).toHaveCSS("background-color", t.draftWash);
-            // ST8: each of a new row's empty cells a person must fill in the stronger wash, empty, saying so on hover.
+            // ST8: each of a new row's empty cells a person must fill in the stronger wash, empty, saying so on hover — and to a
+            // screen reader, its issue its description, which is never drawn.
             for (const key of required) {
                 const cell = added.locator(`[data-slot="cell"][data-key="${key}"]`);
                 const header = await entry.locator(`[data-record] [data-slot="headerCell"][data-key="${key}"]`).getAttribute("title");
                 await expect(cell, `${key}, ${at}`).toHaveCSS("background-color", t.requiredWash);
-                await expect(cell, `${key}, ${at}`).toHaveText("");
+                expect(await cell.evaluate((el) => [...el.childNodes].filter((node) => !(node instanceof Element && node.id === el.getAttribute("aria-describedby")))
+                    .map((node) => node.textContent).join("")), `${key}, ${at}`).toBe("");
+                await expect(cell, `${key}, ${at}`).toHaveAccessibleDescription("Required");
                 await expect(cell, `${key}, ${at}`).toHaveAttribute("title", `${header} · required`);
             }
         }
