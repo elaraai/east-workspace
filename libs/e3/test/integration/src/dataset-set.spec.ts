@@ -66,7 +66,8 @@ function sha256Of(path: string): string {
 /** The manifest the store keeps a table as — what the value path writes, its
  *  objects hashed as the store hashes them — and its segment count. */
 async function storedAs(rows: unknown[]): Promise<{ hash: string; segments: number }> {
-  const manifest = await encodeDatasetBlob(ArrayType(Row), rows, async (bytes) => createHash('sha256').update(bytes).digest('hex'));
+  const manifest = await encodeDatasetBlob(ArrayType(Row), rows, async (objects) =>
+    objects.map((bytes) => createHash('sha256').update(bytes).digest('hex')));
   return { hash: createHash('sha256').update(manifest).digest('hex'), segments: decodeCollectionManifest(manifest).entries.length };
 }
 

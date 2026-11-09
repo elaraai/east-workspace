@@ -445,7 +445,9 @@ part, and the record carries each by its name — `plans.mutations.add_plan`,
 
 Every form commits a delta addressed by key, rewriting only the segments it
 touches (a `reduce` of a record that is not a Dict or Set writes it whole), and
-takes `{ runner? }`. In an `edit`, repeated edits of one key fold, a `set` of the
+takes `{ runner? }`: with none, its program — and an index's, which takes one
+too — runs on east-c, naming no platform, since it calls none; a local e3 whose
+east-c cannot run (none found, or no native binary) runs it on east-node. In an `edit`, repeated edits of one key fold, a `set` of the
 value a row already holds changes nothing, and a `delete` or `update` of a key
 the record does not hold is a conflict naming the key: the caller's view of the
 record is stale. `e3.mutation.editType(recordType)` is the type of `edit`. A

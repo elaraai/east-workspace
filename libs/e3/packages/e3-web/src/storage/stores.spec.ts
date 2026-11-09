@@ -141,6 +141,8 @@ class GatedBlobs extends MemoryBlobs {
   });
   /** How many writes have reached the gate */
   private arrived = 0;
+  /** Each write that has reached the gate: its blob's key and its bytes */
+  readonly gated: Array<{ readonly key: BlobKey; readonly data: ByteSource }> = [];
   /** What settles once as many writes have reached the gate, by how many */
   private readonly arrivals = new Map<number, () => void>();
 
@@ -156,6 +158,7 @@ class GatedBlobs extends MemoryBlobs {
   }
 
   override async write(key: BlobKey, data: ByteSource): Promise<number> {
+    this.gated.push({ key, data });
     this.arrived++;
     this.arrivals.get(this.arrived)?.();
     await this.opened;
@@ -253,9 +256,31 @@ describe('what WebStorage keeps beside its objects and records', () => {
     blobs.open();
     await assert.rejects(writing, /taken for abandoned by gc's sweep/);
     assert.equal(await storage.objects.exists(REPO, computeHash(bytes)), false, 'the write stored nothing');
-    // The blob it wrote after the sweep had taken it names nothing.
-    assert.deepEqual(await sweep(storage, 0, false), { deletedPartials: 1, skippedYoung: 0 });
+    // The blob it wrote after the sweep had taken it names nothing: the write let it go.
     assert.deepEqual(await blobs.list([REPO]), []);
+    assert.deepEqual(await sweep(storage, 0, false), { deletedPartials: 0, skippedYoung: 0 }, 'nothing is left to take');
+  });
+
+  it('stores each object of a batch whose write in flight the sweep did not take, and leaves nothing of the one it took', async (t) => {
+    const blobs = new GatedBlobs();
+    const storage = await origin(t, blobs)();
+    await storage.repos.create(REPO);
+    const [kept, taken] = [encoder.encode('a batch\'s kept object'), encoder.encode('a batch\'s taken object')] as const;
+    const writing = storage.objects.writeMany(REPO, [kept, taken]);
+    await blobs.reached(2);
+    // The sweep takes the taken object's write in flight, and not the other's
+    const blob = blobs.gated.find(({ data }) => Object.is(data, taken))!.key;
+    await storage.adapters.records.transact((tx) => {
+      tx.delete(recordKeys.pending(REPO, blob[blob.length - 1]!));
+      return Promise.resolve();
+    });
+
+    blobs.open();
+    await assert.rejects(writing, /taken for abandoned by gc's sweep/);
+    assert.equal(decoder.decode(await storage.objects.read(REPO, computeHash(kept))), 'a batch\'s kept object', 'the other object is stored');
+    assert.equal(await storage.objects.exists(REPO, computeHash(taken)), false, 'the one it took is not');
+    assert.deepEqual(await storage.adapters.records.keys(recordKeys.kind(REPO, 'pending')), [], 'no write is left in flight');
+    assert.equal((await blobs.list([REPO])).length, 1, 'and no blob that names nothing');
     assert.deepEqual(await sweep(storage, 0, false), { deletedPartials: 0, skippedYoung: 0 }, 'nothing is left to take');
   });
 

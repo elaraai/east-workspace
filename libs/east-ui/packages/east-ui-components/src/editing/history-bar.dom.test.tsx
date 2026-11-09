@@ -17,6 +17,7 @@ import { system } from "../theme/index.js";
 import { formatters } from "../format/index.js";
 import { liftDraft } from "./draft.js";
 import { HistoryBar, type HistoryAction } from "./HistoryBar.js";
+import { EditHistory } from "./history.js";
 import { editingMessages, SESSION_TEXT, type EditingMessages, type EditingWords } from "./messages.js";
 import { EditSession, type EditIssue, type EntryVersion } from "./session.js";
 import { keepDrafts, keptDraftsKey } from "./keep.js";
@@ -34,6 +35,7 @@ beforeEach(() => {
 });
 afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
 });
@@ -47,12 +49,18 @@ const WORDS: EditingWords = { ...formatters("en-US"), m: MARKED };
 const start = some(variant("ordered", variant("start", null)));
 const version = (end: bigint): EntryVersion<string> => ({ draft: liftDraft(Draft, { id: "a", end }), wire: `a to ${end}`, place: start });
 
-function setup(locked = false, phone = false) {
+/** A session over a source of runs, of its own name. */
+function runs(sourceId = "runs"): EditSession<string> {
     const session = new EditSession<string>({
-        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
+        sourceId, entryType: Run, draftType: Draft, idField: "id", auto: false,
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("snapshot", [{ id: "a", end: 1n }]));
+    return session;
+}
+
+function setup(locked = false, phone = false) {
+    const session = runs();
     const onAction = vi.fn<(action: HistoryAction) => void>();
     const onIssue = vi.fn<(issue: EditIssue) => void>();
     const bar = () => <ChakraProvider value={system}>
@@ -124,6 +132,67 @@ test("an incomplete draft counts as an issue the bar goes to; the status and the
     ui.session.error = "Refused by the host";
     ui.refresh();
     expect(ui.getByRole("alert").textContent).toBe("Refused by the host");
+});
+
+test("a Save out, and its saved state read back, shows on Save until the page holds it (#1573): busy, the live dot in its tick's place; a read back that failed, or stalled, is Retry refresh's — in both forms", () => {
+    vi.useFakeTimers();
+    for (const phone of [false, true]) {
+        const ui = setup(false, phone);
+        ui.session.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");
+        ui.refresh();
+        const save = () => ui.queryByRole("button", { name: "⟦Save" });
+        const retry = () => ui.queryByRole("button", { name: "⟦Retry refresh" });
+        /** Save as it shows: busy, its live dot, its tick. */
+        const looks = () => {
+            const button = save();
+            return button === null ? null : [button.getAttribute("aria-busy"), button.querySelector("[data-history-live]") !== null, button.querySelector("svg") !== null];
+        };
+        expect([looks(), retry()], `idle, phone ${phone}`).toEqual([[null, false, true], null]);
+        ui.session.status = "applying";
+        ui.refresh();
+        expect([looks(), retry()], `out, phone ${phone}`).toEqual([["true", true, false], null]);
+        ui.session.status = "reconciling";
+        ui.refresh();
+        expect([looks(), retry()], `reading back, phone ${phone}`).toEqual([["true", true, false], null]);
+        // Nothing read back for ten seconds: Retry refresh asks again, in Save's place, until the read back moves.
+        act(() => { vi.advanceTimersByTime(9_999); });
+        expect([looks(), retry()], `reading back a while, phone ${phone}`).toEqual([["true", true, false], null]);
+        act(() => { vi.advanceTimersByTime(1); });
+        expect([looks(), retry() !== null], `read back stalled, phone ${phone}`).toEqual([null, true]);
+        ui.session.availabilityChanged();
+        ui.refresh();
+        expect([looks(), retry()], `read back moved, phone ${phone}`).toEqual([["true", true, false], null]);
+        // The read back failed: Retry refresh asks again, in Save's place.
+        ui.session.error = "read-back refused";
+        ui.refresh();
+        expect([looks(), retry() !== null], `read back failed, phone ${phone}`).toEqual([null, true]);
+        ui.session.status = "idle";
+        ui.session.error = undefined;
+        ui.refresh();
+        expect([looks(), retry()], `saved, phone ${phone}`).toEqual([[null, false, true], null]);
+        cleanup();
+    }
+});
+
+test("over a history of several sessions (#1194), Save reads the read back from the session that reads back, never another's error (#1573)", () => {
+    const [laps, legs] = [runs("laps"), runs("legs")];
+    const history = new EditHistory<string>();
+    history.sync([["laps", laps], ["legs", legs]]);
+    const bar = () => <ChakraProvider value={system}>
+        <HistoryBar session={history} words={WORDS} editing={false} onAction={() => undefined} onIssue={() => undefined} />
+    </ChakraProvider>;
+    const ui = render(bar());
+    const save = () => ui.queryByRole("button", { name: "⟦Save" });
+    const retry = () => ui.queryByRole("button", { name: "⟦Retry refresh" });
+    // One session reads its Save back, and the other's Save could not be prepared, and says why.
+    laps.status = "reconciling";
+    legs.error = "could not prepare the Save";
+    ui.rerender(bar());
+    expect([save()?.getAttribute("aria-busy"), retry(), ui.getByRole("alert").textContent]).toEqual(["true", null, "could not prepare the Save"]);
+    // The read back itself failed: Retry refresh asks again.
+    laps.error = "read-back refused";
+    ui.rerender(bar());
+    expect([save(), retry() !== null]).toEqual([null, true]);
 });
 
 test("drafts a reload would lose are said under the buttons, where the bar says its error", () => {

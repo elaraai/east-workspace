@@ -177,7 +177,7 @@ export async function datasetWrite(
   value: unknown,
   type: EastType | EastTypeValue
 ): Promise<string> {
-  const data = await encodeDatasetBlob(type, value, (bytes) => storage.objects.write(repo, bytes));
+  const data = await encodeDatasetBlob(type, value, (objects) => storage.objects.writeMany(repo, objects));
   return storage.objects.write(repo, data);
 }
 

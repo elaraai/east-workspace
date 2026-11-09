@@ -170,6 +170,28 @@ export interface ObjectStore {
   write(repo: string, data: Uint8Array): Promise<string>;
 
   /**
+   * Write objects, no one of which names another, as one batch: the objects of
+   * one wave of a write — a collection's segments, a run's task and its
+   * arguments, a commit's objects.
+   *
+   * @remarks
+   * Each object is stored, or re-referenced when the store holds it, as
+   * {@link write} stores it, and an object given twice is stored once. A store
+   * whose writes are requests sends a batch as a few: one look-up of the
+   * objects it holds, the bytes of the rest at once, and one registration of
+   * them, where a write of each would make each of those requests for each.
+   *
+   * A failure may leave any object of the batch stored, as writes of each would,
+   * so a caller writes an object that names others only once the batch that
+   * holds them is stored.
+   *
+   * @param repo - Repository identifier
+   * @param objects - The objects' bytes
+   * @returns Each object's SHA256 hash, in the order given
+   */
+  writeMany(repo: string, objects: readonly Uint8Array[]): Promise<string[]>;
+
+  /**
    * Write data from a stream to the object store.
    * @param repo - Repository identifier
    * @param stream - Async iterable of chunks

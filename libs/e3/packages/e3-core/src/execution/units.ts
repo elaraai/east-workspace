@@ -286,6 +286,19 @@ export function unitArgv(runner: StockRunner, unit: StagedUnit, verbose?: boolea
 }
 
 /**
+ * How a runner that recorded no result for a unit ended, as a log or a refusal
+ * says it: what a local runner says of an east-c that could not run a unit,
+ * before it runs the unit on east-node.
+ *
+ * @param result - How its process ended: its exit code, or the signal that
+ *   ended it, or neither for a spawn that failed
+ * @returns `exited <code>`, `was ended by <signal>`, or `did not start`
+ */
+export function runnerEnded(result: { readonly exitCode: number | null; readonly signal: NodeJS.Signals | null }): string {
+  return result.exitCode !== null ? `exited ${result.exitCode}` : result.signal !== null ? `was ended by ${result.signal}` : 'did not start';
+}
+
+/**
  * Reads the result a runner recorded for a unit.
  *
  * @param unit - The staged unit

@@ -1498,6 +1498,19 @@ export class EditSession<W> {
     }
 
     /**
+     * Where the read back of a Save the source acknowledged stands (#1573):
+     * `"waiting"` while the session reads its saved state back, `"failed"`
+     * once a read back failed — a refresh that threw, or a confirmation read
+     * that could not read the source ({@link EditSession.confirmFailed}) — and
+     * `undefined` while it reads none back. The history bar shows a waiting
+     * one on Save, and a failed one is its Retry refresh's to ask again.
+     */
+    get readBack(): "waiting" | "failed" | undefined {
+        if (this.status !== "reconciling") return undefined;
+        return this.error === undefined ? "waiting" : "failed";
+    }
+
+    /**
      * Request only unresolved primary identities at this revision. Page caches
      * remain bounded; confirmed facts belong to the retained session instead.
      * @param revision - The source revision currently available to the reader

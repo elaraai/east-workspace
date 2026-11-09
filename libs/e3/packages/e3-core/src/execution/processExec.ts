@@ -318,9 +318,13 @@ export async function stageInput(
  * as {@link stageInput} stages it.
  *
  * @remarks
- * Every input's objects are placed in one pool, so a unit's staging places at
+ * Each input's head is read beside the others', {@link OBJECT_CONCURRENCY} at
+ * a time, for a runner that opens manifests (#1573); a command's inputs are
+ * spliced one at a time, as each splice reads that many segments ahead. Every
+ * input's objects are then placed in one pool, so a unit's staging places at
  * most {@link OBJECT_CONCURRENCY} objects at once however its inputs divide
- * them.
+ * them. A failure is thrown once what is in flight has settled, so nothing
+ * writes into the scratch directory once this has returned.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -338,20 +342,24 @@ export async function marshalInputsToDir(
   inputHashes: string[],
   options: MarshalInputsOptions = {}
 ): Promise<string[]> {
-  const inputPaths: string[] = [];
-  const placements: Placement[] = [];
-  for (let i = 0; i < inputHashes.length; i++) {
-    const inputPath = path.join(scratchDir, `input-${i}.beast2`);
-    placements.push(...await inputPlacements(storage, repo, inputHashes[i]!, inputPath, options));
-    inputPaths.push(inputPath);
-  }
-  await place(storage, repo, placements, options);
+  const inputPaths = inputHashes.map((_, i) => path.join(scratchDir, `input-${i}.beast2`));
+  const placements: Placement[][] = inputHashes.map(() => []);
+  await eachAtMost([...inputHashes.keys()], options.manifests === true ? OBJECT_CONCURRENCY : 1, async (i) => {
+    placements[i] = await inputPlacements(storage, repo, inputHashes[i]!, inputPaths[i]!, options);
+  });
+  await place(storage, repo, placements.flat(), options);
   return inputPaths;
 }
 
-/** An environment's `PATH`: on Windows, by its name in any case, as Windows
- *  reads it. */
-function pathOf(env: Readonly<Record<string, string | undefined>>): string | undefined {
+/**
+ * An environment's `PATH`: on Windows, by its name in any case, as Windows
+ * reads it.
+ *
+ * @param env - The environment
+ * @returns Its `PATH`, or `undefined` for none
+ * @internal
+ */
+export function pathOf(env: Readonly<Record<string, string | undefined>>): string | undefined {
   if (process.platform !== 'win32') return env.PATH;
   return Object.entries(env).find(([name]) => name.toUpperCase() === 'PATH')?.[1];
 }

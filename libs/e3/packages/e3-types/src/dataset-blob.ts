@@ -50,67 +50,92 @@ import {
 } from './collection-manifest.js';
 
 /**
- * Writes one object and answers with its content hash.
+ * Writes a batch of objects, no one of which names another, and answers their
+ * content hashes in the order given.
  *
  * @remarks
  * The whole of the object store this module needs. Content-addressed, so
  * writing bytes already stored is a no-op that returns the same hash — which is
- * exactly how a new state shares its unchanged segments with the old one.
+ * exactly how a new state shares its unchanged segments with the old one. A
+ * store whose writes are requests sends a batch as a few (e3-core's
+ * `ObjectStore.writeMany`).
  */
-export type SegmentSink = (bytes: Uint8Array) => Promise<string>;
+export type SegmentSink = (objects: readonly Uint8Array[]) => Promise<string[]>;
 
 /**
- * How many objects {@link writeCollectionManifest} has a sink write at once,
+ * The most objects {@link writeCollectionManifest} hands its sink in one batch,
  * unless its caller says otherwise: a store whose writes are round trips is
  * waited on once for this many segments, rather than once for each.
  */
-export const SEGMENT_WRITES_IN_FLIGHT = 16;
+export const SEGMENT_WRITE_BATCH = 16;
 
 /**
- * The writes of one manifest's objects: each started in the order it is
- * handed over, at most `width` in flight, and none left running once the
- * manifest's writer returns.
+ * The writes of one manifest's objects, in batches: each object gathered in
+ * the order it is handed over, a batch sent once it holds `width` objects or
+ * the last object is handed over, one batch in flight while the next is
+ * gathered, and none left running once the manifest's writer returns.
  *
  * @internal
  */
 class SinkWrites {
-  private readonly inFlight = new Set<Promise<void>>();
+  /** The objects gathered for the next batch, each with what it is told. */
+  private gathered: Array<{ bytes: Uint8Array; named: (hash: string) => void }> = [];
+  /** The batch in flight, which settles without throwing. */
+  private inFlight: Promise<void> | undefined;
   private failure: { error: unknown } | undefined;
 
   constructor(private readonly sink: SegmentSink, private readonly width: number) {}
 
   /**
-   * Starts writing `bytes` once fewer than `width` writes are in flight.
+   * Gathers `bytes` for the next batch, and sends the batch once it holds
+   * `width` objects and the batch before it is stored.
    *
    * @param bytes - The object
    * @param named - Told the object's hash once it is stored
-   * @throws The first failed write's error, once one has failed: nothing more
-   *   is started after it.
+   * @throws The failed batch's error, once one has failed: nothing more is
+   *   sent after it.
    */
   async start(bytes: Uint8Array, named: (hash: string) => void): Promise<void> {
-    while (this.failure === undefined && this.inFlight.size >= this.width) await Promise.race(this.inFlight);
     if (this.failure !== undefined) throw this.failure.error;
-    const write: Promise<void> = this.sink(bytes)
-      .then(named, (error: unknown) => {
-        this.failure ??= { error };
-      })
-      .finally(() => {
-        this.inFlight.delete(write);
-      });
-    this.inFlight.add(write);
-  }
-
-  /** Waits for every write started, whatever its outcome. */
-  async settled(): Promise<void> {
-    await Promise.all(this.inFlight);
+    this.gathered.push({ bytes, named });
+    if (this.gathered.length >= this.width) await this.send();
   }
 
   /**
-   * Waits for every write started.
+   * Sends the objects gathered, once the batch in flight is stored.
    *
-   * @throws The first failed write's error.
+   * @throws The failed batch's error, once one has failed.
+   */
+  private async send(): Promise<void> {
+    await this.settled();
+    if (this.failure !== undefined) throw this.failure.error;
+    const batch = this.gathered;
+    if (batch.length === 0) return;
+    this.gathered = [];
+    const sent: Promise<void> = this.sink(batch.map(({ bytes }) => bytes))
+      .then((hashes) => {
+        batch.forEach(({ named }, i) => named(hashes[i]!));
+      }, (error: unknown) => {
+        this.failure ??= { error };
+      })
+      .finally(() => {
+        if (this.inFlight === sent) this.inFlight = undefined;
+      });
+    this.inFlight = sent;
+  }
+
+  /** Waits for the batch in flight, whatever its outcome. */
+  async settled(): Promise<void> {
+    while (this.inFlight !== undefined) await this.inFlight;
+  }
+
+  /**
+   * Sends what is gathered, and waits for every batch.
+   *
+   * @throws The failed batch's error.
    */
   async stored(): Promise<void> {
+    await this.send();
     await this.settled();
     if (this.failure !== undefined) throw this.failure.error;
   }
@@ -163,33 +188,35 @@ export type CollectionPiece = Beast2RecutPiece<EastType, CollectionSegmentRef>;
  * Writer's own: a piece's segments are carried over only when that is the
  * header they are under, which is the caller's to establish.
  *
- * The objects are written at once, `inFlight` at a time — the segments in
- * order, then the header — and the manifest is returned once every one is
- * stored, so the caller stores the manifest after the objects it names. The
- * sink is called in segment order, and each segment's blob is held until its
- * write ends.
+ * The objects go to the sink in batches of up to `batch` — the segments in
+ * order, then the header — one batch in flight while the next is gathered, so
+ * a collection of a few segments is one batch however its pieces arrive, and
+ * a large one keeps a batch in flight as it is cut. A batch is sent once it is
+ * full, or once the header is cut, and the manifest is returned once every
+ * object is stored, so the caller stores the manifest after the objects it
+ * names. Each segment's blob is held until its batch is stored.
  *
  * @param type - The collection type (Array / Set / Dict)
  * @param pieces - The collection's pieces, in order
- * @param sink - Writes one object and returns its hash
- * @param options - `inFlight`, the most objects the sink writes at once
- *   (default {@link SEGMENT_WRITES_IN_FLIGHT})
+ * @param sink - Writes a batch of objects and returns their hashes
+ * @param options - `batch`, the most objects the sink is handed at once
+ *   (default {@link SEGMENT_WRITE_BATCH})
  * @returns The manifest's bytes — the caller stores them, and its hash is the
  *   dataset's content address
  * @throws {Error} When a piece's elements do not ascend (Set / Dict), a
  *   segment's blob is not the one segment its reference describes, or the sink
- *   rejects: once the writes in flight have ended, so none runs on after the
+ *   rejects: once the batch in flight has ended, so none runs on after the
  *   writer returns.
  */
 export async function writeCollectionManifest(
   type: EastType | EastTypeValue,
   pieces: Iterable<CollectionPiece> | AsyncIterable<CollectionPiece>,
   sink: SegmentSink,
-  options: { inFlight?: number } = {},
+  options: { batch?: number } = {},
 ): Promise<Uint8Array> {
   const typeValue = asTypeValue(type);
   const entries: CollectionManifestEntry[] = [];
-  const writes = new SinkWrites(sink, options.inFlight ?? SEGMENT_WRITES_IN_FLIGHT);
+  const writes = new SinkWrites(sink, options.batch ?? SEGMENT_WRITE_BATCH);
   /** Writes a segment the manifest names at the place it takes now. */
   const write = (blob: Uint8Array, fence: Uint8Array, count: number): Promise<void> => {
     const at = entries.push({ hash: '', fence, count: BigInt(count), bytes: BigInt(blob.byteLength) }) - 1;
@@ -246,7 +273,7 @@ export async function writeCollectionManifest(
  *
  * @param type - The dataset's declared type (an `EastType` or its homoiconic value)
  * @param value - The value to encode
- * @param sink - Writes one object and returns its hash
+ * @param sink - Writes a batch of objects and returns their hashes
  * @returns The beast2 bytes to store — the manifest, for a collection written
  *   through a sink; otherwise the value's own blob
  */
