@@ -17,7 +17,8 @@
  * naming an item still waiting for its key refused, and a row whose key its
  * fields build following them, what names it with it — and what names a new
  * item following the key typed for it (#1549) — a swap or a shift passing, a
- * key a row moves off free once the gesture is made (#1581). Fixtures are
+ * key a row moves off free once the gesture is made (#1581) — and a Shift
+ * session following its net as its sides move it (#1584). Fixtures are
  * real East values typed from the Schematic's East types; each gesture's
  * edits are compared as East prints them.
  */
@@ -31,8 +32,8 @@ import { STRING_KEYS, kindKeys } from "../shared/schedule/kind-keys.js";
 import { drawnItem, drawnLink, drawnNet, entityId, refOfId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import type { SchematicMove, SchematicNewKey } from "./editing.js";
 import {
-    clampDelta, connectCandidate, connectStep, connectVeto, deleteEdits, editKinds, extendEdits, extendPairs, foldPair, foldSession, followBuiltKeys, joinedPairs,
-    linkRefusal, moveEdits, netKindFor, netRefusal, placeholderRefusal, retargetEdits, vetoOfPairs, type ConnectCandidate, type ConnectDragArgs, type ConnectPair,
+    clampDelta, connectCandidate, connectStep, connectVeto, deleteEdits, editKinds, extendEdits, extendPairs, foldPair, foldSession, followBuiltKeys, followSession,
+    joinedPairs, linkRefusal, moveEdits, netKindFor, netRefusal, placeholderRefusal, retargetEdits, vetoOfPairs, type ConnectCandidate, type ConnectDragArgs, type ConnectPair,
     type ConnectSession, type ConnectStep, type EditKinds, type SchematicEdit, type SchematicKeyHolding, type SessionDrawn,
 } from "./edits.js";
 
@@ -274,6 +275,23 @@ describe("Connect and its Shift session (SC9)", () => {
         expect(connectCandidate(KINDS, drag(ODF, A01, { session, shift: true, drawn })).refusal)
             .toEqual({ why: "end", kind: "Fibre trunk", end: "end", item: "A01" });
         expect(netRefusal(KINDS.nets.get("trunks")!, { sources: [A01], destinations: [ODF] }, (at) => at.key)).toBeUndefined();
+    });
+
+    test("a net keyed by its sides moves as a Shift-drag writes them, and the session follows it there: the next Shift-drag grows it under its new key, never a run of its own (#1584)", () => {
+        const trunk = ref("trunks", "A02+A03"), moved = ref("trunks", "A02+A03+A01");
+        const before = { links: DRAWN.links, nets: [...DRAWN.nets, net(trunk, [A02, A03], [ODF])] };
+        const step = landed(connectStep(KINDS, drag(A01, ODF, { session: { links: [], net: trunk }, shift: true, drawn: before }), keyer(), DEFAULTS));
+        // Recording the step moved the trunk under the key its sides build: the session follows it; another row's move leaves it be.
+        const followed = followSession(step.session, [{ ref: trunk, to: moved.key }]);
+        expect(printRef(followed.net!)).toBe(printRef(moved));
+        expect(printRef(followSession(step.session, [{ ref: A02, to: "A09" }]).net!)).toBe(printRef(trunk));
+        // The drawing holds the trunk under its new key: the next Shift-drag writes its sides there.
+        const after = { links: DRAWN.links, nets: [...DRAWN.nets, net(moved, [A02, A03, A01], [ODF])] };
+        expect(landed(connectStep(KINDS, drag(A01, MMR, { session: followed, shift: true, drawn: after }), keyer(), DEFAULTS)).edits.map(printed))
+            .toEqual([`sides ${printRef(moved)} ${printSides({ sources: [A02, A03, A01], destinations: [ODF, MMR] })}`]);
+        // The session as the step left it names the key the trunk moved off: the drag draws a run of its own.
+        expect(landed(connectStep(KINDS, drag(A01, MMR, { session: step.session, shift: true, drawn: after }), keyer(), DEFAULTS)).edits.map((edit) => edit.op))
+            .toEqual(["link"]);
     });
 
     test("a session no net kind holds adds a link a drag, each absorbed if a later fold is held", () => {

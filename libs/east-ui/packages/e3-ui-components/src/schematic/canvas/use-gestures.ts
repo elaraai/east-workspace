@@ -32,9 +32,10 @@ import { getSomeorUndefined, takeKey, typedInto, type Origin } from "@elaraai/ea
 import { keepsSpace, keyFromPage, keyInFrame } from "../../shared/frame-keys.js";
 import { densityInView } from "../area.js";
 import type { SchematicValue } from "../data.js";
+import type { SchematicMove } from "../editing.js";
 import {
-    clampDelta, connectCandidate, connectStep, connectVeto, deleteEdits, editKinds, extendEdits, extendPairs, linkRefusal, moveEdits, placeholderRefusal,
-    retargetEdits, vetoOfPairs,
+    clampDelta, connectCandidate, connectStep, connectVeto, deleteEdits, editKinds, extendEdits, extendPairs, followSession, linkRefusal, moveEdits,
+    placeholderRefusal, retargetEdits, vetoOfPairs,
     type ConnectDragArgs, type ConnectSession, type EditRefusal, type Mover, type NetLeg, type SchematicEdit, type SessionDrawn,
 } from "../edits.js";
 import type { SchematicStep, SchematicWords } from "../messages.js";
@@ -561,20 +562,21 @@ export function useGestures({
      * Records one gesture's edits as one step of the editing's history (#1388),
      * labelled for it; one recorded says no refusal any more.
      *
-     * @returns Whether anything was recorded
+     * @returns The rows it moved under the keys their fields build (#1549); `undefined` where nothing was recorded
      */
-    const recordStep = useCallback((edits: readonly SchematicEdit[], origin: Origin, step: SchematicStep, name: string, n: number): boolean => {
-        if (editing === undefined || edits.length === 0) return false;
-        const recorded = editing.record(edits, origin, words.m.step({ step, name: name.toLocaleLowerCase(words.locale), n }));
-        if (recorded) onRefused(undefined);
-        return recorded;
+    const recordStep = useCallback((edits: readonly SchematicEdit[], origin: Origin, step: SchematicStep, name: string, n: number): readonly SchematicMove[] | undefined => {
+        if (editing === undefined || edits.length === 0) return undefined;
+        const moved = editing.record(edits, origin, words.m.step({ step, name: name.toLocaleLowerCase(words.locale), n }));
+        if (moved !== undefined) onRefused(undefined);
+        return moved;
     }, [editing, words, onRefused]);
     // Commit a connect gesture (SC9): a link of the Connect tool's kind — or,
     // Shift held in an open session, the net the session grows into, absorbing
     // its links — each new row keyed as its kind makes one (#1549), its other
     // fields the template of its kind the library has selected (§4.3), one
     // step; then the flash. A key its kind refuses records nothing, the footer
-    // saying why.
+    // saying why. The session follows its net under the key its sides move it
+    // to, so the next Shift-drag grows it there.
     const commitConnect = useCallback((from: string, to: string, shift: boolean) => {
         if (editing === undefined) return;
         const args = dragArgs({ from, additive: shift }, to);
@@ -589,8 +591,9 @@ export function useGestures({
         const slot = (grown ?? step.edits.find((edit) => edit.op === "link"))?.ref.kind;
         if (slot === undefined) return;
         const name = (grown !== undefined ? kinds.nets.get(slot)?.name : kinds.links.get(slot)?.name) ?? slot;
-        if (!recordStep(step.edits, "insert", grown !== undefined ? "net" : "connect", name, 1)) return;
-        linkSessionRef.current = step.session;
+        const moved = recordStep(step.edits, "insert", grown !== undefined ? "net" : "connect", name, 1);
+        if (moved === undefined) return;
+        linkSessionRef.current = followSession(step.session, moved);
         connectFlashRef.current = { from, to, t0: performance.now() };
         startConnectFlash();
     }, [editing, dragArgs, kinds, recordStep, startConnectFlash, connectValues, connectFlashRef]);
@@ -603,7 +606,7 @@ export function useGestures({
         const onto = refById.get(target);
         if (link === undefined || from === undefined || to === undefined || onto === undefined) return;
         const edits = retargetEdits({ ref: link.ref, ends: { from, to } }, movingEnd, onto);
-        if (!recordStep(edits, "move", "retarget", kinds.links.get(link.ref.kind)?.name ?? link.ref.kind, 1)) return;
+        if (recordStep(edits, "move", "retarget", kinds.links.get(link.ref.kind)?.name ?? link.ref.kind, 1) === undefined) return;
         endLinkSession();
         connectFlashRef.current = { from: movingEnd === "from" ? target : link.from, to: movingEnd === "to" ? target : link.to, t0: performance.now() };
         startConnectFlash();
@@ -618,7 +621,7 @@ export function useGestures({
         const sides = sessionDrawn.sides(net.ref);
         if (sides === undefined) return;
         const edits = extendEdits({ ref: net.ref, sides }, onto);
-        if (!recordStep(edits, "insert", "extend", kinds.nets.get(net.ref.kind)?.name ?? net.ref.kind, 1)) return;
+        if (recordStep(edits, "insert", "extend", kinds.nets.get(net.ref.kind)?.name ?? net.ref.kind, 1) === undefined) return;
         endLinkSession();
         connectFlashRef.current = { from, to, t0: performance.now() };
         startConnectFlash();
@@ -639,7 +642,7 @@ export function useGestures({
             onRefused(refusalWords(result.refusal));
             return true;
         }
-        if (!recordStep(result.edits, "remove", "delete", "", result.edits.length)) return false;
+        if (recordStep(result.edits, "remove", "delete", "", result.edits.length) === undefined) return false;
         endLinkSession();
         return true;
     }, [editing, kinds, data, standing, onRefused, refusalWords, recordStep, endLinkSession, renderSnapRef]);
@@ -1140,7 +1143,7 @@ export function useGestures({
         const md = moveDragRef.current;
         if (md !== null) {
             moveDragRef.current = null;
-            if (recordStep(moveEdits(md.movers, md.delta), "move", "move", "", md.movers.length)) endLinkSession();
+            if (recordStep(moveEdits(md.movers, md.delta), "move", "move", "", md.movers.length) !== undefined) endLinkSession();
             setDragMoves(NO_MOVES);
             return;
         }

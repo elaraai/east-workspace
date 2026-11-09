@@ -43,7 +43,8 @@
  * once the gesture is made, so a swap or a shift passes (#1581), and where a
  * link or net kind that may name a moving item isn't held whole (#1580): its
  * rows the rail's filters hide, or not read, would keep the old key. They
- * follow a new item's key typed in the inspector too.
+ * follow a new item's key typed in the inspector too; and a Shift session
+ * follows its net as its sides move it ({@link followSession}).
  *
  * A library card's drop (#1390, `drop.ts`) writes its rows as edits too: an
  * item template's new item, a backlog row placed, a link or net template's
@@ -549,6 +550,22 @@ export function connectStep(kinds: EditKinds, args: ConnectDragArgs, newKey: (ma
         edits: [...open.links.map((ref): SchematicEdit => ({ op: "remove", ref })), { op: "net", ref: net, sides, values: values(slot) }],
         session: { links: [], net },
     };
+}
+
+/**
+ * The session a Connect drag leaves, its net under the key recording the drag moved it to (#1549): a net whose kind
+ * builds its key from its sides moves as a Shift-drag writes them, and the session's next drag grows it there — never a
+ * link of its own.
+ *
+ * @param session - The session the drag's step leaves ({@link connectStep}'s)
+ * @param moved - The rows recording the step moved under the keys they build ({@link followBuiltKeys}')
+ * @returns The session, its net under its key now
+ */
+export function followSession(session: ConnectSession, moved: readonly SchematicMove[]): ConnectSession {
+    if (session.net === undefined) return session;
+    const net = session.net;
+    const move = moved.find((m) => refEqual(m.ref, net));
+    return move === undefined ? session : { links: session.links, net: { kind: net.kind, key: move.to } };
 }
 
 /** No session's links or net: what a plain drag reads of the drawing, and the inspector's Connect to… (#1394), which opens none. */

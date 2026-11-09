@@ -22,9 +22,11 @@
  * - **A new row's key** is as its kind's key type makes it, each Saved under
  *   it: by number, one past the largest — a card's ⏎, Connect and a Shift-drag;
  *   built by the kind's `key` — a spot under its row and column, a pipe under
- *   its ends, a row moving as an edit changes what its key reads, its links
- *   with it, and a key another row holds refusing the gesture, naming that
- *   row — as the rail's filters hiding a link that may name it does (#1580);
+ *   its ends, a line under the mixers it feeds, a row moving as an edit
+ *   changes what its key reads, its links with it — a Shift session growing
+ *   its line where it moved (#1584) — and a key another row holds refusing
+ *   the gesture, naming that row — as the rail's filters hiding a link that
+ *   may name it does (#1580);
  *   by DateTime, a placeholder — Save waiting, Issues listing it, Connect
  *   from it refused — until the viewer types its key in the inspector, the
  *   placeholder waiting on as another session moves the record read through
@@ -558,6 +560,62 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
         expect(await save(c)).toEqual([fx.joinedPipes.name]);
         expect(printFor(fx.joinedPipes.type)(await h.read(fx.joinedPipes)))
             .toBe(printFor(fx.joinedPipes.type)(withRows(pipes, compareFor(fx.PipeEnds), [[{ from: "M2", to: "10B" }, { from: "M2", to: "10B", note: "" }]])));
+    });
+
+    test("keyed by the mixers it feeds, as the lines' `key` builds it: a Shift session's line moves under its new key as a Shift-drag adds a mixer, and the next Shift-drag adds an oven to the line there, never a hose of its own; and Save writes the one line (#1584)", async () => {
+        const lines = await h.read(fx.sidedLines);
+        const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const slice = $.let(Slice.bindRecords("schematic.keyed.lines", {
+                floorCards: { source: Data.bindPaged(fx.floorCards, { indexes: ["schematic_floor_cards_by_name"] }) },
+            }));
+            const ovensBound = $.let(Record.bind(fx.keyedOvens));
+            const mixers = $.let(Data.bind(fx.keyedMixers));
+            const hosesBound = $.let(Record.bind(fx.keyedHoses));
+            const linesBound = $.let(Record.bind(fx.sidedLines));
+            const cards = $.let(Data.bind(fx.floorCards));
+            return Schematic({
+                id: "keyedLines",
+                extent: fx.KEYED_FLOOR,
+                slice: { slice },
+                items: {
+                    ovens: Schematic.items(ovensBound, {
+                        name: "Oven", icon: "server", x: "x", y: "y", label: "name",
+                        templates: Schematic.templates(cards.read(), { name: (row) => row.name, values: (row) => row.values, source: "floorCards" }),
+                    }),
+                    mixers: Schematic.items(mixers, { name: "Mixer", icon: "network-wired", x: "x", y: "y", label: "name" }),
+                },
+                links: {
+                    hoses: Schematic.links(hosesBound, {
+                        name: "Hose", icon: "link", from: { field: "from", of: { oven: "ovens", mixer: "mixers" } }, to: { field: "to", of: { oven: "ovens", mixer: "mixers" } },
+                    }),
+                },
+                nets: {
+                    lines: Schematic.nets(linesBound, {
+                        name: "Line", icon: "plug", sources: { field: "supply", of: "ovens" }, destinations: { field: "fed", of: "mixers" }, key: (row) => row.fed.stringJoin("+"),
+                    }),
+                },
+                library: [Schematic.library.templates()],
+            });
+        }))) });
+        // The card's ⏎: oven 101 at the view's centre, 14 × 7 m.
+        await openTab(c, "start", "Templates");
+        await enter(libraryCard(c, entityId({ kind: "ovens", key: "spare" })));
+        await waitFor(() => expect(isSelected(c, "ovens", "101")).toBe(true));
+        // Oven 11 to M1: a hose. Shift-dragged on to M2, the session grows into the line M1+M2, absorbing it; and on to 10B,
+        // its sides build it M1+M2+10B, which it moves under.
+        const canvas = canvasOf(c);
+        hits(c, [["ovens", "11", 4, 4], ["ovens", "101", 14, 7], ["mixers", "10B", 8, 10], ["mixers", "M1", 10, 3], ["mixers", "M2", 12, 3]]);
+        await tool(c, "Connect");
+        await drag(canvas, [4, 4], [10, 3]);
+        await drag(canvas, [4, 4], [12, 3], true);
+        await drag(canvas, [4, 4], [8, 10], true);
+        // Oven 101 Shift-dragged into M2: it joins the line under its new key, upstream.
+        await drag(canvas, [14, 7], [12, 3], true);
+        expect(refused(c)).toBeUndefined();
+        expect(await save(c)).toEqual([fx.keyedOvens.name, fx.sidedLines.name].sort(compareText));
+        expect(printFor(fx.sidedLines.type)(await h.read(fx.sidedLines))).toBe(printFor(fx.sidedLines.type)(withRows(lines, compareText, [
+            ["M1+M2+10B", { supply: new SortedSet([11n, 101n], compareNumber), fed: ["M1", "M2", "10B"], name: "" }],
+        ])));
     });
 
     test("keyed by DateTime, a card's ⏎ holds a new bay under a placeholder — Save waiting, Issues listing it, Connect from it refused — until its key is typed in the inspector, which moves it there, still selected; a chute from it then is one past the chutes' largest; and Save writes each under its key", async () => {

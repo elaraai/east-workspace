@@ -31,6 +31,9 @@
  *   making a spot at 1-1 again, which 1-1 holds, and one at 2-2.
  * - **Pipes keyed by their ends** (`joinedPipes`) — the key a link kind's `key`
  *   builds from its ends: M2 to M1, which a pipe between them again would take.
+ * - **Lines keyed by the mixers they feed** (`sidedLines`) — the key a net
+ *   kind's `key` builds from its sides: none yet, so a Shift session makes one,
+ *   which moves as a drag adds a mixer to it.
  * - **Bays keyed by when each opens** (`timedBays`) — DateTime keys, which the
  *   viewer types for a new bay: the Early bay at 06:00, the chute from it to M2
  *   numbered 5 (`timedChutes`).
@@ -112,6 +115,12 @@ export const keyedFeeds = e3.record("schematic_keyed_feeds", DictType(IntegerTyp
         [2n, { supply: new SortedSet([11n], compareNumber), fed: ["M2"], name: "Steam" }],
         [10n, { supply: new SortedSet([9n], compareNumber), fed: ["10B"], name: "Water" }],
     ], compareNumber),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+/** The bakehouse's lines, each a feed keyed by the mixers it feeds: none yet. */
+export const sidedLines = e3.record("schematic_sided_lines", DictType(StringType, KeyedFeed), {
+    initial: new SortedMap([], compareFor(StringType)),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
 

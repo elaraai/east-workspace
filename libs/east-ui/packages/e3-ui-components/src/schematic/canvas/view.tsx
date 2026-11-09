@@ -107,7 +107,7 @@ import { RevealTell, niceScaleLength, usePaint } from "./use-paint";
 import type { SchematicDensity, SchematicViewportStore } from "../area.js";
 import { areaSlots, type SchematicValue } from "../data.js";
 import { dropPoint, type SchematicCanvasDrop, type SchematicDropPoint } from "../drop.js";
-import type { SchematicNewKey } from "../editing.js";
+import type { SchematicMove, SchematicNewKey } from "../editing.js";
 import type { NetLeg, SchematicEdit, SchematicKeyRefusal } from "../edits.js";
 import type { SchematicWords } from "../messages.js";
 import type { SchematicNarrowedLook } from "../narrowing.js";
@@ -145,9 +145,10 @@ export interface SchematicCanvasEditing {
      * @param edits - The rows it changes, and how
      * @param origin - The gesture
      * @param label - Its label in the history
-     * @returns Whether anything was recorded
+     * @returns The rows it moved under the keys their fields build (#1549) — none for a step that moves none; `undefined`
+     *   where nothing was recorded
      */
-    readonly record: (edits: readonly SchematicEdit[], origin: Origin, label: string) => boolean;
+    readonly record: (edits: readonly SchematicEdit[], origin: Origin, label: string) => readonly SchematicMove[] | undefined;
     /**
      * A new row's key, as its kind makes one from the edit making it (`editing.ts`' `newKey`, #1549).
      *

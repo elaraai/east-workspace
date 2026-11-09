@@ -178,7 +178,7 @@ import { draftedDrawing, waitingDrafts, waitingPoint, withWaiting, type DraftedC
 import { NO_DRAFTS_NARROWING, SchematicDraftsReader, draftHeld, type SchematicDraftsNarrowing } from "./drafts-narrowing.js";
 import type { SchematicDropContext, SchematicDropKind } from "./drop.js";
 import { connectVeto, editKinds, followBuiltKeys, type NetLeg, type SchematicEdit, type SchematicKeyRefusal, type SchematicUnheld } from "./edits.js";
-import { recordSlot, useSchematicEditing, type SchematicEditing, type SchematicKeyWords } from "./editing.js";
+import { recordSlot, useSchematicEditing, type SchematicEditing, type SchematicKeyWords, type SchematicMove } from "./editing.js";
 import { foundMark, useSchematicFind, type FindKind, type FoundItem } from "./find.js";
 import { SchematicFooter, type SchematicNotice } from "./footer.js";
 import { drawnEntities, entityNames, inspectedEqual, inspectedOf, nameOfEntity, type SchematicInspected, type SchematicUnplaced } from "./inspect.js";
@@ -879,27 +879,28 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     }, [dim, chrome, ready, failures]);
     // Every route's edits recorded with each row whose key its fields build following them: refused where a row holds a
     // key one builds, or a link or net kind that may name a moving item isn't held whole; recorded, a lone selected entity
-    // that moves selected under its new key.
+    // that moves selected under its new key, and the rows moved handed back — a Shift session's net among them (#1584).
     const recordEdits = editing.record;
     const moves = editing.moves, stands = editing.stands, edited = editing.edited;
-    const recordFollowing = useCallback((edits: readonly SchematicEdit[], origin: Origin, label: string): boolean => {
+    const recordFollowing = useCallback((edits: readonly SchematicEdit[], origin: Origin, label: string): readonly SchematicMove[] | undefined => {
         const followed = followBuiltKeys({ kinds: editsKinds, moves, stands, edited, drawn: heldDrawing, unheld }, edits);
         if ("refused" in followed) {
             keyRefused(followed.refused);
-            return false;
+            return undefined;
         }
-        if (!recordEdits(followed.edits, origin, label)) return false;
+        if (!recordEdits(followed.edits, origin, label)) return undefined;
         const now = selectionNow.current;
         const lone = now.size === 1 ? [...now][0]! : undefined;
         const moved = lone === undefined ? undefined : followed.moved.find((move) => stringEqual(entityId(move.ref), lone));
         if (moved !== undefined) canvasRef.current?.select(entityId({ kind: moved.ref.kind, key: moved.to }));
-        return true;
+        return followed.moved;
     }, [editsKinds, moves, stands, edited, heldDrawing, unheld, keyRefused, recordEdits]);
     const newKey = editing.newKey;
     const canvasEditing = useMemo((): SchematicCanvasEditing | undefined => (editing.edits ? { record: recordFollowing, newKey, keyRefused } : undefined),
         [editing.edits, recordFollowing, newKey, keyRefused]);
     // The inspector's edits are recorded so too.
-    const inspectorEditing = useMemo((): SchematicEditing => ({ ...editing, record: recordFollowing }), [editing, recordFollowing]);
+    const inspectorEditing = useMemo((): SchematicEditing => ({ ...editing, record: (edits, origin, label) => recordFollowing(edits, origin, label) !== undefined }),
+        [editing, recordFollowing]);
     // The zones a point lands in, smallest first, as the Index files an item: what a drop's words name.
     const hosts = useMemo(() => hostZones(shownZones), [shownZones]);
     // A kind takes a drop while its session takes an edit and nothing the canvas draws is retained (#1398, CL8).
@@ -913,7 +914,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         nameOf: (ref) => names.get(entityId(ref)),
         zoneAt: (point) => zoneHolding(hosts, point.x, point.y)?.label,
     }), [value.extent, dropKinds, takesEdit, untyped, names, hosts]);
-    const recordDrop = useCallback((edits: readonly SchematicEdit[], label: string) => recordFollowing(edits, "drop", label), [recordFollowing]);
+    const recordDrop = useCallback((edits: readonly SchematicEdit[], label: string) => recordFollowing(edits, "drop", label) !== undefined, [recordFollowing]);
     // What the canvas has selected, each entity by its reference: what a card's ⏎ drops on.
     const selectedRefs = useCallback((): SchematicRef[] => [...selection].flatMap((id) => { const ref = refOfId(id); return ref === undefined ? [] : [ref]; }), [selection]);
     const viewCentre = useCallback(() => canvasRef.current?.centre(), []);
