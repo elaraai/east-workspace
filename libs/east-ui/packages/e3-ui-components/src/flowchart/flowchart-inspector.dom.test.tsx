@@ -449,12 +449,12 @@ describe("Details: a transition (R16)", () => {
         const c = await open(ex.flowchartDepotEditing);
         await click(link(c, "l5")!);
         await choose(c, "decision", "route");
-        // Its far end: every state drawn, each by its key and its label, in the order the states are placed.
+        // Its far end: every state drawn, each by its key and its label, in their keys' order (#1584).
         const listbox = await listboxOf(c, "to");
         expect(within(listbox).getAllByRole("option").map((option) => option.textContent)).toEqual([
-            "ARV · Arrived", "CH* · Sort chutes (class)", "HLD · Held", "IND · Inducted", "LDD · Loaded",
-            "CLR · Cleared", "DSP · Dispatched", "LBL · Relabelled", "SCN · Scanned", "SRD · Sorted",
-            "INS · Inspected", "RCV · Received", "RSD · Resent",
+            "ARV · Arrived", "CH* · Sort chutes (class)", "CLR · Cleared", "DSP · Dispatched", "HLD · Held",
+            "IND · Inducted", "INS · Inspected", "LBL · Relabelled", "LDD · Loaded", "RCV · Received",
+            "RSD · Resent", "SCN · Scanned", "SRD · Sorted",
         ]);
         await act(async () => { fireEvent.click(within(listbox).getByRole("option", { name: "IND · Inducted" })); });
         await settle();

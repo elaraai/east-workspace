@@ -44,6 +44,12 @@
  *   transitions planned · observed · unresolved; each record's last save and
  *   who made it; and its hints.
  *
+ * Every list Details chooses from — a state's lane, a transition's ends and
+ * its decision, the lane several states move to — offers its rows in their
+ * keys' order at their kind's key type (#1584): never the drawing's, where a
+ * state second in its lane comes after every lane's first, nor their texts',
+ * where 10 comes before 9.
+ *
  * Every edit is one step of the history, through the gestures the canvas
  * makes (`edits.ts`): a role through its kind's `write`, a field of the form
  * through its kind's `set`, and the row an own Details hands back, whole. A
@@ -369,6 +375,19 @@ function useRefused(): [number, () => void] {
     const [refused, setRefused] = useState(0);
     const bump = useCallback(() => setRefused((n) => n + 1), []);
     return [refused, bump];
+}
+
+/**
+ * A list's choices in their keys' order at their kind's key type (#1584): the form holds a key's text, a String, and
+ * offers its choices in the order given.
+ *
+ * @param keys - The kind's keys
+ * @param choices - The choices, a row's key's text each, in any order
+ * @returns The choices, in their keys' order
+ */
+function inKeyOrder(keys: KindKeys, choices: readonly FieldOption[]): FieldOption[] {
+    const byText = new Map(choices.map((choice) => [choice.key, choice] as const));
+    return keys.order(byText.keys()).map(({ text }) => byText.get(text)!);
 }
 
 /** The form's words where it chooses a decision: the field form's, its reference with no key the Flowchart's no decision. */
@@ -703,8 +722,8 @@ function StateView(props: RowViewProps) {
         lane: Fields.reference({ of: "lanes", label: lanes?.name ?? "" }),
     }, lanes === undefined ? ["lane"] : []), [m, lanes]);
     const options = useMemo(() => ({
-        lanes: model.lanes.filter((lane) => lane.band === "lane").map((lane): FieldOption => ({ key: lane.key, label: lane.label })),
-    }), [model.lanes]);
+        lanes: inKeyOrder(rows.keys.lanes, model.lanes.filter((lane) => lane.band === "lane").map((lane): FieldOption => ({ key: lane.key, label: lane.label }))),
+    }), [model.lanes, rows.keys.lanes]);
     const roles = rows.states.find((state) => stringEqual(state.key, at))?.roles;
     const stored = held.states.get(at)?.roles;
     const { bump, refused } = side;
@@ -796,12 +815,14 @@ function LinkView(props: RowViewProps) {
         to: Fields.reference({ of: "states", label: m.inspectorField({ field: "to" }) }),
         decision: Fields.reference({ of: "decisions", label: decisions?.name ?? "" }),
     }, decisions === undefined ? ["decision"] : []), [m, decisions]);
-    // The states the canvas draws as themselves, and the decisions: a choice always holds its own value, shown as itself.
+    // The states the canvas draws as themselves, and the decisions, each in their keys' order: a choice always holds its
+    // own value, shown as itself.
     const options = useMemo(() => ({
-        states: model.nodes.filter((node) => !node.ghost && !node.dimmed)
-            .map((node): FieldOption => ({ key: node.key, label: node.label === undefined ? node.key : m.inspectorChoice({ key: node.key, label: node.label }) })),
-        decisions: [...model.triggers.values()].map((trigger): FieldOption => ({ key: trigger.key, label: trigger.label.length === 0 ? trigger.key : trigger.label })),
-    }), [model, m]);
+        states: inKeyOrder(rows.keys.states, model.nodes.filter((node) => !node.ghost && !node.dimmed)
+            .map((node): FieldOption => ({ key: node.key, label: node.label === undefined ? node.key : m.inspectorChoice({ key: node.key, label: node.label }) }))),
+        decisions: inKeyOrder(rows.keys.decisions, [...model.triggers.values()]
+            .map((trigger): FieldOption => ({ key: trigger.key, label: trigger.label.length === 0 ? trigger.key : trigger.label }))),
+    }), [model, rows.keys, m]);
     const { bump, refused } = side;
     const onRole = useCallback((path: readonly string[], next: unknown) => {
         const field = path[0]!;
@@ -972,9 +993,10 @@ function SeveralView(props: ViewProps & { readonly picked: readonly string[] }) 
     const specs = useMemo(() => Fields.specs(MoveForm, {
         lane: Fields.reference({ of: "lanes", label: m.inspectorField({ field: "moveTo", name: (lanes?.name ?? "").toLocaleLowerCase(words.locale) }) }),
     }), [m, lanes, words.locale]);
+    const keys = props.rows.keys.lanes;
     const options = useMemo(() => ({
-        lanes: model.lanes.filter((lane) => lane.band === "lane").map((lane): FieldOption => ({ key: lane.key, label: lane.label })),
-    }), [model.lanes]);
+        lanes: inKeyOrder(keys, model.lanes.filter((lane) => lane.band === "lane").map((lane): FieldOption => ({ key: lane.key, label: lane.label }))),
+    }), [model.lanes, keys]);
     const [refused, bump] = useRefused();
     const onChange = useCallback((_path: readonly string[], next: unknown) => {
         if (act("moveStates", (holding) => moveStates(holding, picked, next as string)) === undefined) bump();

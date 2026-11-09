@@ -37,6 +37,8 @@
  *   waiting under its placeholder, Save with it — until Set key takes them
  *   whole; and a step an app stored under a key its name no longer builds,
  *   renamed back to build it, stays under it.
+ * - **Details' lists** (#1584): the bakery's move (`flowchartBakery`) offers
+ *   its ends in their numbers' order, never the drawing's.
  */
 
 import { describe, expect, test, vi } from "vitest";
@@ -46,6 +48,7 @@ import { BlobType, DateTimeType, East, FloatType, IntegerType, SortedMap, String
 import { RecordSlicesChromeType, Slice, recordSlicesChrome, type UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Flowchart, Record } from "@elaraai/e3-ui/internal";
+import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
 import * as fx from "@elaraai/e3-ui/fixtures/flowchart/flowchart-keys";
 import { slot } from "../e3-web-mount.test-utils.js";
 import { act, enabled, flowchartHarness, press, settle, type FlowchartTestProps } from "./flowchart.test-utils.js";
@@ -489,6 +492,31 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
         await gesture(() => { fireEvent.keyDown(card, { key: "Enter" }); });
         expect(pending(c)).toBe(pendingText(0));
     });
+});
+
+// ============================================================================
+// Details' lists, in their keys' order (#1584)
+// ============================================================================
+
+/** The choices a select of Details offers, in order: opened from its trigger, and closed again. */
+async function choicesOf(c: HTMLElement, key: string): Promise<(string | null)[]> {
+    const trigger = field(c, key).querySelector<HTMLElement>("[data-scope=select][data-part=trigger]")!;
+    await act(async () => { fireEvent.click(trigger); });
+    const listbox = document.getElementById(trigger.getAttribute("aria-controls")!)!;
+    const shown = within(listbox).getAllByRole("option").map((option) => option.textContent);
+    await act(async () => { fireEvent.click(trigger); });
+    return shown;
+}
+
+test("the bakery's move offers its From and To steps in their numbers' order — never the drawing's, by each step's place in its station, where Proof, second at the bench, comes after the oven's and the cooling rack's firsts (#1584)", async () => {
+    const { container: c } = await h.mountExample(ex.flowchartBakery);
+    await waitFor(() => expect(node(c, "10")).not.toBeNull());
+    await settle();
+    await gesture(() => { fireEvent.click(link(c, printFor(ex.BakeryMoveKey)({ from: 10n, to: 20n }))!); });
+    expect(what(c)).toBe("Transition · 10 → 20");
+    const steps = ["10 · Mix", "20 · Proof", "30 · Bake", "40 · Cool"];
+    expect(await choicesOf(c, "from")).toEqual(steps);
+    expect(await choicesOf(c, "to")).toEqual(steps);
 });
 
 // ============================================================================
