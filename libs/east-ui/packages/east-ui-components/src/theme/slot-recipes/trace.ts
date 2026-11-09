@@ -11,8 +11,8 @@
  * density (15 / 22 / 34 px), so a Trace cell and a ChipRail cell line up when
  * they share a table row. The dynamic parts — the grid's column count, the
  * now-line position, and the fills of an author's own hue or of the diverging
- * and categorical scales — are set inline by the renderer; everything density-
- * or theme-derived lives here, the brand scale's fills among it.
+ * scale — are set inline by the renderer; everything density- or theme-derived
+ * lives here, the brand and categorical scales' fills among it.
  *
  * @packageDocumentation
  */
@@ -69,31 +69,46 @@ export const traceSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderStyle: "solid",
             borderColor: "transparent",
-            // The brand scale's step on the design system's heat ramp (`data-level`, 0 to 4), its value in the ink the
-            // design system pairs with that step, which reads on it in both themes (charts.md › Sequential ramp).
-            "&[data-level='0']": { background: "heat.1" },
-            "&[data-level='1']": { background: "heat.2" },
-            "&[data-level='2']": { background: "heat.3" },
-            "&[data-level='3']": { background: "heat.4", color: "bg.surface" },
-            "&[data-level='4']": { background: "heat.5", color: "bg.surface" },
-            // A predicted step stands on the ramp's lighter three, where the ink is the same; its edge is the ramp's
+            "--t-edge": "{colors.brandPressed}",
+            // A step on the design system's heat ramp (`data-level`, 0 to 4), its value in the ink the design system
+            // pairs with that step, which reads on it in both themes (charts.md › Sequential ramp).
+            "&[data-level]": { background: "var(--t-fill)" },
+            "&[data-level='0']": { "--t-fill": "{colors.heat.1}" },
+            "&[data-level='1']": { "--t-fill": "{colors.heat.2}" },
+            "&[data-level='2']": { "--t-fill": "{colors.heat.3}" },
+            "&[data-level='3']": { "--t-fill": "{colors.heat.4}", color: "bg.surface" },
+            "&[data-level='4']": { "--t-fill": "{colors.heat.5}", color: "bg.surface" },
+            // A categorical track past the first (`data-series`, its place in the design system's series order, the
+            // first being the brand's own ramp): its hue's five steps built as the heat ramp is — into the paper on the
+            // first three, toward the ink on the last two, where the hue at full strength holds neither ink at 4.5:1 —
+            // so the same inks read on them in both themes. Mixed in oklab, which dilutes a hue without turning it
+            // toward the paper's or the ink's own faint hue. Its edge is its last step, as the brand's is.
+            "&[data-series]": {
+                "--t-edge": "color-mix(in oklab, var(--t-hue) 40%, {colors.fg})",
+                "&[data-level='0']": { "--t-fill": "color-mix(in oklab, var(--t-hue) 12%, {colors.bg.surface})" },
+                "&[data-level='1']": { "--t-fill": "color-mix(in oklab, var(--t-hue) 32%, {colors.bg.surface})" },
+                "&[data-level='2']": { "--t-fill": "color-mix(in oklab, var(--t-hue) 56%, {colors.bg.surface})" },
+                "&[data-level='3']": { "--t-fill": "color-mix(in oklab, var(--t-hue) 60%, {colors.fg})" },
+                "&[data-level='4']": { "--t-fill": "color-mix(in oklab, var(--t-hue) 40%, {colors.fg})" },
+            },
+            "&[data-series='1']": { "--t-hue": "{colors.accent.teal}" },
+            "&[data-series='2']": { "--t-hue": "{colors.accent.purple}" },
+            "&[data-series='3']": { "--t-hue": "{colors.accent.blue}" },
+            "&[data-series='4']": { "--t-hue": "{colors.accent.orange}" },
+            // A predicted step stands on its ramp's lighter three, where the ink is the same; its edge is its ramp's
             // last step, which holds its line against each of the three and the paper in both themes, where the step's
             // own hue on a paler mix of itself did not.
             "&[data-predicted]": {
                 fontStyle: "italic",
-                "[data-future=ghost] &": { borderStyle: "dashed", borderColor: "brandPressed" },
+                "[data-future=ghost] &": { borderStyle: "dashed", borderColor: "var(--t-edge)" },
                 "[data-future=hatch] &": {
                     borderStyle: "dashed",
-                    borderColor: "brandPressed",
-                    backgroundImage: "repeating-linear-gradient(-45deg, transparent 0 5px, color-mix(in srgb, {colors.brandPressed} 12%, transparent) 5px 6px)",
+                    borderColor: "var(--t-edge)",
+                    backgroundImage: "repeating-linear-gradient(-45deg, transparent 0 5px, color-mix(in srgb, var(--t-edge) 12%, transparent) 5px 6px)",
                 },
                 // Faded, the fill alone pales: the value keeps its ink, where an opacity over the whole step took it
                 // under 4.5:1.
-                "[data-future=fade] &": {
-                    "&[data-level='0']": { background: "color-mix(in oklch, {colors.heat.1} 70%, transparent)" },
-                    "&[data-level='1']": { background: "color-mix(in oklch, {colors.heat.2} 70%, transparent)" },
-                    "&[data-level='2']": { background: "color-mix(in oklch, {colors.heat.3} 70%, transparent)" },
-                },
+                "[data-future=fade] &": { background: "color-mix(in oklch, var(--t-fill) 70%, transparent)" },
             },
         },
         value: {

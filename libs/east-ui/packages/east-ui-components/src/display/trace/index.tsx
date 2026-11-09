@@ -6,9 +6,9 @@
  * continuous now-line dividing measured steps from predicted ones.
  *
  * The recipe (`theme/slot-recipes/trace.ts`) owns density sizing, static
- * chrome and the brand scale's fills; this renderer computes the dynamic parts —
- * grid column count, each step's level on the ramp (or its fill, in an author's
- * hue or the diverging and categorical scales), and the now-line position.
+ * chrome and the brand and categorical scales' fills; this renderer computes the
+ * dynamic parts — grid column count, each step's level on its ramp (or its
+ * fill, in an author's hue or the diverging scale), and the now-line position.
  */
 
 import { memo, Fragment, useEffect, useMemo } from "react";
@@ -25,14 +25,8 @@ const traceEqual = equivalentFor(Trace.Types.Trace);
 /** East Trace value type. */
 export type TraceValue = ValueTypeOf<typeof Trace.Types.Trace>;
 
-/** Heat hue per categorical track, by track index. */
-const CATEGORICAL = [
-    "var(--chakra-colors-brand-600)",
-    "var(--chakra-colors-orange-500)",
-    "var(--chakra-colors-purple-500)",
-    "var(--chakra-colors-cyan-600)",
-    "var(--chakra-colors-pink-500)",
-];
+/** The design system's series order a categorical scale's tracks take, in turn: the brand, then teal, purple, blue and orange. */
+const SERIES = 5;
 /** Warm pole of the diverging ramp (cool pole is the brand hue). */
 const DIVERGE_WARM = "var(--chakra-colors-orange-500)";
 const PAST_BASE = "var(--chakra-colors-bg-muted)";
@@ -85,10 +79,10 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const ownHue = style ? getSomeorUndefined(style.brandColor) : undefined;
     const brandHue = ownHue ?? "var(--chakra-colors-brand-600)";
-    // The brand scale in the theme's own hue is the design system's heat ramp, drawn by the recipe from each step's
-    // level, so its values read on their fills in both themes; an author's hue, and the diverging and categorical
-    // scales, mix their fills here.
-    const onRamp = scale === "brand" && ownHue === undefined;
+    // The brand scale in the theme's own hue is the design system's heat ramp, and the categorical scale its series
+    // hues built the same way, drawn by the recipe from each step's level, so their values read on their fills in both
+    // themes; an author's hue, and the diverging scale, mix their fills here.
+    const onRamp = (scale === "brand" && ownHue === undefined) || scale === "categorical";
     const nowColor = style ? getSomeorUndefined(style.nowLineColor) : undefined;
     // Optional label-gutter width override (#137) — overrides the density
     // default `--t-stub-w`, which both the grid columns and now-line read.
@@ -166,7 +160,8 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
                     const min = Math.min(...values);
                     const max = Math.max(...values);
                     const mid = (min + max) / 2;
-                    const hue = scale === "categorical" ? CATEGORICAL[ti % CATEGORICAL.length]! : brandHue;
+                    // A categorical track's place in the series order; the first is the brand's own ramp, as the brand scale's.
+                    const series = scale === "categorical" ? ti % SERIES : 0;
                     return (
                         <Fragment key={`${storageKey}.track.${ti}`}>
                             <ChakraBox css={styles.stub} title={track.name}>{track.name}</ChakraBox>
@@ -184,12 +179,12 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
                                     const level = isFuture ? Math.min(2, Math.floor(t * 3)) : Math.min(4, Math.floor(t * 5));
                                     return (
                                         <ChakraBox key={`step.${ti}.${i}`} css={styles.step} style={gap} title={title}
-                                            data-level={level} data-predicted={isFuture ? "" : undefined}>
+                                            data-level={level} data-series={series > 0 ? series : undefined} data-predicted={isFuture ? "" : undefined}>
                                             <ChakraBox as="span" css={styles.value}>{words.tick(v)}</ChakraBox>
                                         </ChakraBox>
                                     );
                                 }
-                                const { fill, edge, hot } = computeFill(v, min, max, mid, scale, hue, isFuture);
+                                const { fill, edge, hot } = computeFill(v, min, max, mid, scale, brandHue, isFuture);
                                 const stepStyle: Record<string, string> = { background: fill, ...gap };
                                 if (isFuture) {
                                     stepStyle.color = edge;

@@ -134,3 +134,20 @@ describe("Trace's brand scale on the design system's heat ramp", () => {
         expect(steps.every((s) => declaredStyle(s, "background")?.includes("#123456") === true)).toBe(true);
     });
 });
+
+describe("Trace's categorical scale on the design system's series order", () => {
+    test("each track takes its place in the series order — the brand's own ramp first, then teal, purple, blue and orange, in turn — its steps leveled as the brand scale's, for the recipe to fill", () => {
+        const six = Array.from({ length: 6 }, (_, k) => ({ name: `T${k}`, values: [1, 2, 3, 4, 5] }));
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <EastChakraTrace value={traceValue(six, { scale: some(variant("categorical", null)), now: some(4n) })} storageKey="series" />
+            </ChakraProvider>,
+        );
+        const steps = [...gridOf(container).querySelectorAll<HTMLElement>("[title$='measured'], [title$='predicted']")];
+        expect(steps.filter((_, i) => i % 5 === 0).map((s) => s.getAttribute("data-series"))).toEqual([null, "1", "2", "3", "4", null]);
+        // Five equal-width steps of each track's range; the predicted last on the lighter three.
+        expect(steps.slice(0, 5).map((s) => [s.getAttribute("data-level"), s.hasAttribute("data-predicted")]))
+            .toEqual([["0", false], ["1", false], ["2", false], ["3", false], ["2", true]]);
+        expect(steps.map((s) => declaredStyle(s, "background"))).toEqual(Array.from({ length: 30 }, () => undefined));
+    });
+});
