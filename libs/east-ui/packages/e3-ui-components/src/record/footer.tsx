@@ -13,7 +13,8 @@
  * loading line takes its slot at the trailing end.
  *
  * The rail never wraps and never cuts a word: the legend ends at a whole
- * member, then "…", where the rail is short of room (#1398, CL3). On a phone
+ * member, then "…", where the rail is short of room (#1398, CL3) — the "…"
+ * alone where not even its first member fits beside the counts. On a phone
  * it shows nothing but what speaks — the loading line, a Save's notice, and
  * the status line's words, which the phone's toolbar has no room for — in
  * the band the frame lays over main's foot (ruled 7 Nov 2026).
@@ -183,7 +184,8 @@ export const RecordFooter = memo(function RecordFooter({ styles, count, saved, s
     const chipStyle = { "--record-chip-ch": legend.chip } as CSSProperties;
     const units = legend.items.length;
     return (
-        <Box ref={rail} css={styles.footer} data-slot="footer">
+        // The counts are kept whole beside the legend, which folds to its "…" alone where they leave it no room.
+        <Box ref={rail} css={styles.footer} data-slot="footer" data-footer-fold="">
             {(count !== undefined || saved !== undefined) && (
                 <Box as="span" css={styles.footerCount} data-slot="footerCount">
                     {count?.map((part, i) => (typeof part === "string" ? part : <b key={i}>{part.strong}</b>))}
@@ -195,7 +197,7 @@ export const RecordFooter = memo(function RecordFooter({ styles, count, saved, s
             {/* The slack between the counts and the legend: fitted at no width, so the legend is cut only for room it lacks. */}
             <Box as="span" css={styles.footerSpacer} data-footer-slack="" aria-hidden="true" />
             {units > 0 && (
-                <Box as="span" css={styles.legend} data-slot="legend" data-footer-units="">
+                <Box as="span" css={styles.legend} data-slot="legend" data-footer-units="" data-footer-cut={fit.kept === 0 ? "" : undefined}>
                     {legend.items.map((item, i) => (
                         <Box key={i} as="span" css={styles.legendItem} data-slot="legendItem" data-footer-unit="" data-footer-cut={footerCut(i, fit)}>
                             {item.look !== undefined && <Box as="span" css={styles.legendChip} data-slot="legendChip" data-look={item.look} style={chipStyle}>{item.label}</Box>}

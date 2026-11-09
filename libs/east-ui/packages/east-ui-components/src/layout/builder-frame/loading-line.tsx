@@ -39,7 +39,9 @@
  *
  * A builder's footer marks its legend's items `data-footer-unit` — its hints
  * also `data-footer-hints` on the rail — and the fit cuts them whole
- * (`data-footer-cut`), {@link FooterMore} ending a cut legend. An item that
+ * (`data-footer-cut`), {@link FooterMore} ending a cut legend. A rail marked
+ * `data-footer-fold` folds its legend whole where not even its first item
+ * fits, the item holding its units cut with them. An item that
  * takes the rail's slack, shrinking as the room left it shrinks — the Sheet's
  * message — is marked `data-footer-slack`: the fit fits it at no width, as
  * the room it takes is what the fit leaves.
@@ -297,7 +299,7 @@ export function measureFooter(rail: HTMLElement): FooterFitInput {
         // An item taking the rail's slack is fitted at no width; any other at its natural width, however the layout shrank it.
         fixed.push(child.hasAttribute("data-footer-slack") ? 0 : naturalWidth(child));
     }
-    return { available, gap, fixed, units, unitGap, more, hints: rail.hasAttribute("data-footer-hints"), line, lineCap };
+    return { available, gap, fixed, units, unitGap, more, hints: rail.hasAttribute("data-footer-hints"), line, lineCap, fold: rail.hasAttribute("data-footer-fold") };
 }
 
 /**

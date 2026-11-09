@@ -356,6 +356,38 @@ for (const theme of RECORD_THEMES) {
     });
 }
 
+test("a desktop's frame too narrow for the legend beside the counts folds it whole to its …: nothing past the footer's end, no word cut @desktop", async ({ page }) => {
+    // FT1, FT2: the shift preferences in a frame 568 wide, the inspector overlaid on main.
+    const entry = await openRecord(page, "recordShiftPreferences", "light", 1600);
+    const frame = entry.locator(RECORD_ROOT).first();
+    const sized = (width: string) => frame.locator("xpath=..").evaluate((box, w) => { (box as HTMLElement).style.width = w; }, width);
+    await sized("568px");
+    await expect(frame).not.toHaveAttribute("data-phone", "");
+    const footer = frame.locator('[data-slot="footer"]');
+    const more = footer.locator("[data-footer-more]");
+    await expect(more).not.toHaveAttribute("data-footer-cut", "");
+    await settled(page);
+    const at = await footer.evaluate((rail) => {
+        const end = rail.getBoundingClientRect().right - parseFloat(getComputedStyle(rail).paddingRight);
+        const shown = [...rail.querySelectorAll("*")].filter((el) => {
+            const b = el.getBoundingClientRect();
+            return b.width > 1 && b.height > 1 && getComputedStyle(el).visibility !== "hidden";
+        });
+        return {
+            past: shown.filter((el) => el.getBoundingClientRect().right > end + 0.5).map((el) => el.textContent),
+            cut: shown.filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent),
+            legend: getComputedStyle(rail.querySelector('[data-slot="legend"]')!).visibility,
+        };
+    });
+    expect(at).toEqual({ past: [], cut: [], legend: "hidden" });
+    await expect(more).toHaveText("…");
+    await expect(footer.locator('[data-slot="footerNote"]')).toHaveText("1 stale · no update in 90 days");
+    // As wide as the page lays it out again: the legend whole, and no "…".
+    await sized("");
+    await expect(more).toHaveAttribute("data-footer-cut", "");
+    await expect(footer.locator('[data-slot="legendItem"]:not([data-footer-cut])')).toHaveCount(3);
+});
+
 test("the rows scroll under the head, the group row and the header row held together over them @desktop", async ({ page }) => {
     // GR4: the skills matrix in a box too short for its rows.
     const entry = await openRecord(page, "recordSkillsMatrix", "light", 1600);
