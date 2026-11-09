@@ -23,7 +23,9 @@
  *     or ticked; a draft row the warn wash at 8%, unchanged on hover. A cell
  *     that steps (a cycle, a toggle, a boolean) `bg.subtle` under the pointer;
  *     a drafted cell `brandTint`; the active cell `bg.subtle` and the inset
- *     focus ring; a new row's empty editable cell the warn wash at 17%.
+ *     focus ring; a new row's empty editable cell the warn wash at 17%. A
+ *     conflict not yet chosen: the warn ring inside its cell — active, inside
+ *     the brand's 2px at its edge — and a row that is one itself its warn edge.
  *   - Cells: the title 13/500 with neutral initials before it; the chips of a
  *     cycle or a toggle 22 tall (15 compact and condensed), each look a scale
  *     step of the heat ramp or a valence's 6% wash, edge and text step; the
@@ -59,6 +61,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { CONFLICT_RING_INSIDE_FOCUS, conflictRingInset } from "../conflict-ring.js";
 import { fieldHeights } from "../field-chrome.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { FOOTER_FIT } from "./builder-footer.js";
@@ -210,6 +213,8 @@ export const recordSlotRecipe = defineSlotRecipe({
             "&[data-selected]": { background: "bg.subtle", _hover: { background: "bg.subtle" } },
             "&[data-draft]": { background: DRAFT_WASH, _hover: { background: DRAFT_WASH } },
             "&[data-still]:not([data-selected]):not([data-draft])": { _hover: { background: "bg.surface" } },
+            /* A row that is a conflict itself — both added it, or one side removed it — its warn edge inside, as the Sheet's. */
+            "&[data-conflict]": { outline: "1px solid {colors.status.warn}", outlineOffset: "-1px" },
         },
         cell: {
             position: "relative", minWidth: "0", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "flex-start",
@@ -230,6 +235,10 @@ export const recordSlotRecipe = defineSlotRecipe({
             "&[data-pinned][data-still]": { _hover: { background: "inherit" } },
             "&[data-still][data-dirty]": { _hover: { background: "brandTint" } },
             "&[data-still][data-active]": { _hover: { background: "bg.subtle" } },
+            /* A conflict not yet chosen: the warn ring inside the cell; active, the brand's 2px at its edge with the warn just inside,
+               as a Plan cell's focus draws them. */
+            ...conflictRingInset,
+            "&[data-conflict][data-active]": { boxShadow: `inset 0 0 0 2px {colors.brand.solid}, ${CONFLICT_RING_INSIDE_FOCUS}` },
             /* The editor of a Sheet kind lies over the cell, the cell's own box: never past it, as over the Sheet's seams, for
                the cell clips what reaches past it and its ring would lose its foot. Named with the cell's slot, so it outweighs
                the Sheet's own rules for its first cell. */

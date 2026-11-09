@@ -19,7 +19,11 @@
  *   pointer; an owned row, and every row of a read-only Record, takes no
  *   hover. A cell's mark (#1560) draws its words: a note after the value, or
  *   in an empty cell in its place; a lock the design system's Tag, after the
- *   value or alone, and the cell it locks takes no hover and no gesture.
+ *   value or alone, and the cell it locks takes no hover and no gesture. A
+ *   conflict not yet chosen rings its cell in the warn colour — or the row's
+ *   edge, where the row itself is one — as the Sheet's rows draw it; a row
+ *   with a field still missing is marked incomplete, and a cell's issue is
+ *   its description to a screen reader.
  * - **The header** — the column groups' row, each group's label over a rule
  *   under its columns, the columns before the first group and an unlabelled
  *   group drawing neither, then the header row, the select column's box
@@ -43,7 +47,7 @@
  * @packageDocumentation
  */
 
-import { createContext, memo, useContext, useMemo, useSyncExternalStore, type CSSProperties } from "react";
+import { createContext, memo, useContext, useId, useMemo, useSyncExternalStore, type CSSProperties } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faMinus } from "@fortawesome/free-solid-svg-icons";
@@ -147,6 +151,8 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
     const { styles: sheetStyles, r, row, columns, registers, gridTemplate, layout, rowPx, idPrefix, selC, range, editor, draft, changes, writable } = props;
     const { styles, ticks } = useRecordGrid();
     const words = useSheetWords();
+    // Each cell's issue, read out as its description: `{issuePrefix}-{c}`.
+    const issuePrefix = useId();
     // The select column, where the grid lays it out: a read-only Record has none, nor a phone's frame.
     const lead = layout.lead;
     const pinned = layout.pinPx > 0;
@@ -172,6 +178,8 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
             data-selected={selC !== undefined || range !== undefined || ticked ? "" : undefined}
             data-ticked={ticked ? "" : undefined}
             data-draft={draft?.pending === true ? "" : undefined}
+            data-conflict={draft?.conflicts?.whole === true ? "" : undefined}
+            data-incomplete={draft?.incomplete === true ? "" : undefined}
             data-still={still ? "" : undefined}
             role="row"
             aria-rowindex={props.ariaRowIndex}
@@ -201,6 +209,7 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
                 // from data's — washed, empty, and saying so on hover.
                 const required = changes?.added === true && editable && cellIsBlank(cell) && changes.missing.has(meta.key);
                 const issue = cell?.type === "Invalid" ? words.m.issueInvalid({ value: cell.value }) : draft?.issues.get(meta.key);
+                const issueId = `${issuePrefix}-${c}`;
                 const detail = row !== undefined ? cellDetail(meta, row.cells, words) : undefined;
                 const member = namesMember(meta) && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
                 const actualCell = meta.kind === "date" && meta.actual !== undefined ? row?.cells.get(meta.actual) : undefined;
@@ -237,9 +246,11 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
                         data-align={alignOf(meta)}
                         data-still={still || locked ? "" : undefined}
                         data-locked={locked ? "" : undefined}
+                        data-conflict={draft?.conflicts?.fields.has(meta.key) === true ? "" : undefined}
                         // A required cell's one issue is that it is empty: it says so in the Record's words. A mark's words follow.
                         title={mark === undefined ? said : m.marked({ text: said, words: mark.words, lock: locked })}
                         aria-invalid={issue !== undefined ? true : undefined}
+                        aria-describedby={issue !== undefined ? issueId : undefined}
                         aria-readonly={locked ? true : undefined}
                         role="gridcell"
                         id={`${idPrefix}-${r}-${c}`}
@@ -249,6 +260,7 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
                         onDoubleClick={() => props.onCellDouble(r, c)}
                         onMouseEnter={() => props.onCellEnter(r, c)}
                     >
+                        {issue !== undefined && <Box as="span" css={sheetStyles.cellIssue} id={issueId}>{issue}</Box>}
                         {alone ? null : required ? null : action !== undefined && props.actions !== undefined ? (
                             <ActionCellSlot host={props.actions} r={r} columnKey={meta.key} column={action} cell={cell}
                                 summary={summary?.type === "String" ? summary.value : ""} selected={selC === c} />

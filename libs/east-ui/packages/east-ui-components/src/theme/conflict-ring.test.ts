@@ -19,6 +19,7 @@ import { flowchartSlotRecipe } from "./slot-recipes/flowchart.js";
 import { optimiseSlotRecipe } from "./slot-recipes/optimise.js";
 import { planSlotRecipe } from "./slot-recipes/plan.js";
 import { planElementConflict } from "./slot-recipes/plan/focus.js";
+import { recordSlotRecipe } from "./slot-recipes/record.js";
 import { rosterBuilderSlotRecipe } from "./slot-recipes/rosterBuilder.js";
 import { schematicSlotRecipe } from "./slot-recipes/schematic.js";
 import { sheetSlotRecipe } from "./slot-recipes/sheet.js";
@@ -41,9 +42,10 @@ describe("the conflict ring", () => {
         expect(CONFLICT_RING_INSET).toBe(`inset 0 0 0 1px {colors.status.warn}, inset 0 0 8px 0 ${glow}`);
     });
 
-    test("a cell wears it inside, where cells sit edge to edge: the Sheet's, its bands', and the Plan's table cells, hovered too", () => {
+    test("a cell wears it inside, where cells sit edge to edge: the Sheet's, its bands', the Record's and the Plan's table cells, hovered too", () => {
         expect(shadow(slot(sheetSlotRecipe, "cell"), "&[data-conflict]")).toBe(CONFLICT_RING_INSET);
         expect(shadow(slot(sheetSlotRecipe, "groupCell"), "&[data-conflict]")).toBe(CONFLICT_RING_INSET);
+        expect(shadow(slot(recordSlotRecipe, "cell"), "&[data-conflict]")).toBe(CONFLICT_RING_INSET);
         const cell = slot(planSlotRecipe, "tableCellText");
         expect(shadow(cell, "&[data-conflict]")).toBe(CONFLICT_RING_INSET);
         expect(shadow(cell, "&[data-conflict][data-typed]:hover:not(:focus-visible)")).toBe(CONFLICT_RING_INSET);
@@ -58,6 +60,8 @@ describe("the conflict ring", () => {
         // The Sheet's selection is a layer of its own over the cell, 2px of brand inside its edge.
         for (const name of ["cell", "groupCell"]) expect(shadow(slot(sheetSlotRecipe, name), "&[data-conflict][data-selected]"), name).toBe(CONFLICT_RING_INSIDE_FOCUS);
         expect(shadow(slot(planSlotRecipe, "tableCellText"), "&[data-conflict]:focus-visible")).toBe(`inset 0 0 0 2px {colors.brand.solid}, ${CONFLICT_RING_INSIDE_FOCUS}`);
+        // The Record's active cell rings itself: the brand at its edge, as the Plan's focused cell's.
+        expect(shadow(slot(recordSlotRecipe, "cell"), "&[data-conflict][data-active]")).toBe(`inset 0 0 0 2px {colors.brand.solid}, ${CONFLICT_RING_INSIDE_FOCUS}`);
         expect(outlineOffset(slot(rosterBuilderSlotRecipe, "tile"), "&[data-selected][data-conflict]")).toBe("1px");
         expect(outlineOffset(slot(schematicSlotRecipe, "item"), "&[data-selected][data-conflict]")).toBe("1px");
         expect(shadow(slot(snapGridSlotRecipe, "frame"), "[data-selected][data-conflict] > &")).toBe(`${CONFLICT_RING}, {shadows.focus}`);
@@ -104,7 +108,7 @@ describe("the conflict ring", () => {
     });
 
     test("nothing reaches past a part's edge: no layer outside it, no row lifted over its neighbours, no plot let out", () => {
-        const recipes = [sheetSlotRecipe, planSlotRecipe, calendarSlotRecipe, rosterBuilderSlotRecipe, allocationBuilderSlotRecipe, schematicSlotRecipe, flowchartSlotRecipe, snapGridSlotRecipe];
+        const recipes = [sheetSlotRecipe, recordSlotRecipe, planSlotRecipe, calendarSlotRecipe, rosterBuilderSlotRecipe, allocationBuilderSlotRecipe, schematicSlotRecipe, flowchartSlotRecipe, snapGridSlotRecipe];
         const keys = (styles: unknown): string[] => styles === null || typeof styles !== "object" ? []
             : Object.entries(styles as Styles).flatMap(([key, value]) => [key, ...keys(value)]);
         const reaching = recipes.flatMap((recipe) => keys(recipe.base)).filter((key) => /\[data-conflict\][^,]*::before|:has\(.*\[data-conflict\]\)/.test(key));

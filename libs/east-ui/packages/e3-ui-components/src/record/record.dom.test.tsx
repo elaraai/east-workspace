@@ -1270,7 +1270,44 @@ describe("the states", () => {
         await waitFor(() => expect(rows(container).length).toBeGreaterThan(0), { timeout: 10_000 });
         expect(skillsRows().read().where.size).toBe(0);
     });
+
+    test("a conflict not yet chosen is marked where it is: a field another Save changed under the draft rings its cell, and a row another Save deleted under its draft rings whole", async () => {
+        const { container } = await h.mount(ex.recordBasic, { storageKey: "record-conflicts" });
+        const rowOf = (id: string) => rows(container).find((row) => row.getAttribute("data-row-id") === id)!;
+        // A. Morgan's forklift stepped and B. Ellis inducted here; another Save lands first, moving her forklift and deleting him.
+        await press(cellAt(container, 0, "forklift"));
+        await press(cellAt(container, 1, "inducted"));
+        await h.race(ex.recordCrew, () => fireEvent.click(history(container, editingMessages.apply())), (crew) => {
+            const next = new Map(crew);
+            next.set("C-001", { ...crew.get("C-001")!, forklift: "1" });
+            next.delete("C-002");
+            return next;
+        });
+        await waitFor(() => expect(cellOf(rowOf("C-001"), "forklift").hasAttribute("data-conflict")).toBe(true));
+        expect([rowOf("C-001").hasAttribute("data-conflict"), cellOf(rowOf("C-001"), "inducted").hasAttribute("data-conflict")]).toEqual([false, false]);
+        expect(rowOf("C-002").hasAttribute("data-conflict")).toBe(true);
+    });
+
+    test("a cell's issue is read out as its description: text no column reads, typed in a cell", async () => {
+        const { container } = await h.mount({ fn: operatorsOnNights }, { storageKey: "record-issue-described" });
+        expect(cellAt(container, 1, "hours").hasAttribute("aria-describedby")).toBe(false);
+        await typeInto(container, 1, "hours", "lots");
+        const hours = cellAt(container, 1, "hours");
+        expect([hours.getAttribute("aria-invalid"), describedBy(hours)]).toEqual(["true", "Invalid input: lots"]);
+    });
+
+    test("a new row is marked incomplete, and each of its empty cells a person must fill reads out that it is required", async () => {
+        const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-new-incomplete" });
+        expect(rows(container).some((row) => row.hasAttribute("data-incomplete"))).toBe(false);
+        await press(action(container, "add")!);
+        const added = drafted(container);
+        expect(added.hasAttribute("data-incomplete")).toBe(true);
+        expect(describedBy(cellOf(added, "name"))).toBe("Required");
+    });
 });
+
+/** What a cell's description reads: the text of what its `aria-describedby` names. */
+const describedBy = (cell: HTMLElement) => document.getElementById(cell.getAttribute("aria-describedby") ?? "")?.textContent;
 
 /** A field of the row's Details, by its key. */
 const detailsField = (container: HTMLElement, key: string) => details(container)!.querySelector<HTMLElement>(`[data-field="${key}"]`)!;
