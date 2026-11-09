@@ -119,10 +119,12 @@ export function dutyForm(a: Assignment): DutyFormValue { return { position: a.po
 
 /**
  * The Roster's own form over a duty's roles: the position held — where the
- * kind maps one — and, for a named person, the activity; each choice one edit.
+ * kind maps one — and, for a named person, the activity; each choice one edit,
+ * and one the duty refuses (`onChange` saying why) put back, the reason under
+ * its field.
  */
 export function AssignmentFields({ assignment, form, baseline, value, onChange, readOnly = false }: {
-    assignment: Assignment; form: DutyFormValue; baseline?: DutyFormValue | undefined; value: RosterValue; onChange: (change: RolesChange) => void; readOnly?: boolean;
+    assignment: Assignment; form: DutyFormValue; baseline?: DutyFormValue | undefined; value: RosterValue; onChange: (change: RolesChange) => string | void; readOnly?: boolean;
 }) {
     // The group's skills and the duties the slice shows, and the duty's own — as stored and as the edit has it — so a
     // stored activity the rail hides can be picked again after choosing another (#1342).
@@ -136,9 +138,13 @@ export function AssignmentFields({ assignment, form, baseline, value, onChange, 
         options={{ positions: value.positions.map(p => ({ key: p.key, label: p.label })), activities: activities.map(a => ({ key: a.key, label: a.label })) }}
         onChange={(path, next) => onChange(path[0] === "position" ? { position: some(next as string) } : { activity: next as option<string> })} />;
 }
-/** A duty's own times (§5.5, rule 4): each one an edit, held to its day — its start from twelve hours before its shift's to less than twelve after — its end after its start. */
+/**
+ * A duty's own times: each one an edit, held to its day — its start from twelve hours before its shift's to less than
+ * twelve after — its end after its start; a time the duty refuses (`onChange` saying why) put back, the reason under
+ * its field.
+ */
 export function TimesFields({ form, baseline, onChange, readOnly = false }: {
-    form: DutyFormValue; baseline?: DutyFormValue | undefined; onChange: (change: RolesChange) => void; readOnly?: boolean;
+    form: DutyFormValue; baseline?: DutyFormValue | undefined; onChange: (change: RolesChange) => string | void; readOnly?: boolean;
 }) {
     return <FieldForm specs={TIME_FIELDS} value={{ start: form.start, end: form.end }} baseline={baseline === undefined ? undefined : { start: baseline.start, end: baseline.end }}
         readOnly={readOnly} onChange={(path, next) => onChange(path[0] === "start" ? { start: next as Date } : { end: next as Date })} />;
@@ -171,7 +177,7 @@ export function AssignmentActions({ id, assignment, value, start, commands, styl
         <Button size="xs" variant="outline" disabled={locked} title={commands.locked} onClick={() => commands.remove(id)}>Remove</Button>
     </Box>{error !== undefined && !open && <Box role="alert" css={styles.error}>{error}</Box>}</>;
 }
-/** Targets use FieldForm for the headcount, every activity line, and adding a line. */
+/** Targets use FieldForm for the headcount, every activity line, and adding a line: a target the week refuses put back, the reason under its field. */
 export function RequirementFields({ slot, week, held, value, commands, styles }: { slot: Slot; week: Week; held: Week; value: RosterValue; commands: RosterCommands; styles: RosterStyles }) {
     const target = requirementOf(week, slot);
     const baseline = held.requirements.get(slot);
@@ -181,7 +187,7 @@ export function RequirementFields({ slot, week, held, value, commands, styles }:
     const [line, setLine] = useState<ValueTypeOf<typeof AddLine>>({ activity: none, hours: 8 });
     const editable = commands.available && value.targets.type === "some";
     const changeHours = (key: string, hours: number) => {
-        const next = { ...target, hours: new SortedMap(target.hours, compareString) }; next.hours.set(key, hours); commands.requirement(slot, next);
+        const next = { ...target, hours: new SortedMap(target.hours, compareString) }; next.hours.set(key, hours); return commands.requirement(slot, next);
     };
     return <>
         <FieldForm specs={TARGET_FIELDS} value={target} baseline={baseline} readOnly={!editable} onChange={(_path, next) => commands.requirement(slot, { ...target, positions: next as bigint })} />

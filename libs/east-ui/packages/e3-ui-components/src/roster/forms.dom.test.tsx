@@ -187,7 +187,7 @@ describe('Roster shared and custom forms', () => {
         await waitFor(() => expect(details()?.querySelector('[data-roster-refusals]')).not.toBeNull());
         expect(assignment(container, 's4').hasAttribute('data-selected')).toBe(true);
     });
-    test("a duty's start is held to its day: twelve hours after its shift's start is the next day's, so it is refused, and the duty stays on its day (#1584)", async () => {
+    test("a duty's start is held to its day: twelve hours after its shift's start is the next day's, so it is refused — its box back at the start the duty holds, the reason under it — and the duty stays on its day (#1584, #1585)", async () => {
         const { container } = await h.mount(ex.rosterWarehouse);
         const toolbar = () => within(slot(container, 'toolbar'));
         const end = () => slot(container, 'end');
@@ -199,9 +199,14 @@ describe('Roster shared and custom forms', () => {
         for (let i = 0; i < 9; i++) { await act(async () => { fireEvent.keyDown(segment('end', 'hour'), { key: 'ArrowUp' }); }); await settle(); }
         await act(async () => { fireEvent.focusOut(segment('end', 'hour')); }); await settle();
         await act(async () => { fireEvent.keyDown(segment('start', 'AM/PM'), { key: 'ArrowUp' }); }); await settle();
+        expect(segment('start', 'AM/PM').textContent).toBe('PM');
         await act(async () => { fireEvent.focusOut(segment('start', 'AM/PM')); }); await settle();
-        expect(end().querySelector('[data-roster-inspector="details"] [role="alert"]')?.textContent)
+        // Refused: the box shows the 6 AM the duty holds again, never the 6 PM it refused, and the field says why — once,
+        // under it, never again under the form.
+        expect([segment('start', 'hour').textContent, segment('start', 'AM/PM').textContent]).toEqual(['6', 'AM']);
+        expect(end().querySelector('[data-field="start"] [data-part="error-text"]')?.textContent)
             .toBe("A duty starts up to 12 hours before its shift's start, or less than 12 hours after it.");
+        expect(end().querySelector('[data-roster-inspector="details"] [role="alert"]')).toBeNull();
         // Its later end taken, its start refused: still Saturday's early, never moved to Sunday's.
         expect(cell(container, 6, 'inbound', 'early').contains(assignment(container, 's4'))).toBe(true);
         expect([assignment(container, 's4').hasAttribute('data-drafted'), assignment(container, 's4').hasAttribute('data-removed')]).toEqual([true, false]);

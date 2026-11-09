@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faMinus } from "@fortawesome/free-solid-svg-icons";
 import { Box, Button, chakra, useSlotRecipe } from "@chakra-ui/react";
@@ -119,7 +119,9 @@ function DutyPay({ props, id }: { props: Args; id: string }) {
  * maps them, its position and its activity — then the app's fields none of
  * them writes, in the kind's form (`fields`) or the kind's own inspector, each
  * field a refusal names (`refused`) ringed — the one a refusal gone to names
- * taking the keyboard as the form draws it.
+ * taking the keyboard as the form draws it. A field's edit the duty refuses
+ * leaves the field showing what the duty holds, the reason under it as the
+ * frame's line says it.
  */
 function DutyForm({ props, assignment, id, refused }: { props: Args; assignment: Assignment; id: string; refused: ReadonlySet<string> }) {
     const { onError, commands } = props;
@@ -128,8 +130,8 @@ function DutyForm({ props, assignment, id, refused }: { props: Args; assignment:
     const row = props.duties.rows.get(id);
     const held = props.heldDuties.rows.get(id);
     const heldAssignment = props.held.assignments.get(id);
-    const [error, setError] = useState<string>();
-    const change = useCallback((next: RolesChange) => { const refused = commands.update(id, next); setError(refused); onError(refused); }, [commands, id, onError]);
+    const change = useCallback((next: RolesChange) => { const why = commands.update(id, next); onError(why); return why; }, [commands, id, onError]);
+    const field = useCallback((path: readonly string[], next: unknown) => { const why = commands.field(id, path, next); onError(why); return why; }, [commands, id, onError]);
     const form: DutyFormValue = dutyForm(assignment);
     const baseline = heldAssignment === undefined ? undefined : dutyForm(heldAssignment);
     const readOnly = !commands.available;
@@ -142,10 +144,9 @@ function DutyForm({ props, assignment, id, refused }: { props: Args; assignment:
     return <>
         <TimesFields form={form} baseline={baseline} readOnly={readOnly} onChange={change} />
         <AssignmentFields assignment={assignment} form={form} baseline={baseline} value={props.value} readOnly={readOnly} onChange={change} />
-        {error !== undefined && <Box css={props.styles.error} role="alert">{error}</Box>}
         {result.ok && result.value !== undefined ? <chakra.fieldset disabled={readOnly}><EastChakraComponent value={result.value} storageKey={`${props.storageKey}.duty.${id}`} /></chakra.fieldset>
             : decoded !== undefined && kind.fields.length > 0 && <FieldForm specs={kind.fields} value={decoded} baseline={baselineRow ?? {}} readOnly={readOnly}
-                issues={refused} focus={focus} onChange={(path, next) => onError(commands.field(id, path, next))} />}
+                issues={refused} focus={focus} onChange={field} />}
         {!result.ok && <Box css={props.styles.error} role="alert">The duty's form could not be rendered.</Box>}
     </>;
 }
