@@ -372,6 +372,32 @@ describe("rows", () => {
     });
 });
 
+describe("columns", () => {
+    test("the columns moved under the ring — the last pinned first, as a phone's frame does: the ring, a range, the editor, the hover and the armed fill follow their columns, and the editor writes its own", () => {
+        const open = { ...run(initialSheetState({ r: 1, c: 1 }), [key("x")]).state, selEnd: { r: 2, c: 0 }, hover: { r: 2, c: 2 }, armed: { r: 1, c: 2 } };
+        const moved = (c: number): number | null => (c === 2 ? 0 : c + 1);
+        const after = run(open, [{ t: "columns.changed", moved }]);
+        expect(after.state.sel).toEqual({ r: 1, c: 2 });
+        expect(after.state.selEnd).toEqual({ r: 2, c: 1 });
+        expect(after.state.edit).toMatchObject({ r: 1, c: 2, val: "x" });
+        expect(after.state.hover).toEqual({ r: 2, c: 0 });
+        expect(after.state.armed).toEqual({ r: 1, c: 0 });
+        expect(after.effects).toEqual([]);
+        expect(run(after.state, [ekey("Enter")]).effects).toContainEqual({ t: "write", r: 1, c: 2, cell: cell("String", "x"), text: "x" });
+        // Nothing moved: the same state.
+        expect(run(open, [{ t: "columns.changed", moved: (c) => c }]).state).toBe(open);
+    });
+
+    test("an open editor whose column the grid no longer draws closes, uncommitted, and the footer says why; the ring keeps its index", () => {
+        const open = run(initialSheetState({ r: 1, c: 1 }), [key("x")]).state;
+        const left = run(open, [{ t: "columns.changed", moved: (c) => (c === 1 ? null : c === 2 ? 1 : c) }], ctxOf({ colCount: 2 }));
+        expect(left.state.edit).toBeNull();
+        expect(left.state.sel).toEqual({ r: 1, c: 1 });
+        expect(said(left.state.msg)).toBe("The edited column is no longer shown — its edit was not kept");
+        expect(left.effects).toEqual([{ t: "focus.sheet" }]);
+    });
+});
+
 describe("the store", () => {
     test("effects ride the returned store and bump the sequence; a no-op keeps identity", () => {
         const ctx = ctxOf();

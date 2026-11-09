@@ -483,6 +483,8 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     noticeLockedHalf: (p: { driver: string }) => string;
     /** An editor whose row left the sheet closed (#877). */
     noticeRowLeft: () => string;
+    /** An editor whose column the grid no longer draws closed. */
+    noticeColumnLeft: () => string;
     /** A view saved — with a query, or without one. */
     noticeTabSaved: (p: { name: string; query: boolean }) => string;
     /** A view closed — the active one, or another. */
@@ -916,6 +918,7 @@ export const sheetMessages: SheetMessages = {
     noticePredictedTaken: ({ n, count }) => `Took ${count} predicted ${plural(n, "member", "members")}`,
     noticeLockedHalf: ({ driver }) => `${driver} has no destination — kept, but flagged`,
     noticeRowLeft: () => "The edited row left the sheet — its edit was not kept",
+    noticeColumnLeft: () => "The edited column is no longer shown — its edit was not kept",
     noticeTabSaved: ({ name, query }) => (query
         ? `Saved tab "${name}" — a live view: rows that match join it as the sheet changes`
         : `Saved tab "${name}" — no filter; type a search and ⏎ to scope it`),

@@ -693,6 +693,25 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
                 : { ...s, sel, selEnd, edit, hover, armed, msg };
             return { state: afterRowsChanged(clamped, ctx), effects: editLeft ? [{ t: "focus.sheet" }] : [] };
         }
+        case "columns.changed": {
+            // Each place follows its column as the columns move under it; one
+            // whose column left keeps its index, clamped — but not an open
+            // editor: over the column now at that index, its text would be
+            // written there. It closes, uncommitted, and the footer says why.
+            const follow = <T extends CellRef>(ref: T): T => {
+                const c = e.moved(ref.c);
+                return c === null || c === ref.c ? ref : { ...ref, c };
+            };
+            const editLeft = s.edit !== null && e.moved(s.edit.c) === null;
+            const sel = clamp(follow(s.sel), ctx);
+            const selEnd = s.selEnd !== null ? clamp(follow(s.selEnd), ctx) : null;
+            const edit = s.edit !== null && !editLeft ? follow(s.edit) : null;
+            const hover = s.hover !== null ? follow(s.hover) : null;
+            const armed = s.armed !== null ? follow(s.armed) : null;
+            const msg: SheetNotice | null = editLeft ? { id: "columnLeft" } : s.msg;
+            const kept = same(sel, s.sel) && (selEnd === null ? s.selEnd === null : same(selEnd, s.selEnd)) && edit === s.edit && hover === s.hover && armed === s.armed && msg === s.msg;
+            return { state: kept ? s : { ...s, sel, selEnd, edit, hover, armed, msg }, effects: editLeft ? [{ t: "focus.sheet" }] : [] };
+        }
         case "msg":
             return s.msg === e.msg ? { state: s, effects: [] } : { state: { ...s, msg: e.msg }, effects: [] };
         // With no ring placed there is nothing to copy, and nowhere to paste (#1531).

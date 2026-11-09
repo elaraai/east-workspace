@@ -217,6 +217,23 @@ export function useSheetMachine(value: SheetRootValue, sheetDecode: SheetDecode,
     uiRef.current = ui;
     const dispatch = useCallback((e: SheetEvent) => dispatchStore({ t: "event", e, ctx: ctxRef.current }), [dispatchStore]);
 
+    // The columns the grid draws changed underneath — a phone's frame putting
+    // the column it pins first, or back in its place; a column hidden or
+    // shown: the ring, a range, the editor, the hover and the armed fill
+    // follow their COLUMNS, by their keys — an editor left at its index
+    // would write what was typed into the column now there. They follow
+    // before the rows are clamped below, which would otherwise drop an editor
+    // past the last column where its own column still stands.
+    const seenColumns = useRef(columns);
+    useEffect(() => {
+        const before = seenColumns.current;
+        seenColumns.current = columns;
+        if (before === columns) return;
+        const at = new Map(columns.list.map((m, c) => [m.key, c] as const));
+        if (before.list.length === columns.list.length && before.list.every((m, c) => at.get(m.key) === c)) return;
+        dispatch({ t: "columns.changed", moved: (c) => { const key = before.list[c]?.key; return key === undefined ? null : at.get(key) ?? null; } });
+    }, [columns, dispatch]);
+
     // The rows changed underneath: clamp the ring, drop a suggestion whose
     // anchor went. Source rows that moved under them — a window landing above
     // the ring, a failed one landing after a Retry, a new revision, the

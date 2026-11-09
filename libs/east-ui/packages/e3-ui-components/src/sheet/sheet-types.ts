@@ -142,7 +142,7 @@ export type SheetNotice =
     | { id: "subRowsShownAll"; n: number; noun: string | undefined }
     | { id: "subRowsHidAll"; noun: string | undefined }
     | { id: "subRowsShown"; n: number }
-    | { id: "subRowsHid" | "rowLeft" | "tabReverted" | "proposalDeselected" | "rowFillDismissed" | "discarded" | "newRow" }
+    | { id: "subRowsHid" | "rowLeft" | "columnLeft" | "tabReverted" | "proposalDeselected" | "rowFillDismissed" | "discarded" | "newRow" }
     | { id: "membersAdded" | "membersRemoved" | "predictedTaken"; n: number }
     | { id: "lockedHalf"; driver: string | undefined }
     | { id: "tabSaved"; name: string; query: boolean }
@@ -248,6 +248,17 @@ export type SheetEvent =
      * index, clamped. `undefined` where nothing is known of the row.
      */
     | { t: "rows.changed"; moved?: ((r: number) => number | null | undefined) | undefined }
+    /**
+     * The columns the grid draws changed underneath: a phone's frame putting
+     * the column it pins first, or back in its place; a column hidden or
+     * shown. `moved` says where each column index from before now sits, by
+     * the column's key, so the ring, a range, the editor, the hover and the
+     * armed fill follow their columns: an editor left at its index would
+     * write what was typed into the column now there. `null` for a column no
+     * longer drawn: an editor on it closes, and every other place keeps its
+     * index, clamped.
+     */
+    | { t: "columns.changed"; moved: (c: number) => number | null }
     | { t: "msg"; msg: SheetNotice }
     | { t: "clipboard.copy" }
     | { t: "clipboard.paste"; text: string }

@@ -109,6 +109,7 @@ export function noticeText(notice: SheetNotice, w: SheetWords): string {
         case "predictedTaken": return m.noticePredictedTaken({ n: notice.n, count: w.number(notice.n) });
         case "lockedHalf": return m.noticeLockedHalf({ driver: notice.driver ?? m.thisRow() });
         case "rowLeft": return m.noticeRowLeft();
+        case "columnLeft": return m.noticeColumnLeft();
         case "tabSaved": return m.noticeTabSaved({ name: notice.name, query: notice.query });
         case "tabClosed": return m.noticeTabClosed({ name: notice.name, active: notice.active });
         case "tabUpdated": return m.noticeTabUpdated({ name: notice.name });
