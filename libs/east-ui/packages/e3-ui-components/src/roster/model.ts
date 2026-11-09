@@ -266,7 +266,7 @@ export function inSlot(a: Pick<Assignment, "place">, slot: Slot): boolean { retu
 export function groupOf(a: Pick<Assignment, "place">): string | undefined { return a.place.group.type === "some" ? a.place.group.value : undefined; }
 /**
  * No group's band (#1548): the key the No group band of either layout is drawn and folded by — the empty key, as the
- * Calendar's Unassigned row is keyed. No group of the Roster's takes it ({@link configError}).
+ * Calendar's Unassigned row is keyed. Where a duty may be in no group, no group of the Roster's takes it ({@link configError}).
  */
 export const NO_GROUP = "";
 /**
@@ -961,11 +961,18 @@ export function shiftLetter(shift: Shift | undefined): string {
     for (const part of GRAPHEMES.segment(code)) return part.segment;
     return "";
 }
-/** Checks bound configuration without rejecting ordinary staffing warnings. */
-export function configError(value: RosterPayload): string | undefined {
+/**
+ * Checks bound configuration without rejecting ordinary staffing warnings.
+ *
+ * @param value - The payload: its lists, and whether a duty may be in no group yet
+ * @returns Why the Roster can't be drawn; `undefined` for a configuration it draws
+ */
+export function configError(value: Pick<RosterPayload, "groups" | "shifts" | "people" | "activities" | "positions" | "agencies">
+    & { readonly duty: { readonly roles: Pick<RosterPayload["duty"]["roles"], "noGroup"> } }): string | undefined {
     if (value.groups.length === 0 || value.shifts.length === 0) return "Roster needs at least one group and one shift.";
-    // No group's band is keyed by the empty key, as the Calendar's Unassigned band is (#1548): no group of the Roster's takes it.
-    if (value.groups.some(group => group.key === "")) return "Roster groups need keys.";
+    // No group's band is keyed by the empty key, as the Calendar's Unassigned band is (#1548): where a duty may be in no
+    // group, no group of the Roster's takes it.
+    if (value.duty.roles.noGroup && value.groups.some(group => group.key === NO_GROUP)) return "Roster groups need keys where a duty may be in no group.";
     const unique = (rows: readonly { key: string }[]) => new SortedSet(rows.map(row => row.key), compareString).size === rows.length;
     for (const [name, rows] of [["people", value.people], ["groups", value.groups], ["activities", value.activities], ["shifts", value.shifts], ["positions", value.positions], ["agencies", value.agencies]] as const) {
         if (!unique(rows)) return `Roster ${name} must have unique keys.`;
