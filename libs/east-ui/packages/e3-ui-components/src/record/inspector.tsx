@@ -53,7 +53,7 @@ import { indexColumns, indexRegisters, markOf, type SheetColumnIndex } from "../
 import type { SheetWords } from "../sheet/words.js";
 import { ageOf, useRecordNow } from "./clock.js";
 import { staleCountOf } from "./footer.js";
-import { nameOf, titleOf, useRecordGrid } from "./grid.js";
+import { nameOf, titleColumnOf, titleOf, useRecordGrid } from "./grid.js";
 import { recordMessages as rm } from "./messages.js";
 import type { RecordNoun, RecordStatus } from "./status.js";
 import type { RecordTicks } from "./ticks.js";
@@ -188,7 +188,7 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
     const phone = useContext(FrameDrawer);
 
     // Its title, as the head names it: the title column's text — else, with no title column, its first text, else its key.
-    const titleKey = useMemo(() => columns.list.find((meta) => meta.kind === "title")?.key, [columns]);
+    const titleKey = useMemo(() => titleColumnOf(columns)?.key, [columns]);
     const titleCell = titleKey === undefined ? undefined : target.row.cells.get(titleKey);
     const title = titleKey === undefined ? nameOf(target.row, columns) : titleCell?.type === "String" ? titleCell.value.trim() : "";
 

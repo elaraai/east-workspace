@@ -1774,6 +1774,28 @@ const rosterToday = East.function([], UIComponentType, (_$) => Reactive.Root(Eas
     });
 })));
 
+/** The hours by project under a title made from data — each project's code, read only — before the person's own name. */
+const hoursCodedByProject = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const staff = $.let(Record.bind(ex.recordHours));
+    const projectRows = $.let(Data.bind(ex.recordProjects));
+    return Record({
+        record: staff,
+        title: "Hours",
+        noun: { singular: "person", plural: "people" },
+        registers: { projects: Record.register.members(projectRows.read(), { kind: "project", key: (_p, code) => code, label: (p) => p.name }) },
+        columns: {
+            code: Record.column.title(ex.Person, {
+                each: "projects", field: "hours", editable: false,
+                read: East.function([Hours, StringType, DateTimeType], StringType, (_$2, _hours, project) => project),
+            }),
+            name: Record.column.title(ex.Person, { header: "Name" }),
+            hours: Record.column.quantity(ex.Person, { each: "projects", unit: "hrs" }),
+        },
+        inspector: true,
+        name: "hoursCodedByProject",
+    });
+})));
+
 /** A value typed into a cell: the ring on it, its editor opened by the first key, the text in it and Tab — ⏎ on the last row would add one under it. */
 async function typeInto(container: HTMLElement, r: number, column: string, text: string) {
     await press(cellAt(container, r, column));
@@ -1892,6 +1914,18 @@ describe("columns from data, read and written at the day", () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    test("a title made from data is no row's title: the person's own name names the row — its box and its Details' head — and Add puts the ring on it", async () => {
+        const { container } = await h.mount({ fn: hoursCodedByProject }, { storageKey: "record-data-title" });
+        // Each project's code first, then the name.
+        expect(cellAt(container, 0, "code:P-100").textContent).toBe("P-100");
+        expect(tick(container, 0).getAttribute("aria-label")).toBe("Select A. Morgan");
+        await press(cellAt(container, 0, "name"));
+        await waitFor(() => expect(inspected(container)).toBe("H-01"));
+        expect(details(container)!.querySelector("[data-inspector-id]")!.textContent).toBe("A. Morgan");
+        await press(action(container, "add")!);
+        expect(active(container)).toBe(cellOf(drafted(container), "name"));
     });
 });
 

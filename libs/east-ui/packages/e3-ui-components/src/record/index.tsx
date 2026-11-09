@@ -89,7 +89,7 @@ import { openFramePane } from "../shared/schedule/open-pane.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { RecordClock, useRecordNow } from "./clock.js";
 import { RecordFooter, legendOf, staleNoteOf } from "./footer.js";
-import { RecordEmpty, RecordGridProvider, RecordHeader, RecordRow, useRecordGrid, type RecordGrid } from "./grid.js";
+import { RecordEmpty, RecordGridProvider, RecordHeader, RecordRow, titleColumnOf, useRecordGrid, type RecordGrid } from "./grid.js";
 import { RecordDetails, RecordInspectorProvider, recordIssueWhere, type RecordFocus, type RecordInspector } from "./inspector.js";
 import { recordMessages as rm } from "./messages.js";
 import { createRecordStatus, stepOf, useRecordStatusLine, type RecordNoun, type RecordStatus } from "./status.js";
@@ -316,7 +316,7 @@ function RecordFrame({ value, keys, styles, frameRef, tab, onTab, onOpen, openDe
     }, [notice, onOpen, openDetails]);
     // Add drafts a row, its ring on the title (AD1); Delete the ticked rows (AD5), the ticks going with them.
     const capabilities = value.sheet.editing.edits;
-    const titleKey = useMemo(() => value.sheet.columns.find((column) => column.kind.type === "title")?.key, [value.sheet.columns]);
+    const titleKey = useMemo(() => titleColumnOf(columns)?.key, [columns]);
     const add = entries.add;
     const remove = entries.remove;
     const onAdd = useCallback(() => add(titleKey), [add, titleKey]);

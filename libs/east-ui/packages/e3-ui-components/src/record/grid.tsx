@@ -120,15 +120,26 @@ function alignOf(meta: SheetColumnMeta): "center" | "end" | undefined {
 }
 
 /**
- * A row's title as it reads: its title column's text, else — with no title column — its first text's; `undefined`
- * where that is empty.
+ * The Record's title column — the one a phone pins: its first title column but one made from data, whose cells title a
+ * member's value, never the row. What the head of a row's Details names, and where Add and Duplicate put the ring.
+ *
+ * @param columns - The columns drawn
+ * @returns The title column, or `undefined` for a Record with none
+ */
+export function titleColumnOf(columns: SheetColumnIndex): SheetColumnMeta | undefined {
+    return columns.list.find((meta) => meta.kind === "title" && meta.raw.from.type === "none");
+}
+
+/**
+ * A row's title as it reads: its title column's text, else — with no title column — its first text's but one made
+ * from data; `undefined` where that is empty.
  *
  * @param row - The row
  * @param columns - The columns drawn
  * @returns The title, or `undefined`
  */
 export function titleOf(row: SheetRowValue, columns: SheetColumnIndex): string | undefined {
-    const named = columns.list.find((meta) => meta.kind === "title") ?? columns.list.find((meta) => meta.kind === "text");
+    const named = titleColumnOf(columns) ?? columns.list.find((meta) => meta.kind === "text" && meta.raw.from.type === "none");
     const cell = named === undefined ? undefined : row.cells.get(named.key);
     return cell?.type === "String" && cell.value.trim().length > 0 ? cell.value : undefined;
 }
