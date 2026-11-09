@@ -47,7 +47,9 @@
  * tinted. A nested struct's fields sit under its name. Read-only, every field
  * is printed, and tags and a checklist keep their shape without their
  * controls. A host may draw a field's control itself (`renderControl`), what
- * no input shows — the field keeps its label and help line.
+ * no input shows — the field keeps its label and help line, and takes an edit
+ * the control hands it as one of its own, said under it where the host
+ * refuses it.
  *
  * A variant whose cases hold data has a block under its choice (#1549): the
  * fields of the case it holds, which `Fields.specs` puts after the variant's
@@ -166,10 +168,13 @@ export interface FieldFormProps {
     /**
      * Draws a field's control itself, in place of the input its editor takes —
      * what no input shows (a sheet's link chips, #1188); the field keeps its
-     * label and help line. `undefined` for a field the form draws. Keep it
-     * stable (`useCallback`): each field's memo compares it.
+     * label and help line. `undefined` for a field the form draws. An edit the
+     * control hands the field (`change`: its value — an Option's, `undefined`
+     * for none) is one of the field's own, told the host as `onChange`, and
+     * one the host refuses said under the field. Keep it stable
+     * (`useCallback`): each field's memo compares it.
      */
-    renderControl?: ((spec: FieldSpecValue) => ReactNode | undefined) | undefined;
+    renderControl?: ((spec: FieldSpecValue, change: (value: unknown) => void) => ReactNode | undefined) | undefined;
     /**
      * Tell each typed edit as it is typed, not once the focus leaves the field or on Enter: for a form whose host
      * shows what the values as they stand would do (a Sheet action's consequence, #1477). Esc still puts it back only
@@ -615,8 +620,6 @@ const FieldRow = memo(function FieldRow({
     // field's values, or an edit the host refused, in its words — said under it until its next edit, or a new value
     // from the host.
     const [refusal, setRefusal] = useState<string | undefined>(undefined);
-    // A control the host draws itself, in the field.
-    const own = renderControl?.(spec);
     // Read-only, a value is printed; tags and a checklist keep their shape.
     const printed = editor.type === "readonly" || (readOnly && editor.type !== "tags" && editor.type !== "checklist");
 
@@ -673,6 +676,8 @@ const FieldRow = memo(function FieldRow({
         pending.current = undefined;
         emit(edit.value, "typed");
     }, [emit]);
+    // A control the host draws itself, in the field: an edit it hands the field is a choice of the field's own.
+    const own = renderControl?.(spec, emit);
 
     // A checklist: its items, and the item typed into its box.
     const checklist = own === undefined && editor.type === "checklist" ? editor.value : undefined;
@@ -933,8 +938,8 @@ const FieldRow = memo(function FieldRow({
         editor.type === "number" && !printed ? numberLine(editor.value, words) : undefined,
         checklist !== undefined && !readOnly && held !== undefined ? m.checklistCount({ done: words.number(done), total: words.number(items.length) }) : undefined,
     ].filter((part): part is string => part !== undefined && part.length > 0);
-    // Why the field shows what it holds, under it — never where it prints its value, or the host draws its control.
-    const said = refusal === undefined || printed || own !== undefined ? undefined : refusal;
+    // Why the field shows what it holds, under it — never where it prints its value.
+    const said = refusal === undefined || printed ? undefined : refusal;
     const field: FieldValue = {
         ...FIELD,
         label: spec.label,

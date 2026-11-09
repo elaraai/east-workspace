@@ -1122,6 +1122,46 @@ describe("FieldForm — an edit the host refuses: the field shows what it holds 
         expect((within(field("task")).getByRole("textbox") as HTMLInputElement).value).toBe("Hang doors");
         expect(refusalOf(field("task"))).toBe(TASK);
     });
+
+    test("a control the host draws hands the field its edit: one the host refuses is said under the field, the control drawn afresh with the keyboard on it", async () => {
+        const BOOKED = "Bench 1 is booked all week";
+        const benchEqual = equalFor(OptionType(StringType));
+        const edits: Edit[] = [];
+        function Host() {
+            const [value, setValue] = useState<JobValue>(JOB);
+            return (
+                <FieldForm specs={SPECS} value={value} options={BENCHES}
+                    renderControl={(spec, change) => (spec.path[0] !== "bench" ? undefined : (
+                        <span data-testid="own">
+                            <button type="button" onClick={() => change("B1")}>Bench 1</button>
+                            <button type="button" onClick={() => change(undefined)}>Nobody</button>
+                        </span>
+                    ))}
+                    onChange={(path, next) => {
+                        edits.push({ path: path.join("."), value: next });
+                        if (benchEqual(next as never, some("B1") as never)) return BOOKED;
+                        setValue((v) => setAt(v, path, next));
+                        return undefined;
+                    }} />
+            );
+        }
+        const { container } = render(<ChakraProvider value={system}><I18nProvider locale={LOCALE}><Host /></I18nProvider></ChakraProvider>);
+        const bench = () => container.querySelector<HTMLElement>('[data-field="bench"]')!;
+        const drawn = within(bench()).getByTestId("own");
+        await act(async () => { fireEvent.click(within(bench()).getByRole("button", { name: "Bench 1" })); });
+        await settle();
+        expectEdit(edits, "bench", benchEqual, some("B1"));
+        expect(refusalOf(bench())).toBe(BOOKED);
+        expect(bench().querySelector("[data-scope=field][data-part=root]")!.hasAttribute("data-invalid")).toBe(true);
+        expect(within(bench()).getByTestId("own")).not.toBe(drawn);
+        expect(document.activeElement).toBe(within(bench()).getByRole("button", { name: "Bench 1" }));
+        // Nobody: taken, and the words go.
+        edits.length = 0;
+        await act(async () => { fireEvent.click(within(bench()).getByRole("button", { name: "Nobody" })); });
+        await settle();
+        expectEdit(edits, "bench", benchEqual, none);
+        expect(refusalOf(bench())).toBeUndefined();
+    });
 });
 
 /**
