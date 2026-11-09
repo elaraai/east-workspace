@@ -1111,6 +1111,129 @@ export const rosterDaily = example({
     }}</Reactive>),
 });
 
+// A board over its rota (#1551), the second step of a roster made in two (#1548): the first step's answer kept in a record of
+// its own, the rota — each person's shifts for the week, in no team — and the board's duties, each a rota line placed in a team,
+// naming the line it carries out. The rota can change while the board stays as it was; the board's check reads the rota's
+// lines for the week beside the duties, and says where they part.
+
+/** A line of the rota: who works which shift, and when — the first step's answer, in no team. */
+export const RotaLine = StructType({ person: StringType, shift: StringType, start: DateTimeType, end: DateTimeType });
+/** A duty of the board over the rota: a rota line placed in a team, and the key of the line it carries out. */
+export const RotaDuty = StructType({ person: StringType, start: DateTimeType, end: DateTimeType, shift: StringType, team: StringType, rota: OptionType(StringType) });
+/** The rota's lines as rows, by key, as the rota stands now: the first step's week. */
+export const rotaLineRows: Map<string, ValueTypeOf<typeof RotaLine>> = new Map([...noGroupShifts].map(([key, duty]): [string, ValueTypeOf<typeof RotaLine>] =>
+    [key, { person: duty.person, shift: duty.shift, start: duty.start, end: duty.end }]));
+/**
+ * The board's duties as rows, by key: the rota as it stood when the board was made, each line placed in its person's own
+ * team — since when the rota has moved Mia Hart's Wednesday to the late and taken her Friday off, and put Ben Moss on
+ * Monday's late, which no duty carries out yet.
+ */
+export const rotaDutyRows: Map<string, ValueTypeOf<typeof RotaDuty>> = new Map();
+rotaLineRows.forEach((line, key) => {
+    if (key !== "mon-w-06") rotaDutyRows.set(key, { ...line, team: noGroupStaffRows.get(line.person)?.team ?? "", rota: some(key) });
+});
+const ROTA_WEDNESDAY_EARLY = NO_GROUP_MONDAY + (2 * 24 + 6) * NO_GROUP_HOUR, ROTA_FRIDAY_EARLY = NO_GROUP_MONDAY + (4 * 24 + 6) * NO_GROUP_HOUR;
+rotaDutyRows.set("wed-w-03", { person: "w-03", start: new Date(ROTA_WEDNESDAY_EARLY), end: new Date(ROTA_WEDNESDAY_EARLY + 8 * NO_GROUP_HOUR), shift: "early", team: "inbound", rota: some("wed-w-03") });
+rotaDutyRows.set("fri-w-03", { person: "w-03", start: new Date(ROTA_FRIDAY_EARLY), end: new Date(ROTA_FRIDAY_EARLY + 8 * NO_GROUP_HOUR), shift: "early", team: "inbound", rota: some("fri-w-03") });
+/** The rota, which the board reads and never writes: its lines, a week of them read through their interval index. */
+export const rosterRotaLines = e3.record("roster_rota_lines", DictType(StringType, RotaLine), {
+    initial: rotaLineRows,
+    indexes: (index) => ({
+        // The lines by their times: what the board's reference source reads a week of them through.
+        roster_rota_lines_by_time: index.interval({ from: "start", to: "end" }),
+    }),
+    mutations: (mutation) => ({
+        // The rota's patch door: the first step answering again, which the renderer's tests on e3 write beside the board.
+        patch: mutation.patch(),
+    }),
+});
+/** The board's duties, each a rota line placed in a team. */
+export const rosterBoardDuties = e3.record("roster_board_duties", DictType(StringType, RotaDuty), {
+    initial: rotaDutyRows,
+    indexes: (index) => ({
+        roster_board_duties_by_time: index.interval({ from: "start", to: "end" }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+export const rosterRota = example({
+    inputs: [], description: "A board over its rota (#1551), the second step of a roster made in two: the rota — each person's shifts for the week, the first step's answer, in no team — is a record of its own, and each duty a rota line placed in a team, naming the line it carries out. The slice's `reference` source reads the rota through its interval index, the Roster writing its window into it as into the duties' — each week's lines and the twelve hours either side, never the rota whole — and the check, over Roster.Types.CheckContext(RotaDuty, RotaLine), reads that week's lines in `cx.reference` beside the duties: a duty whose line has changed, its fix the line's shift where only the shift moved; a duty whose line is gone; and a line of the week no duty carries out, on the slot its person's own team would carry it out in. Nothing draws the rota, and the rail offers none of its fields.",
+    keywords: ["Roster", "check", "reference", "Roster.Types.CheckContext", "Roster.Types.Issue", "Roster.Types.Fix", "rota", "two steps", "Slice.bindRecords", "Data.bindPaged", "interval", "indexes", "Schedule.events", "Roster.slotOf", "fix", "move"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const board = $.let(Record.bind(rosterBoardDuties));
+        const entries = $.let(Data.bindPaged(rosterBoardDuties));
+        const byTime = $.let(Data.bindPaged(rosterBoardDuties, { indexes: ["roster_board_duties_by_time"] }));
+        // The rota, read only: a week of its lines at a time, through its interval index.
+        const rota = $.let(Data.bindPaged(rosterRotaLines, { indexes: ["roster_rota_lines_by_time"] }));
+        const slice = $.let(Slice.bindRecords("ex.rosterRota", {
+            duty: { source: byTime, range: "start" },
+            // The record the check reads beside the duties: the Roster writes its week into it, as into the duties'.
+            reference: { source: rota, range: "start" },
+        }));
+        const staff = $.let(Data.bind(noGroupWorkers));
+        const times = $.let(Data.bind(minimalShiftTimes));
+        const groups = $.let(Data.bind(minimalTeams));
+        // The board's check over the rota: where the week's duties and the rota's lines part.
+        const check = $.const(East.function([Roster.Types.CheckContext(RotaDuty, RotaLine)], ArrayType(Roster.Types.Issue), ($2, cx) => {
+            const issues = $2.let([], ArrayType(Roster.Types.Issue));
+            const slotOf = $2.const(Roster.slotOf);
+            const names = $2.const(cx.context.people.map((_$3, person) => person.name));
+            const homes = $2.const(cx.context.people.map((_$3, person) => person.group));
+            const shifts = $2.const(cx.context.shifts.toDict((_$3, shift) => shift.key, (_$3, shift) => shift.label));
+            const weekdays = $2.const(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], ArrayType(StringType));
+            // Each duty against the line it carries out, noting each line carried out.
+            const carried = $2.let(new Set([]), SetType(StringType));
+            $2.for(cx.week.assignments, ($3, a, id) => {
+                $3.match(a.row.rota, { some: ($4, key) => {
+                    $4(carried.tryInsert(key));
+                    $4.if(cx.reference.has(key).not(), ($5) => {
+                        $5(issues.pushLast({ kind: variant("breach", null), tone: variant("warning", null),
+                            title: "Rota line gone", detail: East.str`The rota no longer has ${names.get(a.row.person, () => a.row.person)} on this shift`,
+                            slot: slotOf(a.place), assignment: some(id), flag: some("Rota"), fix: none }));
+                    }).else(($5) => {
+                        const line = $5.const(cx.reference.get(key));
+                        $5.if(East.notEqual(line, { person: a.row.person, shift: a.row.shift, start: a.row.start, end: a.row.end }), ($6) => {
+                            // Where only the line's shift moved, the fix moves the duty to it.
+                            const fix = $6.let(none, OptionType(Roster.Types.Fix));
+                            $6.if(East.equal(line.person, a.row.person).and(() => East.notEqual(line.shift, a.row.shift)), ($7) => {
+                                $7.assign(fix, some(variant("move", line.shift)));
+                            });
+                            $6(issues.pushLast({ kind: variant("breach", null), tone: variant("warning", null),
+                                title: "Rota line changed", detail: East.str`The rota has ${names.get(line.person, () => line.person)} on ${shifts.get(line.shift, () => line.shift)} now`,
+                                slot: slotOf(a.place), assignment: some(id), flag: some("Rota"), fix }));
+                        });
+                    });
+                } });
+            });
+            // Each line of the week no duty carries out: a line at the window's edges is the week before's or after's.
+            const end = $2.const(cx.start.addDays(7n));
+            $2.for(cx.reference, ($3, line, key) => {
+                $3.if(carried.has(key).not().and(() => East.greaterEqual(line.start, cx.start)).and(() => East.less(line.start, end)), ($4) => {
+                    const day = $4.const(cx.start.durationMilliseconds(line.start).divide(86_400_000n));
+                    const slot = $4.const({ day, group: homes.get(line.person, () => ""), shift: line.shift });
+                    $4(issues.pushLast({ kind: variant("gap", null), tone: variant("warning", null),
+                        title: "Rota line not on the board", detail: East.str`${names.get(line.person, () => line.person)} · ${weekdays.get(day)} ${shifts.get(line.shift, () => line.shift)}`,
+                        slot: some(slot), assignment: none, flag: none, fix: none }));
+                });
+            });
+            return issues;
+        }));
+        return <Box width="100%" height="760px"><Roster id="rosterRota" slice={{ slice }} check={check} inspector
+            view={{ layout: "shifts", period: "week", date: new Date("2028-03-06T00:00:00Z") }}
+            events={{ duty: Schedule.events(board, {
+                name: "Duty", icon: "user-clock", entries,
+                start: "start", end: "end", resource: { field: "person", of: "people" },
+                shift: "shift", group: "team",
+            }) }}
+            resources={{ people: Schedule.resources(staff.read(), { name: "People", icon: "user", label: w => w.name, group: w => w.team, contract: w => w.contract }) }}
+            shifts={Roster.shifts(times.read(), { label: s => s.name, code: s => s.code, start: s => s.starts, hours: s => s.hours, order: s => s.order })}
+            groups={Roster.groups(groups.read(), { label: t => t.name })} />
+        </Box>;
+    }}</Reactive>),
+});
+
 export const rosterCustomInspector = example({
     inputs: [], description: "The duty kind's own inspector and the targets' own form replace the built-in fields while preserving the shared headers, coverage, actions and undo history.",
     keywords: ["Roster", "Schedule.events", "inspector", "Roster.targets", "Schedule.resources", "Schedule.periods", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "Save", "Publish", "FieldForm"],

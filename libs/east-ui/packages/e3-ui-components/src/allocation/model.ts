@@ -133,6 +133,31 @@ export function allocationDomain(rowType: EastTypeValue): AllocationDomain {
     return domain;
 }
 
+/** The app's check's input over a reference record (#1551): the day's, and the record's rows over it by key. */
+export interface AllocationReferenceCheckAsk {
+    day: Date; plan: Day; context: Context; loads: SortedMap<string, Load>; reference: SortedMap<string, unknown>;
+}
+
+const referenceCheckEncoders: { row: EastTypeValue; reference: EastTypeValue; encode: (ask: AllocationReferenceCheckAsk) => Uint8Array }[] = [];
+
+/**
+ * The app's check's input at the bin row type and a reference record's row
+ * type (#1551), `CheckContext(R, P)`, as bytes: its encoder made the first
+ * time the pair is seen, then shared — East decides which types are the same.
+ *
+ * @param rowType - The bin kind's `rowType`
+ * @param referenceType - The reference record's row type
+ * @returns The input's encoder
+ */
+export function allocationReferenceCheckEncoder(rowType: EastTypeValue, referenceType: EastTypeValue): (ask: AllocationReferenceCheckAsk) => Uint8Array {
+    const known = referenceCheckEncoders.find(e => sameTypeValue(e.row, rowType) && sameTypeValue(e.reference, referenceType));
+    if (known !== undefined) return known.encode;
+    const type = AllocationCheckContextTypeFor(fromEastTypeValue(rowType) as EastType, fromEastTypeValue(referenceType) as EastType);
+    const encode = encodeBeast2For(type) as unknown as (ask: AllocationReferenceCheckAsk) => Uint8Array;
+    referenceCheckEncoders.push({ row: rowType, reference: referenceType, encode });
+    return encode;
+}
+
 /** The words and figures the board shares with e3-ui's functions, compiled once. */
 let words: {
     quantity: (value: number, unit: string) => string;

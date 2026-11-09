@@ -18,7 +18,9 @@
  * component and emits no layout, session or gesture program. The app's duty
  * row type `R` crosses the payload as beast2 bytes, as Schedule's kinds' rows
  * do: the app's `pay` and `check` over bytes at `PayRequest(R)` and
- * `CheckContext(R)`, and the fit's binding checked against `FitRequest(R)`.
+ * `CheckContext(R)` — or, over a reference record the slice's `reference`
+ * source reads (#1551), `CheckContext(R, P)`, its rows crossing as bytes beside
+ * their type — and the fit's binding checked against `FitRequest(R)`.
  * The renderer compiles the Roster's functions over `R`, the duty kind's
  * `rowType`.
  *
@@ -40,6 +42,7 @@ import type { SchedulePeriods } from "../schedule/periods.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { ScheduleClockType, SchedulePeriodsKindType, ScheduleRosterKindType, ScheduleRosterNewDutyType } from "../schedule/types.js";
 import { optimiseBinding, type OptimiseContract } from "../utils/optimise.js";
+import { SCHEDULE_REFERENCE, ScheduleReferenceType, referenceCheckRefusal, referenceRowType, scheduleReference } from "../schedule/reference.js";
 import { recordSources } from "../utils/record-sources.js";
 import { firstView, literalViews, viewsProp, type ViewsProp } from "../utils/views.js";
 import { rosterCoverage, rosterWeekHours } from "./coverage.js";
@@ -126,7 +129,8 @@ export type RosterOptimiseBindingType = typeof RosterOptimiseBindingType;
  * @property rules - The built-in rules
  * @property pay - The app's pay, from a `PayRequest(R)` as bytes to each duty's cost by code; `none`, no costs show
  * @property currency - How costs print
- * @property check - The app's issues, from a `CheckContext(R)` as bytes
+ * @property check - The app's issues, from a `CheckContext(R)` as bytes — or, with `reference`, a `CheckContext(R, P)`
+ * @property reference - The reference record the app's check reads (#1551): its rows in a window, through the slice's `reference` source, as bytes beside their type; `none` without one
  * @property fit - The app's fit, by its `e3.function`'s name: who fits a Find fix's need; `none`, no Find fix is offered (#1334)
  * @property optimise - The app's optimiser, by its `e3.function`'s name, and whether it takes the duties at the week's edges (#1553): what the Elara eye calls over the week in view, its result one edit of the session; `none`, no eye (#1409)
  * @property library - The library's tabs, in order
@@ -153,6 +157,7 @@ export const RosterPayloadType = StructType({
     pay: OptionType(FunctionType([BlobType], T.RosterPayType)),
     currency: OptionType(StringType),
     check: OptionType(FunctionType([BlobType], ArrayType(T.RosterIssueType))),
+    reference: OptionType(ScheduleReferenceType),
     fit: OptionType(FuncBindingType),
     optimise: OptionType(RosterOptimiseBindingType),
     library: ArrayType(RosterLibraryTabType),
@@ -211,8 +216,9 @@ export interface RosterVocabulary {
  * The Roster's props (§5.1).
  *
  * @typeParam R - The app's duty row type: the duty kind's row
+ * @typeParam P - The row type of the reference record the app's `check` reads (#1551), the slice's `reference` source's; none without one
  */
-export interface RosterProps<R extends EastType = EastType> {
+export interface RosterProps<R extends EastType = EastType, P extends EastType = never> {
     /** Exactly one event kind, the duties: `{ duty: Schedule.events(Record.bind(duties), { start, end, resource, shift, group, … }) }`. */
     events: Readonly<Record<string, ScheduleEventKind<EastType, R>>>;
     /**
@@ -258,8 +264,14 @@ export interface RosterProps<R extends EastType = EastType> {
     currency?: string;
     /** The built-in rules, plain values: ten hours' rest, and the lead (with positions), trainer and skill checks, by default. */
     rules?: { rest?: number; lead?: boolean; trainer?: boolean; skill?: boolean };
-    /** The app's issues over the complete draft: an East function from `Roster.Types.CheckContext(R)` to `Array<Roster.Types.Issue>`. */
-    check?: SubtypeExprOrValue<FunctionType<[T.RosterCheckContextTypeFor<R>], ArrayType<typeof T.RosterIssueType>>>;
+    /**
+     * The app's issues over the complete draft: an East function from `Roster.Types.CheckContext(R)` to `Array<Roster.Types.Issue>`
+     * — or, beside the slice's `reference` source (#1551), from `Roster.Types.CheckContext(R, P)`, `P` the reference record's row
+     * type, which holds as `reference` the record's rows in the week's window, by key: a rota the duties carry out, which the
+     * check holds the week to. A slice with a `reference` source takes a check over it, and one without takes none over one.
+     */
+    check?: SubtypeExprOrValue<FunctionType<[T.RosterCheckContextTypeFor<R>], ArrayType<typeof T.RosterIssueType>>>
+        | SubtypeExprOrValue<FunctionType<[T.RosterReferenceCheckContextTypeFor<R, P>], ArrayType<typeof T.RosterIssueType>>>;
     /**
      * The app's fit: `Func.bind` of its `e3.function` from `Roster.Types.FitRequest(R)` to `Roster.Types.FitResult`. A Find fix (find a
      * lead, a trainer, skilled staff) asks it who fits the issue's need on its slot, over the complete staff, and the People tab
@@ -284,6 +296,11 @@ export interface RosterProps<R extends EastType = EastType> {
      * The narrowing: one `Slice.bindRecords`, a source per record it narrows — the duty kind's slot (its interval index from the
      * start to the end, its `range` the start field, which the Roster's navigation writes), `targets`, `people` and `activities`,
      * and any an app's tab names. Coverage, pay, checks and fits still read every duty of the week, person and activity.
+     * Beside them, `reference` (#1551): a record the app's `check` reads, through an interval index led by no field, with a
+     * `range` — `reference: { source: Data.bindPaged(rota, { indexes: ["rota_by_time"] }), range: "start" }`, the field the
+     * Roster reads it over. The navigation writes the window into it as into the duties' source, and the check is given each
+     * week's rows overlapping the week and the twelve hours either side, every one whatever choice its source holds. It narrows
+     * nothing: the rail offers none of its fields, and nothing draws its rows.
      */
     slice?: RecordSlicesChromeOptions;
     /** Tabs to show; omitted, no library pane. */
@@ -532,11 +549,13 @@ function rosterOptimiseContract(rowType: EastType, edges: boolean): OptimiseCont
  *   `check` or a `fit` over another type, or an `optimise` that is not `Func.bind` of a function from `OptimiseRequest(R)` to
  *   `OptimiseResult(R)` (#1409); a library tab listed twice; a `view.period` its layout does not take, naming each
  *   layout's periods; a `views` that lists nothing, names no layout, or leaves out `view.layout`; a `viewPeriods` that lists nothing, names no period, leaves out `view.period` or leaves a layout offered no period; `Roster.library.patterns()` without `patterns`; a `tileTimes` other than `"always"` or
- *   `"different"`, or a `letters` that is no boolean (#1406); and as `Schedule`'s checks, the duty kind's build
- *   (`buildRoster`) and the slice's (`recordSources`) do
+ *   `"different"`, or a `letters` that is no boolean (#1406); a duty kind whose slot is `reference`, and a `check` that does not
+ *   go with the slice's reference record (#1551) — a `reference` source and no check, a check over a reference the slice holds
+ *   none of, one over the duties alone beside one, or one over another reference row type; and as `Schedule`'s checks, the
+ *   duty kind's build (`buildRoster`) and the slice's (`recordSources`) do
  * @internal
  */
-export function createRosterPayload<R extends EastType>(props: RosterProps<R>): ExprType<typeof RosterPayloadType> {
+export function createRosterPayload<R extends EastType, P extends EastType = never>(props: RosterProps<R, P>): ExprType<typeof RosterPayloadType> {
     const given = props as unknown as Readonly<Record<string, unknown>>;
     for (const [prop, refusal] of REMOVED) {
         if (given[prop] !== undefined) throw new Error(`Roster: ${refusal}`);
@@ -638,19 +657,29 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
     const row = printType(rowType);
     const pay = props.pay === undefined ? undefined : overBytes(props.pay, T.RosterPayRequestTypeFor(rowType), T.RosterPayType,
         `Roster: \`pay\` is an East function from Roster.Types.PayRequest(${row}) to Roster.Types.Pay — each duty's cost by the app's own pay codes`);
-    const check = props.check === undefined ? undefined : overBytes(props.check, T.RosterCheckContextTypeFor(rowType), ArrayType(T.RosterIssueType),
-        `Roster: \`check\` is an East function from Roster.Types.CheckContext(${row}) to Array<Roster.Types.Issue>`);
+    // The check reads the slice's reference record beside the duties where it has one (#1551): CheckContext(R, P).
+    const reference = referenceRowType(props.slice, "Roster");
+    const unmatched = referenceCheckRefusal(props.check, reference, { builder: "Roster", context: "Roster.Types.CheckContext", row });
+    if (unmatched !== undefined) throw new Error(unmatched);
+    const checked = reference === undefined ? row : `${row}, ${printType(reference)}`;
+    const check = props.check === undefined ? undefined : overBytes(props.check,
+        reference === undefined ? T.RosterCheckContextTypeFor(rowType) : T.RosterCheckContextTypeFor(rowType, reference), ArrayType(T.RosterIssueType),
+        `Roster: \`check\` is an East function from Roster.Types.CheckContext(${checked}) to Array<Roster.Types.Issue>`);
     const fit = props.fit === undefined ? undefined : fitBinding(props.fit, rowType);
     const edges = takesEdges(props.optimise);
     const optimise = props.optimise === undefined ? undefined : { binding: optimiseBinding(props.optimise, rosterOptimiseContract(rowType, edges)), edges };
 
     // The narrowing: a source per record it narrows, named after what it narrows.
     const library = props.library ?? [];
+    if (slot === SCHEDULE_REFERENCE) {
+        throw new Error("Roster: events.reference names the slice's `reference` source, the record the check reads beside the duties — name the duty kind otherwise: events={{ duty: … }}");
+    }
     const named = new Set([slot, ...(props.targets === undefined ? [] : ["targets"]), "people", "activities", ...(props.patterns === undefined ? [] : ["patterns"]),
-        ...library.flatMap(tab => tab.kind === "tab" && tab.config.source !== undefined ? [tab.config.source] : [])]);
+        ...library.flatMap(tab => tab.kind === "tab" && tab.config.source !== undefined ? [tab.config.source] : []), SCHEDULE_REFERENCE]);
     const narrowing = recordSources(props.slice, {
         builder: "Roster", names: [...named],
-        what: `its duties (${slot}), its targets, its people and its activities${props.patterns === undefined ? "" : ", its patterns"}, and the tabs that name a source`,
+        what: `its duties (${slot}), its targets, its people and its activities${props.patterns === undefined ? "" : ", its patterns"}, the tabs that name a source, ` +
+            "and the reference record its check reads",
         takes: name => named.has(name),
     });
     const seen = new Set<string>();
@@ -691,6 +720,7 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
             pay: pay === undefined ? none : some(pay),
             currency: props.currency === undefined ? none : some(props.currency),
             check: check === undefined ? none : some(check),
+            reference: reference === undefined ? none : some(scheduleReference(bound.parts[SCHEDULE_REFERENCE]!, reference, "Roster")),
             fit: fit === undefined ? none : some(fit),
             optimise: optimise === undefined ? none : some(optimise),
             library: tabs,
@@ -737,7 +767,7 @@ function removed(refusal: string): (...args: never[]) => never {
 /** The tag, its declarations, its pure functions over the duty row type, and its types. */
 export interface RosterNamespace {
     /** Renders a roster over the app's own records. */
-    <R extends EastType>(props: RosterProps<R>): UIElement;
+    <R extends EastType, P extends EastType = never>(props: RosterProps<R, P>): UIElement;
     /** Reads the app's shift rows as the Roster's shifts. */
     shifts: typeof rosterShifts;
     /** Reads the app's group rows as the Roster's groups. */
@@ -799,7 +829,7 @@ export interface RosterNamespace {
  * @remarks One gesture is one undo step across every record it changes; Save sends each record's changes as its own request, and Publish saves, then the status of each period it publishes. On narrow containers the same commands are explicit card actions.
  */
 export const Roster: RosterNamespace = Object.assign(
-    <R extends EastType>(props: RosterProps<R>): UIElement => RosterComponent.Root(createRosterPayload(props)),
+    <R extends EastType, P extends EastType = never>(props: RosterProps<R, P>): UIElement => RosterComponent.Root(createRosterPayload(props)),
     {
         shifts: rosterShifts, groups: rosterGroups, positions: rosterPositions, activities: rosterActivities, proposals: rosterProposals,
         patterns: rosterPatterns,

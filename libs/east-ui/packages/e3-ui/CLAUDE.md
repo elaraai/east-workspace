@@ -565,6 +565,20 @@ source; and the open picker's month. The months either side are read ahead
 as the weeks are (#1398). Do not read a whole record to build the picker. Test
 reverse navigation.
 
+A record the app's check reads beside the period's rows — a two-step roster's
+rota beside its duties, a delivery schedule beside the Allocation's bins
+(#1551) — is the slice's `reference` source, and the check is made from
+`CheckContext(R, P)`: the builder writes its window into it as into its kind's
+(the Roster's span and the twelve hours either side, the Allocation's day) and
+gives the check that window's rows as `reference`, a `Dict<String, P>` read
+through the source's interval index, its choices aside, never the record
+whole. Nothing draws it and the rail offers none of it. The tag refuses a
+reference source beside no check or a check of `CheckContext(R)`, a check
+reading reference rows the slice gives none of or rows of another type, and a
+kind in the slot `reference`, each naming the change (`schedule/reference.ts`
+and each tag's own check).
+The examples are `rosterRota` and `allocationDeliveries`.
+
 The People tab has no filter of its own: leads, trainers, agency and skill are
 rail fields of the staff record (#1342). A Find fix asks the app's fit (#1334):
 `fit` is `Func.bind` of an `e3.function` from `Roster.Types.FitRequest(R)` to

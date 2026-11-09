@@ -5,8 +5,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DictType, East, FloatType, IntegerType, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isTypeEqual,
-    none, some, variant, type ValueTypeOf,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For,
+    equalFor, isTypeEqual, none, some, variant, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import { Roster } from "@elaraai/e3-ui";
@@ -183,10 +183,19 @@ test("the pay, the check and the fit are asked over the app's rows: each request
 
 test("each type over a week is a constructor of the row type: the same row the same type, another row another", () => {
     const Other = Roster.Types.Assignment(IntegerType);
-    for (const make of [Roster.Types.Assignment, Roster.Types.Week, Roster.Types.PayRequest, Roster.Types.CheckContext, Roster.Types.FitRequest] as const) {
+    const makers: readonly ((row: EastType) => EastType)[] = [Roster.Types.Assignment, Roster.Types.Week, Roster.Types.PayRequest, Roster.Types.CheckContext, Roster.Types.FitRequest];
+    for (const make of makers) {
         assert.ok(isTypeEqual(make(ex.DomainDuty), make(ex.DomainDuty)), make.name);
         assert.ok(!isTypeEqual(make(ex.DomainDuty), make(IntegerType)), make.name);
     }
+    // Over a reference record (#1551), the check's context holds its rows by key: a constructor of both row types.
+    const Rota = StructType({ person: StringType, shift: StringType, start: DateTimeType, end: DateTimeType });
+    const over = Roster.Types.CheckContext(ex.DomainDuty, Rota);
+    assert.ok(isTypeEqual(over, Roster.Types.CheckContext(ex.DomainDuty, Rota)));
+    assert.ok(!isTypeEqual(over, Roster.Types.CheckContext(ex.DomainDuty, IntegerType)), "another reference row, another type");
+    assert.ok(!isTypeEqual(over, Roster.Types.CheckContext(ex.DomainDuty)), "the duties' rows alone, another type");
+    assert.ok(isTypeEqual(over.fields.reference, DictType(StringType, Rota)));
+    assert.ok(isTypeEqual(over.fields.week, Roster.Types.CheckContext(ex.DomainDuty).fields.week), "beside the duties' context as it is");
     assert.ok(isTypeEqual(Other.fields.row, IntegerType));
     assert.ok(isTypeEqual(Roster.Types.Status, Roster.Types.Week(IntegerType).fields.status), "a week's status is Schedule's period status");
 });

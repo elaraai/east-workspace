@@ -705,6 +705,9 @@ export { fieldSetters, type FieldSetter } from './schedule/fields.js';
 // The most events a builder reads and draws of one kind over what it reads at once (#1039): a kind's window through its
 // source is counted first and read only within it; past it, its rows shade from its summary or are hatched.
 export { SCHEDULE_EVENT_CAP } from './schedule/record-window.js';
+// A builder's reference record (#1551): its slice's `reference` source, which the Roster and the Allocation window as their
+// own kind's and read for their check alone, its rows carried as bytes beside their type.
+export { SCHEDULE_REFERENCE, ScheduleReferenceType } from './schedule/reference.js';
 // The optimiser's request and answer over a builder's kinds (#1409): what a Calendar's and a Plan's `optimise` is held to,
 // and the records by slot a run's request type is built from.
 export {

@@ -3,13 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, StringType, example, none, some, variant } from "@elaraai/east";
+import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, SetType, StringType, example, none, some, variant } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Allocation, Data, Func, Record, Schedule } from "@elaraai/e3-ui";
 import {
-    Bay, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,
-    yardDayRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,
+    Bay, Delivery, Kiln, KilnBin, MinimalBin, TimberLoad, YardDay, YardWeek, yardArrivals, yardBayRows, yardBinHistoryRows, yardBinRows, yardDay, yardDayHistoryRows,
+    yardDayRows, yardDeliveryRows, yardKilns, yardMinimalBinRows, yardPublishedDay, yardSplitDay, yardWeekRows,
 } from "./kiln-yard.js";
 
 // The kiln yard's own records (`Builder Interfaces Spec.md` §6.5): its bins and the days of its plan, which the board
@@ -996,5 +996,92 @@ export const allocationConflicts = example({
                 arrivals={Allocation.arrivals(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays) })} />
             </Box>
         </VStack>;
+    }}</Reactive>),
+});
+
+/** The smallest board's bins again, read a day at a time through the slice, for the board over its mills' delivery schedule (#1551). */
+export const kilnScheduledBins = e3.record("kiln_scheduled_bins", DictType(StringType, MinimalBin), {
+    initial: yardMinimalBinRows,
+    indexes: (index) => ({
+        kiln_scheduled_bins_by_time: index.interval({ from: "at", to: "at" }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+/** The mills' delivery schedule (#1551): each load's bay and hour, by load, read through an interval index over the hour — what the board's check reads beside its bins. */
+export const yardDeliveries = e3.record("yard_deliveries", DictType(StringType, Delivery), {
+    initial: yardDeliveryRows,
+    indexes: (index) => ({
+        yard_deliveries_by_time: index.interval({ from: "from", to: "to" }),
+    }),
+    mutations: (mutation) => ({
+        // The schedule's patch door: the mills' change, as the renderer's tests on e3 commit it.
+        patch: mutation.patch(),
+    }),
+});
+
+export const allocationDeliveries = example({
+    description: "A board over its mills' delivery schedule (#1551): a second record of the yard's, bound as the slice's `reference` source — a paged read through an interval index over each delivery's hour, `range: \"from\"` — which nothing draws and the rail offers no field of. The board writes its day into it as into the bins' source, and the check, from Allocation.Types.CheckContext(MinimalBin, Delivery), is given that day's deliveries by load as `reference`: it flags a bin booked off its load's bay or hour, a bin whose load the day's schedule delivers none of, and a delivery the day books no bin of. Step to Wed 12 May and LD-2214, moved there, is the delivery to book.",
+    keywords: ["Allocation", "check", "reference", "Allocation.Types.CheckContext", "Allocation.Types.Issue", "delivery schedule", "two records", "Slice.bindRecords", "Data.bindPaged", "interval", "indexes", "Schedule.events", "Allocation.arrivals"], inputs: [],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const bins = $.let(Record.bind(kilnScheduledBins));
+        const entries = $.let(Data.bindPaged(kilnScheduledBins));
+        const byTime = $.let(Data.bindPaged(kilnScheduledBins, { indexes: ["kiln_scheduled_bins_by_time"] }));
+        // The mills' schedule, read a day at a time through its interval index: the check's reference, never the record whole.
+        const schedule = $.let(Data.bindPaged(yardDeliveries, { indexes: ["yard_deliveries_by_time"] }));
+        const slice = $.let(Slice.bindRecords("ex.allocationDeliveries", {
+            bin: { source: byTime, range: "at" },
+            reference: { source: schedule, range: "from" },
+        }));
+        const loads = $.let(Data.bind(arrivals));
+        const yard = $.let(Data.bind(kilns));
+        const bays = $.let(Data.bind(yardBays));
+        const fit = $.let(Func.bind(minimalFit));
+        // The yard's check over its bins and the day's deliveries: each flagged, never refused.
+        const check = $.const(East.function([Allocation.Types.CheckContext(MinimalBin, Delivery)], ArrayType(Allocation.Types.Issue), ($2, cx) => {
+            const issues = $2.let([], ArrayType(Allocation.Types.Issue));
+            const booked = $2.let(new Set([]), SetType(StringType));
+            $2.for(cx.plan.bins, ($3, bin, id) => {
+                $3.match(bin.arrival, { some: ($4, code) => {
+                    $4(booked.tryInsert(code));
+                    $4.if(cx.reference.has(code).not(), ($5) => {
+                        $5(issues.pushLast({ kind: variant("custom", "No delivery on the day"), tone: variant("warning", null),
+                            title: East.str`${code} · bin ${id}`, detail: East.str`The mills' schedule delivers ${code} on another day`,
+                            bin: some(id), resource: none, flag: some("no delivery"), fix: none }));
+                    }).else(($5) => {
+                        const delivery = $5.const(cx.reference.get(code));
+                        $5.if(East.notEqual(delivery.bay, bin.lane).or(() => East.less(bin.at, delivery.from)).or(() => East.greaterEqual(bin.at, delivery.to)), ($6) => {
+                            $6(issues.pushLast({ kind: variant("custom", "Delivery moved"), tone: variant("warning", null),
+                                title: East.str`${code} · bin ${id}`,
+                                detail: East.str`Delivered to ${delivery.bay} at ${delivery.from.printFormatted("HH:mm")} now · booked ${bin.lane} ${bin.at.printFormatted("HH:mm")}`,
+                                bin: some(id), resource: none, flag: some("≠ delivery"), fix: none }));
+                        });
+                    });
+                } });
+            });
+            // The day's deliveries no bin books: the reference holds the rows overlapping the day, so a delivery starting the day before is left to it.
+            const next = $2.const(cx.day.addDays(1n));
+            $2.for(cx.reference, ($3, delivery, code) => {
+                $3.if(booked.has(code).not().and(() => East.greaterEqual(delivery.from, cx.day)).and(() => East.less(delivery.from, next)), ($4) => {
+                    $4(issues.pushLast({ kind: variant("custom", "Delivery not booked"), tone: variant("warning", null),
+                        title: code, detail: East.str`Delivered to ${delivery.bay} at ${delivery.from.printFormatted("HH:mm")}`,
+                        bin: none, resource: none, flag: none, fix: none }));
+                });
+            });
+            return issues;
+        }));
+        return <Box width="100%" height="760px"><Allocation id="allocationDeliveries" fit={fit} check={check} slice={{ slice }} inspector view={{ date: yardDay }}
+            events={{ bin: Schedule.events(bins, {
+                name: "Bin", icon: "box", entries,
+                at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+                quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
+            }) }}
+            resources={{
+                bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
+                kilns: Schedule.resources(yard.read(), { name: "Kilns", icon: "fire", label: k => k.name, min: k => k.min, max: k => k.max, jobs: k => k.charges }),
+            }}
+            arrivals={Allocation.arrivals(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays) })} />
+        </Box>;
     }}</Reactive>),
 });

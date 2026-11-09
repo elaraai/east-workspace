@@ -32,7 +32,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { ArrayType, StringType, equalFor, isVariant, none, some, variant, type option } from "@elaraai/east";
-import { RosterComponent, RosterContextType, RosterIssueType } from "@elaraai/e3-ui/internal";
+import { RosterComponent, RosterContextType, RosterIssueType, SCHEDULE_REFERENCE } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, fieldBreachIssue, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useDataStable,
     useFormatters, useLanding, useLandingStyles, usePersistedState, useTrackedEvaluation, type BuilderFramePanes, type EditIssue, type Formatters, type HistoryAction,
@@ -61,7 +61,7 @@ import { useRosterLibrary } from "./library.js";
 import { rosterMessages, type RosterWords } from "./messages.js";
 import {
     DAY, NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, availableProposals, byDay, compareDate, configError, dayOfSlot, editableStatus, groupOf, NO_GROUP, periodOn, periodsText,
-    placeDrafted, placeStored, placeTargets, rosterContext, rosterDomain, selectionWeek, slotOfPlace, spanWindow, spanWords, started, takesEdits, weekBefore, weekKey, weekNumber, weekOf,
+    placeDrafted, placeStored, placeTargets, rosterContext, rosterDomain, rosterReferenceCheckEncoder, selectionWeek, slotOfPlace, spanWindow, spanWords, started, takesEdits, weekBefore, weekKey, weekNumber, weekOf,
     weekPeriods, weekSpan, weekStart, type Assignment, type Coverage, type DraftedDuty, type Issue, type PlacedDuties, type PlacedPeriod, type RosterPayload, type RosterStyles,
     type RosterValue, type Selection, type Slot, type StoredDuty, type StoredTarget, type WeekPeriod, type WeekState,
 } from "./model.js";
@@ -285,9 +285,17 @@ function RosterFrame(props: FrameProps) {
         }]);
     }), sameIssues);
     const proposals = useMemo(() => availableProposals(value, week, start, periods), [value, week, start, periods]);
-    // The app's check over the complete draft, given the pay (§5.8).
-    const readCheck = useCallback(() => source.check.type === "some"
-        ? source.check.value(domain.encodeCheckContext({ start, week, context, coverage, pay: weekPay.pay })) : [], [source.check, domain, start, week, context, coverage, weekPay]);
+    // The app's check over the complete draft, given the pay (§5.8) — and, over a reference record (#1551), the week's
+    // rows of it, read with the week: a week whose rows are not read yet is checked once they are.
+    const referenceType = source.reference.type === "some" ? source.reference.value.rowType : undefined;
+    const encodeReference = useMemo(() => referenceType === undefined ? undefined : rosterReferenceCheckEncoder(source.duty.rowType, referenceType),
+        [source.duty.rowType, referenceType]);
+    const referenceRows = current ? data.references.get(start) : undefined;
+    const readCheck = useCallback(() => {
+        if (source.check.type !== "some") return [];
+        if (encodeReference === undefined) return source.check.value(domain.encodeCheckContext({ start, week, context, coverage, pay: weekPay.pay }));
+        return referenceRows === undefined ? [] : source.check.value(encodeReference({ start, week, context, coverage, pay: weekPay.pay, reference: referenceRows.rows }));
+    }, [source.check, domain, encodeReference, referenceRows, start, week, context, coverage, weekPay]);
     const custom = useTrackedEvaluation(readCheck);
     // The week's issues, the same array while what they say holds: what the grid draws from them draws again only as
     // they change (#1398, CL9).
@@ -435,7 +443,9 @@ function RosterFrame(props: FrameProps) {
     // narrowing, or why one could not be read, with Retry — the week's asking again each record the week reads.
     const retryWeek = useCallback(() => retryPeriod([{ entries: source.duty.kind.entries, part: dutyPart },
         ...(source.periods.type === "some" ? [{ entries: source.periods.value.entries }] : []),
-        ...(source.targets.type === "some" ? [{ entries: source.targets.value.entries, part: sourcePart(source.slice.type === "some" ? source.slice.value : undefined, "targets") }] : [])]),
+        ...(source.targets.type === "some" ? [{ entries: source.targets.value.entries, part: sourcePart(source.slice.type === "some" ? source.slice.value : undefined, "targets") }] : []),
+        // The reference record the check reads (#1551), through its source of the slice.
+        ...(source.reference.type === "some" ? [{ entries: none, part: sourcePart(source.slice.type === "some" ? source.slice.value : undefined, SCHEDULE_REFERENCE) }] : [])]),
         [source, dutyPart]);
     // The span's words (#1406, P28): `12–18 Mar` for a week, `W10–W14` for a month.
     const weekWords = spanWords(format, span);
@@ -716,8 +726,11 @@ function RosterRoot({ value: source, storageKey }: EastChakraRosterProps) {
     // The duties' source of the slice holds the span's window — its weeks and the twelve hours either side their duties may start from
     // their shifts' — which the Roster's own navigation writes (D9), so the rail's count and a Save's notice read the window it reads.
     const span = spanWindow(window.span);
-    const rangeError = useSourceWindow(source.slice.type === "some" ? source.slice.value : undefined, source.duty.kind.key, span.from, span.to,
-        "The week could not be applied");
+    const chrome = source.slice.type === "some" ? source.slice.value : undefined;
+    const dutyError = useSourceWindow(chrome, source.duty.kind.key, span.from, span.to, "The week could not be applied");
+    // The reference record's source (#1551) holds the same window, as the duties' does: the check reads each week's rows of it beside them.
+    const referenceError = useSourceWindow(chrome, SCHEDULE_REFERENCE, span.from, span.to, "The week could not be applied to the reference record");
+    const rangeError = dutyError ?? referenceError;
     const frame = { source, value, storageKey: key, window, visibility, activities, patterns, shown, display, setDisplay, rangeError, onNarrow: setNarrow };
     return source.settings.readOnly ? <RosterFrame {...frame} editing={undefined} /> : <EditableRoster {...frame} />;
 }

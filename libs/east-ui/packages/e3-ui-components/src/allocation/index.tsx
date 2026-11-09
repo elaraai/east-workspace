@@ -32,7 +32,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrayType, SortedMap, StringType, equalFor, isVariant, none, some, variant, type option } from "@elaraai/east";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { AllocationComponent, AllocationIssueType } from "@elaraai/e3-ui/internal";
+import { AllocationComponent, AllocationIssueType, SCHEDULE_REFERENCE } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, fieldBreachIssue, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow,
     useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState, useSliceReactivity, useTrackedEvaluation, type BuilderFramePanes, type EditIssue,
@@ -66,7 +66,7 @@ import { binCode } from "./inspector-model.js";
 import { useAllocationLibrary, type Pick, type ResourceFind } from "./library.js";
 import { allocationMessages, type AllocationWords } from "./messages.js";
 import {
-    DAY, NARROW_WIDTH, NO_PERIOD, allocationContext, allocationDomain, allocationWords, byWeek, compareDate, compareFloat, compareString, configError, dayKey, dayStart,
+    DAY, NARROW_WIDTH, NO_PERIOD, allocationContext, allocationDomain, allocationReferenceCheckEncoder, allocationWords, byWeek, compareDate, compareFloat, compareString, configError, dayKey, dayStart,
     editableStatus, focusOf, periodSpan, placeDrafted, placeStored, started, statusText, type AllocationStyles, type AllocationValue, type Bin, type Day, type DraftedBin,
     type Issue, type PlacedPeriod, type Selection, type StoredBin,
 } from "./model.js";
@@ -298,9 +298,17 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         }]);
     }), sameIssues);
     // The app's check, after the built-in ones and the stored bins' breaches wherever issues show; a check that fails leaves
-    // them shown. A day not read yet has no issue: what its bins break is not known until they land (#1398, CL13).
-    const readCheck = useCallback((): Issue[] => current && value.check.type === "some"
-        ? value.check.value(domain.encodeCheckContext({ day, plan, context, loads })) : NO_ISSUES, [current, value.check, domain, day, plan, context, loads]);
+    // them shown. A day not read yet has no issue: what its bins break is not known until they land (#1398, CL13). Over a
+    // reference record (#1551), it is given the record's rows overlapping the day, read with the day.
+    const referenceType = value.reference.type === "some" ? value.reference.value.rowType : undefined;
+    const encodeReference = useMemo(() => referenceType === undefined ? undefined : allocationReferenceCheckEncoder(value.bin.rowType, referenceType),
+        [value.bin.rowType, referenceType]);
+    const referenceRows = current ? data.reference : undefined;
+    const readCheck = useCallback((): Issue[] => {
+        if (!current || value.check.type !== "some") return NO_ISSUES;
+        if (encodeReference === undefined) return value.check.value(domain.encodeCheckContext({ day, plan, context, loads }));
+        return referenceRows === undefined ? NO_ISSUES : value.check.value(encodeReference({ day, plan, context, loads, reference: referenceRows.rows }));
+    }, [current, value.check, domain, encodeReference, referenceRows, day, plan, context, loads]);
     const custom = useTrackedEvaluation(readCheck);
     const issues = useMemo(() => current ? [...builtIn, ...storedBreaches, ...(custom.result.ok ? custom.result.value : [])] : NO_ISSUES,
         [current, builtIn, storedBreaches, custom.result]);
@@ -531,7 +539,10 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     // Retry — the day's asking again each record the day reads.
     const retryDay = useCallback(() => retryPeriod([
         { entries: value.bin.kind.entries, part: binsPart },
-        ...(value.periods.type === "some" ? [{ entries: value.periods.value.entries }] : [])]), [value, binsPart]);
+        ...(value.periods.type === "some" ? [{ entries: value.periods.value.entries }] : []),
+        // The reference record the check reads (#1551), through its source of the slice.
+        ...(value.reference.type === "some" ? [{ entries: none, part: sourcePart(value.slice.type === "some" ? value.slice.value : undefined, SCHEDULE_REFERENCE) }] : [])]),
+        [value, binsPart]);
     const line = useMemo(() => {
         const state = periodLoading({ loading: data.loading && !data.filtering, error: data.error, retry: retryDay }, [
             { noun: other(nouns.bin), ready: true, loading: data.filtering, error: undefined, retry: retryDay },
@@ -743,8 +754,12 @@ function AllocationRoot({ value, storageKey }: EastChakraAllocationProps) {
     const window = useAllocationWindow(value, key);
     // The bins' source of the slice holds the day, which the board's own navigation writes (D9), so the rail's count and a Save's notice
     // read the window it reads.
-    const rangeError = useSourceWindow(value.slice.type === "some" ? value.slice.value : undefined, value.bin.kind.key, window.day,
-        new Date(window.day.getTime() + DAY), "The day could not be applied");
+    const chrome = value.slice.type === "some" ? value.slice.value : undefined;
+    const next = new Date(window.day.getTime() + DAY);
+    const binError = useSourceWindow(chrome, value.bin.kind.key, window.day, next, "The day could not be applied");
+    // The reference record's source (#1551) holds the day too, as the bins' does: the check reads the day's rows of it beside them.
+    const referenceError = useSourceWindow(chrome, SCHEDULE_REFERENCE, window.day, next, "The day could not be applied to the reference record");
+    const rangeError = binError ?? referenceError;
     const frame = { value, storageKey: key, window, rangeError };
     return value.settings.readOnly ? <AllocationFrame {...frame} editing={undefined} /> : <EditableAllocation {...frame} />;
 }

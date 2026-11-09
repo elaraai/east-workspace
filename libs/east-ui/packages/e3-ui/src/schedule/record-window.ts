@@ -5,8 +5,9 @@
 
 /**
  * Schedule's typed adapter to record Slice's indexed queries: a kind's window
- * and its backlog read through its source of its builder's slice, and the
- * window's events counted before one is read.
+ * and its backlog read through its source of its builder's slice, the
+ * window's events counted before one is read, and a reference record's rows in
+ * a window read for its builder's check (#1551).
  *
  * A window read under a cap counts first: its count is the request its read
  * asks first, the same searches, so counting asks e3 nothing of its own; past
@@ -17,7 +18,7 @@
  * @packageDocumentation
  */
 import {
-    ArrayType, DateTimeType, DictType, East, Expr, FunctionType, IntegerType, OptionType, StringType, StructType,
+    ArrayType, BlobType, DateTimeType, DictType, East, Expr, FunctionType, IntegerType, OptionType, StringType, StructType,
     isSubtype, isTypeEqual, none, some, variant, type BlockBuilder, type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import {
@@ -197,6 +198,85 @@ export function scheduleRecordWindow(part: ScheduleKindPart, slot: string, key: 
         }
         return result;
     }) as unknown as ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<DictType<EastType, EastType>>>>;
+}
+
+/**
+ * Read a reference record's rows in a window through its source of a
+ * builder's slice (#1551): every row overlapping `[from, to)`, by its key, as
+ * its row's bytes — whatever the source's choices hold, since the builder's
+ * check reads them and a check reads every row, whatever the rail hides. The
+ * window is read on the source's range's field through an interval index from
+ * that field led by no field, so a row that starts before the window and runs
+ * into it is among them; the record is never read whole.
+ * @param part - The `reference` source of the builder's slice, bound in the builder's payload.
+ * @param row - The reference record's row type.
+ * @param label - The builder, as its refusals name it.
+ * @returns `(from, to)` → the window's rows by key, each its row's beast2 bytes; `none` while the read is in flight.
+ *   Refused as it reads when the source holds no range, or declares no interval index from its range's field led by no field.
+ * @throws {Error} When the source is not a record Slice over a record keyed by String with joined rows.
+ */
+export function scheduleReferenceWindow(part: ScheduleKindPart, row: EastType, label: string):
+    ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<DictType<StringType, BlobType>>>> {
+    const entriesType = checkedSource(part, "reference", StringType, row, label);
+    const Held = DictType(StringType, BlobType);
+    return East.function([DateTimeType, DateTimeType], OptionType(Held), ($, from, to) => {
+        // The source as the builder bound it, its members read here: the reader captures the source alone.
+        const source = $.const(part as unknown as Source);
+        const config = $.const(source.config);
+        const countWhere = $.const(source.countWhere);
+        const pageWhere = $.const(source.pageWhere);
+        const id = $.const(source.data.id);
+        const revision = $.const(source.data.revision);
+        // Its range's field: where the builder writes its window, and what the window is read by.
+        const field = $.let("");
+        $.match(config.range, {
+            none: $2 => {
+                $2.error(`${label}: the slice's reference source holds no range — bind it reference: { source: Data.bindPaged(record, { indexes }), ` +
+                    "range: \"<its start field>\" }, its record read through an interval index from that field");
+            },
+            some: ($2, name) => { $2.assign(field, name); },
+        });
+        // An interval index from that field, led by no field: the window's rows by overlap, a row running into it among them.
+        const supported = $.let(false);
+        const optional = $.let(false);
+        $.for(config.indexes, ($2, index) => {
+            $2.match(index.interval, { some: ($3, interval) => {
+                $3.if(interval.from.equal(field).and(() => index.fields.size().equal(0n)), $4 => {
+                    $4.assign(supported, true);
+                    $4.assign(optional, interval.optional);
+                });
+            } });
+        });
+        $.if(supported.not(), $2 => {
+            $2.error(`${label}: the slice's reference source reads its window through an interval index from its range's field, led by no field — ` +
+                "declare index.interval({ from: \"<its start field>\", to: \"<its end field>\" }) among the record's indexes and list it in Data.bindPaged's indexes");
+        });
+        // The window alone, on the range's field: no choice of the source's narrows what the check reads.
+        const time = $.let(variant("range", { from: East.print(from), to: East.print(to) }), RecordSliceChoiceType);
+        $.if(optional, $2 => {
+            const start = $2.const(some(from), OptionType(DateTimeType));
+            const end = $2.const(some(to), OptionType(DateTimeType));
+            $2.assign(time, variant("range", { from: East.print(start), to: East.print(end) }));
+        });
+        const where = $.let(new Map(), RecordSliceWhereType);
+        $(where.insert(field, time));
+        const window = $.let({ where, area: none }, RecordSliceReadType);
+        const result = $.let(none, OptionType(Held));
+        // The window's rows, read a page at a time once their count is known, each kept as its row's bytes.
+        $.match(recordSliceReadPlatform([entriesType], id, revision, countWhere, pageWhere, window), {
+            some: ($2, entries) => {
+                const held = $2.let(new Map(), Held);
+                $2.for(entries, ($3, entry) => {
+                    $3.match(entry.row, {
+                        none: $4 => { $4.error(`${label}: the slice's reference source reads no rows — bind it with Data.bindPaged with join: true`); },
+                        some: ($4, value) => { $4(held.insert(entry.key as ExprType<StringType>, East.Blob.encodeBeast(value, "v2"))); },
+                    });
+                });
+                $2.assign(result, some(held));
+            },
+        });
+        return result;
+    }) as unknown as ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<DictType<StringType, BlobType>>>>;
 }
 
 /**

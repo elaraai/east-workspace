@@ -11,8 +11,10 @@
  * (`spanWindow`), and the week before's while a week in view holds none, which
  * Copy previous week reads — each week's own row through the periods' `rows`
  * (each of its days' where the periods are days, #1550), the open picker's
- * weeks' through the same, and the span's targets through
- * theirs. A span is one week, or a month's four to six (#1406, P26), its reads
+ * weeks' through the same, the span's targets through theirs, and — beside a
+ * reference record the app's check reads (#1551) — each week's rows of it, over
+ * the week and the twelve hours either side, through its window, each decoded
+ * once. A span is one week, or a month's four to six (#1406, P26), its reads
  * swapped at once. What it reads is kept by its bytes: a row read again as it
  * was keeps its decoded row, so a render never decodes it again, and the frame
  * is handed what it reads only when that moves. Once the span has landed, the
@@ -32,6 +34,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { BlobType, DateTimeType, DictType, SortedMap, equalFor } from "@elaraai/east";
 import { RosterStatusType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { keptReference, referenceDecoder, type ReferenceRows } from "../shared/schedule/reference.js";
 import { useReadAhead } from "../shared/schedule/use-read-ahead.js";
 import { shiftCalendar } from "../shared/time/scale.js";
 import {
@@ -73,13 +76,19 @@ export interface RosterData {
     /** The span's targets, by key. */
     readonly targets: ReadonlyMap<string, StoredTarget>;
     /**
+     * The rows of the reference record the app's check reads (#1551): each week of the span's, by its first day — the
+     * record's rows overlapping the week and the twelve hours either side, every one whatever the slice holds; empty
+     * without one.
+     */
+    readonly references: SortedMap<Date, ReferenceRows>;
+    /**
      * The periods of the weeks either side of a week in view, for an optimiser that takes the week's edges (#1553);
      * `undefined` without one, in a month, and while they are read.
      */
     readonly neighbours: RosterNeighbours | undefined;
     /** Why the read of the periods of the weeks either side failed (#1553): the eye waits on it, and the footer's line says it, with Retry. */
     readonly neighboursError: string | undefined;
-    /** Whether a read the span needs — its duties, its weeks' rows or its targets — is in flight. */
+    /** Whether a read the span needs — its duties, its weeks' rows, its targets or its reference rows — is in flight. */
     readonly loading: boolean;
     /** Whether a complete read of the span has landed. */
     readonly ready: boolean;
@@ -97,6 +106,7 @@ const NO_DUTIES: ReadonlyMap<string, StoredDuty> = new Map();
 const NO_TARGETS: ReadonlyMap<string, StoredTarget> = new Map();
 const NO_STATUSES = new SortedMap<Date, Status>([], compareDate);
 const NO_PERIODS = new SortedMap<Date, Uint8Array>([], compareDate);
+const NO_REFERENCES = new SortedMap<Date, ReferenceRows>([], compareDate);
 
 /**
  * The frame's data before its reader first reports: nothing held, a read in flight.
@@ -106,7 +116,7 @@ const NO_PERIODS = new SortedMap<Date, Uint8Array>([], compareDate);
  */
 export function initialRosterData(span: Pick<RosterSpan, "start" | "weeks">): RosterData {
     return { start: span.start, weeks: span.weeks, duties: NO_DUTIES, previous: undefined, periods: NO_PERIODS, picker: NO_STATUSES, targets: NO_TARGETS,
-        neighbours: undefined, neighboursError: undefined, loading: true, ready: false, landed: false, error: undefined };
+        references: NO_REFERENCES, neighbours: undefined, neighboursError: undefined, loading: true, ready: false, landed: false, error: undefined };
 }
 
 /** Rows read again, each kept as it was where its bytes are: the same object, its row not decoded again. */
@@ -157,7 +167,7 @@ function keptPeriods(read: ReadonlyMap<Date, Uint8Array>, starts: readonly Date[
 export function useRosterData(value: RosterPayload, span: RosterSpan, pickerDates: readonly Date[], holds: (duties: ReadonlyMap<string, StoredDuty>) => boolean): RosterData {
     // What was read last, kept by its bytes across reads.
     const held = useRef<{ duties?: ReadonlyMap<string, StoredDuty>; previous?: ReadonlyMap<string, StoredDuty>; targets?: ReadonlyMap<string, StoredTarget>;
-        periods?: SortedMap<Date, Uint8Array>; picker?: SortedMap<Date, Status> }>({});
+        periods?: SortedMap<Date, Uint8Array>; picker?: SortedMap<Date, Status>; references?: SortedMap<Date, ReferenceRows> }>({});
     const { start, weeks } = span;
     const read = useCallback(() => {
         const domain = rosterDomain(value.duty.rowType);
@@ -204,7 +214,23 @@ export function useRosterData(value: RosterPayload, span: RosterSpan, pickerDate
             if (got.type === "some") targets = keptTargets(got.value, held.current.targets);
             else loading = true;
         }
-        return { duties, previous, periods, picker, targets, loading };
+        // The reference record the app's check reads (#1551): each week's rows over the week and the twelve hours either
+        // side, as the week before's duties are read — every one, whatever the slice holds — each decoded once.
+        let references = NO_REFERENCES;
+        if (value.reference.type === "some") {
+            const reference = value.reference.value;
+            const decode = referenceDecoder(reference.rowType);
+            const was = held.current.references;
+            const next = new SortedMap<Date, ReferenceRows>([], compareDate);
+            for (const week of weeks) {
+                const around = weekWindow(week);
+                const got = reference.rows(around.from, around.to);
+                if (got.type === "some") next.set(week, keptReference(got.value, was?.get(week), decode));
+                else loading = true;
+            }
+            references = was !== undefined && was.size === next.size && [...next].every(([week, rows]) => Object.is(was.get(week), rows)) ? was : next;
+        }
+        return { duties, previous, periods, picker, targets, references, loading };
     }, [value, span, start, weeks, pickerDates, holds]);
     const { result } = useTrackedEvaluation(read);
     // Once the span has landed, the spans either side are read ahead (#1398, CL7) — in a read of their own, so a page of
@@ -221,6 +247,12 @@ export function useRosterData(value: RosterPayload, span: RosterSpan, pickerDate
         value.duty.rows(around.from, around.to);
         if (value.periods.type === "some") value.periods.value.rows(next.from, next.to);
         if (value.targets.type === "some") value.targets.value.rows(next.from, next.to);
+        if (value.reference.type === "some") {
+            for (const week of next.weeks) {
+                const around = weekWindow(week);
+                value.reference.value.rows(around.from, around.to);
+            }
+        }
     }, [value]);
     useReadAhead(result.ok && !result.value.loading && result.value.duties !== undefined, neighbours, readNext);
     // The periods of the weeks either side, for an optimiser that takes the week's edges (#1553): read at once, beside the
@@ -255,13 +287,13 @@ export function useRosterData(value: RosterPayload, span: RosterSpan, pickerDate
         const got = result.value;
         held.current = { ...(got.duties === undefined ? {} : { duties: got.duties }), ...(got.previous === undefined ? {} : { previous: got.previous }),
             ...(Object.is(got.targets, NO_TARGETS) ? {} : { targets: got.targets }), ...(Object.is(got.periods, NO_PERIODS) ? {} : { periods: got.periods }),
-            ...(Object.is(got.picker, NO_STATUSES) ? {} : { picker: got.picker }) };
+            ...(Object.is(got.picker, NO_STATUSES) ? {} : { picker: got.picker }), ...(Object.is(got.references, NO_REFERENCES) ? {} : { references: got.references }) };
         const was = complete.current;
         if (!got.loading && got.duties !== undefined && (was === undefined || compareDate(was.start, start) !== 0 || was.weeks.length !== weeks.length
             || !Object.is(was.duties, got.duties) || !Object.is(was.previous, got.previous) || !Object.is(was.targets, got.targets)
-            || !Object.is(was.picker, got.picker) || !Object.is(was.periods, got.periods))) {
+            || !Object.is(was.picker, got.picker) || !Object.is(was.periods, got.periods) || !Object.is(was.references, got.references))) {
             complete.current = { start, weeks, duties: got.duties, previous: got.previous, periods: got.periods, picker: got.picker, targets: got.targets,
-                neighbours: undefined, neighboursError: undefined, loading: false, ready: true, landed: true, error: undefined };
+                references: got.references, neighbours: undefined, neighboursError: undefined, loading: false, ready: true, landed: true, error: undefined };
         }
     }
     const last = complete.current;

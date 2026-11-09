@@ -16,7 +16,9 @@
  * their accessors, and assembles the closed payload; it composes no East UI
  * component and emits no layout, session or gesture program. The app's bin row
  * type `R` crosses the payload as beast2 bytes, as Schedule's kinds' rows do:
- * the app's `check` over bytes at `CheckContext(R)`, its columns over bytes at
+ * the app's `check` over bytes at `CheckContext(R)` — or, over a reference
+ * record the slice's `reference` source reads (#1551), `CheckContext(R, P)`,
+ * its rows crossing as bytes beside their type — its columns over bytes at
  * `R`, and the fit's binding checked against `FitRequest(R)`. The renderer
  * compiles the Allocation's functions over `R`, the bin kind's `rowType`, and
  * calls the fit, the app's `e3.function`, by name: it computes no fit of its own.
@@ -35,6 +37,7 @@ import { FuncBindingType, boundFuncSignature, type BoundFunc } from "../bind/fun
 import { scheduleCheck } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { SchedulePeriods } from "../schedule/periods.js";
+import { SCHEDULE_REFERENCE, ScheduleReferenceType, referenceCheckRefusal, referenceRowType, scheduleReference } from "../schedule/reference.js";
 import { SCHEDULE_DEF, type ScheduleResourceKind } from "../schedule/resources.js";
 import { ScheduleAllocationKindType, ScheduleAllocationNewBinType, SchedulePeriodsKindType } from "../schedule/types.js";
 import { optimiseBinding, type OptimiseContract } from "../utils/optimise.js";
@@ -170,7 +173,8 @@ export type AllocationSettingsType = typeof AllocationSettingsType;
  * @property narrowed - Each narrowed source's keys, paged through its part of `slice`: the lanes, the resources and the arrivals that show
  * @property fit - The app's fit, by its `e3.function`'s name
  * @property optimise - The app's optimiser, by its `e3.function`'s name: what the Elara eye calls over the day in view, its result one edit of the session; `none`, no eye (#1409)
- * @property check - The app's issues, from a `CheckContext(R)` as bytes
+ * @property check - The app's issues, from a `CheckContext(R)` as bytes — or, with `reference`, a `CheckContext(R, P)`
+ * @property reference - The reference record the app's check reads (#1551): its rows in a window, through the slice's `reference` source, as bytes beside their type; `none` without one
  * @property columns - The app's bin fields as columns and inspector rows
  * @property rules - The built-in rules
  * @property library - The library's tabs, in order
@@ -196,6 +200,7 @@ export const AllocationPayloadType = StructType({
     fit: FuncBindingType,
     optimise: OptionType(FuncBindingType),
     check: OptionType(FunctionType([BlobType], ArrayType(T.AllocationIssueType))),
+    reference: OptionType(ScheduleReferenceType),
     columns: ArrayType(AllocationColumnType),
     rules: T.AllocationRulesType,
     library: ArrayType(AllocationLibraryTabType),
@@ -249,8 +254,9 @@ export interface AllocationColumn<R extends EastType> {
  * The `<Allocation>` props (§6.1).
  *
  * @typeParam R - The app's bin row type: the bin kind's row
+ * @typeParam P - The row type of the reference record the app's `check` reads (#1551), the slice's `reference` source's; none without one
  */
-export interface AllocationProps<R extends EastType = EastType> {
+export interface AllocationProps<R extends EastType = EastType, P extends EastType = never> {
     /**
      * Exactly one event kind, the bins, an instant kind keyed by String: `{ bin: Schedule.events(Record.bind(bins),
      * { at, resource, arrival, quantity, parts, hold, kind? }) }`.
@@ -279,8 +285,15 @@ export interface AllocationProps<R extends EastType = EastType> {
      * reverts and Save commits with everything else. Omitted, no eye.
      */
     optimise?: BoundFunc<[T.AllocationOptimiseRequestType<R>], T.AllocationOptimiseResultType<R>>;
-    /** The app's issues, after the built-in ones wherever issues show: an East function from `Allocation.Types.CheckContext(R)` to `Array<Allocation.Types.Issue>`. */
-    check?: SubtypeExprOrValue<FunctionType<[T.AllocationCheckContextType<R>], ArrayType<T.AllocationIssueType>>>;
+    /**
+     * The app's issues, after the built-in ones wherever issues show: an East function from `Allocation.Types.CheckContext(R)` to
+     * `Array<Allocation.Types.Issue>` — or, beside the slice's `reference` source (#1551), from `Allocation.Types.CheckContext(R, P)`,
+     * `P` the reference record's row type, which holds as `reference` the record's rows overlapping the day, by key: a delivery
+     * schedule the bins carry out, which the check holds the day to. A slice with a `reference` source takes a check over it, and
+     * one without takes none over one.
+     */
+    check?: SubtypeExprOrValue<FunctionType<[T.AllocationCheckContextType<R>], ArrayType<T.AllocationIssueType>>>
+        | SubtypeExprOrValue<FunctionType<[T.AllocationReferenceCheckContextType<R, P>], ArrayType<T.AllocationIssueType>>>;
     /** The app's bin fields as Table columns (after Quantity) and inspector rows, over the bin's row. */
     columns?: readonly AllocationColumn<R>[];
     /** The slot spacing for every lane; an hour by default. */
@@ -289,7 +302,12 @@ export interface AllocationProps<R extends EastType = EastType> {
      * The narrowing: one `Slice.bindRecords`, a source per record it narrows — the bin kind's slot (its interval index from `at`
      * to `at`, its `range` `"at"`, which the board's navigation writes; the kind given `entries`), the lanes' slot, the resources'
      * slot and `arrivals` — one rail in both layouts. Each source narrows every place its rows appear, the Library's tabs
-     * included. Fits, checks and totals still read every lane, resource and arrival, and every bin of the day.
+     * included. Fits, checks and totals still read every lane, resource and arrival, and every bin of the day. Beside them,
+     * `reference` (#1551): a record the app's `check` reads, through an interval index led by no field, with a `range` —
+     * `reference: { source: Data.bindPaged(deliveries, { indexes: ["deliveries_by_time"] }), range: "start" }`, the field the
+     * board reads it over. The navigation writes the day into it as into the bins' source, and the check is given its rows
+     * overlapping the day in view, every one whatever choice its source holds. It narrows nothing: the rail offers none of its
+     * fields, and nothing draws its rows.
      */
     slice?: RecordSlicesChromeOptions;
     /** The built-in rules: whether `Allocation.fit` and `Allocation.check` warn under min (true). */
@@ -497,6 +515,7 @@ function allocationOptimiseContract(rowType: EastType): OptimiseContract {
  * and interaction behaviour belong to the renderer, not this factory.
  *
  * @typeParam R - The app's bin row type
+ * @typeParam P - The reference record's row type, if the slice has one
  * @param props - The board's props
  * @returns The closed payload
  * @throws {Error} Naming the change to make (B4): a removed prop — `days`, `window`, `lanes`, `publish`, `quantity`,
@@ -508,11 +527,13 @@ function allocationOptimiseContract(rowType: EastType): OptimiseContract {
  *   `fit` that is not `Func.bind` of a function from `FitRequest(R)` to `FitResult`, one over another row type naming
  *   both; an `optimise` that is not `Func.bind` of a function from `OptimiseRequest(R)` to `OptimiseResult(R)`, one over
  *   another row type naming both (#1409); a `views` that lists nothing, names no layout, or leaves out `view.layout`; a `check` of another type; a library tab or a column key listed twice; a label that is empty; the Table's
- *   bands not starting at 0 and rising within the day; and as `Schedule`'s checks, the bin kind's build
+ *   bands not starting at 0 and rising within the day; a bins', lanes' or resources' slot named `reference`, and a `check` that
+ *   does not go with the slice's reference record (#1551) — a `reference` source and no check, a check over a reference the
+ *   slice holds none of, one over the bins alone beside one, or one over another reference row type; and as `Schedule`'s checks, the bin kind's build
  *   (`buildAllocation`) and the slice's (`recordSources`) do
  * @internal
  */
-export function createAllocationPayload<R extends EastType>(props: AllocationProps<R>): ExprType<typeof AllocationPayloadType> {
+export function createAllocationPayload<R extends EastType, P extends EastType = never>(props: AllocationProps<R, P>): ExprType<typeof AllocationPayloadType> {
     const given = props as unknown as Readonly<Record<string, unknown>>;
     for (const [prop, refusal] of REMOVED) {
         if (given[prop] !== undefined) throw new Error(`Allocation: ${refusal}`);
@@ -563,6 +584,10 @@ export function createAllocationPayload<R extends EastType>(props: AllocationPro
         throw new Error(`Allocation: the slice names a source after the bins' slot ("${slot}"), the lanes' ("${lanesSlot}"), the resources' ("${partsSlot}") ` +
             "and the arrivals (`arrivals`) — give the bins a slot of their own, and none of them `arrivals`");
     }
+    if (slot === SCHEDULE_REFERENCE || lanesSlot === SCHEDULE_REFERENCE || partsSlot === SCHEDULE_REFERENCE) {
+        throw new Error(`Allocation: the slice's \`reference\` source is the record the check reads beside the bins — name the bins' slot ("${slot}"), ` +
+            `the lanes' ("${lanesSlot}") and the resources' ("${partsSlot}") otherwise`);
+    }
     for (const name of Object.keys(resources)) {
         if (name !== lanesSlot && name !== partsSlot) {
             throw new Error(`Allocation: \`resources\` holds the lanes' kind (\`${lanesSlot}\`, the slot events.${slot}'s resource names) and the resources' kind ` +
@@ -606,8 +631,15 @@ export function createAllocationPayload<R extends EastType>(props: AllocationPro
     const rowType = kind.rowType as EastType;
     const fit = fitBinding(props.fit, rowType);
     const optimise = props.optimise === undefined ? undefined : optimiseBinding(props.optimise, allocationOptimiseContract(rowType));
-    const check = props.check === undefined ? undefined : overBytes(props.check, T.AllocationCheckContextTypeFor(rowType), ArrayType(T.AllocationIssueType),
-        `Allocation: \`check\` is an East function from Allocation.Types.CheckContext(${printType(rowType)}) to Array<Allocation.Types.Issue>`);
+    // The check reads the slice's reference record beside the bins where it has one (#1551): CheckContext(R, P).
+    const row = printType(rowType);
+    const reference = referenceRowType(props.slice, "Allocation");
+    const unmatched = referenceCheckRefusal(props.check, reference, { builder: "Allocation", context: "Allocation.Types.CheckContext", row });
+    if (unmatched !== undefined) throw new Error(unmatched);
+    const checked = reference === undefined ? row : `${row}, ${printType(reference)}`;
+    const check = props.check === undefined ? undefined : overBytes(props.check,
+        reference === undefined ? T.AllocationCheckContextTypeFor(rowType) : T.AllocationCheckContextTypeFor(rowType, reference), ArrayType(T.AllocationIssueType),
+        `Allocation: \`check\` is an East function from Allocation.Types.CheckContext(${checked}) to Array<Allocation.Types.Issue>`);
     // A booked bin's own fields, the ones no role maps: each arrival's `values`, at the bin kind's (B13).
     const initial = allocationInitial(arrivals, kind.allocationValues);
     // The app's columns over its bin row, as bytes.
@@ -644,8 +676,8 @@ export function createAllocationPayload<R extends EastType>(props: AllocationPro
     });
     // The narrowing: a source per record it narrows, named after what it narrows.
     const narrowing = recordSources(props.slice, {
-        builder: "Allocation", names: [...new Set([slot, lanesSlot, partsSlot, "arrivals"])],
-        what: `its bins (${slot}), its lanes (${lanesSlot}), its resources (${partsSlot}) and its arrivals`,
+        builder: "Allocation", names: [...new Set([slot, lanesSlot, partsSlot, "arrivals", SCHEDULE_REFERENCE])],
+        what: `its bins (${slot}), its lanes (${lanesSlot}), its resources (${partsSlot}), its arrivals and the reference record its check reads`,
     });
     return Expr.block($ => {
         const bound = narrowing.bind($);
@@ -666,6 +698,7 @@ export function createAllocationPayload<R extends EastType>(props: AllocationPro
             fit,
             optimise: optimise === undefined ? none : some(optimise),
             check: check === undefined ? none : some(check),
+            reference: reference === undefined ? none : some(scheduleReference(bound.parts[SCHEDULE_REFERENCE]!, reference, "Allocation")),
             columns,
             rules: { under: props.rules?.under ?? true },
             library,
@@ -705,7 +738,7 @@ function removed(refusal: string): (...args: never[]) => never {
 /** The tag, its declaration of the arrivals, its pure functions over the bin row type, and its types. */
 export interface AllocationNamespace {
     /** Renders a board over the app's own records. */
-    <R extends EastType>(props: AllocationProps<R>): UIElement;
+    <R extends EastType, P extends EastType = never>(props: AllocationProps<R, P>): UIElement;
     /** Declares what the board books from, the arrivals, from the app's keyed rows. */
     arrivals: typeof allocationArrivals;
     /** The built-in rules, one verdict per candidate. */
@@ -761,7 +794,7 @@ export interface AllocationNamespace {
  * @remarks Every gesture is one undo step; Save sends each record's changes as its own request, and Publish saves, then the day's status. Issues never block either. Below 480px of main the same commands are explicit card actions.
  */
 export const Allocation: AllocationNamespace = Object.assign(
-    <R extends EastType>(props: AllocationProps<R>): UIElement => AllocationComponent.Root(createAllocationPayload(props)),
+    <R extends EastType, P extends EastType = never>(props: AllocationProps<R, P>): UIElement => AllocationComponent.Root(createAllocationPayload(props)),
     {
         arrivals: allocationArrivals, fit: allocationFit, loads: allocationLoads, candidates: allocationCandidates, answer: allocationAnswer,
         lookahead: allocationLookahead, check: allocationCheck, slots: allocationSlots,

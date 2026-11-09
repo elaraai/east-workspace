@@ -335,6 +335,15 @@ export function RosterPayRequestTypeFor<R extends EastType>(row: R) {
 }
 /** Type representing {@link RosterPayRequestTypeFor}. */
 export type RosterPayRequestTypeFor<R extends EastType> = ReturnType<typeof RosterPayRequestTypeFor<R>>;
+/** Type representing {@link RosterCheckContextTypeFor} over the duties alone. */
+export type RosterCheckContextTypeFor<R extends EastType> = StructType<{
+    start: DateTimeType; week: RosterWeekTypeFor<R>; context: RosterContextType; coverage: DictType<RosterSlotType, RosterCoverageType>; pay: RosterPayType;
+}>;
+/** Type representing {@link RosterCheckContextTypeFor} over the duties and a reference record's rows (#1551). */
+export type RosterReferenceCheckContextTypeFor<R extends EastType, P extends EastType> = StructType<{
+    start: DateTimeType; week: RosterWeekTypeFor<R>; context: RosterContextType; coverage: DictType<RosterSlotType, RosterCoverageType>; pay: RosterPayType;
+    reference: DictType<StringType, P>;
+}>;
 /**
  * Input to an application's additional roster checks.
  *
@@ -343,14 +352,26 @@ export type RosterPayRequestTypeFor<R extends EastType> = ReturnType<typeof Rost
  * @returns The check's context over it
  * @remarks The built-in coverage has already been calculated for the same draft, and so have the pay's costs: `start` the week's first day, `week` the drafted week, `context` the complete reference data, `coverage` every configured slot's, `pay` each duty's costs by code.
  */
-export function RosterCheckContextTypeFor<R extends EastType>(row: R) {
-    return StructType({
-        start: DateTimeType, week: RosterWeekTypeFor(row), context: RosterContextType,
-        coverage: DictType(RosterSlotType, RosterCoverageType), pay: RosterPayType,
-    });
+export function RosterCheckContextTypeFor<R extends EastType>(row: R): RosterCheckContextTypeFor<R>;
+/**
+ * Input to an application's additional roster checks over a reference record
+ * of the app's (#1551) — a rota the duties carry out — read through the
+ * slice's `reference` source, which the Roster windows as it does its duties.
+ *
+ * @typeParam R - The app's duty row type
+ * @typeParam P - The reference record's row type
+ * @param row - The app's duty row type
+ * @param reference - The reference record's row type
+ * @returns The check's context over them
+ * @remarks As the duties' context, and `reference` the record's rows overlapping the week checked and the twelve hours either side — the window its duties are read over — by key: every one, whatever the rail shows, never the record whole. A row at the window's edge may be one the week either side carries out: a check scopes by `start`.
+ */
+export function RosterCheckContextTypeFor<R extends EastType, P extends EastType>(row: R, reference: P): RosterReferenceCheckContextTypeFor<R, P>;
+export function RosterCheckContextTypeFor<R extends EastType, P extends EastType>(row: R, reference?: P): RosterCheckContextTypeFor<R> | RosterReferenceCheckContextTypeFor<R, P> {
+    const week = RosterWeekTypeFor(row), coverage = DictType(RosterSlotType, RosterCoverageType);
+    return reference === undefined
+        ? StructType({ start: DateTimeType, week, context: RosterContextType, coverage, pay: RosterPayType })
+        : StructType({ start: DateTimeType, week, context: RosterContextType, coverage, pay: RosterPayType, reference: DictType(StringType, reference) });
 }
-/** Type representing {@link RosterCheckContextTypeFor}. */
-export type RosterCheckContextTypeFor<R extends EastType> = ReturnType<typeof RosterCheckContextTypeFor<R>>;
 /** Why someone does not fit a need: Schedule's, shared with the Allocation (#1334). */
 export const RosterRefusalType = ScheduleRefusalType;
 export type RosterRefusalType = typeof RosterRefusalType;

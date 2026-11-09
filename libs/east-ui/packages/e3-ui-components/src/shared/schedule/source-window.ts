@@ -8,7 +8,9 @@
  * event kind (D9, `Builder Interfaces Spec.md` §7.5): the Roster's week and the
  * Allocation's day are each their own navigation, and the source holds the
  * window they read, so the rail's count and a Save's notice read the window the
- * builder reads. A range written there by anything else is written back.
+ * builder reads. A range written there by anything else is written back. A
+ * builder's reference record's source (#1551) holds the same window, its
+ * check reading that window's rows.
  *
  * @packageDocumentation
  */
@@ -23,7 +25,7 @@ import { sourcePart, type SourcesChrome } from "./visibility.js";
  * back whenever the source's range moves elsewhere.
  *
  * @param chrome - The payload's slice chrome; `undefined` with no slice
- * @param source - The source's name: the event kind's slot
+ * @param source - The source's name: the event kind's slot, or `reference`, the record the check reads
  * @param from - The window's start
  * @param to - The window's end, half open
  * @param refused - What the builder says when the window cannot be written, and the source gives no reason

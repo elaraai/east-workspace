@@ -431,6 +431,12 @@ export type AllocationCheckContextType<R extends EastType> = StructType<{
     day: DateTimeType; plan: AllocationDayType<R>; context: AllocationContextType; loads: DictType<StringType, AllocationLoadType>;
 }>;
 
+/** The app's check's input over its bin row type `R` and a reference record's row type `P` (#1551) — what {@link AllocationCheckContextTypeFor} constructs given `P`. */
+export type AllocationReferenceCheckContextType<R extends EastType, P extends EastType> = StructType<{
+    day: DateTimeType; plan: AllocationDayType<R>; context: AllocationContextType; loads: DictType<StringType, AllocationLoadType>;
+    reference: DictType<StringType, P>;
+}>;
+
 /**
  * What the app's `check` is given: the drafted day and every load.
  *
@@ -443,10 +449,32 @@ export type AllocationCheckContextType<R extends EastType> = StructType<{
  * @property context - Every arrival and resource
  * @property loads - Every resource's load, by key
  */
-export function AllocationCheckContextTypeFor<R extends EastType>(row: R): AllocationCheckContextType<R> {
-    return StructType({
-        day: DateTimeType, plan: AllocationDayTypeFor(row), context: AllocationContextType, loads: DictType(StringType, AllocationLoadType),
-    }) as unknown as AllocationCheckContextType<R>;
+export function AllocationCheckContextTypeFor<R extends EastType>(row: R): AllocationCheckContextType<R>;
+/**
+ * What the app's `check` is given over a reference record of the app's
+ * (#1551) — a delivery schedule its bookings carry out — read through the
+ * slice's `reference` source, which the board windows as it does its bins: the
+ * drafted day, every load, and the record's rows in the day.
+ *
+ * @typeParam R - The app's bin row type
+ * @typeParam P - The reference record's row type
+ * @param row - The app's bin row type
+ * @param reference - The reference record's row type
+ * @returns `StructType({ day, plan, context, loads, reference })`
+ *
+ * @property day - The plan day
+ * @property plan - The day as drafted: each bin its roles and its own row, which the app's check reads
+ * @property context - Every arrival and resource
+ * @property loads - Every resource's load, by key
+ * @property reference - The record's rows overlapping the day, by key: every one, whatever the rail shows, never the record whole
+ */
+export function AllocationCheckContextTypeFor<R extends EastType, P extends EastType>(row: R, reference: P): AllocationReferenceCheckContextType<R, P>;
+export function AllocationCheckContextTypeFor<R extends EastType, P extends EastType>(row: R, reference?: P): AllocationCheckContextType<R> | AllocationReferenceCheckContextType<R, P> {
+    const plan = AllocationDayTypeFor(row), loads = DictType(StringType, AllocationLoadType);
+    return (reference === undefined
+        ? StructType({ day: DateTimeType, plan, context: AllocationContextType, loads })
+        : StructType({ day: DateTimeType, plan, context: AllocationContextType, loads, reference: DictType(StringType, reference) })) as unknown as
+        AllocationCheckContextType<R> | AllocationReferenceCheckContextType<R, P>;
 }
 
 /**

@@ -33,6 +33,7 @@ import {
     ChipMenu, OPTIMISE_RANK, historyToolbarItem, useKeySearchToolbarItem, type EditIssue, type HistoryAction, type KeySearchSource, type ToolbarItem,
 } from "@elaraai/east-ui-components";
 import { HOST_RANK, PlaceholderShape, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
+import { useRailSources } from "../shared/schedule/reference.js";
 import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
@@ -156,11 +157,13 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     const layouts = LAYOUTS.filter(item => args.layouts.includes(item.key));
     const switches = layouts.length > 1;
     // The narrowing: one rail over the bins, the lanes, the resources and the arrivals, in both layouts, each source counted in the board's noun
-    // under the slot the app names it by (#1336, #1339); the bins' range is the board's own navigation, never a chip of the rail (#1372).
+    // under the slot the app names it by (#1336, #1339); the bins' range is the board's own navigation, never a chip of the rail (#1372),
+    // and the reference record the check reads narrows nothing, so the rail leaves its source out (#1551).
     const chrome = value.slice.type === "some" ? value.slice.value : undefined;
     const bins = value.bin.kind;
     const binRange = chrome?.slice.parts.find(part => part.source === bins.key)?.slice.config.range;
-    const rail = useRecordSlicesToolbarItems(chrome?.slice, {
+    const railSources = useRailSources(chrome?.slice);
+    const rail = useRecordSlicesToolbarItems(railSources, {
         nouns: { [bins.key]: `${bins.name.toLocaleLowerCase(words.locale)} events`, [value.bin.lanes]: other(args.nouns.lane),
             [value.bin.parts]: other(args.nouns.resource), arrivals: other(args.nouns.arrival) },
         ...(binRange?.type === "some" ? { excludeFields: [`${bins.key}.${binRange.value}`] } : {}),

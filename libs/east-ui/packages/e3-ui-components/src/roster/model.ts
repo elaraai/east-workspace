@@ -442,6 +442,31 @@ export function rosterDomain(rowType: EastTypeValue): RosterDomain {
     return domain;
 }
 
+/** The app's check's question over a reference record (#1551): the week's, and the record's rows over it by key. */
+export interface RosterReferenceCheckAsk {
+    start: Date; week: Week; context: Context; coverage: SortedMap<Slot, Coverage>; pay: Pay; reference: SortedMap<string, unknown>;
+}
+
+const referenceCheckEncoders: { row: EastTypeValue; reference: EastTypeValue; encode: (ask: RosterReferenceCheckAsk) => Uint8Array }[] = [];
+
+/**
+ * The app's check's question at the duty row type and a reference record's
+ * row type (#1551), `CheckContext(R, P)`, as bytes: its encoder made the first
+ * time the pair is seen, then shared — East decides which types are the same.
+ *
+ * @param rowType - The duty kind's `rowType`
+ * @param referenceType - The reference record's row type
+ * @returns The question's encoder
+ */
+export function rosterReferenceCheckEncoder(rowType: EastTypeValue, referenceType: EastTypeValue): (ask: RosterReferenceCheckAsk) => Uint8Array {
+    const known = referenceCheckEncoders.find(e => sameTypeValue(e.row, rowType) && sameTypeValue(e.reference, referenceType));
+    if (known !== undefined) return known.encode;
+    const type = RosterCheckContextTypeFor(fromEastTypeValue(rowType) as EastType, fromEastTypeValue(referenceType) as EastType);
+    const encode = encodeBeast2For(type) as unknown as (ask: RosterReferenceCheckAsk) => Uint8Array;
+    referenceCheckEncoders.push({ row: rowType, reference: referenceType, encode });
+    return encode;
+}
+
 /** The time arithmetic every row type shares (§5.5), compiled once. */
 let times: {
     dayOf: (start: Date, clock: Shift["start"]) => Date;

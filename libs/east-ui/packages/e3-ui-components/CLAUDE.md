@@ -1174,6 +1174,17 @@ The builder writes its period into its kind's source of the slice
 (`shared/schedule/source-window.ts`), so the rail's summary counts the
 period's events and a Save's notice reads the window it reads.
 
+A record the app's check reads beside them (#1551) is the slice's `reference`
+source, the Roster's and the Allocation's alike: the builder writes the same
+window into it (`useSourceWindow`) and its reader reads the rows overlapping
+each period through the payload's `reference.rows(from, to)` — the Roster's a
+week of its span at a time, the Allocation's the day, with the days either
+side read ahead — each row decoded once (`shared/schedule/reference.ts`'
+`keptReference`), and hands them to the check as `reference`. A read of them in
+flight is the period's, a failure is the period's, said once with Retry, which
+asks the source again; nothing draws them, and the rail leaves the source out
+(`useRailSources`). Tests: each board's `reference.dom.test.tsx`, on e3.
+
 The Roster's pay is asked a person at a time (`roster/model.ts`'
 `RosterPayCache`, B17): once per person with duties in the week and once per
 agency with requests, each answer kept by the bytes of that person's duties,

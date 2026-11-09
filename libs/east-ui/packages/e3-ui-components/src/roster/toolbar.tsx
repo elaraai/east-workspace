@@ -13,6 +13,7 @@ import {
 } from "@elaraai/east-ui-components";
 import { HOST_RANK, PlaceholderShape, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { ROSTER_LAYOUT_PERIODS } from "@elaraai/e3-ui/internal";
+import { useRailSources } from "../shared/schedule/reference.js";
 import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
 import { shownViews } from "../shared/views.js";
 import { Seg } from "../shared/schedule/segments.js";
@@ -81,11 +82,13 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     const layouts = LAYOUTS.filter(item => args.layouts.includes(item.key));
     const switches = layouts.length > 1;
     // The narrowing: one rail over the week's duties, the people and the activities, each source counted in its own noun
-    // (#1342); the duties' range is the Roster's own navigation, never a chip of the rail (#1369).
+    // (#1342); the duties' range is the Roster's own navigation, never a chip of the rail (#1369), and the reference record
+    // the check reads narrows nothing, so the rail leaves its source out (#1551).
     const chrome = value.slice.type === "some" ? value.slice.value : undefined;
     const duty = value.duty.kind;
     const dutyRange = chrome?.slice.parts.find(part => part.source === duty.key)?.slice.config.range;
-    const rail = useRecordSlicesToolbarItems(chrome?.slice, { nouns: { [duty.key]: `${duty.name.toLocaleLowerCase(words.locale)} events`, people: "people", activities: "activities", patterns: "patterns" },
+    const railSources = useRailSources(chrome?.slice);
+    const rail = useRecordSlicesToolbarItems(railSources, { nouns: { [duty.key]: `${duty.name.toLocaleLowerCase(words.locale)} events`, people: "people", activities: "activities", patterns: "patterns" },
         ...(dutyRange?.type === "some" ? { excludeFields: [`${duty.key}.${dutyRange.value}`] } : {}),
         ...(chrome === undefined ? {} : { affordances: chrome.affordances.map(a => a.type) }),
         ...(chrome?.persist.type === "some" ? { persist: chrome.persist.value.type } : {}),

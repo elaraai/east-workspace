@@ -10,7 +10,9 @@
  * range the board's navigation writes into the bins' source of the slice — the
  * own row of the period holding the day, the day's or its week's (#1550),
  * through the periods' `rows`, and the open picker's month's rows through the
- * same, as one span, a week's row marking each of its days. What it reads is kept by its bytes: a
+ * same, as one span, a week's row marking each of its days; and, beside a
+ * reference record the app's check reads (#1551), its rows overlapping the
+ * day, through its window, each decoded once. What it reads is kept by its bytes: a
  * row read again as it was keeps its decoded row, so a render never decodes it
  * again, and the frame is handed what it reads only when that moves. While the
  * day's read is in flight the frame is covered (A80); a day it has not read is
@@ -29,6 +31,7 @@ import { BlobType, DateTimeType, DictType, SortedMap, StringType, equalFor, prin
 import { SchedulePeriodStatusType } from "@elaraai/e3-ui/internal";
 import { RecordSliceWhereType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { keptReference, referenceDecoder, type ReferenceRows } from "../shared/schedule/reference.js";
 import { useReadAhead } from "../shared/schedule/use-read-ahead.js";
 import { DAY, allocationDomain, byWeek, compareDate, compareString, periodSpan, type AllocationValue, type Day, type StoredBin } from "./model.js";
 
@@ -81,7 +84,12 @@ export interface AllocationData {
     readonly period: Uint8Array | undefined;
     /** The open picker's days' statuses, by day — each day of a week its week's (#1550): a day whose period has no row is not among them. */
     readonly picker: SortedMap<Date, Status>;
-    /** Whether a read the day needs — its bins or its row — is in flight. */
+    /**
+     * The rows of the reference record the app's check reads (#1551): those overlapping the day, every one whatever the
+     * slice holds; `undefined` without one.
+     */
+    readonly reference: ReferenceRows | undefined;
+    /** Whether a read the day needs — its bins, its row or its reference rows — is in flight. */
     readonly loading: boolean;
     /** Whether the read in flight is the day's bins under a new narrowing of their own source, the last narrowing's standing in ({@link filteringBins}). */
     readonly filtering: boolean;
@@ -107,7 +115,7 @@ const NO_STATUSES = new SortedMap<Date, Status>([], compareDate);
  * @returns The state
  */
 export function initialAllocationData(day: Date): AllocationData {
-    return { day, bins: NO_BINS, period: undefined, picker: NO_STATUSES, loading: true, filtering: false, ready: false, landed: false, error: undefined };
+    return { day, bins: NO_BINS, period: undefined, picker: NO_STATUSES, reference: undefined, loading: true, filtering: false, ready: false, landed: false, error: undefined };
 }
 
 /** Bins read again, each kept as it was where its bytes are: the same object, its row not decoded again. */
@@ -135,7 +143,7 @@ function keptBins(read: ReadonlyMap<string, { roles: StoredBin["roles"]; row: Ui
  */
 export function useAllocationData(value: AllocationValue, day: Date, pickerDays: readonly Date[], choices: string): AllocationData {
     // What was read last, kept by its bytes across reads.
-    const held = useRef<{ bins?: ReadonlyMap<string, StoredBin>; picker?: SortedMap<Date, Status> }>({});
+    const held = useRef<{ bins?: ReadonlyMap<string, StoredBin>; picker?: SortedMap<Date, Status>; reference?: ReferenceRows }>({});
     // The day and the bins' choices the last complete read was made under.
     const landed = useRef<{ day: Date; choices: string } | undefined>(undefined);
     const read = useCallback(() => {
@@ -172,7 +180,15 @@ export function useAllocationData(value: AllocationValue, day: Date, pickerDays:
                 }
             }
         }
-        return { bins, period, picker, loading };
+        // The reference record the app's check reads (#1551): its rows overlapping the day — every one, whatever the slice
+        // holds — each decoded once.
+        let reference: ReferenceRows | undefined;
+        if (value.reference.type === "some") {
+            const got = value.reference.value.rows(day, next);
+            if (got.type === "some") reference = keptReference(got.value, held.current.reference, referenceDecoder(value.reference.value.rowType));
+            else loading = true;
+        }
+        return { bins, period, picker, reference, loading };
     }, [value, day, pickerDays]);
     const { result } = useTrackedEvaluation(read);
     // Once the day has landed, the days either side are read ahead (#1398, CL7) — in a read of their own, so a page of
@@ -183,19 +199,22 @@ export function useAllocationData(value: AllocationValue, day: Date, pickerDays:
         value.bin.rows(from, new Date(from.getTime() + DAY));
         // Its period's row, the day's or its week's (#1550): a day of the same week reads the read in hand.
         if (value.periods.type === "some") { const own = periodSpan(value, from); value.periods.value.rows(own.from, own.to); }
+        if (value.reference.type === "some") value.reference.value.rows(from, new Date(from.getTime() + DAY));
     }, [value]);
     useReadAhead(result.ok && !result.value.loading && result.value.bins !== undefined, neighbours, readNext);
     // The last complete read of a day: a newer one in flight keeps it, so a page landing redraws nothing until the read is whole.
     const complete = useRef<AllocationData | undefined>(undefined);
     if (result.ok) {
         const got = result.value;
-        held.current = { ...(got.bins === undefined ? {} : { bins: got.bins }), ...(Object.is(got.picker, NO_STATUSES) ? {} : { picker: got.picker }) };
+        held.current = { ...(got.bins === undefined ? {} : { bins: got.bins }), ...(Object.is(got.picker, NO_STATUSES) ? {} : { picker: got.picker }),
+            ...(got.reference === undefined ? {} : { reference: got.reference }) };
         const was = complete.current;
         if (!got.loading && got.bins !== undefined) {
             landed.current = { day, choices };
-            if (was === undefined || compareDate(was.day, day) !== 0 || !Object.is(was.bins, got.bins)
+            if (was === undefined || compareDate(was.day, day) !== 0 || !Object.is(was.bins, got.bins) || !Object.is(was.reference, got.reference)
                 || !Object.is(was.picker, got.picker) || (was.period === undefined ? got.period !== undefined : got.period === undefined || !sameBytes(was.period, got.period))) {
-                complete.current = { day, bins: got.bins, period: got.period, picker: got.picker, loading: false, filtering: false, ready: true, landed: true, error: undefined };
+                complete.current = { day, bins: got.bins, period: got.period, picker: got.picker, reference: got.reference, loading: false, filtering: false, ready: true, landed: true,
+                    error: undefined };
             }
         }
     }
