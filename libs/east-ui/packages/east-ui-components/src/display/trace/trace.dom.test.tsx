@@ -16,11 +16,12 @@ import { render, cleanup } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
+import { declaredStyle } from "../../testing/styles.js";
 import { EastChakraTrace, type TraceValue } from "./index.js";
 
 afterEach(cleanup);
 
-function traceValue(tracks: { name: string; values: number[] }[]): TraceValue {
+function traceValue(tracks: { name: string; values: number[] }[], options: Partial<TraceValue> = {}): TraceValue {
     return {
         tracks,
         now: none,
@@ -29,6 +30,7 @@ function traceValue(tracks: { name: string; values: number[] }[]): TraceValue {
         scale: none,
         future: none,
         style: none,
+        ...options,
     } as TraceValue;
 }
 
@@ -93,5 +95,42 @@ describe("Trace ragged tracks (#126)", () => {
         expect(grid.children.length).toBe(2 * (3 + 1));
         expect(warn).not.toHaveBeenCalled();
         warn.mockRestore();
+    });
+});
+
+describe("Trace's brand scale on the design system's heat ramp", () => {
+    /** Two tracks with a now-line after four measured steps: `traceBasic`'s. */
+    const tracks = [
+        { name: "A", values: [12, 14, 13, 18, 20, 22] },
+        { name: "B", values: [40, 38, 35, 30, 28, 25] },
+    ];
+    const stepsOf = (container: HTMLElement) => [...gridOf(container).querySelectorAll<HTMLElement>("[title$='measured'], [title$='predicted']")];
+
+    test("a measured step takes one of five equal-width steps of its track's range, a predicted one the ramp's lighter three, for the recipe to fill", () => {
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <EastChakraTrace value={traceValue(tracks, { now: some(4n) })} storageKey="ramp" />
+            </ChakraProvider>,
+        );
+        expect(stepsOf(container).map((s) => [s.textContent, s.getAttribute("data-level"), s.hasAttribute("data-predicted")])).toEqual([
+            ["12", "0", false], ["14", "1", false], ["13", "0", false], ["18", "3", false], ["20", "2", true], ["22", "2", true],
+            ["40", "4", false], ["38", "4", false], ["35", "3", false], ["30", "1", false], ["28", "0", true], ["25", "0", true],
+        ]);
+        // The theme fills them: no fill is set on a step.
+        expect(stepsOf(container).map((s) => declaredStyle(s, "background"))).toEqual(Array.from({ length: 12 }, () => undefined));
+    });
+
+    test("an author's own hue keeps its fills, mixed on each step, and takes no level", () => {
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <EastChakraTrace value={traceValue(tracks, {
+                    now: some(4n),
+                    style: some({ brandColor: some("#123456"), nowLineColor: none, labelWidth: none, plotGutter: none }),
+                })} storageKey="hue" />
+            </ChakraProvider>,
+        );
+        const steps = stepsOf(container);
+        expect(steps.map((s) => s.getAttribute("data-level"))).toEqual(Array.from({ length: 12 }, () => null));
+        expect(steps.every((s) => declaredStyle(s, "background")?.includes("#123456") === true)).toBe(true);
     });
 });

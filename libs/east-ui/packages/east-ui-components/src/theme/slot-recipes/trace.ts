@@ -10,8 +10,9 @@
  * height and font size deliberately track the `chipRail` chip at the same
  * density (15 / 22 / 34 px), so a Trace cell and a ChipRail cell line up when
  * they share a table row. The dynamic parts — the grid's column count, the
- * per-step heat fills, and the now-line position — are set inline by the
- * renderer; everything density- or theme-derived lives here.
+ * now-line position, and the fills of an author's own hue or of the diverging
+ * and categorical scales — are set inline by the renderer; everything density-
+ * or theme-derived lives here, the brand scale's fills among it.
  *
  * @packageDocumentation
  */
@@ -68,6 +69,32 @@ export const traceSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderStyle: "solid",
             borderColor: "transparent",
+            // The brand scale's step on the design system's heat ramp (`data-level`, 0 to 4), its value in the ink the
+            // design system pairs with that step, which reads on it in both themes (charts.md › Sequential ramp).
+            "&[data-level='0']": { background: "heat.1" },
+            "&[data-level='1']": { background: "heat.2" },
+            "&[data-level='2']": { background: "heat.3" },
+            "&[data-level='3']": { background: "heat.4", color: "bg.surface" },
+            "&[data-level='4']": { background: "heat.5", color: "bg.surface" },
+            // A predicted step stands on the ramp's lighter three, where the ink is the same; its edge is the ramp's
+            // last step, which holds its line against each of the three and the paper in both themes, where the step's
+            // own hue on a paler mix of itself did not.
+            "&[data-predicted]": {
+                fontStyle: "italic",
+                "[data-future=ghost] &": { borderStyle: "dashed", borderColor: "brandPressed" },
+                "[data-future=hatch] &": {
+                    borderStyle: "dashed",
+                    borderColor: "brandPressed",
+                    backgroundImage: "repeating-linear-gradient(-45deg, transparent 0 5px, color-mix(in srgb, {colors.brandPressed} 12%, transparent) 5px 6px)",
+                },
+                // Faded, the fill alone pales: the value keeps its ink, where an opacity over the whole step took it
+                // under 4.5:1.
+                "[data-future=fade] &": {
+                    "&[data-level='0']": { background: "color-mix(in oklch, {colors.heat.1} 70%, transparent)" },
+                    "&[data-level='1']": { background: "color-mix(in oklch, {colors.heat.2} 70%, transparent)" },
+                    "&[data-level='2']": { background: "color-mix(in oklch, {colors.heat.3} 70%, transparent)" },
+                },
+            },
         },
         value: {
             position: "relative",

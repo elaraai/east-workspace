@@ -5,9 +5,10 @@
  * Read-only inline heatmap: tracks × steps, value-encoded fills, with a
  * continuous now-line dividing measured steps from predicted ones.
  *
- * The recipe (`theme/slot-recipes/trace.ts`) owns density sizing + static
- * chrome; this renderer computes the dynamic parts — grid column count,
- * per-step heat fill, and the now-line position.
+ * The recipe (`theme/slot-recipes/trace.ts`) owns density sizing, static
+ * chrome and the brand scale's fills; this renderer computes the dynamic parts —
+ * grid column count, each step's level on the ramp (or its fill, in an author's
+ * hue or the diverging and categorical scales), and the now-line position.
  */
 
 import { memo, Fragment, useEffect, useMemo } from "react";
@@ -82,7 +83,12 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     const future = useMemo(() => getSomeorUndefined(value.future)?.type ?? "ghost", [value.future]);
     const axis = useMemo(() => getSomeorUndefined(value.axis), [value.axis]);
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
-    const brandHue = (style ? getSomeorUndefined(style.brandColor) : undefined) ?? "var(--chakra-colors-brand-600)";
+    const ownHue = style ? getSomeorUndefined(style.brandColor) : undefined;
+    const brandHue = ownHue ?? "var(--chakra-colors-brand-600)";
+    // The brand scale in the theme's own hue is the design system's heat ramp, drawn by the recipe from each step's
+    // level, so its values read on their fills in both themes; an author's hue, and the diverging and categorical
+    // scales, mix their fills here.
+    const onRamp = scale === "brand" && ownHue === undefined;
     const nowColor = style ? getSomeorUndefined(style.nowLineColor) : undefined;
     // Optional label-gutter width override (#137) — overrides the density
     // default `--t-stub-w`, which both the grid columns and now-line read.
@@ -166,12 +172,25 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
                             <ChakraBox css={styles.stub} title={track.name}>{track.name}</ChakraBox>
                             {values.map((v, i) => {
                                 const isFuture = now !== undefined && i >= now;
-                                const { fill, edge, hot } = computeFill(v, min, max, mid, scale, hue, isFuture);
-                                const stepStyle: Record<string, string> = { background: fill };
+                                const title = `${axis?.[i] ? `${axis[i]} · ` : ""}${track.name} ${words.tick(v)} · ${isFuture ? "predicted" : "measured"}`;
                                 // Gutter mode drops the grid column gap for exact
                                 // axis alignment; put the inter-cell space back as a
                                 // symmetric margin so the cell centre stays on-track.
-                                if (gutterActive) stepStyle.marginInline = "calc(var(--t-gap) / 2)";
+                                const gap = gutterActive ? { marginInline: "calc(var(--t-gap) / 2)" } : undefined;
+                                if (onRamp) {
+                                    // Five equal-width steps of the track's range, the top one closed; a predicted
+                                    // step on the ramp's lighter three, so it reads paler than a measured one.
+                                    const t = max > min ? (v - min) / (max - min) : 0.5;
+                                    const level = isFuture ? Math.min(2, Math.floor(t * 3)) : Math.min(4, Math.floor(t * 5));
+                                    return (
+                                        <ChakraBox key={`step.${ti}.${i}`} css={styles.step} style={gap} title={title}
+                                            data-level={level} data-predicted={isFuture ? "" : undefined}>
+                                            <ChakraBox as="span" css={styles.value}>{words.tick(v)}</ChakraBox>
+                                        </ChakraBox>
+                                    );
+                                }
+                                const { fill, edge, hot } = computeFill(v, min, max, mid, scale, hue, isFuture);
+                                const stepStyle: Record<string, string> = { background: fill, ...gap };
                                 if (isFuture) {
                                     stepStyle.color = edge;
                                     stepStyle.fontStyle = "italic";
@@ -187,7 +206,6 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
                                 } else if (hot) {
                                     stepStyle.color = "var(--chakra-colors-bg-surface)";
                                 }
-                                const title = `${axis?.[i] ? `${axis[i]} · ` : ""}${track.name} ${words.tick(v)} · ${isFuture ? "predicted" : "measured"}`;
                                 return (
                                     <ChakraBox key={`step.${ti}.${i}`} css={styles.step} style={stepStyle} title={title}>
                                         <ChakraBox as="span" css={styles.value}>{words.tick(v)}</ChakraBox>
