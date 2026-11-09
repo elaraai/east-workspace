@@ -1,0 +1,118 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ *
+ * @vitest-environment jsdom
+ *
+ * A number outside its field's bounds (#1585), over the joinery's pieces on e3
+ * itself: an app's write leaves the window seat at bench 10, past the bench's
+ * most, 9, and the hall door's paint at no coats, under their least, 1. The
+ * window seat's bench cell wears the warn wash a field still missing wears,
+ * saying the bound; the hall door's Details say it under Coats; neither holds
+ * Save. Once the hall door is changed, Issues names it and Coats in the hint's
+ * own words, and Save waits.
+ */
+
+import { expect, test } from "vitest";
+import { fireEvent, waitFor, within } from "@testing-library/react";
+import { East, variant } from "@elaraai/east";
+import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
+import { Record } from "@elaraai/e3-ui/internal";
+import * as ex from "@elaraai/e3-ui/examples/record/record";
+import { act, settle, sheetHarness, slot } from "../sheet/frame/harness.test-utils.js";
+// The Record is an extension: its renderer registers as it loads.
+import "./index.js";
+
+const h = sheetHarness({ modules: { "record/record": ex }, frame: 2000 });
+
+/** The joinery's pieces, each one's bench a number from 1 to 9, and a paint's coats from 1 to 4. */
+const piecesBounded = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const pieces = $.let(Record.bind(ex.recordPieces));
+    return Record({
+        record: pieces,
+        title: "Joinery",
+        noun: { singular: "piece", plural: "pieces" },
+        columns: {
+            name: Record.column.title(ex.Piece, { header: "Piece" }),
+            room: Record.column.text(ex.Piece, { header: "Room" }),
+            bench: Record.column.integer(ex.Piece, { header: "Bench" }),
+        },
+        fields: {
+            bench: Record.field.number({ min: 1n, max: 9n }),
+            finish: Record.field.select({
+                labels: { bare: "Bare", stain: "Stain", paint: "Paint" },
+                cases: { stain: Record.field.text({ label: "Shade" }), paint: { colour: Record.field.text(), coats: Record.field.number({ min: 1n, max: 4n }) } },
+            }),
+        },
+        inspector: true,
+        name: "piecesBounded",
+    });
+})));
+
+/** A piece's cell, by its key and the column's. */
+const cell = (c: HTMLElement, id: string, key: string) =>
+    c.querySelector<HTMLElement>(`[data-record] [data-slot="row"][data-row-id="${id}"] [data-slot="cell"][data-key="${key}"]`)!;
+/** The grid: what takes the keys. */
+const grid = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-record] [role="grid"]')!;
+/** The inspector pane. */
+const pane = (c: HTMLElement) => slot(c, "end")!;
+/** Whether Save waits: its button takes no press. */
+const saveWaits = (c: HTMLElement) => within(slot(c, "toolbar")!).getByRole<HTMLButtonElement>("button", { name: "Save" }).disabled;
+/** The inspector's Issues tab, by its words. */
+const issuesTab = (c: HTMLElement) => within(pane(c)).getByRole("tab", { name: /^Issues/ });
+
+/** Presses an element, as a pointer does. */
+async function press(el: Element) {
+    fireEvent.mouseDown(el, { button: 0 });
+    fireEvent.click(el);
+    await settle();
+}
+
+/** Types a text cell's new value, the ring on it first, committed with ⇥. */
+async function typeInto(c: HTMLElement, id: string, key: string, text: string) {
+    await press(cell(c, id, key));
+    fireEvent.keyDown(grid(c), { key: text[0]! });
+    await settle();
+    const input = await waitFor(() => {
+        const open = cell(c, id, key).querySelector<HTMLInputElement>('[data-slot="editorInput"]');
+        expect(open).not.toBeNull();
+        return open!;
+    });
+    fireEvent.input(input, { target: { value: text } });
+    await settle();
+    fireEvent.keyDown(input, { key: "Tab" });
+    await settle();
+}
+
+test("a stored number outside its bounds is washed and said, holding no Save; changed, Issues names the row and the field in the hint's words and Save waits (#1585)", async () => {
+    const pieces = await h.read(ex.recordPieces);
+    pieces.set("J-103", { ...pieces.get("J-103")!, bench: 10n });
+    pieces.set("J-101", { ...pieces.get("J-101")!, finish: variant("paint", { colour: "Teal", coats: 0n, gloss: variant("matt", null) }) });
+    await h.patch(ex.recordPieces, pieces);
+    const { container } = await h.mount({ fn: piecesBounded }, { storageKey: "record-bounds" });
+    // The window seat's bench, past its most: washed, and saying it.
+    const bench = () => cell(container, "J-103", "bench");
+    expect([bench().hasAttribute("data-bounds"), bench().getAttribute("title")]).toEqual([true, "at most 9"]);
+    expect(cell(container, "J-101", "bench").hasAttribute("data-bounds")).toBe(false);
+    // The hall door's Details: its coats under their least, said under the field.
+    await press(cell(container, "J-101", "room"));
+    const coats = await waitFor(() => {
+        const field = pane(container).querySelector<HTMLElement>('[data-field="finish.paint.coats"]');
+        expect(field).not.toBeNull();
+        return field!;
+    });
+    expect(coats.querySelector("[data-scope=field][data-part=error-text]")?.textContent).toBe("at least 1");
+    expect(issuesTab(container).textContent).toBe("Issues 0");
+    // The stair rail changed: neither stored piece holds Save.
+    await typeInto(container, "J-102", "room", "Stairs, east");
+    expect([saveWaits(container), issuesTab(container).textContent]).toEqual([false, "Issues 0"]);
+    // The hall door changed: Issues names it and its coats, and Save waits.
+    await typeInto(container, "J-101", "room", "Hall, east");
+    expect([saveWaits(container), issuesTab(container).textContent]).toEqual([true, "Issues 1"]);
+    await act(async () => { fireEvent.click(issuesTab(container)); });
+    await settle();
+    const issue = pane(container).querySelector<HTMLElement>("[data-inspector-issue]")!;
+    expect(issue.textContent).toContain("Hall door");
+    expect(issue.textContent).toContain("Coats");
+    expect(issue.textContent).toContain("at least 1");
+});

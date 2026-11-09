@@ -23,7 +23,8 @@
  *     or ticked; a draft row the warn wash at 8%, unchanged on hover. A cell
  *     that steps (a cycle, a toggle, a boolean) `bg.subtle` under the pointer;
  *     a drafted cell `brandTint`; the active cell `bg.subtle` and the inset
- *     focus ring; a new row's empty editable cell the warn wash at 17%. A
+ *     focus ring; a new row's empty editable cell the warn wash at 17%, and so
+ *     any row's number outside its field's bounds. A
  *     conflict not yet chosen: the warn ring inside its cell — active, inside
  *     the brand's 2px at its edge — and a row that is one itself its warn edge.
  *   - Cells: the title 13/500 with neutral initials before it; the chips of a
@@ -233,7 +234,8 @@ export const recordSlotRecipe = defineSlotRecipe({
             "&[data-steps]": { cursor: "pointer", _hover: { background: "bg.subtle" } },
             "&[data-dirty]": { background: "brandTint", _hover: { background: "brandTint" } },
             "&[data-active]": { background: "bg.subtle", boxShadow: "{shadows.focusInset}", _hover: { background: "bg.subtle" } },
-            "&[data-required]": { background: REQUIRED_WASH, _hover: { background: REQUIRED_WASH } },
+            /* …and a number its field's bounds don't hold, whatever row holds it (#1585). */
+            "&[data-required], &[data-bounds]": { background: REQUIRED_WASH, _hover: { background: REQUIRED_WASH } },
             "&[data-still]": { cursor: "default", _hover: { background: "transparent" } },
             /* …but a still pinned cell keeps its row's paper under the pointer: the columns scroll under it. */
             "&[data-pinned][data-still]": { _hover: { background: "inherit" } },

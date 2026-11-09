@@ -584,14 +584,16 @@ export interface TargetIssue {
 
 /**
  * A form's fields' words by their names, as an issue names a field: a field's own spec's label — a variant's, never
- * one of its cases' fields' (#1549) — else, under a nested struct's name, the last of its fields'.
+ * one of its cases' fields' (#1549) — else, under a nested struct's name, the last of its fields'; and a nested field —
+ * a case's among them — by its path joined by ".", as a number its bounds don't hold is named (#1585).
  *
  * @param fields - The form's fields
  * @returns Each name and its words, as a `Map` takes them: a field's own after its nested fields', which it overrides
  */
 function labelsOf(fields: readonly FormField[]): (readonly [string, string])[] {
     const own = (f: FormField) => f.spec.path.length === 1;
-    return [...fields.filter((f) => !own(f)), ...fields.filter(own)].map((f) => [f.spec.path[0]!, f.spec.label] as const);
+    return [...fields.filter((f) => !own(f)), ...fields.filter(own)].flatMap((f) => (own(f) ? [[f.spec.path[0]!, f.spec.label] as const]
+        : [[f.spec.path[0]!, f.spec.label] as const, [f.spec.path.join("."), f.spec.label] as const]));
 }
 
 /**

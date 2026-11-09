@@ -15,7 +15,7 @@
  *   a ticked row are selected; a row holding drafts takes the draft wash;
  *   the ring's cell is active; a cell its drafts changed is tinted until
  *   Apply; a new row's empty cell a person must fill is washed and says so on
- *   hover; a cycle, a toggle or a boolean a person may step lights under the
+ *   hover, as is any row's number its field's bounds don't hold; a cycle, a toggle or a boolean a person may step lights under the
  *   pointer; an owned row, and every row of a read-only Record, takes no
  *   hover. A cell's mark (#1560) draws its words: a note after the value, or
  *   in an empty cell in its place; a lock the design system's Tag, after the
@@ -244,6 +244,8 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
                 // A new row's empty cell a person must fill (ST8) — its field still missing: never an option's, nor a column
                 // from data's — washed, empty, and saying so on hover.
                 const required = changes?.added === true && editable && cellIsBlank(cell) && changes.missing.has(meta.key);
+                // A number its field's bounds don't hold (#1585), whatever row holds it: washed as a missing field is, saying the bound.
+                const bounded = draft?.bounds?.has(meta.key) === true;
                 const issue = cell?.type === "Invalid" ? words.m.issueInvalid({ value: cell.value }) : draft?.issues.get(meta.key);
                 const issueId = `${issuePrefix}-${c}`;
                 const detail = row !== undefined ? cellDetail(meta, row.cells, words) : undefined;
@@ -276,6 +278,7 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
                         data-steps={editable && !owned && stepsInPlace(meta) ? "" : undefined}
                         data-dirty={changes?.dirty.has(meta.key) === true ? "" : undefined}
                         data-required={required ? "" : undefined}
+                        data-bounds={bounded ? "" : undefined}
                         data-first={!lead && c === 0 ? "" : undefined}
                         data-last={c === last ? "" : undefined}
                         data-pinned={pinned && c === 0 ? "" : undefined}

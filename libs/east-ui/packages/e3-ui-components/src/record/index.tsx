@@ -225,6 +225,8 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const cellEditor = useMemo(() => sheetCellEditor(value, words, NO_COLUMN_HIDDEN), [value, words]);
     // With no inspector a title opens nowhere: it edits in its cell, as a text does, and Add opens its editor there.
     const inspector = value.inspector.type === "some";
+    // The inspector's forms: the bounds a row's numbers are held to (#1585).
+    const forms = getSomeorUndefined(value.inspector)?.forms;
     const host = useMemo((): SheetHost => ({
         grid: {
             rowPx, leadPx: readOnly ? 0 : SELECT_PX, leadRun: "check", runStyles: styles, Row: RecordRow, Header: RecordHeader, Empty: RecordEmpty,
@@ -233,7 +235,8 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
         phone,
         onHistory,
         cellEditor,
-    }), [rowPx, readOnly, phone, styles, inspector, onOpen, onHistory, cellEditor]);
+        forms,
+    }), [rowPx, readOnly, phone, styles, inspector, onOpen, onHistory, cellEditor, forms]);
     const noun = useMemo((): RecordNoun => getSomeorUndefined(value.noun) ?? rm.rowNoun(), [value.noun]);
     const title = getSomeorUndefined(value.title);
     const grid = useMemo((): RecordGrid => ({ styles, ticks, groups: value.columnGroups, noun, title, inspector }), [styles, ticks, value.columnGroups, noun, title, inspector]);
