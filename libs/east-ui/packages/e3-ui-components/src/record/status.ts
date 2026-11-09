@@ -13,8 +13,9 @@
  *   Sheet's words;
  * - **else what a step of the history did** — Undo, Redo, Discard and
  *   Apply, each told as it is taken ({@link stepOf}, {@link createRecordStatus}),
- *   and a Duplicate, which the Sheet's notice says nothing of (IN7) — until a
- *   gesture or a notice comes after it;
+ *   an Apply once its batch is read back, as the history bar stops saying it
+ *   reads it, and a Duplicate, which the Sheet's notice says nothing of (IN7) —
+ *   until a gesture or a notice comes after it;
  * - **else how many rows are ticked**, of the rows shown.
  *
  * What an Apply sends and a Discard drops is tallied before the step is taken

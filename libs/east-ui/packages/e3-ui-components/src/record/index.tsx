@@ -188,15 +188,35 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const focused = useCallback((seq: number) => setFocus((was) => (was !== undefined && was.seq === seq ? undefined : was)), []);
     // Each step of the history, told to the status line in the Record's words once it is taken (AD4–AD7): what it
     // will take back or send read before it is taken — after it, the session holds none of it. Discard drops the ticks
-    // with the drafts (AD6); an Apply is told once its batch is written, a refusal saying itself in the banners.
+    // with the drafts (AD6); an Apply is told once its batch is written and read back — while the session reads it
+    // back the history bar says so, and the toolbar says one thing at a time — a refusal saying itself in the banners.
     const fields = useMemo(() => draftChanges(fromEastTypeValue(value.sheet.editing.draftType)), [value.sheet.editing.draftType]);
+    // An Apply's words waiting for its batch to be read back: what stops the wait, as the Record is let go.
+    const reading = useRef<(() => void) | undefined>(undefined);
+    useEffect(() => () => reading.current?.(), []);
     const onHistory = useCallback((action: HistoryAction, session: SheetTransactions) => {
         const step = stepOf(action, session, fields);
         if (step === undefined) return undefined;
         return () => {
-            if (step.id === "applied" && !(session.status === "reconciling" || (session.status === "idle" && session.error === undefined))) return;
-            if (step.id === "discarded") ticks.clear();
-            status.say(step);
+            if (step.id !== "applied") {
+                if (step.id === "discarded") ticks.clear();
+                status.say(step);
+                return;
+            }
+            // Written, the session reads the batch back and leaves it idle; refused, or its outcome unknown, it is never told.
+            const told = (): boolean => {
+                if (session.status === "reconciling") return false;
+                if (session.status === "idle" && session.error === undefined) status.say(step);
+                return true;
+            };
+            if (told()) return;
+            reading.current?.();
+            const stop = session.subscribe(() => {
+                if (!told()) return;
+                stop();
+                if (Object.is(reading.current, stop)) reading.current = undefined;
+            });
+            reading.current = stop;
         };
     }, [fields, ticks, status]);
     // A phone's cell editor (SH10): a cell of the Sheet's kinds edits in the bottom container, its inspector's field at
