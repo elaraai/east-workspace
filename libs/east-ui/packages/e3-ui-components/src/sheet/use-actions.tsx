@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { equalFor } from "@elaraai/east";
+import { StringType, equalFor } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
 import { NULL_CELL, TITLE_KEY, cellText, cellWritable, lineId, resolveMember as resolveRegisterMember, type SheetColumnMeta } from "./model.js";
 import { selectionRect } from "./sheet-state.js";
@@ -23,6 +23,7 @@ import { createActionStore, type SheetActionHost } from "./actions/host.js";
 import { ActionForm, ActionMenu, type ActionOverlayState } from "./actions/ActionOverlay.js";
 import { ActionPanel, type ActionPanelApi } from "./actions/ActionPanel.js";
 import { ActionBar } from "./actions/ActionBar.js";
+import { followRows } from "./items.js";
 import type { DraftEdit } from "./use-editing.js";
 import type { SheetCellValue, SheetRowValue } from "./values.js";
 import type { SheetHost } from "./parts.js";
@@ -35,6 +36,7 @@ import type { SheetEffects } from "./use-effects.js";
 import type { SheetInput } from "./use-input.js";
 
 const cellEqual = equalFor(Sheet.Types.Cell);
+const stringEqual = equalFor(StringType);
 
 /** The dwell before the strip previews the action the pointer rests on, and the grace before it lets it go (P8, N5). */
 const PREVIEW_MS = 120;
@@ -60,10 +62,10 @@ export function useSheetActions(host: SheetHost, sheetDecode: SheetDecode, sheet
     } = sheetDecode;
     const {
         barClosedAt, canEdit, dispatchStore, draftVersion, editingState, recordGesture, rows, session, setBarClosedAt,
-        ui,
+        sourceRows, ui,
     } = sheetSession;
     const { idAt, metaAt, rowAt, rowOf, wireContextFor, writableAt } = sheetBody;
-    const { dispatch } = sheetMachine;
+    const { dispatch, rowSpaceSlots, seenRows } = sheetMachine;
     const { failed, gestureEvents, writeCells } = sheetWrites;
     const { cardRef } = sheetEffects;
     const { actionApi, ringGesture } = sheetInput;
@@ -424,19 +426,29 @@ export function useSheetActions(host: SheetHost, sheetDecode: SheetDecode, sheet
             : <ActionForm key={`${heldOverlay.id}:${actionOverlay.key}:${actionOverlay.case.name}`} state={actionOverlay} registers={registers}
                 consequence={actionConsequence} onTake={onActionTake} onClose={onActionClose} />;
     const rowActions = hasActions ? actionHost : undefined;
+    // The ring's row in a phone's bottom container: where it stands among the rows now. In the render the rows move
+    // under it — a window landing above, another session's row — the machine has not followed them yet, and its place
+    // names whatever row stands there now: the container would draw that row for a render, and the editor open on the
+    // ring's would go and come back without what was typed in it. It is followed here as the machine will follow it: a
+    // row that left keeps its place, as the ring does.
+    const seen = seenRows.current;
+    const ringR = (seen.source === sourceRows ? undefined : followRows(seen.slots, rowSpaceSlots)(ui.sel.r)) ?? ui.sel.r;
     // A phone's action bar (#1479; `Mobile Sheet Spec.md` SH9, R3): the ring's Action cell's actions in the docked strip's
-    // place, opened by a tap on that cell — never on a row's other cells — and ⌄ closed until the ring moves.
+    // place, opened by a tap on that cell — never on a row's other cells — and ⌄ closed until the ring moves to another
+    // cell: the ring's row and column by their identities, which the rows moving under it never changes.
     const ringColumn = columns.list[ui.sel.c];
-    const barClosed = barClosedAt !== undefined && barClosedAt.r === ui.sel.r && barClosedAt.c === ui.sel.c;
+    const ringId = idAt(ringR);
+    const ringAt = ringId === undefined || ringColumn === undefined ? undefined : { id: ringId, key: ringColumn.key };
+    const barClosed = barClosedAt !== undefined && ringAt !== undefined && stringEqual(barClosedAt.id, ringAt.id) && stringEqual(barClosedAt.key, ringAt.key);
     const barKey = phoneFrame && !ui.ringless && ui.selEnd === null && ringColumn?.kind === "action" && !barClosed ? ringColumn.key : undefined;
-    const barRow = barKey !== undefined ? actionAt(ui.sel.r, barKey) : undefined;
+    const barRow = barKey !== undefined ? actionAt(ringR, barKey) : undefined;
     // The bar's head names the step's group too — `WO-1042 · step 20` — as nothing else on a phone's screen may (X5; F17 of the hand test).
     const barHeadOf = (r: number, key: string) => {
         const head = actionHead(r, key);
         const lg = actionAt(r, key)?.lg;
         return lg === undefined || head.name === undefined ? head : { ...head, name: `${lg.row.id} · ${head.name}` };
     };
-    const barHead = barKey !== undefined && barRow !== undefined ? barHeadOf(ui.sel.r, barKey) : undefined;
+    const barHead = barKey !== undefined && barRow !== undefined ? barHeadOf(ringR, barKey) : undefined;
     // The inspector's action field (#1478): the same host and the same command as the grid's.
     const panelApi = useMemo<ActionPanelApi>(() => ({
         take: (r, key, c, value) => actionApi.current?.take(r, key, c, value) ?? false,
@@ -453,9 +465,9 @@ export function useSheetActions(host: SheetHost, sheetDecode: SheetDecode, sheet
             summary={summary?.type === "String" ? summary.value : ""} registers={registers} writable={meta !== undefined && cellWritable(meta, it.row.cells)} />;
     }, [rowAt, allColumns, actionHost, panelApi, registers]);
     const actionBar = barKey === undefined || barRow === undefined || barHead === undefined ? undefined
-        : <ActionBar key={barRow.lg !== undefined ? lineId(barRow.lg.row.id, barRow.lg.key) : barRow.it.row.id} host={actionHost} api={panelApi} r={ui.sel.r} columnKey={barKey}
-            name={barHead.name} title={barHead.title} registers={registers} writable={actionWritable(ui.sel.r, barKey)}
-            summary={ruleText(barRow.it.row, barRow.column.summary) ?? ""} onClose={() => setBarClosedAt({ r: ui.sel.r, c: ui.sel.c })} />;
+        : <ActionBar key={barRow.lg !== undefined ? lineId(barRow.lg.row.id, barRow.lg.key) : barRow.it.row.id} host={actionHost} api={panelApi} r={ringR} columnKey={barKey}
+            name={barHead.name} title={barHead.title} registers={registers} writable={actionWritable(ringR, barKey)}
+            summary={ruleText(barRow.it.row, barRow.column.summary) ?? ""} onClose={() => setBarClosedAt(ringAt)} />;
     // A phone's cell editor (`Mobile Sheet Spec.md` SH10, R9): the ring's cell of every other kind edits in the same
     // bottom container — the inspector's form at touch size, its field alone, the frame's — opened by a press on the cell
     // and ⌄ closed as the bar is. A cell that takes no edit opens nothing (SH10.2), a locked one too (#1560); a sheet read only opens nothing; nor,
@@ -469,14 +481,13 @@ export function useSheetActions(host: SheetHost, sheetDecode: SheetDecode, sheet
         const named = [head.name, head.title].filter((t): t is string => t !== undefined && t !== "");
         return named.length === 0 ? undefined : named.join(" · ");
     };
-    const ringMeta = metaAt(ui.sel.r, ui.sel.c);
-    const ringRow = rowAt(ui.sel.r);
-    const ringR = ui.sel.r;
     const ringC = ui.sel.c;
+    const ringMeta = metaAt(ringR, ringC);
+    const ringRow = rowAt(ringR);
     const cellEditor = !phoneFrame || hostEditor === undefined || ui.ringless || ui.selEnd !== null || barClosed || readOnly || ringMeta === undefined
         || !writableAt(ringR, ringC) || ringMeta.kind === "action" || ringMeta.kind === "stamped" || (hostGrid !== undefined && (stepsInPlace(ringMeta) || editsOutOfPlace(ringMeta, hostGrid)))
-        || (ringRow?.kind !== "real" && ringRow?.kind !== "group") ? undefined
-        : hostEditor({ r: ringR, columnKey: ringMeta.key, band: ringRow.kind === "group", name: rowActionName(ringR), onClose: () => setBarClosedAt({ r: ringR, c: ringC }) });
+        || (ringRow?.kind !== "real" && ringRow?.kind !== "group") || ringAt === undefined ? undefined
+        : hostEditor({ r: ringR, id: ringAt.id, columnKey: ringMeta.key, band: ringRow.kind === "group", name: rowActionName(ringR), onClose: () => setBarClosedAt(ringAt) });
     return { actionBar, actionOverlayNode, cellEditor, drawAction, rowActions };
 }
 

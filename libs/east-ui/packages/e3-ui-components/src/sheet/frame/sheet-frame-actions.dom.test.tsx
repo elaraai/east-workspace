@@ -360,6 +360,42 @@ test("on a phone a tap on Done edits its time in the bottom container: digits fi
     } finally { restore(); }
 });
 
+/** The orders as another session leaves them: one more, which sorts first — or, given `false`, without it. */
+async function orderFirst(add: boolean) {
+    const orders = new Map(await h.read(ex.sheetWorkOrders));
+    if (add) orders.set("WO-1000", { id: "WO-1000", name: "Base plate", status: "in_progress", steps: [{ op: "10", step: "Saw blank", plan: 4n, good: none, done: none, action: none }] });
+    else orders.delete("WO-1000");
+    await h.patch(ex.sheetWorkOrders, orders);
+}
+
+test("on a phone the bottom container stays with its row as another session's order moves the rows under it: the same editor, its steps on its own row, and ⌄ closed stays closed (SH10)", async () => {
+    const restore = touchFrame(390);
+    try {
+        const { container } = await h.mount(ex.sheetActionsWorkOrders);
+        fireEvent.mouseDown(lineCell(container, "WO-1042", "1", "good"), { button: 0 });
+        await settle();
+        const editor = cellEditor(container)!;
+        const more = editor.querySelector('[data-cell-step="more"]')!;
+        const goodText = () => lineCell(container, "WO-1042", "1", "good").textContent;
+        await press(more);
+        expect(goodText()).toBe("1");
+        // Its band and its line land above: every row moves down under the open editor, which is not drawn again.
+        await orderFirst(true);
+        expect(slot(container, "main")!.querySelector("[data-band-row]")?.getAttribute("data-row-id")).toBe("WO-1000");
+        expect(cellEditor(container)).toBe(editor);
+        expect(editor.querySelector('[data-cell-step="more"]')).toBe(more);
+        await press(more);
+        expect(goodText()).toBe("2");
+        expect(lineCell(container, "WO-1000", "0", "good").textContent).toBe("");
+        // ⌄ closed, it stays closed as the rows move back up under the ring.
+        await press(cellEditor(container)!.querySelector("[data-cell-editor-close]")!);
+        expect(cellEditor(container)).toBeNull();
+        await orderFirst(false);
+        expect(slot(container, "main")!.querySelector("[data-band-row]")?.getAttribute("data-row-id")).toBe("WO-1042");
+        expect(cellEditor(container)).toBeNull();
+    } finally { restore(); }
+});
+
 /** Opens WO-1042 step 20's Report… form from its ▾, and waits for its focus. */
 async function openReport(container: HTMLElement) {
     await press(lineCell(container, "WO-1042", "1", "action").querySelector('[data-slot="actionMore"]')!);

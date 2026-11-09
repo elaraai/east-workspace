@@ -962,7 +962,9 @@ export function sheetCellEditor(value: SheetInspectorValue, words: SheetWords, h
         const form = at.band ? getSomeorUndefined(pane.forms.group) : pane.forms.row;
         const field = form?.fields.find((f) => { const key = getSomeorUndefined(f.column); return key !== undefined && stringEqual(key, at.columnKey); });
         if (form === undefined || field === undefined || field.spec.editor.type === "readonly") return undefined;
-        return <SheetCellEditor key={`${at.r}\u001f${at.columnKey}`} value={value} words={words} hidden={hidden} at={at} form={form} field={field} noun={noun} />;
+        // Its row's by its id, never its place: the rows moving under it — a window landing above, another session's
+        // row — never draw it afresh, and what is typed in it stays.
+        return <SheetCellEditor key={`${at.id}\u001f${at.columnKey}`} value={value} words={words} hidden={hidden} at={at} form={form} field={field} noun={noun} />;
     };
 }
 

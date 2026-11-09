@@ -105,8 +105,9 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     const ui = store.ui;
     const folds = ui.folds;
     // A phone's bottom container — its action bar or its cell editor — ⌄ closed at a cell (SH9, SH10): it stays closed
-    // there until a press on a cell, that one or another.
-    const [barClosedAt, setBarClosedAt] = useState<{ r: number; c: number } | undefined>(undefined);
+    // there until a press on a cell, that one or another. The cell is held by its row's id and its column's key, so the
+    // rows moving under it never reopens it.
+    const [barClosedAt, setBarClosedAt] = useState<{ id: string; key: string } | undefined>(undefined);
     const foldedOf = useCallback((row: SheetRowValue): boolean => folds.get(row.id) ?? getSomeorUndefined(row.band)?.folded ?? false, [folds]);
     // A line's sub rows fold under its id like a group under its own: `false` open, `true` closed, absent untouched.
     const subRowsOpenOf = useCallback((lineKey: string): boolean | undefined => { const f = folds.get(lineKey); return f === undefined ? undefined : !f; }, [folds]);

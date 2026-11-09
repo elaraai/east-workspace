@@ -434,6 +434,8 @@ export interface SheetGridHost {
 export interface SheetCellEditorAt {
     /** Its row-space row: a row, a line or a band. */
     r: number;
+    /** Its row's id — a line's, a band's group's: what the editor stays with while the rows move under it. */
+    id: string;
     /** Its column's key — on a band, its band cell's. */
     columnKey: string;
     /** On a group's band: its group's form. */
