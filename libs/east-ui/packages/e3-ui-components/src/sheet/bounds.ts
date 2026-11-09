@@ -20,6 +20,7 @@ import { StringType, equalFor, isVariant, type ValueTypeOf } from "@elaraai/east
 import type { SheetFormsType } from "@elaraai/e3-ui/internal";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import { fieldBreaches, getSomeorUndefined, type FieldBreach } from "@elaraai/east-ui-components";
+import { isBounded } from "../shared/bounds.js";
 
 /** The inspector's forms, as the payload carries them. */
 export type SheetForms = ValueTypeOf<typeof SheetFormsType>;
@@ -55,8 +56,7 @@ export interface SheetBreach {
 
 /** A form's numbers held to a least or a most; `undefined` where it holds none. */
 function boundedOf(form: Form | undefined): BoundedForm | undefined {
-    const fields = form?.fields.filter((field) => field.spec.editor.type === "number"
-        && (getSomeorUndefined(field.spec.editor.value.min) !== undefined || getSomeorUndefined(field.spec.editor.value.max) !== undefined)) ?? [];
+    const fields = form?.fields.filter((field) => isBounded(field.spec)) ?? [];
     if (fields.length === 0) return undefined;
     return {
         specs: fields.map((field) => field.spec),

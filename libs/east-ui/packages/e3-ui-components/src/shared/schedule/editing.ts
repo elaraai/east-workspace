@@ -18,12 +18,13 @@ import {
 } from "@elaraai/east";
 import type { ScheduleKindType, ScheduleItemType, ScheduleDraftsType, ScheduleGestureType, ScheduleReadType } from "@elaraai/e3-ui/internal";
 import {
-    EntryRefType, historyKeyOf, useEditHistory, useTrackedEvaluation,
+    EntryRefType, fieldBreachIssue, fieldBreaches, historyKeyOf, useEditHistory, useTrackedEvaluation,
     type EditHistory, type EditHistoryJoined, type EditHistoryPaged, type EditHistoryPart, type EditHistorySource, type EditSession,
     type EntryVersion, type Origin,
 } from "@elaraai/east-ui-components";
-import { wholeEntryReadiness, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
-import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
+import { boundedReadiness, wholeEntryReadiness, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
+import type { FieldSpecValue, RecordSliceBindType } from "@elaraai/east-ui/internal";
+import { isBounded } from "../bounds.js";
 
 /** The common event projection decoded from Schedule. */
 type Item = ValueTypeOf<typeof ScheduleItemType>;
@@ -128,6 +129,11 @@ export interface ScheduleEditingRecord {
     readonly entries: ValueTypeOf<typeof ScheduleKindType>["entries"];
     /** The app's check over its drafted rows, which holds Save, naming the row; none unless given. */
     readonly ready?: ValueTypeOf<typeof ScheduleKindType>["ready"] | undefined;
+    /**
+     * Its row's form, as its builder's inspector draws it (#1585): a changed row's number outside its field's bounds
+     * holds Save as the app's check does, naming the row and the field. None unless given.
+     */
+    readonly fields?: readonly FieldSpecValue[] | undefined;
 }
 
 /**
@@ -279,6 +285,8 @@ interface EditedPart<I extends Item> {
     readonly entries: ScheduleEditingKind<I>["entries"];
     /** The author's check over its drafts: a kind's. */
     readonly ready: ScheduleEditingKind<I>["ready"];
+    /** Its row's form: its numbers held to bounds (#1585). */
+    readonly fields: readonly FieldSpecValue[];
     /** The event kind; `undefined` for a record a builder writes beside its kinds. */
     readonly kind: ScheduleEditingKind<I> | undefined;
     /** Its rows as its builder's own reads hold them. */
@@ -313,6 +321,8 @@ const NO_RANGE: ScheduleRange = { from: new Date(0), to: new Date(0) };
 const NO_LAST: ReadonlyMap<string, option<option<string>>> = new Map();
 /** A builder that writes no record beside its kinds. */
 const NO_RECORDS: readonly ScheduleEditingRecord[] = [];
+/** A record given no form. */
+const NO_FIELDS: readonly FieldSpecValue[] = [];
 
 const compareString = compareFor(StringType);
 const compareInteger = compareFor(IntegerType);
@@ -358,9 +368,10 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
     heldRef.current = cellRows;
     // Each kind, then each record: a session each, in that order.
     const parts = useMemo((): EditedPart<I>[] => [
-        ...kinds.map((kind) => ({ key: kind.key, name: kind.name, editing: kind.editing, entries: kind.entries, ready: kind.ready, kind, read: reads?.[kind.key] })),
+        ...kinds.map((kind) => ({ key: kind.key, name: kind.name, editing: kind.editing, entries: kind.entries, ready: kind.ready, fields: kind.fields, kind,
+            read: reads?.[kind.key] })),
         ...records.map((record) => ({ key: record.key, name: record.name, editing: record.editing, entries: record.entries, ready: record.ready ?? none,
-            kind: undefined, read: reads?.[record.key] })),
+            fields: record.fields ?? NO_FIELDS, kind: undefined, read: reads?.[record.key] })),
     ], [kinds, records, reads]);
     const codecs = useMemo(() => parts.map((kind): KindCodecs => {
         const entryType = fromEastTypeValue(kind.editing.entryType) as EastType;
@@ -400,10 +411,16 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
             : [{ start: roles.start, end: roles.end, ...(roles.withTimes.length === 0 ? {} : { with: roles.withTimes }) }];
         const together = roles !== undefined && roles.quantity.type === "some" && roles.parts.type === "some"
             ? [{ lead: roles.quantity.value, with: [roles.parts.value], label: quantityLabel }] : undefined;
-        const ready = check === undefined ? undefined : wholeEntryReadiness(check, () => historyRef.current?.session(key)?.originals, {
+        const originals = () => historyRef.current?.session(key)?.originals;
+        const app = check === undefined ? undefined : wholeEntryReadiness(check, originals, {
             encode: encodeBeast2For(entryType) as (value: unknown) => Uint8Array,
             equal: equalFor(entryType) as (a: unknown, b: unknown) => boolean,
         });
+        // A changed row's number outside its field's bounds holds Save as the app's check does, naming the row and the
+        // field (#1585) — the form's own check and words.
+        const bounded = kind.fields.filter(isBounded);
+        const ready = bounded.length === 0 ? app : boundedReadiness(fromEastTypeValue(kind.editing.draftType) as EastType,
+            (id, held) => fieldBreaches(bounded, held).map((breach) => fieldBreachIssue(breach, { entry: id })), originals, app);
         if (kind.entries.type !== "some") return { editing, ready, prepare, wireType: EntryRefType, ranges, together };
         const seam = kind.entries.value;
         const { decodeRow, keyOf } = codecs[i]!;

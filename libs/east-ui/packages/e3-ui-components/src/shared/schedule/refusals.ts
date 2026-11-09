@@ -45,10 +45,11 @@ export function scheduleRefusals(sessions: readonly ScheduleKindSession[]): Sche
 }
 
 /**
- * A refusal in words: the field it names by its form's label — or, for one no
- * form draws (a role the builder draws itself), its name spelled out — then
- * the app's message: `Cost centre: Choose the cost centre`. A refusal naming
- * no field is its message alone.
+ * A refusal in words: the field it names by its form's label — a nested
+ * field, a case's among them, by its path joined by "." (#1585) — or, for one
+ * no form draws (a role the builder draws itself), its name spelled out —
+ * then the app's message: `Cost centre: Choose the cost centre`. A refusal
+ * naming no field is its message alone.
  *
  * @param issue - The refusal's issue
  * @param specs - The entry's form, whose labels name its fields
@@ -57,6 +58,6 @@ export function scheduleRefusals(sessions: readonly ScheduleKindSession[]): Sche
 export function refusalText(issue: EditIssue, specs: readonly FieldSpecValue[]): string {
     if (issue.field.type !== "some") return issue.message;
     const field = issue.field.value;
-    const spec = specs.find((s) => s.path.length === 1 && stringEqual(s.path[0]!, field));
+    const spec = specs.find((s) => stringEqual(s.path.join("."), field));
     return `${spec?.label ?? spellOut(field)}: ${issue.message}`;
 }
