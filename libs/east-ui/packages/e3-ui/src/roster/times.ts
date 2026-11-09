@@ -71,7 +71,7 @@ export const rosterShiftStart = East.function([DateTimeType, RosterShiftType], D
  *   `start`; `elsewhere` for a duty whose day falls in another week; `unplaced`, with the issue that lists it, for a
  *   duty of this week whose shift or group isn't configured, or that names no person and no agency; a duty in no group,
  *   of a kind whose `group` is an `Option<String>` field, is placed in no group (#1548)
- * @remarks The duty kind's resource names the `people` slot for a person and the `agencies` slot for an agency's request; a kind with no `position` role holds none, `""`. A duty of a shift not configured has no shift start to be nearest: its day is the UTC day it starts.
+ * @remarks The duty kind's resource names the `people` slot for a person and the `agencies` slot for an agency's request; a kind with no `position` role holds none, `""`. A duty of a shift not configured has no shift start to be nearest: its day is the UTC day it starts. An issue says where its duty is rostered — its group and its shift (`Inbound · Early · the duty names no person and no agency`) — and of a duty in no group its shift alone.
  * @internal
  */
 export function rosterPlacement<R extends EastType>(row: R) {
@@ -87,23 +87,28 @@ export function rosterPlacement<R extends EastType>(row: R) {
         // Its day: its shift's start nearest its own — or, for a shift not configured, the UTC day it starts.
         const day = $.const(known.ifElse(() => dayOf(roles.start, shifts.get(0n).start), () => East.DateTime.roundDownDay(roles.start, 1n)));
         $.if(East.less(day, start).or(() => East.greaterEqual(day, start.addDays(7n))), ($2) => { $2.return(variant("elsewhere", null)); });
-        // Where it is rostered, as far as the Roster knows: what its issue says.
-        const groupText = $.const(roles.group.match({
-            some: (_$2, group) => East.greater(groups.size(), 0n).ifElse(() => groups.get(0n).label, () => group),
-            none: (_$2) => East.value("No group", StringType),
-        }));
+        // A group as its issue names it: its label, or the key no group of the Roster's has.
+        const groupText = $.const(East.function([StringType], StringType, (_$2, group) =>
+            East.greater(groups.size(), 0n).ifElse(() => groups.get(0n).label, () => group)));
         const shiftText = $.const(known.ifElse(() => shifts.get(0n).label, () => roles.shift));
-        // The issue that lists a duty the Roster cannot place: its title, its detail and its flag.
+        // The issue that lists a duty the Roster cannot place: its title, its detail and its flag. It says where the duty is
+        // rostered, as far as the Roster knows: its group, and its shift where configured. A duty in no group stands in none
+        // an issue could name, so its issue names no group, in no word but the app's (#1548).
         const unplaced = $.const(East.function([StringType, StringType, StringType], RosterIssueType, (_$2, title, detail, flag) => ({
             kind: variant("breach", null), tone: variant("danger", null), title, detail,
             slot: none, assignment: some(key), flag: some(flag), fix: none,
         })));
         $.if(known.not(), ($2) => {
-            $2.return(variant("unplaced", unplaced(East.str`Unknown shift · ${roles.shift}`,
-                East.str`${groupText} · this shift isn't configured: the duty is kept as stored`, "unknown shift")));
+            const detail = $2.const(roles.group.match({
+                some: (_$3, group) => East.str`${groupText(group)} · this shift isn't configured: the duty is kept as stored`,
+                none: (_$3) => East.value("This shift isn't configured: the duty is kept as stored", StringType),
+            }));
+            $2.return(variant("unplaced", unplaced(East.str`Unknown shift · ${roles.shift}`, detail, "unknown shift")));
         });
         $.if(grouped.not(), ($2) => {
-            $2.return(variant("unplaced", unplaced(East.str`Unknown group · ${groupText}`,
+            // Only a duty of a group the Roster doesn't know: named by its key.
+            const group = $2.const(roles.group.unwrap("some"));
+            $2.return(variant("unplaced", unplaced(East.str`Unknown group · ${group}`,
                 East.str`${shiftText} · this group isn't configured: the duty is kept as stored`, "unknown group")));
         });
         const who = $.let(none, OptionType(RosterWhoType));
@@ -114,8 +119,8 @@ export function rosterPlacement<R extends EastType>(row: R) {
             },
         });
         $.if(who.hasTag("none"), ($2) => {
-            $2.return(variant("unplaced", unplaced(East.str`No one rostered · ${key}`,
-                East.str`${groupText} · ${shiftText} · the duty names no person and no agency`, "no one")));
+            const where = $2.const(roles.group.match({ some: (_$3, group) => East.str`${groupText(group)} · ${shiftText}`, none: (_$3) => shiftText }));
+            $2.return(variant("unplaced", unplaced(East.str`No one rostered · ${key}`, East.str`${where} · the duty names no person and no agency`, "no one")));
         });
         // Both are UTC midnights: a whole number of days apart.
         const index = $.const(East.Float.roundHalf(start.durationDays(day)), IntegerType);

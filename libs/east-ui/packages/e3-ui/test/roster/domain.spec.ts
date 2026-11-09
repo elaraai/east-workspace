@@ -134,7 +134,9 @@ test("a duty in no group counts in its person's hours and in no slot's coverage,
     const ofN = check(week, context).filter(i => i.assignment.type === "some" && i.assignment.value === "n");
     assert.deepEqual(ofN.map(i => i.flag), [some("double"), some("4h rest")], "double booked, and four hours after the early");
     assert.ok(ofN.every(i => i.slot.type === "none"), "in no slot");
-    assert.equal(ofN[0]!.detail, "No group · Night · on 2 shifts this day");
+    // Its words name its shift alone: no group's word is the app's (#1566), and the check has none of its own.
+    assert.equal(ofN[0]!.detail, "Night · on 2 shifts this day");
+    assert.equal(ofN[1]!.detail, "Night · minimum 10 h since the previous shift");
     // The lead holds Reach truck: a skill in no group is held to every group's, and they hold it.
     const unskilled = new Map(context.people); unskilled.set("lead", { ...unskilled.get("lead")!, skills: new Set<string>() });
     assert.ok(check(week, { ...context, people: unskilled }).some(i => i.assignment.type === "some" && i.assignment.value === "n"

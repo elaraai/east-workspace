@@ -50,7 +50,7 @@ export function rosterRest<R extends EastType>(row: R) {
  * @typeParam R - The app's duty row type
  * @param row - The app's duty row type
  * @returns An East function `(week, context) → Array<Issue>`: issues in day, group and shift order, with actionable fixes — each day's duties in no group after its groups'
- * @remarks Pure East, shared by tasks and the renderer. Rest is confined to this week. Issues explain the roster; they do not automatically block Save or Publish. The pay's codes are the app's: its own `check` reads them (`CheckContext(R)`). Its words print hours as the fit's do (`scheduleNumberText`): `6 h rest`, `7.5 h unfilled`. A duty in no group (#1548) is checked as its person's — double booked, rest, a skill they don't hold, a person no longer in the staff — its issue in no slot; no group has a target, a lead or a trainer to check.
+ * @remarks Pure East, shared by tasks and the renderer. Rest is confined to this week. Issues explain the roster; they do not automatically block Save or Publish. The pay's codes are the app's: its own `check` reads them (`CheckContext(R)`). Its words print hours as the fit's do (`scheduleNumberText`): `6 h rest`, `7.5 h unfilled`. A duty in no group (#1548) is checked as its person's — double booked, rest, a skill they don't hold, a person no longer in the staff — its issue in no slot, and its words naming its shift alone (`Night · on 2 shifts this day`); no group has a target, a lead or a trainer to check.
  */
 export function rosterCheck<R extends EastType>(row: R) {
     const Row = row as EastType;
@@ -81,14 +81,15 @@ export function rosterCheck<R extends EastType>(row: R) {
                     some: (_$2, group) => East.value(some(group.key), OptionType(StringType)),
                     none: (_$2) => East.value(none, OptionType(StringType)),
                 }));
-                const groupText = $.const(place.match({ some: (_$2, group) => group.label, none: (_$2) => East.value("No group", StringType) }));
                 $.for(context.shifts, ($, shift) => {
                     // The slot of the group's shift on the day; none for the duties in no group, which have no slot.
                     const slot = $.const(place.match({
                         some: (_$2, group) => East.value(some({ day, group: group.key, shift: shift.key }), OptionType(RosterSlotType)),
                         none: (_$2) => East.value(none, OptionType(RosterSlotType)),
                     }));
-                    const location = $.const(East.str`${groupText} · ${shift.label}`);
+                    // Where the issues say the duties stand: the group's shift — or, for the duties in no group, their shift alone,
+                    // which names no group the app's words don't (#1548).
+                    const location = $.const(place.match({ some: (_$2, group) => East.str`${group.label} · ${shift.label}`, none: (_$2) => shift.label }));
                     const at = $.const({ day, group: groupKey, shift: shift.key }, RosterPlaceType);
                     const assignments = $.const(week.assignments.filter((_$, a) => East.equal(a.place, at)));
                     $.match(slot, { some: ($, slot) => {

@@ -63,7 +63,8 @@ export function rosterPersonHours<R extends EastType>(row: R) {
  * In order: a person who doesn't hold the need is refused — `Not a lead`
  * (`Associate · not a lead`), `Not a trainer`, `Not skilled` (`doesn't hold
  * Unloading`); one rostered that day is refused, `Rostered` (`rostered on
- * Inbound · Early`), since moving them would leave their own shift short; one
+ * Inbound · Early`, or on a duty in no group yet `rostered on Early`), since
+ * moving them would leave their own shift short; one
  * whose rest before or after the slot's shift falls under the rules' minimum is
  * refused, `Rest too short` (`6 h rest · minimum 10 h`, its measure the rest),
  * the shift run as a new duty would run it, from its start on the slot's day.
@@ -118,12 +119,10 @@ export function rosterFit<R extends EastType>(row: R, words?: { notALead?: Subty
             .and(() => a.who.match({ person: (_$3, key) => East.equal(key, person.key), request: (_$3, _agency) => false }))).toArray((_$2, a) => a));
         $.if(East.greater(thatDay.size(), 0n), ($2) => {
             const held = $2.const(thatDay.get(0n));
-            // Its group, or no group for a duty in none yet (#1548).
-            const where = $2.const(held.place.group.match({ some: (_$3, group) => groups.get(group, () => group), none: (_$3) => East.value("no group", StringType) }));
-            $2.return(variant("refused", {
-                group: "Rostered", reason: East.str`rostered on ${where} · ${labels.get(held.place.shift, () => held.place.shift)}`,
-                measure: variant("none", null),
-            }));
+            // Its group's shift — or, for a duty in no group yet, its shift alone, which names no group the app's words don't (#1548).
+            const shift = $2.const(labels.get(held.place.shift, () => held.place.shift));
+            const where = $2.const(held.place.group.match({ some: (_$3, group) => East.str`${groups.get(group, () => group)} · ${shift}`, none: (_$3) => shift }));
+            $2.return(variant("refused", { group: "Rostered", reason: East.str`rostered on ${where}`, measure: variant("none", null) }));
         });
         // Rest kept, before and after the slot's shift, run as a new duty runs it.
         $.if(shifts.has(slot.shift), ($2) => {

@@ -110,6 +110,22 @@ describe("a duty the Roster cannot place (§5.5, rule 8)", () => {
         assert.equal(place({ ...roles("early", "2028-03-13T06:00:00Z", "2028-03-13T14:00:00Z"), shift: "night-2" }).type, "elsewhere");
     });
 
+    test("its issue says where the duty is rostered: its group's shift — or, for a duty in no group, its shift alone, naming no group (#1548)", () => {
+        const detail = (r: Roles): string => {
+            const unplaced = place(r);
+            if (unplaced.type !== "unplaced") assert.fail(`expected the duty unplaced, and it is ${unplaced.type}`);
+            return unplaced.value.detail;
+        };
+        const grouped = roles("early", "2028-03-06T06:00:00Z", "2028-03-06T14:00:00Z");
+        const loose = roles("early", "2028-03-06T06:00:00Z", "2028-03-06T14:00:00Z", undefined, none);
+        assert.deepEqual([detail({ ...grouped, resource: none }), detail({ ...loose, resource: none })],
+            ["Goods · Early · the duty names no person and no agency", "Early · the duty names no person and no agency"]);
+        assert.deepEqual([detail({ ...grouped, shift: "night-2" }), detail({ ...loose, shift: "night-2" })],
+            ["Goods · this shift isn't configured: the duty is kept as stored", "This shift isn't configured: the duty is kept as stored"]);
+        // A group the Roster doesn't know is the app's key, and its words name it.
+        assert.equal(detail({ ...grouped, group: some("yard") }), "Early · this group isn't configured: the duty is kept as stored");
+    });
+
     test("an agency's request is a request of the agency its case names", () => {
         const request = place({ ...roles("early", "2028-03-06T06:00:00Z", "2028-03-06T14:00:00Z"), resource: some({ kind: "agencies", key: "agency" }) });
         if (request.type !== "placed") assert.fail(`expected the request placed, and it is ${request.type}`);
