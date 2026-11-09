@@ -4,7 +4,8 @@
  * @vitest-environment jsdom
  *
  * The People layout's work requirement (#1568) over a span's coverage — a week's, or a month's weeks: a lane a shift a
- * target of the scope names in any week, in the shifts' order; its days' and its span's hours its slots' summed over the
+ * target of the scope names in any week, with hours needed or rostered on some day (a target needing no hours, none
+ * rostered, is no target), in the shifts' order; its days' and its span's hours its slots' summed over the
  * scope's groups, what each slot is short summed so that no slot's surplus nets another's shortfall (K4); its skill rows
  * in the activities' order; the scope's figures each day, each week and over the span, every one of its slots counted, a
  * shift with no target's too; a month's marks and how far each fills as a cup; a day's bar; the difference a figure
@@ -131,6 +132,89 @@ describe("a scope's work requirement over a month's weeks", () => {
             { target: true, needed: 8, rostered: 4, permanent: 4, agency: 0, requested: 0, short: 4, shortSlots: 1 },
         ]);
         expect(month.total).toEqual({ target: true, needed: 40, rostered: 46, permanent: 42, agency: 0, requested: 4, short: 8, shortSlots: 2 });
+    });
+});
+
+/**
+ * Targets that need no hours, as the Shifts layout's `No work` reads them: Picking's Monday Early needs 8 hours, and none
+ * of Unloading; its Tuesday Early, none of its one skill; the Late's Monday and Tuesday and the Night's Tuesday, none at
+ * all; and nothing is rostered on any of those.
+ */
+const idleRequirements = new SortedMap<Slot, Requirement>([
+    [slot(1, "picking", "early"), target(1n, [["pick", 8], ["unload", 0]])],
+    [slot(2, "picking", "early"), target(1n, [["pick", 0]])],
+    [slot(1, "picking", "late"), target(1n, [])],
+    [slot(2, "picking", "late"), target(1n, [["pick", 0]])],
+    [slot(2, "picking", "night"), target(1n, [])],
+], compareSlot);
+const idleCoverage = new SortedMap<Slot, Coverage>([
+    [slot(1, "picking", "early"), covered(8, 8, [line("pick", 8, 8), line("unload", 0, 0)])],
+    [slot(2, "picking", "early"), covered(0, 0, [line("pick", 0, 0)])],
+    [slot(1, "picking", "late"), covered(0, 0)],
+    [slot(2, "picking", "late"), covered(0, 0, [line("pick", 0, 0)])],
+    [slot(2, "picking", "night"), covered(0, 0)],
+], compareSlot);
+
+describe("a target needing no hours, with none rostered, is no target", () => {
+    const idle = [{ requirements: idleRequirements, coverage: idleCoverage }];
+    const empty = { permanent: 0, agency: 0, fill: 0 };
+    /** One slot on Tuesday's Late: its target needing no hours, the hours given rostered there. */
+    const tuesdayLate = (rostered: number, loose?: LooseHours) => {
+        const days = Array.from({ length: 7 }, (): ReadonlyMap<string, LooseHours> => new Map<string, LooseHours>());
+        if (loose !== undefined) days[2] = new Map([["late", loose]]);
+        return [{
+            requirements: new SortedMap<Slot, Requirement>([[slot(2, "picking", "late"), target(1n, [])]], compareSlot),
+            coverage: new SortedMap<Slot, Coverage>([[slot(2, "picking", "late"), covered(0, rostered)]], compareSlot),
+            loose: days,
+        }];
+    };
+    test("no lane for a shift whose targets need no hours and have none rostered: in a band, and in the block across the groups", () => {
+        expect(demandOf(value, idle, ["picking"]).lanes.map(lane => lane.shift.key)).toEqual(["early"]);
+        expect(demandOf(value, idle, ["inbound", "picking"], true).lanes.map(lane => lane.shift.key)).toEqual(["early"]);
+    });
+    test("a day with no hours of either says no target: its figures a day with no target's, its mark off and its cup empty", () => {
+        const [early] = demandOf(value, idle, ["picking"]).lanes;
+        expect(early!.days[2]).toEqual(NONE);
+        expect(laneMark(early!.days[2]!)).toEqual({ state: "off", difference: 0 });
+        expect(laneCup(early!.days[2]!)).toEqual(empty);
+    });
+    test("the scope's own figures say so too: no target on a day of none, and a target over the week that has one", () => {
+        const scope = demandOf(value, idle, ["picking"]);
+        expect(scope.days[2]).toEqual(NONE);
+        expect(scope.days[1]).toEqual({ target: true, needed: 8, rostered: 8, permanent: 8, agency: 0, requested: 0, short: 0, shortSlots: 0 });
+        expect(scope.total.target).toBe(true);
+        expect(demandOf(value, [{ requirements: idleRequirements, coverage: new SortedMap<Slot, Coverage>([[slot(2, "picking", "night"), covered(0, 0)]], compareSlot) }], ["picking"]).total.target).toBe(false);
+    });
+    test("a skill's day its slots need no hours of, with none assigned, is no skill's: no row for a skill no day needs, and undefined on the day that does not", () => {
+        const [early] = demandOf(value, idle, ["picking"]).lanes;
+        expect(early!.skills.map(skill => skill.skill)).toEqual(["pick"]);
+        expect(early!.skills[0]!.days).toEqual([undefined, { needed: 8, assigned: 8, short: 0 }, undefined, undefined, undefined, undefined, undefined]);
+        expect(early!.skills[0]!.total).toEqual({ needed: 8, assigned: 8, short: 0 });
+    });
+    test("a skill's day its slots need no hours of keeps its row where hours are assigned", () => {
+        const assigned = new SortedMap<Slot, Coverage>([[slot(1, "picking", "early"), covered(8, 8, [line("pick", 8, 8), line("unload", 0, 4)])]], compareSlot);
+        const [early] = demandOf(value, [{ requirements: idleRequirements, coverage: assigned }], ["picking"]).lanes;
+        expect(early!.skills.map(skill => skill.skill)).toEqual(["pick", "unload"]);
+        expect(early!.skills[1]!.days[1]).toEqual({ needed: 0, assigned: 4, short: 0 });
+    });
+    test("a target needing no hours with hours rostered keeps its target and its lane: the hours say what is over", () => {
+        const [late] = demandOf(value, tuesdayLate(4), ["picking"]).lanes;
+        expect(late!.shift.key).toBe("late");
+        expect(late!.days[2]).toEqual({ target: true, needed: 0, rostered: 4, permanent: 4, agency: 0, requested: 0, short: 0, shortSlots: 0 });
+    });
+    test("a duty in no group yet on it keeps it in the block across the groups, and only there", () => {
+        const week = tuesdayLate(0, { permanent: 4, agency: 0, requested: 0 });
+        const [late] = demandOf(value, week, ["picking"], true).lanes;
+        expect(late!.days[2]).toEqual({ target: true, needed: 0, rostered: 4, permanent: 4, agency: 0, requested: 0, short: 0, shortSlots: 0 });
+        expect(demandOf(value, week, ["picking"]).lanes).toEqual([]);
+    });
+    test("each slot answers for itself: a slot with no target rostered beside one needing no hours makes no target of the day", () => {
+        const { lanes, days } = demandOf(value, [{
+            requirements: new SortedMap<Slot, Requirement>([[slot(2, "picking", "late"), target(1n, [])]], compareSlot),
+            coverage: new SortedMap<Slot, Coverage>([[slot(2, "picking", "late"), covered(0, 0)], [slot(2, "inbound", "late"), covered(0, 4)]], compareSlot),
+        }], ["inbound", "picking"]);
+        expect(lanes).toEqual([]);
+        expect(days[2]).toEqual({ ...NONE, rostered: 4, permanent: 4 });
     });
 });
 

@@ -230,11 +230,15 @@ function RosterFrame(props: FrameProps) {
     // cell, column or Details — keeps the selection; another clears it, as another week does.
     const startRef = useRef(start); startRef.current = start;
     const selectedIn = useRef<Date>(start);
-    const select = useCallback((next: Selection | undefined) => {
+    const choose = useCallback((next: Selection | undefined) => {
         const named = selectionWeek(next);
         selectedIn.current = named !== undefined ? new Date(named) : startRef.current;
-        setSelection(next); setTab("details"); if (next !== undefined) panes.current?.reveal("end");
+        setSelection(next); setTab("details");
     }, []);
+    const select = useCallback((next: Selection | undefined) => { choose(next); if (next !== undefined) panes.current?.reveal("end"); }, [choose]);
+    // A press whose whole purpose is to look at what it selects — a phone's lane line — opens the inspector's view, where
+    // a tap that selects leaves main in view (the strip's tab saying what is selected).
+    const inspect = useCallback((next: Selection) => { choose(next); panes.current?.open("end"); }, [choose]);
     const spanKey = `${span.start.getTime()}:${span.weeks.length}`;
     const lastSpan = useRef(spanKey);
     // Another span: its own selection, and no find — a find is its issue's, in the week it was asked of.
@@ -477,7 +481,7 @@ function RosterFrame(props: FrameProps) {
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
         [schedule, scheduleVersion, dutyKind]);
     const viewProps = { value, week, held, start, day: window.day, view: window.view, setView: window.setView, span, weeks: weekStates, openWeek: window.openWeek, opensDay: window.opensDay, opensWeek: window.opensWeek,
-        styles, format, narrow, coverage, spanCoverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read, optimised,
+        styles, format, narrow, coverage, spanCoverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, inspect, commands, drag, onError: setError, read, optimised,
         lit: landing.lit, conflicted, bounded };
     // Search Records (#1398): a person found by their key is selected — in the People layout their row brought into view
     // once the narrowing draws it, and a pick's person given the keyboard there, once the box has let it go: their name

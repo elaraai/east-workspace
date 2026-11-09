@@ -80,6 +80,8 @@ export interface RosterViewsProps {
     /** The duty row type's domain: what a duty unlike the record's is told by. */
     domain: RosterDomain;
     issues: readonly Issue[]; proposals: readonly PlacedProposal[]; selection: Selection | undefined; select: (next: Selection | undefined) => void;
+    /** What selects and opens the inspector's view, where a selection alone leaves main in view on a phone: a phone's lane line's press. */
+    inspect: (next: Selection) => void;
     commands: RosterCommands; drag: RosterDrag; onError: (error: string | undefined) => void;
     /**
      * What the views draw of the week's read (#1398): the week as read; a week not read yet — its dates, people, groups
@@ -154,7 +156,7 @@ interface ViewContext {
     readonly value: RosterValue; readonly week: Week; readonly held: Week; readonly start: Date; readonly day: number;
     readonly styles: RosterStyles; readonly format: Formatters; readonly hours: ReadonlyMap<string, number>; readonly pay: Pay;
     readonly domain: RosterDomain; readonly issues: readonly Issue[]; readonly commands: RosterCommands; readonly drag: RosterDrag;
-    readonly select: (next: Selection | undefined) => void; readonly onError: (error: string | undefined) => void; readonly read: PeriodRead;
+    readonly select: (next: Selection | undefined) => void; readonly inspect: (next: Selection) => void; readonly onError: (error: string | undefined) => void; readonly read: PeriodRead;
     /** The month's weeks (#1406), and what opens one of them in Week. */
     readonly weeks: readonly WeekState[]; readonly openWeek: (week: Date) => void; readonly opensWeek: boolean;
     /** The People layout's display settings (D7): whether a tile shows the shift's hours always, and whether a month's marks carry letters. */
@@ -188,11 +190,11 @@ const NO_BREACH = (): boolean => false;
 
 /** The views' props a chip and a People row read, the same object while each of them holds. */
 function useViewContext(props: RosterViewsProps): ViewContext {
-    const { value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, opensWeek, optimised } = props;
+    const { value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, inspect, onError, read, weeks, openWeek, opensWeek, optimised } = props;
     const tileTimes = value.settings.tileTimes.type, letters = value.settings.letters, lit = props.lit === true;
     const conflicted = props.conflicted ?? NO_CONFLICT, bounded = props.bounded ?? NO_BREACH;
-    return useMemo(() => ({ value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, opensWeek, tileTimes, letters, optimised, lit, conflicted, bounded }),
-        [value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, opensWeek, tileTimes, letters, optimised, lit, conflicted, bounded]);
+    return useMemo(() => ({ value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, inspect, onError, read, weeks, openWeek, opensWeek, tileTimes, letters, optimised, lit, conflicted, bounded }),
+        [value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, inspect, onError, read, weeks, openWeek, opensWeek, tileTimes, letters, optimised, lit, conflicted, bounded]);
 }
 
 /**
@@ -1332,9 +1334,9 @@ function LaneFigures({ ctx, figures: f }: { ctx: ViewContext; figures: DemandFig
  * @param group - The lane's band's group; `undefined` for the one block over every group's
  * @param lane - The lane
  * @param day - The day, from the week's start
- * @returns Whether the day is selected, what it says to a screen reader, and what selects it
+ * @returns Whether the day is selected, what it says to a screen reader, what selects it, and what selects it and opens the inspector's view on it
  */
-function useLaneDay(ctx: ViewContext, group: Group | undefined, lane: DemandLane, day: number): { selected: boolean; label: string; select: () => void } {
+function useLaneDay(ctx: ViewContext, group: Group | undefined, lane: DemandLane, day: number): { selected: boolean; label: string; select: () => void; inspect: () => void } {
     const { format, read, start } = ctx;
     const selection = useContext(SelectionContext);
     const shift = lane.shift.key;
@@ -1344,8 +1346,8 @@ function useLaneDay(ctx: ViewContext, group: Group | undefined, lane: DemandLane
     const when = `${lane.shift.label} · ${format.weekday(new Date(start.getTime() + day * DAY))}${group === undefined ? "" : ` · ${group.label}`}`;
     const label = read.state !== "held" ? when : !f.target ? `${when}: no target`
         : `${when}: ${format.number(f.rostered)} of ${format.number(f.needed)} hours rostered${differenceSaid(format.number, stated(f.rostered, f.needed, f.short))}`;
-    const select = () => ctx.select(slot !== undefined ? { type: "requirement", slot, start: start.getTime() } : { type: "shiftDay", shift, day, start: start.getTime() });
-    return { selected, label, select };
+    const target = (): Selection => slot !== undefined ? { type: "requirement", slot, start: start.getTime() } : { type: "shiftDay", shift, day, start: start.getTime() };
+    return { selected, label, select: () => ctx.select(target()), inspect: () => ctx.inspect(target()) };
 }
 /**
  * What a lane's day shows (A3.3): its figures over its bar, or — none of the day's slots with a target — `no target`, no
@@ -2046,14 +2048,15 @@ function FailedPersonCard({ ctx, read, row, index, rows, measure }: {
 }
 /**
  * A lane's day on a phone's day card (#1568): the shift's swatch and label, then its figures over its bar — or `no
- * target` — one button that selects it as a lane's day in the grid does (A3.8).
+ * target` — one button that selects it as a lane's day in the grid does (A3.8) and, a line being there to look at its
+ * slot, opens the inspector's view on it.
  */
 const LaneDayLine = memo(function LaneDayLine({ ctx, laneKey, group, lane, day }: {
     ctx: ViewContext; laneKey: string; group: Group | undefined; lane: DemandLane; day: number;
 }) {
-    const { selected, label, select } = useLaneDay(ctx, group, lane, day);
+    const { selected, label, inspect } = useLaneDay(ctx, group, lane, day);
     return <chakra.button type="button" css={ctx.styles.demandShift} data-roster-lane-day={`${laneKey}.${day}`} data-roster-lane-shift={lane.shift.key}
-        data-selected={selected ? "" : undefined} aria-pressed={selected} aria-label={label} onClick={select}>
+        data-selected={selected ? "" : undefined} aria-pressed={selected} aria-label={label} onClick={inspect}>
         <Box as="span" css={ctx.styles.laneSwatch} style={fillOf(lane.shift)} />
         <Box as="span" css={ctx.styles.laneLabel}>{lane.shift.label}</Box>
         <LaneDayFigures ctx={ctx} lane={lane} day={day} />

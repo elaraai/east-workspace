@@ -6,8 +6,8 @@
  * The People layout's work requirement by week (#1568, `People Work Requirements` 2a) on e3 itself. Under each group's
  * band: the band's week as the Shifts layout's band says it, and how many of its shifts are short; the eyebrow, headed
  * the vocabulary's word, each day's hours the Shifts layout's band says of that day; a lane a shift the group's targets
- * name, in the shifts' order, each day's hours rostered of needed its slot's as the Shifts layout draws it, `no target`
- * where the slot has none; and the assignment's eyebrow. With no bands, one block at the list's head, a lane's day
+ * give work, in the shifts' order, each day's hours rostered of needed its slot's as the Shifts layout draws it, `no
+ * target` where the slot has none — a target needing no hours, none rostered, being none; and the assignment's eyebrow. With no bands, one block at the list's head, a lane's day
  * opening the shift's day across the groups in the inspector — the sum as the lane says it, each group's slot as the
  * Shifts layout draws it — the day, the lane's week and the sum each stating what its slots are short, never their net
  * (K4). A lane opens to its skill rows and stays open across a remount; Hide requirements takes the
@@ -24,9 +24,9 @@
  * focus on it (A6).
  *
  * On a phone, before each band's people's cards — or with no bands everyone's — the vocabulary's heading and the week's
- * hours over a card a day, its hours and each lane's line as the Shifts layout says them; a line's press opens its slot,
- * or the shift's day across the groups, in the inspector; Hide requirements takes the cards away; while a week is read,
- * each figure is a placeholder.
+ * hours over a card a day, its hours and each lane's line as the Shifts layout says them; a line's press opens the
+ * inspector's view at its slot, or the shift's day across the groups; Hide requirements takes the cards away; while a
+ * week is read, each figure is a placeholder.
  */
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -36,6 +36,7 @@ import type { E3Request } from "../e3-web.test-utils.js";
 import { signed } from "./demand.js";
 import { DAY, rosterDomain, slotKey, weekKey } from "./model.js";
 import { NEXT, START, act, narrow, open, press, rosterHarness, scrollsAsAPageDoes, settle, slot, width, type Choice } from "./harness.test-utils.js";
+import { touchFrame } from "../sheet/frame.test-utils.js";
 
 const h = rosterHarness();
 const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
@@ -125,6 +126,15 @@ async function shiftsLayout(c: HTMLElement, groups: readonly string[], shifts: r
     }
     expect(slots.size).toBe(groups.length * shifts.length * DAYS.length);
     return { slots, days, weeks };
+}
+
+/**
+ * Whether a slot has a target with work to it, as a lane reads one: a target needing hours or with some rostered, by
+ * the Shifts layout's figures. One needing none with none rostered, the Shifts layout's `No work`, is no target.
+ */
+function hasWork(targets: SortedSet<string>, slots: ReadonlyMap<string, { rostered: string; needed: string }>, key: string): boolean {
+    const f = slots.get(key)!;
+    return targets.has(key) && (hoursIn(f.rostered) > 0 || hoursIn(f.needed) > 0);
 }
 
 /**
@@ -296,7 +306,7 @@ async function step(c: HTMLElement, key: "[" | "]") {
 }
 
 describe("the People layout's work requirement by week (#1568)", () => {
-    test("under each band its group's: the band's week and the eyebrow's days as the Shifts layout's bands say them, a lane a shift its targets name, each day its slot's hours as the Shifts layout draws them or `no target`, and the people it lists", async () => {
+    test("under each band its group's: the band's week and the eyebrow's days as the Shifts layout's bands say them, a lane a shift its targets give work, each day its slot's hours as the Shifts layout draws them or `no target`, and the people it lists", async () => {
         scrollsAsAPageDoes();
         const { container: c } = await open(ex.rosterWorkRequirement);
         const targets = await targeted(), shifts = ordered(await h.read(ex.rosterShiftTimes)), groups = ordered(await h.read(ex.rosterTeams));
@@ -318,7 +328,7 @@ describe("the People layout's work requirement by week (#1568)", () => {
         const drawn = await strip(c, `requests:${groups.at(-1)!}`);
         const shown = await shiftsLayout(c, groups, shifts);
         for (const group of groups) {
-            const named = shifts.filter(shift => DAYS.some(d => targets.has(slotKey({ day: BigInt(d), group, shift }))));
+            const named = shifts.filter(shift => DAYS.some(d => hasWork(targets, shown.slots, slotKey({ day: BigInt(d), group, shift }))));
             expect(named.length, group).toBeGreaterThan(0);
             expect([...drawn.lanes.values()].filter(lane => lane.group === group).map(lane => lane.shift), group).toEqual(named);
             // The band: its people, its week as the Shifts layout's band says it, and its shifts short.
@@ -333,8 +343,14 @@ describe("the People layout's work requirement by week (#1568)", () => {
         for (const lane of drawn.lanes.values()) lane.days.forEach((words, d) => {
             const key = slotKey({ day: BigInt(d), group: lane.group!, shift: lane.shift });
             const f = shown.slots.get(key)!;
-            expect(said(words), key).toBe(targets.has(key) ? `${f.rostered} of ${f.needed} hours rostered${differenceWords(hoursIn(f.rostered) - hoursIn(f.needed))}` : "no target");
+            expect(said(words), key).toBe(hasWork(targets, shown.slots, key) ? `${f.rostered} of ${f.needed} hours rostered${differenceWords(hoursIn(f.rostered) - hoursIn(f.needed))}` : "no target");
         });
+        // The week holds a shift whose targets need no hours with none rostered, which the Shifts layout says is `No work`,
+        // so the lanes above are held to leaving it out.
+        expect(groups.some(group => shifts.some(shift => {
+            const keys = DAYS.map(d => slotKey({ day: BigInt(d), group, shift }));
+            return keys.some(key => targets.has(key)) && !keys.some(key => hasWork(targets, shown.slots, key));
+        }))).toBe(true);
     });
 
     test("a band the narrowing leaves one person says `1 person`, and so does its assignment's eyebrow", async () => {
@@ -356,13 +372,13 @@ describe("the People layout's work requirement by week (#1568)", () => {
         const { container: c } = await open(ex.rosterPeopleNoBands);
         const targets = await targeted(), shifts = ordered(await h.read(ex.rosterShiftTimes)), groups = ordered(await h.read(ex.rosterTeams));
         const lanes = () => [...slot(c, "main").querySelectorAll<HTMLElement>("[data-roster-lane]")];
-        const named = shifts.filter(shift => groups.some(group => DAYS.some(d => targets.has(slotKey({ day: BigInt(d), group, shift })))));
+        const shown = await shiftsLayout(c, groups, shifts);
+        await press(toolbar(c).getByRole("radio", { name: "People" }));
+        const named = shifts.filter(shift => groups.some(group => DAYS.some(d => hasWork(targets, shown.slots, slotKey({ day: BigInt(d), group, shift })))));
         expect(named.length).toBeGreaterThan(0);
         expect(lanes().map(lane => lane.getAttribute("data-roster-lane-shift"))).toEqual(named);
         expect(lanes().every(lane => !lane.hasAttribute("data-roster-lane-group"))).toBe(true);
         expect(slot(c, "main").querySelector('[data-index="0"] [data-roster-demand]')).not.toBeNull();
-        const shown = await shiftsLayout(c, groups, shifts);
-        await press(toolbar(c).getByRole("radio", { name: "People" }));
         // What a set of the Shifts layout's slots says: their hours, and what they are short, each slot's own summed (K4).
         const number = new Intl.NumberFormat("en-US").format;
         const hours = (text: string) => Number(text.replace(/,/gu, ""));
@@ -377,7 +393,7 @@ describe("the People layout's work requirement by week (#1568)", () => {
             const lane = lanes().find(el => el.getAttribute("data-roster-lane-shift") === shift)!;
             expect(lane.querySelector("[data-roster-lane-head] [data-roster-lane-difference]")?.textContent, `${shift}'s week`).toBe(signed(number, stated(week)));
             for (const d of DAYS) {
-                const any = groups.some(group => targets.has(slotKey({ day: BigInt(d), group, shift })));
+                const any = groups.some(group => hasWork(targets, shown.slots, slotKey({ day: BigInt(d), group, shift })));
                 if (!any) { expect(said(laneDay(c, shift, d).getAttribute("aria-label")!)).toBe("no target"); continue; }
                 const day = sum(groups.map(group => slotKey({ day: BigInt(d), group, shift })));
                 if (stated(day) !== day.rostered - day.needed) netted.push(`${shift} ${d}`);
@@ -895,14 +911,14 @@ describe("the work requirement on a phone (#1568)", () => {
             expect(block.week, group).toBe(`${rostered} / ${needed} h`);
             expect(block.days.map(day => day.said), group).toEqual(shown.days.get(group)!.map(f => `${f.rostered} / ${f.needed} h`));
             // A line a shift the group's targets name, in the shifts' order, each its slot's hours as the Shifts layout draws them.
-            const named = shifts.filter(shift => DAYS.some(d => targets.has(slotKey({ day: BigInt(d), group, shift }))));
+            const named = shifts.filter(shift => DAYS.some(d => hasWork(targets, shown.slots, slotKey({ day: BigInt(d), group, shift }))));
             expect(named.length, group).toBeGreaterThan(0);
             block.days.forEach((day, d) => {
                 expect(day.lines.map(line => line.shift), `${group} ${d}`).toEqual(named);
                 for (const line of day.lines) {
                     const key = slotKey({ day: BigInt(d), group, shift: line.shift });
                     const f = shown.slots.get(key)!;
-                    expect(line.said, key).toBe(targets.has(key) ? `${f.rostered} of ${f.needed} hours rostered${differenceWords(hoursIn(f.rostered) - hoursIn(f.needed))}` : "no target");
+                    expect(line.said, key).toBe(hasWork(targets, shown.slots, key) ? `${f.rostered} of ${f.needed} hours rostered${differenceWords(hoursIn(f.rostered) - hoursIn(f.needed))}` : "no target");
                 }
             });
             const people = [...staff.values()].filter(person => person.team === group).length;
@@ -926,17 +942,19 @@ describe("the work requirement on a phone (#1568)", () => {
     test("with no bands one block of day cards heads everyone's cards, a line a shift any group's target names; a line's press opens the shift's day across the groups, the sum as the line says it; Hide requirements takes the cards away and Show brings them back", async () => {
         const { container: c } = await open(ex.rosterPeopleNoBands);
         const targets = await targeted(), shifts = ordered(await h.read(ex.rosterShiftTimes)), groups = ordered(await h.read(ex.rosterTeams));
+        const shown = await shiftsLayout(c, groups, shifts);
+        await press(toolbar(c).getByRole("radio", { name: "People" }));
         await width(390);
         const main = () => slot(c, "main");
         expect(main().querySelector('[data-index="0"] [data-roster-demand-cards]')).not.toBeNull();
         const days = [...main().querySelectorAll<HTMLElement>("[data-roster-demand-card]")];
         expect(days.length).toBe(7);
-        const named = shifts.filter(shift => groups.some(group => DAYS.some(d => targets.has(slotKey({ day: BigInt(d), group, shift })))));
+        const named = shifts.filter(shift => groups.some(group => DAYS.some(d => hasWork(targets, shown.slots, slotKey({ day: BigInt(d), group, shift })))));
         expect(named.length).toBeGreaterThan(0);
         for (const card of days) expect([...card.querySelectorAll("[data-roster-lane-day]")].map(el => el.getAttribute("data-roster-lane-shift"))).toEqual(named);
         const lineOf = (shift: string, d: number) => main().querySelectorAll<HTMLElement>("[data-roster-demand-card]")[d]!.querySelector<HTMLElement>(`[data-roster-lane-shift="${shift}"]`)!;
         const shift = named[0]!;
-        const d = DAYS.find(day => groups.some(group => targets.has(slotKey({ day: BigInt(day), group, shift }))))!;
+        const d = DAYS.find(day => groups.some(group => hasWork(targets, shown.slots, slotKey({ day: BigInt(day), group, shift }))))!;
         await press(lineOf(shift, d));
         expect(lineOf(shift, d).getAttribute("aria-pressed")).toBe("true");
         const across = await waitFor(() => { const el = slot(c, "end").querySelector<HTMLElement>('[data-roster-shift-day="across"]'); expect(el).not.toBeNull(); return el!; });
@@ -947,6 +965,29 @@ describe("the work requirement on a phone (#1568)", () => {
         expect(main().querySelector("[data-roster-person-card]")).not.toBeNull();
         await display(c, "Show requirements");
         expect(main().querySelector('[data-index="0"] [data-roster-demand-cards]')).not.toBeNull();
+    });
+
+    test("in a phone's frame a line's press opens the inspector's view at its slot, where a selection alone leaves main in view: the strip's tab says it is open, the view shows the slot's hours as the line says them, and a person's card's head selects and leaves it shut", async () => {
+        const restore = touchFrame(390, { builder: true });
+        try {
+            const { container: c } = await open(ex.rosterWorkRequirement);
+            await width(390);
+            const tab = () => c.querySelector('[data-pane-tab="end"]');
+            expect(tab()?.getAttribute("aria-selected")).toBe("false");
+            // A person's card's head is a selection: the tab says what is selected and the view stays shut.
+            const person = slot(c, "main").querySelector<HTMLElement>("[data-roster-person-card] [data-roster-person-head]");
+            if (person !== null) {
+                await press(person);
+                expect(tab()?.getAttribute("aria-selected")).toBe("false");
+            }
+            const line = [...slot(c, "main").querySelectorAll<HTMLElement>("[data-roster-demand-cards] [data-roster-lane-day]")].find(el => said(el.getAttribute("aria-label")!) !== "no target")!;
+            await press(line);
+            expect(line.getAttribute("aria-pressed")).toBe("true");
+            await waitFor(() => expect(tab()?.getAttribute("aria-selected")).toBe("true"));
+            const view = c.querySelector<HTMLElement>("[data-frame-drawer][data-open]")!;
+            expect(view).not.toBeNull();
+            await waitFor(() => expect(figuresOf(view)).toEqual(laneFigures(said(line.getAttribute("aria-label")!))));
+        } finally { restore(); }
     });
 
     test("while a week is read each of the cards' figures is a placeholder — the week's, each day's and each line's — its lines the last week read's; read, its figures land in place", async () => {

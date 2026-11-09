@@ -1260,8 +1260,9 @@ reused while East says the week is the same (`model.ts`' `RosterSpanCoverage`),
 the week the inspector reads its own coverage.
 Under each open band, or with `peopleBands={false}` one block over every group
 at the list's head: the eyebrow, headed the vocabulary's `demand`, each day's hours
-rostered of needed; a lane a shift a target of the scope names in the week, in
-the shifts' order, each day's figures over a bar in the coverage marks — `no
+rostered of needed; a lane a shift with hours needed or rostered on some day of
+the week (a target needing no hours, none rostered, counts as none, as the
+Shifts layout's `No work` does: `demand.ts`' `figuresOf`), in the shifts' order, each day's figures over a bar in the coverage marks — `no
 target` where none of the day's slots has one — its name cell the disclosure of
 its skill rows, kept open under the Roster's surface as the bands' folds are
 (`open-lanes`); then `Assignment · n people`. A lane's day's label — and by
@@ -1273,7 +1274,8 @@ by its kind and its parts as East prints them (`demand:`, `lane:`, `skill:`,
 `assign:`). A lane's day selects its slot, the band's group's, or with no bands
 the shift's day across the groups (`Selection`'s `shiftDay`), which the
 inspector draws as their sum (`demand.ts`' `summedCoverage`) above each group's
-slot. The band says the people it lists and the week's hours in the Shifts
+slot; a phone's day card's line selects it and opens the inspector's view on it
+(`views.tsx`' `inspect`), where any other selection leaves main in view. The band says the people it lists and the week's hours in the Shifts
 band's words, with how many of its shifts are short. The eyebrows stand whenever
 requirements are on and the Roster has targets, a week naming none drawing no
 lane, so the list's first row never changes as a week lands — rows landing
