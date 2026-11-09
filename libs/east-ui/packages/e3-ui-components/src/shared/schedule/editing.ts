@@ -154,6 +154,8 @@ export interface ScheduleKindSession {
     readonly key: string;
     /** Its session. */
     readonly session: EditSession<ScheduleEntryRef>;
+    /** Its row's form, as its builder's inspector draws it: what its issues name a field by (#1585). */
+    readonly fields: readonly FieldSpecValue[];
 }
 
 /** What {@link useScheduleEditing} hands the canvas. */
@@ -474,7 +476,7 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
     }, [lastRead]);
     const sessions = useMemo(() => parts.flatMap((kind, i): ScheduleKindSession[] => {
         const session = history.session(keys[i]!);
-        return session === undefined ? [] : [{ kind: kind.key, key: keys[i]!, session }];
+        return session === undefined ? [] : [{ kind: kind.key, key: keys[i]!, session, fields: kind.fields }];
         // The history holds the kinds' sessions once it is synced: its version says so.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }), [parts, keys, history, version]);

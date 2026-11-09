@@ -569,7 +569,7 @@ const checkedRacks = { fn: East.function([], UIComponentType, (_$) => Reactive.R
     });
 }))) };
 
-test("the app's check refusing a drafted row blocks in Issues, naming its field, and selects the row's item", async () => {
+test("the app's check refusing a drafted row blocks in Issues, naming its field by its form's label, and selects the row's item", async () => {
     const { container } = await open(checkedRacks);
     await tap(canvasOf(container), CAM, 9.6, 2.9);
     await retype(container, "row", "owner", "");
@@ -577,7 +577,7 @@ test("the app's check refusing a drafted row blocks in Issues, naming its field,
     await act(async () => { fireEvent.keyDown(window, { key: "Escape" }); });
     await settle();
     await openTab(container, "Issues");
-    expect(issueRows(container)).toEqual([["Rack · A03", "owner: A rack is let to someone", "invalid"]]);
+    expect(issueRows(container)).toEqual([["Rack · A03", "Owner: A rack is let to someone", "invalid"]]);
     await click(panel(container).querySelector("[data-inspector-issue]")!);
     await waitFor(() => expect(card(container, "racks", "A03")?.hasAttribute("data-selected")).toBe(true));
 });

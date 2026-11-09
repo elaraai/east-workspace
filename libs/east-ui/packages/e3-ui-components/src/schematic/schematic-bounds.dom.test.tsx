@@ -9,7 +9,7 @@
  * holds a rack's load to at most 10 kW: A04's is stored at 11.6. Stored,
  * Details says it under the field and it holds no Save — another rack's
  * change saves; A04's capacity changed, Save waits, Issues saying it among
- * what blocks, by the field and the bound in its hint's own words.
+ * what blocks, by the field's label and the bound in its hint's own words.
  */
 
 import { expect, test } from "vitest";
@@ -103,5 +103,5 @@ test("a stored load over its most: Details says it under the field and it holds 
     const tab = [...slot(c, "end").querySelectorAll("[role='tab']")].find((t) => t.textContent?.startsWith("Issues") === true)!;
     await act(async () => { fireEvent.click(tab); });
     await settle();
-    expect(issues(c)).toEqual([["kw: at most 10", "invalid"]]);
+    expect(issues(c)).toEqual([["Load: at most 10", "invalid"]]);
 });

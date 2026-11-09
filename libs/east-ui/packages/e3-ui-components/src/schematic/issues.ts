@@ -21,6 +21,8 @@
  * - **The app's `ready` refusals** — they hold Save.
  * - **A Save's conflict or refusal**, while it stands.
  *
+ * The last two name a field by its form's label, as every builder's do.
+ *
  * The last two block, and come first; the rest warn, and Save goes ahead with
  * them. Two items of one key in one kind can't arise: each kind is a record
  * keyed by String.
@@ -38,7 +40,9 @@
 
 import { StringType, equalFor, type ValueTypeOf, type option } from "@elaraai/east";
 import type { Schematic } from "@elaraai/e3-ui/internal";
+import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import type { EditIssue, EditSession } from "@elaraai/east-ui-components";
+import { fieldLabelOf } from "../shared/schedule/refusals.js";
 import { arcFromBulge } from "./canvas/paint.js";
 import { entityId, refOfId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import { recordSlot } from "./record-keys.js";
@@ -61,9 +65,9 @@ export type SchematicIssueWord =
     | { readonly issue: "geometry" }
     /** A colour naming no theme colour token: it draws its tone. */
     | { readonly issue: "colour"; readonly colour: string }
-    /** The app's check refusing a drafted row, which holds Save — its field, if it names one. */
+    /** The app's check refusing a drafted row, which holds Save — its field by its form's label, if it names one. */
     | { readonly issue: "ready"; readonly field: string | undefined; readonly message: string }
-    /** A Save's conflict or refusal, in the source's own words. */
+    /** A Save's conflict or refusal, in the source's own words — its field by its form's label, if it names one. */
     | { readonly issue: "save"; readonly field: string | undefined; readonly message: string };
 
 /** One issue of the drawing, as the Issues tab lists it. */
@@ -255,12 +259,15 @@ export interface SchematicIssueSession {
     readonly kind: string;
     /** Its session: where its latest Save stands, its source's words, and its drafts' readiness. */
     readonly session: Pick<EditSession<unknown>, "status" | "issues" | "readiness">;
+    /** Its row's form: what an issue names a field by. */
+    readonly fields: readonly FieldSpecValue[];
 }
 
 /**
  * The issues each record's session raises (see the module docs): the app's
  * check refusing its drafted rows, and its latest Save's conflict or refusal
- * while it stands — each blocking, naming the entity of its row.
+ * while it stands — each blocking, naming the entity of its row and a field
+ * by its form's label.
  *
  * @param sessions - Each record's session
  * @param names - Each kind's name, by its slot
@@ -274,7 +281,7 @@ export function sessionIssues(sessions: readonly SchematicIssueSession[], names:
         const slot = recordSlot(part.kind);
         const kind = names.get(slot) ?? slot;
         const raise = (issue: EditIssue, word: "ready" | "save") => {
-            const field = issue.field.type === "some" ? issue.field.value : undefined;
+            const field = issue.field.type === "some" ? fieldLabelOf(part.fields, issue.field.value) : undefined;
             // The source's own words name no row: they stand for the kind's record.
             const named = !stringEqual(issue.entry, "");
             const id = named ? entityId({ kind: slot, key: issue.entry }) : undefined;

@@ -45,19 +45,27 @@ export function scheduleRefusals(sessions: readonly ScheduleKindSession[]): Sche
 }
 
 /**
- * A refusal in words: the field it names by its form's label — a nested
- * field, a case's among them, by its path joined by "." (#1585) — or, for one
- * no form draws (a role the builder draws itself), its name spelled out —
- * then the app's message: `Cost centre: Choose the cost centre`. A refusal
- * naming no field is its message alone.
+ * A field as a refusal names it: by its form's label — a nested field, a
+ * case's among them, by its path joined by "." (#1585) — or, for one no form
+ * draws (a role the builder draws itself), its name spelled out.
+ *
+ * @param specs - The entry's form, whose labels name its fields
+ * @param field - The field's name, a nested one's path joined by "."
+ * @returns Its words
+ */
+export function fieldLabelOf(specs: readonly FieldSpecValue[], field: string): string {
+    return specs.find((s) => stringEqual(s.path.join("."), field))?.label ?? spellOut(field);
+}
+
+/**
+ * A refusal in words: the field it names ({@link fieldLabelOf}), then the
+ * app's message: `Cost centre: Choose the cost centre`. A refusal naming no
+ * field is its message alone.
  *
  * @param issue - The refusal's issue
  * @param specs - The entry's form, whose labels name its fields
  * @returns The words
  */
 export function refusalText(issue: EditIssue, specs: readonly FieldSpecValue[]): string {
-    if (issue.field.type !== "some") return issue.message;
-    const field = issue.field.value;
-    const spec = specs.find((s) => stringEqual(s.path.join("."), field));
-    return `${spec?.label ?? spellOut(field)}: ${issue.message}`;
+    return issue.field.type !== "some" ? issue.message : `${fieldLabelOf(specs, issue.field.value)}: ${issue.message}`;
 }

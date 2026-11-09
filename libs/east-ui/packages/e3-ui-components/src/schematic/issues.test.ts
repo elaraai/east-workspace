@@ -10,12 +10,13 @@
  * an entity's or a layer's; a link's end or a net's member no kind holds, and
  * none asked of a kind read through its source; and each record's session's —
  * the app's check refusing a row, and a Save's conflict or refusal — which
- * block and name the row's entity. Fixtures are real East values typed from
- * the Schematic's East types.
+ * block and name the row's entity, and a field by its form's label. Fixtures
+ * are real East values typed from the Schematic's East types.
  */
 
 import { describe, expect, test } from "vitest";
-import { defaultValue, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
+import { FloatType, StringType, StructType, defaultValue, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
+import { Fields } from "@elaraai/east-ui/internal";
 import { Schematic } from "@elaraai/e3-ui/internal";
 import { formatters } from "@elaraai/east-ui-components";
 import { drawnItem, drawnLink, drawnNet, drawnZone, entityId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
@@ -150,24 +151,27 @@ describe("drawingIssues", () => {
 describe("sessionIssues", () => {
     /** An issue as a session raises it. */
     const issue = (entry: string, message: string, field?: string) => ({ entry, row: none, field: field === undefined ? none : some(field), message });
-    /** A session as Issues reads it. */
+    /** A session as Issues reads it, its row's form as given. */
     const session = (kind: string, readiness: SchematicIssueSession["session"]["readiness"], status: SchematicIssueSession["session"]["status"] = "idle",
-        issues: SchematicIssueSession["session"]["issues"] = []): SchematicIssueSession => ({ kind, session: { readiness, status, issues } });
+        issues: SchematicIssueSession["session"]["issues"] = [], fields: SchematicIssueSession["fields"] = []): SchematicIssueSession =>
+        ({ kind, session: { readiness, status, issues }, fields });
+    /** The racks' form: their owner labelled. */
+    const RACK_FORM = Fields.specs(StructType({ owner: StringType, capacity: FloatType }), { owner: Fields.text({ label: "Rack owner" }) });
 
-    test("the app's check refusing a row blocks, naming the row's entity — a details record's row its item's — and a Save's refusal while it stands", () => {
+    test("the app's check refusing a row blocks, naming the row's entity — a details record's row its item's — and a field by its form's label, else its name spelled out; and a Save's refusal while it stands", () => {
         const labels = new Map([[entityId(ref("racks", "A03")), "A03"]]);
         const issues = sessionIssues([
-            session("racks", variant("incomplete", [issue("A03", "an owner is needed", "owner")])),
+            session("racks", variant("incomplete", [issue("A03", "an owner is needed", "owner")]), "idle", [], RACK_FORM),
             session(detailsKey("racks"), variant("invalid", [issue("A01", "capacity is below the load")])),
-            session("fibre", variant("ready", null), "rejected", [issue("", "the fibre runs are frozen"), issue("u3", "u3 changed")]),
+            session("fibre", variant("ready", null), "rejected", [issue("", "the fibre runs are frozen"), issue("u3", "u3 changed", "runLength")]),
             // A conflict past, its words no longer stand: an idle session says nothing.
             session("feeds", variant("ready", null), "idle", [issue("feed-a", "stale")]),
         ], NAMES, (id) => labels.get(id));
         expect(issues).toEqual([
-            { at: entityId(ref("racks", "A03")), blocking: true, where: { kind: "Rack", name: "A03" }, word: { issue: "ready", field: "owner", message: "an owner is needed" } },
+            { at: entityId(ref("racks", "A03")), blocking: true, where: { kind: "Rack", name: "A03" }, word: { issue: "ready", field: "Rack owner", message: "an owner is needed" } },
             { at: entityId(ref("racks", "A01")), blocking: true, where: { kind: "Rack", name: "A01" }, word: { issue: "ready", field: undefined, message: "capacity is below the load" } },
             { at: undefined, blocking: true, where: { kind: "Fibre run", name: "Fibre run" }, word: { issue: "save", field: undefined, message: "the fibre runs are frozen" } },
-            { at: entityId(ref("fibre", "u3")), blocking: true, where: { kind: "Fibre run", name: "u3" }, word: { issue: "save", field: undefined, message: "u3 changed" } },
+            { at: entityId(ref("fibre", "u3")), blocking: true, where: { kind: "Fibre run", name: "u3" }, word: { issue: "save", field: "Run length", message: "u3 changed" } },
         ]);
     });
 });
