@@ -383,7 +383,7 @@ export function CoverageView({ coverage: c, value, styles, format, compact = fal
     return <>
         <Box css={styles.coverageHead}><Box as="span" css={styles.metric}>{format.number(c.hours.needed)} h</Box><Box as="span" css={styles.detail}>needed</Box>
             <Box as="span" css={styles.metric}>{format.number(c.hours.rostered)} h</Box><Box as="span" css={styles.detail}>rostered</Box>
-            <Box as="span" css={styles.delta} data-roster-coverage-delta="" data-tone={d < 0 ? "warning" : undefined}>{d >= 0 ? "+" : ""}{format.number(d)} h</Box></Box>
+            <Box as="span" css={styles.delta} data-roster-coverage-delta="" data-tone={d < 0 ? "warning" : undefined}>{signed(format.number, d, "+0")} h</Box></Box>
         <Box css={styles.coverageBar} role="img" aria-label={`${format.number(c.hours.rostered)} hours rostered of ${format.number(c.hours.needed)} needed`}>
             {bar.parts.map(part => <Box key={part.kind} css={styles.coverageSegment} data-kind={part.kind} style={{ left: `${part.left / bar.scale * 100}%`, width: `${part.width / bar.scale * 100}%` }} />)}
             <Box css={styles.coverageTick} style={{ left: `${c.hours.needed / bar.scale * 100}%` }} />

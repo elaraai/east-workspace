@@ -389,8 +389,9 @@ describe("the People layout's work requirement by week (#1568)", () => {
                 const end = slot(c, "end");
                 const across = await waitFor(() => { const el = end.querySelector<HTMLElement>('[data-roster-shift-day="across"]'); expect(el).not.toBeNull(); return el!; });
                 expect(figuresOf(across), `${shift} ${d}`).toEqual(laneFigures(said(laneDay(c, shift, d).getAttribute("aria-label")!)));
-                // The sum's difference, and its bar's open part, what the slots are short: never the net.
-                expect(across.querySelector("[data-roster-coverage-delta]")?.textContent, `${shift} ${d}`).toBe(`${stated(day) >= 0 ? "+" : ""}${number(stated(day))} h`);
+                // The sum's difference, with a true minus as the lane's, and its bar's open part, what the slots are short:
+                // never the net.
+                expect(across.querySelector("[data-roster-coverage-delta]")?.textContent, `${shift} ${d}`).toBe(`${signed(number, stated(day), "+0")} h`);
                 const open = across.querySelector<HTMLElement>('[data-kind="open"]');
                 expect(open === null ? 0 : parseFloat(open.style.width), `${shift} ${d}`).toBeCloseTo(day.short / Math.max(day.needed, day.rostered + day.short, 1) * 100, 6);
                 for (const group of groups) expect(figuresOf(end.querySelector(`[data-roster-shift-day="${group}"]`)!), `${shift} ${d} ${group}`)
