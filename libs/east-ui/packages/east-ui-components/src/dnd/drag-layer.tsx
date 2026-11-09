@@ -82,7 +82,7 @@ import {
     useContext,
     useEffect,
     useId,
-    useLayoutEffect,
+    useInsertionEffect,
     useMemo,
     useRef,
     useState,
@@ -269,7 +269,8 @@ interface CellRegistration extends DropCellOptions {
  * layer reads its latest settings through this ref. Re-registering whenever a
  * setting changed identity would detach and re-attach the cell on every
  * render — a drag starting re-renders every droppable — dropping its stage
- * and the hover a drag rests on.
+ * and the hover a drag rests on. Its settings are in place before its element
+ * registers and until it leaves ({@link useDropCell}).
  */
 type LiveCell = { readonly current: CellRegistration };
 
@@ -1210,7 +1211,14 @@ export function useDropCell(
     // subscribes to dnd-kit, so a drag crossing a hundred cells draws none.
     const settings: CellRegistration | null = coord === null ? null : { ...options, coord, disabled, canDrop, resolveCoord };
     const live = useRef<CellRegistration | null>(settings);
-    useLayoutEffect(() => { live.current = settings; });
+    // Written as React commits the render, before it attaches or detaches any
+    // element's ref — an insertion effect, never a layout effect: React
+    // attaches an element's ref before the layout effects of the component
+    // that rendered it, so a cell coming to take drops (its coordinate `null`
+    // until then, as a builder's cells are while its period is read) registered
+    // holding no settings, and a drag in flight read them — the Calendar threw
+    // as a month's events landed. Its element leaves before they go.
+    useInsertionEffect(() => { live.current = settings; });
     const present = settings !== null;
     const cleanup = useRef<(() => void) | null>(null);
     return useCallback((el: HTMLElement | null) => {
