@@ -98,7 +98,9 @@ export const blendSlotRecipe = defineSlotRecipe({
         },
         segment: {
             height: "100%",
-            "&[data-state=committed]": { background: "{colors.brand.500}" },
+            // A stacked bar's first part, as a chart's (charts.md): the brand's solid, which lifts with the theme as the
+            // raw scale's teal did not.
+            "&[data-state=committed]": { background: "brand.solid" },
             "&[data-state=added]": {
                 background: "{colors.brand.200}",
                 backgroundImage: "repeating-linear-gradient(135deg, transparent 0 4px, {colors.brand.300} 4px 6px)",
