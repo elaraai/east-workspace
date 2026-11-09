@@ -49,6 +49,7 @@ import {
 } from "@elaraai/east-ui-components";
 import { Chooser, formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
+import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { linkedQuantity, remainderOf, splitOf, type AllocationCommands } from "./actions.js";
@@ -460,14 +461,16 @@ function BinSection({ id, bin, committed, refused, ...part }: Part & { id: strin
 
 /**
  * The row's own fields (`Builder Interfaces Spec.md` §1, rule 2): the bin kind's form over its `fields`, each edit one
- * command, a draft until Save, and each field a refusal names ringed (#1525).
+ * command, a draft until Save, and each field a refusal names ringed (#1525) — the one a refusal gone to names taking
+ * the keyboard as the form draws it.
  */
 function RowFields({ args, id, bin, committed, refused }: Part & { id: string; bin: Bin; committed: Bin | undefined; refused: ReadonlySet<string> }) {
     const { value, commands } = args;
     const { field } = commands;
     const onChange = useCallback((path: readonly string[], next: unknown) => { field(id, path, next); }, [field, id]);
+    const focus = useFieldAsk(value.bin.kind.key, id);
     if (value.bin.kind.fields.length === 0) return null;
-    return <FieldForm specs={value.bin.kind.fields} value={bin.row} baseline={committed?.row ?? {}} onChange={onChange} readOnly={!commands.canEdit()} issues={refused} />;
+    return <FieldForm specs={value.bin.kind.fields} value={bin.row} baseline={committed?.row ?? {}} onChange={onChange} readOnly={!commands.canEdit()} issues={refused} focus={focus} />;
 }
 
 /** The app's columns as rows (A57): each column's text, in warn-text 600 when its tone warns; read through the app's callbacks over the bin's row. */

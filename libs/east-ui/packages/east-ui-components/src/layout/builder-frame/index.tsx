@@ -21,12 +21,13 @@
  *   the pane floats over main from its edge, full height — never so wide
  *   that less than 48px of main shows beside it ({@link MIN_SCRIM},
  *   {@link paneWidths}). Opened by a press on its rail, it takes the focus —
- *   its open tab, or its first control — and closed by its own collapse or by
- *   Esc, it returns the focus to its rail; opened or closed by its host's code
- *   with the focus elsewhere — the Inspector a selection in main opens — it
- *   leaves the focus where it is. Esc closes it — but a layer open in it that
- *   takes Esc itself, marked `data-escape-layer` (a Chooser laid in a pane),
- *   closes first — and one overlay pane is open at a time;
+ *   its open tab, or its first control, unless what it holds took the focus
+ *   as it opened — and closed by its own collapse or by Esc, it returns the
+ *   focus to its rail; opened or closed by its host's code with the focus
+ *   elsewhere — the Inspector a selection in main opens — it leaves the focus
+ *   where it is. Esc closes it — but a layer open in it that takes Esc itself,
+ *   marked `data-escape-layer` (a Chooser laid in a pane), closes first — and
+ *   one overlay pane is open at a time;
  * - **auto** (the default) — pinned while main keeps `minMain` beside the
  *   pinned panes, the start pane placed first; overlaid otherwise, and at
  *   560px and narrower always ({@link placePanes}). The width is the frame's
@@ -658,14 +659,17 @@ export function BuilderFrame(props: BuilderFrameProps) {
         }
         else slotRefs[side].current?.querySelector<HTMLElement>(":scope > * > [data-collapsed] > :first-child > button")?.focus();
     });
-    // A drawer opened from its tab, or an overlay pane from its rail, takes the focus: its open tab, or its first control.
+    // A drawer opened from its tab, or an overlay pane from its rail, takes the focus: its open tab, or its first control —
+    // unless what it holds took the focus as it opened, a field an issue gone to names: the pane reports its opening a
+    // microtask after it shows.
     const drawerFocus = useRef<Side | undefined>(undefined);
     useLayoutEffect(() => {
         const side = drawerFocus.current;
         if (side === undefined) return;
         drawerFocus.current = undefined;
         const drawer = slotRefs[side].current;
-        (drawer?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? drawer?.querySelector<HTMLElement>("button, [href], input, [tabindex]"))?.focus({ preventScroll: true });
+        if (drawer === null || drawer.contains(drawer.ownerDocument.activeElement)) return;
+        (drawer.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? drawer.querySelector<HTMLElement>("button, [href], input, [tabindex]"))?.focus({ preventScroll: true });
     });
     // The pane a click began in with the focus in it — its rail's control, its collapse — read as the click starts,
     // before the control it pressed goes with the change. A host that opens or closes a pane from code, clicking its

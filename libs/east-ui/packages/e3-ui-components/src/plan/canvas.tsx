@@ -81,7 +81,7 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Box, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, equalFor, printFor, type PatchPath, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, none, printFor, type PatchPath, type ValueTypeOf } from "@elaraai/east";
 import { Plan, ScheduleEventRefType, planKeys, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import {
     getSomeorUndefined, optimiseMessages, useCoarsePointer, useContainerBelow, useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState,
@@ -154,6 +154,7 @@ import { PlanAnnouncer } from "./root/announce.js";
 import { PlanWordsContext, useResolvedPlanWords } from "./words.js";
 import type { PlanSearch } from "./use-seek.js";
 import { usePlanRowsFind } from "./find.js";
+import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { useSourceHidden } from "../shared/schedule/hidden.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { DROPPABLE_KINDS } from "./rows/BodyRow.js";
@@ -1265,11 +1266,17 @@ export function usePlanCanvas({
     scaleNow.current = scale;
     const moveWindowNow = useRef(moveWindow);
     moveWindowNow.current = moveWindow;
+    // The field a refusal gone to names, asked of its event's form: ringed there, it takes the keyboard as the form draws
+    // it, and so comes into view (`../shared/schedule/field-ask.tsx`).
+    const { asks: fieldAsks, request: askField } = useFieldAsks();
     const onIssue = useCallback((issue: EditIssue, path?: PatchPath) => {
         const source = history.sourceOf(issue);
         const kind = source === undefined ? undefined : kindSessions.find((s) => stringEqual(s.key, source));
         if (kind !== undefined) {
-            if (issue.entry !== "") selectEvents([printEventRef({ kind: kind.kind, key: issue.entry })]);
+            if (issue.entry === "") return;
+            // The warning button's issue asks for the field it names; a conflict's Go to, which names its path, for none.
+            askField(kind.kind, issue.entry, path === undefined ? issue.field : none);
+            selectEvents([printEventRef({ kind: kind.kind, key: issue.entry })]);
             return;
         }
         // A conflict's Go to: the row its path leads to among the canvas's rows (#1438) opened under its folded rows and
@@ -1293,7 +1300,7 @@ export function usePlanCanvas({
             return;
         }
         controller.focusItem(rowItemKey(row.key), "auto");
-    }, [history, kindSessions, selectEvents, controller, typingStore]);
+    }, [history, kindSessions, askField, selectEvents, controller, typingStore]);
     // A conflict below its entry's row named by the rows down to it — `Works 10001 / Crew 1`, never the crew's key —
     // then any steps below them, in words; an event kind's as its banners name it.
     const conflictItem = useCallback((issue: EditIssue, path: PatchPath, steps: readonly string[]) => {
@@ -1795,7 +1802,9 @@ export function usePlanCanvas({
             <PlanOptimisedContext.Provider value={optimisedMarks}>
             <PlanGridContext.Provider value={gridCtx}>
             <PlanEditContext.Provider value={editCtx}>
+            <FieldAskProvider value={fieldAsks}>
                 {children}
+            </FieldAskProvider>
             </PlanEditContext.Provider>
             </PlanGridContext.Provider>
             </PlanOptimisedContext.Provider>

@@ -27,7 +27,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SortedMap, StringType, equalFor, isVariant, none, variant } from "@elaraai/east";
+import { SortedMap, StringType, equalFor, isVariant, none, variant, type option } from "@elaraai/east";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { AllocationComponent } from "@elaraai/e3-ui/internal";
 import {
@@ -38,6 +38,7 @@ import { LoadingReveal, formatDatePattern, keptRead } from "@elaraai/east-ui-com
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
+import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { madeFromValues, publishPeriod } from "../shared/schedule/records.js";
 import { openFramePane } from "../shared/schedule/open-pane.js";
@@ -562,20 +563,28 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         const there = elsewhere(entry);
         return there === undefined ? undefined : { bin: there, here: false };
     };
+    // The field a refusal gone to names, asked of its bin's form: ringed there, it takes the keyboard as the form draws
+    // it, and so comes into view (`../shared/schedule/field-ask.tsx`).
+    const fieldAsks = useFieldAsks();
     // A bin shown on its day and selected, as its issue's Show does — on its own day, where it is a bin of another: a
-    // conflict's Go to, a refusal's Show, and the warning button's first issue (#1525). A day's, or a bin the board can't
-    // read, opens the Issues tab.
-    const goTo = (kind: string | undefined, entry: string) => {
+    // conflict's Go to, a refusal's Show, and the warning button's first issue (#1525), whose field (`field`) its form
+    // gives the keyboard. A day's, or a bin the board can't read, opens the Issues tab.
+    const goTo = (kind: string | undefined, entry: string, field: option<string> = none) => {
         const found = binOf(kind, entry);
         if (found === undefined) { onIssues(); return; }
         const on = dayStart(found.bin.at).getTime();
         window.setView({ ...window.view, date: on });
+        fieldAsks.request(value.bin.kind.key, entry, field);
         if (found.here) inspect({ type: "bin", id: entry });
         else setGoing({ id: entry, day: on });
     };
     const onConflict = (issue: EditIssue) => {
         const key = history?.sourceOf(issue);
         goTo(key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key))?.kind, issue.entry);
+    };
+    const onIssue = (issue: EditIssue) => {
+        const key = history?.sourceOf(issue);
+        goTo(key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key))?.kind, issue.entry, issue.field);
     };
     // Each refusal holding Save, of every day's drafts, in the board's words (#1525): a bin by its code, or by its key for
     // one the board can't read, and its field by its form's label.
@@ -590,9 +599,9 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         without, reserving, shown: { lanes: lanesShown.keys, resources: resourcesShown.keys, arrivals: arrivalsShown.keys },
         refusal, dismissRefusal: () => setRefusal(undefined), chooser, setChooser, book: bookPicked, firstFree,
         tab: inspectorTab.tab, onTab: tab => setInspectorTab({ tab }), storageKey: key, onFind: findable ? onFind : undefined, finding, m: words.m,
-        refusals, onRefusal: refusal => goTo(refusal.kind, refusal.issue.entry),
+        refusals, onRefusal: refusal => goTo(refusal.kind, refusal.issue.entry, refusal.issue.field),
     });
-    const toolbar = useAllocationToolbar({ ...window, value, styles, commands, editing, words, issues, refused: refusals.length, onIssues, onIssue: onConflict, onConflict,
+    const toolbar = useAllocationToolbar({ ...window, value, styles, commands, editing, words, issues, refused: refusals.length, onIssues, onIssue, onConflict,
         where: historyWhere, onAction, onPickerWeeks: setPickerWeeks,
         status: value.periods.type === "some" ? statusText(heldPeriod) : undefined, published: heldPeriod.status.type === "published", unread: !current, publishing, picker: data.picker,
         optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,
@@ -616,7 +625,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const narrowingQuery = narrowingText(value, binChoices);
     const narrowingSettled = !data.filtering && !narrowingLoading && !narrowingFailed;
     const tableNarrowing = useMemo(() => ({ query: narrowingQuery, settled: narrowingSettled }), [narrowingQuery, narrowingSettled]);
-    return <NounsContext.Provider value={nouns}><BinFocusContext.Provider value={binFocused}><Box ref={root} css={[styles.root, landingStyles.main]} data-allocation-frame=""
+    return <NounsContext.Provider value={nouns}><BinFocusContext.Provider value={binFocused}><FieldAskProvider value={fieldAsks.asks}><Box ref={root} css={[styles.root, landingStyles.main]} data-allocation-frame=""
         data-allocation-readonly={readOnly ? "" : undefined} onPointerDownCapture={dropBinFocus} onKeyDownCapture={dropBinFocus} {...landing.attributes}>
         <AllocationDataReader value={value} day={day} pickerDays={picker} choices={binChoices} onData={setData} />
         <LoadingReveal waiting={line?.kind === "loading"}>
@@ -684,7 +693,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
             </Box>
         </BuilderFrame>
         </LoadingReveal>
-    </Box></BinFocusContext.Provider></NounsContext.Provider>;
+    </Box></FieldAskProvider></BinFocusContext.Provider></NounsContext.Provider>;
 }
 
 /** The board over the app's records: its key, its day — written into the bins' source — and its editing, around the frame. */

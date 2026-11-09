@@ -14,7 +14,8 @@
  *   PB53), a line per event it overlaps whose click selects that event; the
  *   banner of its refusals holding Save while the app's `ready` refuses it
  *   (#1525), as the Calendar's inspector has it, each field one names ringed
- *   in its form; its resource, its start and end or its instant, its lane, its state and its
+ *   in its form — the one the warning button's issue names taking the keyboard
+ *   as the form draws it; its resource, its start and end or its instant, its lane, its state and its
  *   quantity; its kind's fields through `FieldForm`, the fields its roles
  *   read left to their own lines — or, when the kind has its own inspector,
  *   what that returns for the event in place of the form (PB60); then
@@ -96,6 +97,7 @@ import {
 } from "@elaraai/east-ui-components";
 import { FrameDrawer, PlaceholderShape } from "@elaraai/east-ui-components/internal";
 import { heldRowOf } from "../../shared/schedule/editing.js";
+import { useFieldAsk } from "../../shared/schedule/field-ask.js";
 import { removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
 import { usePlanResourceRows, type PlanResourceLookup, type PlanResourceRefValue } from "./resources.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
@@ -682,6 +684,7 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
     const refusals = scheduleRefusals(editing?.sessions ?? []).filter((r) => stringEqual(r.kind, kind.key) && stringEqual(r.issue.entry, item.key));
     const refused = refusals.length === 0 ? NO_REFUSED
         : new Set(refusals.flatMap((r) => (r.issue.field.type === "some" ? [r.issue.field.value] : [])));
+    const focus = useFieldAsk(kind.key, item.key);
     // A field edited (PB42): one transaction, written through the kind's own `write`, its value as bytes at the field's type.
     const onField = useCallback((path: readonly string[], next: unknown) => {
         const spec = specs.find((s) => samePath(s.path, path));
@@ -747,7 +750,7 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
                     </Box>
                 ) : specs.length > 0 && (
                     <Box css={styles.fields} data-inspector-fields="form">
-                        <FieldForm specs={specs} value={value} baseline={held} issues={refused} onChange={editing !== undefined ? onField : NO_EDIT} />
+                        <FieldForm specs={specs} value={value} baseline={held} issues={refused} focus={focus} onChange={editing !== undefined ? onField : NO_EDIT} />
                     </Box>
                 )}
                 <Box css={styles.actions} data-inspector-actions="">

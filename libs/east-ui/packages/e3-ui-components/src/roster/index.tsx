@@ -26,7 +26,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, equalFor, isVariant, none, some, variant } from "@elaraai/east";
+import { StringType, equalFor, isVariant, none, some, variant, type option } from "@elaraai/east";
 import { RosterComponent, RosterContextType } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useDataStable,
@@ -36,6 +36,7 @@ import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
+import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { useSourceHidden } from "../shared/schedule/hidden.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { useGroupCollapse } from "../shared/schedule/group-heading.js";
@@ -438,12 +439,15 @@ function RosterFrame(props: FrameProps) {
         const there = elsewhere(entry);
         return there === undefined ? undefined : { a: there.a, there };
     };
+    // The field a refusal gone to names, asked of its duty's form: ringed there, it takes the keyboard as the form draws
+    // it, and so comes into view (`../shared/schedule/field-ask.tsx`).
+    const fieldAsks = useFieldAsks();
     // A duty shown on its day and selected, as its issue's click in the Issues tab does — in its own week, where it is a
-    // duty of another: a conflict's Go to, a refusal pressed, and the warning button's first issue (#1525). In Month,
-    // which draws no one duty, its week in Week (P24), the duty selected once that week is read; with Week not offered the
-    // month holding its week stays, and its person's week is selected. A week's or a target's, a duty the Roster can't
-    // place, or a request's in a Month with no Week, opens the Issues tab.
-    const goTo = (kind: string | undefined, entry: string) => {
+    // duty of another: a conflict's Go to, a refusal pressed, and the warning button's first issue (#1525), whose field
+    // (`field`) its form gives the keyboard. In Month, which draws no one duty, its week in Week (P24), the duty selected
+    // once that week is read; with Week not offered the month holding its week stays, and its person's week is selected.
+    // A week's or a target's, a duty the Roster can't place, or a request's in a Month with no Week, opens the Issues tab.
+    const goTo = (kind: string | undefined, entry: string, field: option<string> = none) => {
         const found = dutyOf(kind, entry);
         if (found === undefined) { onIssues(); return; }
         const { a, there } = found;
@@ -462,12 +466,17 @@ function RosterFrame(props: FrameProps) {
             return;
         }
         window.setView({ ...window.view, period: month ? "week" : window.view.period, date });
+        fieldAsks.request(dutyKind, entry, field);
         if (there === undefined && !month) select({ type: "assignment", key: entry });
         else setGoing({ key: entry, week: at });
     };
     const onConflict = (issue: EditIssue) => {
         const key = history?.sourceOf(issue);
         goTo(key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key))?.kind, issue.entry);
+    };
+    const onIssue = (issue: EditIssue) => {
+        const key = history?.sourceOf(issue);
+        goTo(key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key))?.kind, issue.entry, issue.field);
     };
     // Each refusal holding Save, of every week's drafts, in the Roster's words (#1525): a duty by its person, day and shift,
     // or by its key for one the Roster can't place, and its field by its form's label.
@@ -480,8 +489,8 @@ function RosterFrame(props: FrameProps) {
             text: refusalText(issue, keyEqual(kind, dutyKind) ? source.duty.kind.fields : []) };
     });
     const inspector = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab, find: { offered: fit.offered, finding: isFinding },
-        duties: draftedDuties, heldDuties: storedDuties, targets, refusals, onRefusal: refusal => goTo(refusal.kind, refusal.issue.entry) });
-    const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, refused: refusals.length, onIssues, onIssue: onConflict, onConflict,
+        duties: draftedDuties, heldDuties: storedDuties, targets, refusals, onRefusal: refusal => goTo(refusal.kind, refusal.issue.entry, refusal.issue.field) });
+    const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, refused: refusals.length, onIssues, onIssue, onConflict,
         where: historyWhere, onAction, onPickerDates: setPickerDates, narrow,
         optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,
         selectedWeek: pickedWeek === undefined ? undefined : new Date(pickedWeek.start),
@@ -502,7 +511,7 @@ function RosterFrame(props: FrameProps) {
     // The skeleton's rows at the layout's own pitch (#1398, CL5): the People rows' — 36px, 32px compact — in Week and Month
     // alike; the Shifts grid's rows grow with their chips, and a phone's cards with their days, so those take the frame's own.
     const loadingPitch = window.view.layout === "people" && !narrow ? (props.display.density === "compact" ? 32 : 36) : undefined;
-    return <Box ref={root} css={[styles.root, landingStyles.main]} data-roster-frame="" data-roster-readonly={readOnly ? "" : undefined} {...landing.attributes}>
+    return <FieldAskProvider value={fieldAsks.asks}><Box ref={root} css={[styles.root, landingStyles.main]} data-roster-frame="" data-roster-readonly={readOnly ? "" : undefined} {...landing.attributes}>
         <RosterDataReader value={source} span={span} pickerDates={pickerDates} holds={holds} onData={setData} />
         <LoadingReveal waiting={line?.kind === "loading"}>
         <BuilderFrame storageKey={`${key}.frame`} label="Roster" loading={cold} loadingPitch={loadingPitch} busy={busy} liveFooter phonePanel start={library} end={inspector} toolbar={toolbar} onKeyDown={event => {
@@ -549,7 +558,7 @@ function RosterFrame(props: FrameProps) {
             </Box>
         </BuilderFrame>
         </LoadingReveal>
-    </Box>;
+    </Box></FieldAskProvider>;
 }
 
 /** The Roster over the app's records: its narrowing, its week and its editing, around the frame. */

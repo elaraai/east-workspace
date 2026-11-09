@@ -64,3 +64,52 @@ for (const theme of LAYOUT_THEMES) {
         }
     });
 }
+
+test("A refused duty gone to — by the warning button, or by its line in the Issues tab — opens the panel on its refusal and its ringed field together, the keyboard in the field (#1585) @desktop", async ({ page }) => {
+    const route = "e3/roster/roster/rosterWarehouse";
+    await page.goto(`/#${route}`);
+    const entry = page.locator('[data-index]', { has: page.locator(`a[href="#${route}"]`) });
+    const frame = entry.locator('[data-roster-frame]').first();
+    await expect(frame).toBeVisible({ timeout: 30_000 });
+    await entry.scrollIntoViewIfNeeded(); await settled(page);
+    // The frame a 1254px window gives the showcase: the inspector a pane over the board, its fields below its fold.
+    await frame.locator('..').evaluate(el => { (el as HTMLElement).style.width = '978px'; });
+    await settled(page);
+    const toolbar = frame.locator('[data-frame-slot="toolbar"]');
+    const end = frame.locator('[data-frame-slot="end"]');
+    const night = frame.locator('[data-roster-slot="(day=4, group=\\"inbound\\", shift=\\"night\\")"]');
+    await night.scrollIntoViewIfNeeded();
+    await night.getByRole('button', { name: 'Request Northside Staffing', exact: true }).click();
+    const expand = frame.getByRole('button', { name: 'Expand Inspector', exact: true });
+    if (await expand.isVisible()) await expand.click();
+    // Its cost centre cleared: the warehouse's check refuses the request, and holds Save.
+    const costCentre = end.locator('[data-field="costCentre"] input');
+    await costCentre.fill(''); await costCentre.press('Enter'); await settled(page);
+    const scrim = frame.locator('[data-scrim]');
+    const close = async () => { if (await scrim.count() > 0) { await scrim.click(); await settled(page); } };
+    // Where the panel shows the refusal's banner and the field it rings, against its own scrolled view, and the keyboard.
+    const shown = () => end.evaluate((pane) => {
+        const field = pane.querySelector('[data-field="costCentre"]');
+        const banner = pane.querySelector('[data-roster-refusals]');
+        let view: Element | null = field?.parentElement ?? null;
+        while (view !== null && !(/(auto|scroll)/.test(getComputedStyle(view).overflowY) && view.scrollHeight > view.clientHeight)) view = view.parentElement;
+        const box = (view ?? document.documentElement).getBoundingClientRect();
+        const within = (el: Element | null) => {
+            const r = el?.getBoundingClientRect();
+            return r !== undefined && r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5;
+        };
+        return { banner: within(banner), field: within(field), keyboard: field?.contains(document.activeElement) === true };
+    });
+    // Another duty selected, and the panel closed: the warning button opens it on the request.
+    await close();
+    await frame.locator('[data-roster-assignment="s37"]').click(); await settled(page);
+    await close();
+    await toolbar.getByRole('button', { name: '1 issue', exact: true }).click(); await settled(page);
+    await expect.poll(shown).toEqual({ banner: true, field: true, keyboard: true });
+    // From the next day, the Issues tab's line goes back to it the same way.
+    await toolbar.getByRole('button', { name: 'Next day', exact: true }).click(); await settled(page);
+    if (await expand.isVisible()) await expand.click();
+    await end.getByRole('tab', { name: /^Issues/ }).click();
+    await end.locator('[data-roster-issue="refusal"] button').first().click(); await settled(page);
+    await expect.poll(shown).toEqual({ banner: true, field: true, keyboard: true });
+});

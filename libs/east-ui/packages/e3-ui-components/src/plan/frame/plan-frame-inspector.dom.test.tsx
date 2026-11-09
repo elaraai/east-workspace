@@ -491,7 +491,7 @@ describe("the inspector keeps the keyboard as a control goes with its view (#139
 // ============================================================================
 
 describe("an event's refusals holding Save (#1525)", () => {
-    test("a delivery the app's `ready` refuses: a banner over its form names its field by its label, the field ringed; the warning button selects it again; a fixed field clears it", async () => {
+    test("a delivery the app's `ready` refuses: a banner over its form names its field by its label, the field ringed; the warning button selects it again, the field taking the keyboard; a fixed field clears it", async () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         const toolbar = () => within(slot(container, "toolbar")!);
@@ -526,6 +526,8 @@ describe("an event's refusals holding Save (#1525)", () => {
         expect(delivery().getAttribute("aria-pressed")).toBe("true");
         expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Handbooks");
         expect(banner()).not.toBeNull();
+        // The field it names takes the keyboard, so it is in view in its pane, ready to be set right (#1585).
+        expect(document.activeElement).toBe(within(pane(container).querySelector<HTMLElement>("[data-inspector-fields='form'] [data-field='pallets']")!).getByRole("spinbutton"));
         // Two pallets: nothing refuses it — Save on, no banner, no ring.
         await pallets("2");
         expect(toolbar().getByRole("button", { name: editingMessages.apply() })).toHaveProperty("disabled", false);

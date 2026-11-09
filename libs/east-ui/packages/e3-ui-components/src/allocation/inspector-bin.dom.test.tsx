@@ -320,7 +320,7 @@ describe("a bin (A56–A59)", () => {
 });
 
 describe("the refusals holding Save (#1525)", () => {
-    test("the yard's check refusing a bin is listed first in Issues, by its code, and reachable: the warning button and Show select it, its banner over its form and its field ringed, and a grade clears it", async () => {
+    test("the yard's check refusing a bin is listed first in Issues, by its code, and reachable: the warning button and Show select it, its banner over its form and its field ringed, taking the keyboard, and a grade clears it", async () => {
         const c = (await h.mount(kilnYard({ ready: true }))).container;
         const user = userEvent.setup();
         const issueCount = () => Number(tabs(c).find(t => t.textContent!.startsWith("Issues"))!.textContent!.replace(/\D/g, "") || "0");
@@ -339,6 +339,8 @@ describe("the refusals holding Save (#1525)", () => {
         expect(headOf(c).kind).toBe("Plan · Tue 11 May");
         await press(toolbar(c).getByRole("button", { name: editingMessages.issues({ n: 1, count: "1" }) }));
         expect(headOf(c).kind).toBe("Bin 3113");
+        // The field it names takes the keyboard, so it is in view in its pane, ready to be set right (#1585).
+        expect(document.activeElement).toBe(grade());
         // The Issues tab: the refusal first, by its bin's code, counted with the issues.
         await tab(c, "Issues");
         expect(issueCount()).toBe(counted + 1);
@@ -348,6 +350,7 @@ describe("the refusals holding Save (#1525)", () => {
         expect([line.querySelector("[title]")!.textContent, line.lastElementChild!.textContent]).toEqual(["LD-2210", "Grade measured: Measure the grade"]);
         await press(button(line, "Show"));
         expect([activeTab(c), headOf(c).kind]).toEqual(["Details", "Bin 3113"]);
+        await waitFor(() => expect(document.activeElement).toBe(grade()));
         // A grade clears it, and Save is on.
         await user.type(grade(), "R3{Enter}");
         await settle();

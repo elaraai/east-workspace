@@ -9,6 +9,7 @@ import { Box, Button, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, equalFor } from "@elaraai/east";
 import { BannerView, EastChakraComponent, FieldForm, useTrackedEvaluation, type BuilderFrameDock, type EditIssue } from "@elaraai/east-ui-components";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
+import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { madeFromValues } from "../shared/schedule/records.js";
 import { Seg } from "../shared/schedule/segments.js";
@@ -117,11 +118,13 @@ function DutyPay({ props, id }: { props: Args; id: string }) {
  * The duty's form: its roles the Roster edits — its times and, where its kind
  * maps them, its position and its activity — then the app's fields none of
  * them writes, in the kind's form (`fields`) or the kind's own inspector, each
- * field a refusal names (`refused`) ringed.
+ * field a refusal names (`refused`) ringed — the one a refusal gone to names
+ * taking the keyboard as the form draws it.
  */
 function DutyForm({ props, assignment, id, refused }: { props: Args; assignment: Assignment; id: string; refused: ReadonlySet<string> }) {
     const { onError, commands } = props;
     const kind = props.value.duty.kind;
+    const focus = useFieldAsk(kind.key, id);
     const row = props.duties.rows.get(id);
     const held = props.heldDuties.rows.get(id);
     const heldAssignment = props.held.assignments.get(id);
@@ -142,7 +145,7 @@ function DutyForm({ props, assignment, id, refused }: { props: Args; assignment:
         {error !== undefined && <Box css={props.styles.error} role="alert">{error}</Box>}
         {result.ok && result.value !== undefined ? <chakra.fieldset disabled={readOnly}><EastChakraComponent value={result.value} storageKey={`${props.storageKey}.duty.${id}`} /></chakra.fieldset>
             : decoded !== undefined && kind.fields.length > 0 && <FieldForm specs={kind.fields} value={decoded} baseline={baselineRow ?? {}} readOnly={readOnly}
-                issues={refused} onChange={(path, next) => onError(commands.field(id, path, next))} />}
+                issues={refused} focus={focus} onChange={(path, next) => onError(commands.field(id, path, next))} />}
         {!result.ok && <Box css={props.styles.error} role="alert">The duty's form could not be rendered.</Box>}
     </>;
 }

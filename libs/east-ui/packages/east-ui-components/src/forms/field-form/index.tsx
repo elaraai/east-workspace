@@ -222,13 +222,16 @@ const FOCUSABLE = "input:not([type=hidden]):not([disabled]), textarea:not([disab
 /**
  * Keeps the field whose control took the keyboard in view — its label with it — while its form changes width, until
  * the control loses the keyboard: a pane sliding open shows the form narrow first, where the field sits far lower,
- * and widens it under the scroll that brought the control into view.
+ * and widens it under the scroll that brought the control into view. Each width brings it into view again from where
+ * the panes around it stood as it took the keyboard, scrolled no further than a form already that wide would have
+ * scrolled them — never left as far down as the narrow form needed.
  *
  * @param root - The form
  * @param field - The field
  * @param control - Its control that took the keyboard
+ * @param from - Each element around the field, and where it was scrolled to as the control took the keyboard
  */
-function keepInView(root: HTMLElement, field: HTMLElement, control: HTMLElement): void {
+function keepInView(root: HTMLElement, field: HTMLElement, control: HTMLElement, from: readonly (readonly [Element, number, number])[]): void {
     if (typeof ResizeObserver !== "function") return;
     let width = root.getBoundingClientRect().width;
     const observer = new ResizeObserver(() => {
@@ -236,6 +239,7 @@ function keepInView(root: HTMLElement, field: HTMLElement, control: HTMLElement)
         const now = root.getBoundingClientRect().width;
         if (Math.abs(now - width) < 0.5) return;
         width = now;
+        for (const [el, top, left] of from) { el.scrollTop = top; el.scrollLeft = left; }
         field.scrollIntoView({ block: "nearest", inline: "nearest" });
     });
     observer.observe(root);
@@ -244,7 +248,9 @@ function keepInView(root: HTMLElement, field: HTMLElement, control: HTMLElement)
 /**
  * Gives the keyboard to a field of a form — the first control in it that takes it — at once where it shows, else once
  * it does: the browser gives it to nothing hidden, and a change of an element around the form (a tab's panel shown, a
- * fold opened) is when it may show. The control stays in view while the form settles.
+ * fold opened) is when it may show. The field comes into view whole, its label and help with its control, scrolled no
+ * further than it must be — what stands over it in its pane, an issue's banner, stays in view where there is room —
+ * and stays in view while the form settles.
  *
  * @param root - The form
  * @param key - The field, by key
@@ -258,8 +264,11 @@ function takeWhenShown(root: HTMLElement | null, key: string): (() => void) | un
         const control = field?.querySelector<HTMLElement>(FOCUSABLE);
         if (field === undefined || control === undefined || control === null) return true;
         if (typeof control.checkVisibility === "function" && !control.checkVisibility()) return false;
-        control.focus();
-        keepInView(root, field, control);
+        const from: (readonly [Element, number, number])[] = [];
+        for (let el = field.parentElement; el !== null; el = el.parentElement) from.push([el, el.scrollTop, el.scrollLeft]);
+        control.focus({ preventScroll: true });
+        field.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+        keepInView(root, field, control, from);
         return true;
     };
     if (take()) return undefined;

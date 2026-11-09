@@ -92,7 +92,7 @@ describe('Roster shared and custom forms', () => {
         const added = [...(await h.read(ex.rosterDuties))].filter(([key]) => !before.has(key)).map(([, duty]) => duty.costCentre);
         expect(added).toEqual(['CC-NIGHT']);
     });
-    test("the check's refusal holding Save is listed and reachable (#1525): the warning button selects its duty, its panel shows it over the form, the Issues tab lists it first in any view, and a cost centre clears it", async () => {
+    test("the check's refusal holding Save is listed and reachable (#1525): the warning button selects its duty, its panel shows it over the form, the field it names taking the keyboard, the Issues tab lists it first in any view, and a cost centre clears it", async () => {
         const { container } = await h.mount(ex.rosterWarehouse); const user = userEvent.setup();
         const toolbar = () => within(slot(container, 'toolbar'));
         const end = () => slot(container, 'end');
@@ -114,6 +114,8 @@ describe('Roster shared and custom forms', () => {
         const details = () => end().querySelector('[data-roster-inspector="details"]');
         expect(details()?.querySelector('[data-roster-refusals]')?.textContent).toContain('Cost centre: Give the duty a cost centre');
         expect([...details()!.querySelectorAll('[data-issue]')].map(el => el.getAttribute('data-field'))).toEqual(['costCentre']);
+        // The field it names takes the keyboard, so it is in view in its pane, ready to be set right (#1585).
+        expect(document.activeElement).toBe(costCentre());
         // The Issues tab lists it first, by its duty's person, day and shift — whatever day the view shows.
         await press(toolbar().getByRole('radio', { name: 'Fri' }));
         await press(within(end()).getByRole('tab', { name: /^Issues/ }));
@@ -128,6 +130,7 @@ describe('Roster shared and custom forms', () => {
         expect(toolbar().getByRole('radio', { name: 'Thu' }).getAttribute('aria-checked')).toBe('true');
         expect(request()?.hasAttribute('data-selected')).toBe(true);
         expect(details()?.querySelector('[data-roster-refusals]')).not.toBeNull();
+        await waitFor(() => expect(document.activeElement).toBe(costCentre()));
         // A cost centre clears it: Save on, and nothing left over the form.
         await user.type(within(end().querySelector<HTMLElement>('[data-field="costCentre"]')!).getByRole('textbox'), 'CC-IN{Enter}');
         await settle();
