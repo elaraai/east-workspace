@@ -20,7 +20,8 @@
  * - **overlay** — its rail stays in the flow, so main never moves; opened,
  *   the pane floats over main from its edge, full height — never so wide
  *   that less than 48px of main shows beside it ({@link MIN_SCRIM},
- *   {@link paneWidths}). Esc closes it and returns the focus to its rail —
+ *   {@link paneWidths}). Opened from its rail, it takes the focus — its open
+ *   tab, or its first control. Esc closes it and returns the focus to its rail —
  *   but a layer open in it that takes Esc itself, marked `data-escape-layer`
  *   (a Chooser laid in a pane), closes first — and one overlay pane is open
  *   at a time;
@@ -655,7 +656,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
         }
         else slotRefs[side].current?.querySelector<HTMLElement>(":scope > * > [data-collapsed] > :first-child > button")?.focus();
     });
-    // A drawer opened from its tab takes the focus: its open tab, or its first control.
+    // A drawer opened from its tab, or an overlay pane from its rail, takes the focus: its open tab, or its first control.
     const drawerFocus = useRef<Side | undefined>(undefined);
     useLayoutEffect(() => {
         const side = drawerFocus.current;
@@ -749,7 +750,11 @@ export function BuilderFrame(props: BuilderFrameProps) {
                         onTabChange={described.onTabChange}
                         collapsible={described.collapsible}
                         collapsed={collapsed}
-                        onCollapsedChange={(next) => toggled(side, next)}
+                        onCollapsedChange={(next) => {
+                            // Opened from its rail, whose control goes with it, an overlay pane takes the focus, so Esc reaches it.
+                            if (!next && placedAt === "overlay") drawerFocus.current = side;
+                            toggled(side, next);
+                        }}
                     />
                 </Box>
                 {pxOf(size) === undefined && <Box ref={probeRefs[side]} css={styles.probe} style={{ width: size }} aria-hidden />}

@@ -368,6 +368,18 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
         expect(heard).toEqual(["Escape", "z"]);
     });
 
+    test("an overlay pane opened from its rail takes the focus — its open tab, or its first control — so Esc, pressed next, closes it and lifts the scrim (#1584)", async () => {
+        mount({ start: library(), end: properties({ mode: "overlay", defaultCollapsed: true }) });
+        frameAt(700);
+        await press("Expand Library");
+        expect([paneOf("start"), document.activeElement]).toEqual([["overlay", false], screen.getByRole("tab", { name: "Cards" })]);
+        fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+        expect([paneOf("start"), scrim(), document.activeElement]).toEqual([["overlay", true], null, screen.getByRole("button", { name: "Expand Library" })]);
+        // A pane of one body: its first control.
+        await press("Expand Properties");
+        expect([paneOf("end"), document.activeElement]).toEqual([["overlay", false], screen.getByRole("button", { name: "Collapse Properties" })]);
+    });
+
     test("Esc in a layer laid in the open overlay pane that takes Esc itself (`data-escape-layer`) is the layer's; anywhere else in the pane it closes the pane", () => {
         const closed: string[] = [];
         const layer = (
