@@ -10,8 +10,8 @@
  * height and font size deliberately track the `chipRail` chip at the same
  * density (15 / 22 / 34 px), so a Trace cell and a ChipRail cell line up when
  * they share a table row. The dynamic parts — the grid's column count, the
- * now-line position, and the fills of an author's own hue — are set inline by
- * the renderer; everything density- or theme-derived lives here, every scale's
+ * now-line position, and an author's own hue — are set inline by the
+ * renderer; everything density- or theme-derived lives here, every scale's
  * fills among it.
  *
  * @packageDocumentation
@@ -83,32 +83,34 @@ export const traceSlotRecipe = defineSlotRecipe({
             "&[data-level='3']": { "--t-fill": "{colors.heat.4}", color: "bg.surface" },
             "&[data-level='4']": { "--t-fill": "{colors.heat.5}", color: "bg.surface" },
             // A categorical track past the first (`data-series`, its place in the design system's series order, the
-            // first being the brand's own ramp): its hue's five steps built as the heat ramp is — into the paper on the
-            // first three, toward the ink on the last two, where the hue at full strength holds neither ink at 4.5:1 —
-            // so the same inks read on them in both themes. Mixed in oklab, which dilutes a hue without turning it
-            // toward the paper's or the ink's own faint hue. Its edge is its last step, as the brand's is.
-            "&[data-series]": {
-                "--t-edge": "color-mix(in oklab, var(--t-hue) 40%, {colors.fg})",
-                "&[data-level='0']": { "--t-fill": "color-mix(in oklab, var(--t-hue) 12%, {colors.bg.surface})" },
-                "&[data-level='1']": { "--t-fill": "color-mix(in oklab, var(--t-hue) 32%, {colors.bg.surface})" },
-                "&[data-level='2']": { "--t-fill": "color-mix(in oklab, var(--t-hue) 56%, {colors.bg.surface})" },
-                "&[data-level='3']": { "--t-fill": "color-mix(in oklab, var(--t-hue) 60%, {colors.fg})" },
-                "&[data-level='4']": { "--t-fill": "color-mix(in oklab, var(--t-hue) 40%, {colors.fg})" },
+            // first being the brand's own ramp), or a step in an author's own hue (`data-hue`, the hue the renderer
+            // sets on the root): its hue's five steps built as the heat ramp is — into the paper on the first three,
+            // toward the ink on the last two, where the hue at full strength holds neither ink at 4.5:1 — so the same
+            // inks read on them in both themes. Mixed in oklab, which dilutes a hue without turning it toward the
+            // paper's or the ink's own faint hue. The hue's lightness is first held between 0.48 and 0.71, where those
+            // inks read on every step whatever the hue, the series' hues lying within it; a browser without relative
+            // colours takes the hue as it is. Its edge is its last step, as the brand's is.
+            "&[data-series], &[data-hue]": {
+                "--t-tone": "var(--t-hue)",
+                "@supports (color: oklch(from red clamp(0.48, l, 0.71) c h / 1))": {
+                    "--t-tone": "oklch(from var(--t-hue) clamp(0.48, l, 0.71) c h / 1)",
+                },
+                "--t-edge": "color-mix(in oklab, var(--t-tone) 40%, {colors.fg})",
+                "&[data-level='0']": { "--t-fill": "color-mix(in oklab, var(--t-tone) 12%, {colors.bg.surface})" },
+                "&[data-level='1']": { "--t-fill": "color-mix(in oklab, var(--t-tone) 32%, {colors.bg.surface})" },
+                "&[data-level='2']": { "--t-fill": "color-mix(in oklab, var(--t-tone) 56%, {colors.bg.surface})" },
+                "&[data-level='3']": { "--t-fill": "color-mix(in oklab, var(--t-tone) 60%, {colors.fg})" },
+                "&[data-level='4']": { "--t-fill": "color-mix(in oklab, var(--t-tone) 40%, {colors.fg})" },
             },
-            // A diverging step (`data-side`, below or above its track's midpoint, its level 0 to 2 by its distance from
-            // it): below, the heat ramp's first two steps and the brand; above, the warm pole mixed into the paper as the
-            // ramp is, and its text step. Each side's strongest step takes the paper's ink; a predicted step's edge is the
-            // brand scale's below and the warm text step above.
-            "&[data-side='below']": {
-                "&[data-level='0']": { "--t-fill": "{colors.heat.1}" },
-                "&[data-level='1']": { "--t-fill": "{colors.heat.2}" },
-                "&[data-level='2']": { "--t-fill": "{colors.heat.4}", color: "bg.surface" },
-            },
+            // A diverging step (`data-side`, below or above its track's midpoint) takes its ramp's first, second or
+            // fourth step by its distance from it (`data-level` 0, 1 or 3): below, the heat ramp's or an author's hue's;
+            // above, the warm pole mixed into the paper as the ramp is, and its text step, which takes the paper's ink
+            // as a fourth step does. Above, a predicted step's edge is the warm text step.
             "&[data-side='above']": {
                 "--t-edge": "var(--t-warm-deep)",
                 "&[data-level='0']": { "--t-fill": "color-mix(in oklab, var(--t-warm) 12%, {colors.bg.surface})" },
                 "&[data-level='1']": { "--t-fill": "color-mix(in oklab, var(--t-warm) 32%, {colors.bg.surface})" },
-                "&[data-level='2']": { "--t-fill": "var(--t-warm-deep)", color: "bg.surface" },
+                "&[data-level='3']": { "--t-fill": "var(--t-warm-deep)" },
             },
             "&[data-series='1']": { "--t-hue": "{colors.accent.teal}" },
             "&[data-series='2']": { "--t-hue": "{colors.accent.purple}" },

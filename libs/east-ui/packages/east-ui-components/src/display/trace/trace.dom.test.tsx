@@ -121,7 +121,7 @@ describe("Trace's brand scale on the design system's heat ramp", () => {
         expect(stepsOf(container).map((s) => declaredStyle(s, "background"))).toEqual(Array.from({ length: 12 }, () => undefined));
     });
 
-    test("an author's own hue keeps its fills, mixed on each step, and takes no level", () => {
+    test("an author's own hue takes the brand's place, the root carrying it: its steps leveled as the brand scale's, for the recipe to build from the hue", () => {
         const { container } = render(
             <ChakraProvider value={system}>
                 <EastChakraTrace value={traceValue(tracks, {
@@ -131,8 +131,28 @@ describe("Trace's brand scale on the design system's heat ramp", () => {
             </ChakraProvider>,
         );
         const steps = stepsOf(container);
-        expect(steps.map((s) => s.getAttribute("data-level"))).toEqual(Array.from({ length: 12 }, () => null));
-        expect(steps.every((s) => declaredStyle(s, "background")?.includes("#123456") === true)).toBe(true);
+        expect(steps.map((s) => [s.textContent, s.getAttribute("data-level"), s.hasAttribute("data-hue"), s.hasAttribute("data-predicted")])).toEqual([
+            ["12", "0", true, false], ["14", "1", true, false], ["13", "0", true, false], ["18", "3", true, false], ["20", "2", true, true], ["22", "2", true, true],
+            ["40", "4", true, false], ["38", "4", true, false], ["35", "3", true, false], ["30", "1", true, false], ["28", "0", true, true], ["25", "0", true, true],
+        ]);
+        expect(steps.map((s) => declaredStyle(s, "background"))).toEqual(Array.from({ length: 12 }, () => undefined));
+        expect(gridOf(container).parentElement!.style.getPropertyValue("--t-hue")).toBe("#123456");
+    });
+
+    test("the recipe builds an author's hue's steps as the series hues' — into the paper on the first three, toward the ink on the last two, in oklab — from the hue held between 0.48 and 0.71 in lightness, so the heat ramp's inks read on every step whatever the hue", () => {
+        const step = (traceSlotRecipe.base as Readonly<Record<string, Readonly<Record<string, unknown>>>>).step!;
+        expect(step["&[data-series], &[data-hue]"]).toEqual({
+            "--t-tone": "var(--t-hue)",
+            "@supports (color: oklch(from red clamp(0.48, l, 0.71) c h / 1))": { "--t-tone": "oklch(from var(--t-hue) clamp(0.48, l, 0.71) c h / 1)" },
+            "--t-edge": "color-mix(in oklab, var(--t-tone) 40%, {colors.fg})",
+            "&[data-level='0']": { "--t-fill": "color-mix(in oklab, var(--t-tone) 12%, {colors.bg.surface})" },
+            "&[data-level='1']": { "--t-fill": "color-mix(in oklab, var(--t-tone) 32%, {colors.bg.surface})" },
+            "&[data-level='2']": { "--t-fill": "color-mix(in oklab, var(--t-tone) 56%, {colors.bg.surface})" },
+            "&[data-level='3']": { "--t-fill": "color-mix(in oklab, var(--t-tone) 60%, {colors.fg})" },
+            "&[data-level='4']": { "--t-fill": "color-mix(in oklab, var(--t-tone) 40%, {colors.fg})" },
+        });
+        // The heat ramp's inks: the ink on the first three steps, the paper's on the last two.
+        expect([step.color, ...["3", "4"].map((k) => (step[`&[data-level='${k}']`] as { color?: string }).color)]).toEqual(["fg", "bg.surface", "bg.surface"]);
     });
 });
 
@@ -162,41 +182,40 @@ describe("Trace's diverging scale: the brand below each track's midpoint, the wa
     const diverge = some(variant("diverge", null));
     const stepsOf = (container: HTMLElement) => [...gridOf(container).querySelectorAll<HTMLElement>("[title$='measured'], [title$='predicted']")];
 
-    test("a measured step takes its side of the midpoint and one of three equal steps of its distance from it, a predicted one the lighter two, for the recipe to fill", () => {
+    test("a measured step takes its side of the midpoint and its ramp's first, second or fourth step by thirds of its distance from it, a predicted one the first two, for the recipe to fill", () => {
         const { container } = render(
             <ChakraProvider value={system}>
                 <EastChakraTrace value={traceValue(tracks, { scale: diverge, now: some(5n) })} storageKey="diverge" />
             </ChakraProvider>,
         );
         expect(stepsOf(container).map((s) => [s.textContent, s.getAttribute("data-side"), s.getAttribute("data-level"), s.hasAttribute("data-predicted")])).toEqual([
-            ["0", "below", "2", false], ["2", "below", "1", false], ["4", "below", "0", false], ["5", "above", "0", false],
+            ["0", "below", "3", false], ["2", "below", "1", false], ["4", "below", "0", false], ["5", "above", "0", false],
             ["6", "above", "0", false], ["8", "above", "1", true], ["10", "above", "1", true],
-            ["10", "above", "2", false], ["8", "above", "1", false], ["6", "above", "0", false], ["5", "above", "0", false],
+            ["10", "above", "3", false], ["8", "above", "1", false], ["6", "above", "0", false], ["5", "above", "0", false],
             ["4", "below", "0", false], ["6", "above", "0", true], ["0", "below", "1", true],
         ]);
         expect(stepsOf(container).map((s) => declaredStyle(s, "background"))).toEqual(Array.from({ length: 14 }, () => undefined));
     });
 
-    test("the recipe fills each side from the theme — below, the heat ramp's first two steps and the brand; above, the warning hue mixed into the paper and its text step — each side's strongest step in the paper's ink, a lighter one in the ink, a predicted one edged in the brand scale's edge below and the warning text step above", () => {
+    test("the recipe fills each side from the theme — below, the heat ramp's first, second and fourth steps; above, the warning hue mixed into the paper and its text step — each side's strongest step in the paper's ink, a lighter one in the ink, a predicted one edged in the brand scale's edge below and the warning text step above", () => {
         const base = traceSlotRecipe.base as Readonly<Record<string, Readonly<Record<string, unknown>>>>;
         expect([base.root!["--t-warm"], base.root!["--t-warm-deep"]]).toEqual(["{colors.status.warn}", "{colors.fg.warning}"]);
         const step = base.step!;
-        expect(step["&[data-side='below']"]).toEqual({
-            "&[data-level='0']": { "--t-fill": "{colors.heat.1}" },
-            "&[data-level='1']": { "--t-fill": "{colors.heat.2}" },
-            "&[data-level='2']": { "--t-fill": "{colors.heat.4}", color: "bg.surface" },
-        });
+        expect(["0", "1", "3"].map((k) => step[`&[data-level='${k}']`])).toEqual([
+            { "--t-fill": "{colors.heat.1}" }, { "--t-fill": "{colors.heat.2}" }, { "--t-fill": "{colors.heat.4}", color: "bg.surface" },
+        ]);
+        expect(step["&[data-side='below']"]).toBeUndefined();
         expect(step["&[data-side='above']"]).toEqual({
             "--t-edge": "var(--t-warm-deep)",
             "&[data-level='0']": { "--t-fill": "color-mix(in oklab, var(--t-warm) 12%, {colors.bg.surface})" },
             "&[data-level='1']": { "--t-fill": "color-mix(in oklab, var(--t-warm) 32%, {colors.bg.surface})" },
-            "&[data-level='2']": { "--t-fill": "var(--t-warm-deep)", color: "bg.surface" },
+            "&[data-level='3']": { "--t-fill": "var(--t-warm-deep)" },
         });
         // A lighter step keeps the step's ink; below, a predicted step's edge is the brand's, as the brand scale's is.
         expect([step.color, step["--t-edge"]]).toEqual(["fg", "{colors.brandPressed}"]);
     });
 
-    test("an author's own hue draws the cool side, mixed on each step, and the warm side stays the warning hue's steps, for the recipe to fill", () => {
+    test("an author's own hue draws the cool side, its steps marked for the recipe to build from the hue the root carries, and the warm side stays the warning hue's", () => {
         const { container } = render(
             <ChakraProvider value={system}>
                 <EastChakraTrace value={traceValue(tracks, {
@@ -207,18 +226,16 @@ describe("Trace's diverging scale: the brand below each track's midpoint, the wa
             </ChakraProvider>,
         );
         const steps = stepsOf(container);
-        // Above the midpoint, each step's side and level as without the hue; below it, none, the hue's fill being the step's own.
-        expect(steps.map((s) => [s.textContent, s.getAttribute("data-side"), s.getAttribute("data-level"), s.hasAttribute("data-predicted")])).toEqual([
-            ["0", null, null, false], ["2", null, null, false], ["4", null, null, false], ["5", "above", "0", false],
-            ["6", "above", "0", false], ["8", "above", "1", true], ["10", "above", "1", true],
-            ["10", "above", "2", false], ["8", "above", "1", false], ["6", "above", "0", false], ["5", "above", "0", false],
-            ["4", null, null, false], ["6", "above", "0", true], ["0", null, null, false],
+        // Each step's side and level as without the hue; below the midpoint, in the hue.
+        expect(steps.map((s) => [s.textContent, s.getAttribute("data-side"), s.getAttribute("data-level"), s.hasAttribute("data-hue"), s.hasAttribute("data-predicted")])).toEqual([
+            ["0", "below", "3", true, false], ["2", "below", "1", true, false], ["4", "below", "0", true, false], ["5", "above", "0", false, false],
+            ["6", "above", "0", false, false], ["8", "above", "1", false, true], ["10", "above", "1", false, true],
+            ["10", "above", "3", false, false], ["8", "above", "1", false, false], ["6", "above", "0", false, false], ["5", "above", "0", false, false],
+            ["4", "below", "0", true, false], ["6", "above", "0", false, true], ["0", "below", "1", true, true],
         ]);
-        const below = steps.filter((s) => s.getAttribute("data-side") === null);
-        const above = steps.filter((s) => s.getAttribute("data-side") === "above");
-        expect(below.map((s) => declaredStyle(s, "background")?.includes("#123456") === true)).toEqual(Array.from({ length: 5 }, () => true));
-        // No fill, ink or edge of the step's own above the midpoint: the warning hue's, from the root.
-        expect(above.map((s) => [declaredStyle(s, "background"), s.style.color, s.style.borderColor])).toEqual(Array.from({ length: 9 }, () => [undefined, "", ""]));
+        // No fill, ink or edge of a step's own: the recipe's, from the hue on the root.
+        expect(steps.map((s) => [declaredStyle(s, "background"), s.style.color, s.style.borderColor])).toEqual(Array.from({ length: 14 }, () => [undefined, "", ""]));
+        expect(gridOf(container).parentElement!.style.getPropertyValue("--t-hue")).toBe("#123456");
     });
 });
 
@@ -236,13 +253,16 @@ describe("Trace's brandColor: a theme colour's name, or a CSS colour", () => {
         </ChakraProvider>,
     );
 
-    test("a theme colour's name fills the brand scale's steps, and the diverging scale's below the midpoint, in that colour", () => {
-        const drawn = (s: HTMLElement) => declaredStyle(s, "background")?.includes("var(--chakra-colors-accent-purple)") === true;
-        expect(stepsOf(hued(none, "accent.purple").container).map(drawn)).toEqual(Array.from({ length: 6 }, () => true));
+    test("a theme colour's name is the hue the root carries, as its variable, for the brand scale's steps and the diverging scale's below the midpoint", () => {
+        const rootOf = (container: HTMLElement) => gridOf(container).parentElement!;
+        const brand = hued(none, "accent.purple").container;
+        expect(rootOf(brand).style.getPropertyValue("--t-hue")).toBe("var(--chakra-colors-accent-purple)");
+        expect(stepsOf(brand).map((s) => s.hasAttribute("data-hue"))).toEqual(Array.from({ length: 6 }, () => true));
         cleanup();
-        const diverging = stepsOf(hued(some(variant("diverge", null)), "accent.purple").container);
-        expect(diverging.map((s) => [s.textContent, s.getAttribute("data-side") ?? (drawn(s) ? "purple" : "none")])).toEqual([
-            ["0", "purple"], ["2", "purple"], ["4", "purple"], ["6", "above"], ["8", "above"], ["10", "above"],
+        const diverging = hued(some(variant("diverge", null)), "accent.purple").container;
+        expect(rootOf(diverging).style.getPropertyValue("--t-hue")).toBe("var(--chakra-colors-accent-purple)");
+        expect(stepsOf(diverging).map((s) => [s.textContent, s.getAttribute("data-side"), s.hasAttribute("data-hue")])).toEqual([
+            ["0", "below", true], ["2", "below", true], ["4", "below", true], ["6", "above", false], ["8", "above", false], ["10", "above", false],
         ]);
     });
 });
