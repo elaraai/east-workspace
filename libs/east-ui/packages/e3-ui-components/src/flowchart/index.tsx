@@ -635,9 +635,10 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
     // Each stored row decoded once: a read keeps a row's bytes the same object while it holds the row.
     const decodedRows = useRef(new WeakMap<Uint8Array, unknown>());
     // The rows drawn whose numbers their fields' bounds don't hold, the drafts in place: each warns, but a changed row's,
-    // which its session's readiness lists among what holds Save.
-    const breaches = useMemo((): FlowchartBreach[] => {
-        const out: FlowchartBreach[] = [];
+    // which its session's readiness lists among what holds Save — and a state's, stored or changed, wears the warn ring.
+    const breaches = useMemo((): { readonly warned: FlowchartBreach[]; readonly states: ReadonlySet<string> } => {
+        const warned: FlowchartBreach[] = [];
+        const states = new Set<string>();
         for (const { sort, specs, codec } of bounded) {
             const session = sessions.find((part) => stringEqual(part.kind, sort))?.session;
             const said = session === undefined || session.readiness.type === "ready" ? [] : session.readiness.value;
@@ -660,18 +661,20 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
                     }
                 }
                 if (held === undefined) continue;
-                for (const breach of fieldBreaches(specs, held)) {
+                const found = fieldBreaches(specs, held);
+                if (sort === "states" && found.length > 0) states.add(key);
+                for (const breach of found) {
                     if (said.some((issue) => stringEqual(issue.entry, key) && issue.field.type === "some" && stringEqual(issue.field.value, breach.key))) continue;
-                    out.push({ sort, key, ...breachWords(sort, breach) });
+                    warned.push({ sort, key, ...breachWords(sort, breach) });
                 }
             }
         }
-        return out;
+        return { warned, states };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version and their readiness say they moved
     }, [bounded, drafted.rows, data.held, sessions, breachWords, historyVersion, readiness]);
     const issueArgs = useMemo((): FlowchartIssueArgs => ({
         model, transitions: drafted.rows.transitions, waiting: drafted.waiting, hiddenWith: data.hiddenWith, stored: data.held.states, decisions: decisionsGiven,
-        details: detailsModel.findings, breaches,
+        details: detailsModel.findings, breaches: breaches.warned,
     }), [model, drafted, data.hiddenWith, data.held.states, decisionsGiven, detailsModel.findings, breaches]);
     const issues = useMemo(() => [...sessionIssues(sessions, issueArgs, kindName, breachWords), ...flowchartIssues(issueArgs)],
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version and their readiness say they moved
@@ -761,6 +764,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
                     onKeyDown={onKeyDown}
                 >
                     <FlowchartCanvasView ref={canvasRef} canvas={value.canvas} model={model} details={detailsModel} orientation={orientation} reveal={reveal} conflicted={conflicted}
+                        bounded={breaches.states}
                         edit={canvasEdits} drop={drop.canvas} selection={selection} onSelect={setSelected} words={words} storageKey={storageKey}
                         onElement={onCanvasElement} failure={failure} onZoomRange={setZoomRange} />
                 </BuilderFrame>

@@ -238,6 +238,11 @@ export interface FlowchartCanvasViewProps {
     readonly canvas: FlowchartCanvasValue;
     /** The keys of the states holding a conflict not yet chosen: their nodes wear the warn ring. None by default. */
     readonly conflicted?: ReadonlySet<string> | undefined;
+    /**
+     * The keys of the states whose rows hold a number outside its field's bounds, stored or changed (#1585): their nodes
+     * wear the warn ring too. None by default.
+     */
+    readonly bounded?: ReadonlySet<string> | undefined;
     /** The view model: the records, the drafts in place. */
     readonly model: FlowchartModel;
     /** The details model: each card's size where the details draw on the cards, and each label's lines (R22, R32). */
@@ -512,7 +517,7 @@ interface MoveDrag {
  * @returns The canvas's box, which scrolls the records inside it
  */
 export function FlowchartCanvasView({
-    canvas, model, details, orientation, reveal, edit, drop, selection, onSelect, words, storageKey, onElement, failure, ref, conflicted, onZoomRange,
+    canvas, model, details, orientation, reveal, edit, drop, selection, onSelect, words, storageKey, onElement, failure, ref, conflicted, bounded, onZoomRange,
 }: FlowchartCanvasViewProps) {
     const styles = useSlotRecipe({ key: "flowchart" })();
 
@@ -1372,6 +1377,7 @@ export function FlowchartCanvasView({
                                         data-selected={isSel || undefined}
                                         data-context={live ? undefined : ""}
                                         data-conflict={conflicted?.has(rect.key) === true ? "" : undefined}
+                                        data-bounds={bounded?.has(rect.key) === true ? "" : undefined}
                                         data-drop-target={dropMark?.kind === "state" && keyEqual(dropMark.key, rect.key) ? "" : undefined}
                                         style={{
                                             left: rect.x, top: rect.y, width: rect.w, height: rect.h,
