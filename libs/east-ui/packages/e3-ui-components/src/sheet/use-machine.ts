@@ -87,8 +87,9 @@ export function useSheetMachine(value: SheetRootValue, sheetDecode: SheetDecode,
         colCount,
         lensActive: lensDrawn,
         grouped: group !== undefined,
-        // Group insertion uses explicit controls; keyboard padding is flat-only.
-        canAppend: exhausted && canInsertRows && editingState.available && group === undefined,
+        // Group insertion uses explicit controls; keyboard padding is flat-only. A host's grid draws no padding and adds
+        // rows its own way (the Record's Add): ↓ on its last row stays there.
+        canAppend: exhausted && canInsertRows && editingState.available && group === undefined && hostGrid === undefined,
         // A paged sheet's ends (#860): an unloaded run past the row space is a band — under the lens, a stretch it has not
         // read past the rows it draws (#1349).
         edges: pagedSource === undefined ? undefined

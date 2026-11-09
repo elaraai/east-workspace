@@ -53,10 +53,10 @@ export function useSheetGestures(host: SheetHost, sheetDecode: SheetDecode, shee
         canEdit, childField, dispatchStore, draftType, editingState, locked, recordGesture, rows, runLayout, session,
         store, takenKeys, ui,
     } = sheetSession;
-    const { endPosition, rowAt, rowOf } = sheetBody;
+    const { endPosition, rowAt, rowOf, rowSpace } = sheetBody;
     const { ctxRef, dispatch, uiRef } = sheetMachine;
     const { failed } = sheetWrites;
-    const { cardRef } = sheetEffects;
+    const { cardRef, runEffects, setScrollTarget } = sheetEffects;
     const pendingHistoryAction = useRef<HistoryAction | undefined>(undefined);
     // A run's highlight ends with Undo, Apply and Discard; a Redo of its step replays its landing (R9, R16) — heard
     // first, by the parts of the run (`use-assembled.tsx`), through a ref: they are built once the rows and their words are.
@@ -201,6 +201,11 @@ export function useSheetGestures(host: SheetHost, sheetDecode: SheetDecode, shee
         }
         pendingInsertFocus.current = undefined;
         const item = rowAt(r);
+        // The view on the row, whatever the ring does: a row put where the ring stood — the ring keeps its place as the
+        // sheet's own rows move under it — leaves the ring no move to make, and so no scroll of its own to ask for. A
+        // fresh request, for the last may have named the index the row now holds.
+        const bi = rowSpace.bodyIndexOf[r];
+        if (bi !== undefined) setScrollTarget({ index: bi, align: "auto" }, true);
         if (!target.edit) {
             // A drop's row, selected: on the column a card set first, else where the ring was.
             const keyC = target.key === undefined ? -1 : columns.list.findIndex(col => col.key === target.key);
@@ -210,11 +215,13 @@ export function useSheetGestures(host: SheetHost, sheetDecode: SheetDecode, shee
         if (item?.kind === "group" && item.folded) dispatch({ t: "fold.toggle", r });
         const keyC = target.key === undefined || item?.kind === "group" ? -1 : columns.list.findIndex(col => col.key === target.key);
         if (keyC >= 0) {
-            // A host's column (#1533): the ring on it and the view on its row — and a cell that edits out of place opens
-            // where the host edits it, as a press on it does.
+            // A host's column (#1533): the ring on it — and a cell that edits out of place opens where the host edits it,
+            // as a press on it does.
             if (ctxRef.current.opensAt?.(r, keyC) === true) {
                 dispatch({ t: "select.move", r, c: keyC });
-                dispatch({ t: "cell.down", r, c: keyC, shift: false });
+                // The press's own effects, run here: a press dispatched in this commit too would leave the store its
+                // effects alone, the move's lost.
+                runEffects([{ t: "focus.sheet" }, { t: "open", r, c: keyC }]);
                 return;
             }
             // Else its editor opens in the cell, as the sheet's own insert's does — the move after it then moving nothing
@@ -226,7 +233,7 @@ export function useSheetGestures(host: SheetHost, sheetDecode: SheetDecode, shee
         const driverC = columns.list.findIndex(col => col.editable && col.key === driverColumn);
         const c = item?.kind === "group" ? 0 : driverC >= 0 ? driverC : Math.max(0, columns.list.findIndex(col => col.editable));
         dispatch({ t: "cell.dbl", r, c });
-    }, [rows, rowOf, rowAt, columns, driverColumn, dispatch, ctxRef, uiRef]);
+    }, [rows, rowOf, rowAt, columns, driverColumn, dispatch, ctxRef, uiRef, rowSpace, setScrollTarget, runEffects]);
     return { actedRef, anchorFor, insertWhenClosed, onHistoryAction, onInsert, onRowDiscard, pendingInsertFocus };
 }
 

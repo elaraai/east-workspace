@@ -84,9 +84,15 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
      * The body item a scroll brings into view, and how: the row the ring or a
      * search lands on by the least scroll, and a new narrowing's first item at
      * the top (#1349) — under the lens it may be a band taller than the view,
-     * which the least scroll would show by its end.
+     * which the least scroll would show by its end. The frame serves a target
+     * whose index moved; a `fresh` one (`nonce`) it serves though its index is
+     * the last one's — a jump asked for again, a new row put in the place of
+     * the row the last target named.
      */
-    const [scrollTarget, setScrollTarget] = useState<{ index: number; align: "auto" | "start" } | undefined>(undefined);
+    const [scrollTarget, setScrollTargetState] = useState<{ index: number; align: "auto" | "start"; nonce: number } | undefined>(undefined);
+    const setScrollTarget = useCallback((target: { index: number; align: "auto" | "start" }, fresh = false) => {
+        setScrollTargetState((was) => ({ ...target, nonce: (was?.nonce ?? 0) + (fresh ? 1 : 0) }));
+    }, []);
     const runEffects = useCallback((effects: readonly SheetEffect[]) => {
         gestureEvents.current = [];
         /** The writes so far as one gesture: one step of the history. */
@@ -368,7 +374,7 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
             }
         }
         recordSoFar();
-    }, [recordGesture, failed, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, writableAt, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo, hostGrid, dispatchStore, expectedNarrowing, gestureEvents, setViewsState, viewsRef]);
+    }, [recordGesture, failed, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, writableAt, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo, hostGrid, dispatchStore, expectedNarrowing, gestureEvents, setViewsState, viewsRef, setScrollTarget]);
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
         if (store.fxSeq === drainedFx.current) return;

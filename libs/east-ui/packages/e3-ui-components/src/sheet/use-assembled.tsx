@@ -109,7 +109,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     } = sheetInput;
     const { edit, onStripAction, styles } = sheetOpenEditor;
     const { busy, cold, line, loadingFacts, sourceFailure } = sheetReading;
-    const { onAnchorChange, pickSearch, restoreAnchor, scrollNonce } = sheetJumps;
+    const { onAnchorChange, pickSearch, restoreAnchor } = sheetJumps;
     const { count, foldAll, lensMatches, onFold, onSubRows, summary, tabs, wholeCount } = sheetViewTabs;
     const {
         activeCell, ariaRowCount, hint, previewed, ringCol, ringItem, strip, suggested, unreadRuns, wr,
@@ -403,7 +403,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
                     minWidth={`${minWidth}px`}
                     headerZIndex={6}
                     scrollToIndex={scrollTarget?.index}
-                    scrollNonce={scrollNonce}
+                    scrollNonce={scrollTarget?.nonce}
                     scrollAlign={scrollTarget?.align ?? "auto"}
                     onRangeChange={pagedSource !== undefined ? reportRange : undefined}
                     sizeVersion={lensDrawn ? lens.sizeVersion : paging.sizeVersion}

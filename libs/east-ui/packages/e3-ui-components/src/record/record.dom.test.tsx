@@ -44,7 +44,8 @@ import { Data, Record, Sheet } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/record/record";
 import { width } from "../e3-web-mount.test-utils.js";
 import { act, settle, sheetHarness, slot } from "../sheet/frame/harness.test-utils.js";
-import { frameScrolls, touchFrame } from "../sheet/frame.test-utils.js";
+import { boundFrame, frameScrolls, offsetOf, touchFrame } from "../sheet/frame.test-utils.js";
+import { offering } from "../shared/schedule/keys.test-utils.js";
 // The Record is an extension: its renderer registers as it loads.
 import "./index.js";
 
@@ -675,6 +676,39 @@ describe("Add, Delete and the history's steps, in the status line", () => {
         await waitFor(() => expect(inspected(container)).toBe(added.getAttribute("data-row-id")));
     });
 
+    test("Add brings the row it drafts into view wherever its key places it: placed first, over the rows the view had scrolled down to — and the next row placed there too (AD1)", async () => {
+        // A frame two rows tall over the three people.
+        const restoreFrame = boundFrame(72);
+        const restoreScroll = frameScrolls();
+        try {
+            const { container } = await h.mount(ex.recordHoursByProject, { storageKey: "record-add-in-view" });
+            const frame = grid(container).querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
+            const scrolledTo = async (top: number) => {
+                frame.scrollTop = top;
+                fireEvent.scroll(frame);
+                await settle();
+            };
+            /** Whether the row with this key is wholly in the view. */
+            const shown = (id: string) => {
+                const at = offsetOf(rows(container).find((row) => row.getAttribute("data-row-id") === id)!);
+                return at >= frame.scrollTop && at + 36 <= frame.scrollTop + 72;
+            };
+            // Each new row's key sorts before every row's: it is placed first.
+            const keys = ["10000000-0000-4000-8000-000000000000", "00000000-0000-4000-8000-000000000000"];
+            for (const [i, id] of keys.entries()) {
+                await scrolledTo(36 * (i + 1));
+                offering([id]);
+                await press(action(container, "add")!);
+                await waitFor(() => expect(inspected(container)).toBe(id));
+                expect(rows(container)[0]!.getAttribute("data-row-id")).toBe(id);
+                expect(shown(id)).toBe(true);
+            }
+        } finally {
+            restoreScroll();
+            restoreFrame();
+        }
+    });
+
     test("with a search standing, Add clears it, so the row it drafts shows among every row (AD1)", async () => {
         const { container } = await withRows(await h.mount(ex.recordSkillsMatrix, { storageKey: "record-add-search" }));
         await act(async () => { skillsRows().prefix("name", "B."); });
@@ -872,6 +906,30 @@ describe("the keys", () => {
         await settle();
         expect(editor(container)).toBeNull();
         expect(notes().textContent).toBe("Rotates monthly");
+    });
+
+    test("↓ and ⏎ on the last row leave the ring there: a Record adds a row by Add alone, and draws none under its rows (K1)", async () => {
+        const { container } = await h.mount(ex.recordBasic, { storageKey: "record-last-row" });
+        const last = () => cellAt(container, 2, "name");
+        await press(last());
+        await key(container, "ArrowDown");
+        expect(rows(container)).toHaveLength(3);
+        expect(active(container)).toBe(last());
+        // A name typed in the last row's title, and ⏎: written, the ring where it was.
+        await key(container, "R");
+        const typed = await waitFor(() => {
+            const open = last().querySelector<HTMLInputElement>('[data-slot="editorInput"]');
+            expect(open).not.toBeNull();
+            return open!;
+        });
+        fireEvent.input(typed, { target: { value: "R. Patel" } });
+        await settle();
+        fireEvent.keyDown(typed, { key: "Enter" });
+        await settle();
+        expect(part(last(), "titleCell")!.textContent).toBe("R. Patel");
+        expect(rows(container)).toHaveLength(3);
+        expect(container.querySelector('[data-record] [data-row="3"]')).toBeNull();
+        expect(active(container)).toBe(last());
     });
 });
 

@@ -82,7 +82,7 @@ export function useSheetJumps(value: SheetRootValue, sheetDecode: SheetDecode, s
     const {
         clearJump, dispatch, expectedNarrowing, jumpTo, jumpToElement, lensJumpTo, rowSpaceSlots, seenRows, uiRef,
     } = sheetMachine;
-    const { cardRef, jumpBy, ringMoves, seekIntent, setScrollTarget } = sheetEffects;
+    const { cardRef, jumpBy, ringMoves, scrollTarget, seekIntent, setScrollTarget } = sheetEffects;
     // ── The key search over a keyed paged source (§3.13) ──────────────────
     // Its jumps are its own (#860): cleared — by the viewer, or by a new
     // snapshot — it drops only a jump it asked for, never a key's move. Over a
@@ -178,7 +178,6 @@ export function useSheetJumps(value: SheetRootValue, sheetDecode: SheetDecode, s
     // or the view to the band of the window that could not be read (#853).
     // The jump hands the viewport back only after the scroll to it is asked
     // for — the reports taken before, from the old place, would undo it.
-    const [scrollNonce, setScrollNonce] = useState(0);
     const handBack = useRef(false);
     const activeJump = lensDrawn ? lens.jump : paging.jump;
     const jumpInFlight = activeJump !== undefined && !activeJump.settled;
@@ -198,8 +197,7 @@ export function useSheetJumps(value: SheetRootValue, sheetDecode: SheetDecode, s
         if (ring && r !== undefined && r >= 0) dispatch({ t: "select.set", r, c: uiRef.current.sel.c });
         const shown = bi >= 0 ? bi : body.findIndex((it) => it.kind === "failed" && it.failure.from <= target && target <= it.failure.to);
         if (shown < 0) return false;
-        setScrollTarget({ index: shown, align: "auto" });
-        setScrollNonce((n) => n + 1);
+        setScrollTarget({ index: shown, align: "auto" }, true);
         handBack.current = true;
         return true;
     }, [body, rowSpace, group, dispatch, setScrollTarget, uiRef]);
@@ -224,7 +222,8 @@ export function useSheetJumps(value: SheetRootValue, sheetDecode: SheetDecode, s
         const issue = sought !== undefined && sought.row === target ? sought : undefined;
         revealRef.current(target, issue?.entry, issue !== undefined);
     }, [seek, jumpInFlight, landJump, clearJump, lensDrawn, handOff, focusGrid]);
-    // The frame's own effects run first, so by now it has asked for the scroll.
+    // The frame's own effects run first, so by now it has asked for the scroll: a fresh target's, which a jump's is.
+    const scrollNonce = scrollTarget?.nonce;
     useEffect(() => {
         if (!handBack.current) return;
         handBack.current = false;
@@ -319,8 +318,7 @@ export function useSheetJumps(value: SheetRootValue, sheetDecode: SheetDecode, s
         // row may be one the narrowing does not hold, which hands the lens no view — until the frame reports where it rests.
         const landedAt = lensDrawn ? spanOf(body[shown]!) : undefined;
         if (landedAt !== undefined) lensView(landedAt.from, landedAt.to, false);
-        setScrollTarget({ index: shown, align: "auto" });
-        setScrollNonce((n) => n + 1);
+        setScrollTarget({ index: shown, align: "auto" }, true);
         handBack.current = true;
     }, [keyJump, lensDrawn, lensView, body, rowSpace, dispatch, clearJump, sourceRows, rowSpaceSlots, jumpBy, ringMoves, seekIntent, seenRows, setScrollTarget, uiRef]);
 
@@ -388,7 +386,7 @@ export function useSheetJumps(value: SheetRootValue, sheetDecode: SheetDecode, s
     // the row; the record's own rows hold every one. A narrowed source's own rows have no place to keep but their
     // order: a new narrowing of them starts at the top.
     const [keeping, setKeeping] = useState<{ anchor: SheetAnchor; element: number; phase: "asking" | "seeking"; query: string } | undefined>(undefined);
-    const toTop = useCallback(() => { setScrollTarget({ index: 0, align: "start" }); setScrollNonce((n) => n + 1); }, [setScrollTarget]);
+    const toTop = useCallback(() => { setScrollTarget({ index: 0, align: "start" }, true); }, [setScrollTarget]);
     const seenRowsQuery = useRef(rowsQuery);
     useEffect(() => {
         if (standingIn) return;
@@ -483,7 +481,7 @@ export function useSheetJumps(value: SheetRootValue, sheetDecode: SheetDecode, s
         cardRef.current?.focus({ preventScroll: true });
         setPendingIssue(undefined);
     }, [pendingIssue, body, rowSpace, columns, rows, dispatch, cardRef, dispatchStore, setScrollTarget]);
-    return { issueSought, onAnchorChange, onIssue, pickSearch, restoreAnchor, revealRef, rowsPick, scrollNonce, seek };
+    return { issueSought, onAnchorChange, onIssue, pickSearch, restoreAnchor, revealRef, rowsPick, seek };
 }
 
 /** What {@link useSheetJumps} gives the parts after it. */
