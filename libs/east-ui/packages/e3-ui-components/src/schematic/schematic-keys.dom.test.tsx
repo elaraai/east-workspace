@@ -26,7 +26,8 @@
  *   changes what its key reads, its links with it — a Shift session growing
  *   its line where it moved (#1584) — and a key another row holds refusing
  *   the gesture, naming that row — as the rail's filters hiding a link that
- *   may name it does (#1580);
+ *   may name it does (#1580), and a Save of the links naming it in flight
+ *   (#1584);
  *   by DateTime, a placeholder — Save waiting, Issues listing it, Connect
  *   from it refused — until the viewer types its key in the inspector, the
  *   placeholder waiting on as another session moves the record read through
@@ -509,6 +510,53 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
         expect(printFor(fx.placedSpots.type)(await h.read(fx.placedSpots))).toBe(printFor(fx.placedSpots.type)(placed));
         expect(printFor(fx.keyedRopes.type)(await h.read(fx.keyedRopes)))
             .toBe(printFor(fx.keyedRopes.type)(withRows(ropes, compareNumber, [[1n, { from: { row: 1n, col: 1n }, to: { row: 1n, col: 3n }, note: "Along row 1" }]])));
+    });
+
+    test("keyed by row and column, a column edited while the ropes' Save is in flight is refused, saying so, and nothing is recorded — the rope along row 1 couldn't follow the spot; the Save landed, the same edit moves the spot and the rope with it (#1584)", async () => {
+        const spots = await h.read(fx.placedSpots), ropes = await h.read(fx.keyedRopes);
+        const spot = printFor(fx.SpotKey);
+        const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const spotsBound = $.let(Record.bind(fx.placedSpots));
+            const ropesBound = $.let(Record.bind(fx.keyedRopes));
+            return Schematic({
+                id: "keyedBusyRopes",
+                inspector: true,
+                extent: fx.KEYED_FLOOR,
+                items: { spots: Schematic.items(spotsBound, { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", key: (row) => ({ row: row.row, col: row.col }) }) },
+                links: { ropes: Schematic.links(ropesBound, { name: "Rope", icon: "link", from: { field: "from", of: "spots" }, to: { field: "to", of: "spots" } }) },
+            });
+        }))) }, "spots", spot({ row: 1n, col: 1n }));
+        // A rope from 2-1 to 1-1: the ropes' one change, its Save held on its way to e3.
+        const canvas = canvasOf(c);
+        hits(c, [["spots", spot({ row: 1n, col: 1n }), 18, 3], ["spots", spot({ row: 1n, col: 2n }), 22, 3], ["spots", spot({ row: 2n, col: 1n }), 18, 10]]);
+        await tool(c, "Connect");
+        await drag(canvas, [18, 10], [18, 3]);
+        const saving = h.e3.hold((request) => request.kind === "mutate" && request.record === fx.keyedRopes.name);
+        await click(saveButton(c));
+        await saving.holding;
+        // 1-2's column edited to 3 meanwhile: refused, saying why, and the form shows its column again.
+        await tool(c, "Select");
+        await tap(canvas, CAM, 22, 3);
+        await waitFor(() => expect(isSelected(c, "spots", spot({ row: 1n, col: 2n }))).toBe(true));
+        await retypeNumber(c, "row", "col", "3");
+        expect(refused(c)).toBe(m.keyRefused({ refusal: "unheld", name: "1-2", kind: "rope", why: "busy" }));
+        expect(refused(c)).toBe("1-2 isn't changed: the ropes naming it take no edit now — try again in a moment");
+        expect(within(field(c, "row", "col")).getByRole<HTMLInputElement>("spinbutton").value).toBe("2");
+        expect(isSelected(c, "spots", spot({ row: 1n, col: 2n }))).toBe(true);
+        // The Save landed: the same edit moves 1-2 under (1, 3), the rope along row 1 with it.
+        await act(async () => { saving.release(); });
+        await settle();
+        await waitFor(() => expect(unsaved(c)).toBe(false));
+        await retypeNumber(c, "row", "col", "3");
+        await waitFor(() => expect(isSelected(c, "spots", spot({ row: 1n, col: 3n }))).toBe(true));
+        expect(await save(c)).toEqual([fx.keyedRopes.name, fx.placedSpots.name].sort(compareText));
+        const placed = withRows(spots, compareFor(fx.SpotKey), [[{ row: 1n, col: 3n }, { name: "1-2", row: 1n, col: 3n, x: 22.0, y: 3.0 }]]);
+        placed.delete({ row: 1n, col: 2n });
+        expect(printFor(fx.placedSpots.type)(await h.read(fx.placedSpots))).toBe(printFor(fx.placedSpots.type)(placed));
+        expect(printFor(fx.keyedRopes.type)(await h.read(fx.keyedRopes))).toBe(printFor(fx.keyedRopes.type)(withRows(ropes, compareNumber, [
+            [1n, { from: { row: 1n, col: 1n }, to: { row: 1n, col: 3n }, note: "Along row 1" }],
+            [2n, { from: { row: 2n, col: 1n }, to: { row: 1n, col: 1n }, note: "" }],
+        ])));
     });
 
     test("keyed by their ends, as the pipes' `key` builds them: Connect keys a pipe by its ends, one between mixers a pipe joins already refused, naming it; an end changed moves the pipe under its new ends, still selected; one building a key a pipe holds is refused, naming it; and Save writes each under its key", async () => {

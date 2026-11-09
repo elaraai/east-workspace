@@ -125,7 +125,8 @@
  * of them builds, the links and nets naming it with it — every route's edits,
  * the canvas's, a drop's and the inspector's, recorded so — refused, the
  * footer naming the row that holds the key, or saying the filters hide, or no
- * read holds, rows of a link or net kind that may name it (#1580); a lone selected entity that moves
+ * read holds, rows of a link or net kind that may name it (#1580), or that its
+ * details or the rows naming it take no edit now (#1584); a lone selected entity that moves
  * stays selected under its new key. The history item ends the toolbar while a record is edited —
  * Undo, Redo, Discard and Save — and ⌘Z, ⇧⌘Z and ⌘Y take it anywhere in the
  * frame but a field typed into.
@@ -868,6 +869,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
             case "untyped": setRefusal(words.m.keyRefused({ refusal: "untyped", kind: named(refusal.kind), type: refusal.type })); break;
             case "taken": setRefusal(words.m.keyRefused({ refusal: "taken", kind: named(refusal.ref.kind), name: nameOf(refusal.ref) })); break;
             case "unheld": setRefusal(words.m.keyRefused({ refusal: "unheld", kind: named(refusal.kind), name: nameOf(refusal.ref), why: refusal.why })); break;
+            case "details": setRefusal(words.m.keyRefused({ refusal: "details", kind: named(refusal.ref.kind), name: nameOf(refusal.ref) })); break;
         }
     }, [kindName, words]);
     // Why the Schematic may not hold every row of a link or net kind (#1580): the rail's filters leave some out — under
@@ -878,12 +880,13 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         return !ready || failures.has(slot) ? "unread" : undefined;
     }, [dim, chrome, ready, failures]);
     // Every route's edits recorded with each row whose key its fields build following them: refused where a row holds a
-    // key one builds, or a link or net kind that may name a moving item isn't held whole; recorded, a lone selected entity
-    // that moves selected under its new key, and the rows moved handed back — a Shift session's net among them (#1584).
+    // key one builds, a link or net kind that may name a moving item isn't held whole, or what follows a moving row — its
+    // details, the rows naming it — takes no edit now (#1584); recorded, a lone selected entity that moves selected under
+    // its new key, and the rows moved handed back — a Shift session's net among them (#1584).
     const recordEdits = editing.record;
-    const moves = editing.moves, stands = editing.stands, edited = editing.edited;
+    const moves = editing.moves, stands = editing.stands, edited = editing.edited, takes = editing.available;
     const recordFollowing = useCallback((edits: readonly SchematicEdit[], origin: Origin, label: string): readonly SchematicMove[] | undefined => {
-        const followed = followBuiltKeys({ kinds: editsKinds, moves, stands, edited, drawn: heldDrawing, unheld }, edits);
+        const followed = followBuiltKeys({ kinds: editsKinds, moves, stands, edited, drawn: heldDrawing, unheld, takes }, edits);
         if ("refused" in followed) {
             keyRefused(followed.refused);
             return undefined;
@@ -894,7 +897,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         const moved = lone === undefined ? undefined : followed.moved.find((move) => stringEqual(entityId(move.ref), lone));
         if (moved !== undefined) canvasRef.current?.select(entityId({ kind: moved.ref.kind, key: moved.to }));
         return followed.moved;
-    }, [editsKinds, moves, stands, edited, heldDrawing, unheld, keyRefused, recordEdits]);
+    }, [editsKinds, moves, stands, edited, heldDrawing, unheld, takes, keyRefused, recordEdits]);
     const newKey = editing.newKey;
     const canvasEditing = useMemo((): SchematicCanvasEditing | undefined => (editing.edits ? { record: recordFollowing, newKey, keyRefused } : undefined),
         [editing.edits, recordFollowing, newKey, keyRefused]);

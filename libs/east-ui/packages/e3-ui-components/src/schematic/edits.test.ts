@@ -18,7 +18,8 @@
  * fields build following them, what names it with it — and what names a new
  * item following the key typed for it (#1549) — a swap or a shift passing, a
  * key a row moves off free once the gesture is made (#1581) — and a Shift
- * session following its net as its sides move it (#1584). Fixtures are
+ * session following its net as its sides move it, and a move refused while
+ * what follows it takes no edit now (#1584). Fixtures are
  * real East values typed from the Schematic's East types; each gesture's
  * edits are compared as East prints them.
  */
@@ -536,7 +537,7 @@ describe("a key built from the row follows the row (#1549)", () => {
         return [];
     };
     const holding = (over: Partial<SchematicKeyHolding> = {}): SchematicKeyHolding => ({
-        kinds: KINDS, moves, stands: () => false, edited: () => false, drawn: DRAWN, unheld: () => undefined, ...over,
+        kinds: KINDS, moves, stands: () => false, edited: () => false, drawn: DRAWN, unheld: () => undefined, takes: () => true, ...over,
     });
     const SET_A01: SchematicEdit = { op: "set", ref: A01, sets: [] };
 
@@ -647,5 +648,18 @@ describe("a key built from the row follows the row (#1549)", () => {
         // A new rack's key typed, where racks are keyed by number: no stored row names its placeholder.
         const numbered: EditKinds = { ...KINDS, itemKeys: new Map([...KINDS.itemKeys, ["racks", { name: "Rack", keys: kindKeys(toEastTypeValue(IntegerType)) }]]) };
         expect("refused" in followBuiltKeys(holding({ kinds: numbered, unheld: only("fibre", "filtered") }), [{ op: "move", ref: ref("racks", "new-rack"), to: "7" }])).toBe(false);
+    });
+
+    test("what follows a moving row taking no edit now — a Save of it in flight — refuses the gesture, naming the row: the rows naming it, by their kind, and its details where they are edited; a kind naming nothing that moves, and details not edited, refuse nothing (#1584)", () => {
+        const busy = (record: string) => (at: string) => !stringEqual(at, record);
+        const details = "racks\u0000details";
+        // A01: the run u1 and the feed feed-a name it.
+        expect(followBuiltKeys(holding({ takes: busy("fibre") }), [SET_A01])).toEqual({ refused: { refusal: "unheld", ref: A01, kind: "fibre", why: "busy" } });
+        expect(followBuiltKeys(holding({ takes: busy("feeds") }), [SET_A01])).toEqual({ refused: { refusal: "unheld", ref: A01, kind: "feeds", why: "busy" } });
+        expect(followBuiltKeys(holding({ takes: busy(details), edited: (record) => stringEqual(record, details) }), [SET_A01]))
+            .toEqual({ refused: { refusal: "details", ref: A01 } });
+        // No trunk names A01, and its details not edited stay where they are.
+        expect("refused" in followBuiltKeys(holding({ takes: busy("trunks") }), [SET_A01])).toBe(false);
+        expect("refused" in followBuiltKeys(holding({ takes: busy(details) }), [SET_A01])).toBe(false);
     });
 });

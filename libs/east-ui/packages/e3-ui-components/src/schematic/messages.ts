@@ -177,7 +177,8 @@ export interface SchematicMessages extends PagedLoadingMessages, HiddenWords {
     keyPlaceholder: (p: { name: string }) => string;
     /**
      * Why a gesture records nothing (#1549), in the footer — `A fibre run A01 → ODF-1 is there already`, `A01 isn't changed:
-     * the filters hide some fibre runs that may name it — clear them, then try again` (#1580).
+     * the filters hide some fibre runs that may name it — clear them, then try again` (#1580), `A01 isn't changed: the
+     * fibre runs naming it take no edit now — try again in a moment` (#1584).
      */
     keyRefused: (p: SchematicKeyRefusalWord) => string;
     /** A gesture's label in the history: what it did, and to how many. */
@@ -370,15 +371,17 @@ export type SchematicDropRefusalWord =
 /**
  * Why a gesture records nothing (#1549), as the footer says it: the row holding
  * the key a row builds, by its kind's name and its own, as running text writes
- * them; a kind adding no row, its keys of a type the form can't type; or an item
+ * them; a kind adding no row, its keys of a type the form can't type; an item
  * whose key would move, by its name, while some rows of a link or net kind that
  * may name it — by its name, as running text writes it — the filters hide or
- * aren't read (#1580).
+ * aren't read (#1580), or those naming it take no edit now (#1584); or a row
+ * whose key would move while its kind's details take no edit now (#1584).
  */
 export type SchematicKeyRefusalWord =
     | { readonly refusal: "taken"; readonly kind: string; readonly name: string }
     | { readonly refusal: "untyped"; readonly kind: string; readonly type: string }
-    | { readonly refusal: "unheld"; readonly name: string; readonly kind: string; readonly why: "filtered" | "unread" };
+    | { readonly refusal: "unheld"; readonly name: string; readonly kind: string; readonly why: "filtered" | "unread" | "busy" }
+    | { readonly refusal: "details"; readonly name: string; readonly kind: string };
 
 /** A tab of the library, as its words name it: its own, or an author's (`tab`). */
 export type SchematicLibraryTabWord = "templates" | "backlog" | "index" | "layers" | "tab";
@@ -515,9 +518,12 @@ export function schematicMessagesOf(v: SchematicVocabulary): SchematicMessages {
             switch (p.refusal) {
                 case "taken": return `${capital(article(p.kind))} ${p.kind} ${p.name} is there already`;
                 case "untyped": return keysUntyped(p.kind, p.type);
-                case "unheld": return p.why === "filtered"
-                    ? `${p.name} isn't changed: the filters hide some ${p.kind}s that may name it — clear them, then try again`
-                    : `${p.name} isn't changed: some ${p.kind}s that may name it aren't read — try again once they are`;
+                case "unheld": return `${p.name} isn't changed: ${({
+                    filtered: `the filters hide some ${p.kind}s that may name it — clear them, then try again`,
+                    unread: `some ${p.kind}s that may name it aren't read — try again once they are`,
+                    busy: `the ${p.kind}s naming it take no edit now — try again in a moment`,
+                })[p.why]}`;
+                case "details": return `${p.name} isn't changed: its ${p.kind} details take no edit now — try again in a moment`;
             }
         },
         step: ({ step, name, n }) => ({

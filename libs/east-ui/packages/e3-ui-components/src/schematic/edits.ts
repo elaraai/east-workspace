@@ -42,9 +42,11 @@
  * item follow — refused, naming the row, where another row holds that key
  * once the gesture is made, so a swap or a shift passes (#1581), and where a
  * link or net kind that may name a moving item isn't held whole (#1580): its
- * rows the rail's filters hide, or not read, would keep the old key. They
- * follow a new item's key typed in the inspector too; and a Shift session
- * follows its net as its sides move it ({@link followSession}).
+ * rows the rail's filters hide, or not read, would keep the old key; and where
+ * what follows a moving row — its details, the rows naming it — takes no edit
+ * now (#1584), a Save of it in flight. They follow a new item's key typed in
+ * the inspector too; and a Shift session follows its net as its sides move it
+ * ({@link followSession}).
  *
  * A library card's drop (#1390, `drop.ts`) writes its rows as edits too: an
  * item template's new item, a backlog row placed, a link or net template's
@@ -229,9 +231,12 @@ export type SchematicKeyRefusal =
     | { readonly refusal: "untyped"; readonly kind: string; readonly type: string }
     /**
      * An item whose key the gesture moves, which a link or a net kind that writes may name, the Schematic not holding every
-     * row of that kind — by its slot, and why (#1580): what names the item there would keep naming its old key.
+     * row of that kind — by its slot, and why (#1580): what names the item there would keep naming its old key; or rows of
+     * it naming the item taking no edit now — `busy`, a Save of them in flight (#1584): what follows the item could not.
      */
-    | { readonly refusal: "unheld"; readonly ref: SchematicRef; readonly kind: string; readonly why: SchematicUnheld };
+    | { readonly refusal: "unheld"; readonly ref: SchematicRef; readonly kind: string; readonly why: SchematicUnheld | "busy" }
+    /** A row whose key the gesture moves, its details row with it, whose details take no edit now — a Save of them in flight (#1584). */
+    | { readonly refusal: "details"; readonly ref: SchematicRef };
 
 /**
  * A new row's key as its kind makes it (`editing.ts`' `newKey`, #1549), or why
@@ -813,6 +818,12 @@ export interface SchematicKeyHolding {
      * @param slot - The kind's slot
      */
     readonly unheld: (slot: string) => SchematicUnheld | undefined;
+    /**
+     * Whether a record takes an edit now (#1584): one whose Save is in flight takes none.
+     *
+     * @param record - The record's key in the history: a kind's slot, or its details' (`detailsKey`)
+     */
+    readonly takes: (record: string) => boolean;
 }
 
 /** A gesture's edits with every row it moves following its key, and the rows moved; or why it records nothing. */
@@ -885,6 +896,27 @@ function unheldNamer(holding: SchematicKeyHolding, moves: readonly SchematicMove
 }
 
 /**
+ * Why a gesture can't move the rows it moves where what follows one takes no
+ * edit now (#1584) — a Save of it in flight: its details, where they are
+ * edited, which its details row moves into with it; or the rows of a link or a
+ * net kind naming an item, which {@link namers} writes. Recorded, the gesture
+ * would record nothing, and say nothing of why.
+ *
+ * @param holding - What the gesture reads
+ * @param moves - The rows it moves
+ * @returns The refusal; `undefined` where every record what follows them writes takes an edit
+ */
+function busyFollower(holding: SchematicKeyHolding, moves: readonly SchematicMove[]): SchematicKeyRefusal | undefined {
+    for (const move of moves) {
+        const details = detailsKey(move.ref.kind);
+        if (holding.edited(details) && !holding.takes(details)) return { refusal: "details", ref: move.ref };
+        const busy = namers(holding, [move]).find((edit) => !holding.takes(edit.ref.kind));
+        if (busy !== undefined) return { refusal: "unheld", ref: move.ref, kind: busy.ref.kind, why: "busy" };
+    }
+    return undefined;
+}
+
+/**
  * Whether a key a row moves to is held once the gesture is made (#1581):
  * another row moves there too, or a row stands there that the gesture leaves
  * there — a row moving off it frees it, so a swap or a shift passes.
@@ -913,16 +945,17 @@ function heldOnceMoved(holding: SchematicKeyHolding, moves: readonly SchematicMo
  * (#1581). A row the gesture moves itself — a new item's key typed in the
  * inspector — is followed the same way by what names it. An item that a link
  * or a net kind the Schematic doesn't hold whole may name refuses the gesture
- * too (#1580): what it leaves out would keep the old key.
+ * too (#1580): what it leaves out would keep the old key; and so does a row
+ * whose details, or the rows naming it, take no edit now (#1584).
  *
  * @param holding - What the gesture reads
  * @param made - The gesture's edits
- * @returns The edits with every move, and the rows moved by the keys they build; or the refusal, where a key is taken or
- *   what may name a moving item isn't held
+ * @returns The edits with every move, and the rows moved by the keys they build; or the refusal, where a key is taken,
+ *   what may name a moving item isn't held, or what follows a moving row takes no edit now
  */
 export function followBuiltKeys(holding: SchematicKeyHolding, made: readonly SchematicEdit[]): FollowedEdits {
     const typed = made.flatMap((edit): SchematicMove[] => (edit.op === "move" && edit.details !== true ? [{ ref: edit.ref, to: edit.to }] : []));
-    const unheldTyped = unheldNamer(holding, typed);
+    const unheldTyped = unheldNamer(holding, typed) ?? busyFollower(holding, typed);
     if (unheldTyped !== undefined) return { refused: unheldTyped };
     let edits: readonly SchematicEdit[] = typed.length === 0 ? made : [...made, ...namers(holding, typed)];
     const moved: SchematicMove[] = [];
@@ -932,7 +965,7 @@ export function followBuiltKeys(holding: SchematicKeyHolding, made: readonly Sch
         for (const move of moves) {
             if (heldOnceMoved(holding, moves, move)) return { refused: { refusal: "taken", ref: { kind: move.ref.kind, key: move.to } } };
         }
-        const unheld = unheldNamer(holding, moves);
+        const unheld = unheldNamer(holding, moves) ?? busyFollower(holding, moves);
         if (unheld !== undefined) return { refused: unheld };
         const to = (ref: SchematicRef) => moves.find((move) => refEqual(move.ref, ref))?.to;
         // A row moving onto a key another moving row leaves replaces that row; a key another moving row takes stays.
