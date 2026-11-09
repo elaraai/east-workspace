@@ -266,3 +266,25 @@ describe("Trace's brandColor: a theme colour's name, or a CSS colour", () => {
         ]);
     });
 });
+
+describe("Trace's nowLineColor: a theme colour's name, or a CSS colour", () => {
+    const nowLineOf = (nowLineColor: string) => {
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <EastChakraTrace value={traceValue([{ name: "A", values: [1, 2, 3, 4] }], {
+                    now: some(2n),
+                    style: some({ brandColor: none, nowLineColor: some(nowLineColor), labelWidth: none, plotGutter: none }),
+                })} storageKey={`now.${nowLineColor}`} />
+            </ChakraProvider>,
+        );
+        // The now-line is the grid's one child placed by an inline `left`.
+        return [...gridOf(container).children].find((c) => (c as HTMLElement).style.left !== "") as HTMLElement;
+    };
+
+    test("a theme colour's name draws the now-line in that colour, as its variable; a CSS colour as it is", () => {
+        expect(declaredStyle(nowLineOf("fg.default"), "background")).toBe("var(--chakra-colors-fg-default)");
+        cleanup();
+        // jsdom writes a hex colour back as rgb().
+        expect(declaredStyle(nowLineOf("#123456"), "background")).toBe("rgb(18, 52, 86)");
+    });
+});

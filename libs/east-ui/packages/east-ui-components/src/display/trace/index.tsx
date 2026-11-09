@@ -56,7 +56,9 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     // author's hue — a theme colour's name (`"accent.purple"`) or a CSS colour — takes the brand's place, its steps
     // built as the series hues' are.
     const hue = ownHue === undefined || scale === "categorical" ? undefined : resolveColor(system, ownHue);
-    const nowColor = style ? getSomeorUndefined(style.nowLineColor) : undefined;
+    const ownNowColor = style ? getSomeorUndefined(style.nowLineColor) : undefined;
+    // The now-line's colour, a theme colour's name or a CSS colour, as an author's hue is.
+    const nowColor = ownNowColor === undefined ? undefined : resolveColor(system, ownNowColor);
     // Optional label-gutter width override (#137) — overrides the density
     // default `--t-stub-w`, which both the grid columns and now-line read.
     const labelWidth = style ? getSomeorUndefined(style.labelWidth) : undefined;

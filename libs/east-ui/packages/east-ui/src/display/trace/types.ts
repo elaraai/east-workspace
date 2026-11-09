@@ -67,7 +67,7 @@ export type TraceTrackType = typeof TraceTrackType;
  * Visual escape hatches for a Trace.
  *
  * @property brandColor - Override the heat hue of the `brand` scale and of the `diverge` scale's cool side, below each track's midpoint: a theme colour's name (`"accent.purple"`) or a CSS colour. Its steps are built from it as the theme's own series hues are, its lightness held where the theme's inks read on every step, so their values read in both themes whatever the colour
- * @property nowLineColor - Override the colour of the now-line
+ * @property nowLineColor - Override the colour of the now-line: a theme colour's name (`"fg.muted"`) or a CSS colour
  * @property labelWidth - Width of the left-hand track-name gutter (any CSS length); omit for the density default
  * @property plotGutter - Shared plot gutter (#147): pins the lane to `[left, W−right]` so a stacked Chart/Trace line up. `left` supersedes `labelWidth`; presence makes the lane fill the container (flexible steps)
  */
@@ -125,7 +125,7 @@ export interface TraceTrack {
  * @property future - How predicted steps are distinguished
  * @property axis - Optional per-step labels (ruler at `comfortable`, step tooltips at every density)
  * @property brandColor - Override the heat hue of the `brand` scale and of the `diverge` scale's cool side, below each track's midpoint: a theme colour's name (`"accent.purple"`) or a CSS colour. Its steps are built from it as the theme's own series hues are, its lightness held where the theme's inks read on every step, so their values read in both themes whatever the colour
- * @property nowLineColor - Override the colour of the now-line
+ * @property nowLineColor - Override the colour of the now-line: a theme colour's name (`"fg.muted"`) or a CSS colour
  */
 export interface TraceOptions {
     /** Step index of the continuous now-line; `[0, now)` measured, `[now, end)` predicted. Omit for measured-only. */
@@ -140,7 +140,7 @@ export interface TraceOptions {
     axis?: SubtypeExprOrValue<ArrayType<StringType>>;
     /** Override the heat hue of the `brand` scale and of the `diverge` scale's cool side, below each track's midpoint: a theme colour's name (`"accent.purple"`) or a CSS colour. Its steps are built from it as the theme's own series hues are, its lightness held where the theme's inks read on every step, so their values read in both themes whatever the colour. */
     brandColor?: SubtypeExprOrValue<StringType>;
-    /** Override the colour of the now-line. */
+    /** Override the colour of the now-line: a theme colour's name (`"fg.muted"`) or a CSS colour. */
     nowLineColor?: SubtypeExprOrValue<StringType>;
     /** Width of the left-hand track-name gutter (any CSS length, e.g. `"120px"`); omit for the density default. */
     labelWidth?: SubtypeExprOrValue<StringType>;
