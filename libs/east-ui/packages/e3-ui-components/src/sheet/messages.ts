@@ -100,13 +100,14 @@ export type SheetDropRefusalWord =
  * Why a paste, a clear or an edit left a cell as it was: a mark locks it
  * (`words`, the lock's own); its column is read only; its value isn't an
  * option, so it is never empty; it is an action cell, which only its actions
- * change; it is edited where ⏎ opens it, never in the grid (#1531); or `text`
- * is no value its column reads, and a column from data keeps none it can't
- * read. `header` is the cell's column's.
+ * change; it is edited where ⏎ opens it, never in the grid (#1531); it steps
+ * in place on a row the upstream system owns, which takes no step there (T9);
+ * or `text` is no value its column reads, and a column from data keeps none it
+ * can't read. `header` is the cell's column's.
  */
 export type SheetCellRefusalWord =
     | { why: "locked"; words: string }
-    | { why: "readOnly" | "noClear" | "action" | "opens"; header: string }
+    | { why: "readOnly" | "noClear" | "action" | "opens" | "owned"; header: string }
     | { why: "unread"; header: string; text: string };
 
 /**
@@ -972,6 +973,7 @@ export const sheetMessages: SheetMessages = {
             case "noClear": return `${p.header} can't be left empty`;
             case "action": return `${p.header} changes only through its actions`;
             case "opens": return `${p.header} is edited where ⏎ opens it`;
+            case "owned": return `${p.header} is owned upstream`;
             case "unread": return `${p.header} can't hold "${p.text}"`;
         }
     },

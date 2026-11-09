@@ -192,16 +192,17 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                         for (let c = eff.c0; c <= eff.c1; c++) {
                             const meta = metaAt(r, c);
                             if (meta === undefined || !canEdit) continue;
-                            // A cell that steps in place takes no clear on an owned row, as it takes no step there (T9).
                             const it = rowAt(r);
-                            if (hostGrid !== undefined && stepsInPlace(meta) && (it?.kind === "real" || it?.kind === "group") && it.row.owned) continue;
                             // Each cell a clear leaves as it is says why, as a paste does (#1585): an action cell, which only its
-                            // actions change; a locked one, and one read only — a stamped one's among them; one that edits out of
-                            // place, which is cleared where it edits, never in the grid (#1531); one whose value isn't an option.
+                            // actions change; a locked one, and one read only — a stamped one's among them; one that steps in place
+                            // on an owned row, which takes no step there (T9); one that edits out of place, which is cleared where
+                            // it edits, never in the grid (#1531); one whose value isn't an option.
                             const why: SheetCellRefusalWord | undefined = meta.kind === "action" ? { why: "action", header: meta.header }
                                 : meta.kind === "stamped" || !writableAt(r, c) ? lockedAt(r, meta)
-                                    : editsOutOfPlace(meta, hostGrid) ? { why: "opens", header: meta.header }
-                                        : !takesClear(meta) ? { why: "noClear", header: meta.header } : undefined;
+                                    : hostGrid !== undefined && stepsInPlace(meta) && (it?.kind === "real" || it?.kind === "group") && it.row.owned
+                                        ? { why: "owned", header: meta.header }
+                                        : editsOutOfPlace(meta, hostGrid) ? { why: "opens", header: meta.header }
+                                            : !takesClear(meta) ? { why: "noClear", header: meta.header } : undefined;
                             // A blank has nothing to clear — but that one cell is told why all the same, unless only that it can't be empty.
                             if (cellIsBlank(cellAt(r, c)) && (!one || why === undefined || why.why === "noClear")) continue;
                             if (why !== undefined) {
@@ -280,8 +281,9 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                         const outcome = parseCell(meta, p.text, parseCtxFor(Math.min(r, blankR ?? r), meta));
                         const cell = outcome.kind === "unrecognised" ? variant("Invalid", p.text) : outcome.kind === "cell" ? outcome.cell : NULL_CELL;
                         // A blank lands only where the cell takes a clear, text no column reads only where it can stand —
-                        // a column from data keeps none — and a cell it lands on in place only when it takes an edit: each
-                        // is said as skipped, and why.
+                        // a column from data keeps none — and a cell it lands on in place only when it takes an edit, never
+                        // one that steps in place on an owned row, which takes no step there (T9): each is said as skipped,
+                        // and why.
                         const kept: SheetCellRefusalWord | undefined = cellIsBlank(cell) && !takesClear(meta) ? { why: "noClear", header: meta.header }
                             : outcome.kind === "unrecognised" && getSomeorUndefined(meta.raw.from) !== undefined ? { why: "unread", header: meta.header, text: p.text }
                                 : undefined;
@@ -291,11 +293,14 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                             continue;
                         }
                         const inPlace = { r, c: p.c, cell };
-                        const lands = writableAt(r, p.c);
+                        const it = rowAt(r);
+                        const owned = hostGrid !== undefined && stepsInPlace(meta) && (it?.kind === "real" || it?.kind === "group") && it.row.owned;
+                        const lands = writableAt(r, p.c) && !owned;
+                        const why = (): SheetCellRefusalWord => (owned && writableAt(r, p.c) ? { why: "owned", header: meta.header } : lockedAt(r, meta));
                         if (looseEnd !== undefined) {
                             if (r > looseEnd) writes.push({ r: looseEnd, c: p.c, cell, extra: r - looseEnd });
                             else if (lands) writes.push(inPlace);
-                            else { skipped += 1; refused ??= lockedAt(r, meta); }
+                            else { skipped += 1; refused ??= why(); }
                             continue;
                         }
                         if (gid !== undefined) {
@@ -307,7 +312,7 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                             continue;
                         }
                         if (lands) writes.push(inPlace);
-                        else { skipped += 1; refused ??= lockedAt(r, meta); }
+                        else { skipped += 1; refused ??= why(); }
                     }
                     // A paste whose new rows' keys are refused writes nothing, and the footer says why (#1536).
                     if (writes.length > 0 && writeCells(writes, "pasted").refused === true) break;
