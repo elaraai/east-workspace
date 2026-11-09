@@ -62,7 +62,7 @@ export function useSheetActions(host: SheetHost, sheetDecode: SheetDecode, sheet
         barClosedAt, canEdit, dispatchStore, draftVersion, editingState, recordGesture, rows, session, setBarClosedAt,
         ui,
     } = sheetSession;
-    const { metaAt, rowAt, rowOf, wireContextFor, writableAt } = sheetBody;
+    const { idAt, metaAt, rowAt, rowOf, wireContextFor, writableAt } = sheetBody;
     const { dispatch } = sheetMachine;
     const { failed, gestureEvents, writeCells } = sheetWrites;
     const { cardRef } = sheetEffects;
@@ -74,7 +74,24 @@ export function useSheetActions(host: SheetHost, sheetDecode: SheetDecode, sheet
     // its `updates` writes on the row and on its group's band, and the entry drawn again as the record would show it.
     const hasActions = useMemo(() => allColumns.list.some((col) => col.kind === "action"), [allColumns]);
     const actionStore = useMemo(createActionStore, []);
-    const [actionOverlay, setActionOverlay] = useState<ActionOverlayState | undefined>(undefined);
+    // The overlay is held by its rows' ids, never their places: a window landing above them, or a row another session
+    // adds, moves them, and a place would then name another row — the one a pick would take its case on. It is drawn
+    // at their places as they stand, and closes once one of them is gone.
+    const [heldOverlay, setHeldOverlay] = useState<{ overlay: ActionOverlayState; id: string; ids: readonly string[] } | undefined>(undefined);
+    const setActionOverlay = (overlay: ActionOverlayState | undefined) => {
+        if (overlay === undefined) { setHeldOverlay(undefined); return; }
+        const id = idAt(overlay.r);
+        const ids = overlay.rs.flatMap((r) => { const at = idAt(r); return at === undefined ? [] : [at]; });
+        if (id !== undefined && ids.length === overlay.rs.length) setHeldOverlay({ overlay, id, ids });
+    };
+    const actionOverlay = useMemo((): ActionOverlayState | undefined => {
+        if (heldOverlay === undefined) return undefined;
+        const { overlay } = heldOverlay;
+        const r = rowOf(heldOverlay.id);
+        const rs = heldOverlay.ids.flatMap((id) => { const at = rowOf(id); return at === undefined ? [] : [at]; });
+        if (r === undefined || rs.length !== heldOverlay.ids.length) return undefined;
+        return r === overlay.r && rs.every((at, i) => at === overlay.rs[i]) ? overlay : { ...overlay, r, rs };
+    }, [heldOverlay, rowOf]);
     // The action the pointer rests on, previewed in the strip (P8), and the dwell before it shows or goes.
     const [actionPreview, setActionPreview] = useState<{ r: number; key: string; c: ActionCase } | undefined>(undefined);
     const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -375,10 +392,10 @@ export function useSheetActions(host: SheetHost, sheetDecode: SheetDecode, sheet
     useLayoutEffect(() => {
         if (hasActions) actionStore.bump();
     }, [hasActions, actionStore, rows, draftVersion, actionOverlay, canEdit, editingState.available, framePx]);
-    // An overlay whose row went — a narrowing, a new revision — closes.
+    // An overlay whose row went — a narrowing, a new revision — closes; one whose rows moved goes with them.
     useEffect(() => {
-        if (actionOverlay !== undefined && actionApi.current?.offer(actionOverlay.r, actionOverlay.key) === undefined) setActionOverlay(undefined);
-    }, [actionOverlay, rows, actionApi]);
+        if (heldOverlay !== undefined && (actionOverlay === undefined || actionApi.current?.offer(actionOverlay.r, actionOverlay.key) === undefined)) setHeldOverlay(undefined);
+    }, [heldOverlay, actionOverlay, rows, actionApi]);
     const onActionTake = useCallback((c: ActionCase, value: unknown) => {
         const at = actionOverlayRef.current;
         if (at !== undefined) actionApi.current?.takeOn(at.rs, at.key, c, value);
@@ -400,10 +417,11 @@ export function useSheetActions(host: SheetHost, sheetDecode: SheetDecode, sheet
         if (at !== undefined) actionApi.current?.preview(at.r, at.key, c);
     }, [actionApi]);
     const actionConsequence = useCallback((c: ActionCase, value: unknown) => actionApi.current?.consequence(c, value) ?? "", [actionApi]);
-    const actionOverlayNode = actionOverlay === undefined ? null
+    // A form is its row's while it is open — what is typed in it stays as the rows move.
+    const actionOverlayNode = actionOverlay === undefined || heldOverlay === undefined ? null
         : actionOverlay.kind === "menu"
             ? <ActionMenu state={actionOverlay} registers={registers} onTake={onActionTake} onForm={onActionForm} onClose={onActionClose} onPreview={onMenuPreview} />
-            : <ActionForm key={`${actionOverlay.r}:${actionOverlay.key}:${actionOverlay.case.name}`} state={actionOverlay} registers={registers}
+            : <ActionForm key={`${heldOverlay.id}:${actionOverlay.key}:${actionOverlay.case.name}`} state={actionOverlay} registers={registers}
                 consequence={actionConsequence} onTake={onActionTake} onClose={onActionClose} />;
     const rowActions = hasActions ? actionHost : undefined;
     // A phone's action bar (#1479; `Mobile Sheet Spec.md` SH9, R3): the ring's Action cell's actions in the docked strip's

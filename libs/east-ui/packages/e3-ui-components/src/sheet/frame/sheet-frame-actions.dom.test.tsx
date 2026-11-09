@@ -19,7 +19,7 @@
 import { test, expect } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { some, variant } from "@elaraai/east";
+import { none, some, variant } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-actions";
 import { act, sheetHarness, settle, slot } from "./harness.test-utils.js";
 import { touchFrame } from "../frame.test-utils.js";
@@ -498,6 +498,22 @@ test("handed over to a crew, the cell's summary names the crew by its label (han
     const cell = cellOf(container, "T-302", "action");
     expect(stateOf(cell)).toBe("handed_over");
     expect(cell.querySelector('[data-slot="actionSummary"]')?.textContent).toBe("Night crew");
+});
+
+/** The flat rows, by their keys, in order. */
+const rowIds = (container: HTMLElement) => [...slot(container, "main")!.querySelectorAll<HTMLElement>('[data-slot="row"][data-row-id]')].map((row) => row.getAttribute("data-row-id"));
+
+test("a Menu open on a row goes with it as another session's ticket moves the rows under it: its pick is taken on that row, never the one now in its place", async () => {
+    const { container } = await h.mount(ex.sheetActionsTickets);
+    await press(cellOf(container, "T-302", "action").querySelector('[data-slot="actionMore"]')!);
+    // A ticket that sorts first: every row moves down one under the open Menu.
+    const tickets = new Map(await h.read(ex.sheetTickets));
+    tickets.set("T-300", { title: "Belt slip", crew: "day", due: none, action: none });
+    await h.patch(ex.sheetTickets, tickets);
+    expect(rowIds(container)).toEqual(["T-300", "T-301", "T-302", "T-303"]);
+    await pick(within(document.querySelector<HTMLElement>("[data-sheet-action-menu]")!).getByRole("menuitem", { name: /Close/ }));
+    expect(stateOf(cellOf(container, "T-302", "action"))).toBe("closed");
+    expect(stateOf(cellOf(container, "T-301", "action"))).toBeUndefined();
 });
 
 test("the inspector's read-only Status says the member's label, as the band's cell does (hand test F7)", async () => {
