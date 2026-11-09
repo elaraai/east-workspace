@@ -9,10 +9,13 @@
  * pressed stays under the pointer, and a second press where another choice
  * stood lands on that choice — read on the bakery's flowchart
  * (`flowchartBakery`), step 20's portion: Sliced, then By weight where it
- * stood, pinned beside main; and on the Record's joinery (`recordFinishes`),
- * the hall door's finish: Stain, then Bare where it stood, pinned beside main
- * and in a phone's own Details. Each press is the pointer's, where the choice
- * stood, never a locator's, which would find the choice wherever it went.
+ * stood, pinned beside main; on the Record's joinery (`recordFinishes`), the
+ * hall door's finish: Stain, then Bare where it stood, pinned beside main and
+ * in a phone's own Details; and on the Schematic's data centre floor, whose
+ * head is the schedule builders' own, a fibre run's cable — a head with no
+ * status: Logical, then Fibre where it stood. Each press is the pointer's,
+ * where the choice stood, never a locator's, which would find the choice
+ * wherever it went.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test inspector-chip`.
@@ -22,6 +25,7 @@ import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { visitBuilder } from "./builder-page";
 import { openFlowchart } from "./flowchart-page";
+import { DATA_CENTRE, centred, openSchematic, printedRef, screenPoint, sizeTo } from "./schematic-page";
 import { settled } from "./settle";
 
 /** Each of a choice field's choices by its words, and where it stands: its middle, in client px, to the hundredth. */
@@ -96,4 +100,34 @@ test.describe("A draft's chip arriving moves nothing under it (#1584)", () => {
             await expect(finish.locator("[data-part=item]", { hasText: "Bare" }).locator("input")).toBeChecked();
         });
     }
+
+    test("the Schematic's data centre floor: a fibre run's cable pressed Logical draws its Pending chip with every choice where it stood, and Fibre pressed where it stood is chosen", { tag: "@desktop" }, async ({ page }) => {
+        await page.setViewportSize({ width: 1600, height: 1000 });
+        const root = await openSchematic(page, DATA_CENTRE);
+        await sizeTo(page, root, 1440);
+        await centred(page, root);
+        const pane = root.locator("[data-builder-frame] [data-frame-slot=end]");
+        await expect(pane).toHaveAttribute("data-pane-mode", "pinned");
+        // A03, the third rack of Cage A, by its centre in metres — the floor fitted in view, its frame's start in the
+        // window — then the fibre run it is joined to.
+        await root.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "Fit" }).click();
+        await settled(page);
+        await root.evaluate((el) => { el.scrollIntoView({ block: "center", inline: "start" }); });
+        await settled(page);
+        await pressAt(page, await screenPoint(root, 9.6, 2.9), false);
+        await pane.locator(`[data-inspector-join=${JSON.stringify(printedRef("fibre", "u3"))}]`).click();
+        await settled(page);
+        const link = pane.locator("[data-schematic-inspector='link']");
+        const cable = link.locator("[data-field='cable']");
+        const chip = link.locator("[data-inspector-marks] > [data-state='pending']");
+        await expect(chip).toHaveCount(0);
+        await expect(link.locator("[data-inspector-status]")).toHaveCount(0);
+        const stood = await choicesOf(page, cable);
+        expect(Object.keys(stood)).toEqual(["Fibre", "Logical"]);
+        await pressAt(page, stood["Logical"], false);
+        await expect(chip).toHaveText("Pending");
+        expect(await choicesOf(page, cable)).toEqual(stood);
+        await pressAt(page, stood["Fibre"], false);
+        await expect(cable.locator("[data-part=item]", { hasText: "Fibre" }).locator("input")).toBeChecked();
+    });
 });

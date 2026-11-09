@@ -701,7 +701,7 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
         <Box css={styles.root} data-schematic-inspector="item">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon }} title={item.label}
                 when={m.inspectorAt({ zone: zoneAt(item.x, item.y), x: coordinate(item.x, words), y: coordinate(item.y, words), unit })}
-                status={status} pending={self.state.chip} home />
+                status={status} pending={self.state.chip} writes={self.writes} home />
             <Edits styles={styles} available={self.available} actions={actions}>
                 {/* A placeholder's key holds no value: its field is Not set, with Set, until it is typed. */}
                 <Form styles={styles} head={undefined} section="key" specs={keySpecs} value={{ key: keyDraft.value }} baseline={NEW_ROW}
@@ -842,7 +842,7 @@ function ZoneView(props: ViewProps & { readonly zone: DrawnZone; readonly kind: 
     return (
         <Box css={styles.root} data-schematic-inspector="zone">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon: kind.icon === "" ? "vector-square" : kind.icon }} title={zone.label}
-                when={m.inspectorSize({ width: coordinate(zone.width, words), height: coordinate(zone.height, words), unit })} pending={own.state.chip} home />
+                when={m.inspectorSize({ width: coordinate(zone.width, words), height: coordinate(zone.height, words), unit })} pending={own.state.chip} writes={own.writes} home />
             <Edits styles={styles} available={own.available} actions={undefined}>
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={own.own}
                     state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
@@ -917,7 +917,7 @@ function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: 
     return (
         <Box css={styles.root} data-schematic-inspector="link">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon: kind.icon === "" ? "link" : kind.icon }}
-                title={name} when={captionText(getSomeorUndefined(link.label), getSomeorUndefined(link.metric))} pending={own.state.chip} home />
+                title={name} when={captionText(getSomeorUndefined(link.label), getSomeorUndefined(link.metric))} pending={own.state.chip} writes={own.writes} home />
             <Edits styles={styles} available={own.available} actions={actions}>
                 <Form styles={styles} head={m.inspectorSection({ section: "ends", name: kind.name })} section="ends" specs={specs}
                     value={{ from: link.from, to: link.to }} baseline={baseline} options={options}
@@ -988,7 +988,7 @@ function NetView(props: ViewProps & { readonly net: DrawnNet; readonly kind: Sch
     return (
         <Box css={styles.root} data-schematic-inspector="net">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon: kind.icon === "" ? "diagram-project" : kind.icon }} title={name}
-                when={m.inspectorSides({ sources: count(net.sources.length), destinations: count(net.destinations.length) })} pending={own.state.chip} home />
+                when={m.inspectorSides({ sources: count(net.sources.length), destinations: count(net.destinations.length) })} pending={own.state.chip} writes={own.writes} home />
             <Edits styles={styles} available={own.available} actions={actions}>
                 <Form styles={styles} head={m.inspectorSection({ section: "sides", name: kind.name })} section="sides" specs={specs}
                     value={{ sources: keysOf(net.sources), destinations: keysOf(net.destinations) }} baseline={baseline}

@@ -172,7 +172,8 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
     return <>
         <ScheduleInspectorHead styles={styles} kind={kind} title={item.title}
             when={item.start.type === "some" ? `${format.weekdayDate(item.start.value)} · ${format.time(item.start.value)}–${item.end.type === "some" ? format.time(item.end.value) : ""}` : value.vocabulary.unscheduled}
-            status={item.status.type === "some" ? item.status.value : undefined} pending={drafted ? commands?.editing.held(kind.key, item.key) === undefined ? "new" : "pending" : undefined} home />
+            status={item.status.type === "some" ? item.status.value : undefined} pending={drafted ? commands?.editing.held(kind.key, item.key) === undefined ? "new" : "pending" : undefined}
+            writes={commands !== undefined} home />
         {peers.length > 0 && <Box css={styles.section} data-calendar-inspector-overlaps=""><Box css={styles.detail}>Overlaps {peers.length} event{peers.length === 1 ? "" : "s"}</Box>
             {peers.map(peer => <Button key={eventKey(peer)} size="xs" variant="ghost" onClick={() => select([{ kind: peer.kind, key: peer.key }])}>{peer.title}</Button>)}
         </Box>}
