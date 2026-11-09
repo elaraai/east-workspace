@@ -19,7 +19,11 @@
  * spans either side — the weeks, or the months — are read ahead
  * (`shared/schedule/read-ahead.ts`, #1398, CL7), in a read of their own, so a
  * step to one shows it at once and a page of theirs landing runs the span's
- * read no more; a step further drops their reads.
+ * read no more; a step further drops their reads. For an optimiser that takes
+ * the week's edges (#1553), the periods of the weeks either side are read at
+ * once, in a read of their own on the read ahead's channels: which of the
+ * duties at the week's edges are fixed. Its failure is its own, said on the
+ * footer's line with Retry; the week's read stands.
  *
  * @packageDocumentation
  */
@@ -37,6 +41,17 @@ import {
 
 const sameBytes = equalFor(BlobType);
 const samePicker = equalFor(DictType(DateTimeType, RosterStatusType));
+
+/**
+ * The periods of the weeks either side of a week in view (#1553): what a run of an optimiser that takes the week's edges
+ * tells which of the duties at the edges are fixed by.
+ */
+export interface RosterNeighbours {
+    /** The week they are either side of: its first day. */
+    readonly start: Date;
+    /** Each period's own row's bytes, by its first instant — the weeks', or their days' where the periods are days: a period with no row is not among them. */
+    readonly periods: SortedMap<Date, Uint8Array>;
+}
 
 /** What the Roster has read of its records for a span. */
 export interface RosterData {
@@ -57,6 +72,13 @@ export interface RosterData {
     readonly picker: SortedMap<Date, Status>;
     /** The span's targets, by key. */
     readonly targets: ReadonlyMap<string, StoredTarget>;
+    /**
+     * The periods of the weeks either side of a week in view, for an optimiser that takes the week's edges (#1553);
+     * `undefined` without one, in a month, and while they are read.
+     */
+    readonly neighbours: RosterNeighbours | undefined;
+    /** Why the read of the periods of the weeks either side failed (#1553): the eye waits on it, and the footer's line says it, with Retry. */
+    readonly neighboursError: string | undefined;
     /** Whether a read the span needs — its duties, its weeks' rows or its targets — is in flight. */
     readonly loading: boolean;
     /** Whether a complete read of the span has landed. */
@@ -84,7 +106,7 @@ const NO_PERIODS = new SortedMap<Date, Uint8Array>([], compareDate);
  */
 export function initialRosterData(span: Pick<RosterSpan, "start" | "weeks">): RosterData {
     return { start: span.start, weeks: span.weeks, duties: NO_DUTIES, previous: undefined, periods: NO_PERIODS, picker: NO_STATUSES, targets: NO_TARGETS,
-        loading: true, ready: false, landed: false, error: undefined };
+        neighbours: undefined, neighboursError: undefined, loading: true, ready: false, landed: false, error: undefined };
 }
 
 /** Rows read again, each kept as it was where its bytes are: the same object, its row not decoded again. */
@@ -201,6 +223,32 @@ export function useRosterData(value: RosterPayload, span: RosterSpan, pickerDate
         if (value.targets.type === "some") value.targets.value.rows(next.from, next.to);
     }, [value]);
     useReadAhead(result.ok && !result.value.loading && result.value.duties !== undefined, neighbours, readNext);
+    // The periods of the weeks either side, for an optimiser that takes the week's edges (#1553): read at once, beside the
+    // span's read, on the channels the read ahead reads them by, so asking them early asks nothing twice — kept by their
+    // bytes, so a read again hands the frame nothing new.
+    const edged = value.optimise.type === "some" && value.optimise.value.edges && period !== "month" && !value.settings.readOnly;
+    const heldNeighbours = useRef<RosterNeighbours | undefined>(undefined);
+    const readNeighbours = useCallback((): RosterNeighbours | undefined => {
+        if (!edged) return undefined;
+        const was = heldNeighbours.current;
+        if (value.periods.type !== "some") return was !== undefined && compareDate(was.start, start) === 0 ? was : { start, periods: NO_PERIODS };
+        const kind = value.periods.value;
+        const read = new SortedMap<Date, Uint8Array>([], compareDate);
+        let pending = false;
+        for (const next of neighbours) {
+            const got = kind.rows(next.from, next.to);
+            if (got.type !== "some") { pending = true; continue; }
+            for (const [at, bytes] of got.value) read.set(at, bytes);
+        }
+        if (pending) return undefined;
+        const same = was !== undefined && compareDate(was.start, start) === 0 && was.periods.size === read.size
+            && [...read].every(([at, row]) => { const held = was.periods.get(at); return held !== undefined && sameBytes(held, row); });
+        return same ? was : { start, periods: read };
+    }, [edged, value, start, neighbours]);
+    const edgeRead = useTrackedEvaluation(readNeighbours).result;
+    const neighbourPeriods = edgeRead.ok ? edgeRead.value : undefined;
+    const neighboursError = edgeRead.ok ? undefined : edgeRead.error instanceof Error ? edgeRead.error.message : String(edgeRead.error);
+    if (neighbourPeriods !== undefined) heldNeighbours.current = neighbourPeriods;
     // The last complete read of a span: a newer one in flight keeps it, so a page landing redraws nothing until the read is whole.
     const complete = useRef<RosterData | undefined>(undefined);
     if (result.ok) {
@@ -213,7 +261,7 @@ export function useRosterData(value: RosterPayload, span: RosterSpan, pickerDate
             || !Object.is(was.duties, got.duties) || !Object.is(was.previous, got.previous) || !Object.is(was.targets, got.targets)
             || !Object.is(was.picker, got.picker) || !Object.is(was.periods, got.periods))) {
             complete.current = { start, weeks, duties: got.duties, previous: got.previous, periods: got.periods, picker: got.picker, targets: got.targets,
-                loading: false, ready: true, landed: true, error: undefined };
+                neighbours: undefined, neighboursError: undefined, loading: false, ready: true, landed: true, error: undefined };
         }
     }
     const last = complete.current;
@@ -223,7 +271,8 @@ export function useRosterData(value: RosterPayload, span: RosterSpan, pickerDate
     const loading = result.ok ? result.value.loading || current === undefined : false;
     const error = result.ok ? undefined : result.error instanceof Error ? result.error.message : String(result.error);
     return useMemo(() => current === undefined ? { ...initialRosterData(span), loading, landed, error }
-        : current.loading === loading && current.error === error ? current : { ...current, loading, error }, [current, span, loading, landed, error]);
+        : current.loading === loading && current.error === error && Object.is(current.neighbours, neighbourPeriods) && current.neighboursError === neighboursError ? current
+            : { ...current, loading, error, neighbours: neighbourPeriods, neighboursError }, [current, span, loading, landed, error, neighbourPeriods, neighboursError]);
 }
 
 /**

@@ -55,6 +55,8 @@ export interface OptimiseMessages {
     fail: (p: { period: string }) => string;
     /** Its line — `Nothing changed. Run it again from the eye.` */
     failDetail: () => string;
+    /** Its line when the builder refused the answer (#1553), `reason` its words naming what the answer would change — `Elara's answer changes … Nothing changed.` */
+    refusedDetail: (p: { reason: string }) => string;
     /** The history step's label — `Elara run #7`; `run` arrives formatted. */
     step: (p: { run: string }) => string;
     /** An entry the run added, on hover — `Added by Elara · run #7`. */
@@ -90,6 +92,7 @@ export const optimiseMessages: OptimiseMessages = {
     noneDetail: ({ period }) => `Elara found nothing to improve in ${period}.`,
     fail: ({ period }) => `Couldn't optimise ${period}`,
     failDetail: () => "Nothing changed. Run it again from the eye.",
+    refusedDetail: ({ reason }) => `${reason} Nothing changed.`,
     step: ({ run }) => `Elara run #${run}`,
     entryAdded: ({ run }) => `Added by Elara · run #${run}`,
     entryChanged: ({ previous, run }) => `Was ${previous} · Elara run #${run}`,

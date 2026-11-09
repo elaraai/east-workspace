@@ -100,6 +100,17 @@ export const RosterVocabularyType = StructType({
 });
 
 /**
+ * The app's optimiser as the Roster's payload carries it (#1553): its binding,
+ * and the form its function takes, which the tag reads from its type.
+ *
+ * @property binding - The binding, which names the function
+ * @property edges - Whether it takes the duties at the week's edges: from `Roster.Types.OptimiseRequest(R, { edges: true })` to `Roster.Types.OptimiseResult(R, { edges: true })`
+ */
+export const RosterOptimiseBindingType = StructType({ binding: FuncBindingType, edges: BooleanType });
+/** Type representing {@link RosterOptimiseBindingType}. */
+export type RosterOptimiseBindingType = typeof RosterOptimiseBindingType;
+
+/**
  * The closed renderer payload. BuilderFrame is internal to the renderer.
  * @property duty - The duty kind: the app's duties read and written through their roles, over bytes at the row type
  * @property people - Every person, from the `people` resource kind's accessors: the calculation scope, whatever the slice shows
@@ -117,7 +128,7 @@ export const RosterVocabularyType = StructType({
  * @property currency - How costs print
  * @property check - The app's issues, from a `CheckContext(R)` as bytes
  * @property fit - The app's fit, by its `e3.function`'s name: who fits a Find fix's need; `none`, no Find fix is offered (#1334)
- * @property optimise - The app's optimiser, by its `e3.function`'s name: what the Elara eye calls over the week in view, its result one edit of the session; `none`, no eye (#1409)
+ * @property optimise - The app's optimiser, by its `e3.function`'s name, and whether it takes the duties at the week's edges (#1553): what the Elara eye calls over the week in view, its result one edit of the session; `none`, no eye (#1409)
  * @property library - The library's tabs, in order
  * @property inspector - Whether the inspector pane shows
  * @property narrowed - Each narrowed source's keys, paged through its part of `slice`: the people, the activities and the patterns that show (#1342)
@@ -143,7 +154,7 @@ export const RosterPayloadType = StructType({
     currency: OptionType(StringType),
     check: OptionType(FunctionType([BlobType], ArrayType(T.RosterIssueType))),
     fit: OptionType(FuncBindingType),
-    optimise: OptionType(FuncBindingType),
+    optimise: OptionType(RosterOptimiseBindingType),
     library: ArrayType(RosterLibraryTabType),
     inspector: BooleanType,
     narrowed: StructType({
@@ -261,8 +272,14 @@ export interface RosterProps<R extends EastType = EastType> {
      * number, the week's duties as drafted, its targets by slot and `Roster.Types.Context` — to `Roster.Types.OptimiseResult(R)`, the
      * week's duties complete. The Elara eye in the toolbar calls it once per run; the result lands in the session as one edit, which
      * one Undo reverts and Save commits with everything else. Omitted, no eye.
+     *
+     * One from `Roster.Types.OptimiseRequest(R, { edges: true })` to `Roster.Types.OptimiseResult(R, { edges: true })` also sees and
+     * plans the duties at the week's edges (#1553) — the window's duties the Roster places in another week, as drafted, and which of
+     * them are fixed — and its answer can change, remove or add them, in the run's one step; one that changes or removes a fixed duty,
+     * or puts one in a week that takes no edit, is refused, naming it. The Roster reads which form it takes from its type.
      */
-    optimise?: BoundFunc<[T.RosterOptimiseRequestTypeFor<R>], T.RosterOptimiseResultTypeFor<R>>;
+    optimise?: BoundFunc<[T.RosterOptimiseRequestTypeFor<R>], T.RosterOptimiseResultTypeFor<R>>
+        | BoundFunc<[T.RosterOptimiseEdgesRequestTypeFor<R>], T.RosterOptimiseEdgesResultTypeFor<R>>;
     /**
      * The narrowing: one `Slice.bindRecords`, a source per record it narrows — the duty kind's slot (its interval index from the
      * start to the end, its `range` the start field, which the Roster's navigation writes), `targets`, `people` and `activities`,
@@ -461,24 +478,41 @@ function fitBinding(fit: unknown, rowType: EastType): ExprType<typeof FuncBindin
 }
 
 /**
+ * Which form the app's optimiser takes (#1553), from its function's type: one asking a request with the edges takes the
+ * edges, whatever its rows — so a refusal of one bound over other rows names the edges' form.
+ *
+ * @param optimise - What the app passed as `optimise`
+ * @returns Whether it takes the duties at the week's edges; `false` for anything else, which the contract refuses or takes
+ */
+function takesEdges(optimise: unknown): boolean {
+    const asked = boundFuncSignature(optimise)?.asks;
+    return asked?.type === "Struct" && asked.fields["edges"] !== undefined && asked.fields["fixed"] !== undefined;
+}
+
+/**
  * What the Roster holds `optimise` to (#1409): `Func.bind` of an `e3.function` from `Roster.Types.OptimiseRequest(R)` to
- * `Roster.Types.OptimiseResult(R)`, R the duties' row type — a request over another row named by its duties' row.
+ * `Roster.Types.OptimiseResult(R)`, R the duties' row type, or from and to them given `{ edges: true }` (#1553) — a request over
+ * another row named by its duties' row.
  *
  * @param rowType - The duty kind's row type
+ * @param edges - Whether the function takes the duties at the week's edges ({@link takesEdges})
  * @returns The contract, for {@link optimiseBinding}
  */
-function rosterOptimiseContract(rowType: EastType): OptimiseContract {
+function rosterOptimiseContract(rowType: EastType, edges: boolean): OptimiseContract {
     const rows = printType(rowType);
+    const requestOf = (row: EastType): EastType => edges ? T.RosterOptimiseRequestTypeFor(row, { edges: true }) : T.RosterOptimiseRequestTypeFor(row);
     return {
-        builder: "Roster", request: T.RosterOptimiseRequestTypeFor(rowType), result: T.RosterOptimiseResultTypeFor(rowType),
-        signature: "from Roster.Types.OptimiseRequest(R) to Roster.Types.OptimiseResult(R), R the duties' row type",
+        builder: "Roster", request: requestOf(rowType),
+        result: edges ? T.RosterOptimiseResultTypeFor(rowType, { edges: true }) : T.RosterOptimiseResultTypeFor(rowType),
+        signature: "from Roster.Types.OptimiseRequest(R) to Roster.Types.OptimiseResult(R), or from and to both given { edges: true }, R the duties' row type",
         names: { request: "Roster.Types.OptimiseRequest", result: "Roster.Types.OptimiseResult" },
-        rows: { request: rows, result: rows }, noun: { theirs: "duty rows", ours: "the duty kind's rows" }, of: "the duties' row type",
+        rows: { request: rows, result: rows }, ...(edges ? { options: ", { edges: true }" } : {}),
+        noun: { theirs: "duty rows", ours: "the duty kind's rows" }, of: edges ? "the duties' row type, given { edges: true }" : "the duties' row type",
         otherRows: (asked) => {
             // An OptimiseRequest over another row: its duties' row.
             const duties = asked.type === "Struct" ? asked.fields["duties"] : undefined;
             const theirs = duties?.type === "Dict" ? duties.value : undefined;
-            return theirs !== undefined && isTypeEqual(asked, T.RosterOptimiseRequestTypeFor(theirs)) ? printType(theirs) : undefined;
+            return theirs !== undefined && isTypeEqual(asked, requestOf(theirs)) ? printType(theirs) : undefined;
         },
     };
 }
@@ -607,7 +641,8 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
     const check = props.check === undefined ? undefined : overBytes(props.check, T.RosterCheckContextTypeFor(rowType), ArrayType(T.RosterIssueType),
         `Roster: \`check\` is an East function from Roster.Types.CheckContext(${row}) to Array<Roster.Types.Issue>`);
     const fit = props.fit === undefined ? undefined : fitBinding(props.fit, rowType);
-    const optimise = props.optimise === undefined ? undefined : optimiseBinding(props.optimise, rosterOptimiseContract(rowType));
+    const edges = takesEdges(props.optimise);
+    const optimise = props.optimise === undefined ? undefined : { binding: optimiseBinding(props.optimise, rosterOptimiseContract(rowType, edges)), edges };
 
     // The narrowing: a source per record it narrows, named after what it narrows.
     const library = props.library ?? [];

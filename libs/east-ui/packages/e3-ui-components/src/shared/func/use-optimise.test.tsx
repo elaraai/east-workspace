@@ -9,7 +9,8 @@
  * runtime, from a probe under the file's e3 — one call per run, with the
  * request made for the run's number; the seconds from 1; a result landed,
  * told once with its request, and counted — changes, none with a blink, an
- * answer the builder cannot use; a failed call; Stop, and an answer arriving
+ * answer the builder cannot use, one it refuses, saying why (#1553); a failed
+ * call; Stop, and an answer arriving
  * after it ignored; a change of scope stops the run, a change of anything
  * else does not; unmount aborts; the run counter outlives a remount; and no
  * optimiser bound offers nothing.
@@ -23,7 +24,7 @@ import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import * as opt from "@elaraai/e3-ui/examples/calendar/optimise";
 import { E3Surface, act, e3Harness, settle } from "../../e3-web-mount.test-utils.js";
 import { fitCalls } from "./fit-calls.test-utils.js";
-import { OPTIMISE_STOPPED_MS, useOptimise, type OptimiseCounts, type OptimiseRun } from "./use-optimise.js";
+import { OPTIMISE_STOPPED_MS, useOptimise, type OptimiseCounts, type OptimiseRefused, type OptimiseRun } from "./use-optimise.js";
 
 const h = e3Harness({ "calendar/calendar": ex, "calendar/optimise": opt });
 const calls = fitCalls(h, { request: opt.CalendarOptimiseRequest, result: opt.CalendarOptimiseResult });
@@ -41,8 +42,11 @@ const request = (run: number): Request => ({ from: FROM, to: TO, run: BigInt(run
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const COUNTS: OptimiseCounts = { added: 1, changed: 0, removed: 0 };
 
+/** What the builder answers a landed result with: its counts, its refusal's words, or nothing for an answer it cannot use. */
+type Landed = OptimiseCounts | OptimiseRefused | undefined;
+
 function Probe({ name, scope, layout, onLanded, onRun }: {
-    name: string | null; scope: string; layout: string; onLanded: (result: Result, request: Request, run: number) => OptimiseCounts | undefined; onRun: (run: OptimiseRun<Request>) => void;
+    name: string | null; scope: string; layout: string; onLanded: (result: Result, request: Request, run: number) => Landed; onRun: (run: OptimiseRun<Request>) => void;
 }) {
     const run = useOptimise<Request, Result>({ name, requestType: opt.CalendarOptimiseRequest, resultType: opt.CalendarOptimiseResult, scope, storageKey: "test.optimise", onLanded });
     onRun(run);
@@ -51,7 +55,7 @@ function Probe({ name, scope, layout, onLanded, onRun }: {
 }
 
 /** The probe under the file's e3, its run read as it renders. */
-function mount(onLanded: (result: Result, request: Request, run: number) => OptimiseCounts | undefined = () => COUNTS, name: string | null = NAME) {
+function mount(onLanded: (result: Result, request: Request, run: number) => Landed = () => COUNTS, name: string | null = NAME) {
     let latest!: OptimiseRun<Request>;
     const tree = (scope: string, layout = "week") => <E3Surface><Probe name={name} scope={scope} layout={layout} onLanded={onLanded} onRun={(run) => { latest = run; }} /></E3Surface>;
     const view = render(tree("W11"));
@@ -86,8 +90,8 @@ describe("useOptimise", () => {
         expect(run().outcome).toEqual({ kind: "done", run: 1, period: "W11", counts: { added: 2, changed: 1, removed: 0 } });
     });
 
-    test("R10 — a result with nothing to change is the none outcome and one blink; an answer the builder cannot use, and a failed call, are failures", async () => {
-        let counts: OptimiseCounts | undefined = { added: 0, changed: 0, removed: 0 };
+    test("R10 — a result with nothing to change is the none outcome and one blink; an answer the builder cannot use, one it refuses, and a failed call, are failures", async () => {
+        let counts: Landed = { added: 0, changed: 0, removed: 0 };
         const { run, start, landed } = mount(() => counts);
         await settle();
         await start();
@@ -97,11 +101,17 @@ describe("useOptimise", () => {
         await start("W12");
         await landed();
         expect([run().outcome, run().blinks]).toEqual([{ kind: "fail", run: 2, period: "W12", message: "the optimiser's answer could not be used" }, 1]);
+        // An answer the builder refuses (#1553) is a failure that says why, in the builder's words, with no blink.
+        const why = "Elara's answer removes M. Hart · Sun Mar 5 Night · Inbound, in a week not available to edit.";
+        counts = { refused: why };
+        await start("W12");
+        await landed();
+        expect([run().outcome, run().blinks]).toEqual([{ kind: "fail", run: 3, period: "W12", message: why, refused: why }, 1]);
         const restore = calls.fail(NAME);
         await start();
         await landed();
         const failed = run().outcome;
-        expect(failed?.kind === "fail" ? [failed.run, failed.period, failed.message !== ""] : failed).toEqual([3, "W11", true]);
+        expect(failed?.kind === "fail" ? [failed.run, failed.period, failed.message !== "", failed.refused] : failed).toEqual([4, "W11", true, undefined]);
         restore();
         act(() => { run().dismiss(); });
         expect(run().outcome).toBeUndefined();
