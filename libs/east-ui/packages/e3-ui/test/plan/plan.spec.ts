@@ -586,6 +586,20 @@ describeEast("Plan", (test) => {
             "`editing` session, undone, redone, discarded or saved together"));
     });
 
+    test("the removed applyMode and editing.mode fail by name: every edit waits for Save (#1536, #1584)", $ => {
+        const Row = StructType({ v: FloatType });
+        const data = $.const(new Map(), DictType(StringType, Row));
+        const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
+        const refusal = (build: () => unknown): string => {
+            try { build(); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
+        };
+        // `applyMode` was `<Plan>`'s; `editing.mode` the canvas's session's.
+        $(Assert.equal(East.value(refusal(() => Plan.Payload({ axis, data, series: [], applyMode: "auto" } as Parameters<typeof Plan.Payload>[0]))),
+            "Plan: `applyMode` is removed (#1536) — every edit waits for Save: the Plan's changes are drafts, undone, redone, discarded or saved together"));
+        $(Assert.equal(East.value(refusal(() => Plan.Root({ axis, data, series: [], editing: { mode: "batch" } as never }))),
+            "Plan: `editing.mode` is removed (#1536) — every edit waits for Save: the session's drafts are undone, redone, discarded or saved together"));
+    });
+
     test("Plan.Types.PatchEvent(R) is the shared patch event over whole-entry drafts (#880)", $ => {
         const Row = StructType({ v: FloatType, note: StringType });
         const event = Plan.Types.PatchEvent(Row);

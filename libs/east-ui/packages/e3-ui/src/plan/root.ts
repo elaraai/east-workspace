@@ -390,8 +390,8 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
     if (config.data === undefined && extra === undefined) {
         throw new Error("Plan: `data` is required — a canvas is its data plus the series over it");
     }
-    // The removed callbacks, named (#880) — a plain JS caller would otherwise
-    // lose them silently.
+    // The removed callbacks and options, named (#880, #1260, #1536) — a plain JS
+    // caller would otherwise lose them silently.
     if ("onDrag" in (config as object)) {
         throw new Error(
             "Plan: `onDrag` is removed (#880) — a card dropped on a row is a draft of the `editing` session: declare " +
@@ -401,6 +401,14 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
         throw new Error(
             "Plan: `review` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of the " +
             "`editing` session, undone, redone, discarded or saved together");
+    }
+    if ("applyMode" in (config as object)) {
+        throw new Error("Plan: `applyMode` is removed (#1536) — every edit waits for Save: the Plan's changes are drafts, undone, " +
+            "redone, discarded or saved together");
+    }
+    if (typeof config.editing === "object" && "mode" in config.editing) {
+        throw new Error("Plan: `editing.mode` is removed (#1536) — every edit waits for Save: the session's drafts are undone, " +
+            "redone, discarded or saved together");
     }
     if (config.data === undefined) {
         for (const prop of ["series", "pick", "editing"] as const) {
