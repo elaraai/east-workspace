@@ -595,7 +595,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     });
     // The Inspector (A55–A64): the end pane, its edits the same commands, its fits the same answers.
     const end = useAllocationInspector({
-        value, domain, context, day, plan, held, loads, lines, slots, issues, layout: window.view.layout, selection, inspect, drag, fit, commands,
+        value, domain, context, day, plan, held, loads, lines, slots, issues, layout: window.view.layout, selection, inspect, drag, fit, commands, retained,
         without, reserving, shown: { lanes: lanesShown.keys, resources: resourcesShown.keys, arrivals: arrivalsShown.keys },
         refusal, dismissRefusal: () => setRefusal(undefined), chooser, setChooser, book: bookPicked, firstFree,
         tab: inspectorTab.tab, onTab: tab => setInspectorTab({ tab }), storageKey: key, onFind: findable ? onFind : undefined, finding, m: words.m,

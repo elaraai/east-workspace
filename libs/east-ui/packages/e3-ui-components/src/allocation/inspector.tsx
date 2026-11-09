@@ -25,6 +25,13 @@
  * popover, the banner, the segments, the stepper and the meter; the
  * `allocationInspector` recipe owns every style.
  *
+ * While what main shows is retained — a narrowing of it being read, or one
+ * that could not be read (#1398, CL8) — the board takes no edit until it
+ * lands, and Details' fields are off, as every builder's are meanwhile: a
+ * bin's lane, time and quantity, its own fields or its own form, its
+ * resource, a part's quantity, and a reservation's fields. None takes a value
+ * the board would drop.
+ *
  * Details keeps the keyboard (#1398): a control that goes with the view it was
  * pressed in — Back to Arrivals, Unlink, Revert, Remove, a Book or a Reserve, a
  * bin of a resource's day, `Open resource →`, a fit's Link or Move, the
@@ -128,6 +135,8 @@ export interface InspectorArgs {
     drag: AllocationDrag;
     fit: AllocationFit;
     commands: AllocationCommands;
+    /** Whether what main shows is retained while a narrowing of it is read, or one failed (#1398, CL8): Details' fields are off. */
+    retained: boolean;
     /** The day without a bin, and with a probe reservation in a free slot: what a reservation's and a free slot's questions are asked of. */
     without: (bin: string) => Day;
     reserving: (lane: string, at: Date) => Day;
@@ -449,14 +458,15 @@ function BinSection({ id, bin, committed, refused, ...part }: Part & { id: strin
     const shownValue = useMemo(() => ({ key: id, lane: bin.lane, at: bin.at, quantity: bin.quantity }), [id, bin.lane, bin.at, bin.quantity]);
     // What the drafts began from: the bin as the day holds it, or nothing for a new one, every field of which is a draft.
     const baseline = useMemo(() => committed === undefined ? {} : { key: id, lane: committed.lane, at: committed.at, quantity: committed.quantity }, [committed, id]);
-    return <Box css={styles.fields} data-allocation-bin-section="">
+    // Off while main is retained (CL8): the board takes no edit until it lands.
+    return <chakra.fieldset css={[styles.edits, styles.fields]} disabled={args.retained} data-allocation-bin-section="">
         <Box css={styles.sectionHead}>{nouns.bin.one}</Box>
         <FieldForm specs={specs} value={shownValue} baseline={baseline} options={laneNames} onChange={onChange} readOnly={!editable} renderControl={renderControl} />
         {form !== undefined ? <CustomBin {...part} id={id} bin={bin} form={form} /> : <>
             <RowFields {...part} id={id} bin={bin} committed={committed} refused={refused} />
             <ValueRows {...part} bin={bin} />
         </>}
-    </Box>;
+    </chakra.fieldset>;
 }
 
 /**
@@ -554,7 +564,8 @@ function AssignedTo({ id, bin, current, at, ...part }: Part & { id: string; bin:
     const { commands, context, fit, chooser, setChooser, day } = args;
     const nouns = words.nouns;
     const editable = commands.canEdit();
-    const open = chooser === id && editable;
+    // Its resource field is off, its Chooser closed, while main is retained (CL8).
+    const open = chooser === id && editable && !args.retained;
     // The question the Table's resource cell asks (A48): the bin placed with what its link carries.
     const quantity = linkedQuantity(bin, current)?.quantity ?? bin.quantity;
     const ask = useMemo(() => variant("place", { subject: variant("bin", id), quantity }), [id, quantity]);
@@ -573,7 +584,7 @@ function AssignedTo({ id, bin, current, at, ...part }: Part & { id: string; bin:
     const close = () => { refocus.current = true; setChooser(undefined); };
     const name = current === undefined ? undefined : context.resources.get(current)?.label ?? current;
     const field = <chakra.button ref={fieldRef} type="button" css={styles.resourceField} data-unlinked={current === undefined ? "" : undefined} data-allocation-resource-field=""
-        disabled={!editable} aria-haspopup="listbox" aria-expanded={open} title={`Choose the ${one(nouns.resource)} · the same list as the Table’s chevron`}
+        disabled={!editable || args.retained} aria-haspopup="listbox" aria-expanded={open} title={`Choose the ${one(nouns.resource)} · the same list as the Table’s chevron`}
         onClick={() => setChooser(open ? undefined : id)}>
         <span>{name ?? `+ Choose ${a(nouns.resource)}`}</span>
         {editable && <FontAwesomeIcon icon={open ? faChevronUp : faChevronDown} />}
@@ -648,11 +659,12 @@ function Parts({ args, styles, words, id, bin, remainder }: Part & { id: string;
     // The form's Clear is a part's Unlink, in the Table's words for it (A84).
     const format = useFormatters();
     const formWords = useMemo((): FieldFormWords => ({ ...format, m: { ...fieldFormMessages, clear: ({ label }) => `Unlink ${code} from ${label}` } }), [format, code]);
-    return <Box css={styles.parts} data-allocation-parts="">
+    // Off while main is retained (CL8), as the bin's own fields are.
+    return <chakra.fieldset css={[styles.edits, styles.parts]} disabled={args.retained} data-allocation-parts="">
         <Box css={styles.sectionHead}>Parts</Box>
         <FieldForm specs={specs} value={value} baseline={baseline} onChange={onChange} readOnly={!editable} words={formWords} />
         {compareFloat(remainder, 0) > 0 && <Box css={styles.remainder} data-allocation-remainder="">{words.quantity(remainder)} unallocated</Box>}
-    </Box>;
+    </chakra.fieldset>;
 }
 
 /** One booking or reservation in a list (A60, A61): its name and figure, its line, and its button. */
@@ -755,13 +767,14 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
             status={statusOf(status)} pending={status.pending} home />
         {/* Its refusals holding Save (#1525), over what it holds. */}
         <Banners styles={styles} banners={refused.banners} />
-        <Box css={styles.fields} data-allocation-reservation="">
+        {/* Off while main is retained (CL8), as a bin's fields are. */}
+        <chakra.fieldset css={[styles.edits, styles.fields]} disabled={args.retained} data-allocation-reservation="">
             <Box css={styles.sectionHead}>{nouns.reservation.one}</Box>
             <FieldForm specs={keySpecs} value={keyValue} baseline={keyBaseline} onChange={NO_EDIT} readOnly />
             {/* Its own fields, as a bin's: a field a refusal names is set right here. */}
             {form !== undefined ? <CustomBin {...part} id={id} bin={bin} form={form} />
                 : <RowFields {...part} id={id} bin={bin} committed={committed} refused={refused.fields} />}
-        </Box>
+        </chakra.fieldset>
         <Box css={styles.section} data-allocation-assigned="">
             <Box css={styles.sectionRow}>
                 <Box css={styles.sectionHead}>Assigned to</Box>

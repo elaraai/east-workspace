@@ -369,6 +369,35 @@ describe("the Timeline, narrowed", () => {
         expect(cards(c)).not.toContain("3103");
     });
 
+    test("while main is retained — a narrowing being read, or one that could not be — Details' fields are off, as the board takes no edit: a bin's quantity, its own fields, its resource and its parts take no value it would drop, until the narrowing lands (#1398, CL8, #1585)", async () => {
+        const { c, store } = await open(ex.allocationKilnYard);
+        await waitFor(() => expect(cards(c)).toHaveLength(26));
+        await press(c.querySelector('[data-allocation-card="3103"]')!);
+        const details = () => slot(c, "end").querySelector<HTMLElement>('[data-allocation-inspector="details"]')!;
+        /** Whether each is off: LD-2203's quantity, its own Spec measured, its resource field and its part on K-109. */
+        const off = () => ['[data-allocation-bin-section] [data-field="quantity"] input', '[data-allocation-bin-section] [data-field="specMeasured"] input',
+            "[data-allocation-resource-field]", '[data-allocation-parts] [data-field="K-109"] input'].map(at => details().querySelector(at)!.matches(":disabled"));
+        expect(off()).toEqual([false, false, false, false]);
+        // The bays' reads held on their way to e3: the lanes' new membership is in flight, main retained.
+        const held = h.e3.hold(request => request.dataset === "records.yard_bays");
+        await narrow(store, "allocationKilnYard", "bays", "area", ["North"]);
+        expect(slot(c, "main").querySelector("[data-allocation-main]")!.getAttribute("aria-disabled")).toBe("true");
+        expect(off()).toEqual([true, true, true, true]);
+        await act(async () => { held.release(); });
+        await settle();
+        await waitFor(() => expect(laneHeads(c)).toEqual(["B-1", "B-2"]));
+        expect(off()).toEqual([false, false, false, false]);
+        // A narrowing that could not be read keeps them off — the last lanes shown — until Retry lands it.
+        const failing = h.unavailable(ex.yardBays);
+        await narrow(store, "allocationKilnYard", "bays", "area", ["North", "South"]);
+        await waitFor(() => expect(within(slot(c, "banners")).queryByText("Lane results unavailable")).not.toBeNull());
+        expect(off()).toEqual([true, true, true, true]);
+        failing();
+        await press(within(slot(c, "banners")).getByRole("button", { name: "Retry" }));
+        await waitFor(() => expect(laneHeads(c)).toEqual(["B-1", "B-2", "B-3"]));
+        expect(off()).toEqual([false, false, false, false]);
+    });
+
     test("whatever source's narrowing is read — the lanes', the resources' or the arrivals' — the footer's line says the board's bins are being filtered, `Filtering bins…`, until it lands (#1398, CL3)", async () => {
         const { c, store } = await open(ex.allocationKilnYard);
         await waitFor(() => expect(cards(c)).toHaveLength(26));
