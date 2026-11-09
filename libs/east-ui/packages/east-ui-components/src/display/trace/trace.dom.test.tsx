@@ -196,7 +196,7 @@ describe("Trace's diverging scale: the brand below each track's midpoint, the wa
         expect([step.color, step["--t-edge"]]).toEqual(["fg", "{colors.brandPressed}"]);
     });
 
-    test("an author's own hue keeps its fills, mixed on each step, and takes no side", () => {
+    test("an author's own hue draws the cool side, mixed on each step, and the warm side stays the warning hue's steps, for the recipe to fill", () => {
         const { container } = render(
             <ChakraProvider value={system}>
                 <EastChakraTrace value={traceValue(tracks, {
@@ -207,7 +207,17 @@ describe("Trace's diverging scale: the brand below each track's midpoint, the wa
             </ChakraProvider>,
         );
         const steps = stepsOf(container);
-        expect(steps.map((s) => s.getAttribute("data-side"))).toEqual(Array.from({ length: 14 }, () => null));
-        expect(steps.some((s) => declaredStyle(s, "background")?.includes("#123456") === true)).toBe(true);
+        // Above the midpoint, each step's side and level as without the hue; below it, none, the hue's fill being the step's own.
+        expect(steps.map((s) => [s.textContent, s.getAttribute("data-side"), s.getAttribute("data-level"), s.hasAttribute("data-predicted")])).toEqual([
+            ["0", null, null, false], ["2", null, null, false], ["4", null, null, false], ["5", "above", "0", false],
+            ["6", "above", "0", false], ["8", "above", "1", true], ["10", "above", "1", true],
+            ["10", "above", "2", false], ["8", "above", "1", false], ["6", "above", "0", false], ["5", "above", "0", false],
+            ["4", null, null, false], ["6", "above", "0", true], ["0", null, null, false],
+        ]);
+        const below = steps.filter((s) => s.getAttribute("data-side") === null);
+        const above = steps.filter((s) => s.getAttribute("data-side") === "above");
+        expect(below.map((s) => declaredStyle(s, "background")?.includes("#123456") === true)).toEqual(Array.from({ length: 5 }, () => true));
+        // No fill, ink or edge of the step's own above the midpoint: the warning hue's, from the root.
+        expect(above.map((s) => [declaredStyle(s, "background"), s.style.color, s.style.borderColor])).toEqual(Array.from({ length: 9 }, () => [undefined, "", ""]));
     });
 });

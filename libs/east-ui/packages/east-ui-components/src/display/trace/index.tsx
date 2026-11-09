@@ -27,8 +27,6 @@ export type TraceValue = ValueTypeOf<typeof Trace.Types.Trace>;
 
 /** The design system's series order a categorical scale's tracks take, in turn: the brand, then teal, purple, blue and orange. */
 const SERIES = 5;
-/** Warm pole of the diverging ramp (cool pole is the brand hue). */
-const DIVERGE_WARM = "var(--chakra-colors-orange-500)";
 const PAST_BASE = "var(--chakra-colors-bg-muted)";
 const FUTURE_BASE = "var(--chakra-colors-bg-surface)";
 
@@ -44,13 +42,12 @@ function computeFill(
     scale: string, hue: string, future: boolean,
 ): Fill {
     if (scale === "diverge") {
+        // Below the midpoint only: above it the recipe draws the warning hue's steps, whatever the hue below.
         const half = Math.max(max - mid, mid - min) || 1;
-        const sgn = (v - mid) / half;
-        const edge = sgn >= 0 ? DIVERGE_WARM : hue;
-        const t = Math.min(Math.abs(sgn), 1);
+        const t = Math.min(Math.abs((v - mid) / half), 1);
         const base = future ? FUTURE_BASE : PAST_BASE;
         const pct = future ? t * 34 : t * 80;
-        return { fill: `color-mix(in srgb, ${edge} ${pct.toFixed(0)}%, ${base})`, edge, hot: !future && t > 0.62 };
+        return { fill: `color-mix(in srgb, ${hue} ${pct.toFixed(0)}%, ${base})`, edge: hue, hot: !future && t > 0.62 };
     }
     const t = max > min ? (v - min) / (max - min) : 0.5;
     const base = future ? FUTURE_BASE : PAST_BASE;
@@ -82,7 +79,8 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     // The brand scale in the theme's own hue is the design system's heat ramp, the categorical scale its series hues
     // built the same way, and the diverging scale the brand's ramp below each track's midpoint and the warning hue's
     // above it, all drawn by the recipe from each step's level, so their values read on their fills in both themes; an
-    // author's hue mixes its fills here.
+    // author's hue mixes its fills here — on the diverging scale below the midpoint only, the warm side above it
+    // staying the warning hue's.
     const onRamp = ownHue === undefined || scale === "categorical";
     const nowColor = style ? getSomeorUndefined(style.nowLineColor) : undefined;
     // Optional label-gutter width override (#137) — overrides the density
@@ -173,12 +171,13 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
                                 // axis alignment; put the inter-cell space back as a
                                 // symmetric margin so the cell centre stays on-track.
                                 const gap = gutterActive ? { marginInline: "calc(var(--t-gap) / 2)" } : undefined;
-                                if (onRamp) {
-                                    // Diverging, a step's side of the track's midpoint and its distance from it in
-                                    // three equal steps; else five equal-width steps of the track's range, the top one
-                                    // closed. A predicted step takes its ramp's lighter steps — two, or three — so it
-                                    // reads paler than a measured one.
-                                    const d = scale === "diverge" ? (v - mid) / (Math.max(max - mid, mid - min) || 1) : undefined;
+                                // Diverging, a step's side of the track's midpoint and its distance from it, -1 to 1.
+                                const d = scale === "diverge" ? (v - mid) / (Math.max(max - mid, mid - min) || 1) : undefined;
+                                if (onRamp || (d !== undefined && d >= 0)) {
+                                    // Diverging, a step's side and its distance from the midpoint in three equal
+                                    // steps; else five equal-width steps of the track's range, the top one closed. A
+                                    // predicted step takes its ramp's lighter steps — two, or three — so it reads
+                                    // paler than a measured one.
                                     const t = d !== undefined ? Math.min(Math.abs(d), 1) : max > min ? (v - min) / (max - min) : 0.5;
                                     const level = d !== undefined
                                         ? (isFuture ? Math.min(1, Math.floor(t * 2)) : Math.min(2, Math.floor(t * 3)))
