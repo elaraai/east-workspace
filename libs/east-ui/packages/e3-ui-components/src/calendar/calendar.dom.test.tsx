@@ -297,6 +297,11 @@ describe("Calendar explicit action forms", () => {
         // The inspector's banner names the field by its form's label, never its key.
         expect(slot(container, "end").textContent).toContain("Hours: Duration must be positive");
         expect(slot(container, "end").textContent).not.toContain("hours: ");
+        // In its section of the pane, as the Plan's: never a banner alone in the pane's column, which squeezed it to its
+        // least height, its refusal run out under it over the Schedule fields.
+        const inspector = slot(container, "end").querySelector("[data-calendar-inspector]")!;
+        expect(inspector.querySelector(":scope > [data-calendar-inspector-refusals] > [data-banner-tone]")?.textContent).toContain("Hours: Duration must be positive");
+        expect(inspector.querySelector(":scope > [data-banner-tone]")).toBeNull();
         await act(async () => { fireEvent.keyDown(event(container, "job", "job1"), { key: "Escape" }); }); await settle();
         await press(history(container, editingMessages.issues({ n: 1, count: "1" })));
         expect(event(container, "job", "job1").hasAttribute("data-selected")).toBe(true);
