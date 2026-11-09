@@ -17,7 +17,7 @@
  * views rest is saved, and comes back as they mount. The span in view is a
  * week, or a month's four to six (#1406): each week assembled from the span's
  * rows, the week the inspector and the commands work over the selected
- * person-week's, else the first. With an optimiser bound, the Elara eye
+ * person-week's, or the selected duty's, else the first. With an optimiser bound, the Elara eye
  * (#1409): one run over the week in view, its result landed on the week's
  * duties as one step of the history, and what it left on them marked until
  * Apply. BuilderFrame stays an internal React detail.
@@ -156,9 +156,14 @@ function RosterFrame(props: FrameProps) {
         return { start: at, week: weekOf(drafted, targets, period), held: weekOf(stored, heldTargets, heldPeriod), duties: drafted, heldDuties: stored, targets, period, heldPeriod };
     }), [span.weeks, current, data.duties, data.targets, data.periods, place, domain, dutyDrafts, targetDrafts, periodDrafts, context, source]);
     const [selection, setSelection] = useState<Selection>();
-    // The week the inspector, the commands and the checks work over: the selected person-week's in a month (D11), else the span's first.
+    // The week the inspector, the commands and the checks work over: the selected person-week's in a month (D11), else the
+    // selected duty's — as drafted, else as stored: a day pressed in a person's Details, in a Month with no Week, selects a
+    // duty of any of its weeks — else the span's first.
     const pickedWeek = selection?.type === "personWeek" ? selection : undefined;
-    const primary = (pickedWeek === undefined ? undefined : weekStates.find(held => held.start.getTime() === pickedWeek.start)) ?? weekStates[0]!;
+    const pickedDuty = selection?.type === "assignment" ? selection.key : undefined;
+    const primary = (pickedWeek !== undefined ? weekStates.find(held => held.start.getTime() === pickedWeek.start)
+        : pickedDuty === undefined ? undefined
+            : weekStates.find(held => held.week.assignments.has(pickedDuty)) ?? weekStates.find(held => held.held.assignments.has(pickedDuty))) ?? weekStates[0]!;
     const { start, week, held, duties: draftedDuties, heldDuties: storedDuties, targets, period, heldPeriod } = primary;
     const previous = useMemo(() => current && data.previous !== undefined ? place(data.previous, weekBefore(start)) : undefined, [current, data.previous, place, start]);
     const [tab, setTab] = useState("details");

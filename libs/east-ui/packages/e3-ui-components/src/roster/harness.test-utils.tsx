@@ -94,13 +94,17 @@ export function rosterHarness(modules: Parameters<typeof e3Harness>[0] = {}): Ro
  * though no check on a draft of its own — over the duties a test needs,
  * and asking the fit it needs: the warehouse's own duties, or the duties it
  * has locked, whose patch door refuses every change; the warehouse's own fit,
- * or the app's that warns past contract.
+ * or the app's that warns past contract; and the Shifts layout's Thursday,
+ * or People by month alone, Week not offered.
  *
- * @param options - Whether its duties are the locked ones, and which fit it asks
+ * @param options - Whether its duties are the locked ones, which fit it asks, and whether it offers People by month alone
  * @returns The example
  */
-export function warehouseRoster(options: { readonly locked?: boolean; readonly fit?: "warehouse" | "contract" } = {}): Example {
+export function warehouseRoster(options: { readonly locked?: boolean; readonly fit?: "warehouse" | "contract"; readonly monthOnly?: boolean } = {}): Example {
     const locked = options.locked === true, contract = options.fit === "contract";
+    const shown = options.monthOnly === true
+        ? { views: ["people" as const], viewPeriods: ["month" as const], view: { layout: "people" as const, period: "month" as const, date: at("2028-03-09T00:00:00") } }
+        : { view: { layout: "shifts" as const, period: "day" as const, date: at("2028-03-09T00:00:00") } };
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         // The duties a test needs, the warehouse's own or its locked ones, each read a week at a time through its interval index.
         const rota = $.let(locked ? Record.bind(ex.rosterLockedDuties, ["patch"]) : Record.bind(ex.rosterDuties, ["patch"]));
@@ -174,7 +178,7 @@ export function warehouseRoster(options: { readonly locked?: boolean; readonly f
         }));
         return Roster({
             id: "warehouseRoster", slice: { slice }, fit, pay, currency: "AUD", check, inspector: true,
-            week: { start: "sunday" }, view: { layout: "shifts", period: "day", date: at("2028-03-09T00:00:00") },
+            week: { start: "sunday" }, ...shown,
             events: { duty: Schedule.events(rota, {
                 name: "Duty", icon: "user-clock", entries,
                 start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },

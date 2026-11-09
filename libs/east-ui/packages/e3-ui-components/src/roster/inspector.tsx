@@ -92,8 +92,13 @@ function PersonFacts({ props, person, slot }: { props: Args; person: Person; slo
         {skills?.map(skill => <Box key={skill.key} css={props.styles.skillLine}><Box as="span" css={props.styles.flag} aria-label={person.skills.has(skill.key) ? "Skill held" : "Skill not held"}><FontAwesomeIcon icon={person.skills.has(skill.key) ? faCheck : faMinus} /></Box><span>{skill.label}</span><span /><span>{props.format.number(coverage?.lines.find(line => line.skill === skill.key)?.needed ?? 0)} h needed</span></Box>)}
     </Box><Box css={props.styles.section}><Box css={props.styles.sectionHead}>Week</Box><Box css={props.styles.detail}>{props.format.number(props.hours.get(person.key) ?? 0)} h / {props.format.number(person.contract)} h{cost !== undefined && ` · ${money(props.format, props.value, cost, false)}`}</Box>
         {/* A day pressed opens that week — in Week, from Month (#1406, P24) — with the duty selected, or the person where the day is off.
-            With Week not offered the month stays: it selects alone, as a day of another month would move the month. */}
-        {Array.from({ length: 7 }, (_, day) => { const rows = theirs.filter(([, a]) => a.slot.day === BigInt(day)); return <Button key={day} size="xs" variant={props.day === day ? "outline" : "ghost"} onClick={() => { if (props.view.period !== "month" || props.opensWeek) props.setView({ ...props.view, period: props.view.period === "month" ? "week" : props.view.period, date: props.start.getTime() + day * DAY }); props.select(rows.length === 0 ? { type: "person", key: person.key } : { type: "assignment", key: rows[0]![0] }); }}>
+            With Week not offered the month stays: it selects alone, as a day of another month would move the month — the duty, its
+            Details read in its own week, or the person's week where the day is off. */}
+        {Array.from({ length: 7 }, (_, day) => { const rows = theirs.filter(([, a]) => a.slot.day === BigInt(day)); return <Button key={day} size="xs" variant={props.day === day ? "outline" : "ghost"} onClick={() => {
+            const opens = props.view.period !== "month" || props.opensWeek;
+            if (opens) props.setView({ ...props.view, period: props.view.period === "month" ? "week" : props.view.period, date: props.start.getTime() + day * DAY });
+            props.select(rows.length > 0 ? { type: "assignment", key: rows[0]![0] } : opens ? { type: "person", key: person.key } : { type: "personWeek", key: person.key, start: props.start.getTime() });
+        }}>
             {props.format.weekday(new Date(props.start.getTime() + day * DAY))} · {rows.map(([, a]) => `${props.value.shifts.find(s => s.key === a.slot.shift)?.code} ${props.format.number(a.hours)} h`).join(" · ") || "Off"}
         </Button>; })}
     </Box></>;

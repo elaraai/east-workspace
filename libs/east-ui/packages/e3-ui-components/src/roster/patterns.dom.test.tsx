@@ -17,7 +17,7 @@ import { editingMessages } from "@elaraai/east-ui-components";
 import { announced } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { act, assignment, at, cell, drop, history, hover, press, release, rosterHarness, settle, slot, START, weekDuties, width } from "./harness.test-utils.js";
+import { act, assignment, at, cell, drop, history, hover, press, release, rosterHarness, settle, slot, START, warehouseRoster, weekDuties, width } from "./harness.test-utils.js";
 import { rosterSpan, weekKey, weekNumber } from "./model.js";
 const h = rosterHarness();
 const byDate = compareFor(DateTimeType);
@@ -250,6 +250,23 @@ describe("the People month (#1406, D2, D10, P12–P16, P2)", () => {
         expect(slot(c, "main").querySelector('[data-roster-grid="people"]')).not.toBeNull();
         expect(slot(c, "main").querySelector("[data-roster-column-header]")!.textContent).toMatch(/^Sun\s*5$/);
         await waitFor(() => expect(slot(c, "main").querySelector(`[data-roster-person-row="${person}"] [data-roster-tile][data-selected]`)).not.toBeNull());
+    });
+    test("with Week not offered, a day pressed in a person-week's Details shows its duty, read in its own week — never the month's first — and an off day the person's week, the month kept (#1584)", async () => {
+        const { container: c } = await h.mount(warehouseRoster({ monthOnly: true }));
+        const person = firstPerson(c);
+        // The person's week of 5 March: the month's second, its first February's last.
+        await press(monthCell(c, person, START));
+        const end = slot(c, "end");
+        await press(within(end).getAllByRole("button", { name: /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) · (?!Off)/ })[0]!);
+        // The month stays, and the Details are the duty's — its own times' form — never the Summary of a week that does not hold it.
+        expect(slot(c, "main").querySelector('[data-roster-grid="people-month"]')).not.toBeNull();
+        expect(end.querySelector('[data-roster-inspector="details"] [data-field="start"]')).not.toBeNull();
+        expect(end.querySelector("[data-inspector-title]")!.textContent).toBe(nameOf(c, person));
+        // An off day of the person's week below it selects that week again: its number in the Details, its cell marked.
+        await press(within(end).getAllByRole("button", { name: /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) · Off$/ })[0]!);
+        expect(end.querySelector("[data-inspector-title]")!.textContent).toBe(nameOf(c, person));
+        expect(end.textContent).toContain(`W${weekNumber(START)}`);
+        expect(monthCell(c, person, START).hasAttribute("data-selected")).toBe(true);
     });
     test("a pattern dropped on a cell applies to that week as one step, the cell previewing its marks while the pattern hovers (P15, P17)", async () => {
         const { container: c } = await h.mount(ex.rosterPeopleMonth);
