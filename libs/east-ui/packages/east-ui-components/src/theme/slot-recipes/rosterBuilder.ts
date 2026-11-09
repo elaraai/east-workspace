@@ -86,8 +86,8 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         coverageHead: { display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "6px", minWidth: 0 },
         metric: { textStyle: "mono.tabular.sm", "&[data-tone=warning]": { color: "fg.warning" }, "&[data-tone=danger]": { color: "fg.danger" } },
         coverageBar: { height: "10px", position: "relative", background: "bg.subtle", borderRadius: "2px", overflow: "visible" },
-        coverageSegment: { position: "absolute", top: 0, bottom: 0, background: "brand.solid", "&[data-kind=agency]": { background: "teal.500" }, "&[data-kind=overtime]": { background: "purple.500" },
-            "&[data-kind=requested]": { background: "transparent", border: "1px dashed", borderColor: "teal.500" }, "&[data-kind=open]": { background: "transparent", border: "1px dashed", borderColor: "fg.warning" } },
+        coverageSegment: { position: "absolute", top: 0, bottom: 0, background: "brand.solid", "&[data-kind=agency]": { background: "accent.teal" }, "&[data-kind=overtime]": { background: "accent.purple" },
+            "&[data-kind=requested]": { background: "transparent", border: "1px dashed", borderColor: "accent.teal" }, "&[data-kind=open]": { background: "transparent", border: "1px dashed", borderColor: "fg.warning" } },
         coverageTick: { position: "absolute", top: "-2px", bottom: "-2px", borderLeft: "1px solid", borderColor: "fg", pointerEvents: "none" },
         // A skill's line in a coverage: its name and its figures on one line where they fit. Where they do not, the name takes
         // the cell's whole width, breaking at its spaces, and its figures keep together on the line under it, at its end.
@@ -338,9 +338,9 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             "&:is(button)": { cursor: "pointer", ...planElementFocus },
             "& > [data-roster-cup-part]": { position: "absolute", left: 0, right: 0, pointerEvents: "none" },
             "& > [data-roster-cup-part=permanent], & > [data-roster-cup-part=assigned]": { bottom: 0, height: "var(--roster-cup-permanent)", background: "brand.solid" },
-            "& > [data-roster-cup-part=agency]": { bottom: "var(--roster-cup-permanent)", height: "calc(var(--roster-cup-agency) - var(--roster-cup-permanent))", background: "teal.500" },
+            "& > [data-roster-cup-part=agency]": { bottom: "var(--roster-cup-permanent)", height: "calc(var(--roster-cup-agency) - var(--roster-cup-permanent))", background: "accent.teal" },
             "& > [data-roster-cup-part=requested]": { bottom: "var(--roster-cup-agency)", height: "calc(var(--roster-cup-fill) - var(--roster-cup-agency))",
-                background: "color-mix(in srgb, {colors.teal.500} 40%, {colors.bg.panel})" },
+                background: "color-mix(in srgb, {colors.accent.teal} 40%, {colors.bg.panel})" },
             "& > [data-roster-cup-part=open]": { top: 0, bottom: "var(--roster-cup-fill)", overflow: "hidden", background: "bg.warning.subtle", borderTopRadius: "inherit",
                 "&::before": { content: '""', position: "absolute", inset: "0 0 -1px 0", borderWidth: "1px", borderStyle: "dashed", borderColor: "border.warning",
                     borderTopRadius: "inherit" } },
