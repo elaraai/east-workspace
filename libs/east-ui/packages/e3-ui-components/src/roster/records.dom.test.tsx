@@ -14,13 +14,14 @@
  * is minted unique in its record (B15); and pay is asked a person at a time
  * (B17).
  */
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { DateTimeType, SortedSet, StringType, compareFor, equalFor, none, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import {
-    START, act, assignment, at, cell, drop, history, libraryCard, narrow, open, press, rosterHarness, settle, slot, warehouseRoster, weekDuties, width, type Choice,
+    NEXT, START, act, assignment, at, cell, drop, history, libraryCard, narrow, open, press, rosterHarness, settle, slot, warehouseRoster, weekDuties, width,
+    type Choice,
 } from "./harness.test-utils.js";
 import { conflictCards } from "../e3-web-mount.test-utils.js";
 import { setRosterPayProbe } from "./model.js";
@@ -135,6 +136,30 @@ describe("one history over the Roster's records (#1369)", () => {
         expect(assignment(c, "s37").hasAttribute("data-removed")).toBe(true);
         expect(c.querySelector('[data-session-banner="rejected"]')).not.toBeNull();
         expect(c.querySelector("[data-roster-readonly]")).toBeNull();
+    });
+
+    test("B7 — a week with no row whose `values` fail as they run publishes nothing: the Save stands, the week stays a draft, and the console says why", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            // The warehouse's roster whose new week's approver cannot be made (#1526); to the week after its own, which the
+            // weeks record holds no row of, and a request drafted there.
+            const { container: c } = await h.mount(warehouseRoster({ failingValues: true }));
+            await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: "]" }); });
+            await settle();
+            const before = await h.read(ex.rosterDuties);
+            await press(within(cell(c, 4, "inbound", "night")).getByRole("button", { name: "Request Northside Staffing" }));
+            await press(history(c, "Publish"));
+            // The duties' Save commits; the week's row, made only as its status is written, fails, and none of it is written.
+            expect(mutated()).toEqual([ex.rosterDuties.name]);
+            expect([...(await h.read(ex.rosterDuties)).keys()].filter(key => !before.has(key))).toHaveLength(1);
+            expect((await h.read(ex.rosterWeeks)).has(NEXT)).toBe(false);
+            expect(logged).toHaveBeenCalledWith(expect.stringMatching(/^\[Roster\] the period's row could not be made from the app's values:$/), expect.anything());
+            // The week stays a draft, taking gestures.
+            expect(c.querySelector("[data-roster-readonly]")).toBeNull();
+            expect(slot(c, "toolbar").querySelector("[data-roster-status]")?.textContent).not.toBe("Published");
+        } finally {
+            logged.mockRestore();
+        }
     });
 
     test("B8 — a published week is read-only in every layout, phones included", async () => {

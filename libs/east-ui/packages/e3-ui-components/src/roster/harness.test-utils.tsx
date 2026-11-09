@@ -27,8 +27,8 @@
 import { expect, vi } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, parseFor, printFor, some,
-    variant, type ValueTypeOf,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, OptionType, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, parseFor, printFor,
+    some, variant, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
@@ -96,17 +96,24 @@ export function rosterHarness(modules: Parameters<typeof e3Harness>[0] = {}): Ro
  * and asking the fit it needs: the warehouse's own duties, or the duties it
  * has locked, whose patch door refuses every change; the warehouse's own fit,
  * or the app's that warns past contract; the Shifts layout's Thursday,
- * or People by month alone, Week not offered; and its month's marks lettered,
- * as by default, or not (`letters`, #1569).
+ * or People by month alone, Week not offered; its month's marks lettered, as
+ * by default, or not (`letters`, #1569); and given `failingValues`, a new
+ * week's own fields failing as they are made (#1526).
  *
- * @param options - Whether its duties are the locked ones, which fit it asks, whether it offers People by month alone, and whether a month's marks carry their letters
+ * @param options - Whether its duties are the locked ones, which fit it asks, whether it offers People by month alone, whether a month's marks carry their letters, and whether a new week's values fail
  * @returns The example
  */
-export function warehouseRoster(options: { readonly locked?: boolean; readonly fit?: "warehouse" | "contract"; readonly monthOnly?: boolean; readonly letters?: boolean } = {}): Example {
+export function warehouseRoster(options: {
+    readonly locked?: boolean; readonly fit?: "warehouse" | "contract"; readonly monthOnly?: boolean; readonly letters?: boolean; readonly failingValues?: boolean;
+} = {}): Example {
     const locked = options.locked === true, contract = options.fit === "contract";
     const shown = options.monthOnly === true
         ? { views: ["people" as const], viewPeriods: ["month" as const], view: { layout: "people" as const, period: "month" as const, date: at("2028-03-09T00:00:00") } }
         : { view: { layout: "shifts" as const, period: "day" as const, date: at("2028-03-09T00:00:00") } };
+    // A new week's own fields, failing as they are made: its approver read from an on-call list that holds none of it.
+    const weekValues = options.failingValues !== true ? {} : {
+        values: (w: ExprType<typeof Schedule.Types.NewPeriod>) => ({ approver: East.value(new Map(), DictType(DateTimeType, OptionType(StringType))).get(w.start) }),
+    };
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         // The duties a test needs, the warehouse's own or its locked ones, each read a week at a time through its interval index.
         const rota = $.let(locked ? Record.bind(ex.rosterLockedDuties, ["patch"]) : Record.bind(ex.rosterDuties, ["patch"]));
@@ -203,7 +210,7 @@ export function warehouseRoster(options: { readonly locked?: boolean; readonly f
                     trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual }),
                 agencies: Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name }),
             },
-            periods: Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed" }),
+            periods: Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed", ...weekValues }),
             targets: Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours", values: _t => ({ basis: "planner" }) }),
             shifts: Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order }),
             groups: Roster.groups(teams.read(), { label: t => t.label, order: t => t.order }),
