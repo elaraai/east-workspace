@@ -9,13 +9,16 @@
  * `fieldBreaches` — and where a form holds none, it checks nothing. A
  * builder's readiness raises each breach of a changed row as an issue
  * (`breachIssue`), which a builder wording its own issues knows for one
- * (`breachOf`).
+ * (`breachOf`). A builder reads each row it draws through `rowBreaches`:
+ * the row wears the warn ring, stored or changed, and a stored row's breach
+ * is a warning that holds no Save.
  *
  * @packageDocumentation
  */
 
+import { decodeBeast2For, type EastType } from "@elaraai/east";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
-import { fieldBreachIssue, getSomeorUndefined, type EditIssue, type FieldBreach } from "@elaraai/east-ui-components";
+import { fieldBreachIssue, fieldBreaches, getSomeorUndefined, type EditIssue, type FieldBreach } from "@elaraai/east-ui-components";
 
 /**
  * Whether a field holds a number to a least or a most.
@@ -54,4 +57,30 @@ export function breachIssue(breach: FieldBreach, entry: string): EditIssue {
  */
 export function breachOf(issue: EditIssue): FieldBreach | undefined {
     return raised.get(issue);
+}
+
+/** No breach: a row its form's bounds hold, or a form holding none. */
+const NO_BREACHES: readonly FieldBreach[] = [];
+
+/**
+ * A form's check over its rows as bytes: each row decoded once and checked against the form's bounded fields, kept while
+ * its bytes are the same object. A form holding no bounded field decodes nothing.
+ *
+ * @param specs - The row's form, as `Fields.specs` resolved it
+ * @param rowType - The row's type
+ * @returns Each row's breaches, by its bytes
+ */
+export function rowBreaches(specs: readonly FieldSpecValue[], rowType: EastType): (bytes: Uint8Array) => readonly FieldBreach[] {
+    const bounded = specs.filter(isBounded);
+    if (bounded.length === 0) return () => NO_BREACHES;
+    const decode = decodeBeast2For(rowType) as (bytes: Uint8Array) => unknown;
+    const kept = new WeakMap<Uint8Array, readonly FieldBreach[]>();
+    return (bytes) => {
+        let found = kept.get(bytes);
+        if (found === undefined) {
+            found = fieldBreaches(bounded, decode(bytes));
+            kept.set(bytes, found);
+        }
+        return found;
+    };
 }

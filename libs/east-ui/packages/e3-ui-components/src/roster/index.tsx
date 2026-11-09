@@ -26,13 +26,14 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, equalFor, isVariant, none, some, variant, type option } from "@elaraai/east";
-import { RosterComponent, RosterContextType } from "@elaraai/e3-ui/internal";
+import { ArrayType, StringType, equalFor, isVariant, none, some, variant, type option } from "@elaraai/east";
+import { RosterComponent, RosterContextType, RosterIssueType } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useDataStable,
+    BannerView, BuilderFrame, SessionBanners, fieldBreachIssue, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useDataStable,
     useFormatters, useLanding, useLandingStyles, usePersistedState, useTrackedEvaluation, type EditIssue, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
+import { rowBreaches } from "../shared/bounds.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
@@ -80,6 +81,7 @@ const NO_STORED: ReadonlyMap<string, StoredDuty> = new Map();
 const NO_STORED_TARGETS: ReadonlyMap<string, StoredTarget> = new Map();
 const NO_ISSUES: readonly Issue[] = [];
 const sameContext = equalFor(RosterContextType);
+const sameIssues = equalFor(ArrayType(RosterIssueType));
 /** No People view has rested anywhere yet. */
 const NO_ANCHOR: RosterAnchor = {};
 /** The viewer's display settings, as storage keeps them. */
@@ -203,6 +205,29 @@ function RosterFrame(props: FrameProps) {
     const coverage = useMemo(() => domain.coverage(week, context, weekPay.pay), [domain, week, context, weekPay]);
     const hours = useMemo(() => domain.hours(week, context), [domain, week, context]);
     const builtIn = useMemo(() => domain.check(week, context), [domain, week, context]);
+    // Each duty's row checked against its form's bounds (#1585), once a row's bytes: a duty breaking one wears the warn
+    // ring, stored or changed, and a stored duty's breach is a warning among the week's issues, holding no Save — a
+    // changed duty's is the refusal its session's readiness raises, which holds Save.
+    const dutyKind = source.duty.kind.key, dutyFields = source.duty.kind.fields;
+    const breachesOf = useMemo(() => rowBreaches(dutyFields, domain.rowType), [dutyFields, domain]);
+    const boundedDuties = useMemo(() => {
+        const out = new Set<string>();
+        for (const held of weekStates) for (const [id, row] of held.duties.rows) if (breachesOf(row.bytes).length > 0) out.add(id);
+        return out;
+    }, [weekStates, breachesOf]);
+    const bounded = useCallback((id: string) => boundedDuties.has(id), [boundedDuties]);
+    const refused = scheduleRefusals(editing?.schedule.sessions ?? []);
+    const storedBreaches = useDataStable([...draftedDuties.rows].flatMap(([id, row]): Issue[] => {
+        const a = week.assignments.get(id);
+        if (a === undefined) return [];
+        return breachesOf(row.bytes).flatMap((breach): Issue[] => refused.some(({ kind, issue }) => keyEqual(kind, dutyKind) && keyEqual(issue.entry, id)
+            && issue.field.type === "some" && keyEqual(issue.field.value, breach.key)) ? [] : [{
+            kind: variant("breach", null), tone: variant("warning", null),
+            title: `${assignmentName(value, a)} · ${refusalText(fieldBreachIssue(breach, { entry: id }), dutyFields)}`,
+            detail: `${value.groups.find(g => keyEqual(g.key, a.slot.group))?.label ?? a.slot.group} · ${value.shifts.find(s => keyEqual(s.key, a.slot.shift))?.label ?? a.slot.shift}`,
+            slot: some(a.slot), assignment: some(id), flag: none, fix: none,
+        }]);
+    }), sameIssues);
     const proposals = useMemo(() => availableProposals(value, week, start), [value, week, start]);
     // The app's check over the complete draft, given the pay (§5.8).
     const readCheck = useCallback(() => source.check.type === "some"
@@ -211,9 +236,9 @@ function RosterFrame(props: FrameProps) {
     // The week's issues, the same array while what they say holds: what the grid draws from them draws again only as
     // they change (#1398, CL9).
     const customIssues = custom.result.ok ? custom.result.value : NO_ISSUES;
-    const allIssues: readonly Issue[] = useMemo(() => [...builtIn, ...draftedDuties.unplaced, ...customIssues, ...proposals.map(p => ({ kind: variant("proposal", null), tone: variant("info", null),
+    const allIssues: readonly Issue[] = useMemo(() => [...builtIn, ...storedBreaches, ...draftedDuties.unplaced, ...customIssues, ...proposals.map(p => ({ kind: variant("proposal", null), tone: variant("info", null),
         title: `${personOf(value, p.person)?.name ?? p.person} · proposed`, detail: p.reason, slot: some(p.slot), assignment: none, flag: none, fix: some(variant("accept", p.key)) }))],
-        [builtIn, draftedDuties.unplaced, customIssues, proposals, value]);
+        [builtIn, storedBreaches, draftedDuties.unplaced, customIssues, proposals, value]);
     // A week not read gives no issue: a gap of a week whose duties are not read yet is no gap (#1398, CL13).
     const { layout, period: viewPeriod } = window.view;
     const issues = useMemo(() => current ? allIssues.filter(i => layout === "people" || viewPeriod === "week" || i.slot.type === "none" || Number(i.slot.value.day) === window.day) : NO_ISSUES,
@@ -328,13 +353,12 @@ function RosterFrame(props: FrameProps) {
     // and every carry-over moves.
     const schedule = editing?.schedule;
     const scheduleVersion = schedule?.version;
-    const dutyKind = source.duty.kind.key;
     const conflicted = useCallback((id: string) => schedule?.conflicted(dutyKind, id) === true,
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
         [schedule, scheduleVersion, dutyKind]);
     const viewProps = { value, week, held, start, day: window.day, view: window.view, setView: window.setView, span, weeks: weekStates, openWeek: window.openWeek, opensDay: window.opensDay, opensWeek: window.opensWeek,
         styles, format, narrow, coverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read, optimised, lit: landing.lit,
-        conflicted };
+        conflicted, bounded };
     // Search Records (#1398): a person found by their key is selected — in the People layout their row brought into view
     // once the narrowing draws it, and a pick's person given the keyboard there, once the box has let it go: their name
     // takes the focus as ↑ / ↓ give it. One the rail's narrowing hides is shown by clearing just the choices of the
@@ -480,13 +504,13 @@ function RosterFrame(props: FrameProps) {
     };
     // Each refusal holding Save, of every week's drafts, in the Roster's words (#1525): a duty by its person, day and shift,
     // or by its key for one the Roster can't place, and its field by its form's label.
-    const refusals = scheduleRefusals(editing?.schedule.sessions ?? []).map(({ kind, issue }): RosterRefusal => {
+    const refusals = refused.map(({ kind, issue }): RosterRefusal => {
         const found = dutyOf(kind, issue.entry);
         const shift = found === undefined ? undefined : value.shifts.find((s) => keyEqual(s.key, found.a.slot.shift));
         return { kind, issue,
             title: found === undefined ? issue.entry
                 : `${assignmentName(value, found.a)} · ${format.weekdayDate(dayOfSlot(found.there?.start ?? start, found.a.slot))} · ${shift?.label ?? found.a.slot.shift}`,
-            text: refusalText(issue, keyEqual(kind, dutyKind) ? source.duty.kind.fields : []) };
+            text: refusalText(issue, keyEqual(kind, dutyKind) ? dutyFields : []) };
     });
     const inspector = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab, find: { offered: fit.offered, finding: isFinding },
         duties: draftedDuties, heldDuties: storedDuties, targets, refusals, onRefusal: refusal => goTo(refusal.kind, refusal.issue.entry, refusal.issue.field) });
