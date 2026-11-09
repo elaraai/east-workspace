@@ -22,6 +22,7 @@
  */
 
 import type { JqTotal, JqWholeReason } from "@elaraai/east";
+import { withArticle } from "../../shared/article.js";
 import type { ComparisonKind, StepKind } from "../steps/values.js";
 import type { InputKind } from "./refs.js";
 
@@ -1214,9 +1215,9 @@ export const queryMessages: QueryMessages = {
     summaryJoin: ({ parts }) => parts.join(" · "),
 
     noRowsHere: ({ shape, verb }) => `${shape} — there are no rows to ${verb} here.`,
-    choose: ({ what }) => `Choose ${/^[aeiou]/i.test(what) ? "an" : "a"} ${what}.`,
+    choose: ({ what }) => `Choose ${withArticle(what)}.`,
     what: ({ what }) => what,
-    wrongKind: ({ label, kind, what }) => `${capital(label)} is ${kind} — pick ${/^[aeiou]/i.test(what) ? "an" : "a"} ${what}.`,
+    wrongKind: ({ label, kind, what }) => `${capital(label)} is ${kind} — pick ${withArticle(what)}.`,
     unknownField: ({ name, labels, more }) => `There's no “${name}” here. The rows have ${labels}${more ? "…" : "."}`,
     onlyCaseHas: ({ rows, label }) => `Only ${rows} have a ${label}.`,
     unknownCase: ({ label, cases, value }) => `${capital(label)} can be ${cases} — not “${value}”.`,
@@ -1234,7 +1235,7 @@ export const queryMessages: QueryMessages = {
     emptyGroup: () => "This group is empty.",
     emptyFilter: () => "Add a condition, or remove this step.",
     notLookupTable: ({ dataset }) => `${capital(dataset)} can't be looked up by key.`,
-    keyKind: ({ dataset, kind, label, keyKind }) => `${capital(dataset)} are found by ${kind} ids, but ${label} is ${/^[aeiou]/i.test(keyKind) ? "an" : "a"} ${keyKind}.`,
+    keyKind: ({ dataset, kind, label, keyKind }) => `${capital(dataset)} are found by ${kind} ids, but ${label} is ${withArticle(keyKind)}.`,
     noRecordField: ({ noun, field }) => `${capital(noun)} records have no “${field}”.`,
     chooseGroupBy: () => "Choose what to group by.",
     cannotAddUp: ({ label, kind }) => `Can't add up ${label} — it's ${kind}. Pick a number, or count instead.`,

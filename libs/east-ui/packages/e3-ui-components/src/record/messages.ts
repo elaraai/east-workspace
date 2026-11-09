@@ -16,6 +16,8 @@
  * @packageDocumentation
  */
 
+import { withArticle } from "../shared/article.js";
+
 /** What an age counts. */
 type AgeUnit = "hours" | "days" | "weeks";
 
@@ -25,17 +27,6 @@ const UNITS: Readonly<Record<AgeUnit, readonly [string, string]>> = {
     days: ["day", "days"],
     weeks: ["week", "weeks"],
 };
-
-/** A vowel letter that starts with a consonant's sound: `a user`, `a unit`, `a euro`, `a one-off`. */
-const SOUNDS_CONSONANT = /^(?:u[bcfhjkqrstn][aeiou]|eu|ew|one\b|once\b)/i;
-/** A first letter that is silent: `an hour`, `an honest`, `an heir`. */
-const SILENT_H = /^(?:hour|honest|hono|heir)/i;
-
-/** A noun with its article, by its first sound: `a person`, `an operator`, `a user`, `an hour`. */
-function withArticle(noun: string): string {
-    const vowel = (/^[aeiou]/i.test(noun) && !SOUNDS_CONSONANT.test(noun)) || SILENT_H.test(noun);
-    return `${vowel ? "an" : "a"} ${noun}`;
-}
 
 /** A count of rows in the Record's word for them, one and many: `1 person`, `2 people`. */
 function counted(p: { n: number; count: string; noun: string; nouns: string }): string {

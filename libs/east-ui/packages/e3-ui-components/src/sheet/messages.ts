@@ -30,6 +30,7 @@
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
 import { editingMessages, getSomeorUndefined, type EditingMessages } from "@elaraai/east-ui-components";
 import { type EditHistoryWord } from "@elaraai/east-ui-components/internal";
+import { withArticle } from "../shared/article.js";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import { hiddenByText } from "../shared/schedule/hidden.js";
 import { pluralKind } from "./link/grammar.js";
@@ -946,7 +947,7 @@ export const sheetMessages: SheetMessages = {
         : `${count} new rows renumbered — their keys were taken by another save`),
     noticeCantAdd: ({ what, noun, label }) => {
         const entry = what === "group" ? noun : what;
-        return `Can't add ${/^[aeiou]/i.test(entry) ? "an" : "a"} ${entry} — the app gives no ${label}`;
+        return `Can't add ${withArticle(entry)} — the app gives no ${label}`;
     },
 
     libraryPane: () => "Library",

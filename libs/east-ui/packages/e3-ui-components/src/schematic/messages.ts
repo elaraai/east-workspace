@@ -46,6 +46,7 @@
 import { none, some, variant } from "@elaraai/east";
 import type { Formatters } from "@elaraai/east-ui-components";
 import type { LoadingLineText } from "@elaraai/east-ui-components/internal";
+import { articleOf as article } from "../shared/article.js";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import { hiddenByText, joinedWords, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
 import type { SchematicValue } from "./data.js";
@@ -392,9 +393,6 @@ const membersOf = ({ names, more }: SchematicMembers): string => (more === undef
 
 /** Words as a sentence starts them. */
 const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
-
-/** The article a noun takes, by the sound English spelling gives its first letter. */
-const article = (noun: string): string => (/^[aeiou]/i.test(noun) ? "an" : "a");
 
 /** Why a kind adds no row (#1549): its name as running text writes it, and its key type's name. */
 const keysUntyped = (name: string, type: string): string => `${capital(name)}s are keyed by ${type}, which can't be typed — give the kind \`key\` to add them`;

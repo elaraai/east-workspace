@@ -27,6 +27,7 @@ import { createContext, createElement, useContext, useMemo, type ReactNode } fro
 import type { ValueTypeOf } from "@elaraai/east";
 import type { PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { editingMessages, getSomeorUndefined, type EditingMessages } from "@elaraai/east-ui-components";
+import { withArticle } from "../shared/article.js";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import { eventsNotCounted, hiddenByText, joinedWords as joined, kindPlural as pluralName, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
 import { timeMessages, type TimeMessages } from "../shared/time/scale.js";
@@ -572,9 +573,6 @@ const listed = (parts: ReadonlyArray<string | undefined>): string =>
 /** The fields a card's patch sets, as a noun — `customer`, `customer and stock` (an underscore a space); a patch that sets none, `card`. */
 const fieldNoun = (fields: readonly string[]): string =>
     fields.length === 0 ? "card" : joined(fields.map((f) => f.replace(/_/g, " ")), "and");
-
-/** A noun with its article — `a customer`, `an address`. */
-const withArticle = (noun: string): string => `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
 
 /** What a library tab the rail narrows lists, as its narrowed words say it — `templates`, `backlog events`, an author's tab's name. */
 const narrowedNoun = (tab: PlanLibraryTabWord, name: string): string =>

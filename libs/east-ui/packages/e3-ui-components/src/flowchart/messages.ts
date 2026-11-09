@@ -34,6 +34,7 @@
 
 import { StringType, printFor } from "@elaraai/east";
 import { editingMessages, type EditingMessages, type EditingWords } from "@elaraai/east-ui-components";
+import { withArticle as aNoun } from "../shared/article.js";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import { hiddenByText, joinedWords, kindPlural, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
 import type { FlowchartBinsRefusalWord } from "./details.js";
@@ -400,9 +401,6 @@ const quoted = printFor(StringType);
 
 /** A name as a sentence starts with it. */
 const capital = (name: string): string => `${name.charAt(0).toUpperCase()}${name.slice(1)}`;
-
-/** A noun with its article, as a sentence takes it — `a state`, `an order`. */
-const aNoun = (noun: string): string => `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
 
 /** Why a kind adds no row (#1549): its rows' name as a sentence says one, and its key type's name. */
 const keysUntyped = (name: string, type: string): string => `${capital(kindPlural(name))} are keyed by ${type}, which can't be typed — give the kind \`key\` to add them`;
