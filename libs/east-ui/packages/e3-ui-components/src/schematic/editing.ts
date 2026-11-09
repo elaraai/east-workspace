@@ -45,6 +45,9 @@
  *   the rows under keys alone; and by any other, none: the kind adds no row
  *   (`untyped`). A row whose kind builds its key from its fields moves under
  *   the key a gesture's edit of them builds (`moves`), its details row with it.
+ * - **A number its field's bounds don't hold (#1585).** Each record's form
+ *   goes with it (`fields`): a changed row whose number is under its least or
+ *   over its most holds Save, as the app's check does, and Issues names it.
  * - **Its drafts.** Each draft is decoded once: its roles read through its
  *   kind's `read` — a row under a placeholder as keyed by its key type's
  *   default — and the roles of the row its session began from beside
@@ -288,7 +291,8 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
     const wordsNow = useRef(words);
     wordsNow.current = words;
     // Each kind bound with its patch door, and each one's details so bound, in the Schematic's order of its sorts — none
-    // while the Schematic is read only.
+    // while the Schematic is read only — each with its form: a changed row's number outside its field's bounds holds Save
+    // as the app's check does (#1585).
     const records = useMemo((): ScheduleEditingRecord[] => {
         if (value.readOnly) return [];
         const out: ScheduleEditingRecord[] = [];
@@ -307,13 +311,13 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
                 }));
             if (kind.editable && kind.editing.type === "some") {
                 const ready = waiting(kind.ready, () => variant("incomplete", [{ field: "", message: wordsNow.current.placeholder({ name: kind.name }) }]));
-                out.push({ key: kind.key, name: kind.name, editing: kind.editing.value, entries: kind.entries, ready });
+                out.push({ key: kind.key, name: kind.name, editing: kind.editing.value, entries: kind.entries, ready, fields: kind.fields });
             }
             const details = someOf(kind.details);
             if (details !== undefined && details.editable && details.editing.type === "some") {
                 out.push({
                     key: detailsKey(kind.key), name: `${kind.name} details`, editing: details.editing.value, entries: details.entries,
-                    ready: waiting(details.ready, () => READY),
+                    ready: waiting(details.ready, () => READY), fields: details.fields,
                 });
             }
         }
