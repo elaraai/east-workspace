@@ -1170,6 +1170,11 @@ minted unique among every key the builder holds (`mintKey`,
 `crypto.randomUUID()`). Publish saves first, and only once every record reads
 back as saved writes the period's status and saves the periods
 (`publishPeriod`): a failed save leaves the period a draft, its drafts kept.
+The status is written over the period's row as the Save left it — the row
+rewritten as the periods' session finds it once the Save has settled
+(`periodPublishChange` over `ScheduleChange`'s `rewrite`), a new one where it
+finds none (`absent`) — so Publish changes the status alone, never putting
+back what the Save, or another session, wrote after it was pressed.
 The builder writes its period into its kind's source of the slice
 (`shared/schedule/source-window.ts`), so the rail's summary counts the
 period's events and a Save's notice reads the window it reads.

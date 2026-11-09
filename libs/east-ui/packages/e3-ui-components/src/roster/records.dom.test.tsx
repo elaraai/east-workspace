@@ -16,7 +16,7 @@
  */
 import { afterEach, describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DateTimeType, equalFor, none, variant } from "@elaraai/east";
+import { DateTimeType, SortedSet, StringType, compareFor, equalFor, none, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import {
@@ -98,6 +98,31 @@ describe("one history over the Roster's records (#1369)", () => {
         const week = (await h.read(ex.rosterWeeks)).get(START)!;
         expect(week.state.type).toBe("issued");
         expect(c.querySelector("[data-roster-readonly]")).not.toBeNull();
+        expect(slot(c, "toolbar").querySelector("[data-roster-status]")?.textContent).toBe("Published");
+    });
+
+    test("B7 — the status is written over the week's row as the Save left it: another session's write just after the Save, and the Save's own dismissal, both stand", async () => {
+        // The weeks read by key (`entries`): the Roster holds no copy of the record, only what it reads of the week.
+        const { container: c } = await h.mount(ex.rosterWindowed);
+        // From the week it opens on, which the weeks record holds no row of, back to the week before, and its Thursday: the
+        // day's proposals.
+        await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: "[" }); });
+        await settle();
+        await press(within(slot(c, "toolbar")).getByRole("radio", { name: "Thu" }));
+        const before = (await h.read(ex.rosterWeeks)).get(START)!;
+        // A dismissal drafted on the week's row: Publish saves it before it writes the status.
+        await press(within(proposal(c, "s318")!).getByRole("button", { name: "Reject proposal for B. Pumice" }));
+        // The weeks' Save commits, and another session dismisses N. Ochre's suggestion just after it, before the Roster
+        // reads its own back: what it reads back is its own dismissal beside the other's.
+        await h.followed(ex.rosterWeeks, () => { fireEvent.click(history(c, "Publish")); }, now => {
+            const week = now.get(START)!;
+            now.set(START, { ...week, dismissed: new SortedSet([...week.dismissed, "s317"], compareFor(StringType)) });
+            return now;
+        });
+        await waitFor(async () => expect((await h.read(ex.rosterWeeks)).get(START)!.state.type).toBe("issued"));
+        await settle();
+        const published = (await h.read(ex.rosterWeeks)).get(START)!;
+        expect([...published.dismissed]).toEqual([...before.dismissed, "s317", "s318"].sort(compareFor(StringType)));
         expect(slot(c, "toolbar").querySelector("[data-roster-status]")?.textContent).toBe("Published");
     });
 

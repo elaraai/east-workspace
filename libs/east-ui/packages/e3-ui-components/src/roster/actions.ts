@@ -612,25 +612,18 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
 /**
  * The rows Publish writes (#1550): each period given that takes edits — the
  * week's, or by the day each day's — its status the published case, at the
- * time given (`periodPublishChange`).
+ * time given, over its row as the Save left it (`periodPublishChange`). A
+ * period with no row is given one made from the periods' `values` only then,
+ * and one they fail to make records none of the changes, so Publish never
+ * publishes a part of what it was pressed for.
  *
  * @param value - The payload: its periods
- * @param editing - The editing
  * @param periods - The periods Publish publishes
- * @param stored - A period's row as the Roster read it, by its first instant
  * @param at - When they are published
- * @returns The changes, one a period; none without periods, or where the periods' `values` fail to make a new row of
- *   one, so Publish never publishes a part of what it was pressed for
+ * @returns The changes, one a period; none without periods
  */
-export function publishChanges(value: RosterPayload, editing: RosterEditing, periods: readonly WeekPeriod[], stored: (start: Date) => Uint8Array | undefined,
-    at: Date): readonly ScheduleChange[] {
+export function publishChanges(value: RosterPayload, periods: readonly WeekPeriod[], at: Date): readonly ScheduleChange[] {
     if (value.periods.type !== "some") return [];
     const kind = value.periods.value;
-    const changes: ScheduleChange[] = [];
-    for (const period of periods.filter(takesEdits)) {
-        const change = periodPublishChange(kind, editing.schedule, PERIODS, weekKey(period.start), period.start, stored(period.start), at, "Roster");
-        if (change === undefined) return [];
-        changes.push(change);
-    }
-    return changes;
+    return periods.filter(takesEdits).map(period => periodPublishChange(kind, PERIODS, weekKey(period.start), period.start, at, "Roster"));
 }

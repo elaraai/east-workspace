@@ -425,17 +425,15 @@ export function allocationCommands(state: AllocationState, select: (next: Select
 
 /**
  * The row of the period holding the day as Publish writes it — the day's, or
- * its week's (#1550): its status the published case, at the time given
- * (`periodPublishChange`).
+ * its week's (#1550): its status the published case, at the time given, over
+ * its row as the Save left it (`periodPublishChange`).
  *
  * @param value - The payload: its periods
- * @param editing - The editing
  * @param start - The period's first day: the plan day, or its week's first
- * @param stored - The period's row as the board read it
  * @param at - When it is published
- * @returns The change; `undefined` without periods, or for a new row the periods' `values` fail to make
+ * @returns The change; `undefined` without periods
  */
-export function publishChange(value: AllocationValue, editing: AllocationEditing, start: Date, stored: Uint8Array | undefined, at: Date): ScheduleChange | undefined {
+export function publishChange(value: AllocationValue, start: Date, at: Date): ScheduleChange | undefined {
     if (value.periods.type !== "some") return undefined;
-    return periodPublishChange(value.periods.value, editing.schedule, PERIODS, dayKey(start), start, stored, at, "Allocation");
+    return periodPublishChange(value.periods.value, PERIODS, dayKey(start), start, at, "Allocation");
 }

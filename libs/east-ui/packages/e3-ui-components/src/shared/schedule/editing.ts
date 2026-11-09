@@ -95,7 +95,8 @@ export type ScheduleGestureValue = ValueTypeOf<typeof ScheduleGestureType>;
  * whole (an author's `update`, a duplicate — `created`, an event under a new
  * key), or deleted. A row of a record beside the kinds is given whole,
  * rewritten from the row as the gesture finds it (#1388: the Schematic's
- * gestures, each through its kind's own `write`), or deleted.
+ * gestures, each through its kind's own `write`; Publish's status, over the
+ * period's row as its Save left it), or deleted.
  */
 export type ScheduleChange =
     | { readonly kind: string; readonly id: string; readonly gesture: ScheduleGestureValue }
@@ -108,6 +109,12 @@ export type ScheduleChange =
          * it, and the gesture records nothing.
          */
         readonly rewrite: (row: Uint8Array) => Uint8Array | undefined;
+        /**
+         * The row the gesture writes where it finds none, made only then: a period its record holds no row of, which
+         * Publish writes afresh from the app's `values`. Left out, or making none — `values` that fail as they run —
+         * a gesture that finds no row records nothing.
+         */
+        readonly absent?: (() => Uint8Array | undefined) | undefined;
     }
     | { readonly kind: string; readonly id: string; readonly remove: true };
 
@@ -235,7 +242,7 @@ export interface ScheduleEditing<I extends Item = Item> {
      * @param changes - Each event or row it changes, and how; one changed twice composes, in order
      * @param origin - The gesture
      * @param label - Its label in the history
-     * @returns Whether anything changed; nothing is, when a rewrite refuses or finds no row
+     * @returns Whether anything changed; nothing is, when a rewrite refuses, or finds no row and gives none in its place
      */
     record(changes: readonly ScheduleChange[], origin: Origin, label: string): boolean;
 }
@@ -668,19 +675,25 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
                 } else if ("row" in change) {
                     row = codec.decodeRow(change.row);
                 } else if ("rewrite" in change) {
-                    // The row as the gesture finds it, rewritten whole: one it finds none of, or a rewrite that
-                    // refuses, records nothing of the gesture.
+                    // The row as the gesture finds it, rewritten whole; where it finds none, the row the change makes in
+                    // its place, made only then. One it finds none of and is given none for, or a rewrite that refuses,
+                    // records nothing of the gesture.
                     const current = rowOf(now);
-                    if (current === undefined) return false;
-                    let rewritten: Uint8Array | undefined;
-                    try {
-                        rewritten = change.rewrite(codec.encodeRow(current));
-                    } catch (err) {
-                        console.error(`[Schedule] ${part.name}'s rewrite of ${change.id} failed:`, err);
-                        return false;
+                    if (current === undefined) {
+                        const made = change.absent?.();
+                        if (made === undefined) return false;
+                        row = codec.decodeRow(made);
+                    } else {
+                        let rewritten: Uint8Array | undefined;
+                        try {
+                            rewritten = change.rewrite(codec.encodeRow(current));
+                        } catch (err) {
+                            console.error(`[Schedule] ${part.name}'s rewrite of ${change.id} failed:`, err);
+                            return false;
+                        }
+                        if (rewritten === undefined) return false;
+                        row = codec.decodeRow(rewritten);
                     }
-                    if (rewritten === undefined) return false;
-                    row = codec.decodeRow(rewritten);
                 } else {
                     // The kind's own write of the gesture into the entry as it stands; a create writes none. A record's
                     // row is given whole: it has no gestures of its own.

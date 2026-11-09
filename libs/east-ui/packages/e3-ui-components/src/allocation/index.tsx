@@ -318,7 +318,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const [publishing, setPublishing] = useState(false);
     const publishingNow = useRef(false);
     const latest = useRef({ change: () => undefined as ReturnType<typeof publishChange> });
-    latest.current = { change: () => editing === undefined ? undefined : publishChange(value, editing, periodFrom, current ? data.period : undefined, new Date()) };
+    latest.current = { change: () => publishChange(value, periodFrom, new Date()) };
     const publish = useCallback(() => {
         if (editing === undefined || publishingNow.current) return;
         publishingNow.current = true; setPublishing(true);

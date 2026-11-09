@@ -323,14 +323,15 @@ function RosterFrame(props: FrameProps) {
     const unit = dayInView ? "day" : "week";
     const [publishing, setPublishing] = useState(false);
     const publishingNow = useRef(false);
-    const latest = useRef<{ viewed: readonly WeekPeriod[]; stored: (at: Date) => Uint8Array | undefined }>({ viewed, stored: () => undefined });
-    latest.current = { viewed, stored: at => current ? data.periods.get(at) : undefined };
+    const latest = useRef<readonly WeekPeriod[]>(viewed);
+    latest.current = viewed;
     const publish = useCallback(() => {
         if (editing === undefined || publishingNow.current) return;
         publishingNow.current = true; setPublishing(true);
         // The periods in view as Publish is pressed: a step to another day or week while its Save is out publishes no other.
-        const { viewed: chosen, stored } = latest.current;
-        void publishPeriod(editing.history, () => publishChanges(source, editing, chosen, stored, new Date()), changes => editing.schedule.record(changes, "typed", `Publish ${unit}`))
+        // Each one's status is written over its row as the Save left it, whatever was read of it at the press.
+        const chosen = latest.current;
+        void publishPeriod(editing.history, () => publishChanges(source, chosen, new Date()), changes => editing.schedule.record(changes, "typed", `Publish ${unit}`))
             .finally(() => { publishingNow.current = false; setPublishing(false); });
     }, [editing, unit, source]);
     // A narrowing read while the week it filters stands in keeps the week's rows, stale (#1398, CL5): their words in the

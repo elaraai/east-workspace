@@ -23,7 +23,7 @@ import {
 } from "@elaraai/east";
 import type { ScheduleKindType, SchedulePeriodsKindType } from "@elaraai/e3-ui/internal";
 import type { EditHistory, EntryVersion } from "@elaraai/east-ui-components";
-import type { ScheduleChange, ScheduleEditing, ScheduleEditingRecord, ScheduleEntryRef, ScheduleRowRead } from "./editing.js";
+import type { ScheduleChange, ScheduleEditingRecord, ScheduleEntryRef, ScheduleRowRead } from "./editing.js";
 
 /** A builder's periods, as the payload carries them. */
 export type SchedulePeriodsValue = ValueTypeOf<typeof SchedulePeriodsKindType>;
@@ -216,26 +216,28 @@ export function periodRowsRead(periods: SchedulePeriodsValue, from: Date, to: Da
 
 /**
  * The period's row as Publish writes it: its status the published case, at
- * the time given — over the row as the periods' session last saw it saved,
- * else as the builder read it, else a new one, its own fields the periods'
- * `values` of its start (#1526).
+ * the time given — rewritten from the row as the periods' session finds it as
+ * the change is recorded, once the Save has settled: drafted, else as the
+ * record holds it then (`ScheduleChange`'s `rewrite`), so the write changes its
+ * status alone and never puts back what the Save, or another session, wrote
+ * since Publish was pressed; where it finds none, a new one, its own fields
+ * the periods' `values` of its start (#1526) — asked only then
+ * (`ScheduleChange`'s `absent`), and a new row they fail to make records
+ * nothing, so it publishes nothing and the console says why.
  *
  * @param periods - The builder's periods
- * @param schedule - The editing over the builder's records
  * @param record - What a change names the periods' record by
  * @param id - The period's key's text
  * @param start - The period's start: its key
- * @param stored - The period's row as the builder read it
  * @param at - When it is published
  * @param builder - The builder, as the console names it where the periods' `values` fail
- * @returns The change; `undefined` for a new row the periods' `values` fail to make, which publishes nothing
+ * @returns The change
  */
-export function periodPublishChange(periods: SchedulePeriodsValue, schedule: Pick<ScheduleEditing, "held">, record: string, id: string, start: Date,
-    stored: Uint8Array | undefined, at: Date, builder: string): ScheduleChange | undefined {
-    const saved = schedule.held(record, id);
-    const row = saved !== undefined ? rowCodec(periods.rowType).encode(saved) : stored;
-    const published = madeFromValues(builder, "the period's row", () => periods.publish(start, row === undefined ? none : some(row), at));
-    return published === undefined ? undefined : { kind: record, id, row: published };
+export function periodPublishChange(periods: SchedulePeriodsValue, record: string, id: string, start: Date, at: Date, builder: string): ScheduleChange {
+    return {
+        kind: record, id, rewrite: row => periods.publish(start, some(row), at),
+        absent: () => madeFromValues(builder, "the period's row", () => periods.publish(start, none, at)),
+    };
 }
 
 /**
