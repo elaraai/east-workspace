@@ -945,3 +945,52 @@ describe("a key of several parts, a deleted row's key, a shift and a key stored 
             .toBe(printFor(fx.placedSpots.type)(withRows(spots, compareFor(fx.SpotKey), [[{ row: 3n, col: 1n }, { name: "3-1", row: 3n, col: 1n, x: 6.0, y: 10.0 }]])));
     });
 });
+
+// ============================================================================
+// An edit in Details a key refuses (#1585)
+// ============================================================================
+
+/** What a field of Details says under it of the edit last refused; `undefined` while it says nothing. */
+const saidUnder = (el: HTMLElement): string | undefined => el.querySelector("[data-scope=field][data-part=error-text]")?.textContent ?? undefined;
+
+describe("an edit in Details a key refuses goes back to what the row holds, saying why under its field as the footer does (#1585)", () => {
+    test("keyed by the cell their centre stands in, West's x typed into East's cell is refused, naming East: its x shows where West stands again, never the 14 typed, and nothing is recorded", async () => {
+        const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const tiles = $.let(Record.bind(fx.cellTiles));
+            return Schematic({
+                id: "keyedTilesInspected",
+                inspector: true,
+                extent: fx.KEYED_FLOOR,
+                items: { tiles: Schematic.items(tiles, { name: "Tile", icon: "pallet", x: "x", y: "y", label: "name", key: (row) => East.Float.roundFloor(row.x.divide(4.0)) }) },
+            });
+        }))) }, "tiles", "2");
+        hits(c, [["tiles", "2", 10, 3], ["tiles", "3", 14, 3]]);
+        await tap(canvasOf(c), CAM, 10, 3);
+        await waitFor(() => expect(isSelected(c, "tiles", "2")).toBe(true));
+        await retypeNumber(c, "position", "x", "14");
+        const said = m.keyRefused({ refusal: "taken", kind: "tile", name: "East" });
+        expect(said).toBe("A tile East is there already");
+        expect(within(field(c, "position", "x")).getByRole<HTMLInputElement>("spinbutton").value).toBe("10");
+        expect([saidUnder(field(c, "position", "x")), refused(c), unsaved(c), isSelected(c, "tiles", "2")]).toEqual([said, said, false, true]);
+    });
+
+    test("keyed by row and column, 2-1's row typed 1 is refused, naming 1-1: its row shows 2 again, saying why under it, and nothing is recorded", async () => {
+        const spot = printFor(fx.SpotKey);
+        const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const spotsBound = $.let(Record.bind(fx.placedSpots));
+            return Schematic({
+                id: "keyedSpotsInspected",
+                inspector: true,
+                extent: fx.KEYED_FLOOR,
+                items: { spots: Schematic.items(spotsBound, { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", key: (row) => ({ row: row.row, col: row.col }) }) },
+            });
+        }))) }, "spots", spot({ row: 2n, col: 1n }));
+        hits(c, [["spots", spot({ row: 2n, col: 1n }), 18, 10]]);
+        await tap(canvasOf(c), CAM, 18, 10);
+        await waitFor(() => expect(isSelected(c, "spots", spot({ row: 2n, col: 1n }))).toBe(true));
+        await retypeNumber(c, "row", "row", "1");
+        const said = m.keyRefused({ refusal: "taken", kind: "spot", name: "1-1" });
+        expect(within(field(c, "row", "row")).getByRole<HTMLInputElement>("spinbutton").value).toBe("2");
+        expect([saidUnder(field(c, "row", "row")), refused(c), unsaved(c)]).toEqual([said, said, false]);
+    });
+});

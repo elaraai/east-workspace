@@ -179,11 +179,11 @@ import { draftedDrawing, waitingDrafts, waitingPoint, withWaiting, type DraftedC
 import { NO_DRAFTS_NARROWING, SchematicDraftsReader, draftHeld, type SchematicDraftsNarrowing } from "./drafts-narrowing.js";
 import type { SchematicDropContext, SchematicDropKind } from "./drop.js";
 import { connectVeto, editKinds, followBuiltKeys, type NetLeg, type SchematicEdit, type SchematicKeyRefusal, type SchematicUnheld } from "./edits.js";
-import { recordSlot, useSchematicEditing, type SchematicEditing, type SchematicKeyWords, type SchematicMove } from "./editing.js";
+import { recordSlot, useSchematicEditing, type SchematicKeyWords, type SchematicMove } from "./editing.js";
 import { foundMark, useSchematicFind, type FindKind, type FoundItem } from "./find.js";
 import { SchematicFooter, type SchematicNotice } from "./footer.js";
 import { drawnEntities, entityNames, inspectedEqual, inspectedOf, nameOfEntity, type SchematicInspected, type SchematicUnplaced } from "./inspect.js";
-import { schematicInspectorPane } from "./inspector.js";
+import { schematicInspectorPane, type SchematicInspectorEditing } from "./inspector.js";
 import { NO_INSPECTED_ROWS, SchematicInspectedReader, type SchematicInspectedRows } from "./inspector-rows.js";
 import { drawingIssues, sessionIssues } from "./issues.js";
 import { SchematicIndexArea, type IndexAreaKind } from "./index-area.js";
@@ -861,16 +861,21 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // What names an item a gesture moves: the links and nets drawn and waiting, the drafts in place.
     const editsKinds = useMemo(() => editKinds(value), [value]);
     const heldDrawing = useMemo(() => withWaiting(drawing, waiting), [drawing, waiting]);
-    // Why a gesture records nothing, its new row's key refused: in the footer, the row holding the key by its name.
-    const keyRefused = useCallback((refusal: SchematicKeyRefusal) => {
+    // Why a gesture records nothing, its new row's key refused: in the footer, the row holding the key by its name — the
+    // words handed back, which Details says under the field an edit of it was made in too.
+    const keyRefused = useCallback((refusal: SchematicKeyRefusal): string => {
         const named = (slot: string) => (kindName.get(slot) ?? slot).toLocaleLowerCase(words.locale);
         const nameOf = (ref: SchematicRef) => namesNow.current.get(entityId(ref)) ?? ref.key;
-        switch (refusal.refusal) {
-            case "untyped": setRefusal(words.m.keyRefused({ refusal: "untyped", kind: named(refusal.kind), type: refusal.type })); break;
-            case "taken": setRefusal(words.m.keyRefused({ refusal: "taken", kind: named(refusal.ref.kind), name: nameOf(refusal.ref) })); break;
-            case "unheld": setRefusal(words.m.keyRefused({ refusal: "unheld", kind: named(refusal.kind), name: nameOf(refusal.ref), why: refusal.why })); break;
-            case "details": setRefusal(words.m.keyRefused({ refusal: "details", kind: named(refusal.ref.kind), name: nameOf(refusal.ref) })); break;
-        }
+        const said = ((): string => {
+            switch (refusal.refusal) {
+                case "untyped": return words.m.keyRefused({ refusal: "untyped", kind: named(refusal.kind), type: refusal.type });
+                case "taken": return words.m.keyRefused({ refusal: "taken", kind: named(refusal.ref.kind), name: nameOf(refusal.ref) });
+                case "unheld": return words.m.keyRefused({ refusal: "unheld", kind: named(refusal.kind), name: nameOf(refusal.ref), why: refusal.why });
+                case "details": return words.m.keyRefused({ refusal: "details", kind: named(refusal.ref.kind), name: nameOf(refusal.ref) });
+            }
+        })();
+        setRefusal(said);
+        return said;
     }, [kindName, words]);
     // Why the Schematic may not hold every row of a link or net kind (#1580): the rail's filters leave some out — under
     // `narrowed="dim"` its source reads every row — or its read hasn't landed, or failed.
@@ -881,29 +886,38 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     }, [dim, chrome, ready, failures]);
     // Every route's edits recorded with each row whose key its fields build following them: refused where a row holds a
     // key one builds, a link or net kind that may name a moving item isn't held whole, or what follows a moving row — its
-    // details, the rows naming it — takes no edit now (#1584); recorded, a lone selected entity that moves selected under
-    // its new key, and the rows moved handed back — a Shift session's net among them (#1584).
+    // details, the rows naming it — takes no edit now (#1584), the footer saying why, and the words handed back; recorded,
+    // a lone selected entity that moves selected under its new key, and the rows moved handed back — a Shift session's net
+    // among them (#1584).
     const recordEdits = editing.record;
     const moves = editing.moves, stands = editing.stands, edited = editing.edited, takes = editing.available;
-    const recordFollowing = useCallback((edits: readonly SchematicEdit[], origin: Origin, label: string): readonly SchematicMove[] | undefined => {
+    const recordFollowing = useCallback((edits: readonly SchematicEdit[], origin: Origin, label: string):
+        { readonly moved: readonly SchematicMove[] } | { readonly refused: string } | undefined => {
         const followed = followBuiltKeys({ kinds: editsKinds, moves, stands, edited, drawn: heldDrawing, unheld, takes }, edits);
-        if ("refused" in followed) {
-            keyRefused(followed.refused);
-            return undefined;
-        }
+        if ("refused" in followed) return { refused: keyRefused(followed.refused) };
         if (!recordEdits(followed.edits, origin, label)) return undefined;
         const now = selectionNow.current;
         const lone = now.size === 1 ? [...now][0]! : undefined;
         const moved = lone === undefined ? undefined : followed.moved.find((move) => stringEqual(entityId(move.ref), lone));
         if (moved !== undefined) canvasRef.current?.select(entityId({ kind: moved.ref.kind, key: moved.to }));
-        return followed.moved;
+        return { moved: followed.moved };
     }, [editsKinds, moves, stands, edited, heldDrawing, unheld, takes, keyRefused, recordEdits]);
+    // The canvas's and a drop's: the rows moved, or nothing recorded.
+    const recordMoves = useCallback((edits: readonly SchematicEdit[], origin: Origin, label: string): readonly SchematicMove[] | undefined => {
+        const done = recordFollowing(edits, origin, label);
+        return done === undefined || "refused" in done ? undefined : done.moved;
+    }, [recordFollowing]);
     const newKey = editing.newKey;
-    const canvasEditing = useMemo((): SchematicCanvasEditing | undefined => (editing.edits ? { record: recordFollowing, newKey, keyRefused } : undefined),
-        [editing.edits, recordFollowing, newKey, keyRefused]);
-    // The inspector's edits are recorded so too.
-    const inspectorEditing = useMemo((): SchematicEditing => ({ ...editing, record: (edits, origin, label) => recordFollowing(edits, origin, label) !== undefined }),
-        [editing, recordFollowing]);
+    const canvasEditing = useMemo((): SchematicCanvasEditing | undefined => (editing.edits ? { record: recordMoves, newKey, keyRefused } : undefined),
+        [editing.edits, recordMoves, newKey, keyRefused]);
+    // The inspector's edits are recorded so too: one refused for its key hands Details why, which it says under the field.
+    const inspectorEditing = useMemo((): SchematicInspectorEditing => ({
+        ...editing,
+        record: (edits, origin, label) => {
+            const done = recordFollowing(edits, origin, label);
+            return done === undefined ? false : "refused" in done ? done.refused : true;
+        },
+    }), [editing, recordFollowing]);
     // The zones a point lands in, smallest first, as the Index files an item: what a drop's words name.
     const hosts = useMemo(() => hostZones(shownZones), [shownZones]);
     // A kind takes a drop while its session takes an edit and nothing the canvas draws is retained (#1398, CL8).
@@ -917,7 +931,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         nameOf: (ref) => names.get(entityId(ref)),
         zoneAt: (point) => zoneHolding(hosts, point.x, point.y)?.label,
     }), [value.extent, dropKinds, takesEdit, untyped, names, hosts]);
-    const recordDrop = useCallback((edits: readonly SchematicEdit[], label: string) => recordFollowing(edits, "drop", label) !== undefined, [recordFollowing]);
+    const recordDrop = useCallback((edits: readonly SchematicEdit[], label: string) => recordMoves(edits, "drop", label) !== undefined, [recordMoves]);
     // What the canvas has selected, each entity by its reference: what a card's ⏎ drops on.
     const selectedRefs = useCallback((): SchematicRef[] => [...selection].flatMap((id) => { const ref = refOfId(id); return ref === undefined ? [] : [ref]; }), [selection]);
     const viewCentre = useCallback(() => canvasRef.current?.centre(), []);

@@ -48,7 +48,7 @@
  * Move is the position's `x` and `y`, its Delete the item's. A link's ends, a
  * net's sides and Connect to… are held to the host's veto as the gestures are
  * (`edits.ts`' `connectVeto`): a link's new pair, each pair a net's sides newly
- * join; refused, the footer says why and nothing is recorded.
+ * join; refused, the field and the footer say why and nothing is recorded.
  *
  * A new item whose kind makes no key of its own (#1549) — keyed by a type the
  * viewer types, its record building none — shows its key field at the head of
@@ -57,15 +57,20 @@
  * placeholder, which holds Save. A key of several parts — a struct's fields, a
  * variant's case and its value — is typed a part at a time and taken whole by
  * Set key (#1581, `shared/schedule/key-draft.tsx`). A key typed moves the item,
- * and its details row, under it — refused, the footer saying why, where a row
- * of its kind stands under it already; a key whose row a draft deletes is free
+ * and its details row, under it — refused, its field and the footer saying why,
+ * where a row of its kind stands under it already; a key whose row a draft deletes is free
  * (#1581). Until it is typed, no link's end or net's side names the item:
  * Connect to…, a link's ends and a net's sides refuse it, saying so.
  *
  * Every edit is one step of the editing's history (`editing.ts`): a field
  * through its record's `set`, the row a kind's own Details hands back through
  * `update` whole, a position, ends or sides through the kind's `write`, and
- * Delete as the canvas's Del — refused, the footer says why. A field its
+ * Delete as the canvas's Del — refused, the footer says why. A field's edit
+ * refused leaves the field showing what its row holds: one the Schematic says
+ * why of — a key another row holds, the host's veto, a side emptied — says so
+ * under the field too, the keyboard where the edit left it (`FieldForm`'s
+ * refusal); one refused with nothing to say — its kind's own `set` or `write`
+ * refusing it — draws its form again. A field its
  * drafts changed is tinted against its record. Read only — a kind bound read
  * only, or the Schematic `readOnly` — Details shows every field and edits
  * none, an own Details giving way to the form; while a record takes no edit
@@ -170,6 +175,22 @@ const SidesFormType = StructType({ sources: ArrayType(StringType), destinations:
 /** Connect to…, below 480px of main (#1394): the link kind it records, by its slot, and the item it runs to, by its id. */
 const ConnectFormType = StructType({ kind: StringType, to: StringType });
 
+/**
+ * The editing as Details records its edits: as every route's are (`index.tsx`), each row whose key its fields build
+ * following them (#1549) — an edit refused handing back why, where the Schematic says.
+ */
+export interface SchematicInspectorEditing extends Omit<SchematicEditing, "record"> {
+    /**
+     * Records one edit as one step of the history.
+     *
+     * @param edits - The rows it changes, and how
+     * @param origin - The gesture
+     * @param label - Its label in the history
+     * @returns `true` once recorded; refused, why — its key refused, as the footer says it — or `false` where nothing says
+     */
+    record(edits: readonly SchematicEdit[], origin: Origin, label: string): boolean | string;
+}
+
 /** What the inspector reads of the Schematic. */
 export interface SchematicInspectorProps {
     /** The payload, decoded. */
@@ -188,7 +209,7 @@ export interface SchematicInspectorProps {
     /** The drawing as its lists show it, what the rail's narrowing leaves out left out (#1392): what a Chooser offers, and what an item is joined to. */
     readonly listed: SchematicDrawn;
     /** The editing: each record's session and drafts, and how an edit is recorded. */
-    readonly editing: SchematicEditing;
+    readonly editing: SchematicInspectorEditing;
     /** What the drawing's Details counts, with nothing selected (`counts.ts`). */
     readonly counts: SchematicCounts;
     /** The kinds' records whose commits say when each was last saved, and by whom. */
@@ -226,8 +247,8 @@ export interface SchematicInspectorProps {
     readonly reveal: (id: string | undefined, leg?: NetLeg) => void;
     /** Says why an edit was refused, in the footer; `undefined` clears it. */
     readonly refuse: (words: string | undefined) => void;
-    /** Says why an edit records nothing, its new row's key refused (#1549), in the footer. */
-    readonly keyRefused: (refusal: SchematicKeyRefusal) => void;
+    /** Says why an edit records nothing, its new row's key refused (#1549), in the footer, and hands back the words. */
+    readonly keyRefused: (refusal: SchematicKeyRefusal) => string;
     /** Selects an entity alone, by its id, once the drawing draws it, the camera where it is: an item under the key typed for it (#1549). */
     readonly select: (id: string) => void;
     /** The open tab. */
@@ -337,15 +358,16 @@ function placeholderOf(spec: FieldSpecValue): PlaceholderKind {
 const pendingControl = (spec: FieldSpecValue): ReactNode => <PlaceholderShape kind={placeholderOf(spec)} index={spec.path.join(".").length} />;
 
 /**
- * A form under its section's head — a section with no head of its own, a new item's key field, has none — remounted
- * after a refused edit so it shows what the row holds again; while its row is read (`pending`), each field its label
- * over a placeholder (#1398). A field an issue names (`issues`) takes the warn wash, and the field named (`focus`) the
- * keyboard (#1549).
+ * A form under its section's head — a section with no head of its own, a new item's key field, has none: an edit
+ * refused saying why (`onChange` handing back the words) puts its field back, saying so under it; one refused with
+ * nothing to say remounts it (`refused`), so it shows what the row holds again. While its row is read (`pending`),
+ * each field is its label over a placeholder (#1398). A field an issue names (`issues`) takes the warn wash, and the
+ * field named (`focus`) the keyboard (#1549).
  */
 function Form({ styles, head, section, specs, value, baseline, options, onChange, readOnly, refused, pending = false, issues, focus }: {
     styles: Styles; head: string | undefined; section: string; specs: readonly FieldSpecValue[]; value: unknown; baseline: unknown;
     options?: Readonly<Record<string, readonly FieldOption[]>> | undefined;
-    onChange: (path: readonly string[], value: unknown) => void; readOnly: boolean; refused?: number; pending?: boolean;
+    onChange: (path: readonly string[], value: unknown) => string | void; readOnly: boolean; refused?: number; pending?: boolean;
     issues?: ReadonlySet<string> | undefined; focus?: string | undefined;
 }) {
     if (specs.length === 0) return null;
@@ -373,7 +395,7 @@ function Fact({ styles, fact, children }: { styles: Styles; fact: string; childr
     return <Box css={styles.section}><Box css={styles.fact} data-inspector-fact={fact}>{children}</Box></Box>;
 }
 
-/** A remount counter for a form whose edit was refused: its input shows what the row holds again. */
+/** A remount counter for a form whose edit was refused with nothing to say: its input shows what the row holds again. */
 function useRefused(): [number, () => void] {
     const [refused, setRefused] = useState(0);
     const bump = useCallback(() => setRefused((n) => n + 1), []);
@@ -405,7 +427,7 @@ interface RowState {
  * @param read - Its stored row, as the reader read it
  * @returns The row's state
  */
-function useRowState(editing: SchematicEditing, record: string, side: RecordSide | undefined, key: string, read: SchematicRowRead | undefined): RowState {
+function useRowState(editing: SchematicInspectorEditing, record: string, side: RecordSide | undefined, key: string, read: SchematicRowRead | undefined): RowState {
     const codec = useMemo(() => (side === undefined ? undefined : rowCodec(side.rowType)), [side]);
     const stored = useMemo(() => (read?.state === "held" && codec !== undefined ? codec.decode(read.row) : undefined), [read, codec]);
     const drafted = editing.schedule.draftsOf(record).has(key);
@@ -470,14 +492,15 @@ function refusalWords(refusal: EditRefusal, words: SchematicWords): string {
 
 /**
  * The edits a view records: each one step, a recorded one clearing the
- * footer's refusal — and Delete, as the canvas's Del, refused in its words.
+ * footer's refusal — refused, why, where the Schematic says (`false` where
+ * nothing does) — and Delete, as the canvas's Del, refused in its words.
  */
 function useCommit(props: SchematicInspectorProps) {
     const { editing, refuse, value, drawn, words } = props;
-    const commit = useCallback((edits: readonly SchematicEdit[], origin: Origin, label: string): boolean => {
+    const commit = useCallback((edits: readonly SchematicEdit[], origin: Origin, label: string): boolean | string => {
         if (edits.length === 0) return false;
         const recorded = editing.record(edits, origin, label);
-        if (recorded) refuse(undefined);
+        if (recorded === true) refuse(undefined);
         return recorded;
     }, [editing, refuse]);
     const remove = useCallback((selection: DeleteSelection, label: string): boolean => {
@@ -486,7 +509,7 @@ function useCommit(props: SchematicInspectorProps) {
             refuse(refusalWords(result.refusal, words));
             return false;
         }
-        return commit(result.edits, "remove", label);
+        return commit(result.edits, "remove", label) === true;
     }, [value, drawn, words, refuse, commit]);
     return { commit, remove };
 }
@@ -589,14 +612,16 @@ function useSide(props: ViewProps, ref: SchematicRef, name: string, side: Record
     const its = rowsOf(rows, ref);
     const state = useRowState(editing, record, side, ref.key, details ? its.details : its.row);
     const { commit } = useCommit(props);
-    // A field's edit refused — a key the row's fields build that another row holds (#1549) — draws the form again,
-    // showing what the row holds.
+    // A field's edit refused shows what the row holds again: one refused for the key the row's fields build — another
+    // row's (#1549) — saying why under the field; one its record's `set` refuses, the form drawn again.
     const [refused, bump] = useRefused();
-    const onField = useCallback((path: readonly string[], next: unknown) => {
-        if (side === undefined) return;
+    const onField = useCallback((path: readonly string[], next: unknown): string | undefined => {
+        if (side === undefined) return undefined;
         const write = fieldWrite(side.fields, side.rowType, path, next);
-        if (write === undefined) return;
-        if (!commit([{ op: "set", ref, sets: [write], ...(details ? { details: true as const } : {}) }], "typed", m.inspectorStep({ edit: "edit", name }))) bump();
+        if (write === undefined) return undefined;
+        const recorded = commit([{ op: "set", ref, sets: [write], ...(details ? { details: true as const } : {}) }], "typed", m.inspectorStep({ edit: "edit", name }));
+        if (recorded === false) bump();
+        return recorded === true || recorded === false ? undefined : recorded;
     }, [side, ref, details, commit, m, name, bump]);
     const update = useCallback((edited: Uint8Array): null => {
         if (writes) commit([{ op: "row", ref, row: edited, ...(details ? { details: true as const } : {}) }], "typed", m.inspectorStep({ edit: "edit", name }));
@@ -610,7 +635,7 @@ function useSide(props: ViewProps, ref: SchematicRef, name: string, side: Record
 /** A record's side drawn: its form, or its own Details, under its head; while its row is read, its fields' placeholders; no row, said so. */
 function SideBody({ styles, head, section, side, own, state, onField, writes, storageKey, empty, refused }: {
     styles: Styles; head: string; section: string; side: RecordSide; own: unknown; state: RowState;
-    onField: (path: readonly string[], value: unknown) => void; writes: boolean; storageKey: string; empty: string; refused: number;
+    onField: (path: readonly string[], value: unknown) => string | void; writes: boolean; storageKey: string; empty: string; refused: number;
 }) {
     // Read, its form's fields stand at their places, each a placeholder until the row lands (#1398): its head is real.
     if (state.reading) {
@@ -644,22 +669,25 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
     [keyed, keys, m]);
     const keyIssues = useMemo(() => (waiting ? new Set(keySpecs.map((spec) => spec.path.join("."))) : undefined), [waiting, keySpecs]);
     const [keyRefused, bumpKey] = useRefused();
-    // A key typed whole: refused where a row of its kind stands under it — one whose row a draft deletes is free (#1581).
-    const takeKey = useCallback((to: string) => {
+    // A key typed whole: refused where a row of its kind stands under it — one whose row a draft deletes is free (#1581) —
+    // saying why, under the field of a key of one part as in the footer.
+    const takeKey = useCallback((to: string): string | undefined => {
         const from = item.ref.key;
-        if (stringEqual(to, from)) return;
+        if (stringEqual(to, from)) return undefined;
         if (editing.stands(kind.key, to)) {
-            say(m.inspectorKeyRefused({ name: kind.name.toLocaleLowerCase(words.locale), key: to }));
-            bumpKey();
-            return;
+            const said = m.inspectorKeyRefused({ name: kind.name.toLocaleLowerCase(words.locale), key: to });
+            say(said);
+            return said;
         }
         // The item under its key, its details row with it where they are edited, and the selection with it.
         const moved: SchematicEdit[] = [
             { op: "move", ref: item.ref, to },
             ...(editing.edited(detailsKey(kind.key)) ? [{ op: "move", ref: item.ref, to, details: true } as const] : []),
         ];
-        if (commit(moved, "typed", m.inspectorStep({ edit: "key", name: item.label }))) select(entityId({ kind: kind.key, key: to }));
-        else bumpKey();
+        const recorded = commit(moved, "typed", m.inspectorStep({ edit: "key", name: item.label }));
+        if (recorded === true) select(entityId({ kind: kind.key, key: to }));
+        else if (recorded === false) bumpKey();
+        return recorded === true || recorded === false ? undefined : recorded;
     }, [item.ref, item.label, kind, editing, commit, say, select, m, words.locale, bumpKey]);
     const keyDraft = useKeyDraft(keys, item.ref.key, takeKey);
     // Its centre as its record holds it — what the position is tinted against; nothing for a new row.
@@ -673,11 +701,16 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
         x: Fields.number<number>({ label: m.inspectorField({ field: "x" }), ...(unit === undefined ? {} : { unit }) }),
         y: Fields.number<number>({ label: m.inspectorField({ field: "y" }), ...(unit === undefined ? {} : { unit }) }),
     }), [m, unit]);
-    const onPosition = useCallback((path: readonly string[], next: unknown) => {
+    // A position refused shows where the item stands again: one refused for the key its centre builds — another item's
+    // (#1581) — saying why under the field; one its kind's `write` refuses, the form drawn again.
+    const [positionRefused, bumpPosition] = useRefused();
+    const onPosition = useCallback((path: readonly string[], next: unknown): string | undefined => {
         const n = next as number;
         const at = stringEqual(path[0]!, "x") ? { x: n, y: item.y } : { x: item.x, y: n };
-        commit([{ op: "place", ref: item.ref, at: some(at) }], "move", m.inspectorStep({ edit: "edit", name: item.label }));
-    }, [item, commit, m]);
+        const recorded = commit([{ op: "place", ref: item.ref, at: some(at) }], "move", m.inspectorStep({ edit: "edit", name: item.label }));
+        if (recorded === false) bumpPosition();
+        return recorded === true || recorded === false ? undefined : recorded;
+    }, [item, commit, m, bumpPosition]);
     const joins = useMemo(() => joinsOf(item.key, listed), [item.key, listed]);
     const names = useMemo(() => new Map([...value.links, ...value.nets].map((k) => [k.key, k.name] as const)), [value.links, value.nets]);
     const actions = !self.writes ? undefined : (
@@ -713,7 +746,7 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
                     state={self.state} onField={self.onField} writes={self.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
                     refused={self.refused} />
                 <Form styles={styles} head={m.inspectorSection({ section: "position", name: kind.name })} section="position" specs={positionSpecs}
-                    value={{ x: item.x, y: item.y }} baseline={heldAt} onChange={self.writes ? onPosition : NO_EDIT} readOnly={!self.writes} />
+                    value={{ x: item.x, y: item.y }} baseline={heldAt} onChange={self.writes ? onPosition : NO_EDIT} readOnly={!self.writes} refused={positionRefused} />
             </Edits>
             {/* Below 480px of main, what a Connect drag from it records (#1394, D15). */}
             {props.narrow && <ConnectTo {...props} item={item} />}
@@ -779,29 +812,33 @@ function ConnectTo(props: ViewProps & { readonly item: DrawnItem }) {
         kind: Fields.reference({ of: "kind", label: m.inspectorField({ field: "kind" }) }),
         to: Fields.reference({ of: "to", label: m.inspectorField({ field: "to" }) }),
     }, choices.length > 1 ? [] : ["kind"]), [m, choices.length]);
-    const onChange = useCallback((path: readonly string[], next: unknown) => {
-        if (kind === undefined) return;
+    const onChange = useCallback((path: readonly string[], next: unknown): string | undefined => {
+        if (kind === undefined) return undefined;
         if (stringEqual(path[0]!, "kind")) {
             onLinkKind(next as string);
-            return;
+            return undefined;
         }
-        // Whatever it records, the Chooser is clear again, for the next.
-        clear();
+        // Whatever it comes to, the Chooser is clear again, for the next — refused, saying why under it.
         const target = listed.items.find((i) => stringEqual(i.key, next as string));
         const link = kinds.links.get(kind.key);
-        if (target === undefined || link === undefined) return;
+        if (target === undefined || link === undefined) {
+            clear();
+            return undefined;
+        }
         const from = { ref: item.ref, label: item.label }, to = { ref: target.ref, label: target.label };
         const refusal = placeholderRefusal(kinds, from) ?? placeholderRefusal(kinds, to) ?? linkRefusal(link, from, to);
         const said = refusal !== undefined ? refusalWords(refusal, words) : veto(kind.key, item.key, target.key);
         if (said !== undefined) {
             say(said);
-            return;
+            return said;
         }
         const step = connectStep(kinds, { session: undefined, shift: false, linkKind: kind.key, from, to, drawn: NO_SESSION, labelOf: (ref) => ref.key },
             (made) => editing.newKey(made), connectValues);
-        if (step === undefined) return;
-        if ("refused" in step) keyRefused(step.refused);
-        else commit(step.edits, "insert", m.step({ step: "connect", name: kind.name.toLocaleLowerCase(words.locale), n: 1 }));
+        if (step !== undefined && "refused" in step) return keyRefused(step.refused);
+        const recorded = step === undefined ? false : commit(step.edits, "insert", m.step({ step: "connect", name: kind.name.toLocaleLowerCase(words.locale), n: 1 }));
+        if (recorded !== true && recorded !== false) return recorded;
+        clear();
+        return undefined;
     }, [kind, kinds, listed.items, item, words, veto, say, keyRefused, editing, connectValues, commit, m, onLinkKind, clear]);
     if (kind === undefined) return null;
     return (
@@ -892,22 +929,24 @@ function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: 
         return { from: entityId(roles.from), to: entityId(roles.to) };
     }, [stored, kind, link.ref.key]);
     const kinds = useMemo(() => editKinds(value), [value]);
-    const onEnd = useCallback((path: readonly string[], next: unknown) => {
+    const onEnd = useCallback((path: readonly string[], next: unknown): string | undefined => {
         const from = refOfId(link.from), to = refOfId(link.to), target = refOfId(next as string);
         const end = stringEqual(path[0]!, "from") ? "from" as const : "to" as const;
-        if (from === undefined || to === undefined || target === undefined) return;
+        if (from === undefined || to === undefined || target === undefined) return undefined;
         const edits = retargetEdits({ ref: link.ref, ends: { from, to } }, end, target);
         // An item waiting for its key to be typed is no end (#1549); the new pair is held to the host's veto in the link's
-        // own direction, as a Retarget's drag is (#1394): refused, the footer says why, and the Chooser shows the end it has.
+        // own direction, as a Retarget's drag is (#1394), and a key its ends build another link holds refuses it (#1549):
+        // refused, the Chooser shows the end it has, saying why under it as the footer does.
         const waiting = edits.length === 0 ? undefined : placeholderRefusal(kinds, { ref: target, label: target.key });
         const said = waiting !== undefined ? refusalWords(waiting, words)
             : edits.length === 0 ? undefined : end === "from" ? veto(link.ref.kind, next as string, link.to) : veto(link.ref.kind, link.from, next as string);
         if (said !== undefined) {
             say(said);
-            refuse();
-            return;
+            return said;
         }
-        if (!commit(edits, "move", m.inspectorStep({ edit: "edit", name }))) refuse();
+        const recorded = commit(edits, "move", m.inspectorStep({ edit: "edit", name }));
+        if (recorded === false) refuse();
+        return recorded === true || recorded === false ? undefined : recorded;
     }, [link, kinds, words, commit, m, name, refuse, veto, say]);
     const actions = !own.writes ? undefined : (
         <Action action="delete" words={words} onClick={() => {
@@ -954,30 +993,32 @@ function NetView(props: ViewProps & { readonly net: DrawnNet; readonly kind: Sch
         const roles = kind.read(stored.row, net.ref.key);
         return { sources: roles.sources.map((r) => r.key), destinations: roles.destinations.map((r) => r.key) };
     }, [stored, kind, net.ref.key]);
-    const onSide = useCallback((path: readonly string[], next: unknown) => {
+    const onSide = useCallback((path: readonly string[], next: unknown): string | undefined => {
         const side = stringEqual(path[0]!, "sources") ? "sources" as const : "destinations" as const;
         const keys = next as readonly string[];
         if (keys.length === 0) {
             // A net keeps a member on each side: its Delete takes it.
-            say(m.inspectorSideEmpty({ side }));
-            refuse();
-            return;
+            const said = m.inspectorSideEmpty({ side });
+            say(said);
+            return said;
         }
         const refs = (ids: readonly string[]) => ids.flatMap((id) => { const ref = refOfId(id); return ref === undefined ? [] : [ref]; });
         const slot = side === "sources" ? kind.sides.sources : kind.sides.destinations;
         const written = keys.map((key) => ({ kind: slot, key }));
         const sides = side === "sources" ? { sources: written, destinations: refs(net.destinations) } : { sources: refs(net.sources), destinations: written };
         // An item waiting for its key to be typed is no member (#1549); each pair the sides newly join is held to the host's
-        // veto, as an Extend's is (#1394): refused, the footer says why, and the tags show the sides as they stand.
+        // veto, as an Extend's is (#1394), and a key its sides build another net holds refuses them (#1549): refused, the
+        // tags show the sides as they stand, saying why under them as the footer does.
         const waiting = written.reduce<EditRefusal | undefined>((found, ref) => found ?? placeholderRefusal(kinds, { ref, label: ref.key }), undefined);
         const said = waiting !== undefined ? refusalWords(waiting, words)
             : vetoOfPairs(veto, net.ref.kind, joinedPairs({ sources: refs(net.sources), destinations: refs(net.destinations) }, sides));
         if (said !== undefined) {
             say(said);
-            refuse();
-            return;
+            return said;
         }
-        if (!commit([{ op: "sides", ref: net.ref, sides }], "typed", m.inspectorStep({ edit: "edit", name }))) refuse();
+        const recorded = commit([{ op: "sides", ref: net.ref, sides }], "typed", m.inspectorStep({ edit: "edit", name }));
+        if (recorded === false) refuse();
+        return recorded === true || recorded === false ? undefined : recorded;
     }, [net, kind.sides, kinds, words, commit, m, name, say, refuse, veto]);
     const actions = !own.writes ? undefined : (
         <Action action="delete" words={words} onClick={() => {

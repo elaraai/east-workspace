@@ -36,8 +36,9 @@ export interface KeyDraft {
      *
      * @param path - The edited spec's path, from `key` down
      * @param next - Its new value
+     * @returns Why a key of one part was refused, where the inspector says: what the form says under its field
      */
-    readonly onChange: (path: readonly string[], next: unknown) => void;
+    readonly onChange: (path: readonly string[], next: unknown) => string | void;
     /** Takes the draft whole: refused, the draft stays to be changed. */
     readonly set: () => void;
 }
@@ -47,16 +48,16 @@ export interface KeyDraft {
  *
  * @param keys - The row's kind's keys
  * @param at - The row's key's text: a placeholder's until its key is set
- * @param take - Takes a key, by its text: the row under it, or refused, saying why
+ * @param take - Takes a key, by its text: the row under it, or refused, saying why — the words handed back where it does
  * @returns The key as the form shows it, and how it is typed and set
  */
-export function useKeyDraft(keys: KindKeys, at: string, take: (key: string) => void): KeyDraft {
+export function useKeyDraft(keys: KindKeys, at: string, take: (key: string) => string | void): KeyDraft {
     const [draft, setDraft] = useState<{ readonly key: unknown } | undefined>(undefined);
     const held = useMemo(() => keys.keyOf(at), [keys, at]);
     const parts = keys.specs.length > 1;
-    const onChange = useCallback((path: readonly string[], next: unknown) => {
-        if (parts) setDraft((was) => ({ key: keyEdited(keys, was === undefined ? held : was.key, path, next) }));
-        else take(keys.textOf(keyEdited(keys, held, path, next)));
+    const onChange = useCallback((path: readonly string[], next: unknown): string | void => {
+        if (!parts) return take(keys.textOf(keyEdited(keys, held, path, next)));
+        setDraft((was) => ({ key: keyEdited(keys, was === undefined ? held : was.key, path, next) }));
     }, [parts, keys, held, take]);
     const text = draft === undefined ? undefined : keys.textOf(draft.key);
     const typed = text !== undefined && !stringEqual(text, at);
