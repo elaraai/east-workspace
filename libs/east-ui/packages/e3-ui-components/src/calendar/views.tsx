@@ -71,7 +71,7 @@ import { packLanes } from "../shared/time/lanes.js";
 import { shadeBands } from "../shared/time/shading.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import type { ScheduleEditing } from "../shared/schedule/editing.js";
-import { TIMELINE_GUTTER, timelineDayWidth, timelineDays, timelineOpensAt, timelinePixels, timelineScrollTo, timelineVisible } from "./timeline.js";
+import { TIMELINE_GUTTER, timelineDayWidth, timelineDays, timelineLanes, timelineOpensAt, timelinePixels, timelineScrollTo, timelineVisible, type TimelineLanes } from "./timeline.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { readRowAnchor, useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
@@ -1168,21 +1168,22 @@ function placeOfKey(key: string, result: number | undefined): number | undefined
     return Number.isSafeInteger(at) && at >= 0 ? at : undefined;
 }
 /**
- * A resource row's events laid out once a read (#1398, CL9): the events, their spans, their lanes, the plot's height, and
- * its booked hours over the period, its events summed once, as they are first said.
+ * A resource row's events laid out once a read (#1398, CL9): the events, their spans, their lanes, the plot's least
+ * height and where each lane's bars stand in it (`timelineLanes`), and its booked hours over the period, its events summed
+ * once, as they are first said.
  */
 interface TimelineLayout {
     readonly items: readonly CalendarItem[];
     readonly spans: readonly { readonly start: number; readonly end: number }[];
     readonly lanes: ReturnType<typeof packLanes>;
-    readonly height: number;
+    /** The plot's least height, and each lane's bars' place in it: their block in its middle. */
+    readonly geometry: TimelineLanes;
     readonly hours: () => number;
 }
 /** What a timeline row reads, the same object while what the rows draw holds (CL9). */
 interface TimelineContext {
     readonly view: EventView;
     readonly read: PeriodRead;
-    readonly laneHeight: number;
     readonly duration: number;
     /** The plot's width, px: the period's days at the day's width (`timelineDayWidth`). */
     readonly plotWidth: number;
@@ -1260,19 +1261,21 @@ const PlotShading = memo(function PlotShading({ shades, styles }: { shades: Retu
  * A resource row's plot: its events in the period — every one of them, as the Roster's week draws its duties (ruled 9 Nov
  * 2026) — its wash while the period is read, its shading and its now line; and, the first row in view of a failed period,
  * the failure, which it reads itself (#1398, CL9, CL11). Drawn again only as its events move, never by a scroll, and each
- * event only as what it shows moves.
+ * event only as what it shows moves. It fills its row, as tall as its lanes or its head makes it, and its lanes' bars —
+ * and a shade bar, a lane's bars' height (`--calendar-bar`) — are a block in its middle (`timelineLanes`).
  */
 const TimelinePlot = memo(function TimelinePlot({ ctx, row, layout, index }: {
     ctx: TimelineContext; row: CalendarRow; layout: TimelineLayout; index: number;
 }) {
-    const { view, read, laneHeight, duration, plotWidth, now, shades, lines, shading, bucket, facts } = ctx;
+    const { view, read, duration, plotWidth, now, shades, lines, shading, bucket, facts } = ctx;
     const { styles, range } = view;
+    const { geometry } = layout;
     const from = range.from.getTime(), to = range.to.getTime();
     const says = useRowsTop(top => read.state === "failed" && index === firstRowInView(lines, top));
     // A resource's row of a kind past the cap: its shading in place of those events (#1424).
     const rowShades = row.resource.type === "some" ? shading?.get(row.resource.value.kind)?.get(row.resource.value.key) : undefined;
     return <DropLane props={view} from={range.from} to={range.to} resource={row.resource} unassigned={row.resource.type === "none"} along="x" css={styles.rowPlot}
-        style={{ height: layout.height }} draw={view.view.period !== "month"}>
+        style={{ minHeight: geometry.height, "--calendar-bar": `${geometry.bar}px` } as CSSProperties} draw={view.view.period !== "month"}>
         {/* A period not read yet: the row's plot washed, under its shading and its now line (#1398). */}
         {read.state === "pending" && <LoadingWash />}
         {/* A paged kind's resource whose cells have not landed (#1424): washed under what it holds, until they do. */}
@@ -1288,14 +1291,14 @@ const TimelinePlot = memo(function TimelinePlot({ ctx, row, layout, index }: {
             if (!(at.start < to && (at.end > from || at.start >= from))) return null;
             // Clipped to the period.
             const first = Math.max(from, at.start), last = Math.min(to, at.end);
-            return <EventBlock key={keyOf(item)} item={item} facts={facts(item)} along="x" geometry={{ top: 4 + layout.lanes[i]!.lane * laneHeight, height: laneHeight - 4,
+            return <EventBlock key={keyOf(item)} item={item} facts={facts(item)} along="x" geometry={{ top: geometry.top(layout.lanes[i]!.lane), height: geometry.bar,
                 left: `${(first - from) / duration * 100}%`, width: `${(last - first) / duration * 100}%` }}
-                size={{ width: (last - first) / duration * plotWidth, height: laneHeight - 4 }} />;
+                size={{ width: (last - first) / duration * plotWidth, height: geometry.bar }} />;
         })}
         {ghostsOf({ ...view, items: layout.items }).filter(ghost => onResource(ghost.item, row)).map(ghost => {
             const gs = ghost.item.start.type === "some" ? ghost.item.start.value.getTime() : range.from.getTime();
             const ge = ghost.item.end.type === "some" ? ghost.item.end.value.getTime() : gs;
-            return <GhostBlock key={`ghost:${eventKey(ghost.item)}`} ghost={ghost} props={view} along="x" geometry={{ top: 4, height: laneHeight - 4,
+            return <GhostBlock key={`ghost:${eventKey(ghost.item)}`} ghost={ghost} props={view} along="x" geometry={{ top: geometry.top(0), height: geometry.bar,
                 left: `${Math.max(0, gs - range.from.getTime()) / duration * 100}%`, width: `${Math.max(0, Math.min(range.to.getTime(), ge) - Math.max(range.from.getTime(), gs)) / duration * 100}%` }} />;
         })}
         {now >= range.from && now < range.to && <NowLine styles={styles} at={(now.getTime() - range.from.getTime()) / duration} data-calendar-now="" />}
@@ -1389,7 +1392,8 @@ function Timeline(props: CalendarViewsProps) {
     const [bandFloor, setBandFloor] = useState(BAND_FLOOR);
     // A place not read yet's pitch: a row of one lane — or as tall as a row's head, if that is taller — and its rule. A run
     // of places is as tall as its places at it.
-    const pitch = Math.max(laneHeight + 9, rowFloor) + 1;
+    const oneLane = timelineLanes(1, laneHeight).height;
+    const pitch = Math.max(oneLane, rowFloor) + 1;
     // Each row's events laid out once a read: their spans, their lanes and the plot's height — however its events fall —
     // and its booked hours over the period, summed as they are first said.
     const periodFrom = range.from, periodTo = range.to;
@@ -1403,7 +1407,7 @@ function Timeline(props: CalendarViewsProps) {
         // A period not read yet: one lane a row, which grows below the row in view as its events land.
         const lanes = packLanes(spans);
         let hours: number | undefined;
-        const layout: TimelineLayout = { items, spans, lanes, height: lanes.reduce((n, lane) => Math.max(n, lane.lanes), 1) * laneHeight + 9,
+        const layout: TimelineLayout = { items, spans, lanes, geometry: timelineLanes(lanes.reduce((n, lane) => Math.max(n, lane.lanes), 1), laneHeight),
             hours: () => (hours ??= booked(items, row, periodFrom, periodTo)) };
         return [row.key, layout] as const;
     })), [props.shownRows, pagedRows, byResource, view.period, laneHeight, periodFrom, periodTo]);
@@ -1446,9 +1450,9 @@ function Timeline(props: CalendarViewsProps) {
     // Each event's facts, made once while what they read holds: a row drawn again makes none again (CL9).
     const facts = useMemo(() => timelineFacts(eventView), [eventView]);
     const uncounted = props.uncounted ?? NOTHING_UNCOUNTED;
-    const ctx = useMemo((): TimelineContext => ({ view: eventView, read: props.read, laneHeight, duration, plotWidth: width,
+    const ctx = useMemo((): TimelineContext => ({ view: eventView, read: props.read, duration, plotWidth: width,
         now: props.now, shades, lines, uncounted, shading: props.shading, bucket: props.bucket, pagedKind: pagedKey, drawnRows: props.drawnRows, facts }),
-    [eventView, props.read, laneHeight, duration, width, props.now, shades, lines, uncounted, props.shading, props.bucket, pagedKey, props.drawnRows, facts]);
+    [eventView, props.read, duration, width, props.now, shades, lines, uncounted, props.shading, props.bucket, pagedKey, props.drawnRows, facts]);
     // Where the view starts, published as it scrolls to the ruler's bands alone (CL9): the caption of the period it starts
     // in sticks beside the resource column, and only that one and its neighbours are sticky. Nothing else hears a scroll.
     const [viewStart] = useState(createViewStart);
@@ -1525,8 +1529,8 @@ function Timeline(props: CalendarViewsProps) {
         if (line.kind === "run") return (line.to - line.from + 1) * pitch;
         // A row as tall as its plot or its head, whichever is taller, and its rule.
         const row = rowOf(line);
-        return Math.max((row === undefined ? undefined : layouts.get(row.key)?.height) ?? laneHeight + 9, rowFloor) + 1;
-    }, [lines, rowOf, layouts, laneHeight, rowFloor, bandFloor, pitch]);
+        return Math.max((row === undefined ? undefined : layouts.get(row.key)?.geometry.height) ?? oneLane, rowFloor) + 1;
+    }, [lines, rowOf, layouts, oneLane, rowFloor, bandFloor, pitch]);
     // A paged kind's window that could not be read, as its run's first row in view says it (#1398, CL11), its Retry named
     // by what it asks again.
     const noun = pagedGroup?.toLocaleLowerCase(format.locale);

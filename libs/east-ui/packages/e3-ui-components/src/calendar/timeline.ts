@@ -17,12 +17,44 @@
  * {@link timelineOpensAt} says — at Day the working hours, at Week and Month
  * the view's date — and keeps its place along the period across a step.
  *
+ * A row's events stack in lanes, and its lanes' bars are a block in the
+ * middle of its plot, as far from its top as from its bottom, however tall
+ * its head makes the row ({@link timelineLanes}).
+ *
  * @packageDocumentation
  */
 import { DAY, dayStart, type CalendarRange, type CalendarView } from "./model.js";
 
 /** The width of the sticky resource column every row starts with, px. */
 export const TIMELINE_GUTTER = 184;
+/** The room between a row's lanes, px: a lane's bars are its height less this. */
+const LANE_GAP = 4;
+/** The room above a row's first lane's bars and below its last's, px, where its lanes decide the row's height. */
+const LANE_INSET = 7;
+
+/** A row's lanes on the timeline: the least height its plot takes, and where each lane's bars stand in it. */
+export interface TimelineLanes {
+    /** The plot's least height, px: its lanes' bars and the room above and below them. */
+    readonly height: number;
+    /** A lane's bars' height, px. */
+    readonly bar: number;
+    /** A lane's bars' top in the plot, as CSS: their block in the plot's middle, whatever its height. */
+    readonly top: (lane: number) => string;
+}
+
+/**
+ * A row's lanes on the timeline: the least height its plot takes — the lanes' bars, the room between them, and as much
+ * room above the first as below the last — and where each lane's bars stand, their block in the plot's middle however
+ * tall the row's head makes it.
+ *
+ * @param count - How many lanes the row's events stack in; 1 with none
+ * @param lane - A lane's height, px, by the Calendar's density
+ * @returns The plot's least height, a lane's bars' height and each lane's bars' top
+ */
+export function timelineLanes(count: number, lane: number): TimelineLanes {
+    const block = count * lane - LANE_GAP;
+    return { height: block + 2 * LANE_INSET, bar: lane - LANE_GAP, top: at => `calc(50% - ${block / 2}px + ${at * lane}px)` };
+}
 /** An hour, ms. */
 const HOUR = DAY / 24;
 /** A day's least width on the timeline, px, by its period. */

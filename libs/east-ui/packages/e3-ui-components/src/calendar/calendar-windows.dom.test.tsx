@@ -9,7 +9,7 @@
  * through their series index, and past 10,000 of them shaded from their
  * summary. What each request asked is read from the harness's request log;
  * another planner's write is a real commit. The timeline's scroll box is laid
- * out as a browser lays it — 400px tall, each line 42px and a run of places not
+ * out as a browser lays it — 400px tall, each line 43px and a run of places not
  * read as tall as its rows, 900px wide — and the Resources view's 900px wide,
  * its content as wide as its columns, which jsdom does not.
  *
@@ -146,10 +146,10 @@ let errors: MockInstance<typeof console.error>;
 
 // ── The timeline's scroll box, laid out ──────────────────────────────────────
 
-/** The timeline's view: 400px tall, 900px wide, each line of it 42px. */
+/** The timeline's view: 400px tall, 900px wide, each line of it 43px — a row of one lane, 42px, and its rule. */
 const VIEW_HEIGHT = 400;
 const VIEW_WIDTH = 900;
-const LINE = 42;
+const LINE = 43;
 /** The Resources view's hour column, and the least width of each column beside it, px. */
 const HOUR_COLUMN = 56;
 const RESOURCE_COLUMN = 104;
@@ -189,7 +189,7 @@ beforeEach(() => {
             return (shown.to.getTime() - shown.from.getTime()) / DAY * timelinePixels("week") + TIMELINE_GUTTER;
         },
     });
-    // Each line of the timeline as a browser lays it: 42px — and a run of places not read as tall as its rows.
+    // Each line of the timeline as a browser lays it: 43px — and a run of places not read as tall as its rows.
     harnessRect = Element.prototype.getBoundingClientRect;
     Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
         if (!isLine(this)) return harnessRect.call(this);

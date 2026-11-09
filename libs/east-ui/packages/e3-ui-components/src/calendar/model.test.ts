@@ -12,7 +12,7 @@ import { expect, test } from "vitest";
 import { decodeBeast2For, encodeBeast2For, none, some, variant } from "@elaraai/east";
 import { formatters } from "@elaraai/east-ui-components";
 import { calendarAhead, calendarRange, DAY, inputInstant, inWindow, navigate, periodWords, type CalendarValue, type CalendarView } from "./model.js";
-import { TIMELINE_GUTTER, timelineDayWidth, timelineDays, timelineOpensAt, timelinePixels, timelineScrollTo, timelineVisible } from "./timeline.js";
+import { TIMELINE_GUTTER, timelineDayWidth, timelineDays, timelineLanes, timelineOpensAt, timelinePixels, timelineScrollTo, timelineVisible } from "./timeline.js";
 import { ScheduleItemType } from "@elaraai/e3-ui/internal";
 const settings: CalendarValue["settings"] = { layout: variant("calendar", null), views: [], viewPeriods: [], period: variant("week", null), date: none,
     hours: { from: 6n, to: 22n }, weekStart: variant("monday", null), weekends: true, density: variant("comfortable", null), now: none, readOnly: false };
@@ -107,6 +107,18 @@ test("the timeline opens a Day on the middle of its working hours, and a Week or
         const at = { ...view, layout: "timeline" as const, period, date: Date.UTC(2026, 9, 7, 9) };
         expect(new Date(timelineOpensAt(at, calendarRange(at, settings), hours)).toISOString()).toBe("2026-10-07T12:00:00.000Z");
     }
+});
+
+test("a timeline row's lanes are a block in its plot's middle, 7px above and below it where the lanes decide the row's height", () => {
+    // One lane of the comfortable density's 32px: its bars 28px, 7px above and below them in the 42px its plot takes at least,
+    // their top half their height above the plot's middle — whatever its height, a taller head's too.
+    const one = timelineLanes(1, 32);
+    expect([one.height, one.bar, one.top(0)]).toEqual([42, 28, "calc(50% - 14px + 0px)"]);
+    // Three: their block 92px — three bars, 4px between them — in a plot of 106px at least, each lane its pitch below the last.
+    const three = timelineLanes(3, 32);
+    expect([three.height, three.bar, [0, 1, 2].map(three.top)]).toEqual([106, 28, ["calc(50% - 46px + 0px)", "calc(50% - 46px + 32px)", "calc(50% - 46px + 64px)"]]);
+    // The compact and the spacious densities' lanes, 26px and 40px: 7px above and below, as the comfortable's.
+    expect([timelineLanes(1, 26).height, timelineLanes(1, 26).bar, timelineLanes(1, 40).height, timelineLanes(1, 40).bar]).toEqual([36, 22, 50, 36]);
 });
 
 test("half-open Calendar windows preserve spans and instants at the lower boundary", () => {

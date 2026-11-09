@@ -1902,7 +1902,12 @@ keeps where it is along the period across a step, a date picked and a
 resize; Today brings the now line a third of the way across, and a pick
 brings its event's time to the middle. A step to a period not read yet holds
 none of the old period's events, as the grids' and the agenda's do: their
-columns, and the timeline's days, are another period's.
+columns, and the timeline's days, are another period's. A row's plot fills
+its row, as tall as its lanes or its head makes it, and its lanes' bars are a
+block in the plot's middle, as far from its top as from its bottom — 7px each
+side where the lanes decide the row's height — its shade bars a lane's bars'
+height in the middle too (`timelineLanes`, `--calendar-bar`;
+`calendar-timeline-bars.spec.ts` measures it, a head made taller included).
 
 The Schematic (#1398) keeps what it drew while a read is in flight: its last
 complete drawing, and once it has settled once, a kind's rows as they land,

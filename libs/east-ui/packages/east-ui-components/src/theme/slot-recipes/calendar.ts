@@ -212,10 +212,11 @@ export const calendarSlotRecipe = defineSlotRecipe({
             position: "sticky", left: "184px", zIndex: 3, display: "flex", alignItems: "center", width: "max-content", height: "100%",
             padding: "0 12px", background: "bg.surface",
         },
-        // ── A resource's shading past the cap (#1424) ── each period's share booked, a bar along it from its start, inset as
-        // an event's block is in a row or a column; and the no-data hatch across a period no summary shades.
+        // ── A resource's shading past the cap (#1424) ── each period's share booked, a bar along it from its start, as an
+        // event's block is in a column, or on the timeline a lane's bars' height (`--calendar-bar`, its row's) in the middle
+        // of its row, as its events' are; and the no-data hatch across a period no summary shades.
         shadeBar: { position: "absolute", borderRadius: "2px", background: BOOKED_FILL, zIndex: 1,
-            "&[data-along=x]": { top: "4px", bottom: "5px" }, "&[data-along=y]": { left: "2px", right: "2px" } },
+            "&[data-along=x]": { top: "calc(50% - var(--calendar-bar) / 2)", height: "var(--calendar-bar)" }, "&[data-along=y]": { left: "2px", right: "2px" } },
         shadeHatch: { position: "absolute", pointerEvents: "none", backgroundImage: NO_DATA_HATCH,
             "&[data-along=x]": { top: 0, bottom: 0 }, "&[data-along=y]": { left: 0, right: 0 } },
     },

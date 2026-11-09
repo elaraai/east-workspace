@@ -104,7 +104,7 @@ test("the Allocation's renderer narrows to its own suites and the shared checks,
     assert.ok(!selected.some(t => t.includes(" › roster.spec.ts:") || t.includes(" › calendar-search.spec.ts:") || t.includes(" › plan-far-moves.spec.ts:")));
     // A Flowchart change runs none of the Allocation's own suites, nor the Calendar's or the Plan's.
     const flowchart = selectTests(suite(), classifyChanges(["libs/east-ui/packages/e3-ui-components/src/flowchart/index.tsx"]));
-    assert.ok(!flowchart.some(t => /› (?:allocation-[a-z-]+|optimise-allocation|calendar-(?:loading|timeline-period|search|steps|paged-columns)|plan-(?:far-moves|filters|records))\.spec\.ts:/.test(t)));
+    assert.ok(!flowchart.some(t => /› (?:allocation-[a-z-]+|optimise-allocation|calendar-(?:loading|timeline-bars|timeline-period|search|steps|paged-columns)|plan-(?:far-moves|filters|records))\.spec\.ts:/.test(t)));
 });
 
 test("Playwright resolves a focused list, which runs in fewer jobs of each test once", () => {
