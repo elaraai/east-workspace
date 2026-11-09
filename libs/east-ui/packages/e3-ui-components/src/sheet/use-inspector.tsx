@@ -424,11 +424,14 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
     const addRef = useRef(addEntry);
     addRef.current = addEntry;
     const addRow = useCallback((column?: string) => addRef.current(column), []);
-    /** Removes the rows of these ids the sheet draws, as one transaction: a new row is simply dropped, and the ring goes with its row. */
-    const executeRemoval = (ids: readonly string[]) => {
+    /**
+     * Removes the rows of these ids the sheet draws — and those it no longer draws that a host held while it did (#1579)
+     * — as one transaction: a new row is simply dropped, and the ring goes with its row.
+     */
+    const executeRemoval = (ids: readonly string[], held?: ReadonlyMap<string, EntryVersion>) => {
         if (!canEdit || !editingState.available || !capabilities.removeRows) return;
         const drawn = new Set(rows.map((row) => row.id));
-        const gone = ids.filter((id) => drawn.has(id));
+        const gone = ids.filter((id) => drawn.has(id) || held?.has(id) === true);
         if (gone.length === 0) return;
         gestureEvents.current = [];
         const base = layerRef.current;
@@ -437,7 +440,7 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         setLayer(() => next);
         emitEdit(variant("remove", { rowIds: gone }));
         let recorded = false;
-        try { recorded = recordGesture(gestureEvents.current); }
+        try { recorded = recordGesture(gestureEvents.current, undefined, undefined, undefined, undefined, undefined, undefined, held); }
         catch (error) { failed(error); }
         finally { gestureEvents.current = []; }
         if (!recorded) return;
@@ -451,18 +454,27 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
     const removalRef = useRef(executeRemoval);
     removalRef.current = executeRemoval;
     // A removal waits for an open editor to commit, as an insertion does.
-    const pendingRemoval = useRef<readonly string[] | undefined>(undefined);
-    const removeRowsById = useCallback((ids: readonly string[]) => {
-        if (uiRef.current.edit === null) { removalRef.current(ids); return; }
-        pendingRemoval.current = ids;
+    const pendingRemoval = useRef<{ ids: readonly string[]; held: ReadonlyMap<string, EntryVersion> | undefined } | undefined>(undefined);
+    const removeRowsById = useCallback((ids: readonly string[], held?: ReadonlyMap<string, EntryVersion>) => {
+        if (uiRef.current.edit === null) { removalRef.current(ids, held); return; }
+        pendingRemoval.current = { ids, held };
         dispatch({ t: "editor.blur" });
     }, [dispatch, uiRef]);
     useLayoutEffect(() => {
-        const ids = pendingRemoval.current;
-        if (ui.edit !== null || ids === undefined) return;
+        const pending = pendingRemoval.current;
+        if (ui.edit !== null || pending === undefined) return;
         pendingRemoval.current = undefined;
-        removalRef.current(ids);
+        removalRef.current(pending.ids, pending.held);
     }, [ui.edit, store.fxSeq]);
+    // What a host holds of a row it may remove once the sheet no longer draws it (#1579): its version as it stands now —
+    // the session's, else what the record holds — or none for a row not read.
+    const holdNow = (id: string): EntryVersion | undefined => {
+        const version = versionOf(id);
+        return version === undefined || (version.draft === undefined && version.wire === undefined) ? undefined : version;
+    };
+    const holdRef = useRef(holdNow);
+    holdRef.current = holdNow;
+    const holdRow = useCallback((id: string) => holdRef.current(id), []);
     // A column, or a band's cell, by its key at a row.
     const columnAt = useCallback((r: number, key: string): SheetColumnMeta | undefined => {
         const it = rowAt(r);
@@ -612,7 +624,7 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         columnAt, cellAt: inspectCellAt, changesAt, unitAt, levelAt: inspectLevelAt, allowedAt, drawCell, drawAction,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks the session's pending count.
     }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, placeOfIssue, columnAt, inspectCellAt, changesAt, unitAt, inspectLevelAt, allowedAt, drawCell, drawAction, draftVersion]);
-    return { addRow, conflictValue, goToIssue, inspect, removeRowsById, rowWhere, versionOf };
+    return { addRow, conflictValue, goToIssue, holdRow, inspect, removeRowsById, rowWhere, versionOf };
 }
 
 /** What {@link useSheetInspector} gives the parts after it. */

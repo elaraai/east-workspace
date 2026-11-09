@@ -53,9 +53,9 @@ import { indexColumns, indexRegisters, markOf, type SheetColumnIndex } from "../
 import type { SheetWords } from "../sheet/words.js";
 import { ageOf, useRecordNow } from "./clock.js";
 import { staleCountOf } from "./footer.js";
-import { nameOf, useRecordGrid } from "./grid.js";
+import { nameOf, titleOf, useRecordGrid } from "./grid.js";
 import { recordMessages as rm } from "./messages.js";
-import type { RecordStatus } from "./status.js";
+import type { RecordNoun, RecordStatus } from "./status.js";
 import type { RecordTicks } from "./ticks.js";
 
 type Styles = Record<string, SystemStyleObject>;
@@ -104,14 +104,20 @@ function useRecordInspector(): RecordInspector {
 }
 
 /**
- * How an issue's line in the Issues tab names its row (IN9): by its place among the rows shown — `row 3` — else,
- * where the narrowing hides it or it is not read yet, by its key.
+ * How an issue's line in the Issues tab names its row (IN9): by its title — `C. Patel`; a new row with none yet in the
+ * Record's word for its rows, `New person` — else, where the narrowing hides it or it is not read yet, by its key. A
+ * Record draws no row numbers, so a row's place among the rows names nothing a person sees.
  *
- * @param words - The Sheet's words
+ * @param columns - The columns drawn: where a row's title is
+ * @param noun - The Record's word for its rows
+ * @param added - Whether the row at a row-space index is new, never applied
  * @returns The words for an issue's row, as `SheetInspectorHost.where` takes them
  */
-export function recordIssueWhere(words: SheetWords): (issue: { entry: string }, place: SheetInspectPlace | undefined) => string {
-    return (issue, place) => (place === undefined ? issue.entry : whatOf(place, words, words.m.groupNoun()));
+export function recordIssueWhere(columns: SheetColumnIndex, noun: RecordNoun, added: (r: number) => boolean): (issue: { entry: string }, place: SheetInspectPlace | undefined) => string {
+    return (issue, place) => {
+        if (place === undefined) return issue.entry;
+        return titleOf(place.row, columns) ?? (added(place.r) ? rm.newRow({ noun: noun.singular }) : issue.entry);
+    };
 }
 
 /**

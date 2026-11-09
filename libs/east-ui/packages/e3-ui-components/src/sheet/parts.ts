@@ -17,7 +17,7 @@ import type { EditIssue, HistoryAction, LandingAttributes, ToolbarItem } from "@
 import type { PlaceholderKind, SlotStyles } from "@elaraai/east-ui-components/internal";
 import type { SheetColumnIndex, SheetColumnMeta, SheetRegisterIndex } from "./model.js";
 import type { SheetNotice } from "./sheet-types.js";
-import type { SheetTransactions } from "./transactions.js";
+import type { EntryVersion, SheetTransactions } from "./transactions.js";
 import type { SheetDropHost } from "./drop.js";
 import type { LinkCellContext } from "./cells/Cell.js";
 import type { SheetActionHost } from "./actions/host.js";
@@ -108,6 +108,8 @@ export interface SheetEntries {
     whole: boolean;
     /** How many rows the narrowing shows, and how many the record holds — the drafts applied; `undefined` while not known. */
     count: { shown: number | undefined; total: number | undefined };
+    /** The rows' narrowing — its search and its filters — with the source it narrows, as East prints them: it moves as either does. */
+    narrowing: string;
     /** What the last gesture left in the footer's line; `null` once a step of the history moved past it. */
     notice: SheetNotice | null;
     /** How many gestures have been recorded — a cell's write, an insert, a removal: it moves with each. */
@@ -120,9 +122,21 @@ export interface SheetEntries {
      * says so. Stable.
      */
     add: (column?: string) => void;
-    /** Removes rows by id, one draft and one undo step; a new row is simply dropped, and the ring goes with its row. The footer's notice says how many. Stable. */
-    remove: (ids: readonly string[]) => void;
+    /**
+     * Removes rows by id, one draft and one undo step: those the sheet draws, and those it no longer draws — scrolled out
+     * of the rows read — that a host holds ({@link hold}). A new row is simply dropped, and the ring goes with its row.
+     * The footer's notice says how many. Stable.
+     */
+    remove: (ids: readonly string[], held?: ReadonlyMap<string, SheetEntryHold>) => void;
+    /**
+     * What a host holds of a row it may remove once the sheet no longer draws it (#1579) — a row it ticks: the row's
+     * version as it stands now, or `undefined` for a row not read. Stable.
+     */
+    hold: (id: string) => SheetEntryHold | undefined;
 }
+
+/** What a host holds of a row to remove it later ({@link SheetEntries.hold}): its version — its draft, its wire row and its place. */
+export type SheetEntryHold = EntryVersion;
 
 /** What a phone's Library reads of the sheet, and the taps it makes (`Mobile Sheet Spec.md` SH11, R7). */
 export interface SheetPhoneLibrary {
@@ -297,6 +311,8 @@ export interface SheetHostHeaderProps {
     rowPx: number;
     /** The rows shown, by id: the resident rows, in order. */
     rowIds: readonly string[];
+    /** Whether `rowIds` is every row the narrowing shows: inline rows, or a paged source or a lens with no run left to read. */
+    whole: boolean;
     /** A phone's window of columns as it pages (#1536): which are in view; `undefined` off a phone, where every one is. */
     columnWindow: SheetColumnWindow | undefined;
 }

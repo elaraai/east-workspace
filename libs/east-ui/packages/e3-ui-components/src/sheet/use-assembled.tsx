@@ -97,7 +97,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     const {
         canEdit, changesOf, draftOf, draftType, draftVersion, editingState, exhausted, gestureCount, keyHeld, landRef,
         landing, landingRoot, landingStyles, layer, lens, lensDrawn, locked, optimiseTypes, optimised, paging, rows,
-        run, session, setOptimised, sourceRows, standingIn, total, totalRevision, ui,
+        rowsQuery, run, session, setOptimised, sourceRows, standingIn, total, totalRevision, ui,
     } = sheetSession;
     const { body, colCount, lensLayout, linkCellCtx, memberships, rowAt, rowSpace } = sheetBody;
     const { emptyNarrowing } = sheetMachine;
@@ -124,7 +124,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     } = sheetRowParts;
     const { actionBar, actionOverlayNode, cellEditor } = sheetActions;
     const { renderRow } = sheetRows;
-    const { addRow, conflictValue, goToIssue, inspect, removeRowsById, rowWhere, versionOf } = sheetInspector;
+    const { addRow, conflictValue, goToIssue, holdRow, inspect, removeRowsById, rowWhere, versionOf } = sheetInspector;
     const { enter, phoneLibrary } = sheetDrops;
     // ── The app's optimiser's parts (#1409, #1418) ─────────────────────────
     // The eye before the history item, the banner, the footer line and the legend, over the run (`use-session.ts`); the request
@@ -193,10 +193,12 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
         rows,
         whole: decodedRows !== undefined || (!unreadRuns && (lensDrawn ? lensLayout !== undefined : paging.exhausted)),
         count: { shown: !lensDrawn ? recordTotal : narrowedCount === undefined || ofNarrowing === undefined ? undefined : narrowedCount + ofNarrowing.added - ofNarrowing.removed, total: recordTotal },
+        narrowing: rowsQuery,
         notice: ui.msg,
         gestures: gestureCount.current,
         add: addRow,
         remove: removeRowsById,
+        hold: holdRow,
     };
     const root: SheetRootFacts = {
         partial: pagedSource !== undefined && !exhausted,
@@ -241,7 +243,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
         <Box ref={headerRef} position="relative">
             {HostHeader !== undefined
                 // A host's header (#1531): its column cells are `headerCell`s, as the Sheet's, which a key's reveal reads.
-                ? <HostHeader columns={columns.list} gridTemplate={gridTemplate} layout={hostLayout} rowPx={rowPx} rowIds={rows.map((row) => row.id)}
+                ? <HostHeader columns={columns.list} gridTemplate={gridTemplate} layout={hostLayout} rowPx={rowPx} rowIds={rows.map((row) => row.id)} whole={entries.whole}
                     columnWindow={hostPhone && slotPx > 0 ? { first: windowFirst, inView: phoneColumns, slotPx } : undefined} />
                 : <SheetHeader styles={styles} columns={columns.list} gridTemplate={gridTemplate} picked={wr !== null} foldAll={foldAll} rowNumbers={rowNumbers}
                     selected={phoneFrame && ui.selEnd === null && (ringItem?.kind === "real" || ringItem?.kind === "group") ? ringCol : undefined} />}

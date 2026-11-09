@@ -97,9 +97,10 @@ export interface SheetEditingResult {
      * gives its `label`; else the label is the origin's. A gesture that `joins` the last one — recorded with the same
      * key — is one step with it (a phone's cell editor, `Mobile Sheet Spec.md` SH10.1). A gesture with a new entry, or
      * a new line, the app left a field of empty that no person can set (#1536) throws {@link SheetRefused}, and nothing
-     * is drafted.
+     * is drafted. An entry the sheet no longer draws — scrolled out of the rows read, or out of a narrowing's — begins
+     * from the version a host `held` of it while it was drawn (#1579): what removing a row ticked there takes.
      */
-    record: (events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds, label?: string, joins?: string) => boolean;
+    record: (events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds, label?: string, joins?: string, held?: ReadonlyMap<string, EntryVersion>) => boolean;
     /**
      * Record entry versions a gesture computed whole — the optimiser's answer
      * (#1409), each entry's draft and wire row given — as one transaction of
@@ -184,7 +185,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
     }, [rowsRead, replacing, retained, rowIndex, currentPositions]);
 
     /** Aggregate the renderer's writes — the draft edits beside them, its new entries seeded as it says — into one transaction at the effect boundary. */
-    const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds, named?: string, joins?: string): boolean => {
+    const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds, named?: string, joins?: string, held?: ReadonlyMap<string, EntryVersion>): boolean => {
         if (replacing || retained || (!events.length && !draftEdits?.size) || !observed || !session.writable) return false;
         session.observeBase(observed.base);
         // A dropped template's new entry starts as its seed says, in place of the constructors' (#1187).
@@ -193,8 +194,14 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         const inputs = new Map<string, SheetRowValue>();
         const at = day ?? sheetDayOf(new Date());
         let origin: Origin = "typed";
+        // What an entry began from: the session's or the drawn rows' — else, for one the sheet no longer draws, what a
+        // host held of it while it was drawn (#1579).
+        const originalOf = (id: string): EntryVersion => {
+            const version = original(id);
+            return version.draft === undefined && version.wire === undefined ? held?.get(id) ?? version : version;
+        };
         const update = (id: string, row: SheetRowValue | undefined, placement?: Placement) => {
-            const before = updates.get(id)?.before ?? original(id);
+            const before = updates.get(id)?.before ?? originalOf(id);
             const current = updates.get(id)?.after ?? before;
             const prepared = row === undefined ? undefined : prepareCreation(row, current, inputs.get(id), placement ?? current.place, seeded, draftType, mint);
             if (row !== undefined) inputs.set(id, row);
@@ -218,7 +225,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         }
         // The draft edits, over each entry as the wire events left it: a field no column shows, a duplicate's copy.
         for (const [id, edit] of draftEdits ?? []) {
-            const before = updates.get(id)?.before ?? original(id);
+            const before = updates.get(id)?.before ?? originalOf(id);
             const current = updates.get(id)?.after ?? before;
             if (current.draft === undefined) continue;
             updates.set(id, { id, before, after: edit(current) });

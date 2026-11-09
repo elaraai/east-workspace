@@ -191,6 +191,48 @@ test("paged deletion retires only once read past the revision it was drafted at,
     expect(hook.result.current.layer.removed.size).toBe(0);
 });
 
+test("a row the sheet no longer draws is removed from the version held of it while it was (#1579), and Apply deletes it", async () => {
+    initializeStore(new UIStore());
+    let domain = [...rows];
+    const compile = East.function([], Sheet.Types.Root, ($) => {
+        const source = $.const(PINNED_ROWS, Paged.Types.PinnedSource(Rows));
+        return Sheet.Root(source, { qty: Sheet.column.integer(Row) }, { id: "id", onApply: East.function([Sheet.Types.ChangeSet(Row)], Sheet.Types.ApplyResult, () => variant("conflict", [])), edits: { insertRows: false } });
+    }).toIR().compile([]);
+    const root = compile();
+    if (root.rows.type !== "pinned") throw new Error("Expected a pinned Sheet");
+    const apply = East.compile(Sheet.apply(Row, "id"), []);
+    const decodeBatch = decodeBeast2For(Sheet.Types.ChangeSet(Row));
+    const encode = encodeBeast2For(Row);
+    const projected = sourceRows(view());
+    const source = {
+        ...root.rows.value,
+        page: (offset: bigint, count: bigint) => some(projected.filter(w => domain.some(r => r.id === w.id)).slice(Number(offset), Number(offset + count))),
+        revision: () => some("r0"),
+        refresh: () => null,
+        total: () => some(BigInt(domain.length)),
+    };
+    const editing = { ...root.editing, readEntry: (id: string, offset: bigint) => {
+        const row = domain[Number(offset)];
+        return row?.id === id ? some(encode(row)) : none;
+    }, onApply: some(variant("sync", (payload: Uint8Array) => {
+        const applied = apply(domain, decodeBatch(payload), some("r0"));
+        if (applied.type === "conflict") return variant("conflict", applied.value);
+        domain = applied.value;
+        return variant("applied", { revision: some("r1") });
+    })) };
+    let drawn: readonly SheetRowValue[] = projected;
+    const hook = renderHook(() => useSheetEditing(editing, { ...source }, drawn, useIndexes(drawn), "paged-held"));
+    // b held while drawn, then scrolled out of the rows read: the sheet holds nothing of it now.
+    const held = new Map([["b", hook.result.current.original("b")]]);
+    drawn = projected.slice(0, 1);
+    hook.rerender();
+    expect(hook.result.current.original("b").wire).toBeUndefined();
+    act(() => { hook.result.current.record([variant("remove", { rowIds: ["b"] })], undefined, undefined, undefined, undefined, undefined, undefined, held); });
+    expect([...hook.result.current.layer.removed]).toEqual(["b"]);
+    await act(async () => { await hook.result.current.session.apply(); });
+    expect(domain.map(row => row.id)).toEqual(["a"]);
+});
+
 test("a paged Save's rows are drawn as it left them over the rows read before it — its pages standing in, or read still at the revision it was drafted at — and a new edit over them; read again, they are the source's", async () => {
     initializeStore(new UIStore());
     let domain = [...rows];

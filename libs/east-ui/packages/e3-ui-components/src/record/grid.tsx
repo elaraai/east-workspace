@@ -23,7 +23,9 @@
  * - **The header** — the column groups' row, each group's label over a rule
  *   under its columns, the columns before the first group and an unlabelled
  *   group drawing neither, then the header row, the select column's box
- *   ticking every row shown, or unticking them once every one is.
+ *   ticking every row shown, or unticking them once every one is — drawn only
+ *   while every row the narrowing shows is read: a paged record's not read
+ *   whole has none, so it never ticks the rows read so far for all (#1579).
  * - **The empty state** — the narrowing leaves no row to show: it says so,
  *   and clears the search, or the filters.
  *
@@ -113,6 +115,20 @@ function alignOf(meta: SheetColumnMeta): "center" | "end" | undefined {
 }
 
 /**
+ * A row's title as it reads: its title column's text, else — with no title column — its first text's; `undefined`
+ * where that is empty.
+ *
+ * @param row - The row
+ * @param columns - The columns drawn
+ * @returns The title, or `undefined`
+ */
+export function titleOf(row: SheetRowValue, columns: SheetColumnIndex): string | undefined {
+    const named = columns.list.find((meta) => meta.kind === "title") ?? columns.list.find((meta) => meta.kind === "text");
+    const cell = named === undefined ? undefined : row.cells.get(named.key);
+    return cell?.type === "String" && cell.value.trim().length > 0 ? cell.value : undefined;
+}
+
+/**
  * A row as its box and the strip name it: its title, else its first text, else its key.
  *
  * @param row - The row
@@ -120,9 +136,7 @@ function alignOf(meta: SheetColumnMeta): "center" | "end" | undefined {
  * @returns The name
  */
 export function nameOf(row: SheetRowValue, columns: SheetColumnIndex): string {
-    const named = columns.list.find((meta) => meta.kind === "title") ?? columns.list.find((meta) => meta.kind === "text");
-    const cell = named === undefined ? undefined : row.cells.get(named.key);
-    return cell?.type === "String" && cell.value.trim().length > 0 ? cell.value : row.id;
+    return titleOf(row, columns) ?? row.id;
 }
 
 /**
@@ -311,7 +325,7 @@ function segmentsOf(columns: readonly SheetColumnMeta[], groups: RecordColumnGro
  * row, its select column's box ticking every row shown. The two stick
  * together over the rows; nothing sorts.
  */
-export function RecordHeader({ columns, gridTemplate, layout, rowPx, rowIds, columnWindow }: SheetHostHeaderProps) {
+export function RecordHeader({ columns, gridTemplate, layout, rowPx, rowIds, whole, columnWindow }: SheetHostHeaderProps) {
     const { styles, ticks, groups } = useRecordGrid();
     const lead = layout.lead;
     const pinned = layout.pinPx > 0;
@@ -348,12 +362,14 @@ export function RecordHeader({ columns, gridTemplate, layout, rowPx, rowIds, col
             <Box css={styles.headerRow} style={{ gridTemplateColumns: gridTemplate, height: `${rowPx}px` }} data-slot="headerRow" role="row" aria-rowindex={1}>
                 {lead && (
                     <Box css={styles.headerCell} data-tick="" data-first="" role="columnheader" aria-colindex={1}>
-                        <chakra.button type="button" css={styles.tick} tabIndex={-1} role="checkbox" aria-checked={all ? true : some ? "mixed" : false}
-                            aria-label={m.tickAll({ all })} title={m.tickAll({ all })} data-on={all ? "" : undefined} data-mixed={some ? "" : undefined}
-                            onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
-                            onClick={() => { if (all) ticks.clear(); else ticks.set(rowIds); }}>
-                            {all ? <FontAwesomeIcon icon={faCheck} /> : some ? <FontAwesomeIcon icon={faMinus} /> : null}
-                        </chakra.button>
+                        {whole && (
+                            <chakra.button type="button" css={styles.tick} tabIndex={-1} role="checkbox" aria-checked={all ? true : some ? "mixed" : false}
+                                aria-label={m.tickAll({ all })} title={m.tickAll({ all })} data-on={all ? "" : undefined} data-mixed={some ? "" : undefined}
+                                onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
+                                onClick={() => { if (all) ticks.clear(); else ticks.set(rowIds); }}>
+                                {all ? <FontAwesomeIcon icon={faCheck} /> : some ? <FontAwesomeIcon icon={faMinus} /> : null}
+                            </chakra.button>
+                        )}
                     </Box>
                 )}
                 {columns.map((meta, c) => (

@@ -9,8 +9,17 @@
  * through `useSyncExternalStore` — a row by its own tick, so a tick draws that
  * row and the header again, and no other.
  *
+ * A tick outlives its row's place among the rows read (#1579): a paged record
+ * drops a row as the grid scrolls far from it, and its tick stays, holding
+ * what the Sheet held of the row as it was ticked — so Delete takes it still.
+ *
  * @packageDocumentation
  */
+
+import type { SheetEntryHold } from "../sheet/index.js";
+
+/** What a tick holds of its row: what the Sheet held of it as it was ticked, or `undefined` for a row not read. */
+type Held = SheetEntryHold | undefined;
 
 /** The rows ticked, and the calls that change them. */
 export interface RecordTicks {
@@ -28,6 +37,12 @@ export interface RecordTicks {
     clear: () => void;
     /** How many of these rows are ticked. */
     count: (ids: readonly string[]) => number;
+    /** How many rows are ticked: those the rows read no longer hold among them. */
+    size: () => number;
+    /** Each row ticked, in the order ticked, and what the Sheet held of it as it was ticked. */
+    held: () => ReadonlyMap<string, Held>;
+    /** Where a tick takes what the Sheet holds of its row: the frame's, as the Sheet's rows stand. */
+    holdWith: (hold: (id: string) => Held) => void;
 }
 
 /**
@@ -36,10 +51,11 @@ export interface RecordTicks {
  * @returns The ticks
  */
 export function createRecordTicks(): RecordTicks {
-    let ticked: ReadonlySet<string> = new Set();
+    let ticked: ReadonlyMap<string, Held> = new Map();
     let version = 0;
+    let hold: (id: string) => Held = () => undefined;
     const listeners = new Set<() => void>();
-    const change = (next: ReadonlySet<string>) => {
+    const change = (next: ReadonlyMap<string, Held>) => {
         ticked = next;
         version += 1;
         for (const listener of listeners) listener();
@@ -52,12 +68,15 @@ export function createRecordTicks(): RecordTicks {
         has: (id) => ticked.has(id),
         version: () => version,
         toggle: (id) => {
-            const next = new Set(ticked);
-            if (!next.delete(id)) next.add(id);
+            const next = new Map(ticked);
+            if (!next.delete(id)) next.set(id, hold(id));
             change(next);
         },
-        set: (ids) => change(new Set(ids)),
-        clear: () => { if (ticked.size > 0) change(new Set()); },
+        set: (ids) => change(new Map(ids.map((id) => [id, ticked.has(id) ? ticked.get(id) : hold(id)] as const))),
+        clear: () => { if (ticked.size > 0) change(new Map()); },
         count: (ids) => ids.reduce((n, id) => (ticked.has(id) ? n + 1 : n), 0),
+        size: () => ticked.size,
+        held: () => ticked,
+        holdWith: (next) => { hold = next; },
     };
 }

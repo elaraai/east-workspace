@@ -147,7 +147,7 @@ import { useSheetAssembled } from "./use-assembled.js";
 import type { SheetEntries, SheetHistory, SheetHost, SheetInspect, SheetLoadingFacts, SheetOptimiseParts, SheetParts, SheetPhoneLibrary } from "./parts.js";
 
 export type {
-    SheetOptimiseParts, SheetParts, SheetEntries, SheetPhoneLibrary, SheetLoadingFacts, SheetHistory, SheetHost,
+    SheetOptimiseParts, SheetParts, SheetEntries, SheetEntryHold, SheetPhoneLibrary, SheetLoadingFacts, SheetHistory, SheetHost,
     SheetRowChanges, SheetHostRowProps, SheetHostHeaderProps, SheetColumnWindow, SheetHostLayout, SheetHostEmptyProps,
     SheetHostStripCell, SheetHostStripProps, SheetGridHost, SheetCellEditorAt, SheetInspectPlace, SheetInspectTarget,
     SheetSelected, SheetDuplicateOptions, SheetInspectWrite, SheetInspect,

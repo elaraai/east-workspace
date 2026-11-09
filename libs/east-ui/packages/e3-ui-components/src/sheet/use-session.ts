@@ -235,8 +235,8 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     // draws the sheet again.
     const gestureCount = useRef(0);
     const recordSession = editingState.record;
-    const recordGesture = useCallback<typeof recordSession>((events, placements, originOverride, draftEdits, seeds, label, joins) => {
-        const recorded = recordSession(events, placements, originOverride, draftEdits, seeds, label, joins);
+    const recordGesture = useCallback<typeof recordSession>((events, placements, originOverride, draftEdits, seeds, label, joins, held) => {
+        const recorded = recordSession(events, placements, originOverride, draftEdits, seeds, label, joins, held);
         if (recorded) gestureCount.current += 1;
         return recorded;
     }, [recordSession]);

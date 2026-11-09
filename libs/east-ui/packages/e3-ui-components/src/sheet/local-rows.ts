@@ -17,11 +17,11 @@ import { placeInOrder } from "./placement.js";
 import type { LocalLayer } from "./use-editing.js";
 import type { SheetCellValue, SheetRowValue } from "./values.js";
 
-/** A row as the sheet names it — its first text column's text — where it holds one. */
+/** A row as the sheet names it — a Record's title, else its first text column's text — where it holds one. */
 export function rowNameOf(row: SheetRowValue | undefined, columns: SheetColumnIndex): string | undefined {
     if (row === undefined) return undefined;
-    for (const column of columns.list) {
-        if (column.kind !== "text") continue;
+    const named = [...columns.list.filter((column) => column.kind === "title"), ...columns.list.filter((column) => column.kind === "text")];
+    for (const column of named) {
         const cell = row.cells.get(column.key);
         if (cell?.type === "String" && cell.value.trim().length > 0) return cell.value;
     }

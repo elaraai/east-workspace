@@ -172,6 +172,8 @@ export interface RecordMessages {
     otherGroup: () => string;
     /** An empty field a new row needs, as its Details' issues and the Issues tab say it (IN3, IN9). */
     fieldRequired: () => string;
+    /** A new row with no title yet, as the Issues tab and the banners name it (IN9): `New person`. */
+    newRow: (p: { noun: string }) => string;
     /** The status line once Duplicate has drafted a copy of a row (IN7): the row copied, by its name. */
     duplicated: (p: { name: string }) => string;
 }
@@ -256,5 +258,6 @@ export const recordMessages: RecordMessages = {
     detailsHint: () => "Select a row to see its fields here.",
     otherGroup: () => "Other",
     fieldRequired: () => "Required",
+    newRow: ({ noun }) => `New ${noun}`,
     duplicated: ({ name }) => `Duplicated ${name}`,
 };

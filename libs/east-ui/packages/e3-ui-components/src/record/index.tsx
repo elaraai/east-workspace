@@ -26,7 +26,8 @@
  *   it, so the grid draws as on a phone only in a phone's frame;
  * - **the inspector**, the end pane, 320 wide, when the Record is given one —
  *   Details for the ring's row (`inspector.tsx`, IN1–IN8), and the batch's
- *   Issues, each naming its row by its place among the rows shown (IN9), and
+ *   Issues, each naming its row by its title — a new row with none yet as
+ *   `New person`, a row not drawn by its key (IN9) — and
  *   an empty field a new row needs `Required` in both, the Record's word; a
  *   press, ⏎ or F2 on a title opens it on Details with the keyboard in the
  *   title's field, as Add and Duplicate do — and the history bar's Issues and
@@ -39,8 +40,10 @@
  * keyed — the rail's search cleared so it shows, and the ring on its title,
  * which opens it on Details (AD1). With no inspector a title edits in its
  * cell, as a text does, and Add opens its editor there. Delete takes the
- * ticked rows out as one draft, and the ticks with them (AD5); Discard drops
- * the ticks with every draft (AD6).
+ * ticked rows out as one draft, and the ticks with them (AD5) — a row a paged
+ * record has dropped as the grid scrolled on among them (#1579); Discard drops
+ * the ticks with every draft (AD6), and a new search or filter drops them, so
+ * Delete never takes a row the narrowing hides.
  *
  * On a phone — the frame 560 wide or less — the frame is the BuilderFrame's
  * phone frame, the inspector its drawer, and the grid the Sheet's on a phone:
@@ -71,7 +74,8 @@ import {
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, keptRead, useDensity, useSlotStyles, type SlotStyles } from "@elaraai/east-ui-components/internal";
 import {
-    SheetGrid, SheetProvider, useSheetEntries, useSheetFooter, useSheetHistory, useSheetInspect, useSheetLoading, useSheetToolbarParts, useSheetToolbarRef, type SheetHost,
+    SheetGrid, SheetProvider, useSheetEntries, useSheetFooter, useSheetHistory, useSheetInspect, useSheetLoading, useSheetToolbarParts, useSheetToolbarRef,
+    type SheetEntryHold, type SheetHost,
 } from "../sheet/index.js";
 import { draftChanges } from "../sheet/draft-state.js";
 import { SheetMessagesProvider, type SheetMessages } from "../sheet/messages.js";
@@ -264,20 +268,28 @@ function RecordFrame({ value, keys, styles, frameRef, tab, onTab, onOpen, openDe
     const now = useRecordNow();
     const lastCommit = useLastCommit(value.history, words);
     const saved = lastCommit === undefined ? undefined : m.savedAt({ when: lastCommit.when });
-    // The inspector's Details the Record's (IN1–IN8), and an issue's row named by its place among the rows shown (IN9).
-    const inspectorHost = useMemo((): SheetInspectorHost => ({ Details: RecordDetails, where: recordIssueWhere(words) }), [words]);
+    const { noun, title } = useRecordGrid();
+    const columns = useMemo(() => indexColumns(value.sheet.columns), [value.sheet.columns]);
+    const registers = useMemo(() => indexRegisters(value.sheet.registers), [value.sheet.registers]);
+    // An issue's row named by its title — a new one with none yet in the Record's word for its rows — else by its key
+    // (IN9): in the Issues tab's lines and the banners alike.
+    const changesAt = inspect.changesAt;
+    const issueWhere = useMemo(() => recordIssueWhere(columns, noun, (r) => changesAt(r)?.added === true), [columns, noun, changesAt]);
+    // The inspector's Details the Record's (IN1–IN8), and its issues' rows named as above.
+    const inspectorHost = useMemo((): SheetInspectorHost => ({ Details: RecordDetails, where: issueWhere }), [issueWhere]);
     const inspector = useSheetInspector({ value, keys, words, hidden: NO_COLUMN_HIDDEN, lastCommit, host: inspectorHost });
     const end = inspector === undefined ? undefined : { ...inspector, tab, onTabChange: onTab };
     // A Save that takes rows out of the `rows` source's narrowing says so in the footer.
     const rowsPart = useMemo(() => sourcePart(getSomeorUndefined(value.sheet.slice), "rows"), [value.sheet.slice]);
-    const { noun, title } = useRecordGrid();
-    const columns = useMemo(() => indexColumns(value.sheet.columns), [value.sheet.columns]);
-    const registers = useMemo(() => indexRegisters(value.sheet.registers), [value.sheet.registers]);
-    // The rows ticked of those shown: what Delete deletes and the status line counts.
+    // The rows ticked: what Delete deletes and the status line counts — a row a paged record has dropped as the grid
+    // scrolled on among them, its tick holding what the Sheet held of it (#1579).
+    ticks.holdWith(entries.hold);
     const tickVersion = useSyncExternalStore(ticks.subscribe, ticks.version);
-    const rowIds = useMemo(() => entries.rows.map((row) => row.id), [entries.rows]);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tickVersion moves with every tick: the ticks are a store read by its version.
-    const ticked = useMemo(() => ticks.count(rowIds), [ticks, rowIds, tickVersion]);
+    const ticked = useMemo(() => ticks.size(), [ticks, tickVersion]);
+    // A tick is of the rows a narrowing shows: a new search or filter starts with none ticked, so Delete never takes a row it hides.
+    const narrowing = entries.narrowing;
+    useEffect(() => { ticks.clear(); }, [narrowing, ticks]);
     const shown = entries.count.shown;
     const total = entries.count.total;
     // Every issue holding Apply, as the history bar counts them: what an issue gone to says it is one of (AD3).
@@ -305,9 +317,12 @@ function RecordFrame({ value, keys, styles, frameRef, tab, onTab, onOpen, openDe
     const remove = entries.remove;
     const onAdd = useCallback(() => add(titleKey), [add, titleKey]);
     const onDelete = useCallback(() => {
-        remove(rowIds.filter((id) => ticks.has(id)));
+        const ticksHeld = ticks.held();
+        const held = new Map<string, SheetEntryHold>();
+        for (const [id, version] of ticksHeld) if (version !== undefined) held.set(id, version);
+        remove([...ticksHeld.keys()], held);
         ticks.clear();
-    }, [remove, rowIds, ticks]);
+    }, [remove, ticks]);
     // Add and Delete are off while the rows take no gesture — a narrowing standing in, a far jump held — as the session's
     // add and remove would refuse it then.
     const items = useRecordToolbarItems({
@@ -321,8 +336,8 @@ function RecordFrame({ value, keys, styles, frameRef, tab, onTab, onOpen, openDe
         : rm.shownOf({ shown: words.number(shown), total: words.number(total), n: total, noun: noun.singular, nouns: noun.plural });
     const stale = entries.whole ? staleNoteOf(columns, entries.rows, now, words) : undefined;
     const legend = useMemo(() => legendOf(columns, registers), [columns, registers]);
-    // An issue's place: its row's key — a Record's rows have no lines.
-    const where = useCallback((issue: EditIssue) => issue.entry, []);
+    // An issue's place in a banner: its row, named as the Issues tab names it — a Record's rows have no lines.
+    const where = useCallback((issue: EditIssue) => issueWhere(issue, placeOf.current(issue)), [issueWhere]);
     const readIssue = useCallback((message: string) => issueText(message, words), [words]);
     // The history keys from anywhere in the frame: the grid's own it has answered already.
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {

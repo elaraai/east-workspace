@@ -467,6 +467,40 @@ describe("the pointer", () => {
         expect(active(container)).toBe(ring);
         expect(rows(container)[2]!.hasAttribute("data-ticked")).toBe(true);
     });
+
+    test("a narrowing the Record has not read whole — its rows read near the view — has no tick-all, only each row's box; read whole, it has (#1579, SL1)", async () => {
+        const all = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-record] [data-tick] [role="checkbox"]');
+        // Seven hundred people: the Record reads the first six hundred.
+        const people = new Map(await h.read(ex.recordSkills));
+        for (let i = 0; i < 695; i++) {
+            people.set(`Q-${String(i).padStart(4, "0")}`, {
+                name: `Q. Person ${i}`, role: "Operator", intake: "0", review: "0", dispatch: "0", handover: "0", scanner: "0", console: "0",
+                reports: "0", auditing: "0", training: "0", planning: "0", updated: none,
+            });
+        }
+        await h.patch(ex.recordSkills, people);
+        const { container } = await withRows(await h.mount(ex.recordSkillsMatrix, { storageKey: "record-ticks-paged" }));
+        expect(container.querySelector("[data-record] [data-tick]")).not.toBeNull();
+        expect(all(container)).toBeNull();
+        await press(tick(container, 0));
+        expect(ticked(container)).toEqual([rows(container)[0]!.getAttribute("data-row-id")]);
+        // Searched to B. Ellis alone: every row it shows read, and the tick-all its.
+        await act(async () => { skillsRows().prefix("name", "B."); });
+        await waitFor(() => expect(rows(container)).toHaveLength(1), { timeout: 10_000 });
+        await waitFor(() => expect(all(container)?.getAttribute("aria-label")).toBe("Select all shown"));
+    });
+
+    test("a narrowing changed unticks every row: Delete never takes a row it hides (#1579)", async () => {
+        const { container } = await withRows(await h.mount(ex.recordSkillsMatrix, { storageKey: "record-ticks-narrowed" }));
+        await press(tick(container, 0));
+        await press(tick(container, 1));
+        expect(status(container)).toBe("2 selected of 5");
+        await act(async () => { skillsRows().prefix("name", "B."); });
+        await waitFor(() => expect(rows(container)).toHaveLength(1), { timeout: 10_000 });
+        expect(ticked(container)).toEqual([]);
+        expect(status(container)).toBe("");
+        expect(action(container, "delete")!.disabled).toBe(true);
+    });
 });
 
 /** The crew, its Forklift column's detail the person's name: what the strip says of a Forklift cell. */
@@ -1341,7 +1375,7 @@ describe("the inspector", () => {
         expect(ids()).toEqual(["P-0401", "P-0415", "P-0422"]);
     });
 
-    test("Issues lists every refusal holding Apply by its row's place and its field; a click selects the row, opens Details and rings the field, the keyboard in it; No issues only once nothing holds Apply (IN3, IN9)", async () => {
+    test("Issues lists every refusal holding Apply by its row's title — a new row with none, as new — and its field; a click selects the row, opens Details and rings the field, the keyboard in it; No issues only once nothing holds Apply (IN3, IN9)", async () => {
         const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-issues-tab" });
         const toIssues = async () => {
             fireEvent.click(inspectorTab(container, /^Issues/));
@@ -1351,15 +1385,14 @@ describe("the inspector", () => {
         expect(openPanel(container).querySelector("[data-inspector-no-issues]")!.textContent).toContain("No issues");
         await press(action(container, "add")!);
         const added = drafted(container);
-        const n = rows(container).indexOf(added) + 1;
         // The ring elsewhere, and the Issues tab again: a new row's every empty field, and never No issues.
-        await press(cellAt(container, n === 1 ? 1 : 0, "role"));
+        await press(cellAt(container, rows(container).indexOf(added) === 0 ? 1 : 0, "role"));
         await toIssues();
         expect(openPanel(container).querySelector("[data-inspector-no-issues]")).toBeNull();
         const lines = () => [...openPanel(container).querySelectorAll<HTMLElement>("[data-inspector-issue]")];
         const labels = ["Name", "Role", "Days", "Afternoon", "Nights", "Sat", "Sun", "Overtime"];
-        expect(lines().map((line) => line.firstElementChild!.textContent).sort()).toEqual(labels.map((label) => `row ${n} · ${label}`).sort());
-        await press(lines().find((line) => line.firstElementChild!.textContent === `row ${n} · Nights`)!);
+        expect(lines().map((line) => line.firstElementChild!.textContent).sort()).toEqual(labels.map((label) => `New person · ${label}`).sort());
+        await press(lines().find((line) => line.firstElementChild!.textContent === "New person · Nights")!);
         expect(active(container)).toBe(cellOf(added, "nights"));
         await waitFor(() => expect(inspectorTab(container, "Details").getAttribute("aria-selected")).toBe("true"));
         await waitFor(() => expect(inspected(container)).toBe(added.getAttribute("data-row-id")));
@@ -1459,11 +1492,11 @@ describe("the app's part (#1527)", () => {
             .toEqual([["Planning", "A contractor can't plan"]]);
         expect([...details(container)!.querySelectorAll("[data-field][data-issue]")].map((field) => field.getAttribute("data-field"))).toEqual(["planning"]);
         await waitFor(() => expect(detailsField(container, "planning").contains(document.activeElement)).toBe(true));
-        // The Issues tab: the row by its place, the field, and the app's words.
+        // The Issues tab: the row by its title, the field, and the app's words.
         fireEvent.click(inspectorTab(container, /^Issues/));
         await settle();
         const lines = () => [...openPanel(container).querySelectorAll<HTMLElement>("[data-inspector-issue]")];
-        expect(lines().map((line) => [line.firstElementChild!.textContent, line.querySelector("[data-kind]")!.textContent])).toEqual([["row 3 · Planning", "A contractor can't plan"]]);
+        expect(lines().map((line) => [line.firstElementChild!.textContent, line.querySelector("[data-kind]")!.textContent])).toEqual([["C. Patel · Planning", "A contractor can't plan"]]);
         // Planning back to 0: the refusal gone from the tab, and Apply takes B. Ellis's change.
         await press(lines()[0]!);
         fireEvent.click(radiosOf(detailsField(container, "planning"))[0]!);
