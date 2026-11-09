@@ -639,6 +639,21 @@ describe("BuilderFrame — a drag (#1125 F1)", () => {
         await act(async () => { fireEvent.pointerUp(document, { clientX: 10, clientY: 10 }); });
         expect(commits, "the frame's commits as it ends").toEqual([]);
     });
+
+    test("a pane a phone draws as a drawer steps aside while a drag is under way, whatever its mode: a pinned one too", async () => {
+        mount({ start: library({ mode: "pinned", tabs: [{ key: "cards", label: "Cards", body: <Card /> }] }) });
+        frameAt(390);
+        // A pinned pane opens expanded: on a phone it is a drawer, open over main.
+        expect([drawerOf("start").hasAttribute("data-open"), drawerOf("start").hasAttribute("data-aside")]).toEqual([true, false]);
+        await act(async () => {
+            fireEvent.pointerDown(screen.getByTestId("card"), { clientX: 0, clientY: 0 });
+            pointAt(null);
+            fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
+        });
+        expect(drawerOf("start").hasAttribute("data-aside"), "while the drag is under way").toBe(true);
+        await act(async () => { fireEvent.pointerUp(document, { clientX: 10, clientY: 10 }); });
+        expect(drawerOf("start").hasAttribute("data-aside"), "once it has ended").toBe(false);
+    });
 });
 
 /** What a pane holds that opens and closes it from inside (`FramePane`): its handle, handed out, and a press sending the viewer to main. */

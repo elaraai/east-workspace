@@ -451,9 +451,9 @@ function unmeasured(start: BuilderFramePane | undefined, end: BuilderFramePane |
 }
 
 /**
- * Tells the frame whether a drag is under way, while an overlay pane is open (#1594): the pane slides off main and its
- * scrim lifts for it, and nothing else of the frame moves for a drag, so a frame with none open draws nothing as one
- * starts and ends.
+ * Tells the frame whether a drag is under way, while an overlay pane or a phone's drawer is open (#1594): it steps off
+ * main and the scrim lifts for it, and nothing else of the frame moves for a drag, so a frame with neither open draws
+ * nothing as one starts and ends.
  *
  * @param props - Where it tells the frame
  * @returns Nothing: it listens
@@ -479,7 +479,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
     const minMain = props.minMain ?? MIN_MAIN;
     const loadingPitch = props.loadingPitch ?? DEFAULT_LOADING_PITCH;
     const styles = useSlotStyles("builderFrame") as Styles;
-    // Whether a drag is under way: heard only while an overlay pane is open, the one thing it moves (`OverlayDragWatch`).
+    // Whether a drag is under way: heard only while an overlay pane or a phone's drawer is open, all it moves (`OverlayDragWatch`).
     const [dragging, setDragging] = useState(false);
 
     const startDock = start !== undefined && !isElementPane(start) ? start : undefined;
@@ -707,6 +707,8 @@ export function BuilderFrame(props: BuilderFrameProps) {
     /** The overlay pane that is open, if one is. */
     const openOverlay = SIDES.find((side) => placement[side] === "overlay" && dockOf(side) !== undefined && !collapseOf(side).collapsed);
     const openDock = openOverlay === undefined ? undefined : dockOf(openOverlay);
+    // What a drag moves: the open overlay pane, or a phone's open drawer, which a pane is there whatever its placement.
+    const dragMoves = openOverlay !== undefined || SIDES.some((side) => drawn(side) && !collapseOf(side).collapsed);
     // A phone's open pane, a view over the whole builder: it needs no scrim.
     const phoneDrawer = openOverlay !== undefined && drawn(openOverlay) ? openOverlay : undefined;
     // The scrim: while an overlay pane is open for lack of room — an `auto` pane overlaying, or any at 560px and narrower.
@@ -961,7 +963,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
             data-builder-frame="" data-phone={phone ? "" : undefined} data-loading={covered ? "" : undefined} aria-busy={loading === undefined ? undefined : covered}
             {...(label !== undefined ? { role: "group", "aria-label": label } : {})}
             onKeyDownCapture={onKeyDownCapture} onKeyDown={onKeyDown}>
-            {openOverlay !== undefined && <OverlayDragWatch onDragging={setDragging} />}
+            {dragMoves && <OverlayDragWatch onDragging={setDragging} />}
             <FramePhoneLayer.Provider value={phone && !covered ? overlaySlot : null}>
             {toolbar !== undefined && (
                 <Box ref={toolbarRef} css={styles.toolbar} data-frame-slot="toolbar" inert={covered} aria-hidden={covered ? true : undefined}>

@@ -664,6 +664,9 @@ for (const theme of LAYOUT_THEMES) {
                     if (form !== null) shown.push(form);
                     if (!(tile.getAttribute("title") ?? "").includes("NO GROUP") || !(tile.getAttribute("aria-label") ?? "").includes("NO GROUP")) faults.push(`"${name.textContent}" says no group in neither its tooltip nor its label`);
                     if (form === "icon" && badge.querySelector("svg") === null) faults.push(`"${name.textContent}": its badge draws no icon`);
+                    // The form laid out unseen is measured and takes no room: absolutely placed, it would still widen the grid's scroll on the week's last day.
+                    const unseen = badge.querySelector<HTMLElement>(form === "icon" ? '[data-form="words"]' : '[data-form="icon"]');
+                    if (unseen !== null && unseen.getBoundingClientRect().width !== 0) faults.push(`"${name.textContent}": its unseen form is ${Math.round(unseen.getBoundingClientRect().width)}px wide`);
                 }
                 return { badged, faults, shown };
             });

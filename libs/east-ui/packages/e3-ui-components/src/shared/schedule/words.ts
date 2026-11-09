@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
  * Words the schedule builders share (#1424): a kind's name in the plural,
- * words joined as English lists them, what a figure says of the kinds it
+ * a count and what it counts, words joined as English lists them, what a figure says of the kinds it
  * does not count — the Plan's footer and the Calendar's counts alike, a kind
  * past the cap counted none of, never 0 — and the hidden pick's words for a
  * row the rail's narrowing hides (`hidden.ts`): what a builder's message table
@@ -37,6 +37,17 @@ export function kindPlural(name: string): string {
     if (/[^aeiou]y$/i.test(name)) return `${name.slice(0, -1)}ies`;
     if (/(x|z|ch|sh)$/i.test(name)) return `${name}es`;
     return `${name}s`;
+}
+
+/**
+ * A count and what it counts, as English says it: `1 issue`, `3 issues`.
+ *
+ * @param n - How many
+ * @param word - What it counts, in the singular
+ * @returns The words
+ */
+export function plural(n: number, word: string): string {
+    return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
 /**

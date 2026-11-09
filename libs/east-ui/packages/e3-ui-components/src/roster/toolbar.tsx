@@ -16,6 +16,7 @@ import { ROSTER_LAYOUT_PERIODS } from "@elaraai/e3-ui/internal";
 import { useRailSources } from "../shared/schedule/reference.js";
 import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
 import { shownViews } from "../shared/views.js";
+import { PickerDot, PickerLegend, StatusWords } from "../shared/schedule/period-status.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { shiftCalendar } from "../shared/time/scale.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
@@ -29,8 +30,8 @@ const LAYOUTS = [{ key: "shifts", label: "Shifts" }, { key: "people", label: "Pe
 const SHIFT_PERIODS = [{ key: "day", label: "Day" }, { key: "week", label: "Week" }] as const;
 const PEOPLE_PERIODS = [{ key: "week", label: "Week" }, { key: "month", label: "Month" }] as const;
 const PEOPLE_NARROW_PERIODS = [{ key: "week", label: "Week" }] as const;
-/** The picker's marks, each beside its word in its legend (#1595). */
-const PICKER_MARKS = [{ mark: "published", word: "Published" }, { mark: "draft", word: "Draft" }, { mark: "empty", word: "Not started" }] as const;
+/** What a week over its days may say of them, beside what any status may (#1595). */
+const WEEK_OVER_DAYS = ["7 of 7 published"] as const;
 /** The eye's step into the View and the View's step that draws its entry (ruled 27 Oct 2026, "Into the View menu"): one bundle, applied together. */
 const EYE_INTO_VIEW = "roster.optimise";
 interface ToolbarArgs extends RosterWindow {
@@ -177,12 +178,8 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         const held = Array.from({ length: 7 }, (_, day) => args.picker.get(new Date(date.getTime() + day * DAY)));
         return held.every(status => status?.type === "published") ? "published" : held.some(status => status !== undefined) ? "draft" : "empty";
     };
-    const dot = (mark: string) => <Box as="span" css={styles.pickerDot} data-state={mark} />;
-    const legend = <Box as="span" css={styles.pickerLegend}>{PICKER_MARKS.map(({ mark, word }) => <Box as="span" key={mark} css={styles.legendItem} data-roster-picker-legend={mark}>{dot(mark)}{word}</Box>)}</Box>;
-    // What the status may say (#1595), each word laid out unseen in its slot so the slot is the widest of them: a day's or
-    // a week's status changing never moves the controls beside it nor folds the row. A week over its days says how many
-    // are published; the app's own case, known by its name alone, stands once it is said.
-    const statusWords = [...new Set(["Draft", "Published", "Not started", "Publishing", ...(days && !dayPicked ? ["7 of 7 published"] : []), ...(status === undefined ? [] : [status])])];
+    const dot = (mark: string) => <PickerDot styles={styles} mark={mark} />;
+    const legend = <PickerLegend styles={styles} scope="roster" />;
     const navigation = (compact = false, combined = false, withEye = false) => <TimeNavigator scope="roster" date={view.date} period={unit} rangeLabel={rangeLabel}
         sunday={value.settings.weekStart.type === "sunday"} onChange={date => setView({ ...view, date })}
         compact={compact} label={combined ? "View" : dayPicked ? "Choose roster day" : "Choose roster week"} initialPanel={dayPicked ? "day" : "week"} onWeeks={args.onPickerDates}
@@ -205,7 +202,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         // The status, the issues and Publish keep their slots from cold load, whatever the week's read (#1398, CL1): a read
         // landing never shifts the toolbar nor folds it again. Unread, the status and the issues are placeholders.
         status !== undefined && { key: "roster.status", side: "start", rank: HOST_RANK, forms: [<Box css={styles.widestSlot}>
-            {statusWords.map(word => <Box as="span" key={word} css={styles.status} data-widest-word={word} aria-hidden="true" />)}
+            <StatusWords styles={styles} status={status} more={days && !dayPicked ? WEEK_OVER_DAYS : undefined} />
             {unread
                 ? <Box css={[styles.status, styles.heldSlot]} data-roster-status="" data-pending=""><PlaceholderShape kind="enum" index={0} /></Box>
                 : <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-roster-status="">{status}</Box>}

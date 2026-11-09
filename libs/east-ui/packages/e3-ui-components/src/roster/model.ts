@@ -31,6 +31,7 @@ import type { Formatters } from "@elaraai/east-ui-components";
 import { DAY, weekStart } from "../shared/schedule/window.js";
 import { isoWeekUTC, shiftCalendar } from "../shared/time/scale.js";
 import { shownViews } from "../shared/views.js";
+import { plural } from "../shared/schedule/words.js";
 export { DAY, NARROW_WIDTH, dayStart, weekStart } from "../shared/schedule/window.js";
 
 /** The decoded payload. */
@@ -712,7 +713,7 @@ export function editableStatus(status: Status): boolean { return status.type ===
  * @returns The count in words
  */
 export function issuesSaid(n: number): string {
-    return `${n} ${n === 1 ? "issue" : "issues"}`;
+    return plural(n, "issue");
 }
 /** A period's status chip's words: Not started, Draft, Published, or the app's own case by its name. */
 export function statusText(period: PlacedPeriod): string {

@@ -81,6 +81,7 @@ import { nowBase, nowSlots } from "./time/now.js";
 import { scheduleAgenda, scheduleCard, scheduleCardActions, scheduleCardHead, scheduleCardTitle } from "./schedule-agenda.js";
 import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
 import { schedulePaneBase, schedulePaneSlots } from "./schedule-pane.js";
+import { schedulePickerBase, schedulePickerSlots } from "./schedule-picker.js";
 import { timeRulerBase } from "./time/axis.js";
 
 /** A head's caption (`LANE`, `HOUR`, `WEEK`, `RESOURCE`, a week): mono 10 / 600, tracked 0.16em, uppercase, `--ink-4`. */
@@ -131,7 +132,7 @@ const statusWord = { fontSize: "label.md", fontWeight: "semibold", letterSpacing
 export const allocationBuilderSlotRecipe = defineSlotRecipe({
     className: "east-allocation-builder",
     slots: [
-        "root", "main", "status", "pickerDot", "pickerLegend", "controls", "footer", "footerItem", "legendItem", "legendSwatch", "error", "empty", "narrowedEmpty",
+        "root", "main", "status", ...schedulePickerSlots, "controls", "footer", "footerItem", "legendItem", "legendSwatch", "error", "empty", "narrowedEmpty",
         "timeline", "head", "headCaption", "lanePane", "laneContent", "laneHead", "laneHeadCell", "laneName", "laneOffset", "laneMeta",
         "laneGrid", "laneBand", "laneHour", "laneCell", "card", "cardTop", "cardCode", "cardQty", "cardLine", "cardTo", "cardLeft", "cardMark",
         "connector", "connectorMark", "channel", "channelHead", "resourcePane", "resourceHead", "resourceCaption", "ruler",
@@ -149,17 +150,10 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         ...moveGhostBase,
         ...scheduleGroupBase,
         ...schedulePaneBase,
+        ...schedulePickerBase,
         root: { height: "100%", minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", background: "bg.surface", color: "fg" },
         main: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column" },
         status: INSPECTOR_STATUS,
-        // A day's mark under its number in the date picker, told apart by shape as well as colour (#1595): a published day's
-        // filled, a draft's a hollow ring, one not started a muted ring. The legend draws each beside its word.
-        pickerDot: {
-            display: "inline-block", flexShrink: 0, width: "6px", height: "6px", borderRadius: "50%", border: "1px solid", borderColor: "fg.subtle",
-            "&[data-state=published]": { background: "fg.success", borderColor: "fg.success" },
-            "&[data-state=draft]": { background: "transparent", borderColor: "brand.solid" },
-        },
-        pickerLegend: { display: "flex", flexWrap: "wrap", columnGap: "12px" },
         controls: { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 },
         footer: builderFooter,
         footerItem: builderFooterItem,

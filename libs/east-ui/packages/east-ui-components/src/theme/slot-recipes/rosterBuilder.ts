@@ -27,6 +27,7 @@ import { heldToolbarSlot, retainedColumn, retainedRow, widestToolbarSlot } from 
 import { scheduleAgenda, scheduleAgendaGroup, scheduleAgendaHead, scheduleCard, scheduleCardActions, scheduleCardHead, scheduleCardTitle } from "./schedule-agenda.js";
 import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
 import { schedulePaneBase, schedulePaneSlots } from "./schedule-pane.js";
+import { schedulePickerBase, schedulePickerSlots } from "./schedule-picker.js";
 import { timeHeaderText } from "./time/axis.js";
 import { moveGhostSlots, moveGhostBase } from "./time/move-ghost.js";
 
@@ -36,7 +37,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         "rowHead", "eyebrow", "title", "detail", "requirement", "coverageHead", "metric", "coverageBar", "coverageSegment", "coverageTick", "coverageLine", "coverageName", "coverageFigures", "skillLine", "skillCode",
         "cell", "cellHead", "chips", "assignment", "assignmentName", "badge", "flag", "activity", "fit", "grip", "chipAction", "dropStrip", "landing", "openPosition", "proposal", "proposalMark", "proposalName", "proposalReason", "proposalAction",
         "weekCell", "weekValue", "weekFill", "weekFillValue", "issueDot", "delta", "peopleHead", "peopleCell", "agenda", "agendaGroup", "agendaHead", "card", "cardHead", "cardTitle", "actions", ...schedulePaneSlots, "section", "status",
-        "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", "pickerDot", "pickerLegend", "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions",
+        "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", ...schedulePickerSlots, "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions",
         "readLine", "heldSlot", "widestSlot", "unreadValue",
         "peopleRow", "peopleName", "nameLine", "personName", "agencyBadge", "hoursCell", "hoursText", "meter", "meterFill", "dayCell", "tile", "tileLabel", "tileMeta", "tileWarn", "tileMore",
         "assign", "assignMenuHead", "assignItem", "swatch", "monthRow", "monthHead", "monthGutter", "weekHead", "weekNumber", "weekRange", "dayTicks", "dayTick", "monthCell",
@@ -50,6 +51,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         // short in the warning's.
         groupMeta: { ...scheduleGroupBase.groupMeta, "&[data-count]": { color: "fg.subtle" }, "& [data-tone=warning]": { color: "fg.warning" } },
         ...schedulePaneBase,
+        ...schedulePickerBase,
         root: { height: "100%", minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", background: "bg.surface", color: "fg" },
         main: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column", "&[data-roster-grid=people]": { "--roster-columns": "8", "--roster-people-width": "1100px" } },
         // The People rows stuck under the header (#1568, A6) on the surface's paper, opaque as the header is.
@@ -150,8 +152,6 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         empty: { padding: "16px", textStyle: "body.sm", color: "fg.muted" },
         // A period's mark in the date picker, told apart by shape as well as colour (#1595): a published one filled, a draft's a
         // hollow ring, one not started a muted ring. The legend draws each beside its word.
-        pickerDot: { display: "inline-block", flexShrink: 0, width: "6px", height: "6px", borderRadius: "50%", border: "1px solid", borderColor: "fg.subtle", "&[data-state=published]": { background: "fg.success", borderColor: "fg.success" }, "&[data-state=draft]": { background: "transparent", borderColor: "brand.solid" } },
-        pickerLegend: { display: "flex", flexWrap: "wrap", columnGap: "12px" },
         summary: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "16px", padding: "16px", borderBottomWidth: "1px", borderColor: "border.subtle" },
         stat: { display: "flex", flexDirection: "column", gap: "4px" }, statValue: { textStyle: "num-lg" }, statLabel: { textStyle: "caption.eyebrow" },
         issue: { ...INSPECTOR_SECTION, gap: "6px", borderLeft: "2px solid", borderLeftColor: "fg.warning", "&[data-tone=danger]": { borderLeftColor: "fg.danger" }, "&[data-tone=info]": { borderLeftColor: "brand.solid" } },
@@ -218,9 +218,10 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         tileMeta: { textStyle: "mono.xs", whiteSpace: "nowrap", flexShrink: 0, opacity: 0.85, "&[data-own]": { fontWeight: "semibold", opacity: 1 },
             "&[data-group]": { fontSize: "label.xs", fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.06em" },
             // A duty in no group's badge (#1595): its words where they and the shift's whole name both fit, else its icon, each
-            // form laid out always, unseen but the one shown, so the tile's fit reads both.
+            // form laid out always, unseen but the one shown, so the tile's fit reads both: the unseen one's box is nothing wide,
+            // or it would widen the grid's scroll on the week's last day, and the fit adds back what its box cuts.
             "&[data-roster-tile-group]": { position: "relative", display: "inline-flex", alignItems: "center",
-                "&[data-roster-tile-group=words] > [data-form=icon], &[data-roster-tile-group=icon] > [data-form=words]": { position: "absolute", visibility: "hidden" },
+                "&[data-roster-tile-group=words] > [data-form=icon], &[data-roster-tile-group=icon] > [data-form=words]": { position: "absolute", visibility: "hidden", width: "0", overflow: "hidden" },
                 "& > [data-form=icon]": { display: "inline-flex", ...fontAwesomeSize("10px") } } },
         tileWarn: { display: "inline-flex", flexShrink: 0, color: "fg.warning", ...fontAwesomeSize("10px"), "&[data-tone=danger]": { color: "fg.danger" } },
         tileMore: { textStyle: "mono.xs", fontWeight: "semibold", color: "fg.danger", flexShrink: 0, whiteSpace: "nowrap" },

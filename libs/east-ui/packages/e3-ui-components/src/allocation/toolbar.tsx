@@ -43,15 +43,11 @@ import type { AllocationWords } from "./messages.js";
 import type { AllocationWindow } from "./window.js";
 import { DAY, allocationWords, byWeek, type AllocationStyles, type AllocationValue, type Day, type Issue, type Load, type ResourceRow } from "./model.js";
 import { counted, other, type Nouns } from "./nouns.js";
+import { PickerDot, PickerLegend, StatusWords } from "../shared/schedule/period-status.js";
+import { plural } from "../shared/schedule/words.js";
 
 /** Table, then Timeline, as the mock orders them. */
 const LAYOUTS = [{ key: "table", label: "Table", icon: faTable }, { key: "timeline", label: "Timeline", icon: faChartGantt }] as const;
-
-/** The picker's marks, each beside its word in its legend (#1595). */
-const PICKER_MARKS = [{ mark: "published", word: "Published" }, { mark: "draft", word: "Draft" }, { mark: "empty", word: "Not started" }] as const;
-
-/** `1 issue`, `3 issues`. */
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** The eye's step into the View and the View's step that draws its entry (ruled 27 Oct 2026, "Into the View menu"): one bundle, applied together. */
 const EYE_INTO_VIEW = "allocation.optimise";
@@ -233,13 +229,9 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     }
     // The picker's marks: each day's status, its period's — and, publishing a week at a time (#1550), each week's too, the
     // picker's weeks starting where the board's do.
-    const marker = (date: Date) => { const held = args.picker.get(date); return <Box as="span" css={styles.pickerDot} data-state={held === undefined ? "empty" : held.type === "other" ? "draft" : held.type} />; };
+    const marker = (date: Date) => { const held = args.picker.get(date); return <PickerDot styles={styles} mark={held === undefined ? "empty" : held.type === "other" ? "draft" : held.type} />; };
     const weekly = byWeek(value);
-    const legend = <Box as="span" css={styles.pickerLegend}>{PICKER_MARKS.map(({ mark, word }) => <Box as="span" key={mark} css={styles.legendItem} data-allocation-picker-legend={mark}><Box as="span" css={styles.pickerDot} data-state={mark} />{word}</Box>)}</Box>;
-    // What the status may say (#1595), each word laid out unseen in its slot so the slot is the widest of them: a day's
-    // status changing never moves the controls beside it nor folds the row. The app's own case, known by its name alone,
-    // stands once it is said.
-    const statusWords = [...new Set(["Draft", "Published", "Not started", "Publishing", ...(status === undefined ? [] : [status])])];
+    const legend = <PickerLegend styles={styles} scope="allocation" />;
     const navigation = (compact = false, combined = false, withEye = false) => <TimeNavigator scope="allocation" date={view.date} period="day"
         sunday={value.settings.weekStart.type === "sunday"} onChange={date => setView({ ...view, date })} compact={compact} label={combined ? "View" : "Choose plan day"}
         initialPanel="day" onWeeks={args.onPickerWeeks} legend={legend} dayMarker={marker} {...(weekly ? { weekMarker: marker } : {})}
@@ -260,7 +252,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         // The status, the issues and Publish keep their slots from cold load, whatever the day's read (#1398, CL1): a read
         // landing never shifts the toolbar nor folds it again. Unread, the status and the issues are placeholders.
         status !== undefined && { key: "allocation.status", side: "start", rank: HOST_RANK, forms: [<Box css={styles.widestSlot}>
-            {statusWords.map(word => <Box as="span" key={word} css={styles.status} data-widest-word={word} aria-hidden="true" />)}
+            <StatusWords styles={styles} status={status} />
             {unread
                 ? <Box css={[styles.status, styles.heldSlot]} data-allocation-status="" data-pending="" title="Plan status">
                     <PlaceholderShape kind="enum" index={0} /></Box>

@@ -836,13 +836,6 @@ function Tile(args: TileProps) {
     return <TileBody {...args} selected={selected} handle={handle} attach={attach} />;
 }
 /**
- * A tile a duty (#1406, D5, P7): the shift's label — a request's too, its row saying it is one (#1566) — then its own
- * times where they differ from the shift's, else the group where it is not the row's — the person's home group, a
- * group's requests' group, none in the one row of every group's requests (#1567) — else the shift's hours where
- * `tileTimes` is always; a warning mark where an issue names it; its fill the shift's colour token, its words in the ink
- * the shade takes. Tile state comes from the held week and the domain issues, never from a second draft store.
- */
-/**
  * A duty in no group's badge as its tile is laid out (#1595): its words where they and the shift's whole name both fit
  * beside what else the tile holds, else its icon. Both forms are laid out always, so what it reads never moves with the
  * fit; where nothing is laid out, the words.
@@ -876,6 +869,13 @@ function NoGroupBadge({ styles, text }: { styles: RosterStyles; text: string }) 
         <span data-form="icon"><FontAwesomeIcon icon={faUsersSlash} /></span>
     </Box>;
 }
+/**
+ * A tile a duty (#1406, D5, P7): the shift's label — a request's too, its row saying it is one (#1566) — then its own
+ * times where they differ from the shift's, else the group where it is not the row's — the person's home group, a
+ * group's requests' group, none in the one row of every group's requests (#1567) — else the shift's hours where
+ * `tileTimes` is always; a warning mark where an issue names it; its fill the shift's colour token, its words in the ink
+ * the shade takes. Tile state comes from the held week and the domain issues, never from a second draft store.
+ */
 const TileBody = memo(function TileBody({ ctx, id, assignment: a, removed, person, home, selected, handle, attach }: TileProps & {
     selected: boolean; handle: ReturnType<typeof useDragEventChip>; attach: (element: HTMLDivElement | null) => void;
 }) {

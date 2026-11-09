@@ -1513,8 +1513,8 @@ first where the drop landed before (`calendar-windows.dom.test.tsx`, the
 showcase's `calendar.spec.ts`).
 
 Picking something up and putting it down draw only what they move (#1594). The
-frame hears of a drag only while an overlay pane is open, the one thing a drag
-moves there (east-ui-components' `OverlayDragWatch`). A Library card and an
+frame hears of a drag only while an overlay pane or a phone's drawer is open,
+all a drag moves there (east-ui-components' `OverlayDragWatch`). A Library card and an
 event's block are a thin shell, which holds the drag handle, around a memo of
 their face (`LibraryCardFace`, `LibraryGalleryFace`, `views.tsx`'
 `EventBlockFace`), so a handle starting or ending a drag draws no face again.
