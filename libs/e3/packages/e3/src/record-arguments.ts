@@ -31,7 +31,7 @@ export type ArgumentsType = StructType<Record<string, EastType>>;
  * @returns `{ arg0, arg1, … }`
  */
 export function argumentsType(argTypes: readonly EastType[]): ArgumentsType {
-  return StructType(Object.fromEntries(argTypes.map((type, at) => [`arg${at}`, type])));
+  return StructType(argTypes.map((type, at): readonly [string, EastType] => [`arg${at}`, type]));
 }
 
 /**
@@ -49,7 +49,7 @@ export function programOverArguments(
 ): FunctionExpr<EastType[], NullType> {
   const argsType = argumentsType(argTypes);
   // The parameters after the state, as one struct: the arguments in order, then the emit.
-  const restType = StructType({ ...argsType.fields, emit: emitType });
+  const restType = StructType([...Object.entries(argsType.fields), ["emit", emitType] as const]);
   const argNames = Object.keys(argsType.fields);
   return East.function([stateType, ...argTypes, emitType], NullType, ($, state, ...rest) => {
     const writeFn = $.const(write);

@@ -792,6 +792,12 @@ static TypeTableResult read_type_table_section_uncached(const uint8_t *data, siz
             free(field_types);
         } else if (tag == BEAST2_TAG_VARIANT) {
             size_t nc = parsed[i].num_children;
+            /* A variant's tags are its cases' places in East's order, which
+             * the table lists them in: one listing them otherwise — as a
+             * TypeScript East before #1574 wrote a case named like an integer
+             * — is refused, as east_variant_type would sort it into a type
+             * whose tags name other cases. */
+            if (!east_variant_cases_in_order((const char *const *)parsed[i].names, nc)) goto fail;
             const char **names = malloc(nc * sizeof(char *));
             EastType **case_types = malloc(nc * sizeof(EastType *));
             for (size_t j = 0; j < nc; j++) {

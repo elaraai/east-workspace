@@ -224,7 +224,7 @@ export function schedulePeriods(record: unknown, input: unknown): SchedulePeriod
         }
     }
     // A new row's own fields, every one but its status and its dismissals (#1526): the periods' `values` of its start.
-    const own = StructType(Object.fromEntries(Object.entries(fields).filter(([name]) => name !== status.field && name !== dismissedField)));
+    const own = StructType(Object.entries(fields).filter(([name]) => name !== status.field && name !== dismissedField));
     const valuesOf = scheduleNewValues(ScheduleNewPeriodType, rowType, own, config.values, where);
     // The periods read by key, or whole; and their session, declared now, so a record bound without its patch door is
     // refused here.

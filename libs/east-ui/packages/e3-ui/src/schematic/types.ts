@@ -254,8 +254,9 @@ export type SchematicStatusCasesType<C extends Record<string, unknown>> = Struct
  */
 export function SchematicStatusCasesFor<V extends VariantType>(statusType: V): SchematicStatusCasesType<V["cases"]> {
     if ((statusType as { type: string }).type !== "Variant") throw new Error("Schematic.Types.StatusCases: a status is a variant, one case per status");
+    // A field per case, in the variant's order, as a list: an object would list a case named like an integer first (#1574)
     const cases = Object.keys(statusType.cases);
-    return StructType(Object.fromEntries(cases.map((c) => [c, SchematicStatusType]))) as unknown as SchematicStatusCasesType<V["cases"]>;
+    return StructType(cases.map((c) => [c, SchematicStatusType] as const)) as unknown as SchematicStatusCasesType<V["cases"]>;
 }
 
 /**

@@ -1928,9 +1928,10 @@ function narrowedRows(checked: CheckJqResult, plan: Plan, A: EastType, R: EastTy
   const fields = Object.entries(row.fields as Record<string, EastType>);
   const kept = fields.filter(([name]) => read.has(name));
   if (kept.length === fields.length) return undefined;
-  const narrowed = StructType(Object.fromEntries(kept));
-  const input = StructType(Object.fromEntries(Object.entries(root.fields as Record<string, EastType>)
-    .map(([name, type]) => [name, name === source.over ? ArrayType(narrowed) : type])));
+  // Lists, in the row's order and the root's: an object would list a name like an integer first (#1574)
+  const narrowed = StructType(kept);
+  const input = StructType(Object.entries(root.fields as Record<string, EastType>)
+    .map(([name, type]) => [name, name === source.over ? ArrayType(narrowed) : type] as const));
   const again = checkAgain(checked, checked.program!, checked.source.spans, input);
   if (again === undefined) return undefined;
   const planned = planOf(again);

@@ -162,7 +162,8 @@ export type EditingDraftOf<R extends StructType> = StructType<{
  * @returns The draft struct; an optional domain field still starts missing
  */
 export function EditingDraftTypeFor<R extends StructType>(rowType: R): EditingDraftOf<R> {
-    return StructType(Object.fromEntries(Object.entries(rowType.fields).map(([k, t]) => [k, EditingDraftFieldType(t)]))) as EditingDraftOf<R>;
+    // The row's fields in its order, as a list: an object would list a field named like an integer first (#1574)
+    return StructType(Object.entries(rowType.fields).map(([k, t]) => [k, EditingDraftFieldType(t)] as const)) as EditingDraftOf<R>;
 }
 
 /** Fields that can hold a group's child rows. */
@@ -196,9 +197,9 @@ export function EditingDraftGroupTypeFor<G extends StructType, F extends Editing
     const t = groupType.fields[field];
     if (t?.type !== "Array" || t.value.type !== "Struct") throw new Error(`Editing: "${field}" must hold an Array of row structs`);
     const rowDraft = EditingDraftTypeFor(t.value);
-    return StructType(Object.fromEntries(Object.entries(groupType.fields).map(([key, type]) => [key,
+    return StructType(Object.entries(groupType.fields).map(([key, type]): readonly [string, EastType] => [key,
         key === field ? ArrayType(rowDraft) : EditingDraftFieldType(type),
-    ]))) as EditingDraftGroupOf<G, F>;
+    ])) as EditingDraftGroupOf<G, F>;
 }
 
 /**

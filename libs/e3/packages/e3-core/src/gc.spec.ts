@@ -279,14 +279,8 @@ describe('gc', () => {
   // ==========================================================================
 
   describe('markReachable', () => {
-    // Helper: create a tree type with DataRef fields
-    const makeTreeType = (fieldNames: string[]) => {
-      const fields: Record<string, typeof DataRefType> = {};
-      for (const name of fieldNames) {
-        fields[name] = DataRefType;
-      }
-      return StructType(fields);
-    };
+    // Helper: create a tree type with DataRef fields, listed in order
+    const makeTreeType = (fieldNames: string[]) => StructType(fieldNames.map((name) => [name, DataRefType] as const));
 
     it('follows PackageObject → TaskObject → IR chain', async () => {
       const irHash = 'c'.repeat(64);
@@ -685,8 +679,7 @@ describe('gc', () => {
       });
 
       it('grows the head while a type section does not fit, and never reads the dataset whole', async () => {
-        const WideType = StructType(Object.fromEntries(
-          Array.from({ length: 4000 }, (_, i) => [`a_field_with_a_rather_long_name_number_${i}`, IntegerType])));
+        const WideType = StructType(Array.from({ length: 4000 }, (_, i) => [`a_field_with_a_rather_long_name_number_${i}`, IntegerType] as const));
         const value = Object.fromEntries(Array.from({ length: 4000 }, (_, i) => [`a_field_with_a_rather_long_name_number_${i}`, 0n]));
         const datasetHash = 'f'.repeat(64);
         const bytes = encodeBeast2For(WideType)(value);

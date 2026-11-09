@@ -440,13 +440,15 @@ function flattened(t: EastType, depth: number): EastType {
   return flattened(ArrayType(inner.value as EastType), depth - 1);
 }
 
-/** A struct without some fields. */
+/**
+ * A struct without some fields, the rest in its order. Every struct this
+ * catalog derives from another is a list of its fields: an object would list
+ * a name like an integer first (#1574).
+ */
 function withoutFields(t: EastType, names: readonly string[]): EastType {
   const u = unwrap(t);
   if (u.type !== "Struct") return t;
-  const fields: Record<string, EastType> = {};
-  for (const [name, f] of Object.entries(u.fields as Record<string, EastType>)) if (!names.includes(name)) fields[name] = f;
-  return StructType(fields);
+  return StructType(Object.entries(u.fields as Record<string, EastType>).filter(([name]) => !names.includes(name)));
 }
 
 /**
@@ -546,7 +548,7 @@ function afterDelete(ctx: CallContext, type: EastType, steps: readonly DelStep[]
         return same(fields[name]!) ? t : undefined;
       }
       const inner = afterDelete(ctx, fields[name]!, rest);
-      return inner === undefined ? undefined : StructType({ ...fields, [name]: inner });
+      return inner === undefined ? undefined : StructType(Object.entries(fields).map(([field, f]) => [field, field === name ? inner : f] as const));
     }
     if (t.type === "Dict") return same(t.value as EastType) ? t : undefined;
     return undefined;
@@ -567,11 +569,11 @@ function afterDelete(ctx: CallContext, type: EastType, steps: readonly DelStep[]
       }
       if (t.type === "Struct") {
         if (deletesElement(rest)) return rest.length === 0 ? StructType({}) : undefined;
-        const fields: Record<string, EastType> = {};
+        const fields: (readonly [string, EastType])[] = [];
         for (const [field, f] of Object.entries(t.fields as Record<string, EastType>)) {
           const inner = afterDelete(ctx, f, rest);
           if (inner === undefined) return undefined;
-          fields[field] = inner;
+          fields.push([field, inner]);
         }
         return StructType(fields);
       }
@@ -810,8 +812,8 @@ supported("walk", [1], "a bottom-up rebuild, applying f to each value", ctx => {
     if (u.type === "Array") { const e = walkType(u.value as EastType); return e === undefined ? undefined : ArrayType(e); }
     if (u.type === "Dict") { const v = walkType(u.value as EastType); return v === undefined ? undefined : DictType(u.key as EastType, v); }
     if (u.type === "Struct") {
-      const fields: Record<string, EastType> = {};
-      for (const [name, f] of Object.entries(u.fields as Record<string, EastType>)) { const w = walkType(f); if (w === undefined) return undefined; fields[name] = w; }
+      const fields: (readonly [string, EastType])[] = [];
+      for (const [name, f] of Object.entries(u.fields as Record<string, EastType>)) { const w = walkType(f); if (w === undefined) return undefined; fields.push([name, w]); }
       return StructType(fields);
     }
     if (u.type === "Variant") {
@@ -955,11 +957,11 @@ supported("pick", [1], "a struct of the picked fields", ctx => {
     const build = (t: EastType, rest: readonly string[]): EastType | undefined => {
       const u = unwrap(t);
       // `null`'s fields are null, so picking from it builds the path, null at its end, as jq does.
-      if (u.type === "Null") return StructType({ [rest[0]!]: rest.length === 1 ? NullType : build(NullType, rest.slice(1))! });
+      if (u.type === "Null") return StructType([[rest[0]!, rest.length === 1 ? NullType : build(NullType, rest.slice(1))!]]);
       if (u.type !== "Struct" || !(rest[0]! in (u.fields as Record<string, EastType>))) return undefined;
       const inner = (u.fields as Record<string, EastType>)[rest[0]!]!;
       const picked = rest.length === 1 ? inner : build(inner, rest.slice(1));
-      return picked === undefined ? undefined : StructType({ [rest[0]!]: picked });
+      return picked === undefined ? undefined : StructType([[rest[0]!, picked]]);
     };
     const out = build(member.type, fields);
     return out === undefined ? inputMismatch(ctx, `a struct with .${fields.join(".")}`, member.type) : one(out);
@@ -1055,14 +1057,14 @@ supported("map_values", [1], "ArrayMap / DictMap / the struct rebuilt field by f
       return one(t.type === "Array" ? ArrayType(v) : DictType(t.key as EastType, v));
     }
     if (t.type === "Struct") {
-      const fields: Record<string, EastType> = {};
+      const fields: (readonly [string, EastType])[] = [];
       for (const [name, f] of Object.entries(t.fields as Record<string, EastType>)) {
         const per = ctx.arg(0, one(f));
         if (per.shape.kind === "error") return { shape: ERROR, mult: ONE };
         if (per.mult.lo !== 1) return ctx.fail("unsupported", MESSAGES.unavailable("map_values(f) on a struct", "f must give an output for every field, which a struct cannot lose"));
         const v = ctx.collect(per);
         if (v === undefined) return { shape: ERROR, mult: ONE };
-        fields[name] = v;
+        fields.push([name, v]);
       }
       return one(StructType(fields));
     }

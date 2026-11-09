@@ -173,7 +173,7 @@ export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle
         named.set(name, prop);
     }
     // A new target's own fields, the ones no role maps (#1526): the targets' `values` of its roles.
-    const own = StructType(Object.fromEntries(Object.entries(fields).filter(([name]) => !named.has(name))));
+    const own = StructType(Object.entries(fields).filter(([name]) => !named.has(name)));
     const valuesOf = scheduleNewValues(RosterTargetRolesType, rowType, own, c.values, where);
     const inspector = c.inspector === undefined ? undefined : rowInspector(c.inspector, rowType,
         `${where}: \`inspector\` is the app's own form for one target — an East.function over the target's row and its writer: ` +

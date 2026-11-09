@@ -6,9 +6,10 @@ import type { AST, Label, VariableAST } from "./ast.js";
 import type { IR, IRLabel, VariableIR } from "./ir.js";
 import { toEastTypeValue, type LiteralValue } from "./type_of_type.js";
 import { typeMismatchError } from "./type_diff.js";
-import { ArrayType, DictType, type EastType, FunctionType, getTypeId, isSubtype, isTypeEqual, NeverType, NullType, printType, RefType, SetType, StructType, VariantType, VectorType, MatrixType } from "./types.js";
+import { ArrayType, DictType, type EastType, FunctionType, getTypeId, isSubtype, isTypeEqual, NeverType, NullType, printType, RefType, SetType, StructType, VariantType, VectorType, MatrixType, variantCases } from "./types.js";
 import { variant } from "./containers/variant.js";
 import { applyTypeParameters, Builtins } from "./builtins.js";
+import { compareStrings } from "./string_order.js";
 
 
 /** @internal An exception throw for the purpose of early loop continue */
@@ -290,20 +291,28 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         optional: ast.optional,
       });
     } else if (ast.ast_type === "Struct") {
+      // The fields in the struct's order, which its type holds (#1574): the
+      // AST's record of them is a plain object, which lists a field named
+      // like an array index first.
+      const structType = ast.type as StructType;
+      for (const name of Object.keys(ast.fields)) {
+        if (!Object.hasOwn(structType.fields, name)) {
+          throw new Error(`Struct type does not have field '${name}' at loc_id ${ast.loc_id}`);
+        }
+      }
       return variant("Struct", {
         type: toEastTypeValue(ast.type),
         loc_id: ast.loc_id,
-        fields: Object.entries(ast.fields).map(([name, fieldAst]) => {
-          let value = ast_to_ir(fieldAst, ctx);
-          const expectedType = (ast.type as StructType).fields[name];
-          if (!expectedType) {
-            throw new Error(`Struct type does not have field '${name}' at loc_id ${ast.loc_id}`);
-          }
-          if (!isTypeEqual(fieldAst.type, expectedType)) {
-            value = coerce_to(value, fieldAst.type, expectedType, ast.loc_id);
-          }
-          return { name, value };
-        }),
+        fields: Object.entries(structType.fields as Record<string, EastType>)
+          .filter(([name]) => Object.hasOwn(ast.fields, name))
+          .map(([name, expectedType]) => {
+            const fieldAst = ast.fields[name]!;
+            let value = ast_to_ir(fieldAst, ctx);
+            if (!isTypeEqual(fieldAst.type, expectedType)) {
+              value = coerce_to(value, fieldAst.type, expectedType, ast.loc_id);
+            }
+            return { name, value };
+          }),
       });
     } else if (ast.ast_type === "GetField") {
       return variant("GetField", {
@@ -875,8 +884,21 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
     } else if (ast.ast_type === "Match") {
       const variant_expr = ast_to_ir(ast.variant, ctx);
 
+      // The arms in East's order of their cases, which the variant's type
+      // holds, as its type value lists them and east-py writes them (#1574):
+      // the AST's record of the arms is a plain object, which lists a name
+      // like "50" first.
+      const matched = ast.variant.type;
+      const arms = matched.type === "Variant"
+        ? variantCases(matched).filter(([name]) => Object.hasOwn(ast.cases, name)).map(([name]) => name)
+        : Object.keys(ast.cases).sort(compareStrings);
+      if (arms.length !== Object.keys(ast.cases).length) {
+        const extra = Object.keys(ast.cases).find((name) => !arms.includes(name));
+        throw new Error(`Variant type does not have case '${extra}' at loc_id ${ast.loc_id}`);
+      }
       const cases: { case: string, variable: VariableIR, body: IR }[] = [];
-      for (const [k, v] of Object.entries(ast.cases)) {
+      for (const k of arms) {
+        const v = ast.cases[k]!;
         const armScope = childScope(ctx.scope);
         const variable: VariableIR = variant("Variable", {
           type: toEastTypeValue(v.variable.type),

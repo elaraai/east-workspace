@@ -751,7 +751,7 @@ export function buildActionKind(input: SheetActionKindInput): ExprType<typeof Sh
             if (!isChoice(type)) throw new Error(`${at} is ${describeType(type)} — Sheet.action.menu({ labels }) chooses among a variant's cases, each NullType`);
             let spec: FieldSpecValue;
             try {
-                spec = fieldSpecs(StructType({ [name]: type }), { [name]: fieldSelect({ labels: take?.labels ?? {} } as never) } as never)[0]!;
+                spec = fieldSpecs(StructType([[name, type]]), { [name]: fieldSelect({ labels: take?.labels ?? {} } as never) } as never)[0]!;
             } catch (e) {
                 throw new Error(`${at}'s menu ${(e as Error).message.replace(/^Fields: "[^"]*" is .* field — /, "")}`);
             }
@@ -762,7 +762,7 @@ export function buildActionKind(input: SheetActionKindInput): ExprType<typeof Sh
             let specs: FieldSpecValue[];
             try {
                 specs = scalar
-                    ? fieldSpecs(StructType({ [name]: type }), (hints === undefined ? {} : { [name]: hints }) as never)
+                    ? fieldSpecs(StructType([[name, type]]), (hints === undefined ? {} : { [name]: hints }) as never)
                     : fieldSpecs(type as StructType, (hints ?? {}) as never);
             } catch (e) {
                 throw new Error(`${at}'s form — ${(e as Error).message.replace(/^Fields: /, "")}`);

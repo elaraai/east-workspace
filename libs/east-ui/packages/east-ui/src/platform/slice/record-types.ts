@@ -335,7 +335,9 @@ export type RecordSlicesBindType = typeof RecordSlicesBindType;
  * @returns The typed handle type.
  */
 export function RecordSlicesHandleType<S extends Record<string, EastType>>(sources: S) {
-    return StructType({ ...RecordSlicesBindType.fields, sources: StructType(sources) });
+    // The sources as a list, in the order the parts are: an object would list a source named like an integer first,
+    // and StructType refuses one (#1574)
+    return StructType({ ...RecordSlicesBindType.fields, sources: StructType(Object.entries(sources)) as StructType<S> });
 }
 
 /** New record-arm bind; local slice_bind remains byte-for-byte unchanged. @internal */

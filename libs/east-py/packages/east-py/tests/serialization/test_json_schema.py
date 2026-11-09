@@ -101,6 +101,9 @@ CORPUS = [
     ("dictOption", DictType(StringType, option(IntegerType))),
     ("optionRecursive", option(RECURSIVE_TYPE)),
     ("chain", CHAIN_TYPE),
+    # Fields named like integers (#1574): the properties as a JavaScript object
+    # lists them, `required` in the struct's order
+    ("integerNamed", StructType([("b", IntegerType), ("10", StringType), ("2", FloatType)])),
 ]
 
 DRAFTS = ("2020-12", "draft-07", "openapi-3.0")
@@ -118,9 +121,9 @@ def test_matches_the_cross_language_corpus_digest():
         for name, typ in CORPUS:
             document = json.dumps(json_schema_for(typ, draft=draft), separators=(",", ":"))
             lines.append(f"{draft}|{name}={document}")
-    assert len(lines) == 81
+    assert len(lines) == 84
     digest = hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
-    assert digest == "4a281175573a86a22c3b562abb60c58ac03259e51851261d506134aa67edf9e7"
+    assert digest == "0f966637f10e01fc874c3f7df2c16244177e19ff295f0ebde5cd28c15650bb77"
 
 
 def test_stamps_schema_for_the_releases_that_carry_one():
@@ -210,6 +213,18 @@ def test_struct_is_closed_and_fully_required():
     assert schema["type"] == "object"
     assert schema["required"] == ["a", "b"]
     assert schema["additionalProperties"] is False
+
+
+def test_struct_named_like_integers_lists_properties_as_a_javascript_object():
+    """The TypeScript twin's document, byte for byte (#1574).
+
+    A JavaScript object lists "2" and "10" first, in numeric order, so the
+    properties do too; ``required`` keeps the struct's order, which both
+    readers take back.
+    """
+    schema = json_schema_for(StructType([("b", IntegerType), ("10", StringType), ("2", FloatType)]))
+    assert schema["required"] == ["b", "10", "2"]
+    assert list(schema["properties"]) == ["2", "10", "b"]
 
 
 def test_variant_pins_each_tag():

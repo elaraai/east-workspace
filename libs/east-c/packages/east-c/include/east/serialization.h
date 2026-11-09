@@ -394,10 +394,13 @@ bool east_beast2_run_sorter_fold_table(const Beast2RunSorter *s, size_t *keys, s
 void east_beast2_run_sorter_free(Beast2RunSorter *s);
 
 // Sequential v5 segment reader over a complete blob (the caller keeps `data`
-// alive and unchanged for the reader's lifetime). next() returns one decoded
-// collection per root segment (caller releases), NULL when done or on error —
-// distinguish with done(). counts() reports the trailing index's totals when
-// present (returns false for index-less blobs).
+// alive and unchanged for the reader's lifetime). new() refuses — NULL, the
+// message posted — a blob whose header names a type that does not read as
+// `type`, as east_beast2_decode_full does: the segments are decoded by
+// `type`'s positions, so a header of another type would be misread. next()
+// returns one decoded collection per root segment (caller releases), NULL when
+// done or on error — distinguish with done(). counts() reports the trailing
+// index's totals when present (returns false for index-less blobs).
 typedef struct Beast2SegmentReader Beast2SegmentReader;
 Beast2SegmentReader *east_beast2_reader_new(const uint8_t *data, size_t len, EastType *type);
 EastValue *east_beast2_reader_next(Beast2SegmentReader *r);
@@ -409,13 +412,13 @@ void east_beast2_reader_free(Beast2SegmentReader *r);
 // Random access over an indexed, self-contained v5 collection blob (the caller
 // keeps `data` alive and unchanged for the pages object's lifetime). new()
 // parses the header + trailing index once, so counts are O(1); it fails when
-// the blob carries no index. segment() seeks to and decodes exactly ONE segment
-// (caller releases the returned collection) and additionally requires
-// self-contained segments — self_contained() reports the flag either way.
-// element() addresses Array roots only: it binary-searches the index and
-// decodes just the owning segment. Both return NULL on failure (message via
-// east_builtin_get_error). counts() borrows the per-segment element (pair)
-// counts, valid until free().
+// the blob carries no index, or — as the sequential reader does — when its
+// header names a type that does not read as `type`. segment() seeks to and decodes exactly ONE
+// segment (caller releases the returned collection) and additionally requires self-contained
+// segments — self_contained() reports the flag either way. element() addresses Array roots only: it
+// binary-searches the index and decodes just the owning segment. Both return NULL on failure
+// (message via east_builtin_get_error). counts() borrows the per-segment element (pair) counts,
+// valid until free().
 typedef struct Beast2Pages Beast2Pages;
 Beast2Pages *east_beast2_pages_new(const uint8_t *data, size_t len, EastType *type);
 size_t east_beast2_pages_segment_count(Beast2Pages *p);
@@ -621,6 +624,8 @@ typedef struct {
 // Random access over a collection held as a manifest: the pager above, with
 // the counts and fences taken from the manifest's entries — so a keyed read
 // opens exactly the segment it lands in — and each segment from `source`. The
+// manifest's own type is checked against `type` at open, and each segment's
+// header as the segment is opened, as a blob's header is. The
 // manifest is retained. The source is taken: its free() runs with the
 // pager's, or at once when this fails (NULL, message posted).
 Beast2Pages *east_beast2_pages_new_manifest(EastValue *manifest, EastType *type,

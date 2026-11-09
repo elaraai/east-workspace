@@ -127,9 +127,7 @@ describe("slice persistence (#168)", () => {
         // `resolution` field (appended last for wire-order compatibility). Read
         // against today's type it must fail CLOSED — a narrowing hydrated
         // from misaligned bytes would be worse than a lost preference.
-        const fields = (Slice.Types.State as unknown as { fields: Record<string, unknown> }).fields;
-        const { resolution: _dropped, ...older } = fields;
-        const OlderState = StructType(older as never);
+        const OlderState = StructType(Object.entries(Slice.Types.State.fields).filter(([name]) => name !== "resolution"));
         const bytes = encodeBeast2For(OlderState as never)({
             range: none, compare: none,
             filters: [eqPred("a")], cohorts: [], activeCohorts: new Set<string>(),

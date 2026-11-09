@@ -894,7 +894,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     // field but its time, its lane and its roles' fields — which the Allocation reads at build, and `buildAllocation` writes.
     const allocationMapped = new Set([startField, endField, ...[resource?.field, arrivalField, quantityField, partsField, holdField, kindField]
         .filter((name): name is string => name !== undefined)]);
-    const allocationValues = StructType(Object.fromEntries(Object.entries(fields).filter(([name]) => !allocationMapped.has(name))));
+    const allocationValues = StructType(Object.entries(fields).filter(([name]) => !allocationMapped.has(name)));
     // The hours a duty counts, reified once and called per row.
     const hoursOf = config.hours === undefined ? undefined : scheduleAccessor(rowType, keyType, FloatType, config.hours,
         (returns) => `${where}: \`hours\` returns a Float, the hours a duty counts — and this one returns ${returns}`);
@@ -909,7 +909,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
 
     // The templates: unique keys, a span kind's duration, and values of the row less what a drop places.
     const placed = new Set([startField, endField, ...(resource === undefined ? [] : [resource.field])]);
-    const valuesType = StructType(Object.fromEntries(Object.entries(fields).filter(([name]) => !placed.has(name))));
+    const valuesType = StructType(Object.entries(fields).filter(([name]) => !placed.has(name)));
     const boundTemplates = config.templates !== undefined && SCHEDULE_TEMPLATES in config.templates
         ? checkedTemplates(config.templates, valuesType, where) : undefined;
     // A templates record's events run as long as each says, or — an instant kind's — are one time (#1344).
@@ -1813,7 +1813,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 const mapped = [startField, endField, who, shift, group, positionField, activityField];
                 const parts = kindParts(once, slot, part, formOver(mapped));
                 // A new duty's own fields, the ones no role maps (#1526): the kind's `values` of what the Roster decided of it.
-                const own = StructType(Object.fromEntries(Object.entries(fields).filter(([name]) => !mapped.includes(name))));
+                const own = StructType(Object.entries(fields).filter(([name]) => !mapped.includes(name)));
                 const valuesOf = scheduleNewValues(ScheduleRosterNewDutyType, rowType, own, config.values, where);
                 const Roles = ScheduleRosterRolesType;
                 // A row with the Roster's roles written from `roles`, the resource field from `value`, and every other field

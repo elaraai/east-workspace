@@ -80,8 +80,9 @@ export type ScheduleStatusCasesType<C extends Record<string, unknown>> = StructT
  */
 export function ScheduleStatusCasesFor<V extends VariantType>(statusType: V): ScheduleStatusCasesType<V["cases"]> {
     if ((statusType as { type: string }).type !== "Variant") throw new Error("Schedule.Types.StatusCases: a status is a variant, one case per status");
+    // A field per case, in the variant's order, as a list: an object would list a case named like an integer first (#1574)
     const cases = Object.keys(statusType.cases);
-    return StructType(Object.fromEntries(cases.map((c) => [c, ScheduleStatusType]))) as unknown as ScheduleStatusCasesType<V["cases"]>;
+    return StructType(cases.map((c) => [c, ScheduleStatusType] as const)) as unknown as ScheduleStatusCasesType<V["cases"]>;
 }
 
 /**

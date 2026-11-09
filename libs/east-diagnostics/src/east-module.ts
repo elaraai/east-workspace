@@ -28,7 +28,8 @@ export interface EastModule {
   DictType(key: unknown, value: unknown): unknown;
   VectorType(element: unknown): unknown;
   MatrixType(element: unknown): unknown;
-  StructType(fields: Record<string, unknown>): unknown;
+  /** A struct of the fields listed, in order: the reifier always lists them (#1574). */
+  StructType(fields: readonly (readonly [string, unknown])[]): unknown;
   VariantType(cases: Record<string, unknown>): unknown;
   FunctionType(inputs: unknown[], output: unknown): unknown;
   AsyncFunctionType(inputs: unknown[], output: unknown): unknown;
@@ -48,6 +49,15 @@ function validate(candidate: unknown): EastModule | null {
   const fns = ["diffTypes", "renderTypeDiff", "StructType", "VariantType", "ArrayType", "RecursiveType", "FunctionType", "TypeUnion"];
   for (const f of fns) if (typeof mod[f] !== "function") return null;
   if (mod["IntegerType"] === undefined) return null;
+  // The reifier lists a struct's fields, which keeps a name like an integer in
+  // its place (#1574): an east from before the list form reads a list as fields
+  // named "0", "1", …, so the rewrite is skipped there.
+  try {
+    const listed = (mod["StructType"] as (fields: unknown) => { fields?: object })([["a", mod["IntegerType"]]]);
+    if (Object.keys(listed.fields ?? {})[0] !== "a") return null;
+  } catch {
+    return null;
+  }
   return mod as unknown as EastModule;
 }
 

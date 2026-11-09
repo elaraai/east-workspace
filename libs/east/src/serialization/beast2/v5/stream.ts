@@ -36,7 +36,7 @@ import { SourceMap } from "../../../location.js";
 import { compareFor } from "../../../comparison.js";
 import { SortedSet } from "../../../containers/sortedset.js";
 import { SortedMap } from "../../../containers/sortedmap.js";
-import { type Beast2DecodeOptions, buildPlatformContext } from "../shared.js";
+import { type Beast2DecodeOptions, buildPlatformContext, checkDecodeType } from "../shared.js";
 import { writeTypeSection, readTypeSection, asTypeValue } from "./type-section.js";
 import { type Beast2Codec, FrameReader, openFramePrefix, writeFrame } from "./frames.js";
 import { framePool, type FramePool, type PendingFrame } from "./frame-pool.js";
@@ -936,12 +936,17 @@ function verifyV5Magic(data: Uint8Array): void {
   }
 }
 
-/** Parses the header of a v5 collection blob for the segment-level readers. */
+/** Parses the header of a v5 collection blob for the segment-level readers,
+ *  refusing one whose type does not read as the type asked for, as a whole
+ *  decode does ({@link checkDecodeType}): the segments are decoded by the
+ *  asked type's positions, so a header of another type — one whose variant
+ *  lists its cases in another order — would be misread rather than read. */
 function openSegmented(data: Uint8Array, typeValue: EastTypeValue): { kind: SegmentedKind; sourceMap: SourceMap; frameOffset: number } {
   verifyV5Magic(data);
   const kind = checkSegmented(typeValue);
   const reader = new BufferReader(data, MAGIC_BYTES_V5.length);
-  readTypeSection(reader);
+  const { rootType } = readTypeSection(reader);
+  checkDecodeType(rootType, typeValue);
   const sourceMap = readSourceMapSectionV5(reader);
   return { kind, sourceMap, frameOffset: reader.offset };
 }
@@ -1015,7 +1020,9 @@ function buildSegmentDecoder(typeValue: EastTypeValue, kind: SegmentedKind): (re
  *
  * @param type - the collection type (Array/Set/Dict)
  * @param options - decode options (platform functions for decoded functions)
- * @returns a function returning a generator over decoded segments
+ * @returns a function returning a generator over decoded segments, which
+ *   throws before the first when the blob's header names a type that does not
+ *   read as `type`, as a whole decode refuses it
  * @throws {TypeError} When `type` is not an Array, Set or Dict type.
  */
 export function iterBeast2SegmentsFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2DecodeOptions): (data: Uint8Array) => Generator<ValueTypeOf<T>> {
@@ -1233,9 +1240,11 @@ export class Beast2Pages<T extends EastType = EastType> {
     if (isBeast2ManifestSource(source)) {
       // A manifest names its segments; there is no one blob to take geometry
       // from. Counts and fences come from the entries, and a segment is its
-      // own blob — so no offset in this index is ever read, and the header
-      // (with it the source map) is parsed from the first segment opened.
+      // own blob — so no offset in this index is ever read, and each
+      // segment's header is checked as it is read (the first one's source map
+      // kept). The manifest's own type is checked here, as a header's is.
       kind = checkSegmented(typeValue);
+      checkDecodeType(source.manifest.type, typeValue);
       sourceMap = new SourceMap();
       const entries = source.manifest.entries;
       index = {
@@ -1352,8 +1361,9 @@ export class Beast2Pages<T extends EastType = EastType> {
   }
 
   /** Segment `i`'s frame out of its own standalone blob: the blob's geometry
-   *  names exactly one frame, and its header carries the source map every
-   *  segment of this collection shares. */
+   *  names exactly one frame, and its header — checked against the type asked
+   *  for, as every segment's is — carries the source map every segment of
+   *  this collection shares. */
   private manifestFrameReader(i: number): BufferReader {
     const blob = this.manifestSource!.segment(i);
     const reader = isBeast2SyncRangeReader(blob) ? blob : bytesReader(blob);
@@ -1361,8 +1371,9 @@ export class Beast2Pages<T extends EastType = EastType> {
     if (extents.offsets.length !== 1) {
       throw new Error(`beast2 v5: manifest entry ${i} holds ${extents.offsets.length} segments, not one`);
     }
+    const opened = openSegmented(extents.head, this.typeValue);
     if (this.sourceMap.size <= 1n) {
-      this.sourceMap = openSegmented(extents.head, this.typeValue).sourceMap;
+      this.sourceMap = opened.sourceMap;
     }
     const start = extents.offsets[0]!;
     return new FrameReader(readExact(reader, start, extents.segmentsEnd - start), 0).next();
@@ -1843,7 +1854,10 @@ export class Beast2Pages<T extends EastType = EastType> {
  * @param options - decode options (platform functions for decoded functions),
  *   and the decoded weight the reader's cache keeps (`cacheBytes`)
  * @returns a function opening a blob for paged reads, which throws a
- *   `TypeError` when `cacheBytes` is negative or not a number
+ *   `TypeError` when `cacheBytes` is negative or not a number, and an `Error`
+ *   when the blob's header — a manifest's type, and each of its segments'
+ *   headers as it is read — names a type that does not read as `type`, as a
+ *   whole decode refuses it
  * @throws {TypeError} When `type` is not an Array, Set or Dict type.
  */
 export function openBeast2PagesFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2PagesOptions): (source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource) => Beast2Pages<T> {

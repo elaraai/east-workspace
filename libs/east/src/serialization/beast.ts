@@ -14,6 +14,7 @@ import { isVariant, variant } from "../containers/variant.js";
 import { EastTypeValueType, toEastTypeValue, type EastTypeValue } from "../type_of_type.js";
 import { printFor } from "./east.js";
 import { equalFor } from "../comparison.js";
+import { compareStrings } from "../string_order.js";
 
 const printTypeValue = printFor(EastTypeValueType) as (type: EastTypeValue) => string;
 const isTypeValueEqual = equalFor(EastTypeValueType) as (t1: EastTypeValue, t2: EastTypeValue) => boolean;
@@ -68,7 +69,8 @@ export const BEAST_BYTE_TO_TYPE = [
 
 /**
  * Normalize a Beast-decoded type to standard East ordering.
- * Sorts variant cases alphabetically by name, matching East's canonical type representation.
+ * Sorts variant cases by name, as East orders strings — by code point
+ * (`compareStrings`, east-workspace#1574) — matching East's canonical type representation.
  * Only used for type comparison in Beast decoding - the original ordering is preserved
  * for value decoding (to match byte layout).
  */
@@ -92,7 +94,7 @@ function _normalizeBeastType(type: EastTypeValue): EastTypeValue {
     })));
   } else if (t === "Variant") {
     // Sort cases by name and normalize their types
-    const sortedCases = [...type.value].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    const sortedCases = [...type.value].sort((a, b) => compareStrings(a.name, b.name));
     return variant("Variant", sortedCases.map(c => ({
       name: c.name,
       type: _normalizeBeastType(c.type),

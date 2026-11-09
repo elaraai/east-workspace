@@ -199,7 +199,7 @@ function columnField(name: string, meta: SheetColumnMeta, hint: AnyHint | undefi
             throw new Error(`Sheet: \`${where}.${name}\` gives its field an editor, but its column ${reason} — hint it Sheet.field.readonly() or Sheet.field.hidden(), or give it a label or help alone`);
         }
         // The hint's editor, checked against the field's type as Fields checks it, and a select's set against the registers.
-        editor = fieldSpecs(StructType({ [name]: meta.fieldType }), { [name]: hint } as never)[0]!.editor;
+        editor = fieldSpecs(StructType([[name, meta.fieldType]]), { [name]: hint } as never)[0]!.editor;
         checkReference(editor, `${where}.${name}`, registers);
     }
     return East.value({

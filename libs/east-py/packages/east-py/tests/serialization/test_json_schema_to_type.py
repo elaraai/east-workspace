@@ -95,6 +95,8 @@ CORPUS = [
     ("optionRecursive", option(RECURSIVE_TYPE)),
     ("chain", CHAIN_TYPE),
     ("optionChain", option(CHAIN_TYPE)),
+    # Fields named like integers keep their order through `required` (#1574)
+    ("integerNamed", StructType([("b", IntegerType), ("10", StringType), ("2", FloatType)])),
 ]
 
 
@@ -164,6 +166,33 @@ def test_maps_a_closed_fully_required_object_to_a_struct():
         }
     )
     assert built == StructType([("a", StringType), ("b", IntegerType)])
+
+
+def test_reads_fields_in_required_order_where_one_is_named_like_an_integer():
+    """The TypeScript twin's reading, so both agree (#1574).
+
+    A JavaScript parser lists "10" first whatever the document's order, so where
+    a property is named like an integer the order is ``required``'s; with none,
+    the document's order stands, whatever ``required``'s.
+    """
+    named = type_from_json_schema(
+        {
+            "type": "object",
+            "properties": {"10": {"type": "string"}, "b": {"type": "integer"}},
+            "required": ["b", "10"],
+            "additionalProperties": False,
+        }
+    )
+    assert named == StructType([("b", IntegerType), ("10", StringType)])
+    plain = type_from_json_schema(
+        {
+            "type": "object",
+            "properties": {"a": {"type": "string"}, "b": {"type": "integer"}},
+            "required": ["b", "a"],
+            "additionalProperties": False,
+        }
+    )
+    assert plain == StructType([("a", StringType), ("b", IntegerType)])
 
 
 @pytest.mark.parametrize(

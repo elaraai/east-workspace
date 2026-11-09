@@ -222,6 +222,13 @@ interface Context {
  * null — `Null`, or an Option, however the document spells it — is left as
  * it is.
  *
+ * A struct's fields are in the document's `properties` order — save where a
+ * property is named like an integer (`"200"`), which a JavaScript parser lists
+ * before every other whatever the document's order: then they are in
+ * `required`'s order, an array's, which {@link jsonSchemaFor} writes in the
+ * struct's order, so such a struct round-trips. The python twin reads both
+ * the same way.
+ *
  * Definitions are resolved through `$defs` or `definitions`, whichever the
  * document uses. Cycles among definitions become `RecursiveType`s, one per
  * cycle group: `Node → NodeList → Node`, the ordinary way a recursive schema is
@@ -525,10 +532,10 @@ function buildStruct(node: JsonSchema, ctx: Context, path: string[]): EastType {
   const requiredNames = new Set<string>(
     Array.isArray(required) ? required.filter((r): r is string => typeof r === "string") : []);
 
-  // Names come from the document, so the accumulator must have no prototype:
-  // assigning "__proto__" on a plain object sets the prototype instead of a
-  // field, silently dropping it. The python twin uses a list of pairs.
-  const fields: Record<string, EastType> = Object.create(null) as Record<string, EastType>;
+  // Names come from the document, so the fields are a list of pairs, as the
+  // python twin's are: a plain object would set its prototype for a field
+  // named "__proto__", and list a name like an integer first (#1574).
+  const fields: [string, EastType][] = [];
   for (const [name, value] of Object.entries(props)) {
     if (!requiredNames.has(name)) {
       fail(
@@ -536,11 +543,33 @@ function buildStruct(node: JsonSchema, ctx: Context, path: string[]): EastType {
         "structs have no absent field; model it as an Option",
         [...path, "properties", name]);
     }
-    fields[name] = build(
+    fields.push([name, build(
       asSchema(value, [...path, "properties", name], `property "${name}"`),
-      ctx, [...path, "properties", name]);
+      ctx, [...path, "properties", name])]);
+  }
+  // A struct's fields are in the document's order. A JavaScript parser lists
+  // a property named like an integer ("200") before every other, whatever the
+  // document's order, so where one is, the order is `required`'s: an array,
+  // whose order every parser keeps, and which jsonSchemaFor writes in the
+  // struct's order. The python twin reads it the same way.
+  if (Array.isArray(required) && fields.some(([name]) => isArrayIndex(name))) {
+    const at = new Map<string, number>();
+    required.forEach((name, i) => {
+      if (typeof name === "string" && !at.has(name)) at.set(name, i);
+    });
+    fields.sort((a, b) => at.get(a[0])! - at.get(b[0])!);
   }
   return StructType(fields);
+}
+
+/**
+ * Whether a name is an array index — the canonical decimal of an integer
+ * from 0 to 2^32 − 2 — which a JavaScript object lists before every other
+ * name, in numeric order, whatever order it was written in (`StructType`
+ * tells one the same way).
+ */
+function isArrayIndex(name: string): boolean {
+  return /^(?:0|[1-9][0-9]{0,9})$/.test(name) && Number(name) <= 4294967294;
 }
 
 /** The constant tag an alternative pins, or null when it pins none. */

@@ -84,8 +84,11 @@ const RESERVATION_FIELDS = StructType({ key: StringType });
 const NO_EDIT = () => {};
 /** A part's field (A71): its quantity, an Option so its Clear unlinks it. */
 const PART = OptionType(FloatType);
-/** A bin's parts as a struct: a field per part, named by its resource's key, as the bin's parts are keyed — the key the shared field shows. */
-const partsType = (keys: readonly string[]) => StructType(Object.fromEntries(keys.map(key => [key, PART])));
+/**
+ * A bin's parts as a struct: a field per part, named by its resource's key, as the bin's parts are keyed — the key the
+ * shared field shows — in the parts' order, as a list: an object would list a key like an integer first (#1574).
+ */
+const partsType = (keys: readonly string[]) => StructType(keys.map(key => [key, PART] as const));
 
 /**
  * A refusal holding Save (#1525), as the board says it: the app's `ready` refusing a drafted bin, named by its code —

@@ -191,7 +191,7 @@ test("a field named `area`, `__area`, `tile` or `__tile` is offered, chosen and 
             return some(value === printString("a") ? { found: true, row: 0n, count: held } : { found: true, row: held, count: 10n });
         },
     };
-    const Row = StructType(Object.fromEntries(names.map(name => [name, StringType])));
+    const Row = StructType(names.map(name => [name, StringType] as const));
     let current = decodeBeast2For(RecordSliceStateType)(encodeBeast2For(RecordSliceStateType)({ where: new Map(), preset: none, resolution: none }));
     const controller = new RecordSliceController(binding, config, Row, () => current, next => { current = next; });
     for (const [i, name] of names.entries()) {

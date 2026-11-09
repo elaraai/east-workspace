@@ -570,7 +570,7 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
         const outputEast = fromEastTypeValue(sig.output);
         // Bundle the N positional call-args into one struct so a single
         // fixed-arity primitive can carry them (call is otherwise variadic).
-        const ArgsStruct = StructType(Object.fromEntries(inputsEast.map((t, i) => [`arg${i}`, t])));
+        const ArgsStruct = StructType(inputsEast.map((t, i): readonly [string, EastType] => [`arg${i}`, t]));
         const nameExpr = East.value(name, StringType);
         const platform = this.buildPrimitives();
         const { call, read, status, error, pending, cancel } = FuncBindPrimitives;

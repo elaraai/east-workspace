@@ -1418,10 +1418,8 @@ export type SheetFieldsOf<R extends StructType> = R["fields"];
  * @returns The concrete patch `StructType`
  */
 export function SheetPatchTypeFor<R extends StructType>(rowType: R): StructType<{ [K in keyof SheetFieldsOf<R>]: OptionType<SheetFieldsOf<R>[K]> }> {
-    const fields: Record<string, EastType> = {};
-    for (const [name, type] of Object.entries(rowType.fields as Record<string, EastType>)) {
-        fields[name] = OptionType(type);
-    }
+    // The row's fields in its order, as a list: an object would list a field named like an integer first (#1574)
+    const fields = Object.entries(rowType.fields as Record<string, EastType>).map(([name, type]) => [name, OptionType(type)] as const);
     return StructType(fields) as unknown as StructType<{ [K in keyof SheetFieldsOf<R>]: OptionType<SheetFieldsOf<R>[K]> }>;
 }
 
