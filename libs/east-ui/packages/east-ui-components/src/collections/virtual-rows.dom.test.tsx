@@ -1023,6 +1023,98 @@ describe("VirtualRows — a row out of the layout keeps its size (#1389)", () =>
     });
 });
 
+describe("VirtualRows — a horizontal scrollbar is no view", () => {
+    // The frame's scrollport is a bar shorter than its 200px box — the classic bar Chromium draws at its foot wherever
+    // the rows run wider than the view. The frame's writes land on scrollTop, and it scrolls as far as its rows reach,
+    // as a browser's does; each ResizeObserver hears a box change when the test says the page laid it out again.
+    const BAR = 12;
+    let view = 200 - BAR;
+    const proto = HTMLElement.prototype as unknown as { scrollTo?: (options: ScrollToOptions) => void };
+    const realScrollTo = proto.scrollTo;
+    const realClientHeight = Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight")!;
+    const realScrollHeight = Object.getOwnPropertyDescriptor(Element.prototype, "scrollHeight")!;
+    const realRO = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    const observers: { cb: ResizeObserverCallback; targets: Set<Element>; self: ResizeObserver }[] = [];
+    beforeEach(() => {
+        view = 200 - BAR;
+        observers.length = 0;
+        proto.scrollTo = function (this: HTMLElement, options: ScrollToOptions) {
+            if (options.top !== undefined) this.scrollTop = options.top;
+        };
+        Object.defineProperty(Element.prototype, "clientHeight", {
+            configurable: true,
+            get(this: Element) { return this.hasAttribute("data-virtual-rows") ? view : realClientHeight.get!.call(this) as number; },
+        });
+        Object.defineProperty(Element.prototype, "scrollHeight", {
+            configurable: true,
+            get(this: Element) { return Number(this.querySelector("[data-virtual-extent]")?.getAttribute("data-virtual-extent") ?? 0); },
+        });
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+            private readonly entry: { cb: ResizeObserverCallback; targets: Set<Element>; self: ResizeObserver };
+            constructor(cb: ResizeObserverCallback) {
+                this.entry = { cb, targets: new Set(), self: this as unknown as ResizeObserver };
+                observers.push(this.entry);
+            }
+            observe(target: Element) { this.entry.targets.add(target); }
+            unobserve(target: Element) { this.entry.targets.delete(target); }
+            disconnect() { this.entry.targets.clear(); }
+        };
+    });
+    afterEach(() => {
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = realRO;
+        Object.defineProperty(Element.prototype, "clientHeight", realClientHeight);
+        Object.defineProperty(Element.prototype, "scrollHeight", realScrollHeight);
+        if (realScrollTo === undefined) delete proto.scrollTo;
+        else proto.scrollTo = realScrollTo;
+    });
+
+    const ROWS = Array.from({ length: 20 }, (_u, i) => `r${i}`);
+    const frame = (asked: { scrollToIndex?: number; scrollAlign?: "auto" | "end" } = {}) => (
+        <ChakraProvider value={system}>
+            <VirtualRows height="200px" maxHeight={undefined} count={ROWS.length} sizes={ROWS.map(() => ROW_H)} measureRows={false}
+                overscan={2} getItemKey={(i) => ROWS[i]!} scrollToIndex={asked.scrollToIndex} scrollAlign={asked.scrollAlign}
+                renderRow={(i) => <div data-key={ROWS[i]}>{ROWS[i]}</div>} />
+        </ChakraProvider>
+    );
+    /** Scroll the frame and let the virtualizer read it. */
+    const scrollTo = (container: HTMLElement, px: number) => {
+        const scrollEl = container.querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
+        scrollEl.scrollTop = px;
+        fireEvent.scroll(scrollEl);
+        return scrollEl;
+    };
+
+    test.each([
+        // The last row ends 6px under the bar: its box counted as view, it was in view, and nothing scrolled.
+        ["auto", 19, 446],
+        // Row 6 brought to the view's foot: its box counted as view, it stopped under the bar.
+        ["end", 6, 0],
+    ] as const)("a request aligned %s brings its row wholly above the bar, however little of it the bar covers", (align, index, from) => {
+        const { container, rerender } = render(frame());
+        const scrollEl = scrollTo(container, from);
+        rerender(frame({ scrollToIndex: index, scrollAlign: align }));
+        const bottom = (index + 1) * ROW_H;
+        expect(scrollEl.scrollTop).toBe(bottom - view);
+        expect(bottom - scrollEl.scrollTop).toBeLessThanOrEqual(view);
+    });
+
+    test("the bar coming as the rows widen — the rows' box laid out again, the frame's own box as it was — is no view either", () => {
+        view = 200;
+        const { container, rerender } = render(frame());
+        const scrollEl = scrollTo(container, 446);
+        // The rows run wider than the view: the bar comes, and the page lays out the rows' box, not the frame's.
+        view = 200 - BAR;
+        const rows = container.querySelector("[data-virtual-extent]")!;
+        act(() => {
+            for (const { cb, targets, self } of observers) {
+                if (targets.has(rows)) cb([{ target: rows } as unknown as ResizeObserverEntry], self);
+            }
+        });
+        rerender(frame({ scrollToIndex: 19, scrollAlign: "auto" }));
+        expect(scrollEl.scrollTop).toBe(20 * ROW_H - view);
+    });
+});
+
 describe("VirtualRows — what moves its rows (#856)", () => {
     test("bounded, its scroll element both ways; unbounded at scale, its root and the ancestor it watches; below scale, its root alone; each change once, and null once unmounted", () => {
         const seen: (RowsViewport | null)[] = [];

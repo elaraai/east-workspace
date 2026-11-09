@@ -29,7 +29,9 @@
  *   parsed height / maxHeight (reserved-gutter scrollbar via
  *   {@link virtualScrollbarCss}); the header pins (`position: sticky`, opaque
  *   `bg.surface` so rows never paint through it) and only the visible rows
- *   (+ overscan) are mounted, positioned by `translateY`.
+ *   (+ overscan) are mounted, positioned by `translateY`. Its view is its
+ *   scrollport ({@link observeScrollport}): a horizontal scrollbar the rows
+ *   run under is no view, so a row a request brings in ends above it.
  *
  * The bounded virtualizer's window is measured from the scroll element's
  * origin, but the rows start BELOW the in-flow sticky header — `scrollMargin`
@@ -687,6 +689,44 @@ export function observeOffsetWithin<T extends HTMLElement | Window>(
 }
 
 /**
+ * A bounded frame's view, as its virtualizer measures it: the scrollport —
+ * `clientWidth` and `clientHeight` — or its box where the page lays nothing
+ * out (a test's stubbed box). TanStack's own observer measures the border
+ * box, which counts a horizontal scrollbar the rows run under as view: a row
+ * a request brought in to the view's foot stopped under the bar, and an
+ * `auto` request took a row there for one in view and scrolled nothing. The
+ * bar comes and goes as the rows widen, the frame's own box unchanged, so the
+ * rows' box is watched beside the frame's; a change that leaves the scrollport
+ * as it was reports nothing.
+ *
+ * @param rows - The element that holds the rows
+ * @returns The virtualizer's `observeElementRect`
+ */
+function observeScrollport(rows: RefObject<HTMLElement | null>) {
+    return (instance: Virtualizer<HTMLElement, Element>, cb: (rect: { width: number; height: number }) => void): (() => void) | undefined => {
+        const el = instance.scrollElement;
+        const win = instance.targetWindow;
+        if (el === null || win === null) return undefined;
+        let seen: { width: number; height: number } | undefined;
+        const report = () => {
+            const rect = {
+                width: el.clientWidth > 0 ? el.clientWidth : el.offsetWidth,
+                height: el.clientHeight > 0 ? el.clientHeight : el.offsetHeight,
+            };
+            if (seen !== undefined && seen.width === rect.width && seen.height === rect.height) return;
+            seen = rect;
+            cb(rect);
+        };
+        report();
+        if (win.ResizeObserver === undefined) return () => {};
+        const observer = new win.ResizeObserver(report);
+        observer.observe(el);
+        if (rows.current !== null) observer.observe(rows.current);
+        return () => observer.disconnect();
+    };
+}
+
+/**
  * The unbounded frame's `scrollToFn`: an offset into the ROWS becomes the
  * ancestor's own scroll position. Asking for where it already is — the virtualizer
  * re-syncing as it subscribes — scrolls nothing, so mounting a canvas never
@@ -1014,6 +1054,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         ...(bounded ? {
             observeElementOffset: (instance: Virtualizer<HTMLElement, Element>, cb: OffsetReport) =>
                 reporting(cb, observeElementOffset(instance, intent.wrap(cb, () => instance.scrollRect?.height ?? 0))),
+            observeElementRect: observeScrollport(itemsRef),
         } : {
             observeElementOffset: (instance: Virtualizer<HTMLElement, Element>, cb: OffsetReport) =>
                 reporting(cb, observeOffsetWithin<HTMLElement>(itemsRef, resample)(instance, intent.wrap(cb, () => instance.scrollRect?.height ?? 0))),
