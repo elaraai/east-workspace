@@ -18,7 +18,7 @@
  *     where its columns are narrower; the header row as tall as a row, its
  *     labels mono 10/600 at 0.1em, one line.
  *   - Select column: 46 wide, a 14 checkbox at radius 3, `brand.solid` once
- *     ticked.
+ *     ticked; the pointer over the whole cell, which ticks.
  *   - Rows: `bg.surface`, `bg.canvas` under the pointer, `bg.subtle` selected
  *     or ticked; a draft row the warn wash at 8%, unchanged on hover. A cell
  *     that steps (a cycle, a toggle, a boolean) `bg.subtle` under the pointer;
@@ -194,8 +194,12 @@ export const recordSlotRecipe = defineSlotRecipe({
         headerCell: {
             minWidth: "0", display: "flex", alignItems: "center", justifyContent: "flex-start", color: "fg.subtle", cursor: "default",
             ...CELL_PAD,
-            /* The select column's box stays at the left as the columns scroll sideways under it. */
-            "&[data-tick]": { cursor: "pointer", paddingInlineEnd: "12px", position: "sticky", left: "0", zIndex: "1", background: "bg.surface" },
+            /* The select column's box stays at the left as the columns scroll sideways under it; the whole cell ticks while it draws
+               its box, the pointer over it only then. */
+            "&[data-tick]": {
+                paddingInlineEnd: "12px", position: "sticky", left: "0", zIndex: "1", background: "bg.surface",
+                "&:has(> [role=checkbox])": { cursor: "pointer" },
+            },
             /* On a phone each column's start is a place the window comes to rest — past the pinned column, which stays at the left. */
             "[data-phone] &": { scrollSnapAlign: "start" },
             "&[data-pinned]": { ...PINNED_EDGE, position: "sticky", left: "0", zIndex: "2", background: "bg.surface", scrollSnapAlign: "none" },

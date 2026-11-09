@@ -33,7 +33,8 @@
  * - **The empty state** — the narrowing leaves no row to show: it says so,
  *   and clears the search, or the filters.
  *
- * A tick never moves the ring, and the ring never ticks. The select column
+ * A press anywhere in the select column's cell ticks, not only on its box. A
+ * tick never moves the ring, and the ring never ticks. The select column
  * stays at the left as the columns scroll sideways; a read-only Record has
  * none.
  *
@@ -186,13 +187,14 @@ export const RecordRow = memo(function RecordRow(props: SheetHostRowProps) {
             aria-selected={selC !== undefined || ticked}
         >
             {lead && (
-                <Box css={styles.cell} data-pick="" data-first="" role="gridcell" aria-colindex={1}>
+                // The whole cell ticks, its box the checkbox a screen reader names; a press leaves the keyboard where it is.
+                <Box css={styles.cell} data-pick="" data-first="" role="gridcell" aria-colindex={1}
+                    onMouseDown={row !== undefined ? (event) => { event.preventDefault(); event.stopPropagation(); } : undefined}
+                    onClick={row !== undefined ? (event) => { event.stopPropagation(); ticks.toggle(row.id); } : undefined}>
                     {row !== undefined && (
                         // Out of the tab order, as every control in the grid is: the grid is one tab stop.
                         <chakra.button type="button" css={styles.tick} tabIndex={-1} role="checkbox" aria-checked={ticked}
-                            aria-label={m.tickRow({ name, ticked })} title={m.tickRow({ name, ticked })} data-on={ticked ? "" : undefined}
-                            onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
-                            onClick={(event) => { event.stopPropagation(); ticks.toggle(row.id); }}>
+                            aria-label={m.tickRow({ name, ticked })} title={m.tickRow({ name, ticked })} data-on={ticked ? "" : undefined}>
                             {ticked && <FontAwesomeIcon icon={faCheck} />}
                         </chakra.button>
                     )}
@@ -373,12 +375,13 @@ export function RecordHeader({ columns, gridTemplate, layout, rowPx, rowIds, who
             )}
             <Box css={styles.headerRow} style={{ gridTemplateColumns: gridTemplate, height: `${rowPx}px` }} data-slot="headerRow" role="row" aria-rowindex={1}>
                 {lead && (
-                    <Box css={styles.headerCell} data-tick="" data-first="" role="columnheader" aria-colindex={1}>
+                    // While it draws its box, the whole cell ticks every row shown, or unticks them.
+                    <Box css={styles.headerCell} data-tick="" data-first="" role="columnheader" aria-colindex={1}
+                        onMouseDown={whole ? (event) => { event.preventDefault(); event.stopPropagation(); } : undefined}
+                        onClick={whole ? () => { if (all) ticks.clear(); else ticks.set(rowIds); } : undefined}>
                         {whole && (
                             <chakra.button type="button" css={styles.tick} tabIndex={-1} role="checkbox" aria-checked={all ? true : some ? "mixed" : false}
-                                aria-label={m.tickAll({ all })} title={m.tickAll({ all })} data-on={all ? "" : undefined} data-mixed={some ? "" : undefined}
-                                onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
-                                onClick={() => { if (all) ticks.clear(); else ticks.set(rowIds); }}>
+                                aria-label={m.tickAll({ all })} title={m.tickAll({ all })} data-on={all ? "" : undefined} data-mixed={some ? "" : undefined}>
                                 {all ? <FontAwesomeIcon icon={faCheck} /> : some ? <FontAwesomeIcon icon={faMinus} /> : null}
                             </chakra.button>
                         )}

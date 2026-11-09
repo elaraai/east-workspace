@@ -521,6 +521,24 @@ describe("the pointer", () => {
         expect(rows(container)[2]!.hasAttribute("data-ticked")).toBe(true);
     });
 
+    test("a press anywhere in the select column's cell ticks its row, and anywhere in the header's every row shown — not only on the box; the box once, the ring where it was (SL1)", async () => {
+        const { container } = await h.mount(ex.recordBasic, { storageKey: "record-tick-cell" });
+        const pick = (r: number) => rows(container)[r]!.querySelector<HTMLElement>("[data-pick]")!;
+        const head = () => container.querySelector<HTMLElement>("[data-record] [data-tick]")!;
+        await press(pick(1));
+        expect(ticked(container)).toEqual(["C-002"]);
+        expect(active(container)).toBeNull();
+        await press(pick(1));
+        expect(ticked(container)).toEqual([]);
+        // A press on the box ticks once, not once for the box and again for its cell.
+        await press(tick(container, 1));
+        expect(ticked(container)).toEqual(["C-002"]);
+        await press(head());
+        expect(ticked(container)).toEqual(["C-001", "C-002", "C-003"]);
+        await press(head());
+        expect(ticked(container)).toEqual([]);
+    });
+
     test("a narrowing the Record has not read whole — its rows read near the view — has no tick-all, only each row's box; read whole, it has (#1579, SL1)", async () => {
         const all = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-record] [data-tick] [role="checkbox"]');
         // Seven hundred people: the Record reads the first six hundred.
