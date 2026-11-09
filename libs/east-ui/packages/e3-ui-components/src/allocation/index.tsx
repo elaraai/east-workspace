@@ -518,8 +518,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     };
     /** A session's issue's place: a bin by its arrival and its slot, a day's row by its key. */
     const where = (kind: string) => (issue: { entry: string }) => {
-        if (kind === PERIODS) return issue.entry;
-        const bin = plan.bins.get(issue.entry) ?? held.bins.get(issue.entry) ?? elsewhere(issue.entry);
+        const bin = binOf(kind, issue.entry)?.bin;
         return bin === undefined ? issue.entry : `${binCode(context, bin, nouns)} · ${value.lanes.find(l => l.key === bin.lane)?.label ?? bin.lane} ${formatDatePattern("HH:mm", bin.at)}`;
     };
     // A conflict's item in the history bar's popover, named as its session's banners name its issues.
@@ -545,11 +544,19 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         setGoing(undefined);
         inspect({ type: "bin", id: going.id });
     }, [going, dayEpoch, current, inspect]);
-    /** A bin of a session's: on the day in view (`here`), else on its own day, as its draft places it; `undefined` for neither. */
+    /**
+     * A bin of a session's, where its draft places it: on the day in view (`here`), else on its own day — a bin its draft
+     * moved off the day is named, and gone to, where it now stands. One its draft removes, or holds where the board can't
+     * read it, is where the record holds it. `undefined` for none of these.
+     */
     const binOf = (kind: string | undefined, entry: string): { readonly bin: Bin; readonly here: boolean } | undefined => {
         if (kind === undefined || keyEqual(kind, PERIODS)) return undefined;
-        const here = plan.bins.get(entry) ?? held.bins.get(entry);
+        const here = plan.bins.get(entry);
         if (here !== undefined) return { bin: here, here: true };
+        const moved = editing?.bins.get(entry) === undefined ? undefined : elsewhere(entry);
+        if (moved !== undefined) return { bin: moved, here: false };
+        const stored = held.bins.get(entry);
+        if (stored !== undefined) return { bin: stored, here: true };
         const there = elsewhere(entry);
         return there === undefined ? undefined : { bin: there, here: false };
     };

@@ -4,7 +4,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { waitFor, within } from "@testing-library/react";
+import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { equalFor, none, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
@@ -157,6 +157,31 @@ describe('Roster shared and custom forms', () => {
         const details = () => end().querySelector('[data-roster-inspector="details"]');
         await waitFor(() => expect(details()?.querySelector('[data-roster-refusals]')).not.toBeNull());
         expect(details()?.querySelector('[data-inspector-title]')?.textContent).toBe('C. Clover');
+    });
+    test("a refusal of a duty its draft moved into the next week is named by its new day, and pressed shows it there, selected, the refusal over its form (#1584)", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse); const user = userEvent.setup();
+        const toolbar = () => within(slot(container, 'toolbar'));
+        const end = () => slot(container, 'end');
+        // A. Alder's Saturday early, its cost centre cleared: the warehouse's check on a draft refuses it.
+        await press(toolbar().getByRole('radio', { name: 'Sat' }));
+        await press(assignment(container, 's4'));
+        const costCentre = within(end().querySelector<HTMLElement>('[data-field="costCentre"]')!).getByRole('textbox');
+        await user.clear(costCentre); await user.type(costCentre, '{Enter}'); await settle();
+        // Its end on to 11 PM, then its start to 6 PM, twelve hours past its shift's: its day is the next, Sunday, the next week's first.
+        const segment = (field: string, name: string) => within(end().querySelector<HTMLElement>(`[data-field="${field}"]`)!).getAllByRole('spinbutton')
+            .find(s => s.getAttribute('aria-label')?.startsWith(name))!;
+        for (let i = 0; i < 9; i++) { await act(async () => { fireEvent.keyDown(segment('end', 'hour'), { key: 'ArrowUp' }); }); await settle(); }
+        await act(async () => { fireEvent.focusOut(segment('end', 'hour')); }); await settle();
+        await act(async () => { fireEvent.keyDown(segment('start', 'AM/PM'), { key: 'ArrowUp' }); }); await settle();
+        await act(async () => { fireEvent.focusOut(segment('start', 'AM/PM')); }); await settle();
+        await press(within(end()).getByRole('tab', { name: /^Issues/ }));
+        const line = end().querySelector('[data-roster-issue="refusal"] button');
+        expect(line?.textContent).toBe('A. Alder · Sun, Mar 12, 2028 · Early');
+        await press(line);
+        expect(toolbar().getByRole('radio', { name: 'Sun' }).getAttribute('aria-checked')).toBe('true');
+        const details = () => end().querySelector('[data-roster-inspector="details"]');
+        await waitFor(() => expect(details()?.querySelector('[data-roster-refusals]')).not.toBeNull());
+        expect(assignment(container, 's4').hasAttribute('data-selected')).toBe(true);
     });
     test('live configuration and suggestions refresh without replacing a pending duty', async () => {
         const { container } = await h.mount(ex.rosterWarehouse);

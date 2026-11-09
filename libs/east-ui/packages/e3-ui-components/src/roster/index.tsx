@@ -396,9 +396,8 @@ function RosterFrame(props: FrameProps) {
     };
     /** A session's issue's place: a duty by whose it is, a week's or a target's row as it stands. */
     const where = (kind: string) => (issue: { entry: string }) => {
-        if (kind !== source.duty.kind.key) return issue.entry;
-        const a = week.assignments.get(issue.entry) ?? held.assignments.get(issue.entry) ?? elsewhere(issue.entry)?.a;
-        return a === undefined ? issue.entry : assignmentName(value, a);
+        const found = dutyOf(kind, issue.entry);
+        return found === undefined ? issue.entry : assignmentName(value, found.a);
     };
     // A conflict's item in the history bar's popover, named as its session's banners name its issues.
     const historyWhere = (issue: EditIssue) => {
@@ -416,11 +415,19 @@ function RosterFrame(props: FrameProps) {
         setGoing(undefined);
         select({ type: "assignment", key: going.key });
     }, [going, span, current, select]);
-    /** A duty of a session's: in the week in view, else in its own week (`there`), as its draft places it; `undefined` for neither. */
+    /**
+     * A duty of a session's, where its draft places it: in the week in view, else in its own week (`there`) — a duty its
+     * draft moved out of the week is named, and gone to, where it now stands. One its draft removes, or holds where the
+     * Roster can't place it, is where the record holds it. `undefined` for none of these.
+     */
     const dutyOf = (kind: string | undefined, entry: string): { readonly a: Assignment; readonly there: ReturnType<typeof elsewhere> } | undefined => {
         if (kind === undefined || !keyEqual(kind, dutyKind)) return undefined;
-        const here = week.assignments.get(entry) ?? held.assignments.get(entry);
+        const here = week.assignments.get(entry);
         if (here !== undefined) return { a: here, there: undefined };
+        const moved = dutyDrafts.get(entry) === undefined ? undefined : elsewhere(entry);
+        if (moved !== undefined) return { a: moved.a, there: moved };
+        const stored = held.assignments.get(entry);
+        if (stored !== undefined) return { a: stored, there: undefined };
         const there = elsewhere(entry);
         return there === undefined ? undefined : { a: there.a, there };
     };
