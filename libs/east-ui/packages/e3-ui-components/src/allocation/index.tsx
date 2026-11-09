@@ -38,13 +38,14 @@ import {
     useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState, useSliceReactivity, useTrackedEvaluation, type BuilderFramePanes, type EditIssue,
     type FieldBreach, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal, formatDatePattern, keptRead } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, formatDatePattern, keptRead, useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { rowBreaches } from "../shared/bounds.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
 import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
+import { useClassesAhead, useMoveGhostClasses } from "../shared/schedule/move-ghost.js";
 import { madeFromValues, publishPeriod } from "../shared/schedule/records.js";
 import { refusalText, scheduleRefusals } from "../shared/schedule/refusals.js";
 import { readRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
@@ -87,6 +88,10 @@ import { useAllocationWindow, type AllocationWindow } from "./window.js";
 const readTab = keptRead.record<{ tab: string }>({ tab: keptRead.string });
 /** Where the table rests, as storage keeps it. */
 const readAnchor = keptRead.record<{ table?: RowAnchor | undefined }>({ table: keptRead.optional(readRowAnchor) });
+/** What a drag draws of the board's own, apart from its ghost: the links as they follow it, what a drop would do, and where it would land. */
+const BOARD_DRAG_SLOTS = ["links", "linkLines", "rank", "reason", "runLabel", "runMeta", "fitsMarker"] as const;
+/** What a drag draws in the inspector: the drop list and its fits. */
+const INSPECTOR_DRAG_SLOTS = ["section", "line", "absent", "dropRow", "dropRank"] as const;
 export type { AllocationValue } from "./model.js";
 
 /** Props of the record-backed Allocation extension. */
@@ -218,6 +223,10 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     useEffect(() => { setLink(undefined); setFollow(before => before.nonce === 0 ? before : { nonce: before.nonce + 1, soft: false }); }, [window.view.layout]);
     const recipe = useSlotRecipe({ key: "allocationBuilder" });
     const styles = useMemo(() => recipe({}) as unknown as AllocationStyles, [recipe]);
+    // What a drag draws has its classes already, made as the board is drawn, ahead of the first drag (#1594).
+    useMoveGhostClasses(styles);
+    useClassesAhead(styles, BOARD_DRAG_SLOTS);
+    useClassesAhead(useSlotStyles("allocationInspector") as unknown as AllocationStyles, INSPECTOR_DRAG_SLOTS);
     // The board's words: its message table — the editing session's, and its own — in the app's locale.
     const format = useFormatters(), words = useMemo((): AllocationWords => ({ ...format, m: allocationMessages }), [format]);
     // The day, as the footer's line, the eye and the banner name it (#1398, CL3; #1409).

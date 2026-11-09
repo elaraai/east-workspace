@@ -531,7 +531,8 @@ export function AllocationTimeline(props: TimelineProps) {
         </Box>
         <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.resourcePane} minWidth={`calc(${LABEL_W}px + ${axis.days.length * MIN_DAY}px)`}
             scrollElRef={rscPane} headerZIndex={6} count={rows.length} getItemKey={getItemKey} sizes={sizes} measureRows={false}
-            overlay={runs.length === 0 && marker === undefined ? null : <>
+            // An element even with nothing in it: the overlay's box is drawn with the rows, so its class is there before the drag that first fills it (#1594).
+            overlay={<>
                 {runs.map(run => <Box key={run.from} css={styles.runLabel} title={run.tip} data-run="" data-from={run.from} data-to={run.to}
                     style={{ top: `${(run.from + run.to + 1) * ROW_H / 2 - 10}px` }}>
                     <FontAwesomeIcon icon={faXmark} aria-hidden="true" />{run.label}<Box as="span" css={styles.runMeta}>{run.meta}</Box>

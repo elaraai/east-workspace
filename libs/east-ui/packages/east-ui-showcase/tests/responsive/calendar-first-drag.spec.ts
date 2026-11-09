@@ -11,24 +11,15 @@
  * own, never `./kept-page`'s: a page another test has dragged in holds these rules already.
  */
 
-import { expect, test, type Page } from "playwright/test";
+import { expect, test } from "playwright/test";
+import { addedCount, addedSince, recordAddedRules } from "./added-rules";
 import { settled } from "./settle";
 
 const ROUTE = "e3/calendar/calendar/calendarOperations";
 
-/** The rules added to the page's styles since it held `from` of them, each as written. */
-const addedSince = (page: Page, from: number) => page.evaluate((from) => (window as unknown as { addedRules: string[] }).addedRules.slice(from), from);
-/** How many rules have been added to the page's styles. */
-const addedCount = (page: Page) => page.evaluate(() => (window as unknown as { addedRules: string[] }).addedRules.length);
-
 test("a Calendar's first drag adds no rule to the page's styles as it is picked up or carried, of a card or of an event @desktop", async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
-    await page.addInitScript(() => {
-        const rules: string[] = [];
-        Object.assign(window, { addedRules: rules });
-        const insert = CSSStyleSheet.prototype.insertRule;
-        CSSStyleSheet.prototype.insertRule = function (rule: string, index?: number) { rules.push(rule); return insert.call(this, rule, index); };
-    });
+    await recordAddedRules(page);
     await page.goto(`/?theme=light#${ROUTE}`);
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
     const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${ROUTE}"]`) });

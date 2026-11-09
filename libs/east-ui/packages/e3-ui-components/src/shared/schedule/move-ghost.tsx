@@ -9,7 +9,7 @@ import type { ReactNode } from "react";
 
 /**
  * A compact label and optional span, styled by the shared move-ghost recipe part. Plain elements with the slots' classes,
- * so a class {@link useMoveGhostClasses} made ahead is the one drawn: a styled element makes a class of its own.
+ * which {@link useMoveGhostClasses} makes ahead of the drag that first draws one.
  */
 export function MoveGhost({ label, detail, styles, planKind }: {
     label: string; detail?: ReactNode; styles: Record<string, Record<string, unknown>>; planKind?: string;
@@ -21,14 +21,27 @@ export function MoveGhost({ label, detail, styles, planKind }: {
     </div>;
 }
 
+/** The slots a move ghost is drawn with. */
+const MOVE_GHOST_SLOTS = ["moveGhost", "moveGhostLabel", "moveGhostSpan"] as const;
+
 /**
- * Makes a move ghost's classes while its views are drawn, ahead of the drag that first draws one: a rule first added as
- * the drag starts has the browser work out the whole page's styles and lay it all out again (`useSlotClass`).
+ * Makes the classes of what a gesture draws while its views are drawn, ahead of the gesture that first draws them: a
+ * rule first added as a drag starts has the browser work out the whole page's styles and lay it all out again
+ * (`useSlotClass`). A class is made once for the theme, so a part drawn many times may ask for it each time.
  *
- * @param styles - The slots the ghost is drawn with
+ * @param styles - A recipe's slots; `undefined` while there is nothing to draw with
+ * @param slots - The slots whose classes to make: one the recipe does not have makes none
  */
-export function useMoveGhostClasses(styles: Record<string, Record<string, unknown>>): void {
+export function useClassesAhead(styles: Record<string, Record<string, unknown>> | undefined, slots: readonly string[]): void {
     const slot = useSlotClass();
-    slot(styles.moveGhost);
-    slot(styles.moveGhostLabel);
+    if (styles !== undefined) for (const name of slots) slot(styles[name]);
+}
+
+/**
+ * Makes a move ghost's classes ahead of the drag that first draws one ({@link useClassesAhead}).
+ *
+ * @param styles - The slots the ghost is drawn with; `undefined` while there is nothing to draw with
+ */
+export function useMoveGhostClasses(styles: Record<string, Record<string, unknown>> | undefined): void {
+    useClassesAhead(styles, MOVE_GHOST_SLOTS);
 }

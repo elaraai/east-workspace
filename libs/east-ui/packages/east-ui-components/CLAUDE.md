@@ -443,10 +443,13 @@ component, nothing in east-ui.
   element drawn with them, inserted in the page's emotion cache once.
   Chakra's styled element works its styles out again at every element it
   draws — its css function keys its cache by the whole style object, printed,
-  and emotion serialises and hashes what that gives — and makes a class of
-  its own, so a class made ahead serves only an element drawn with it. What a
-  gesture draws — a drag's ghost, a drop's preview — is one of those, its
-  class made as the page is drawn (the Library's `useCardGhost`, #1594): a
+  and emotion serialises and hashes what that gives. The class is the one
+  Chakra gives an element drawn with those styles, in the one emotion cache
+  every renderer package shares (`@emotion/react` is external to each bundle,
+  e3-ui-components' `test/one-emotion.spec.ts`), so a class made ahead serves
+  any element drawn with them, plain or Chakra's. What a gesture draws — a
+  drag's ghost, a drop's preview — has its class made as the page is drawn (the
+  Library's `useCardGhost`, `useSlotClass`'s module docs, #1594): a
   rule added as a drag starts invalidates every font in the page in Chromium,
   since Chakra writes each in a cascade layer, and a first drag worked out
   the whole page's styles and laid all of it out again.

@@ -43,6 +43,10 @@ export default defineConfig({
         // Plan) read it too, and the host's one `I18nProvider` must reach them
         // all — bundled, each package would hold a context of its own.
         '@react-aria/i18n',
+        // Emotion's cache, for the same reason: the one Chakra's elements insert
+        // their rules in — bundled, a class this package makes ahead goes in a
+        // cache of its own, and the first element drawn with it inserts it again.
+        '@emotion/react',
         'shiki',
       ].includes(id) || id.startsWith('node:') || id.startsWith('@elaraai/')
         // Self-hosted brand fonts — leave the `import "@fontsource-variable/*"`

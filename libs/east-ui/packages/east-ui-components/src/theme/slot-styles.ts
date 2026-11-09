@@ -109,10 +109,10 @@ function insertClass(cache: EmotionCache, serialized: SerializedStyles): string 
 }
 
 /**
- * A class of a slot's styles — the rules Chakra gives an element drawn with them, under a class of its own, which only
- * an element drawn with it uses — made and inserted once for the theme, for a part drawn many times at once to draw
- * plain elements by (see the module docs). Its recipe owns every style still; the element sets its class, its data
- * attributes and its geometry.
+ * The class of a slot's styles — the one Chakra gives an element drawn with them, its rules in the emotion cache every
+ * renderer package shares — made and inserted once for the theme: for a part drawn many times at once to draw plain
+ * elements by, and ahead of a gesture for what the gesture first draws, plain or Chakra's (see the module docs). Its
+ * recipe owns every style still; the element sets its class, its data attributes and its geometry.
  *
  * @returns A slot's styles' class: the same string for every caller in the theme; `""` for none
  */

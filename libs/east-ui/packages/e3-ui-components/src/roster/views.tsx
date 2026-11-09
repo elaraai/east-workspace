@@ -40,7 +40,7 @@ import { ArrayType, SortedMap, StringType, none, printFor, some, variant } from 
 import { FrameMenuLayer, LoadingFailedLine, PlaceholderShape, VirtualRows, devicePixels, useRevealed, useRowsTop, keptRead, type StickySection } from "@elaraai/east-ui-components/internal";
 import { takeKey, tickFormatOf, useDragEventChip, useDropCell, usePersistedState, type CellCoord, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import type { PeriodRead } from "../shared/loading.js";
-import { MoveGhost } from "../shared/schedule/move-ghost.js";
+import { MoveGhost, useClassesAhead, useMoveGhostClasses } from "../shared/schedule/move-ghost.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { readRowAnchor, useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
 import { Seg } from "../shared/schedule/segments.js";
@@ -2220,7 +2220,12 @@ function NoGroupCard({ props, ctx, day, shift }: { props: RosterViewsProps; ctx:
         {shown.map(({ id, a, removed }) => <AssignmentCard key={id} ctx={ctx} id={id} assignment={a} removed={removed} />)}
     </Box>;
 }
+/** What a drag draws of the Roster's own, apart from its ghost: where it would land. */
+const DRAG_SLOTS = ["landing"] as const;
 export function RosterViews(props: RosterViewsProps) {
+    // What a drag draws has its classes already, made as the views are drawn, ahead of the first drag (#1594).
+    useMoveGhostClasses(props.styles);
+    useClassesAhead(props.styles, DRAG_SLOTS);
     const ctx = useViewContext(props);
     // A phone keeps People to the week (#1406, P31): a persisted month shows its first week, as the frame hands it.
     const view = props.narrow ? props.view.layout === "people" ? <PeopleAgenda props={props} ctx={ctx} /> : <Agenda props={props} ctx={ctx} />

@@ -26,6 +26,8 @@ export default defineConfig({
         // renderer package — bundled here, the Plan would read a context of
         // its own, which the host's `I18nProvider` never sets.
         '@react-aria/i18n',
+        // Emotion's cache, for the same reason: the one Chakra's elements use.
+        '@emotion/react',
         '@elaraai/e3-api-client',
         '@elaraai/e3-types',
         '@elaraai/e3-ui',

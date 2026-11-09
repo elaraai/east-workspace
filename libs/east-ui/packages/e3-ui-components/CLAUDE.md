@@ -206,10 +206,12 @@ host-value rules) over source and tests and fails on a JavaScript stand-in;
   calls without the builder: the root, the one-shot call, the plan and its
   split call, the calls in memory — which loads no React and no renderer,
   so a host in Node uses it (`test/query/node-safe.spec.ts` guards that).
-  The bundle keeps React, Chakra and react-aria's locale (`@react-aria/i18n`)
-  external, as east-ui-components' does: each is a context the host shares
-  with every renderer package, so one `I18nProvider` reaches them all
-  (#1206, `src/locale.dom.test.tsx`, `test/one-locale.spec.ts`).
+  The bundle keeps React, Chakra, emotion's cache (`@emotion/react`) and
+  react-aria's locale (`@react-aria/i18n`) external, as east-ui-components'
+  does: each is a context the host shares with every renderer package, so one
+  `I18nProvider` reaches them all (#1206, `src/locale.dom.test.tsx`,
+  `test/one-locale.spec.ts`) and a class made ahead is one Chakra's elements
+  find (#1594, `test/one-emotion.spec.ts`).
 - React Query (TanStack Query 5.x) hooks live alongside the
   components. They wrap `@elaraai/e3-api-client` calls.
 - Renderers follow the same patterns as `east-ui-components` —
@@ -1526,12 +1528,14 @@ then its Details draw in a render of their own. And a page's first drag adds
 no rule to the page's styles: Chakra writes every rule in a cascade layer, and
 in Chromium a rule added to a sheet with layers invalidates every font in the
 page, so the first ghost of a drag worked out the styles of all of it and laid
-it all out again. A drag's ghosts and a lane's preview are plain elements of
-classes made as the views are drawn (`useSlotClass`, `move-ghost.tsx`'
-`useMoveGhostClasses`), never Chakra's styled elements, whose class is their
-own. The showcase's `calendar-first-drag.spec.ts`, on a page of its own, holds
-that nothing is added as a card or an event is picked up, or carried. The
-Roster's, the Allocation's and the Plan's ghosts do not make theirs ahead yet.
+it all out again. What a drag draws has its classes made as the views are
+drawn (`useSlotClass`; `move-ghost.tsx`' `useMoveGhostClasses` and
+`useClassesAhead`, each board naming the slots a drag draws): the class a
+Chakra element is given, in the one emotion cache every package shares, so it
+serves a plain element or a styled one. The showcase's
+`calendar-first-drag.spec.ts` and `builder-first-drag.spec.ts`, each test on a
+page of its own, hold that nothing is added as a card, an event, a duty, a bar,
+an arrival or a connector is picked up or carried.
 
 Keep a proposal's compact placement and detailed explanation separate in the
 existing regions: a dashed single-line chip in the desktop grid, the complete
