@@ -103,7 +103,7 @@ export function queryRoot(entries: readonly QueryRootEntry[]): QueryRoot {
         names.add(name);
     }
     return {
-        type: StructType(Object.fromEntries(entries.map(entry => [entry.name, fromEastTypeValue(entry.type)]))),
+        type: StructType(entries.map(entry => [entry.name, fromEastTypeValue(entry.type)] as const)),
         entries: [...entries],
     };
 }

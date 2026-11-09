@@ -10,6 +10,7 @@ system cannot express is a plain raise carrying the RFC 6901 pointer to the
 offending node, never a surprise on someone's payload months later.
 """
 
+import re
 from typing import Any
 
 from east.types.types import (
@@ -311,6 +312,12 @@ def type_from_json_schema(schema: JsonSchema) -> EastType:
     type that already admits null — ``Null``, or an Option, however the
     document spells it — is left as it is.
 
+    A struct's fields are in the document's ``properties`` order — save where
+    a property is named like an integer (``"200"``), which a JavaScript parser
+    lists before every other whatever the document's order: then they are in
+    ``required``'s order, an array's, which ``json_schema_for`` writes in the
+    struct's order, so the TypeScript twin reads the same struct.
+
     Cycles among definitions become ``RecursiveType``s, one per cycle group:
     ``Node -> NodeList -> Node`` is one type with the alias inlined. A group
     whose cycles do not all pass through one definition would need two
@@ -534,7 +541,28 @@ def _build_struct(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType:
                 ),
             )
         )
+    # A struct's fields are in the document's order. A JavaScript parser lists
+    # a property named like an integer ("200") before every other, whatever the
+    # document's order, so where one is, the order is `required`'s: an array,
+    # whose order every parser keeps, and which json_schema_for writes in the
+    # struct's order -- as the TypeScript twin reads it, so the two agree.
+    if isinstance(required, list) and any(_is_array_index(name) for name, _ in fields):
+        at: dict[str, int] = {}
+        for index, entry in enumerate(required):
+            if isinstance(entry, str) and entry not in at:
+                at[entry] = index
+        fields.sort(key=lambda field: at[field[0]])
     return StructType(fields)
+
+
+def _is_array_index(name: str) -> bool:
+    """Whether a name is an array index, which a JavaScript object lists first.
+
+    The canonical decimal of an integer from 0 to 2**32 - 2: a JavaScript
+    object lists such a name before every other, in numeric order, whatever
+    order it was written in.
+    """
+    return re.fullmatch(r"0|[1-9][0-9]{0,9}", name) is not None and int(name) <= 4294967294
 
 
 def _tag_of(alternative: JsonSchema) -> str | None:

@@ -81,12 +81,14 @@ function reifyUnion(ctx: Ctx, members: readonly ts.Type[]): unknown {
   }
 }
 
+// A struct's fields are listed, in the type's order: an object would list a
+// name like an integer first, and `StructType` refuses one (#1574).
 function structFromProperties(ctx: Ctx, type: ts.Type): unknown {
-  const fields: Record<string, unknown> = {};
+  const fields: [string, unknown][] = [];
   for (const prop of ctx.checker.getPropertiesOfType(type)) {
     const name = prop.getName();
     if (name.startsWith("__@")) continue; // unique-symbol members (type ids etc.)
-    fields[name] = walk(ctx, ctx.checker.getTypeOfSymbol(prop));
+    fields.push([name, walk(ctx, ctx.checker.getTypeOfSymbol(prop))]);
   }
   return ctx.east.StructType(fields);
 }
@@ -122,11 +124,11 @@ function reifyEncoding(ctx: Ctx, type: ts.Type, tag: string): unknown {
     }
     case "Struct": {
       const fieldsType = propType(ctx, type, "fields") ?? bail();
-      const fields: Record<string, unknown> = {};
+      const fields: [string, unknown][] = [];
       for (const prop of checker.getPropertiesOfType(fieldsType)) {
         const name = prop.getName();
         if (name.startsWith("__@")) continue;
-        fields[name] = reifyUnion(ctx, stripAbsent(ctx, checker.getTypeOfSymbol(prop)));
+        fields.push([name, reifyUnion(ctx, stripAbsent(ctx, checker.getTypeOfSymbol(prop)))]);
       }
       return east.StructType(fields);
     }
@@ -219,11 +221,11 @@ function reifyRawValue(ctx: Ctx, type: ts.Type): unknown {
   if (checker.getIndexInfosOfType(type).length > 0) bail();
   const props = checker.getPropertiesOfType(type);
   if (props.length === 0) bail();
-  const fields: Record<string, unknown> = {};
+  const fields: [string, unknown][] = [];
   for (const prop of props) {
     const propName = prop.getName();
     if (propName.startsWith("__@")) continue;
-    fields[propName] = reifyUnion(ctx, stripAbsent(ctx, checker.getTypeOfSymbol(prop)));
+    fields.push([propName, reifyUnion(ctx, stripAbsent(ctx, checker.getTypeOfSymbol(prop)))]);
   }
   return east.StructType(fields);
 }

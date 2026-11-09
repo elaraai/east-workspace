@@ -693,7 +693,8 @@ interface FieldWalk {
  */
 function touchedStruct(nodeType: EastType, fields: readonly FieldWalk[]): NodeWalk {
   if (nodeType.type !== 'Struct') throw new Error(`a nested series index's node is a Struct, not ${nodeType.type}`);
-  const patchesType = StructType(Object.fromEntries(Object.entries(nodeType.fields).map(([name, type]) => [name, patchTypeOf(type)])));
+  // In the node's order, as a list, as East's own patch type lists them (#1574)
+  const patchesType = StructType(Object.entries(nodeType.fields).map(([name, type]) => [name, patchTypeOf(type)] as const));
   const patchType = VariantType({ unchanged: NullType, replace: StructType({ before: nodeType, after: nodeType }), patch: patchesType });
   if (!sameEastType(patchType, patchTypeOf(nodeType))) {
     throw new Error(`a nested series index's patch of ${printType(nodeType)} is not East's ${printType(patchTypeOf(nodeType))}`);

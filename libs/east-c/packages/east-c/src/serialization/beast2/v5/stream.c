@@ -1086,8 +1086,14 @@ Beast2SegmentReader *east_beast2_reader_new(const uint8_t *data, size_t len, Eas
         free(r);
         return NULL;
     }
-    /* The wire root type only advances the header; decoding follows the
-     * caller's type, exactly like east_beast2_decode_full. */
+    /* Decoding follows the caller's type, exactly like east_beast2_decode_full,
+     * which is why the header's type is checked against it first: segments
+     * are positional, so a header of another type would be misread. */
+    if (!b2_decode_type_matches(h.root_type, type)) {
+        b2v5_header_dispose(&h);
+        free(r);
+        return NULL;
+    }
     east_type_release(h.root_type);
     h.root_type = NULL;
 
@@ -1548,18 +1554,37 @@ static bool pages_frame_open(Beast2Pages *p, size_t i, B2V5FrameView *view)
     }
     view->offset = ix.offsets[0];
     b2v5_index_free(&ix);
-    if (!p->sm_from_segment) {
-        B2V5Header h;
-        if (!b2v5_read_header(data, len, &h)) {
+    /* Every segment's header is checked against the decode type, as a blob's
+     * is: a segment is decoded by the type's positions. The first one's
+     * source map is the one every segment shares. */
+    B2V5Header h;
+    if (!b2v5_read_header(data, len, &h)) {
+        /* Keep a specific posted message (an out-of-order variant, say) over
+         * the generic one. */
+        char *specific = east_builtin_get_error();
+        if (specific) {
+            east_builtin_error(specific);
+            free(specific);
+        } else {
             snprintf(msg, sizeof(msg), "beast2 v5: manifest entry %zu has a malformed header", i);
             east_builtin_error(msg);
-            p->segments.close(p->segments.ctx, handle, data, len);
-            return false;
         }
-        east_type_release(h.root_type);
+        p->segments.close(p->segments.ctx, handle, data, len);
+        return false;
+    }
+    if (!b2_decode_type_matches(h.root_type, p->type)) {
+        b2v5_header_dispose(&h);
+        p->segments.close(p->segments.ctx, handle, data, len);
+        return false;
+    }
+    east_type_release(h.root_type);
+    h.root_type = NULL;
+    if (!p->sm_from_segment) {
         east_source_map_release(p->sm);
         p->sm = h.sm;
         p->sm_from_segment = true;
+    } else {
+        east_source_map_release(h.sm);
     }
     view->data = data;
     view->len = len;
@@ -1637,8 +1662,13 @@ Beast2Pages *east_beast2_pages_new(const uint8_t *data, size_t len, EastType *ty
         free(p);
         return NULL;
     }
-    /* The wire root type only advances the header; decoding follows the
-     * caller's type, exactly like the sequential reader. */
+    /* Decoding follows the caller's type, exactly like the sequential reader,
+     * once the header's type is found to read as it. */
+    if (!b2_decode_type_matches(h.root_type, type)) {
+        b2v5_header_dispose(&h);
+        free(p);
+        return NULL;
+    }
     east_type_release(h.root_type);
     h.root_type = NULL;
 
@@ -1690,6 +1720,20 @@ Beast2Pages *east_beast2_pages_new_manifest(EastValue *manifest, EastType *type,
     if (!b2v5_is_segmented_root(type)) {
         east_builtin_error("beast2 v5 segment reading needs an Array, Set or Dict type");
         goto fail;
+    }
+    /* The manifest's own type is checked as a blob's header is; each
+     * segment's header is checked again as it is opened. */
+    {
+        EastType *recorded = east_type_from_value(east_struct_get_field_idx(manifest, 2));
+        if (!recorded) {
+            char *specific = east_builtin_get_error();
+            east_builtin_error(specific ? specific : "beast2 v5: the manifest's type is no type");
+            free(specific);
+            goto fail;
+        }
+        bool reads = b2_decode_type_matches(recorded, type);
+        east_type_release(recorded);
+        if (!reads) goto fail;
     }
     p = calloc(1, sizeof(*p));
     if (!p) goto fail;

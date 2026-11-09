@@ -86,10 +86,10 @@ const SortedKeysType = ArrayType(IntegerType);
 
 /** The wide row: a long string beside 150 integer fields. */
 const WIDE_FIELDS = 150;
-const WideRowType = StructType({
-  v: StringType,
-  ...Object.fromEntries(Array.from({ length: WIDE_FIELDS }, (_, k) => [`f${k}`, IntegerType])),
-});
+const WideRowType = StructType([
+  ['v', StringType],
+  ...Array.from({ length: WIDE_FIELDS }, (_, k) => [`f${k}`, IntegerType] as const),
+]);
 const WidePairType = StructType({ key: IntegerType, value: WideRowType });
 const WidePairsType = ArrayType(WidePairType);
 

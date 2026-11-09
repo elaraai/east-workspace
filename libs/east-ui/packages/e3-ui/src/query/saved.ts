@@ -89,7 +89,7 @@ export function savedQueriesValue(
         assertRootField("Query.value", name);
         return { name, dataset: def.kind === "task" ? def.output : def };
     });
-    const root = StructType(Object.fromEntries(datasets.map(({ name, dataset }): [string, EastType] => [name, dataset.type])));
+    const root = StructType(datasets.map(({ name, dataset }): readonly [string, EastType] => [name, dataset.type]));
     const saved = new SortedMap<string, ValueTypeOf<typeof SavedQueryType>>([], compareFor(StringType));
     for (const query of queries) {
         if (saved.has(query.name)) {

@@ -323,7 +323,9 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
     const entries = listedEntries(record, options);
     const rail = options.indexes.filter((index) => index.nested === undefined);
     const names = new Set<string>();
-    const fields: Record<string, StructType<{ fields: StructType<Record<string, EastType>>; kind: VariantType<Record<string, EastType>> }>> = {};
+    // Each index's metadata, listed in the rail's order: every struct built here is a list of its fields, as an object
+    // would list a field named like an integer first (#1574)
+    const fields: (readonly [string, StructType<{ fields: StructType<Record<string, EastType>>; kind: VariantType<Record<string, EastType>> }>])[] = [];
     const metadata: Record<string, { fields: Record<string, unknown>; kind: variant<string, unknown> }> = {};
     const keyTypes: Record<string, EastType> = { primary: type.key };
     const projection = nested === undefined && entries.length === 0 ? bindingProjection(options.indexes) : type.value;
@@ -360,21 +362,21 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
                     ? [index.summary !== undefined ? "summary" : "series",
                         tileMarkerFields({ key: tiling.key, from: tiling.from, to: tiling.to, tile: tiling.tile, summary: index.summary !== undefined })]
                     : ["plain", undefined];
-        const kindType = VariantType({ [kind]: parts === undefined ? NullType : StructType(Object.fromEntries(parts.map(name => [name, NullType]))) });
+        const kindType = VariantType({ [kind]: parts === undefined ? NullType : StructType(parts.map(name => [name, NullType] as const)) });
         const kindValue = variant(kind, parts === undefined ? null : Object.fromEntries(parts.map(name => [name, null])));
         if (index.entries !== undefined) {
             // The Dict field it files, a Set marker of the Dict's key type: its keys are the rail's values, picked as a Set's elements are.
             const field = index.entries.field;
-            fields[index.name] = StructType({ fields: StructType({ [field]: SetType(index.keyType) }), kind: kindType });
+            fields.push([index.name, StructType({ fields: StructType([[field, SetType(index.keyType)]]), kind: kindType })]);
             metadata[index.name] = { fields: { [field]: new Set() }, kind: kindValue };
         } else if (computed) {
             const entries = index.keyType.type === "Struct"
                 ? Object.entries(index.keyType.fields as Record<string, EastType>) : [[index.name, index.keyType] as const];
-            fields[index.name] = StructType({ fields: StructType(Object.fromEntries(entries.map(([field, type]) =>
-                [field, index.multi ? SetType(type) : ArrayType(type)]))), kind: kindType });
+            fields.push([index.name, StructType({ fields: StructType(entries.map(([field, type]): readonly [string, EastType] =>
+                [field, index.multi ? SetType(type) : ArrayType(type)])), kind: kindType })]);
             metadata[index.name] = { fields: Object.fromEntries(entries.map(([field]) => [field, index.multi ? new Set() : []])), kind: kindValue };
         } else {
-            fields[index.name] = StructType({ fields: StructType(Object.fromEntries(index.on!.map(field => [field, NullType]))), kind: kindType });
+            fields.push([index.name, StructType({ fields: StructType(index.on!.map(field => [field, NullType] as const)), kind: kindType })]);
             metadata[index.name] = { fields: Object.fromEntries(index.on!.map(field => [field, null])), kind: kindValue };
         }
         keyTypes[index.name] = index.keyType;
@@ -405,8 +407,8 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
     const maintained = options.indexes
         .filter((index) => index.nested !== undefined || index.summary !== undefined)
         .map((index) => [index.name, indexMaintenance(record, builtIndex(record, index))] as const);
-    const maintenanceType = OptionType(StructType(Object.fromEntries(maintained.map(([name, maintain]) =>
-        [name, Expr.type(maintain as unknown as Expr) as EastType]))));
+    const maintenanceType = OptionType(StructType(maintained.map(([name, maintain]): readonly [string, EastType] =>
+        [name, Expr.type(maintain as unknown as Expr) as EastType])));
     // The listed nested series index's fill of a page (#1438): its lean rows filled with the entries read of it, by e3's own program.
     const fillType = OptionType(FunctionType([DictType(type.key, type.value), BlobType], DictType(type.key, type.value)));
     const rowPatchType = East.patchesFor(type.value).patchType;
@@ -561,7 +563,7 @@ const LEAF: Marker = { type: NullType, value: null };
 
 /** A struct of markers, each by its name. */
 function markerStruct(parts: readonly (readonly [string, Marker])[]): Marker {
-    return { type: StructType(Object.fromEntries(parts.map(([name, part]) => [name, part.type]))), value: Object.fromEntries(parts.map(([name, part]) => [name, part.value])) };
+    return { type: StructType(parts.map(([name, part]) => [name, part.type] as const)), value: Object.fromEntries(parts.map(([name, part]) => [name, part.value])) };
 }
 
 /**

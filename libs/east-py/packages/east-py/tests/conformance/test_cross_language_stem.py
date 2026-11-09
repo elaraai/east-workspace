@@ -34,6 +34,7 @@ from east.types.types import (
     DictType,
     FloatType,
     IntegerType,
+    NullType,
     OptionType,
     SetType,
     StringType,
@@ -81,6 +82,27 @@ variant_match = East.function(
         "circle": lambda b, r: r * r * 3.0,
         "square": lambda b, w: w * w,
     }))
+
+# #1574: case names that look like integers, which TypeScript's object lists
+# first; both builders list the cases, and the arms, as the names sort.
+Shade = VariantType([("50", NullType), ("100", NullType), ("a", IntegerType)])
+
+integer_named_cases = East.function(
+    [Shade], IntegerType,
+    lambda b, s: s.match({
+        "50": lambda b, _v: 50,
+        "100": lambda b, _v: 100,
+        "a": lambda b, n: n,
+    }))
+
+# #1578: field names that look like integers, listed in an order TypeScript's
+# object would not keep; both builders write the fields, in the struct's type
+# and in a literal of it, as the type lists them.
+Counts = StructType([("b", IntegerType), ("10", IntegerType), ("2", IntegerType)])
+
+integer_named_fields = East.function(
+    [Counts], Counts,
+    lambda b, c: East.value({"b": c["2"], "10": c["10"] + 1, "2": c.b}, Counts))
 
 dict_set = East.function(
     [DictType(StringType, IntegerType), SetType(StringType)], IntegerType,
@@ -143,6 +165,8 @@ STEM = {
     "crosslangCallbacks": callbacks,
     "crosslangStructIfElse": struct_if_else,
     "crosslangVariantMatch": variant_match,
+    "crosslangIntegerNamedCases": integer_named_cases,
+    "crosslangIntegerNamedFields": integer_named_fields,
     "crosslangDictSet": dict_set,
     "crosslangStringsDatetime": strings_datetime,
     "crosslangTryCatch": try_catch,

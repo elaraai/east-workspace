@@ -3,10 +3,12 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { ArrayType, BlobType, BooleanType, DateTimeType, FloatType, IntegerType, NullType, NeverType, printType, RecursiveType, StringType, StructType, VariantType, RefType, SetType, DictType, FunctionType, AsyncFunctionType, VectorType, MatrixType, type EastType, type_id_symbol, getTypeId, isPrimitiveType } from "./types.js"
+import { ArrayType, BlobType, BooleanType, DateTimeType, FloatType, IntegerType, NullType, NeverType, printType, RecursiveType, StringType, StructType, VariantType, RefType, SetType, DictType, FunctionType, AsyncFunctionType, VectorType, MatrixType, type EastType, type_id_symbol, getTypeId, isPrimitiveType, variantCases } from "./types.js"
 import { isVariant, variant } from "./containers/variant.js";
 import { isTypeValueEqual } from "./type_value_equal.js";
 import { recursiveTypeId } from "./serialization/beast2/v4/type-table.js";
+import { printEastString } from "./serialization/east_text.js";
+import { compareStrings } from "./string_order.js";
 
 export { isTypeValueEqual };
 
@@ -239,8 +241,10 @@ function toEastTypeValueImpl(type: EastType, stack: EastType[], _is_recursive: b
     stack.pop();
     return ret;
   } else if (type.type === "Variant") {
+    // In East's order, not the order the cases object lists them in (#1574):
+    // a case's place here is its tag in beast2.
     stack.push(type);
-    const ret = variant("Variant", Object.entries(type.cases).map(([name, caseType]) => ({ name, type: toEastTypeValue(caseType as EastType, stack, false) })));
+    const ret = variant("Variant", variantCases(type).map(([name, caseType]) => ({ name, type: toEastTypeValue(caseType as EastType, stack, false) })));
     stack.pop();
     return ret;
   } else if (type.type === "Recursive") {
@@ -303,7 +307,15 @@ export const EastTypeValueType: EastTypeValue = toEastTypeValue(EastTypeType);
  *
  * The conversion preserves type equality via east's interning: feeding the
  * result back through {@link toEastTypeValue} produces the same identity as
- * the input.
+ * the input. A struct keeps its fields in the order listed, whatever their
+ * names.
+ *
+ * @param t - The type value
+ * @returns The type
+ * @throws {Error} When a variant's cases are not listed in East's order — by
+ *   name, as strings, by code point — as a TypeScript East before
+ *   east-workspace#1574 wrote a case named like an integer; or when a
+ *   recursive `ref` names no enclosing wrapper.
  */
 export function fromEastTypeValue(t: EastTypeValue): EastType {
     const ctx = new Map<bigint, EastType>();
@@ -330,13 +342,13 @@ function fromImpl(t: EastTypeValue, ctx: Map<bigint, EastType>): EastType {
         return DictType(fromImpl(v.key, ctx), fromImpl(v.value, ctx));
     }
     if (tag === "Struct") {
+        // In the order listed, whatever the fields' names.
         const fields = t.value as Array<{ name: string; type: EastTypeValue }>;
-        const obj: Record<string, EastType> = {};
-        for (const f of fields) obj[f.name] = fromImpl(f.type, ctx);
-        return StructType(obj);
+        return StructType(fields.map((f) => [f.name, fromImpl(f.type, ctx)] as const));
     }
     if (tag === "Variant") {
         const cases = t.value as Array<{ name: string; type: EastTypeValue }>;
+        checkCaseOrder(cases);
         const obj: Record<string, EastType> = {};
         for (const c of cases) obj[c.name] = fromImpl(c.type, ctx);
         return VariantType(obj);
@@ -368,6 +380,37 @@ function fromImpl(t: EastTypeValue, ctx: Map<bigint, EastType>): EastType {
         return rec as EastType;
     }
     throw new Error(`fromEastTypeValue: unhandled tag "${tag}"`);
+}
+
+/**
+ * Refuses a variant type value whose cases are not in East's order.
+ *
+ * @param cases - The type value's cases, as listed
+ * @throws {Error} When a case is listed twice, or before one whose name sorts
+ *   ahead of it
+ *
+ * @remarks
+ * A variant's cases sort by name, as strings by code point, and a case's
+ * place in that order is its tag. A TypeScript East from before
+ * east-workspace#1574 wrote a case named like an integer first (`"50"` before
+ * `"100"`), so a type value it wrote is refused here, rather than read as a
+ * different type: what was written under it is re-exported or reset.
+ */
+function checkCaseOrder(cases: readonly { name: string }[]): void {
+  for (let i = 1; i < cases.length; i++) {
+    const before = cases[i - 1]!.name;
+    const name = cases[i]!.name;
+    const order = compareStrings(before, name);
+    if (order === 0) throw new Error(`fromEastTypeValue: the variant type lists its case ${printEastString(name)} twice`);
+    if (order > 0) {
+      throw new Error(
+        `fromEastTypeValue: the variant type lists its case ${printEastString(name)} after ${printEastString(before)}, ` +
+        `out of East's order, which sorts case names as strings, by code point. A TypeScript East before ` +
+        `east-workspace#1574 wrote it, listing a case named like an integer first: re-export the package it came ` +
+        `from, or reset the state stored under it`,
+      );
+    }
+  }
 }
 
 /**

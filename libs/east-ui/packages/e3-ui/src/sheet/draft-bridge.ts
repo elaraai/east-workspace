@@ -119,7 +119,7 @@ export function buildDraftGroupDecoder(
     if (childType?.type !== "Array" || childType.value.type !== "Struct") throw new Error("Sheet groups require Array child rows");
     const rowDraft = SheetDraftTypeFor(childType.value) as StructType;
     const draftType = SheetDraftGroupTypeFor(groupType, field) as StructType;
-    const ownType = StructType(Object.fromEntries(Object.entries(groupType.fields).filter(([key]) => key !== field)));
+    const ownType = StructType(Object.entries(groupType.fields).filter(([key]) => key !== field));
     const ownDraft = SheetDraftTypeFor(ownType) as StructType;
     const ownDecoder = buildDraftRowDecoder(ownType, metas, registers, idField, written);
     return East.function([SheetRowType, OptionType(draftType), OptionType(SheetRowType)], draftType, ($, row, base, previous) => {

@@ -14,7 +14,7 @@
 
 import {
     East, example, variant, some,
-    ArrayType, DictType, FloatType, IntegerType, OptionType, SetType, StringType, StructType, VariantType,
+    ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,
 } from "@elaraai/east";
 
 export const crosslangArithmetic = example({
@@ -73,6 +73,37 @@ export const crosslangVariantMatch = example({
     })),
     inputs: [variant("square", 3.0)],
     returns: 9.0,
+});
+
+// Case names that look like integers, as east-ui's colour shades are: an
+// object lists `"50"` before `"100"`, and both builders list the cases — in
+// the variant's type and in the match's arms — as their names sort (#1574).
+const Shade = VariantType({ "50": NullType, "100": NullType, a: IntegerType });
+
+export const crosslangIntegerNamedCases = example({
+    keywords: ["cross-language", "python", "variant", "match", "case order", "integer-like names"],
+    description: "A match over a variant whose case names look like integers: its cases and its arms in the order their names sort",
+    fn: East.function([Shade], IntegerType, ($, s) => s.match({
+        "50": ($, _v) => 50n,
+        "100": ($, _v) => 100n,
+        a: ($, n) => n,
+    })),
+    inputs: [variant("100", null)],
+    returns: 100n,
+});
+
+// Field names that look like integers, listed in an order an object would not
+// keep: TypeScript declares such a struct as a list of its fields, and both
+// builders write them — in the struct's type and in a literal of it — in the
+// order the type lists them (#1578).
+const Counts = StructType([["b", IntegerType], ["10", IntegerType], ["2", IntegerType]]);
+
+export const crosslangIntegerNamedFields = example({
+    keywords: ["cross-language", "python", "struct", "field order", "integer-like names", "StructType list"],
+    description: "A struct whose field names look like integers, declared as a list: its fields, and a literal of it, in the order its type lists them",
+    fn: East.function([Counts], Counts, ($, c) => ({ b: c["2"], "10": c["10"].add(1n), "2": c.b })),
+    inputs: [{ b: 1n, "10": 2n, "2": 3n }],
+    returns: { b: 3n, "10": 3n, "2": 1n },
 });
 
 export const crosslangDictSet = example({

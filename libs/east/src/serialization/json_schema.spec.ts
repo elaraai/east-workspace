@@ -235,6 +235,14 @@ describe("jsonSchemaFor", () => {
             assert.equal(schema["additionalProperties"], false);
         });
 
+        test("keeps a struct's order in `required` where a field is named like an integer, which its properties cannot (#1574)", () => {
+            // A JavaScript object lists "2" and "10" first, in numeric order:
+            // `required`, an array, is the order a reader takes back
+            const schema = body(jsonSchemaFor(StructType([["b", IntegerType], ["10", StringType], ["2", FloatType]])));
+            assert.deepEqual(schema["required"], ["b", "10", "2"]);
+            assert.deepEqual(Object.keys(schema["properties"] as JsonSchema), ["2", "10", "b"]);
+        });
+
         test("describes Vector and Matrix as arrays", () => {
             assert.deepEqual(body(jsonSchemaFor(VectorType(FloatType)))["type"], "array");
             const m = body(jsonSchemaFor(MatrixType(IntegerType)));
@@ -471,6 +479,9 @@ describe("jsonSchemaFor", () => {
             ["dictOption", DictType(StringType, OptionType(IntegerType))],
             ["optionRecursive", OptionType(RecursiveCorpusType)],
             ["chain", ChainCorpusType],
+            // Fields named like integers (#1574): the properties as a
+            // JavaScript object lists them, `required` in the struct's order
+            ["integerNamed", StructType([["b", IntegerType], ["10", StringType], ["2", FloatType]])],
         ];
         const lines: string[] = [];
         for (const draft of ["2020-12", "draft-07", "openapi-3.0"] as const) {
@@ -478,10 +489,10 @@ describe("jsonSchemaFor", () => {
                 lines.push(`${draft}|${name}=${JSON.stringify(jsonSchemaFor(type, { draft }))}`);
             }
         }
-        assert.equal(lines.length, 81);
+        assert.equal(lines.length, 84);
         assert.equal(
             createHash("sha256").update(lines.join("\n")).digest("hex"),
-            "4a281175573a86a22c3b562abb60c58ac03259e51851261d506134aa67edf9e7");
+            "0f966637f10e01fc874c3f7df2c16244177e19ff295f0ebde5cd28c15650bb77");
     });
 
     test("emits byte-identical documents for the same type and release", () => {

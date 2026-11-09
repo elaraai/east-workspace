@@ -148,13 +148,15 @@ export function typeOf(json: Json): { type: EastType } | { untypeable: string } 
       return { type: ArrayType(element) };
     }
     case "object": {
-      const fields: Record<string, EastType> = {};
+      // In the input's order, a name like an integer ("10") among them: a key written twice keeps its first place
+      // and takes its last value, as jq reads it.
+      const fields = new Map<string, EastType>();
       for (const [key, item] of json.entries) {
         const t = typeOf(item);
         if ("untypeable" in t) return t;
-        fields[key] = t.type;
+        fields.set(key, t.type);
       }
-      return { type: StructType(fields) };
+      return { type: StructType([...fields]) };
     }
   }
 }

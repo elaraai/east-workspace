@@ -69,6 +69,8 @@ Task → What do you need?
     │   ├─ Collection → ArrayType(T), SetType(K), DictType(K, V), RefType(T)
     │   ├─ Numeric → VectorType(T), MatrixType(T), T one of FloatType, IntegerType, BooleanType
     │   ├─ Compound → StructType({...}), VariantType({...}), OptionType(T), RecursiveType(self => ...)
+    │   │   (a field named like an integer → StructType([["b", T], ["10", T]]), its fields as a list in order:
+    │   │    an object lists "10" before "b", so the object form refuses one)
     │   ├─ Function → FunctionType([inputs], output), AsyncFunctionType([inputs], output)
     │   └─ Patch → PatchType(T) (the patch type of any type); dictPatchOpsType(V) / setPatchOpsType(E)
     │       for the op a touched key carries, when building a sparse key-addressed change set yourself

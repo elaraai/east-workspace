@@ -11,6 +11,7 @@ import { EastError } from "./error.js";
 import type { Location } from "./location.js";
 import type { TypeDiff } from "./type_diff.js";
 import { printEastString, quoteEastIdentifier } from "./serialization/east_text.js";
+import { compareStrings } from "./string_order.js";
 
 // =============================================================================
 // Type identity — every EastType gets a unique integer ID via a Symbol property.
@@ -286,44 +287,136 @@ export function DictType<const K, const T>(key: K, value: T): DictType<K, T> {
 };
 
 /**
+ * Whether a name is an array index — the canonical decimal of an integer from
+ * 0 to 2^32 − 2, such as `"50"` — which an object lists before every other
+ * name, in numeric order, whatever order it was given in.
+ */
+function isArrayIndex(name: string): boolean {
+  return /^(?:0|[1-9][0-9]{0,9})$/.test(name) && Number(name) <= 4294967294;
+}
+
+/** For each record {@link orderedRecord} makes a proxy of, its entries in the
+ *  order an object of the same names lists them. */
+const objectOrders = new WeakMap<object, readonly (readonly [string, any])[]>();
+
+/**
+ * Holds `entries` by name, and lists them in the order given.
+ *
+ * @param entries - Each name and what it holds, in order; no name twice
+ * @returns The record
+ *
+ * @remarks
+ * An object lists a name that is an array index before every other, in
+ * numeric order, wherever it was given. When that would change the order
+ * given, the record is a proxy whose own keys are listed in the order given,
+ * so `Object.keys`, `Object.entries`, `for…in` and `JSON.stringify` over it
+ * list them in that order (east-workspace#1574). Every other operation is the
+ * plain object's. A copy of the record — a spread, `Object.fromEntries` — is a
+ * plain object again, and lists such a name first.
+ */
+function orderedRecord<T>(entries: readonly (readonly [string, T])[]): Record<string, T> {
+  const record: Record<string, T> = Object.fromEntries(entries);
+  const listed = Object.keys(record);
+  if (listed.every((name, i) => name === entries[i]![0])) return record;
+  const names = Object.freeze(entries.map(([name]) => name));
+  const ordered = new Proxy(record, { ownKeys: () => names });
+  objectOrders.set(ordered, Object.freeze(listed.map((name) => [name, record[name]!] as const)));
+  return ordered;
+}
+
+/**
+ * A struct's fields in order, as {@link StructType} takes them: each field's
+ * name and type.
+ */
+export type StructFieldList = readonly (readonly [name: string, type: any])[];
+
+/** The object of field types a {@link StructType} holds for a {@link StructFieldList}. */
+export type StructFieldsOf<Fields extends StructFieldList> =
+  0 extends (1 & Fields) ? any : { [Field in Fields[number] as Field[0]]: Field[1] };
+
+/**
  * Represents a Struct type (product type) in East's type system.
  *
  * @typeParam Fields - Object type mapping field names to their types
  *
  * @remarks
  * Structs are immutable and field order is significant for structural typing.
+ * `fields` lists them in the struct's order — `Object.keys` and
+ * `Object.entries` over it give that order, whatever the fields' names.
  */
 export type StructType<Fields extends { [K in string]: any } = { [K in string]: any }> = { type: "Struct", fields: Fields, [type_id_symbol]?: number };
+/**
+ * Constructs a Struct type with the fields listed, in the order listed.
+ *
+ * @typeParam Fields - The list of each field's name and type
+ * @param fields - Each field's name and {@link EastType}, in the struct's order
+ * @returns A Struct type
+ * @throws When a name is listed twice
+ *
+ * @remarks
+ * Takes any names. A struct whose field is named like an array index, such as
+ * `"10"`, is built this way, as the object form cannot hold its order.
+ *
+ * @example
+ * ```ts
+ * const Counts = StructType([["b", IntegerType], ["10", IntegerType], ["2", IntegerType]]);
+ * Object.keys(Counts.fields);   // ["b", "10", "2"]
+ * ```
+ */
+export function StructType<const Fields extends StructFieldList>(fields: Fields): StructType<StructFieldsOf<Fields>>;
 /**
  * Constructs a Struct type with the specified field types.
  *
  * @typeParam Fields - Object type mapping field names to their types
- * @param field_types - Object mapping field names to {@link EastType} instances
+ * @param field_types - Object mapping field names to {@link EastType} instances,
+ *   in the struct's order
  * @returns A Struct type
+ * @throws When a field is named like an array index (`"10"`): an object lists
+ *   such a name before every other, in numeric order, wherever it was
+ *   written, so the struct's order is lost. List those fields in order:
+ *   `StructType([[name, type], …])`.
  */
-export function StructType<const Fields extends { [K in string]: any }>(field_types: Fields): StructType<Fields> {
+export function StructType<const Fields extends { [K in string]: any }>(field_types: Fields): StructType<Fields>;
+export function StructType(fields: StructFieldList | { [K in string]: any }): StructType {
+  let entries: StructFieldList;
+  if (Array.isArray(fields)) {
+    entries = fields as StructFieldList;
+    const names = new Set<string>();
+    for (const [name] of entries) {
+      if (names.has(name)) throw new Error(`StructType lists the field ${printEastString(name)} twice`);
+      names.add(name);
+    }
+  } else {
+    entries = Object.entries(fields);
+    const index = entries.find(([name]) => isArrayIndex(name));
+    if (index !== undefined) {
+      throw new Error(
+        `StructType cannot take its fields as an object when one is named like an array index (${printEastString(index[0])}): ` +
+        `an object lists such names first, in numeric order, wherever they were written, so the struct's order is lost. ` +
+        `List the fields in order instead: StructType([[name, type], …])`,
+      );
+    }
+  }
   // Intern: structurally identical struct types (same field order, same names,
   // same child type_ids) share a single canonical object. This mirrors the
   // existing interning for Array/Dict/Function etc. and is required for the
   // beast2 v2 encoder to produce a canonical type table — otherwise calling
   // StructType({ x: Int, y: Int }) twice would yield two distinct entries.
-  const keys = Object.keys(field_types as any);
-  let h = hashCombine(0x09, keys.length);
-  for (const k of keys) {
-    h = hashCombine(h, ((field_types as any)[k] as TypeIdentity)?.[type_id_symbol] ?? 0);
+  let h = hashCombine(0x09, entries.length);
+  for (const [, fieldType] of entries) {
+    h = hashCombine(h, (fieldType as TypeIdentity)?.[type_id_symbol] ?? 0);
   }
   const cached = internLookup(h, (c: any) => {
     if (c.type !== "Struct") return false;
-    const ck = Object.keys(c.fields);
-    if (ck.length !== keys.length) return false;
-    for (let i = 0; i < keys.length; i++) {
-      if (ck[i] !== keys[i]) return false;
-      if (c.fields[keys[i]!] !== (field_types as any)[keys[i]!]) return false;
+    const held = Object.entries(c.fields);
+    if (held.length !== entries.length) return false;
+    for (let i = 0; i < entries.length; i++) {
+      if (held[i]![0] !== entries[i]![0] || held[i]![1] !== entries[i]![1]) return false;
     }
     return true;
   });
   if (cached) return cached;
-  const result = assignTypeId({ type: "Struct" as const, fields: field_types });
+  const result = assignTypeId({ type: "Struct" as const, fields: Array.isArray(fields) ? orderedRecord(entries) : fields });
   internStore(h, result);
   return result;
 };
@@ -334,42 +427,84 @@ export function StructType<const Fields extends { [K in string]: any }>(field_ty
  * @typeParam Cases - Object type mapping case names to their value types
  *
  * @remarks
- * Variants are immutable and cases are automatically sorted alphabetically by name.
+ * Variants are immutable, and their cases are in East's order: their names as
+ * strings sort, by code point. `cases` lists them in that order —
+ * `Object.keys` and `Object.entries` over it give East's order, whatever the
+ * cases' names.
  */
 export type VariantType<Cases extends { [K in string]: any } = { [K in string]: any }> = { type: "Variant", cases: Cases, [type_id_symbol]?: number };
+
+/** Each variant's cases in East's order, by the object that holds them. */
+const variantCaseOrder = new WeakMap<object, readonly (readonly [string, any])[]>();
+
 /**
  * Constructs a Variant type with the specified cases.
  *
  * @typeParam Cases - Object type mapping case names to their value types
  * @param case_types - Object mapping case names to {@link EastType} instances
- * @returns A Variant type with cases sorted alphabetically
+ * @returns A Variant type with cases sorted by name
  */
 export function VariantType<const Cases extends { [K in string]: any }>(case_types: Cases): VariantType<Cases> {
-  // Cases are sorted alphabetically by their name
-  const cases_sorted = Object.fromEntries(Object.entries(case_types).sort((x, y) => x[0] < y[0] ? -1 : x[0] === y[0] ? 0 : 1)) as Cases;
+  // Cases are sorted by their name, as East orders strings (#1574), and held
+  // by a record that lists them in that order: an object would list a name
+  // that is an array index first.
+  const entries = Object.freeze(Object.entries(case_types).sort((x, y) => compareStrings(x[0], y[0])).map(([name, caseType]) => [name, caseType] as const));
   // Intern: match Struct. Hash is computed over the sorted keys so two calls
   // with cases in different orders produce the same hash, and verify confirms
   // identical names and child type_ids.
-  const keys = Object.keys(cases_sorted);
-  let h = hashCombine(0x08, keys.length);
-  for (const k of keys) {
-    h = hashCombine(h, ((cases_sorted as any)[k] as TypeIdentity)?.[type_id_symbol] ?? 0);
+  let h = hashCombine(0x08, entries.length);
+  for (const [, caseType] of entries) {
+    h = hashCombine(h, (caseType as TypeIdentity)?.[type_id_symbol] ?? 0);
   }
   const cached = internLookup(h, (c: any) => {
     if (c.type !== "Variant") return false;
-    const ck = Object.keys(c.cases);
-    if (ck.length !== keys.length) return false;
-    for (let i = 0; i < keys.length; i++) {
-      if (ck[i] !== keys[i]) return false;
-      if (c.cases[keys[i]!] !== (cases_sorted as any)[keys[i]!]) return false;
+    const held = variantCases(c);
+    if (held.length !== entries.length) return false;
+    for (let i = 0; i < entries.length; i++) {
+      if (held[i]![0] !== entries[i]![0] || held[i]![1] !== entries[i]![1]) return false;
     }
     return true;
   });
   if (cached) return cached;
-  const result = assignTypeId({ type: "Variant" as const, cases: cases_sorted });
+  const cases = orderedRecord(entries) as Cases;
+  variantCaseOrder.set(cases, entries);
+  const result = assignTypeId({ type: "Variant" as const, cases });
   internStore(h, result);
   return result;
 };
+
+/**
+ * Lists a variant type's cases in East's order: their names as strings sort,
+ * by code point, as every runtime orders them (east-workspace#1574).
+ *
+ * @typeParam Cases - Object type mapping case names to their value types
+ * @param type - The variant type
+ * @returns Each case's name and type, in East's order
+ *
+ * @remarks
+ * `Object.keys` and `Object.entries` over the type's `cases` list them in the
+ * same order: {@link VariantType} holds them in a record that lists a name
+ * that is an array index, such as `"50"`, in East's order too, where a plain
+ * object would list it first. A case's place in East's order is what beast2
+ * writes for it and what a comparison of two values compares first. The list
+ * is computed once per type.
+ *
+ * @example
+ * ```ts
+ * const Shade = VariantType({ "50": NullType, "100": NullType, a: NullType });
+ * variantCases(Shade).map(([name]) => name);   // ["100", "50", "a"]
+ * Object.keys(Shade.cases);                    // ["100", "50", "a"]
+ * ```
+ */
+export function variantCases<Cases extends { [K in string]: any }>(type: VariantType<Cases>): readonly (readonly [keyof Cases & string, Cases[keyof Cases & string]])[] {
+  const cases = type.cases;
+  let ordered = variantCaseOrder.get(cases);
+  if (ordered === undefined) {
+    ordered = Object.keys(cases).sort(compareStrings).map((name) => [name, cases[name]] as const);
+    variantCaseOrder.set(cases, ordered);
+  }
+  return ordered as readonly (readonly [keyof Cases & string, Cases[keyof Cases & string]])[];
+}
 
 /**
  * Validates that a recursive type has SCC (Strongly Connected Component) size 1.
@@ -938,7 +1073,15 @@ export function EastTypeOf<V>(value: V): EastTypeOf<V> {
   } else if (typeof value === "function") {
     throw new Error(`Javascript functions cannot be converted to East functions`);
   } else if (typeof value === "object") {
-    return StructType(Object.fromEntries(Object.entries(value).map(([k, v]) => [k, EastTypeOf(v)]))) as EastTypeOf<V>;
+    const fields = Object.entries(value as object);
+    const index = fields.find(([name]) => isArrayIndex(name));
+    if (index !== undefined) {
+      throw new Error(
+        `Cannot infer the East type of a struct value with a field named like an array index (${printEastString(index[0])}): ` +
+        `an object lists such names first, so the order of its fields is lost. Give the value's type, built with StructType([[name, type], …])`,
+      );
+    }
+    return StructType(fields.map(([k, v]) => [k, EastTypeOf(v)] as const)) as EastTypeOf<V>;
   } else {
     throw new Error(`Cannot determine East type for value ${value}`);
   }
@@ -1207,8 +1350,11 @@ export function isValueOf(value: any, type: EastType, node_type?: EastType, node
     return true;
   } else if (type.type === "Struct") {
     if (typeof value !== "object" || value === null || Object.getPrototypeOf(value) !== Object.getPrototypeOf({})) return false;
+    // A struct value is a plain object, which lists a field named like an
+    // array index first: its fields are matched in the order such an object
+    // lists the struct's, which is the struct's own unless one is so named.
     const vs = Object.entries(value as Record<string, any>);
-    const ts = Object.entries(type.fields as Record<string, EastType>);
+    const ts = objectOrders.get(type.fields) ?? Object.entries(type.fields as Record<string, EastType>);
     if (vs.length !== ts.length) return false;
     let i = 0;
     for (const [k1, ft] of ts) {
@@ -1318,7 +1464,7 @@ export function printType(type: EastType, stack: EastType[] = []): string {
     return ret;
   } else if (type.type === "Variant") {
     stack.push(type);
-    const ret = `.Variant [${Object.entries(type.cases).map(([k, t]) => `(name=${printEastString(k)}, type=${printType(t, stack)})`).join(", ")}]`;
+    const ret = `.Variant [${variantCases(type).map(([k, t]) => `(name=${printEastString(k)}, type=${printType(t, stack)})`).join(", ")}]`;
     stack.pop();
     return ret;
   } else if (type.type === "Vector") {
@@ -1418,7 +1564,7 @@ export function printTypeSummary(type: EastType, maxDepth = 1, maxFields = 3, st
     }
     return `.Struct [${shown.join(", ")}]`;
   } else if (type.type === "Variant") {
-    const entries = Object.entries(type.cases);
+    const entries = variantCases(type);
     if (maxDepth <= 0) {
       return `.Variant (${entries.map(([k]) => k).join(" | ")})`;
     }
@@ -1798,11 +1944,11 @@ export function TypeUnion<T1 extends EastType, T2 extends EastType>(t1: T1, t2: 
         const e2 = Object.entries(t2.fields as Record<string, EastType>);
         if (e1.length !== e2.length) throw new TypeMismatchError(`structs contain different number of fields (${e1.length} vs ${e2.length})`);
         let i = 0;
-        const e: Record<string, EastType> = {};
+        const e: [string, EastType][] = [];
         for (const [k1, f1] of e1) {
           const [k2, f2] = e2[i]!;
           if (k1 !== k2) throw new TypeMismatchError(`struct field ${i} has mismatched names ${printIdentifier(k1)} and ${printIdentifier(k2)}`);
-          e[k1] = withPathSegment(`.${k1}`, () => TypeUnion(f1, f2));
+          e.push([k1, withPathSegment(`.${k1}`, () => TypeUnion(f1, f2))]);
           i += 1;
         }
         return StructType(e) as TypeUnion<T1, T2>;
@@ -1969,11 +2115,11 @@ export function TypeIntersect<T1 extends EastType, T2 extends EastType>(t1: T1, 
         const e2 = Object.entries(t2.fields as Record<string, EastType>);
         if (e1.length !== e2.length) throw new TypeMismatchError(`structs contain different number of fields (${e1.length} vs ${e2.length})`);
         let i = 0;
-        const e: Record<string, EastType> = {};
+        const e: [string, EastType][] = [];
         for (const [k1, f1] of e1) {
           const [k2, f2] = e2[i]!;
           if (k1 !== k2) throw new TypeMismatchError(`struct field ${i} has mismatched names ${printIdentifier(k1)} and ${printIdentifier(k2)}`);
-          e[k1] = withPathSegment(`.${k1}`, () => TypeIntersect(f1, f2));
+          e.push([k1, withPathSegment(`.${k1}`, () => TypeIntersect(f1, f2))]);
           i += 1;
         }
         return StructType(e) as TypeIntersect<T1, T2>;
@@ -2119,11 +2265,11 @@ export function TypeEqual<T1 extends EastType, T2 extends EastType>(t1: T1, t2: 
         const e2 = Object.entries(t2.fields as Record<string, EastType>);
         if (e1.length !== e2.length) throw new TypeMismatchError(`structs contain different number of fields (${e1.length} vs ${e2.length})`);
         let i = 0;
-        const e: Record<string, EastType> = {};
+        const e: [string, EastType][] = [];
         for (const [k1, f1] of e1) {
           const [k2, f2] = e2[i]!;
           if (k1 !== k2) throw new TypeMismatchError(`struct field ${i} has mismatched names ${printIdentifier(k1)} and ${printIdentifier(k2)}`);
-          e[k1] = withPathSegment(`.${k1}`, () => TypeEqual(f1, f2, r1, r2));
+          e.push([k1, withPathSegment(`.${k1}`, () => TypeEqual(f1, f2, r1, r2))]);
           i += 1;
         }
         return StructType(e) as T1;
@@ -2150,7 +2296,7 @@ export function TypeEqual<T1 extends EastType, T2 extends EastType>(t1: T1, t2: 
         for (const [k1, f1] of e1) {
           const [k2, f2] = e2[i]!;
           if (k1 !== k2) {
-            if (k1 < k2) {
+            if (compareStrings(k1, k2) < 0) {
               throw new TypeMismatchError(`variant case ${k1} is not present in both variants`);
             } else {
               throw new TypeMismatchError(`variant case ${k2} is not present in both variants`);
@@ -2286,11 +2432,11 @@ export function TypeWiden(t1: EastType, t2: EastType): EastType {
         const e2 = Object.entries(t2.fields as Record<string, EastType>);
         if (e1.length !== e2.length) throw new TypeMismatchError(`structs contain different number of fields (${e1.length} vs ${e2.length})`);
         let i = 0;
-        const e: Record<string, EastType> = {};
+        const e: [string, EastType][] = [];
         for (const [k1, f1] of e1) {
           const [k2, f2] = e2[i]!;
           if (k1 !== k2) throw new TypeMismatchError(`struct field ${i} has mismatched names ${printIdentifier(k1)} and ${printIdentifier(k2)}`);
-          e[k1] = withPathSegment(`.${k1}`, () => TypeWiden(f1, f2));
+          e.push([k1, withPathSegment(`.${k1}`, () => TypeWiden(f1, f2))]);
           i += 1;
         }
         return StructType(e);

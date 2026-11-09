@@ -11,6 +11,7 @@ and matches what the TypeScript implementation emits byte for byte: key order,
 ``$defs`` names and case order are fixed by the type, never by process state.
 """
 
+import re
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -121,6 +122,16 @@ EAST_JSON_PATTERNS = _EastJsonPatterns()
 def _defs_keyword(draft: str) -> str:
     """Where definitions live, and how they are referenced, in a given release."""
     return "$defs" if draft == "2020-12" else "definitions"
+
+
+def _is_array_index(name: str) -> bool:
+    """Whether a name is an array index, which a JavaScript object lists first.
+
+    The canonical decimal of an integer from 0 to 2**32 - 2: a JavaScript
+    object lists such a name before every other, in numeric order, whatever
+    order it was written in.
+    """
+    return re.fullmatch(r"0|[1-9][0-9]{0,9}", name) is not None and int(name) <= 4294967294
 
 
 def _is_json_option_type(typ: EastType) -> bool:
@@ -366,9 +377,16 @@ def _schema_of(t: EastType, ctx: _Context) -> JsonSchema:  # noqa: PLR0911, PLR0
         }
 
     if kind == "Struct":
-        properties: JsonSchema = {}
-        for field in t.value:
-            properties[field["name"]] = _schema_of(field["type"], ctx)
+        # Each field's schema in the struct's order, so recursive definitions
+        # are named as the TypeScript twin names them; its properties listed as
+        # a JavaScript object lists them -- a name like an integer first, in
+        # numeric order, then the rest in the struct's -- so the two documents
+        # are byte for byte the same. `required` keeps the struct's own order,
+        # which both readers take where such a name is.
+        built = {field["name"]: _schema_of(field["type"], ctx) for field in t.value}
+        indexes = sorted((name for name in built if _is_array_index(name)), key=int)
+        properties: JsonSchema = {name: built[name] for name in indexes}
+        properties.update({name: schema for name, schema in built.items() if name not in properties})
         return {
             "type": "object",
             "properties": properties,

@@ -59,7 +59,8 @@ export function checkLeading(constructor: string, name: string, rowType: RowType
   });
   return {
     fields,
-    onType: StructType(Object.fromEntries(fields.map((f) => [f.field, f.type]))),
+    // A list, in key order: an object would list a field named like an integer first (#1574)
+    onType: StructType(fields.map((f): readonly [string, EastType] => [f.field, f.type])),
     multi: fields.some((f) => f.set),
   };
 }
@@ -199,14 +200,14 @@ interface Fanning {
  */
 export function leadingValues(keyType: EastType, rowType: RowType, leading: Leading): FunctionExpr<[EastType, RowType], SetType<RowType>> {
   const names = leading.fields.map((f) => f.field);
-  const read: RowType = StructType(Object.fromEntries(leading.fields.map((f) => [f.field, f.set ? SetType(f.type) : f.type])));
+  const read: RowType = StructType(leading.fields.map((f): readonly [string, EastType] => [f.field, f.set ? SetType(f.type) : f.type]));
   const first: Fanning = {
     fn: East.function([keyType, rowType], ArrayType(read), (_$, _key, row) => [East.struct(read, East.fields(row, names))]),
     type: read,
   };
   const fanned = leading.fields.filter((f) => f.set).reduce<Fanning>((before, f) => {
     // This Set field's element in its place; the fields before and after it as they are.
-    const type: RowType = StructType({ ...before.type.fields, [f.field]: f.type });
+    const type: RowType = StructType(Object.entries(before.type.fields).map(([field, t]): readonly [string, EastType] => [field, field === f.field ? f.type : t]));
     const at = names.indexOf(f.field);
     const ahead = names.slice(0, at);
     const behind = names.slice(at + 1);

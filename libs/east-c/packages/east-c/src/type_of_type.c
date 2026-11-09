@@ -12,6 +12,7 @@
 #include "east/types.h"
 #include "east/values.h"
 #include "east/ir.h"
+#include "east/builtins.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -690,6 +691,10 @@ static EastType *east_type_from_value_ctx(EastValue *v, RecCtx *ctx)
                 break;
             }
         }
+        /* The cases as listed must be East's order: east_variant_type sorts
+         * them, which would read a type an earlier TypeScript wrote as
+         * another (#1574). */
+        if (ok && !east_variant_cases_in_order(names, n)) ok = false;
         EastType *t = ok ? east_variant_type(names, types, n) : NULL;
         for (size_t i = 0; i < n; i++) {
             if (types[i] && types[i]->ref_count > 0) east_type_release(types[i]);
@@ -790,6 +795,38 @@ static EastType *east_type_from_value_ctx(EastValue *v, RecCtx *ctx)
     }
 
     return NULL;
+}
+
+/* ================================================================== */
+/*  east_variant_cases_in_order (public API)                           */
+/* ================================================================== */
+
+bool east_variant_cases_in_order(const char *const *names, size_t n)
+{
+    for (size_t i = 1; i < n; i++) {
+        int order = strcmp(names[i - 1], names[i]);
+        if (order < 0) continue;
+        size_t cap = strlen(names[i - 1]) + strlen(names[i]) + 320;
+        char *msg = malloc(cap);
+        if (!msg) {
+            east_builtin_error("the variant type lists its cases out of East's order");
+            return false;
+        }
+        if (order == 0) {
+            snprintf(msg, cap, "the variant type lists its case \"%s\" twice", names[i]);
+        } else {
+            snprintf(msg, cap,
+                     "the variant type lists its case \"%s\" after \"%s\", out of East's order, "
+                     "which sorts case names as strings, by code point. A TypeScript East before "
+                     "east-workspace#1574 wrote it, listing a case named like an integer first: "
+                     "re-export the package it came from, or reset the state stored under it",
+                     names[i], names[i - 1]);
+        }
+        east_builtin_error(msg);
+        free(msg);
+        return false;
+    }
+    return true;
 }
 
 /* ================================================================== */

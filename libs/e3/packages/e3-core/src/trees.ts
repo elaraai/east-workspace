@@ -71,11 +71,9 @@ export type TreeObject = Record<string, DataRef>;
  */
 function treeTypeFromStructure(structure: Structure): EastType {
   if (structure.type === 'struct') {
-    const fields: Record<string, typeof DataRefType> = {};
-    for (const fieldName of structure.value.keys()) {
-      fields[fieldName] = DataRefType;
-    }
-    return StructType(fields);
+    // The fields in the structure's order, as a list: an object would list a
+    // field named like an integer first, and StructType refuses one (#1574)
+    return StructType([...structure.value.keys()].map((fieldName) => [fieldName, DataRefType] as const));
   } else if (structure.type === 'value') {
     throw new Error('Cannot create tree type for a value structure - this is a dataset, not a tree');
   } else {

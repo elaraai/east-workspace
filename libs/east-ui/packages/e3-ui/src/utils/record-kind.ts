@@ -302,7 +302,7 @@ export function rowWith(rowType: StructType, source: unknown, set: Readonly<Reco
  * @returns The values' type
  */
 export function valuesTypeOf(rowType: StructType, placed: readonly string[]): StructType {
-    return StructType(Object.fromEntries(Object.entries(rowType.fields as Record<string, EastType>).filter(([name]) => !placed.includes(name))));
+    return StructType(Object.entries(rowType.fields as Record<string, EastType>).filter(([name]) => !placed.includes(name)));
 }
 
 /**

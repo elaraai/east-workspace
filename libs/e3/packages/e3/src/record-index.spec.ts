@@ -280,7 +280,7 @@ describe("a record's indexes — fields through mutation and rebuild", () => {
 describe('a generated index key reserves no field name (#1432)', () => {
   /** Fields named like e3's own parts, every one a row field the indexes are led by. */
   const NAMES = ['on', 'node', 'at', 'area', 'tile', 'key', 'level', '__interval', '__area', '__tile'] as const;
-  const LeadingType = StructType(Object.fromEntries(NAMES.map((name) => [name, StringType])) as Record<(typeof NAMES)[number], typeof StringType>);
+  const LeadingType = StructType(NAMES.map((name) => [name, StringType] as const));
   const Named = StructType({ ...LeadingType.fields, press: StringType, start: DateTimeType, end: DateTimeType, x: FloatType, y: FloatType });
   const leading = Object.fromEntries(NAMES.map((name) => [name, `${name} value`])) as ValueTypeOf<typeof LeadingType>;
   // An instant, on Wednesday 7 October: in the week of the 5th.

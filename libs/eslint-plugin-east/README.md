@@ -63,8 +63,9 @@ Or extend the bundled config: `export default [east.configs.recommended];`
 `only` runs just the rules it names — every other rule is off, and `disabled`
 still applies. The plugin exports `hostValueRules`: the rules over host code
 that holds decoded East values — how it prints, reads, compares, collects,
-types and builds them. A package that authors East IR by design (a UI factory
-library, a test's program helpers) runs those alone:
+types and builds them, and declares a struct's fields known only at run time
+(as a list, which keeps their order). A package that authors East IR by design
+(a UI factory library, a test's program helpers) runs those alone:
 
 ```js
 import east, { hostValueRules } from "@elaraai/eslint-plugin-east";

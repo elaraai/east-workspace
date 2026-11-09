@@ -8,7 +8,9 @@
  *
  * The IR carries every type as an `EastTypeValue` — the homoiconic value of
  * `EastTypeType` — and the printer needs the TypeScript expression that
- * rebuilds it: `ArrayType(IntegerType)`, `StructType({ a: IntegerType })`,
+ * rebuilds it: `ArrayType(IntegerType)`, `StructType({ a: IntegerType })` (a
+ * struct with a field named like an integer as its list of fields,
+ * `StructType([["b", IntegerType], ["10", IntegerType]])`, #1574),
  * `OptionType(T)` for the exact Option shape, `RecursiveType(self => ...)`
  * for a recursive wrapper (nested wrappers name their self-references
  * `self`, `self2`, ...). A recursive `ref` resolves to the enclosing
@@ -48,6 +50,16 @@ export function objectKey(name: string): string {
 }
 
 /**
+ * Whether a name is an array index — the canonical decimal of an integer
+ * from 0 to 2^32 − 2 — which a JavaScript object lists before every other
+ * name, in numeric order, wherever it was written (`StructType` tells one
+ * the same way, and refuses one in its object form).
+ */
+function isArrayIndex(name: string): boolean {
+  return /^(?:0|[1-9][0-9]{0,9})$/.test(name) && Number(name) <= 4294967294;
+}
+
+/**
  * An East type value as the layout document of the TypeScript source that
  * rebuilds it: a struct, variant or parameter list breaks one entry per
  * line when the line it sits on would pass the width (`codegen/doc`).
@@ -69,9 +81,16 @@ export function typeDoc(t: EastTypeValue, scope: [bigint, string][] = []): Doc {
     return ["DictType(", typeDoc(d.key, scope), ", ", typeDoc(d.value, scope), ")"];
   }
   if (kind === "Struct") {
-    const fields = (t.value as { name: string, type: EastTypeValue }[])
-      .map((f): Doc => [objectKey(f.name), ": ", typeDoc(f.type, scope)]);
-    return ["StructType(", bracket("{", fields, "}", " "), ")"];
+    const fields = t.value as { name: string, type: EastTypeValue }[];
+    // A field named like an integer cannot keep its place as an object's key,
+    // and the object form refuses one: such a struct is its list of fields, in
+    // order (#1574).
+    if (fields.some(f => isArrayIndex(f.name))) {
+      const listed = fields.map((f): Doc => ["[", JSON.stringify(f.name), ", ", typeDoc(f.type, scope), "]"]);
+      return ["StructType(", bracket("[", listed, "]"), ")"];
+    }
+    const entries = fields.map((f): Doc => [objectKey(f.name), ": ", typeDoc(f.type, scope)]);
+    return ["StructType(", bracket("{", entries, "}", " "), ")"];
   }
   if (kind === "Variant") {
     const cases = t.value as { name: string, type: EastTypeValue }[];

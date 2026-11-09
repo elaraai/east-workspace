@@ -190,11 +190,44 @@ test("no-module-scope-east-macro: still flags helpers building IR, and keys that
   assert.equal(hits(src, "no-module-scope-east-macro").length, 2);
 });
 
+// ── no-struct-type-from-object ───────────────────────────────────────────
+test("no-struct-type-from-object: a struct built from an object of runtime names, a spread of one, a computed name, a generic object — the entries offered as the list", () => {
+  // An object lists a name like an integer ("2024") first wherever it was
+  // written, so a pivot by year built this way would put its years first (#1574)
+  const src = `import type { EastType } from "@elaraai/east";\ndeclare const years: string[];\ndeclare const byName: Record<string, EastType>;\ndeclare const name: string;\nexport const pivot = StructType(Object.fromEntries(years.map((y) => [y, FloatType] as const)));\nexport const given = StructType(byName);\nexport const spread = StructType({ ...byName, extra: IntegerType });\nexport const computed = StructType({ [name]: IntegerType });\nexport const generic = <F extends Record<string, EastType>>(fields: F) => StructType(fields);\n`;
+  const found = hits(src, "no-struct-type-from-object");
+  assert.equal(found.length, 5);
+  assert.ok(found.every((d) => d.category === "warning"));
+  // Object.fromEntries of a list: the list itself is the fix
+  const text = `${PRELUDE}${src}`;
+  const fix = found[0]!.fix;
+  assert.ok(fix !== undefined);
+  assert.equal(text.slice(fix.changes[0]!.start, fix.changes[0]!.start + fix.changes[0]!.length), "Object.fromEntries(years.map((y) => [y, FloatType] as const))");
+  assert.equal(fix.changes[0]!.newText, "years.map((y) => [y, FloatType] as const)");
+  assert.ok(found.slice(1).every((d) => d.fix === undefined), "no list to offer for an object, a spread or a computed name");
+});
+
+test("no-struct-type-from-object: an object naming a field like an integer, which StructType refuses — written out, under an alias, spread from a struct that lists one, or named by its type", () => {
+  const src = `import { StructType as Struct } from "@elaraai/east";\nexport const a = StructType({ b: IntegerType, "10": StringType });\nexport const b = Struct({ 2024: FloatType });\nconst Counts = StructType([["b", IntegerType], ["10", IntegerType]]);\nexport const c = StructType({ ...Counts.fields, x: IntegerType });\ndeclare const typed: { b: typeof IntegerType; "7": typeof IntegerType };\nexport const d = StructType(typed);\n`;
+  const found = hits(src, "no-struct-type-from-object");
+  assert.equal(found.length, 4);
+  assert.ok(found.every((d) => d.category === "error"));
+  assert.match(found[0]!.messageText, /"10"/);
+  assert.match(found[1]!.messageText, /"2024"/);
+  assert.match(found[2]!.messageText, /"10"/);
+  assert.match(found[3]!.messageText, /"7"/);
+});
+
+test("no-struct-type-from-object: silent on names written out or named by their type (a const record, a declared struct's fields, a spread of them, a literal key), the list form, a list held in a variable, a struct's own fields mapped as a list, and anything else called StructType", () => {
+  const src = `import type { EastType } from "@elaraai/east";\ndeclare const entries: (readonly [string, EastType])[];\nexport const a = StructType({ id: StringType, "n-2": IntegerType, "1.5": FloatType, "007": BooleanType });\nexport const b = StructType([["b", IntegerType], ["10", StringType]]);\nexport const c = StructType(entries);\nexport const d = StructType(Object.entries(RowType.fields).map(([k, v]) => [k, OptionType(v)] as const));\nexport const e = StructType(Object.entries(RowType.fields).filter(([k]) => k !== "id"));\nconst local = { StructType: (o: object) => o };\nexport const f = local.StructType(Object.fromEntries([["x", 1]]));\nconst Fields = { id: StringType, n: IntegerType };\nexport const g = StructType(Fields);\nexport const h = StructType({ ...RowType.fields, extra: IntegerType });\nexport const i = StructType(RowType.fields);\nconst key = "key" as const;\nexport const j = StructType({ [key]: IntegerType });\n`;
+  assert.deepEqual(hits(src, "no-struct-type-from-object").map((d) => d.messageText), []);
+});
+
 // ── the host-value set ───────────────────────────────────────────────────
-test("hostValueRuleNames names the eight host-value rules, and `only` runs just them", () => {
+test("hostValueRuleNames names the nine host-value rules, and `only` runs just them", () => {
   assert.deepEqual([...hostValueRuleNames].sort(), [
     "no-handrolled-value-type-mirror", "no-handrolled-variant", "no-host-comparison-on-east-values", "no-host-parse-to-east-values",
-    "no-host-print-of-east-values", "no-js-collection-for-east-collection", "no-js-type-dispatch-on-east-values", "prefer-some-none",
+    "no-host-print-of-east-values", "no-js-collection-for-east-collection", "no-js-type-dispatch-on-east-values", "no-struct-type-from-object", "prefer-some-none",
   ]);
   // Plain names, so every one must name a rule — a rename cannot leave the set behind.
   for (const name of hostValueRuleNames) assert.ok(allRules.some((rule) => rule.name === name), `${name} names a rule`);
