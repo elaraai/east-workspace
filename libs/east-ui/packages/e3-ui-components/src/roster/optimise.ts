@@ -193,7 +193,7 @@ export function lockRosterCommands(commands: RosterCommands, refusal: string): R
     const refused = () => refusal;
     const nothing = () => undefined;
     return {
-        ...commands, available: false, availableIn: () => false, editable: false, locked: refusal,
+        ...commands, available: false, availableOn: () => false, publishable: false, availableIn: () => false, editable: false, locked: refusal,
         place: refused, update: refused, activity: refused, sets: refused, field: refused, row: refused, requirement: refused, targetRow: refused,
         accept: refused, fix: refused, pattern: refused, applyPattern: refused,
         remove: nothing, restore: nothing, reject: nothing, copy: nothing, publish: nothing,

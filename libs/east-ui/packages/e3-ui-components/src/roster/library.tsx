@@ -268,7 +268,9 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
         const chosenKey = chosen[name];
         const parsed = tab.type === "people" && chosenKey !== undefined ? readRosterSource(chosenKey) : undefined;
         const source: RosterSource | undefined = parsed?.success ? { type: parsed.value.type, key: parsed.value.value } : undefined;
-        const target = selection?.type === "assignment" ? selection.key : undefined;
+        // The selected duty a card acts on: none on a day that takes no edits, a published one (#1550).
+        const targetDay = selection?.type === "assignment" ? week.assignments.get(selection.key)?.place.day : undefined;
+        const target = selection?.type === "assignment" && targetDay !== undefined && commands.availableOn(targetDay) ? selection.key : undefined;
         const custom = tab.type === "tab" && tab.value.drop.type === "some" ? tab.value.cards.find(card => card.key === chosenKey) : undefined;
         const finding = tab.type === "people" && findWhat !== undefined;
         // A pane its source reads again holds its cards retained (#1398, CL8): what they place waits until it lands.

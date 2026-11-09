@@ -9,7 +9,10 @@
  * each of one history — read a week at a time and assembled into the week the
  * grid, the cards, the library, the inspector and the toolbar draw, drafts in
  * place; the app's pay asked a person at a time; Publish saving the week, then
- * writing its status. The duties' source of the slice holds the week's window,
+ * writing the status of each period it publishes — the week's, or where the
+ * periods are days (#1550) the day in view's in Shifts' Day, else each day of
+ * the week not yet published, a published day read-only in every layout while
+ * the week's other days take edits. The duties' source of the slice holds the week's window,
  * which the Roster's own navigation writes. Search Records seeks the people by
  * their keys (`find.ts`, #1398): a pick selects the person, their People row
  * brought into view — one the rail's narrowing hides once the choices that hide
@@ -32,7 +35,7 @@ import { ArrayType, StringType, equalFor, isVariant, none, some, variant, type o
 import { RosterComponent, RosterContextType, RosterIssueType } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, fieldBreachIssue, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useDataStable,
-    useFormatters, useLanding, useLandingStyles, usePersistedState, useTrackedEvaluation, type BuilderFramePanes, type EditIssue, type HistoryAction,
+    useFormatters, useLanding, useLandingStyles, usePersistedState, useTrackedEvaluation, type BuilderFramePanes, type EditIssue, type Formatters, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
 import { rowBreaches } from "../shared/bounds.js";
@@ -46,7 +49,7 @@ import { useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import { refusalText, scheduleRefusals } from "../shared/schedule/refusals.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
-import { publishChange, rosterCommands } from "./actions.js";
+import { publishChanges, rosterCommands } from "./actions.js";
 import { RosterDataReader, initialRosterData, type RosterData } from "./data.js";
 import { useRosterDrag } from "./drag.js";
 import { PERIODS, TARGETS, useRosterEditing, type RosterEditing } from "./editing.js";
@@ -57,10 +60,10 @@ import { useRosterInspector, type RosterRefusal } from "./inspector.js";
 import { useRosterLibrary } from "./library.js";
 import { rosterMessages, type RosterWords } from "./messages.js";
 import {
-    DAY, NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, availableProposals, compareDate, configError, dayOfSlot, editableStatus, groupOf, NO_GROUP, placeDrafted, placeStored, placeTargets,
-    rosterContext, rosterDomain, selectionWeek, slotOfPlace, spanWindow, spanWords, started, statusText, weekBefore, weekKey, weekNumber, weekOf, weekStart, type Assignment, type Coverage,
-    type DraftedDuty, type Issue, type PlacedDuties, type PlacedPeriod,
-    type RosterPayload, type RosterStyles, type RosterValue, type Selection, type Slot, type StoredDuty, type StoredTarget, type WeekState,
+    DAY, NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, availableProposals, byDay, compareDate, configError, dayOfSlot, editableStatus, groupOf, NO_GROUP, periodOn, periodsText,
+    placeDrafted, placeStored, placeTargets, rosterContext, rosterDomain, selectionWeek, slotOfPlace, spanWindow, spanWords, started, takesEdits, weekBefore, weekKey, weekNumber, weekOf,
+    weekPeriods, weekStart, type Assignment, type Coverage, type DraftedDuty, type Issue, type PlacedDuties, type PlacedPeriod, type RosterPayload, type RosterStyles,
+    type RosterValue, type Selection, type Slot, type StoredDuty, type StoredTarget, type WeekPeriod, type WeekState,
 } from "./model.js";
 import { landRosterOptimise, lockRosterCommands, rosterOptimiseRequest, rosterOptimiseTypes, type RosterOptimiseRequest, type RosterOptimiseResult, type RosterOptimised } from "./optimise.js";
 import { useRosterToolbar } from "./toolbar.js";
@@ -109,10 +112,35 @@ interface FrameProps {
     editing: RosterEditing | undefined;
 }
 
-/** The week's own row, read: its status and what it dismissed. */
+/** A period's own row, read — a week's, or a day's (#1550): its status and what it dismissed. */
 function periodOf(source: RosterPayload, bytes: Uint8Array | undefined): PlacedPeriod {
     if (bytes === undefined || source.periods.type !== "some") return NO_PERIOD;
     return { bytes, status: source.periods.value.status(bytes), dismissed: source.periods.value.dismissed(bytes) };
+}
+
+/**
+ * The banner over the periods in view that take no edits (#1550): one period's — the week's, or the day's in view —
+ * as the week's has always said it, its unit named; over a week's days, every one published as the week's, else how
+ * many of them are closed, each named by its weekday — the week's days, so its weekday alone names one: `Sun, Mon
+ * are read-only.`
+ *
+ * @param viewed - The periods in view
+ * @param unit - What one of them is: a week, or a day
+ * @param format - The app's formatters
+ * @returns The banner's words; `undefined` while every period in view takes edits
+ */
+function closedBanner(viewed: readonly WeekPeriod[], unit: "day" | "week", format: Pick<Formatters, "number" | "weekday">): { title: string; description: string } | undefined {
+    const closed = viewed.filter(p => !editableStatus(p.held.status));
+    if (closed.length === 0) return undefined;
+    const published = closed.every(p => p.held.status.type === "published");
+    if (viewed.length === 1) {
+        const status = closed[0]!.held.status;
+        return status.type === "other" ? { title: `${status.value} ${unit}`, description: `This ${unit} is read-only.` }
+            : { title: `Published ${unit}`, description: "Read-only view of the published roster." };
+    }
+    if (published && closed.length === viewed.length) return { title: "Published week", description: "Read-only view of the published roster." };
+    return { title: `${format.number(closed.length)} of ${format.number(viewed.length)} days ${published ? "published" : "read-only"}`,
+        description: `${closed.map(p => format.weekday(p.start)).join(", ")} ${closed.length === 1 ? "is" : "are"} read-only.` };
 }
 
 /** The sole editable wrapper: a read-only Roster never creates a record session. */
@@ -150,17 +178,22 @@ function RosterFrame(props: FrameProps) {
     const periodDrafts = editing?.periods ?? NO_PERIOD_DRAFTS;
     const dutyDrafts = editing?.duties ?? NO_DUTY_DRAFTS, targetDrafts = editing?.targets ?? NO_TARGET_DRAFTS;
     // Each week of the span, assembled from the span's rows with its drafts in place (#1406): one for a week in view, a
-    // month's four to six — what the month's cells draw, and what a pattern dropped on one of them applies to.
+    // month's four to six — what the month's cells draw, and what a pattern dropped on one of them applies to. Its periods
+    // are the week, or its seven days where the periods are days (#1550), each its row as stored and as drafted.
+    const days = byDay(source);
     const weekStates = useMemo((): WeekState[] => span.weeks.map(at => {
         const stored = place(current ? data.duties : NO_STORED, at);
         const drafted = placeDrafted(domain, stored, dutyDrafts, at, context);
         const heldTargets = placeTargets(current ? data.targets : NO_STORED_TARGETS, NO_TARGET_DRAFTS, at, source);
         const targets = placeTargets(current ? data.targets : NO_STORED_TARGETS, targetDrafts, at, source);
-        const id = weekKey(at);
-        const heldPeriod = periodOf(source, current ? data.periods.get(at) : undefined);
-        const period = periodDrafts.has(id) ? periodOf(source, periodDrafts.get(id)) : heldPeriod;
-        return { start: at, week: weekOf(drafted, targets, period), held: weekOf(stored, heldTargets, heldPeriod), duties: drafted, heldDuties: stored, targets, period, heldPeriod };
-    }), [span.weeks, current, data.duties, data.targets, data.periods, place, domain, dutyDrafts, targetDrafts, periodDrafts, context, source]);
+        const periods = weekPeriods(at, days, from => {
+            const id = weekKey(from);
+            const held = periodOf(source, current ? data.periods.get(from) : undefined);
+            return { held, period: periodDrafts.has(id) ? periodOf(source, periodDrafts.get(id)) : held };
+        });
+        return { start: at, week: weekOf(drafted, targets, periods.map(p => p.period)), held: weekOf(stored, heldTargets, periods.map(p => p.held)),
+            duties: drafted, heldDuties: stored, targets, periods };
+    }), [span.weeks, current, data.duties, data.targets, data.periods, place, domain, dutyDrafts, targetDrafts, periodDrafts, context, source, days]);
     const [selection, setSelection] = useState<Selection>();
     // The week the inspector, the commands and the checks work over: the selected person-week's in a month (D11), or the
     // week of the work requirement's day selected there (#1568), else the selected duty's — as drafted, else as stored: a
@@ -170,7 +203,14 @@ function RosterFrame(props: FrameProps) {
     const primary = (pickedStart !== undefined ? weekStates.find(held => held.start.getTime() === pickedStart)
         : pickedDuty === undefined ? undefined
             : weekStates.find(held => held.week.assignments.has(pickedDuty)) ?? weekStates.find(held => held.held.assignments.has(pickedDuty))) ?? weekStates[0]!;
-    const { start, week, held, duties: draftedDuties, heldDuties: storedDuties, targets, period, heldPeriod } = primary;
+    const { start, week, held, duties: draftedDuties, heldDuties: storedDuties, targets, periods } = primary;
+    // The day in view publishes alone where the periods are days, in Shifts' Day (#1550): the periods its status, its
+    // banner and Publish speak of — else every period of the week.
+    const dayInView = days && window.view.layout === "shifts" && window.view.period === "day";
+    const viewed = useMemo((): readonly WeekPeriod[] => {
+        const day = dayInView ? periodOn(periods, window.day) : undefined;
+        return day === undefined ? periods : [day];
+    }, [dayInView, periods, window.day]);
     const previous = useMemo(() => current && data.previous !== undefined ? place(data.previous, weekBefore(start)) : undefined, [current, data.previous, place, start]);
     const [tab, setTab] = useState("details");
     const [libraryTab, setLibraryTab] = useState<string>();
@@ -241,7 +281,7 @@ function RosterFrame(props: FrameProps) {
             slot: slot === undefined ? none : some(slot), assignment: some(id), flag: none, fix: none,
         }]);
     }), sameIssues);
-    const proposals = useMemo(() => availableProposals(value, week, start), [value, week, start]);
+    const proposals = useMemo(() => availableProposals(value, week, start, periods), [value, week, start, periods]);
     // The app's check over the complete draft, given the pay (§5.8).
     const readCheck = useCallback(() => source.check.type === "some"
         ? source.check.value(domain.encodeCheckContext({ start, week, context, coverage, pay: weekPay.pay })) : [], [source.check, domain, start, week, context, coverage, weekPay]);
@@ -265,19 +305,23 @@ function RosterFrame(props: FrameProps) {
         if (fitError !== undefined) retryFit();
     }, [fitError, retryFit]);
     const isFinding = useCallback((asked: RosterFind) => finding && find !== undefined && sameFind(find, asked), [finding, find]);
-    // Publish (B7): Save, then once every record reads back as saved, the week's status — over its row as last saved. The
-    // week is the one shown as Publish is pressed: a week stepped to while the Save settles is not the one published.
+    // Publish (B7): Save, then once every record reads back as saved, each period's status — over its row as last saved:
+    // the week's, or by the day the day in view's in Shifts' Day, else each day of the week that takes edits, as one
+    // request (#1550). The periods are those shown as Publish is pressed: a day or a week stepped to while the Save
+    // settles is not the one published.
+    const unit = dayInView ? "day" : "week";
     const [publishing, setPublishing] = useState(false);
     const publishingNow = useRef(false);
-    const latest = useRef({ change: () => undefined as ReturnType<typeof publishChange> });
-    latest.current = { change: () => editing === undefined ? undefined : publishChange(source, editing, start, current ? data.periods.get(start) : undefined, new Date()) };
+    const latest = useRef<{ viewed: readonly WeekPeriod[]; stored: (at: Date) => Uint8Array | undefined }>({ viewed, stored: () => undefined });
+    latest.current = { viewed, stored: at => current ? data.periods.get(at) : undefined };
     const publish = useCallback(() => {
         if (editing === undefined || publishingNow.current) return;
         publishingNow.current = true; setPublishing(true);
-        const { change } = latest.current;
-        void publishPeriod(editing.history, change, changes => editing.schedule.record(changes, "typed", "Publish week"))
+        // The periods in view as Publish is pressed: a step to another day or week while its Save is out publishes no other.
+        const { viewed: chosen, stored } = latest.current;
+        void publishPeriod(editing.history, () => publishChanges(source, editing, chosen, stored, new Date()), changes => editing.schedule.record(changes, "typed", `Publish ${unit}`))
             .finally(() => { publishingNow.current = false; setPublishing(false); });
-    }, [editing]);
+    }, [editing, unit, source]);
     // A narrowing read while the week it filters stands in keeps the week's rows, stale (#1398, CL5): their words in the
     // third ink, their rules dashed. While the people's narrowing is read or failed, or the week stands in, its rows are
     // retained (CL8): readable, focusable and selectable, aria-disabled, and every editing gesture — a drag, a drop, an
@@ -289,9 +333,9 @@ function RosterFrame(props: FrameProps) {
     // its editing hold (#1398, CL9); while main is retained they refuse every gesture, its controls kept in place.
     const ready = current && !publishing && !visibility.loading && visibility.error === undefined;
     const unlocked = useMemo(() => rosterCommands({
-        value, start, context, week, held, duties: draftedDuties, heldDuties: storedDuties, previous, targets, period, heldPeriod, weeks: weekStates,
+        value, start, context, week, held, duties: draftedDuties, heldDuties: storedDuties, previous, targets, periods, publishes: viewed, weeks: weekStates,
         read: [data.duties, ...(data.previous === undefined ? [] : [data.previous])], readTargets: data.targets, editing, ready, retained,
-    }, setSelection, findFix, publish), [value, start, context, week, held, draftedDuties, storedDuties, previous, targets, period, heldPeriod, weekStates, data.duties, data.previous,
+    }, setSelection, findFix, publish), [value, start, context, week, held, draftedDuties, storedDuties, previous, targets, periods, viewed, weekStates, data.duties, data.previous,
         data.targets, editing, ready, retained, findFix, publish]);
     // The app's optimiser (#1409, #1421): one run over the week in view, its result landed on the week's duties as one
     // edit, and what it left on them until Apply — the landing and the highlight over the whole frame.
@@ -323,10 +367,12 @@ function RosterFrame(props: FrameProps) {
     const locked = run.running;
     const commands = useMemo(() => locked ? lockRosterCommands(unlocked, optimiseMessages.locked({ period: weekLabel })) : unlocked, [locked, unlocked, weekLabel]);
     // The eye is listed only where the week can be optimised (ruled 25 Oct 2026): never read only, never in Month —
-    // a run is one week's — and never over a published week; while the week's reads are in flight it waits, disabled.
+    // a run is one week's — and never over a published week, nor over a week holding a published day where the periods
+    // are days (#1550): a run plans the whole week, and a published day takes no change; while the week's reads are in
+    // flight it waits, disabled.
     const optimiseParts = useOptimiseParts<RosterOptimiseRequest>({
         run, landing, period: weekLabel,
-        readOnly: value.settings.readOnly || editing === undefined || span.period === "month" || (current && (!editableStatus(heldPeriod.status) || !editableStatus(week.status))),
+        readOnly: value.settings.readOnly || editing === undefined || span.period === "month" || (current && !periods.every(takesEdits)),
         busy: !unlocked.available,
         request: n => rosterOptimiseRequest(latestRun.current.start, latestRun.current.week, latestRun.current.context, n), landKey: week,
     });
@@ -532,12 +578,15 @@ function RosterFrame(props: FrameProps) {
         where: historyWhere, onAction, onPickerDates: setPickerDates, narrow,
         optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,
         selectedWeek: pickedStart === undefined ? undefined : new Date(pickedStart),
-        status: source.periods.type === "some" ? statusText(heldPeriod) : undefined, unread: !current, publishing, picker: data.picker,
+        status: source.periods.type === "some" ? periodsText(viewed.map(p => p.held)) : undefined, unread: !current, publishing, publishUnit: unit, picker: data.picker,
         onDisplay: next => props.setDisplay({ ...props.display, ...next }), search });
-    // Read only while no week in view can be edited: the week's status, or every week of the month's (#1406).
-    const readOnly = value.settings.readOnly || (current && weekStates.every(held => !editableStatus(held.heldPeriod.status)));
+    // Read only while no week in view can be edited: the week's status, or every week of the month's (#1406) — where the
+    // periods are days, every day's (#1550).
+    const readOnly = value.settings.readOnly || (current && weekStates.every(state => state.periods.every(p => !editableStatus(p.held.status))));
     // A week not started, said of the week in view: a month shows its weeks as they are.
-    const notStarted = current && span.period !== "month" && week.assignments.size === 0 && (source.periods.type === "none" || !started(period));
+    const notStarted = current && span.period !== "month" && week.assignments.size === 0 && (source.periods.type === "none" || periods.every(p => !started(p.period)));
+    // The periods in view that take no edits, under their banner (#1550).
+    const closed = current ? closedBanner(viewed, unit, format) : undefined;
     const dutyName = source.duty.kind.name.toLocaleLowerCase(format.locale);
     const sessionName = (kind: string) => kind === PERIODS ? (source.periods.type === "some" && source.periods.value.every.type === "day" ? "Days" : "Weeks")
         : kind === TARGETS ? "Targets" : source.duty.kind.name;
@@ -570,8 +619,7 @@ function RosterFrame(props: FrameProps) {
             {optimiseParts.banner}
             {editing?.schedule.sessions.map(held => <SessionBanners key={held.key} session={held.session} words={words} name={sessionName(held.kind)} where={where(held.kind)}
                 onAction={action => editing.history.actOn(held.key, action)} />)}
-            {current && heldPeriod.status.type === "published" && <BannerView status="info" title="Published week" description="Read-only view of the published roster." />}
-            {current && heldPeriod.status.type === "other" && <BannerView status="info" title={`${heldPeriod.status.value} week`} description="This week is read-only." />}
+            {closed !== undefined && <BannerView status="info" title={closed.title} description={closed.description} />}
             {notStarted && <BannerView status="info" title="Week not started" description={held.requirements.size > 0 ? "Targets are ready. Assign staff to start this week's roster." : "Assign staff to start this week's roster."}
                 actions={previous !== undefined && previous.assignments.size > 0 && (commands.available || commands.locked !== undefined) ? <Button size="xs" variant="outline" disabled={commands.locked !== undefined} title={commands.locked} onClick={() => commands.copy()}>Copy previous week</Button> : undefined} />}
             {weekPay.failed.map(({ who, error: why }) => <BannerView key={`${who.type}:${who.value}`} status="warning"

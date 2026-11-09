@@ -8,22 +8,26 @@
  * command path for the grid, the library, the inspector and the narrow cards.
  * Each reads the week as drafted, works out the rows it changes — a duty
  * through the duty kind's `write`, and `create` for a new one, its times by
- * §5.5; the week's own row through the periods' `dismiss` and `publish`; a
- * target through `write`, and `create` for a new one — and records them across
- * the records' sessions as one step. A new duty's or target's key is minted
- * unique among every key the Roster has read and drafted
- * (`crypto.randomUUID()`, retried): a record read whole holds every key, and a
- * key a record read a window at a time holds unread is its Save's own
- * conflict, never an overwrite (`shared/schedule/records.ts`). A duty's own
- * form or a library card that changes its shift or its team carries what it
- * leaves as it was, as a move does: its times move with the shift, so it stays
- * on its day, and its activity clears across teams. A find edits nothing: it
- * asks the app's fit (#1334). Publish runs Save, then writes the
- * week's status once every record reads back as saved (`publishPeriod`). A
- * pattern dropped on a person's week (#1406, D4) replaces its seven days as
- * one step, `Apply pattern`: a day the pattern leaves as it is keeps its duty,
- * a day it changes runs the pattern's shift in the person's home group at the
- * shift's own times, and an off day removes the person's duties that day.
+ * §5.5; a period's own row — the week's, or by the day the day's (#1550) —
+ * through the periods' `dismiss` and `publish`; a target through `write`, and
+ * `create` for a new one — and records them across the records' sessions as
+ * one step. A gesture on a day whose period takes no edits — a published week,
+ * or by the day a published day — is refused, the week's other days taking
+ * theirs. A new duty's or target's key is minted unique among every key the
+ * Roster has read and drafted (`crypto.randomUUID()`, retried): a record read
+ * whole holds every key, and a key a record read a window at a time holds
+ * unread is its Save's own conflict, never an overwrite
+ * (`shared/schedule/records.ts`). A duty's own form or a library card that
+ * changes its shift or its team carries what it leaves as it was, as a move
+ * does: its times move with the shift, so it stays on its day, and its
+ * activity clears across teams. A find edits nothing: it asks the app's fit
+ * (#1334). Publish runs Save, then writes the status of each period it
+ * publishes once every record reads back as saved (`publishPeriod`). A pattern
+ * dropped on a person's week (#1406, D4) replaces its seven days as one step,
+ * `Apply pattern`: a day the pattern leaves as it is keeps its duty, a day it
+ * changes runs the pattern's shift in the person's home group at the shift's
+ * own times, an off day removes the person's duties that day, and a day whose
+ * period takes no edits keeps its duties as they are.
  *
  * @packageDocumentation
  */
@@ -36,10 +40,10 @@ import { fieldChange, madeFromValues, mintKey, periodPublishChange } from "../sh
 import { PERIODS, TARGETS, type RosterEditing } from "./editing.js";
 import type { RosterFind } from "./fit.js";
 import {
-    activityOf, availableProposals, compareDate, dayOfSlot, editableStatus, patternOf, patternProblem, placeOf, positionFor, rosterDomain, rosterTimes, sameGroup,
-    samePlace, shiftTimes, slotOfPlace, startReach, startingAt, weekKey, type Assignment, type Context, type Issue, type Pattern, type Person, type Place,
-    type PlacedDuties, type PlacedPeriod, type PlacedTargets, type Requirement, type Roles, type RosterPayload, type RosterValue, type Selection, type Slot,
-    type StoredDuty, type Week, type WeekState, type Who,
+    activityOf, availableProposals, compareDate, dayOfSlot, patternOf, patternProblem, periodOn, placeOf, positionFor, rosterDomain, rosterTimes, sameGroup,
+    samePlace, shiftTimes, slotOfPlace, startReach, startingAt, takesEdits, weekKey, type Assignment, type Context, type Issue, type Pattern, type Person, type Place,
+    type PlacedDuties, type PlacedTargets, type Requirement, type Roles, type RosterPayload, type RosterValue, type Selection, type Slot,
+    type StoredDuty, type Week, type WeekPeriod, type WeekState, type Who,
 } from "./model.js";
 
 /** Where a place command gets its person or request. */
@@ -66,9 +70,13 @@ export interface RosterState {
     readonly previous: PlacedDuties | undefined;
     /** Its targets as drafted: each slot's row. */
     readonly targets: PlacedTargets;
-    /** Its own row as drafted, and as stored. */
-    readonly period: PlacedPeriod;
-    readonly heldPeriod: PlacedPeriod;
+    /** Its periods (#1550): its own, or its seven days', each its row as drafted and as stored. */
+    readonly periods: readonly WeekPeriod[];
+    /**
+     * What Publish publishes now (#1550): the week's own period, or by the day the day in view's in the Shifts layout's
+     * Day, else every day of the week — each one that takes edits.
+     */
+    readonly publishes: readonly WeekPeriod[];
     /** Every week of the span in view, drafts in place (#1406): what a pattern dropped on one of them applies to; the week above among them. */
     readonly weeks?: readonly WeekState[] | undefined;
     /** Every duty the Roster has read, each read's by key: what a new key is minted unique among. */
@@ -88,8 +96,15 @@ export interface RosterState {
 
 /** All mutation paths use these guarded commands, each one step of the history. */
 export interface RosterCommands {
-    /** Whether the week takes a gesture now: editable, its reads landed, its records' sessions writable. */
+    /** Whether the week takes a gesture now: a period of it editable, its reads landed, its records' sessions writable. */
     readonly available: boolean;
+    /**
+     * Whether a day of the week takes a gesture now (#1550): the week does, and the day's period — the week's, or the
+     * day's own where the Roster publishes by the day — is editable. Each day's controls ask it.
+     */
+    readonly availableOn: (day: bigint) => boolean;
+    /** Whether Publish can publish now: the week takes a gesture, and a period it publishes takes edits (#1550). */
+    readonly publishable: boolean;
     /** Whether a week of the span takes a gesture (#1406): the month's cells each ask of their own week. */
     readonly availableIn: (held: WeekState) => boolean;
     /** Whether any week in view takes a gesture: the week, or one of the month's — what registers drag sources and targets (P32). */
@@ -166,7 +181,7 @@ const NO_DUTY = "A new duty could not be made.";
  * @param state - The week, its rows and the editing
  * @param select - Selects what a command made, keeping the panes as they are
  * @param find - Asks the app's fit who fits a find's need
- * @param publish - Publishes the week: Save, then its status
+ * @param publish - Publishes what the state says Publish publishes: Save, then each period's status
  * @returns The commands
  */
 export function rosterCommands(state: RosterState, select: (selection: Selection | undefined) => void, find: (asked: RosterFind) => void,
@@ -175,10 +190,13 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
     const times = rosterTimes();
     const schedule = editing?.schedule;
     const duty = value.duty.kind.key;
-    const weekId = weekKey(start);
-    const available = editing !== undefined && schedule !== undefined && state.ready && !value.settings.readOnly && editableStatus(state.heldPeriod.status)
-        && editableStatus(week.status) && schedule.available(duty);
-    const blocked = () => !available ? "This week is not available to edit." : state.retained === true ? "This week is still being read." : undefined;
+    const available = editing !== undefined && schedule !== undefined && state.ready && !value.settings.readOnly && state.periods.some(takesEdits)
+        && schedule.available(duty);
+    /** Whether a day of the week's period takes edits (#1550): the week's, or the day's own. */
+    const open = (day: bigint) => { const period = periodOn(state.periods, day); return period !== undefined && takesEdits(period); };
+    /** Why a gesture on the week — on each day given — is refused now; `undefined` while it takes one. */
+    const blocked = (...days: readonly bigint[]) => !available ? "This week is not available to edit." : state.retained === true ? "This week is still being read."
+        : days.some(day => !open(day)) ? "This day is not available to edit." : undefined;
     const validSlot = (slot: Slot) => slot.day >= 0n && slot.day < 7n && value.groups.some(g => g.key === slot.group) && value.shifts.some(s => s.key === slot.shift);
     /** A place of the week: a valid slot, or a configured shift on one of its days in no group, where the duty kind's group takes none (#1548). */
     const validPlace = (place: Place) => {
@@ -253,39 +271,50 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
         return { id, bytes: bytes.value };
     };
     /**
-     * The week's own row, its dismissed suggestions the set given: `undefined` without a record to keep them in, or for a
-     * new row the periods' `values` fail to make.
+     * The own row of the period holding a day — the week's, or by the day the day's (#1550) — its dismissed suggestions
+     * those it holds and the one given: `undefined` without a record to keep them in, or for a new row the periods'
+     * `values` fail to make.
      */
-    const dismissal = (dismissed: ReadonlySet<string>): ScheduleChange | undefined => {
-        if (value.periods.type !== "some" || !value.periods.value.dismissible) return undefined;
+    const dismissal = (day: bigint, key: string): ScheduleChange | undefined => {
+        const period = periodOn(state.periods, day);
+        if (value.periods.type !== "some" || !value.periods.value.dismissible || period === undefined) return undefined;
         const periods = value.periods.value;
-        const held = state.period.bytes;
-        const row = madeFromValues("Roster", "the week's row", () => periods.dismiss(start, held === undefined ? none : some(held), new Set(dismissed)));
-        return row === undefined ? undefined : { kind: PERIODS, id: weekId, row };
+        const held = period.period.bytes;
+        const row = madeFromValues("Roster", "the period's row",
+            () => periods.dismiss(period.start, held === undefined ? none : some(held), new Set([...period.period.dismissed, key])));
+        return row === undefined ? undefined : { kind: PERIODS, id: weekKey(period.start), row };
     };
-    /** Whether a week of the span takes a gesture now: editable, as the week above is told, by its own status. */
+    /** Whether a week of the span takes a gesture now, as the week above is told: a period of it editable. */
     const availableIn = (held: WeekState) => editing !== undefined && schedule !== undefined && state.ready && !value.settings.readOnly
-        && editableStatus(held.heldPeriod.status) && editableStatus(held.week.status) && schedule.available(duty);
+        && held.periods.some(takesEdits) && schedule.available(duty);
     /** A week of the span by its first day: the week above, or one of the span's. */
     const weekAt = (at: Date): WeekState | undefined => compareDate(at, start) === 0
-        ? { start, week, held: state.held, duties: state.duties, heldDuties: state.heldDuties, targets: state.targets, period: state.period, heldPeriod: state.heldPeriod }
+        ? { start, week, held: state.held, duties: state.duties, heldDuties: state.heldDuties, targets: state.targets, periods: state.periods }
         : state.weeks?.find(held => compareDate(held.start, at) === 0);
+    const proposals = () => availableProposals(value, week, start, state.periods);
+    const publishable = available && state.publishes.some(takesEdits);
     const api: RosterCommands = {
         available,
+        availableOn: day => available && open(day),
+        publishable,
         availableIn,
         editable: available || (state.weeks ?? []).some(held => availableIn(held)),
         locked: undefined,
         place(source, place, checkOnly = false) {
             const refused = blocked(); if (refused !== undefined) return refused;
             if (!validPlace(place)) return "Choose a configured shift in this week.";
+            // A day whose period takes no edits takes no duty, the week's other days theirs (#1550).
+            const closed = blocked(place.day); if (closed !== undefined) return closed;
             const changes: ScheduleChange[] = [];
             const minted = new Set<string>();
             let id: string | undefined;
-            let accepted: string | undefined;
+            let accepted: { readonly key: string; readonly day: bigint } | undefined;
             if (source.type === "assignment") {
                 id = source.key;
                 const held = week.assignments.get(id);
                 if (held === undefined) return "This duty is no longer present.";
+                // Nor does a duty leave one.
+                const from = blocked(held.place.day); if (from !== undefined) return from;
                 if (samePlace(held.place, place)) return "Already on this shift.";
                 if (held.who.type === "person" && personDay(held.who.value, place.day, id) !== undefined) return "This person is already rostered that day.";
                 const next = moved(id, place);
@@ -298,7 +327,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
                 id = next.id;
                 changes.push({ kind: duty, id, row: next.bytes, created: true });
             } else {
-                const proposal = source.type === "proposal" ? availableProposals(value, week, start).find(p => p.key === source.key) : undefined;
+                const proposal = source.type === "proposal" ? proposals().find(p => p.key === source.key) : undefined;
                 if (source.type === "proposal" && proposal === undefined) return "This proposal is no longer available.";
                 const person = proposal?.person ?? source.key;
                 if (!value.people.some(p => p.key === person)) return "This person is no longer available.";
@@ -324,11 +353,13 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
                         changes.push({ kind: duty, id, row: next.bytes, created: true });
                     }
                 }
-                accepted = proposal?.key ?? availableProposals(value, week, start).find(p => p.person === person && samePlace(placeOf(p.slot), place))?.key;
+                const match = proposal ?? proposals().find(p => p.person === person && samePlace(placeOf(p.slot), place));
+                accepted = match === undefined ? undefined : { key: match.key, day: match.slot.day };
             }
             if (checkOnly) return undefined;
+            // An accepted proposal is dismissed on its own day's period — the week's, or the day's (#1550).
             if (accepted !== undefined) {
-                const dismissed = dismissal(new Set([...week.dismissed, accepted]));
+                const dismissed = dismissal(accepted.day, accepted.key);
                 if (dismissed !== undefined) changes.push(dismissed);
             }
             if (record(changes, "drop", source.type === "assignment" ? "Move duty" : accepted !== undefined ? "Accept proposal" : "Assign to shift") && id !== undefined) {
@@ -340,6 +371,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const refused = blocked(); if (refused !== undefined) return refused;
             const a = week.assignments.get(id), row = rowOf(id);
             if (a === undefined || row === undefined) return "This duty is no longer present.";
+            const closed = blocked(a.place.day); if (closed !== undefined) return closed;
             const roles: Roles = { ...row.roles, ...change };
             const invalid = validRoles(a, roles); if (invalid !== undefined) return invalid;
             const written = value.duty.write(row.bytes, roles);
@@ -355,6 +387,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const refused = blocked(); if (refused !== undefined) return refused;
             const a = week.assignments.get(id), row = rowOf(id);
             if (a === undefined || row === undefined || a.who.type !== "person") return "Place this card on a named duty.";
+            const closed = blocked(a.place.day); if (closed !== undefined) return closed;
             // The fields the card sets, written as the kind writes them, and the duty they leave held to its roles.
             let bytes = row.bytes;
             for (const write of writes) {
@@ -371,7 +404,9 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
         },
         field(id, path, next) {
             const refused = blocked(); if (refused !== undefined) return refused;
-            const row = rowOf(id); if (row === undefined) return "This duty is no longer present.";
+            const a = week.assignments.get(id), row = rowOf(id);
+            if (a === undefined || row === undefined) return "This duty is no longer present.";
+            const closed = blocked(a.place.day); if (closed !== undefined) return closed;
             const change = fieldChange(value.duty.kind, id, path, next);
             if (change === undefined) return "This field cannot be edited.";
             record([change], "typed", "Edit duty");
@@ -381,6 +416,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const refused = blocked(); if (refused !== undefined) return refused;
             const a = week.assignments.get(id), row = rowOf(id);
             if (a === undefined || row === undefined) return "This duty is no longer present.";
+            const closed = blocked(a.place.day); if (closed !== undefined) return closed;
             const read = value.duty.read(bytes, id);
             if (!sameResource(read.resource, row.roles.resource)) return "A duty's own form cannot replace its person.";
             const next = carried(a, row, read, bytes); if (typeof next === "string") return next;
@@ -389,16 +425,16 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             return undefined;
         },
         remove(id) {
-            if (blocked() !== undefined || week.assignments.get(id) === undefined) return;
+            const a = week.assignments.get(id);
+            if (a === undefined || blocked(a.place.day) !== undefined) return;
             if (record([{ kind: duty, id, remove: true }], "remove", "Remove duty")) {
                 // A saved duty stays as a restorable tombstone until Save, keeping its identity so another layout reveals it.
                 select(state.held.assignments.has(id) ? { type: "assignment", key: id } : undefined);
             }
         },
         restore(id) {
-            if (blocked() !== undefined) return;
             const original = state.held.assignments.get(id), row = state.heldDuties.rows.get(id);
-            if (original === undefined || row === undefined || week.assignments.has(id)) return;
+            if (original === undefined || row === undefined || week.assignments.has(id) || blocked(original.place.day) !== undefined) return;
             if (original.who.type === "person" && personDay(original.who.value, original.place.day) !== undefined) return;
             if (record([{ kind: duty, id, row: row.bytes }], "insert", "Restore duty")) select({ type: "assignment", key: id });
         },
@@ -406,6 +442,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const refused = blocked(); if (refused !== undefined) return refused;
             if (value.targets.type !== "some") return "This roster has no targets.";
             if (!validSlot(slot) || target.positions < 0n || [...target.hours].some(([, hours]) => !Number.isFinite(hours) || hours < 0)) return "Targets are zero or more.";
+            const closed = blocked(slot.day); if (closed !== undefined) return closed;
             const targets = value.targets.value;
             const hours = new Map([...target.hours].filter(([, h]) => h > 0));
             const roles = { day: dayOfSlot(start, slot), group: slot.group, shift: slot.shift, positions: target.positions, hours };
@@ -422,18 +459,21 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
         targetRow(slot, bytes) {
             const refused = blocked(); if (refused !== undefined) return refused;
             if (value.targets.type !== "some") return "This roster has no targets.";
+            const closed = blocked(slot.day); if (closed !== undefined) return closed;
             const row = state.targets.rows.get(slot);
             if (row !== undefined) record([{ kind: TARGETS, id: row.key, row: bytes }], "typed", "Edit shift targets");
             else record([{ kind: TARGETS, id: mintKey(takenTarget), row: bytes, created: true }], "typed", "Edit shift targets");
             return undefined;
         },
         accept(key) {
-            const proposal = availableProposals(value, week, start).find(p => p.key === key);
+            const proposal = proposals().find(p => p.key === key);
             return proposal === undefined ? "This proposal is no longer available." : api.place({ type: "proposal", key }, placeOf(proposal.slot));
         },
         reject(key) {
-            if (blocked() !== undefined) return;
-            const change = dismissal(new Set([...week.dismissed, key]));
+            // Dismissed on its own day's period — the week's, or the day's (#1550).
+            const proposal = proposals().find(p => p.key === key);
+            if (proposal === undefined || blocked(proposal.slot.day) !== undefined) return;
+            const change = dismissal(proposal.slot.day, key);
             if (change !== undefined && record([change], "remove", "Reject proposal")) select(undefined);
         },
         fix(issue) {
@@ -456,7 +496,8 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             for (const [key, a] of state.previous.assignments) {
                 const row = state.previous.rows.get(key);
                 const own = shiftTimes(value, a.place, start);
-                if (row === undefined || own === undefined) continue;
+                // Into the days that take edits alone: a published day keeps its own (#1550).
+                if (row === undefined || own === undefined || !open(a.place.day)) continue;
                 // At its shift's own times, every other field as it was.
                 const written = value.duty.write(row.bytes, { ...row.roles, start: own.from, end: own.to });
                 if (written.type !== "some") continue;
@@ -466,7 +507,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             }
             record(changes, "insert", "Copy previous week's roster");
         },
-        publish() { if (available && value.periods.type === "some") publish(); },
+        publish() { if (publishable && value.periods.type === "some") publish(); },
         pattern(person, at, key) {
             const held = weekAt(at);
             const who = value.people.find(p => p.key === person);
@@ -488,6 +529,14 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             for (let day = 0; day < 7; day++) {
                 const current = theirs.filter(([, a]) => Number(a.place.day) === day);
                 const target = pattern.days[day]!;
+                // A day whose period takes no edits — a published day of a week published by the day — keeps its duties as
+                // they are (#1550): the pattern leaves it.
+                const period = periodOn(held.periods, day);
+                if (period === undefined || !takesEdits(period)) {
+                    for (const [id, a] of current) candidates.set(id, a);
+                    days.push({ day, shift: current[0]?.[1].place.shift, kind: "keep" });
+                    continue;
+                }
                 if (target.type === "none") {
                     // A day off: the person's duties that day go, restorable until Save (B56).
                     for (const [id] of current) { changes.push({ kind: duty, id, remove: true }); removed.push(id); }
@@ -561,17 +610,27 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
 }
 
 /**
- * The week's row as Publish writes it: its status the published case, at the
+ * The rows Publish writes (#1550): each period given that takes edits — the
+ * week's, or by the day each day's — its status the published case, at the
  * time given (`periodPublishChange`).
  *
  * @param value - The payload: its periods
  * @param editing - The editing
- * @param start - The week's first day
- * @param stored - The week's row as the Roster read it
- * @param at - When it is published
- * @returns The change; `undefined` without periods
+ * @param periods - The periods Publish publishes
+ * @param stored - A period's row as the Roster read it, by its first instant
+ * @param at - When they are published
+ * @returns The changes, one a period; none without periods, or where the periods' `values` fail to make a new row of
+ *   one, so Publish never publishes a part of what it was pressed for
  */
-export function publishChange(value: RosterPayload, editing: RosterEditing, start: Date, stored: Uint8Array | undefined, at: Date): ScheduleChange | undefined {
-    if (value.periods.type !== "some") return undefined;
-    return periodPublishChange(value.periods.value, editing.schedule, PERIODS, weekKey(start), start, stored, at, "Roster");
+export function publishChanges(value: RosterPayload, editing: RosterEditing, periods: readonly WeekPeriod[], stored: (start: Date) => Uint8Array | undefined,
+    at: Date): readonly ScheduleChange[] {
+    if (value.periods.type !== "some") return [];
+    const kind = value.periods.value;
+    const changes: ScheduleChange[] = [];
+    for (const period of periods.filter(takesEdits)) {
+        const change = periodPublishChange(kind, editing.schedule, PERIODS, weekKey(period.start), period.start, stored(period.start), at, "Roster");
+        if (change === undefined) return [];
+        changes.push(change);
+    }
+    return changes;
 }

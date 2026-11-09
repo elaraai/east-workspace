@@ -18,8 +18,9 @@
  * - **Publish** writes the published case, with the time in `at` when the
  *   case holds one. A builder saves the period's drafts first, and writes the
  *   status only once every session reads back confirmed (§7).
- * - **Dismissed**, the Roster's: a `Set<String>` field, the proposals a week
- *   dismissed. Without it the builder dismisses none.
+ * - **Dismissed**, the Roster's: a `Set<String>` field, the proposals a
+ *   period dismissed, each on the period of its day (#1550). Without it the
+ *   builder dismisses none.
  * - **New rows.** A row the builder creates holds the periods' `values` of
  *   its start (#1526) in every field it doesn't map — or, without them, the
  *   field's type's default (`defaultValue`) — its status the published case
@@ -68,7 +69,7 @@ export interface SchedulePeriodsConfig<R extends StructType, SF extends string> 
         /** The case Publish writes, read-only: it holds Null, or `{ at: DateTime }`, the time it was published. */
         published: ScheduleCaseOf<R["fields"][SF]>;
     };
-    /** The Roster's: the `Set<String>` field holding the proposals a week dismissed. Omitted, the builder dismisses none. */
+    /** The Roster's: the `Set<String>` field holding the proposals a period dismissed, each on its day's. Omitted, the builder dismisses none. */
     dismissed?: ScheduleSetStringField<R>;
     /**
      * A new period's own fields — every field of the row but its status and its dismissals — from its start

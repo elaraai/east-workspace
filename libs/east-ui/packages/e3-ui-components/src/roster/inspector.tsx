@@ -70,6 +70,12 @@ function fixLabel(issue: Issue, props: Args) {
             : fix.value.type === "skill" ? "Find skilled staff" : fix.value.type === "leads" ? "Find a lead" : "Find a trainer";
     }
 }
+/** Whether an issue's fix can be made now (#1550): on its slot's day, else its duty's, that day taking edits; the week's own, the week taking them. */
+function fixable(issue: Issue, props: Args): boolean {
+    const day = issue.slot.type === "some" ? issue.slot.value.day
+        : issue.assignment.type === "some" ? props.week.assignments.get(issue.assignment.value)?.place.day : undefined;
+    return day === undefined ? props.commands.available : props.commands.availableOn(day);
+}
 export function RosterIssues({ props, issues }: { props: Args; issues: readonly Issue[] }) {
     return <>{issues.map((issue, index) => { const goes = issueGoesTo(issue, props.view, props.start, props.week, props.opensWeek); return <Box key={index} css={props.styles.issue} data-tone={issue.tone.type} data-roster-issue={issue.kind.type}>
         {/* A Month with no Week, and nothing of the issue's to select: its title alone, nothing to press. */}
@@ -78,8 +84,9 @@ export function RosterIssues({ props, issues }: { props: Args; issues: readonly 
                 if (goes.view !== undefined) props.setView(goes.view);
                 if (goes.select !== undefined) props.select(goes.select);
             }}>{issue.title}</chakra.button>}<Box css={props.styles.issueDetail}>{issue.detail}</Box>
-        {/* A find edits nothing, so it is offered on a week that can't be edited — but only with the app's fit, which decides who fits. */}
-        {issue.fix.type === "some" && (issue.fix.value.type === "find" ? props.find.offered : props.commands.available || props.commands.locked !== undefined) && <Box css={props.styles.issueActions}>
+        {/* A find edits nothing, so it is offered on a week that can't be edited — but only with the app's fit, which decides who fits.
+            Any other fix only where its day takes edits (#1550). */}
+        {issue.fix.type === "some" && (issue.fix.value.type === "find" ? props.find.offered : fixable(issue, props) || props.commands.locked !== undefined) && <Box css={props.styles.issueActions}>
             <Button size="xs" variant="outline" disabled={props.commands.locked !== undefined} title={props.commands.locked} onClick={() => props.onError(props.commands.fix(issue))}>{fixLabel(issue, props)}</Button></Box>}
     </Box>; })}</>;
 }
@@ -139,7 +146,8 @@ function DutyForm({ props, assignment, id, refused, breaches }: {
     const field = useCallback((path: readonly string[], next: unknown) => { const why = commands.field(id, path, next); onError(why); return why; }, [commands, id, onError]);
     const form: DutyFormValue = dutyForm(assignment);
     const baseline = heldAssignment === undefined ? undefined : dutyForm(heldAssignment);
-    const readOnly = !commands.available;
+    // A duty of a day that takes no edits — a published one (#1550) — reads only.
+    const readOnly = !commands.availableOn(assignment.place.day);
     // The app's own form for the duty: over its row, its writes guarded as every gesture is.
     const update = useCallback((bytes: Uint8Array): null => { onError(commands.row(id, bytes)); return null; }, [commands, onError, id]);
     const read = useCallback(() => kind.inspector.type === "some" && row !== undefined ? kind.inspector.value(row.bytes, update) : undefined, [kind.inspector, row, update]);
@@ -177,9 +185,9 @@ function OneAssignment({ props, id, assignment: a }: { props: Args; id: string; 
         {!removed && <Box css={props.styles.fields}>
             {/* Where the duty kind's group takes none (#1548): the groups and No group, a choice moving the duty there. */}
             {props.value.duty.roles.noGroup && <><Box css={props.styles.sectionHead}>Group</Box>
-                <GroupField value={props.value} group={a.place.group} baseline={baseline?.place.group} readOnly={!props.commands.available} onChange={toGroup} /></>}
+                <GroupField value={props.value} group={a.place.group} baseline={baseline?.place.group} readOnly={!props.commands.availableOn(a.place.day)} onChange={toGroup} /></>}
             <Box css={props.styles.sectionHead}>Shift</Box>
-            <Seg fullWidth label="Duty shift" scope="roster" name="assignment-shift" active={a.place.shift} items={props.value.shifts.map(s => ({ key: s.key, label: s.label, disabled: !props.commands.available }))} onPick={shift => props.onError(props.commands.place({ type: "assignment", key: id }, { day: a.place.day, group: a.place.group, shift }))} />
+            <Seg fullWidth label="Duty shift" scope="roster" name="assignment-shift" active={a.place.shift} items={props.value.shifts.map(s => ({ key: s.key, label: s.label, disabled: !props.commands.availableOn(a.place.day) }))} onPick={shift => props.onError(props.commands.place({ type: "assignment", key: id }, { day: a.place.day, group: a.place.group, shift }))} />
             <Box css={props.styles.detail}>{props.format.time(a.start)}–{props.format.time(a.end)} · {props.format.number(a.hours)} h{props.format.weekday(a.end) !== props.format.weekday(a.start) && " · ends next day"}</Box>
             <DutyForm props={props} assignment={a} id={id} refused={refused} breaches={breaches} />
         </Box>}
@@ -203,7 +211,7 @@ function Targets({ props, slot }: { props: Args; slot: Slot }) {
     const read = useCallback(() => form !== undefined && bytes !== undefined ? form(bytes, update) : undefined, [form, bytes, update]);
     const { result } = useTrackedEvaluation(read);
     if (kind === undefined) return <Box css={props.styles.detail}>This roster has no targets.</Box>;
-    return <>{result.ok && result.value !== undefined ? <chakra.fieldset disabled={!props.commands.available}><EastChakraComponent value={result.value} storageKey={`${props.storageKey}.requirement`} /></chakra.fieldset>
+    return <>{result.ok && result.value !== undefined ? <chakra.fieldset disabled={!props.commands.availableOn(slot.day)}><EastChakraComponent value={result.value} storageKey={`${props.storageKey}.requirement`} /></chakra.fieldset>
         : <RequirementFields value={props.value} week={props.week} held={props.held} slot={slot} commands={props.commands} styles={props.styles} />}
         {!result.ok && <Box role="alert" css={props.styles.error}>The targets form could not be rendered.</Box>}</>;
 }
@@ -287,7 +295,7 @@ function Details({ props }: { props: Args }) {
         if (p !== undefined) return <><ScheduleInspectorHead styles={props.styles} kind={{ name: "Model proposal", icon: "wand-magic-sparkles" }} title={props.value.people.find(person => person.key === p.person)?.name ?? p.person}
             when={`${props.value.groups.find(g => g.key === p.slot.group)?.label} · ${props.value.shifts.find(s => s.key === p.slot.shift)?.label} · ${props.format.weekdayDate(dayOfSlot(props.start, p.slot))}`} home />
             <Box css={props.styles.section}><Box css={props.styles.title}>Why this duty</Box><Box css={props.styles.detail}>{p.reason}</Box>
-                {(props.commands.available || props.commands.locked !== undefined) && <Box css={props.styles.actions}><Button size="xs" variant="outline" disabled={props.commands.locked !== undefined} title={props.commands.locked} onClick={() => props.onError(props.commands.accept(p.key))}>Accept proposal</Button>{dismissible(props.value) && <Button size="xs" variant="ghost" disabled={props.commands.locked !== undefined} title={props.commands.locked} onClick={() => props.commands.reject(p.key)}>Reject proposal</Button>}</Box>}
+                {(props.commands.availableOn(p.slot.day) || props.commands.locked !== undefined) && <Box css={props.styles.actions}><Button size="xs" variant="outline" disabled={props.commands.locked !== undefined} title={props.commands.locked} onClick={() => props.onError(props.commands.accept(p.key))}>Accept proposal</Button>{dismissible(props.value) && <Button size="xs" variant="ghost" disabled={props.commands.locked !== undefined} title={props.commands.locked} onClick={() => props.commands.reject(p.key)}>Reject proposal</Button>}</Box>}
             </Box></>;
     }
     if (selection?.type === "person" || selection?.type === "personWeek") {

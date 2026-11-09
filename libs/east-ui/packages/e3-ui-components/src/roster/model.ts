@@ -233,9 +233,8 @@ export interface WeekState {
     readonly heldDuties: PlacedDuties;
     /** Its targets as drafted. */
     readonly targets: PlacedTargets;
-    /** Its own row as drafted, and as stored. */
-    readonly period: PlacedPeriod;
-    readonly heldPeriod: PlacedPeriod;
+    /** Its periods (#1550): its own, or each of its seven days' where the Roster publishes by the day. */
+    readonly periods: readonly WeekPeriod[];
 }
 
 export const sameSlot = equalFor(RosterSlotType);
@@ -568,9 +567,9 @@ export function placeTargets(stored: ReadonlyMap<string, StoredTarget>, drafts: 
     return { requirements, rows };
 }
 
-/** The week's own row — its period's — as drafted, and what it says. */
+/** A period's own row — a week's, or a day's where the Roster publishes by the day (#1550) — as drafted, and what it says. */
 export interface PlacedPeriod {
-    /** Its row's bytes; `undefined` for a week with no row: Not started. */
+    /** Its row's bytes; `undefined` for a period with no row: Not started. */
     readonly bytes: Uint8Array | undefined;
     /** Its status. */
     readonly status: Status;
@@ -578,37 +577,131 @@ export interface PlacedPeriod {
     readonly dismissed: Set<string>;
 }
 
-/** A week with no row of its own: Not started — its status the draft's, nothing dismissed. */
+/** A period with no row of its own: Not started — its status the draft's, nothing dismissed. */
 export const NO_PERIOD: PlacedPeriod = { bytes: undefined, status: variant("draft", null), dismissed: new SortedSet([], compareString) };
 
-/** Whether a period's row is the week's own: what a week with no row reads as Not started for. */
+/** Whether a period's row is its own: what a period with no row reads as Not started for. */
 export function started(period: PlacedPeriod): boolean { return period.bytes !== undefined; }
 
 /**
- * A week as the Roster reads it: its duties, its targets and its own row.
+ * One of a week's periods (#1550): the week itself, where the Roster publishes by the week, or one of its days, where
+ * `Schedule.periods` declares `every: "day"` — what Publish writes, and what a gesture on one of its days asks first.
+ */
+export interface WeekPeriod {
+    /** Its first instant: its row's key, the week's first day or the day's. */
+    readonly start: Date;
+    /** The first of the week's days it holds, from zero. */
+    readonly from: number;
+    /** The day after its last, from zero: seven for the week. */
+    readonly to: number;
+    /** Its own row as drafted, and as stored. */
+    readonly period: PlacedPeriod;
+    readonly held: PlacedPeriod;
+}
+
+/** Whether the Roster publishes by the day: its periods declare `every: "day"` (#1550). */
+export function byDay(value: Pick<RosterPayload, "periods">): boolean {
+    return value.periods.type === "some" && value.periods.value.every.type === "day";
+}
+
+const WHOLE_WEEK: readonly { readonly from: number; readonly to: number }[] = [{ from: 0, to: 7 }];
+const EACH_DAY: readonly { readonly from: number; readonly to: number }[] = Array.from({ length: 7 }, (_, day) => ({ from: day, to: day + 1 }));
+
+/**
+ * A week's periods (#1550): the week, or each of its days.
+ *
+ * @param start - The week's first day
+ * @param days - Whether the periods are days
+ * @param row - A period's own row as drafted and as stored, by its first instant
+ * @returns The periods, in the week's order
+ */
+export function weekPeriods(start: Date, days: boolean, row: (at: Date) => { readonly period: PlacedPeriod; readonly held: PlacedPeriod }): readonly WeekPeriod[] {
+    return (days ? EACH_DAY : WHOLE_WEEK).map(({ from, to }) => {
+        const at = new Date(start.getTime() + from * DAY);
+        return { start: at, from, to, ...row(at) };
+    });
+}
+
+/**
+ * The period holding a day of its week (#1550).
+ *
+ * @param periods - The week's periods
+ * @param day - The day, from zero
+ * @returns The period; `undefined` for a day the week does not hold
+ */
+export function periodOn(periods: readonly WeekPeriod[], day: bigint | number): WeekPeriod | undefined {
+    const at = Number(day);
+    return periods.find(period => period.from <= at && at < period.to);
+}
+
+/** Whether a period takes edits (#1550): its row a draft's — Not started among them — as stored and as drafted. */
+export function takesEdits(period: WeekPeriod): boolean { return editableStatus(period.held.status) && editableStatus(period.period.status); }
+
+/**
+ * A week's status from its periods' (#1550), what the app's check and optimiser read: its own row's, or over its days
+ * the draft's while any day is a draft, else — every day published — the published case at the latest time a day
+ * was published, else the first of the app's own cases a day holds.
+ *
+ * @param periods - The week's periods' rows
+ * @returns The status
+ */
+export function weekStatus(periods: readonly PlacedPeriod[]): Status {
+    if (periods.length === 1) return periods[0]!.status;
+    if (periods.length === 0 || periods.some(period => period.status.type === "draft")) return variant("draft", null);
+    const other = periods.find(period => period.status.type === "other");
+    if (other !== undefined) return other.status;
+    let at: option<Date> = none;
+    for (const { status } of periods) {
+        if (status.type === "published" && status.value.at.type === "some" && (at.type === "none" || compareDate(status.value.at.value, at.value) > 0)) at = status.value.at;
+    }
+    return variant("published", { at });
+}
+
+/**
+ * A week as the Roster reads it: its duties, its targets and its periods' rows — its status theirs (`weekStatus`),
+ * and its dismissals every period's.
  *
  * @param duties - Its duties
  * @param targets - Its targets
- * @param period - Its own row
+ * @param periods - Its periods' rows: its own, or its days'
  * @returns The week
  */
-export function weekOf(duties: PlacedDuties, targets: PlacedTargets, period: PlacedPeriod): Week {
-    return { status: period.status, assignments: duties.assignments, requirements: targets.requirements, dismissed: period.dismissed };
+export function weekOf(duties: PlacedDuties, targets: PlacedTargets, periods: readonly PlacedPeriod[]): Week {
+    const dismissed = periods.length === 1 ? periods[0]!.dismissed : new SortedSet(periods.flatMap(period => [...period.dismissed]), compareString);
+    return { status: weekStatus(periods), assignments: duties.assignments, requirements: targets.requirements, dismissed };
 }
 
 /** A week with nothing in it yet: Not started. */
 export function emptyWeek(): Week {
     return weekOf({ assignments: new SortedMap([], compareString), rows: new Map(), unplaced: [] },
-        { requirements: new SortedMap([], compareSlot), rows: new SortedMap([], compareSlot) }, NO_PERIOD);
+        { requirements: new SortedMap([], compareSlot), rows: new SortedMap([], compareSlot) }, [NO_PERIOD]);
 }
 
-/** Whether a week is open to edits by its status: a draft — Not started among them — and never the published case or another. */
+/** Whether a period is open to edits by its status: a draft — Not started among them — and never the published case or another. */
 export function editableStatus(status: Status): boolean { return status.type === "draft"; }
 
-/** A week's status chip's words: Not started, Draft, Published, or the app's own case by its name. */
+/** A period's status chip's words: Not started, Draft, Published, or the app's own case by its name. */
 export function statusText(period: PlacedPeriod): string {
     if (!started(period)) return "Not started";
     return period.status.type === "draft" ? "Draft" : period.status.type === "published" ? "Published" : period.status.value;
+}
+
+/**
+ * The status chip's words over a week's periods (#1550): its one period's (`statusText`), or over its days Published
+ * once every day is, Not started while none is, the app's own case where every day holds it, else how many days are
+ * published — `3 of 7 published` — or Draft while none is.
+ *
+ * @param periods - The week's periods' rows
+ * @returns The words
+ */
+export function periodsText(periods: readonly PlacedPeriod[]): string {
+    if (periods.length === 1) return statusText(periods[0]!);
+    const published = periods.filter(period => period.status.type === "published").length;
+    if (published === periods.length) return "Published";
+    if (periods.every(period => !started(period))) return "Not started";
+    const first = periods[0]?.status;
+    if (first?.type === "other" && periods.every(period => started(period) && period.status.type === "other" && compareString(period.status.value, first.value) === 0)) return first.value;
+    return published === 0 ? "Draft" : `${published} of ${periods.length} published`;
 }
 
 // ============================================================================
@@ -858,17 +951,20 @@ export function configError(value: RosterPayload): string | undefined {
 /** A slot's day — or a place's — a UTC midnight. */
 export function dayOfSlot(start: Date, slot: Pick<Slot, "day">): Date { return rosterDays().dayAt(start, slot.day); }
 /**
- * The suggestions the week can take, each in its slot: of a week the Roster
- * may edit, on one of its days, a configured group's and shift's, not
- * dismissed, of a person on the staff who is off that day.
+ * The suggestions the week can take, each in its slot: on one of its days
+ * whose period the Roster may edit — the week's, or the day's (#1550) — a
+ * configured group's and shift's, not dismissed, of a person on the staff who
+ * is off that day.
  */
-export function availableProposals(value: RosterValue, week: Week, start: Date): PlacedProposal[] {
-    if (!editableStatus(week.status)) return [];
+export function availableProposals(value: RosterValue, week: Week, start: Date, periods: readonly WeekPeriod[]): PlacedProposal[] {
+    if (!periods.some(takesEdits)) return [];
     const end = weekSpan(start).to;
     return value.proposals.flatMap(p => {
         if (compareDate(p.day, start) < 0 || compareDate(p.day, end) >= 0 || week.dismissed.has(p.key)) return [];
         if (!value.groups.some(g => g.key === p.group) || !value.shifts.some(s => s.key === p.shift) || !value.people.some(person => person.key === p.person)) return [];
         const slot: Slot = { day: rosterDays().dayIndex(start, p.day), group: p.group, shift: p.shift };
+        const period = periodOn(periods, slot.day);
+        if (period === undefined || !takesEdits(period)) return [];
         const rostered = [...week.assignments.values()].some(a => a.who.type === "person" && a.who.value === p.person && a.place.day === slot.day);
         return rostered ? [] : [{ ...p, slot }];
     });

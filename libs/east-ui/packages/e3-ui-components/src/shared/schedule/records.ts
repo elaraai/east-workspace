@@ -259,23 +259,25 @@ export function settled(history: EditHistory<ScheduleEntryRef>): Promise<EditHis
 }
 
 /**
- * Publishes a period (§4.3 rule 4, B7): Save first; once every record's
- * session reads back as saved, the period's status the published case, and
- * the periods saved. A Save that fails, or drafts that cannot be saved yet,
- * leave the period a draft with its drafts kept, so a published period never
- * sits over unsaved rows.
+ * Publishes periods (§4.3 rule 4, B7): Save first; once every record's
+ * session reads back as saved, each period's status the published case, and
+ * the periods saved — one period, or several in one request: a Roster
+ * publishing by the day publishes each day of its week not yet published
+ * (#1550). A Save that fails, or drafts that cannot be saved yet, leave each
+ * period a draft with its drafts kept, so a published period never sits over
+ * unsaved rows.
  *
  * @param history - The history over the records
- * @param change - The period's row as Publish writes it, worked out once the Save has settled
- * @param record - Records it, as one step
- * @returns Whether the period's status was written and saved
+ * @param change - The periods' rows as Publish writes them, worked out once the Save has settled; none publishes nothing
+ * @param record - Records them, as one step
+ * @returns Whether the periods' statuses were written and saved
  */
-export async function publishPeriod(history: EditHistory<ScheduleEntryRef>, change: () => ScheduleChange | undefined,
+export async function publishPeriod(history: EditHistory<ScheduleEntryRef>, change: () => readonly ScheduleChange[],
     record: (changes: readonly ScheduleChange[]) => boolean): Promise<boolean> {
     await history.apply();
     if (await settled(history) !== "idle" || history.pending > 0) return false;
     const published = change();
-    if (published === undefined || !record([published])) return false;
+    if (published.length === 0 || !record(published)) return false;
     await history.apply();
     return await settled(history) === "idle" && history.pending === 0;
 }

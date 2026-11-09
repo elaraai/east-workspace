@@ -20,7 +20,7 @@ import { shiftCalendar } from "../shared/time/scale.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
 import type { RosterCommands } from "./actions.js";
 import type { RosterEditing } from "./editing.js";
-import { DAY, monthWords, weekNumber, type Issue, type RosterPeriod, type RosterStyles, type RosterValue, type Status } from "./model.js";
+import { DAY, byDay, monthWords, weekNumber, type Issue, type RosterPeriod, type RosterStyles, type RosterValue, type Status } from "./model.js";
 import type { RosterWindow } from "./window.js";
 
 const LAYOUTS = [{ key: "shifts", label: "Shifts" }, { key: "people", label: "People" }] as const;
@@ -36,8 +36,10 @@ interface ToolbarArgs extends RosterWindow {
     narrow: boolean;
     /** The selected person-week's week, which Month → Week opens (#1406, P3). */
     selectedWeek: Date | undefined;
-    /** The week's status chip's words; `undefined` without periods. */
+    /** The status chip's words — the week's, or by the day the day in view's or its week's days' (#1550); `undefined` without periods. */
     status: string | undefined;
+    /** What Publish publishes, in its words (#1550): the week, or by the day in Shifts' Day the day in view. */
+    publishUnit: "day" | "week";
     /**
      * Whether the week is not read yet (#1398, CL1): its status, its issues and Publish keep their slots, the status a
      * placeholder — never "Not started" before its row is read — and the issues one too, each unseen at its footprint
@@ -46,7 +48,7 @@ interface ToolbarArgs extends RosterWindow {
     unread: boolean;
     /** Whether Publish is under way. */
     publishing: boolean;
-    /** The open picker's weeks' statuses, by their start. */
+    /** The open picker's periods' statuses, by their start: its weeks', or by the day its days' (#1550). */
     picker: SortedMap<Date, Status>;
     onDisplay: (value: Partial<{ density: "compact" | "comfortable"; chipSkills: boolean; requirements: boolean }>) => void;
     issues: readonly Issue[]; onIssues: () => void; onAction: (action: HistoryAction) => void; onPickerDates: (dates: readonly Date[]) => void;
@@ -108,9 +110,11 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     const navigate = (step: number) => setView({ ...view, date: shiftCalendar(new Date(view.date), unit, step).getTime() });
     const status = args.publishing ? "Publishing" : args.status;
     const unread = args.unread;
-    // Publish: only over periods, on a week that takes edits; its slot held wherever the Roster publishes and edits at all.
-    const publishable = value.periods.type === "some" && commands.available && !args.publishing;
+    // Publish: only over periods, while a period it publishes takes edits — the week, or by the day the day in view or a
+    // day of the week (#1550); its slot held wherever the Roster publishes and edits at all.
+    const publishable = value.periods.type === "some" && commands.publishable && !args.publishing;
     const heldPublish = value.periods.type === "some" && !value.settings.readOnly;
+    const publishWords = `Publish ${args.publishUnit}`;
     // The history: wherever the week takes edits, and wherever a draft of another week waits to be saved. A week not read
     // yet keeps it as the last week read had it, so a read landing never shifts the toolbar nor folds it again (#1398, CL1).
     const history = editing?.history;
@@ -135,7 +139,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         {switches && <>{layouts.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}<ChakraMenu.Separator /></>}
         {picksPeriod && <>{periods.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}<ChakraMenu.Separator /></>}
         <ChakraMenu.Item value="previous">Previous {unit}</ChakraMenu.Item><ChakraMenu.Item value="next">Next {unit}</ChakraMenu.Item>{value.inspector && <ChakraMenu.Item value="issues">{count} issues</ChakraMenu.Item>}<ChakraMenu.Separator />{displayItems}
-        {heldPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish" disabled={!publishable}>Publish week</ChakraMenu.Item></>}
+        {heldPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish" disabled={!publishable}>{publishWords}</ChakraMenu.Item></>}
     </ChipMenu>;
     // The Elara eye (#1409) and its entry: at the row's floor the eye goes into the View, which lists it in its place
     // (ruled 27 Oct 2026, "Into the View menu"); an eye with no entry keeps to the row.
@@ -150,17 +154,29 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         <ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>
         {value.inspector && <Button size="xs" variant="ghost" onClick={args.onIssues}>{count} issues</Button>}
         {withEye && eye?.entry}
-        {heldPublish && <Button size="xs" variant="solid" disabled={!publishable} loading={args.publishing} aria-label="Publish week" aria-busy={args.publishing ? true : undefined}
-            onClick={() => commands.publish()}>Publish week</Button>}
+        {heldPublish && <Button size="xs" variant="solid" disabled={!publishable} loading={args.publishing} aria-label={publishWords} aria-busy={args.publishing ? true : undefined}
+            onClick={() => commands.publish()}>{publishWords}</Button>}
     </Box>;
     // The People layout's labels (#1406, P2): the week and its number — `Mar 12 – 18, 2028 · W11` — or the month, its weeks
     // and its range — `March 2028 · W10–W14 · Mar 5 – Apr 1`. Shifts keeps the shared navigator's own words.
     const rangeLabel = view.period === "month" ? monthWords(words, span)
         : view.layout === "people" ? `${words.range(span.start, new Date(span.start.getTime() + 6 * DAY))} · W${words.number(weekNumber(span.start))}` : undefined;
+    // The picker's marks: each week's status — or where the periods are days (#1550) each day's, a week's then published
+    // once its seven days are and a draft once one is started — the app's own cases a draft's mark. Where the day in view
+    // is what publishes, in Shifts' Day, it opens on the days.
+    const days = byDay(value);
+    const dayPicked = days && view.layout === "shifts" && view.period === "day";
+    const markOf = (held: Status | undefined) => held === undefined ? "empty" : held.type === "published" ? "published" : "draft";
+    const weekMark = (date: Date) => {
+        if (!days) return markOf(args.picker.get(date));
+        const held = Array.from({ length: 7 }, (_, day) => args.picker.get(new Date(date.getTime() + day * DAY)));
+        return held.every(status => status?.type === "published") ? "published" : held.some(status => status !== undefined) ? "draft" : "empty";
+    };
+    const dot = (mark: string) => <Box as="span" css={styles.pickerDot} data-state={mark} />;
     const navigation = (compact = false, combined = false, withEye = false) => <TimeNavigator scope="roster" date={view.date} period={unit} rangeLabel={rangeLabel}
         sunday={value.settings.weekStart.type === "sunday"} onChange={date => setView({ ...view, date })}
-        compact={compact} label={combined ? "View" : "Choose roster week"} initialPanel="week" onWeeks={args.onPickerDates}
-        weekMarker={date => { const held = args.picker.get(date); return <Box as="span" css={styles.pickerDot} data-state={held === undefined ? "empty" : held.type === "other" ? "draft" : held.type} />; }}
+        compact={compact} label={combined ? "View" : dayPicked ? "Choose roster day" : "Choose roster week"} initialPanel={dayPicked ? "day" : "week"} onWeeks={args.onPickerDates}
+        weekMarker={date => dot(weekMark(date))} {...(days ? { dayMarker: (date: Date) => dot(markOf(args.picker.get(date))) } : {})}
         legend="Published · Draft · Not started" controls={combined ? controls(withEye) : undefined} />;
     const daySelect = <Seg label="Day of week" scope="roster" name="days" active={String(args.day)} onPick={day => setView({ ...view, date: start.getTime() + Number(day) * DAY })}
         items={Array.from({ length: 7 }, (_, day) => ({ key: String(day), label: words.weekday(new Date(start.getTime() + day * DAY)) }))} />;

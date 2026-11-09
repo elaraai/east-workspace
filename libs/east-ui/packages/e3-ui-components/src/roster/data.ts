@@ -9,8 +9,9 @@
  * the span's duties through the duty kind's `rows` — over the span's weeks and
  * the twelve hours either side a duty's start may stand from its shift's
  * (`spanWindow`), and the week before's while a week in view holds none, which
- * Copy previous week reads — each week's own row through the periods' `rows`,
- * the open picker's weeks' through the same, and the span's targets through
+ * Copy previous week reads — each week's own row through the periods' `rows`
+ * (each of its days' where the periods are days, #1550), the open picker's
+ * weeks' through the same, and the span's targets through
  * theirs. A span is one week, or a month's four to six (#1406, P26), its reads
  * swapped at once. What it reads is kept by its bytes: a row read again as it
  * was keeps its decoded row, so a render never decodes it again, and the frame
@@ -30,7 +31,7 @@ import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { useReadAhead } from "../shared/schedule/use-read-ahead.js";
 import { shiftCalendar } from "../shared/time/scale.js";
 import {
-    DAY, compareDate, compareString, rosterDomain, rosterSpan, spanWindow, weekBefore, weekSpan, weekWindow,
+    DAY, byDay, compareDate, compareString, rosterDomain, rosterSpan, spanWindow, weekBefore, weekSpan, weekWindow,
     type RosterPayload, type RosterSpan, type Status, type StoredDuty, type StoredTarget,
 } from "./model.js";
 
@@ -47,9 +48,12 @@ export interface RosterData {
     readonly duties: ReadonlyMap<string, StoredDuty>;
     /** The week before's, read while a week in view holds none of its own: what Copy previous week copies; `undefined` otherwise, or while it is read. */
     readonly previous: ReadonlyMap<string, StoredDuty> | undefined;
-    /** Each week's own row's bytes, its period's, by the week's first day: a week with no row is not among them, nor any week of a Roster with no periods. */
+    /**
+     * Each period's own row's bytes, by its first instant — each week's, or each day's where the periods are days
+     * (#1550): a period with no row is not among them, nor any of a Roster with no periods.
+     */
     readonly periods: SortedMap<Date, Uint8Array>;
-    /** The open picker's weeks' statuses, by their start: a week with no row is not among them. */
+    /** The open picker's periods' statuses, by their start — its weeks', or its days' (#1550): a period with no row is not among them. */
     readonly picker: SortedMap<Date, Status>;
     /** The span's targets, by key. */
     readonly targets: ReadonlyMap<string, StoredTarget>;
@@ -108,14 +112,14 @@ function keptTargets(read: ReadonlyMap<string, { roles: StoredTarget["roles"]; r
     }
     return same && held !== undefined ? held : out;
 }
-/** The weeks' own rows read again, kept as they were where their bytes are. */
-function keptPeriods(read: ReadonlyMap<Date, Uint8Array>, weeks: readonly Date[], held: SortedMap<Date, Uint8Array> | undefined): SortedMap<Date, Uint8Array> {
+/** The periods' own rows read again, each by a period's first instant given, kept as they were where their bytes are. */
+function keptPeriods(read: ReadonlyMap<Date, Uint8Array>, starts: readonly Date[], held: SortedMap<Date, Uint8Array> | undefined): SortedMap<Date, Uint8Array> {
     const out = new SortedMap<Date, Uint8Array>([], compareDate);
-    for (const week of weeks) {
-        const row = read.get(week);
-        if (row !== undefined) out.set(week, row);
+    for (const start of starts) {
+        const row = read.get(start);
+        if (row !== undefined) out.set(start, row);
     }
-    if (held !== undefined && held.size === out.size && [...out].every(([week, row]) => { const was = held.get(week); return was !== undefined && sameBytes(was, row); })) return held;
+    if (held !== undefined && held.size === out.size && [...out].every(([start, row]) => { const was = held.get(start); return was !== undefined && sameBytes(was, row); })) return held;
     return out;
 }
 
@@ -148,15 +152,18 @@ export function useRosterData(value: RosterPayload, span: RosterSpan, pickerDate
             const got = value.duty.rows(before.from, before.to);
             if (got.type === "some") previous = keptDuties(got.value, held.current.previous, domain.decodeRow);
         }
-        // Each week's own row, by its start.
+        // Each period's own row, by its start: each week's, or each of its days' where the periods are days (#1550) — the
+        // span's seven a week in one read, as its weeks are.
         let periods = NO_PERIODS;
         let picker = NO_STATUSES;
         if (value.periods.type === "some") {
             const kind = value.periods.value;
             const got = kind.rows(span.from, span.to);
-            if (got.type === "some") periods = keptPeriods(got.value, weeks, held.current.periods);
+            const starts = byDay(value) ? weeks.flatMap(week => Array.from({ length: 7 }, (_, day) => new Date(week.getTime() + day * DAY))) : weeks;
+            if (got.type === "some") periods = keptPeriods(got.value, starts, held.current.periods);
             else loading = true;
-            // The open picker's weeks: one span, from its first week to the end of its last.
+            // The open picker's weeks: one span, from its first week to the end of its last — each week's status, or each
+            // day's.
             if (pickerDates.length > 0) {
                 const first = pickerDates.reduce((a, b) => compareDate(a, b) <= 0 ? a : b);
                 const last = pickerDates.reduce((a, b) => compareDate(a, b) >= 0 ? a : b);

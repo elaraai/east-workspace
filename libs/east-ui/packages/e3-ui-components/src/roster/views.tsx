@@ -400,7 +400,7 @@ function AssignmentChip(args: AssignmentChipProps) {
     const name = assignmentName(value, a);
     const coord = useMemo(() => ({ ...rosterCoord(drag.surface, a.place, id), event: id }), [drag.surface, a.place, id]);
     const ghost = useMemo(() => <MoveGhost styles={styles} label={name} />, [styles, name]);
-    const enabled = drag.enabled && !removed;
+    const enabled = drag.enabled && !removed && ctx.commands.availableOn(a.place.day);
     const handle = useDragEventChip(enabled ? coord : null, ghost, !enabled, name);
     const canDrop = useCallback((event: DragEventValue) => drag.run(event, true) === undefined, [drag]);
     const drop = useDropCell(enabled ? coord : null, !enabled, canDrop, undefined, { caption: drag.caption, name: drag.name });
@@ -414,7 +414,7 @@ const AssignmentChipBody = memo(function AssignmentChipBody({ ctx, id, assignmen
 }) {
     const { styles, value, commands, drag } = ctx;
     const name = assignmentName(value, a);
-    const enabled = drag.enabled && !removed;
+    const enabled = drag.enabled && !removed && ctx.commands.availableOn(a.place.day);
     const person = a.who.type === "person" ? personOf(value, a.who.value) : undefined;
     // An agency person's duty, or a request: its badge the app's short word for agency staff (#1566).
     const agency = a.who.type === "request" || person?.agency === true;
@@ -442,9 +442,9 @@ const AssignmentChipBody = memo(function AssignmentChipBody({ ctx, id, assignmen
         {issues.filter(i => i.flag.type === "some").map((i, n) => <Box as="span" key={n} css={styles.flag} data-tone={i.tone.type}>{i.flag.type === "some" && i.flag.value}</Box>)}
         {/* A duty's own times, where they differ from its shift's (§5.5, rule 2): just times, no name and no worth. */}
         {ownTimes(value, a, ctx.start) && <Box as="span" css={styles.flag} data-roster-times="">{times}</Box>}
-        {person !== undefined && !short && <><Box as="span" css={styles.activity} data-empty={activity === undefined ? "" : undefined} title={activity?.label ?? "No activity"}>{activity?.code ?? "·"}</Box>{activity !== undefined && commands.available && !removed && <chakra.button type="button" css={styles.chipAction} data-roster-chip-action="" aria-label={`Clear activity for ${name}`} onPointerDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); ctx.onError(commands.activity(id, none)); }}><FontAwesomeIcon icon={faXmark} /></chakra.button>}
+        {person !== undefined && !short && <><Box as="span" css={styles.activity} data-empty={activity === undefined ? "" : undefined} title={activity?.label ?? "No activity"}>{activity?.code ?? "·"}</Box>{activity !== undefined && commands.availableOn(a.place.day) && !removed && <chakra.button type="button" css={styles.chipAction} data-roster-chip-action="" aria-label={`Clear activity for ${name}`} onPointerDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); ctx.onError(commands.activity(id, none)); }}><FontAwesomeIcon icon={faXmark} /></chakra.button>}
             <Box as="span" css={styles.fit}>{value.settings.chipSkills ? `${skills.filter(s => person.skills.has(s.key)).length}/${skills.length}` : `${ctx.format.number(ctx.hours.get(person.key) ?? 0)}h`}</Box></>}
-        {(commands.available || commands.locked !== undefined) && <chakra.button type="button" css={styles.chipAction} data-roster-chip-action="" aria-label={removed ? `Restore ${name}` : `Remove ${name}`}
+        {(commands.availableOn(a.place.day) || commands.locked !== undefined) && <chakra.button type="button" css={styles.chipAction} data-roster-chip-action="" aria-label={removed ? `Restore ${name}` : `Remove ${name}`}
             disabled={commands.locked !== undefined} title={commands.locked}
             onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); if (removed) commands.restore(id); else commands.remove(id); }}><FontAwesomeIcon icon={removed ? faRotateLeft : faXmark} /></chakra.button>}
     </Box>;
@@ -489,13 +489,13 @@ export function ProposalCard({ props, proposal }: { props: RosterViewsProps; pro
     const locked = props.commands.locked !== undefined;
     if (props.narrow) return <Box css={styles.card} data-roster-proposal={proposal.key} data-selected={selected ? "" : undefined}>
         <Box css={styles.actions}>{mark}{title}</Box><Box css={styles.detail}>{proposal.reason}</Box>
-        {(props.commands.available || locked) && <Box css={styles.actions}><Button size="xs" variant="outline" disabled={locked} title={props.commands.locked} onClick={accept}>Accept</Button>{dismissible(props.value) && <Button size="xs" variant="ghost" disabled={locked} title={props.commands.locked} onClick={reject}>Reject</Button>}</Box>}
+        {(props.commands.availableOn(proposal.slot.day) || locked) && <Box css={styles.actions}><Button size="xs" variant="outline" disabled={locked} title={props.commands.locked} onClick={accept}>Accept</Button>{dismissible(props.value) && <Button size="xs" variant="ghost" disabled={locked} title={props.commands.locked} onClick={reject}>Reject</Button>}</Box>}
     </Box>;
     const open = (props.coverage.get(proposal.slot)?.open ?? 0n) > 0n;
     const shift = props.value.shifts.find(s => s.key === proposal.slot.shift);
     return <Box css={[styles.assignment, styles.proposal]} data-roster-proposal={proposal.key} data-selected={selected ? "" : undefined} data-density={props.value.settings.density.type} title={`Model proposal · ${proposal.reason}`}>
         {mark}{title}<Box as="span" css={[styles.detail, styles.proposalReason]}>{open ? "fills open" : `+${props.format.number(shift?.hours ?? 0)} h`}</Box>
-        {(props.commands.available || locked) && <>
+        {(props.commands.availableOn(proposal.slot.day) || locked) && <>
             <chakra.button type="button" css={[styles.chipAction, styles.proposalAction]} data-accept="" aria-label={`Accept proposal for ${name}`} title={props.commands.locked ?? "Accept proposal"} disabled={locked} onClick={accept}><FontAwesomeIcon icon={faCheck} /></chakra.button>
             {dismissible(props.value) && <chakra.button type="button" css={[styles.chipAction, styles.proposalAction]} aria-label={`Reject proposal for ${name}`} title={props.commands.locked ?? "Reject proposal"} disabled={locked} onClick={reject}><FontAwesomeIcon icon={faXmark} /></chakra.button>}
         </>}
@@ -506,7 +506,7 @@ export function dismissible(value: RosterValue): boolean { return value.periods.
 function SlotActions({ props, slot }: { props: RosterViewsProps; slot: Slot }) {
     // While a run of the optimiser holds the week (#1409, R2) the actions stay in place, inert.
     const locked = props.commands.locked !== undefined;
-    if (!props.commands.available && !locked) return null;
+    if (!props.commands.availableOn(slot.day) && !locked) return null;
     const place = placeOf(slot);
     return <Box css={props.styles.actions}><PlaceAction label="Assign person" place={place} value={props.value} start={props.start} commands={props.commands} styles={props.styles} />
         {props.value.agencies.map(agency => <Button key={agency.key} size="xs" variant="outline" disabled={locked} title={props.commands.locked} onClick={() => props.onError(props.commands.place({ type: "agency", key: agency.key }, place))}>Request {agency.name}</Button>)}
@@ -819,7 +819,7 @@ function Tile(args: TileProps) {
     const name = assignmentName(value, a);
     const coord = useMemo(() => ({ ...rosterCoord(drag.surface, a.place, id), event: id }), [drag.surface, a.place, id]);
     const ghost = useMemo(() => <MoveGhost styles={styles} label={name} />, [styles, name]);
-    const enabled = drag.enabled && !removed;
+    const enabled = drag.enabled && !removed && ctx.commands.availableOn(a.place.day);
     const handle = useDragEventChip(enabled ? coord : null, ghost, !enabled, name);
     const canDrop = useCallback((event: DragEventValue) => drag.run(event, true) === undefined, [drag]);
     const drop = useDropCell(enabled ? coord : null, !enabled, canDrop, undefined, { caption: drag.caption, name: drag.name });
@@ -839,7 +839,7 @@ const TileBody = memo(function TileBody({ ctx, id, assignment: a, removed, perso
 }) {
     const { styles, value, commands, drag, format } = ctx;
     const name = assignmentName(value, a);
-    const enabled = drag.enabled && !removed;
+    const enabled = drag.enabled && !removed && ctx.commands.availableOn(a.place.day);
     const shift = shiftOf(value, a.place.shift);
     const issues = removed ? NO_ISSUES : dutyIssues(ctx.issues, id);
     const baseline = ctx.held.assignments.get(id);
@@ -865,7 +865,7 @@ const TileBody = memo(function TileBody({ ctx, id, assignment: a, removed, perso
         <Box as="span" css={styles.tileLabel} data-roster-assignment-name="">{shift?.label ?? a.place.shift}</Box>
         {meta !== undefined && <Box as="span" css={styles.tileMeta} data-own={meta.kind === "own" ? "" : undefined} data-group={meta.kind === "group" ? "" : undefined} data-roster-times={meta.kind === "own" ? "" : undefined}>{meta.text}</Box>}
         {issues.length > 0 && <Box as="span" css={styles.tileWarn} data-tone={danger ? "danger" : undefined} data-roster-tile-warn="" role="img" aria-label={issues[0]!.title}><FontAwesomeIcon icon={faTriangleExclamation} /></Box>}
-        {(commands.available || commands.locked !== undefined) && <chakra.button type="button" css={styles.chipAction} data-roster-chip-action="" aria-label={removed ? `Restore ${name}` : `Remove ${name}`}
+        {(commands.availableOn(a.place.day) || commands.locked !== undefined) && <chakra.button type="button" css={styles.chipAction} data-roster-chip-action="" aria-label={removed ? `Restore ${name}` : `Remove ${name}`}
             disabled={commands.locked !== undefined} title={commands.locked}
             onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); if (removed) commands.restore(id); else commands.remove(id); }}><FontAwesomeIcon icon={removed ? faRotateLeft : faXmark} /></chakra.button>}
     </Box>;
@@ -1009,7 +1009,7 @@ const PersonDayBody = memo(function PersonDayBody({ ctx, person, rowKey, group, 
         {tiles.map(({ id, a, removed }) => <Tile key={id} ctx={ctx} id={id} assignment={a} removed={removed} person={person} home={group} />)}
         {more > 0 && <Box as="span" css={styles.tileMore} data-roster-more={more} title={`${more} more`}>+{more}</Box>}
         {/* `+ Assign` places the person in their home group, with or without its band (#1567). */}
-        {off && (commands.available || commands.locked !== undefined ? <AssignMenu ctx={ctx} person={person} group={person.group} day={day} /> : <Box css={styles.detail}>Off</Box>)}
+        {off && (commands.availableOn(BigInt(day)) || commands.locked !== undefined ? <AssignMenu ctx={ctx} person={person} group={person.group} day={day} /> : <Box css={styles.detail}>Off</Box>)}
     </>;
 });
 /** A person's name cell (#1406, D8): the name — the requests row's, the vocabulary's `requests` — the agency badge in the vocabulary's `agencyShort` (#1566), and — by week — the week's hours against the contract over the meter. */
@@ -2011,7 +2011,7 @@ const PersonCard = memo(function PersonCard({ ctx, row, index, rows, days, reque
                 return <Box key={day} css={styles.agendaGroup}><Box css={styles.detail}>{format.weekday(new Date(start.getTime() + day * DAY))}</Box>
                     {duties.map(card)}
                     {/* "Off · assign" places the person in their home group, with or without its band (#1567). */}
-                    {!duties.some(duty => !duty.removed) && (commands.available || commands.locked !== undefined ? <PlaceAction label="Off · assign" source={{ type: "person", key: person.key }} place={{ day: BigInt(day), group: some(person.group), shift: person.usual.type === "some" ? person.usual.value : value.shifts[0]!.key }} value={value} start={start} commands={commands} styles={styles} /> : <Box css={styles.detail}>Off</Box>)}
+                    {!duties.some(duty => !duty.removed) && (commands.availableOn(BigInt(day)) || commands.locked !== undefined ? <PlaceAction label="Off · assign" source={{ type: "person", key: person.key }} place={{ day: BigInt(day), group: some(person.group), shift: person.usual.type === "some" ? person.usual.value : value.shifts[0]!.key }} value={value} start={start} commands={commands} styles={styles} /> : <Box css={styles.detail}>Off</Box>)}
                 </Box>;
             })}
         </>}

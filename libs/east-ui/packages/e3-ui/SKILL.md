@@ -236,6 +236,7 @@ Task → What do you need?
     │   ├─ Who is rostered                                            → resources={{ people: Schedule.resources(staff.read(), { name, icon, label, group, … }), agencies? }}
     │   ├─ The lists it reads, over the app's rows                    → Roster.shifts / groups / positions / activities / proposals(rows, { … })
     │   ├─ Publish, and the targets: the app's weeks and cover        → periods={Schedule.periods(Record.bind(weeks), { every: "week", status, dismissed? })} · targets={Roster.targets(Record.bind(cover), { day, group, shift, positions, hours })}
+    │   ├─ Publish a day at a time: the app's days                    → periods={Schedule.periods(Record.bind(days), { every: "day", status, dismissed?, entries? })} — in Shifts' Day, Publish day writes the day in view; else Publish week, each day of the week that takes edits, as one request; a published day read-only in every layout and period while its week's other days take edits, a rejected proposal kept on its day's row
     │   ├─ A new duty's, target's and week's own fields               → values: (d) => ({ … }) on the duty kind, over Roster.Types.NewDuty · Roster.targets(…, { values }) · Schedule.periods(…, { values })
     │   ├─ Costs in the app's own pay codes                           → pay={fn(Roster.Types.PayRequest(R)) → Roster.Types.Pay} currency="…"
     │   ├─ Who fits a Find fix: the app's fit, on e3                  → fit={Func.bind(e3.function)} from Roster.Types.FitRequest(R) to FitResult, over Roster.answer(R) + Roster.fit(R)
@@ -254,7 +255,7 @@ Task → What do you need?
     │   ├─ A reservation's own fields                                 → the bin kind's values: (b) => ({ … }), over Allocation.Types.NewBin; a booked bin takes its arrival's values
     │   ├─ The lanes and the resources                                → resources={{ <lanes>: Schedule.resources(rows, { name, icon, label, offset? }), <resources>: Schedule.resources(rows, { name, icon, label, min, max, … }) }}
     │   ├─ What it books from                                         → arrivals={Allocation.arrivals(rows, { label, quantity, hold, kind?, values?, … })}
-    │   ├─ Publish: the app's days                                    → periods={Schedule.periods(Record.bind(days), { every: "day", status })}
+    │   ├─ Publish: the app's days, or its weeks                      → periods={Schedule.periods(Record.bind(days), { every: "day", status })} · or its weeks, { every: "week", … }, each keyed by its first day, week={{ start: "monday" | "sunday" }} — Publish week writes the week holding the day in view, and every day of a published week is read-only
     │   ├─ Who fits where: the app's fit, on e3                       → fit={Func.bind(e3.function)} from Allocation.Types.FitRequest(R) to FitResult, over Allocation.answer(R) + Allocation.fit (+ Allocation.lookahead(R))
     │   ├─ The app's optimiser over the day                           → optimise={Func.bind(e3.function)} from Allocation.Types.OptimiseRequest(R) to Allocation.Types.OptimiseResult(R)
     │   ├─ Narrow its bins, lanes, resources and arrivals — one rail  → slice={{ slice: Slice.bindRecords(key, { bin: { source, range: "at" }, <lanes>?, <resources>?, arrivals? }) }}

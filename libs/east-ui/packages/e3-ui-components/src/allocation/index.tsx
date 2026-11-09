@@ -315,7 +315,8 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         if (editing === undefined || publishingNow.current) return;
         publishingNow.current = true; setPublishing(true);
         const { change } = latest.current;
-        void publishPeriod(editing.history, change, changes => editing.schedule.record(changes, "typed", `Publish ${unit}`))
+        void publishPeriod(editing.history, () => { const published = change(); return published === undefined ? [] : [published]; },
+            changes => editing.schedule.record(changes, "typed", `Publish ${unit}`))
             .finally(() => { publishingNow.current = false; setPublishing(false); });
     }, [editing, unit]);
     // A narrowing read while the day it filters stands in — the bins' own, the lanes', the resources' or the arrivals' —

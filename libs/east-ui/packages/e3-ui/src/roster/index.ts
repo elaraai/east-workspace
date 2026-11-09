@@ -7,7 +7,7 @@
  * `<Roster>` (#1368, `Builder Interfaces Spec.md` §5): staffing over the
  * app's own records, in the renderer's BuilderFrame. It writes the app's
  * duties through the duty kind's roles (`Schedule.events`), reads its people
- * and agencies (`Schedule.resources`), publishes its weeks
+ * and agencies (`Schedule.resources`), publishes its weeks or its days
  * (`Schedule.periods`) and writes its targets (`Roster.targets`), with the
  * lists it reads over the app's rows (`Roster.shifts`, `groups`, `positions`,
  * `activities`, `proposals`, and the People layout's `patterns`, #1406). It
@@ -104,7 +104,7 @@ export const RosterVocabularyType = StructType({
  * @property duty - The duty kind: the app's duties read and written through their roles, over bytes at the row type
  * @property people - Every person, from the `people` resource kind's accessors: the calculation scope, whatever the slice shows
  * @property agencies - Every agency, from the `agencies` resource kind's
- * @property periods - The app's weeks: their status and dismissals, and Publish; `none`, no Publish
+ * @property periods - The app's weeks, or its days, as their `every` says (#1550): their status and dismissals, and Publish; `none`, no Publish
  * @property targets - The app's targets, a row per slot; `none`, no slot has a target
  * @property groups - The groups, in their order
  * @property shifts - The shifts, in their order, each with its colour token, or none (#1406)
@@ -209,7 +209,13 @@ export interface RosterProps<R extends EastType = EastType> {
      * person the calculation scope — and optionally `agencies`, whom positions are requested from.
      */
     resources: { readonly people: ScheduleResourceKind<EastType, EastType>; readonly agencies?: ScheduleResourceKind<EastType, EastType> };
-    /** What it publishes, the app's weeks: `Schedule.periods(Record.bind(weeks), { every: "week", status, dismissed? })`. Omitted, no Publish. */
+    /**
+     * What it publishes (#1550): the app's weeks, `Schedule.periods(Record.bind(weeks), { every: "week", status, dismissed? })`,
+     * each keyed by its first day as `week` says, Publish writing the week in view; or its days, `{ every: "day", … }`, each
+     * keyed by its UTC day, Publish writing the day in view in Shifts' Day, else each day of the week that takes edits — a
+     * draft, or not started — as one request. A published day is read-only in every layout and period while the other days
+     * of its week take edits, and a proposal rejected is kept on its own day's row. Omitted, no Publish.
+     */
     periods?: SchedulePeriods;
     /** The app's targets, a row per slot: `Roster.targets(Record.bind(cover), { day, group, shift, positions, hours })`. */
     targets?: RosterTargets;
@@ -755,7 +761,7 @@ export interface RosterNamespace {
  *
  * @param props - The duties, people, lists and optional weeks, targets, pay, check, fit, library and inspector
  * @returns The Roster extension
- * @remarks One gesture is one undo step across every record it changes; Save sends each record's changes as its own request, and Publish saves, then the week's status. On narrow containers the same commands are explicit card actions.
+ * @remarks One gesture is one undo step across every record it changes; Save sends each record's changes as its own request, and Publish saves, then the status of each period it publishes. On narrow containers the same commands are explicit card actions.
  */
 export const Roster: RosterNamespace = Object.assign(
     <R extends EastType>(props: RosterProps<R>): UIElement => RosterComponent.Root(createRosterPayload(props)),

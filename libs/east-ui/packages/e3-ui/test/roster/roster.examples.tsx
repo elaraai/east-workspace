@@ -4,8 +4,8 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, StringType, StructType,
-    example, none, some, variant, type ValueTypeOf,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,
+    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
@@ -13,7 +13,8 @@ import { Data, Func, Record, Roster, Schedule } from "@elaraai/e3-ui";
 import {
     WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,
     WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,
-    warehousePayRates, warehousePeople, warehousePositions, warehouseShifts, warehouseSuggestions, warehouseTeams, warehouseWeeks,
+    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,
+    warehouseWeeks,
 } from "./warehouse.js";
 
 // The warehouse's row types, and its seeded weeks as the Roster reads them, for the renderer's specs on e3 (#1368).
@@ -39,6 +40,31 @@ export const rosterDuties = e3.record("roster_duties", DictType(StringType, Ware
 /** The weeks of the rota: the one before issued, this one open. */
 export const rosterWeeks = e3.record("roster_rota_weeks", DictType(DateTimeType, WarehouseWeek), {
     initial: warehouseWeeks,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+/** A day of the rota, for a Roster publishing a day at a time (#1550): open, or issued and when; the suggestions it dismissed. */
+export const WarehouseDay = StructType({
+    state: VariantType({ open: NullType, issued: StructType({ at: DateTimeType }) }),
+    dismissed: SetType(StringType),
+});
+const ROTA_DAY = 86_400_000, ROTA_HOUR = 3_600_000;
+const byName = compareFor(StringType);
+/**
+ * The rota's days as rows, each keyed by its UTC day: every day of the week before and this week's Sunday to Wednesday
+ * issued, each at 17:00 the evening before; Thursday open; Friday and Saturday not started, with no row.
+ */
+export const rosterDayRows: SortedMap<Date, ValueTypeOf<typeof WarehouseDay>> = new SortedMap<Date, ValueTypeOf<typeof WarehouseDay>>([
+    ...Array.from({ length: 11 }, (_, day): [Date, ValueTypeOf<typeof WarehouseDay>] => {
+        const start = new Date(warehousePreviousStart.getTime() + day * ROTA_DAY);
+        return [start, { state: variant("issued", { at: new Date(start.getTime() - 7 * ROTA_HOUR) }), dismissed: new SortedSet<string>([], byName) }];
+    }),
+    [new Date(warehouseStart.getTime() + 4 * ROTA_DAY), { state: variant("open", null), dismissed: new SortedSet<string>([], byName) }],
+], compareFor(DateTimeType));
+/** The days of the rota, which a Roster publishing a day at a time writes (#1550): each day's status and its dismissals. */
+export const rosterDays = e3.record("roster_rota_days", DictType(DateTimeType, WarehouseDay), {
+    initial: rosterDayRows,
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),
@@ -1025,6 +1051,62 @@ export const rosterPublished = example({
                 name: "Positions", icon: "id-badge", label: p => p.label, meta: p => some(p.code),
                 drop: (_p, key) => Schedule.patch(WarehouseDuty, { role: key }),
             })]} />
+        </Box>;
+    }}</Reactive>),
+});
+
+export const rosterDaily = example({
+    inputs: [], description: "A roster published a day at a time (#1550) — the second step of one made in two (#1548), where each duty works, firming up a day at a time: `periods` are the rota's days, `Schedule.periods(days, { every: \"day\", status, dismissed, entries })`, each row keyed by its UTC day and read by key through `entries`. In Shifts' Day, Publish saves the day's drafts, then writes the day's row, under Publish day; in Week, it writes each day of the week that takes edits as one request, under Publish week. A published day is read-only in every layout and period, under its banner, while the other days of its week take edits: issued Wednesday refuses a drop that Thursday takes. A proposal rejected is kept on its day's row. The status chip says the day's status, or the week's — 4 of 7 published — and the picker marks each day. Sunday to Wednesday are issued, Thursday is open, and Friday and Saturday are not started.",
+    keywords: ["Roster", "Schedule.periods", "every", "day", "days", "Publish", "Publish day", "Publish week", "published", "read-only", "two steps", "entries", "Data.bindPaged", "Record.bind", "BuilderFrame"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const rota = $.let(Record.bind(rosterDuties));
+        const entries = $.let(Data.bindPaged(rosterDuties));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        // What the Roster publishes: the rota's days, through the record's patch door, each span of them read by key.
+        const days = $.let(Record.bind(rosterDays));
+        const dayEntries = $.let(Data.bindPaged(rosterDays));
+        const cover = $.let(Record.bind(rosterCover));
+        // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
+        const people = $.let(Data.bind(rosterStaff));
+        const acts = $.let(Data.bind(rosterActivities));
+        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: ["roster_staff_by_team_name", "roster_staff_by_position", "roster_staff_by_trainer", "roster_staff_by_agency", "roster_staff_by_skill", "roster_staff_by_name"] }));
+        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: ["roster_activities_by_group"] }));
+        const slice = $.let(Slice.bindRecords("ex.rosterDaily", {
+            duty: { source: byTime, range: "start" },
+            people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
+                fields: { team: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }] }, position: { label: "Position", hints: [{ value: "lead", label: "Lead" }, { value: "deputy", label: "Deputy" }, { value: "acting", label: "Acting" }, { value: "crew", label: "Crew" }] },
+                    trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
+            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }, null] } } },
+        }));
+        const firms = $.let(Data.bind(rosterAgencies));
+        const times = $.let(Data.bind(rosterShiftTimes));
+        const teams = $.let(Data.bind(rosterTeams));
+        const roles = $.let(Data.bind(rosterPositions));
+        const ideas = $.let(Data.bind(rosterSuggestions));
+        return <Box width="100%" height="760px"><Roster id="rosterDaily" week={{ start: "sunday" }} slice={{ slice }} inspector
+            view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
+            events={{ duty: Schedule.events(rota, {
+                name: "Duty", icon: "user-clock", entries,
+                start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+                shift: "shift", group: "team", position: "role", activity: "task",
+                hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
+            }) }}
+            resources={{
+                people: Schedule.resources(people.read(), { name: "People", icon: "user", label: p => p.name, group: p => p.team,
+                    position: p => p.position, skills: p => p.skills, contract: p => p.contract, agency: p => p.agency,
+                    trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual }),
+                agencies: Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name }),
+            }}
+            // A day each, keyed by its UTC day: Publish writes the day in view's, or each day of the week that takes edits.
+            periods={Schedule.periods(days, { every: "day", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed", entries: dayEntries })}
+            targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" })}
+            shifts={Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order })}
+            groups={Roster.groups(teams.read(), { label: t => t.label, order: t => t.order })}
+            positions={Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order })}
+            activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })}
+            proposals={Roster.proposals(ideas.read(), { person: s => s.person, day: s => s.day, group: s => s.team, shift: s => s.shift, reason: s => s.why })}
+            rules={{ rest: 10.0 }}
+            library={[Roster.library.people(), Roster.library.activities()]} />
         </Box>;
     }}</Reactive>),
 });
