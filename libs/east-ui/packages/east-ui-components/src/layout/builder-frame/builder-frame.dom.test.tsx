@@ -134,9 +134,10 @@ const scrim = (): HTMLElement | null => frame().querySelector<HTMLElement>("[dat
 const openTab = (side: "start" | "end") =>
     [...slot(side).querySelectorAll("[role=tab]")].filter((tab) => tab.getAttribute("aria-selected") === "true").map((tab) => tab.textContent);
 
-/** Press a pane's collapse or expand control, as a pointer does. */
+/** Press a pane's collapse or expand control, as a pointer does: the focus on it, then its click. */
 async function press(name: string): Promise<void> {
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name })); });
+    const control = screen.getByRole("button", { name });
+    await act(async () => { control.focus(); fireEvent.click(control); });
 }
 
 /** Let the microtasks a change is told through land: the pane's to the frame, and the frame's to its host. */
@@ -391,6 +392,19 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
         await press("Expand Properties");
         await press("Collapse Properties");
         expect([paneOf("end"), scrim(), document.activeElement]).toEqual([["overlay", true], null, screen.getByRole("button", { name: "Expand Properties" })]);
+    });
+
+    test("an overlay pane its host opens and closes from code — its control clicked with the focus in main, as a selection in main opens the Inspector — leaves the focus in main (#1584)", async () => {
+        mount({ start: library(), end: properties({ mode: "overlay", defaultCollapsed: true }), children: <button type="button">IN MAIN</button> });
+        frameAt(1200);
+        const inMain = screen.getByRole("button", { name: "IN MAIN" });
+        act(() => { inMain.focus(); });
+        await act(async () => { screen.getByRole("button", { name: "Expand Properties" }).click(); });
+        await told();
+        expect([paneOf("end"), document.activeElement]).toEqual([["overlay", false], inMain]);
+        await act(async () => { screen.getByRole("button", { name: "Collapse Properties" }).click(); });
+        await told();
+        expect([paneOf("end"), document.activeElement]).toEqual([["overlay", true], inMain]);
     });
 
     test("Esc in a layer laid in the open overlay pane that takes Esc itself (`data-escape-layer`) is the layer's; anywhere else in the pane it closes the pane", () => {

@@ -20,9 +20,11 @@
  * - **overlay** — its rail stays in the flow, so main never moves; opened,
  *   the pane floats over main from its edge, full height — never so wide
  *   that less than 48px of main shows beside it ({@link MIN_SCRIM},
- *   {@link paneWidths}). Opened from its rail, it takes the focus — its open
- *   tab, or its first control — and closed, by its own collapse or by Esc, it
- *   returns the focus to its rail. Esc closes it — but a layer open in it that
+ *   {@link paneWidths}). Opened by a press on its rail, it takes the focus —
+ *   its open tab, or its first control — and closed by its own collapse or by
+ *   Esc, it returns the focus to its rail; opened or closed by its host's code
+ *   with the focus elsewhere — the Inspector a selection in main opens — it
+ *   leaves the focus where it is. Esc closes it — but a layer open in it that
  *   takes Esc itself, marked `data-escape-layer` (a Chooser laid in a pane),
  *   closes first — and one overlay pane is open at a time;
  * - **auto** (the default) — pinned while main keeps `minMain` beside the
@@ -665,6 +667,10 @@ export function BuilderFrame(props: BuilderFrameProps) {
         const drawer = slotRefs[side].current;
         (drawer?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? drawer?.querySelector<HTMLElement>("button, [href], input, [tabindex]"))?.focus({ preventScroll: true });
     });
+    // The pane a click began in with the focus in it — its rail's control, its collapse — read as the click starts,
+    // before the control it pressed goes with the change. A host that opens or closes a pane from code, clicking its
+    // control as a selection in main does, clicks it with the focus elsewhere.
+    const pressedIn = useRef<Side | undefined>(undefined);
     /** A strip tab: its drawer opens, or, open, closes; one of the pane's own tabs opens it there. */
     const onPaneTab = (side: Side, tab?: string) => {
         const open = !collapseOf(side).collapsed;
@@ -730,7 +736,8 @@ export function BuilderFrame(props: BuilderFrameProps) {
         return (
             <Box ref={slotRefs[side]} css={styles.pane} data-frame-slot={side} data-pane-mode={placedAt}
                 data-collapsed={collapsed ? "" : undefined}
-                style={{ width: placedAt === "overlay" || collapsed ? `${RAIL}px` : size }}>
+                style={{ width: placedAt === "overlay" || collapsed ? `${RAIL}px` : size }}
+                onClickCapture={() => { pressedIn.current = slotRefs[side].current?.contains(rootRef.current?.ownerDocument.activeElement ?? null) === true ? side : undefined; }}>
                 <Box css={styles.sheet} style={floating ? { width: sheetWidth === undefined ? size : `${sheetWidth}px`, transform: aside } : undefined}>
                     <DockPane
                         storageKey={`${storageKey}.${side}`}
@@ -751,12 +758,14 @@ export function BuilderFrame(props: BuilderFrameProps) {
                         collapsible={described.collapsible}
                         collapsed={collapsed}
                         onCollapsedChange={(next) => {
-                            // The control pressed goes with the change: opened from its rail, an overlay pane takes the focus,
-                            // so Esc reaches it; closed by its own collapse, it gives the focus back to its rail, as Esc does.
-                            if (placedAt === "overlay") {
+                            // The control pressed goes with the change, and the focus on it with it: opened from its rail, an
+                            // overlay pane takes the focus, so Esc reaches it; closed by its own collapse, it gives the focus
+                            // back to its rail, as Esc does. Opened or closed by its host's code, the focus in main stays there.
+                            if (placedAt === "overlay" && pressedIn.current === side) {
                                 if (next) railFocus.current = side;
                                 else drawerFocus.current = side;
                             }
+                            pressedIn.current = undefined;
                             toggled(side, next);
                         }}
                     />
