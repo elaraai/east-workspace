@@ -17,7 +17,7 @@
 import { describe, test, expect } from "vitest";
 import { none, variant } from "@elaraai/east";
 import { scoreLabel, scoreCandidates, entryCandidates, candidateList, candidateFor, ghostFor, ghostWord, resolveFor, candidateAt } from "./candidates.js";
-import { indexColumns, indexRegisters, type SheetColumnMeta } from "./model.js";
+import { indexColumns, indexRegisters, resolveMember, type SheetColumnMeta } from "./model.js";
 import { editText, parseCell } from "./parse/index.js";
 import { keyedCell } from "./steps.js";
 import { SHEET_WORDS } from "./words.js";
@@ -118,6 +118,27 @@ describe("a register column is typed in the words its cells show (#1536)", () =>
         expect(candidateFor(meta, "ruiz", ctx)?.key).toBe("P-3");
         expect(candidateFor(meta, "zzz", ctx)).toBeUndefined();
         expect(candidateFor(meta, " ", ctx)).toBeUndefined();
+    });
+
+    test("a member committed by its key is found again by it — never as another whose alias, or whose key's case, its key shares (#1583)", () => {
+        // B comes first and goes by A's key; C's key is A's in other case.
+        const shared = indexRegisters(new Map([["people", { members: [
+            { ...member("B-1"), label: "Bea", aliases: ["A-1"] },
+            { ...member("a-1"), label: "Cal" },
+            { ...member("A-1"), label: "Ada" },
+        ] }]]) as never);
+        const sharedCtx = { registers: shared, rows: [], rowIndex: -1, driverColumn: undefined };
+        const parse = { ...sharedCtx, words: SHEET_WORDS, today: new Date("2026-11-06T00:00:00Z") };
+        for (const [, meta] of REGISTER_KINDS) {
+            expect(candidateFor(meta, "A-1", sharedCtx)?.key).toBe("A-1");
+            expect(parseCell(meta, "A-1", parse)).toEqual({ kind: "cell", cell: variant("String", "A-1") });
+            expect(candidateFor(meta, "a-1", sharedCtx)?.key).toBe("a-1");
+        }
+        // The cell holding A's key shows A.
+        expect(resolveMember(shared, "people", "A-1")?.label).toBe("Ada");
+        expect(resolveMember(shared, "people", "a-1")?.label).toBe("Cal");
+        // An alias no key shares still finds its member, in any case.
+        expect(resolveMember(people, "people", "ANA")?.key).toBe("P-3");
     });
 
     test("a member the row is not offered is never what typed text commits to", () => {

@@ -366,10 +366,18 @@ export function groupBandPx(size: "sm" | "md" | "lg"): number {
 
 // ── Registers and the driver ───────────────────────────────────────────────
 
-/** The registers by name, with each member indexed by key and by lower-cased alias, and by the label it shows. */
+/**
+ * The registers by name, with each member indexed by its key, by lower-cased
+ * key or alias, and by the label it shows. A key names its own member before
+ * anything else does — exactly, then case-insensitively before any alias — so
+ * a member a gesture chooses, committed and shown by its key, is never found
+ * again as another member whose alias or key's case its key shares (#1583).
+ */
 export interface SheetRegisterIndex {
     byName: ReadonlyMap<string, readonly SheetRegisterMemberValue[]>;
-    /** Register name → lower-cased key or alias → member. */
+    /** Register name → key → member. */
+    keys: ReadonlyMap<string, ReadonlyMap<string, SheetRegisterMemberValue>>;
+    /** Register name → lower-cased key or alias → member: every member's key first, then the aliases. */
     lookup: ReadonlyMap<string, ReadonlyMap<string, SheetRegisterMemberValue>>;
     /** Register name → lower-cased label → the first member to show it. */
     labels: ReadonlyMap<string, ReadonlyMap<string, SheetRegisterMemberValue>>;
@@ -378,15 +386,20 @@ export interface SheetRegisterIndex {
 /** Index the decoded registers. */
 export function indexRegisters(registers: ReadonlyMap<string, { members: readonly SheetRegisterMemberValue[] }>): SheetRegisterIndex {
     const byName = new Map<string, readonly SheetRegisterMemberValue[]>();
+    const keys = new Map<string, ReadonlyMap<string, SheetRegisterMemberValue>>();
     const lookup = new Map<string, ReadonlyMap<string, SheetRegisterMemberValue>>();
     const labels = new Map<string, ReadonlyMap<string, SheetRegisterMemberValue>>();
     for (const [name, reg] of registers) {
         byName.set(name, reg.members);
+        const exact = new Map<string, SheetRegisterMemberValue>();
         const idx = new Map<string, SheetRegisterMemberValue>();
         const shown = new Map<string, SheetRegisterMemberValue>();
         for (const m of reg.members) {
+            if (!exact.has(m.key)) exact.set(m.key, m);
             const k = m.key.toLowerCase();
             if (!idx.has(k)) idx.set(k, m);
+        }
+        for (const m of reg.members) {
             for (const a of m.aliases) {
                 const al = a.toLowerCase();
                 if (!idx.has(al)) idx.set(al, m);
@@ -394,22 +407,23 @@ export function indexRegisters(registers: ReadonlyMap<string, { members: readonl
             const l = m.label.toLowerCase();
             if (l !== "" && !shown.has(l)) shown.set(l, m);
         }
+        keys.set(name, exact);
         lookup.set(name, idx);
         labels.set(name, shown);
     }
-    return { byName, lookup, labels };
+    return { byName, keys, lookup, labels };
 }
 
-/** The member a register resolves `text` to — by key or alias, case-insensitively: what a cell's value names. */
+/** The member a register resolves `text` to — by its key, else by key or alias case-insensitively: what a cell's value names. */
 export function resolveMember(index: SheetRegisterIndex, register: string | undefined, text: string): SheetRegisterMemberValue | undefined {
     if (register === undefined) return undefined;
-    return index.lookup.get(register)?.get(text.trim().toLowerCase());
+    return index.keys.get(register)?.get(text) ?? index.lookup.get(register)?.get(text.trim().toLowerCase());
 }
 
 /**
- * The member typed text names whole — by key or alias, else by the label it
- * shows, the first member to show it — case-insensitively: a register
- * column is typed in the words its cells show.
+ * The member typed text names whole — by its key, else by key or alias
+ * case-insensitively, else by the label it shows, the first member to show
+ * it: a register column is typed in the words its cells show.
  *
  * @param index - The registers
  * @param register - The column's register
@@ -418,8 +432,8 @@ export function resolveMember(index: SheetRegisterIndex, register: string | unde
  */
 export function resolveTyped(index: SheetRegisterIndex, register: string | undefined, text: string): SheetRegisterMemberValue | undefined {
     if (register === undefined) return undefined;
-    const t = text.trim().toLowerCase();
-    return index.lookup.get(register)?.get(t) ?? index.labels.get(register)?.get(t);
+    const t = text.trim();
+    return index.keys.get(register)?.get(t) ?? index.lookup.get(register)?.get(t.toLowerCase()) ?? index.labels.get(register)?.get(t.toLowerCase());
 }
 
 /** The driver member key a row resolves to — its driver column's String cell. */
