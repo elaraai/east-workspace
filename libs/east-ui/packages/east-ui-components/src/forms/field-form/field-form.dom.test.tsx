@@ -18,7 +18,9 @@
  * the wash of a field an issue names, and the field a host names taking the
  * keyboard; and (#1549) a variant whose cases hold data edited as a block
  * under its choice, and a reference to a key of any type; and (#1561) a line's
- * help under it. Every value handed back is asserted with East's `equalFor`.
+ * help under it; and (#1585) an edit the host refuses, the field showing what
+ * it holds and saying why. Every value handed back is asserted with East's
+ * `equalFor`.
  */
 
 import { describe, test, expect, afterEach, vi } from "vitest";
@@ -996,6 +998,129 @@ describe("FieldForm — a reference's choices in their keys' order, and a choice
         await choose("Bench 10");
         expectEdit(edits, "bench", equalFor(IntegerType), 10n);
         expect(refusalOf(field("bench"))).toBeUndefined();
+    });
+});
+
+describe("FieldForm — an edit the host refuses: the field shows what it holds again, and says why under it (#1585)", () => {
+    // The host holds the job's due time to the morning, its crew to six, its status short of cancelled and its task to
+    // some text, refusing past them in its own words; every other edit it takes.
+    const NOON = new Date(Date.UTC(2026, 9, 6, 12, 0));
+    const MORNING = "Due by noon: the workshop closes for the afternoon";
+    const SIX = "Six at most fit the workshop";
+    const SCHEDULE = "A planned job is cancelled from the schedule";
+    const TASK = "A job needs its task";
+    const compareDates = compareFor(DateTimeType);
+    const compareIntegers = compareFor(IntegerType);
+    const statusEqual = equalFor(Status);
+
+    function mountRefusing(extra: { live?: boolean } = {}) {
+        const edits: Edit[] = [];
+        function Host() {
+            const [value, setValue] = useState<JobValue>(JOB);
+            return (
+                <FieldForm specs={SPECS} value={value} options={BENCHES} live={extra.live}
+                    onChange={(path, next) => {
+                        edits.push({ path: path.join("."), value: next });
+                        const [name] = path;
+                        if (name === "due" && compareDates(next as Date, NOON) >= 0) return MORNING;
+                        if (name === "crew" && compareIntegers(next as bigint, 6n) > 0) return SIX;
+                        if (name === "status" && statusEqual(next as never, variant("cancelled", null) as never)) return SCHEDULE;
+                        if (name === "task" && equalFor(StringType)(next as string, "")) return TASK;
+                        setValue((v) => setAt(v, path, next));
+                        return undefined;
+                    }} />
+            );
+        }
+        const utils = render(<ChakraProvider value={system}><I18nProvider locale={LOCALE}><Host /></I18nProvider></ChakraProvider>);
+        const field = (key: string) => utils.container.querySelector<HTMLElement>(`[data-field="${key}"]`)!;
+        return { ...utils, edits, field };
+    }
+    /** What a field says under it of an edit it shows what it holds in place of. */
+    const refusalOf = (el: HTMLElement) => el.querySelector("[data-scope=field][data-part=error-text]")?.textContent;
+    /** A date's segment, by the part it names. */
+    const segment = (el: HTMLElement, name: string) => within(el).getAllByRole("spinbutton").find((s) => s.getAttribute("aria-label")?.startsWith(name))!;
+
+    test("a time it refuses as the keyboard moves on to another field: the box shows the time the field holds, and the field says why — until an edit it takes — the keyboard left where it went", async () => {
+        const { field, edits } = mountRefusing();
+        const user = userEvent.setup();
+        const length = () => within(field("length")).getByRole("spinbutton");
+        // 9 AM on to 9 PM, past noon, and on to the length.
+        act(() => { segment(field("due"), "AM/PM").focus(); });
+        await act(async () => { fireEvent.keyDown(segment(field("due"), "AM/PM"), { key: "ArrowUp" }); });
+        await settle();
+        expect(segment(field("due"), "AM/PM").textContent).toBe("PM");
+        await user.click(length());
+        await settle();
+        expect(edits.map((e) => e.path)).toEqual(["due"]);
+        expect([segment(field("due"), "hour").textContent, segment(field("due"), "AM/PM").textContent]).toEqual(["9", "AM"]);
+        expect(refusalOf(field("due"))).toBe(MORNING);
+        expect(field("due").querySelector("[data-scope=field][data-part=root]")!.hasAttribute("data-invalid")).toBe(true);
+        expect(document.activeElement).toBe(length());
+        // 9 AM on to 10 AM: taken, and the words go.
+        act(() => { segment(field("due"), "hour").focus(); });
+        await act(async () => { fireEvent.keyDown(segment(field("due"), "hour"), { key: "ArrowUp" }); });
+        await settle();
+        await user.click(length());
+        await settle();
+        expect(edits.map((e) => e.path)).toEqual(["due", "due"]);
+        expect(compareDates(edits[1]!.value as Date, new Date(Date.UTC(2026, 9, 6, 10, 0)))).toBe(0);
+        expect(segment(field("due"), "hour").textContent).toBe("10");
+        expect(refusalOf(field("due"))).toBeUndefined();
+    });
+
+    test("a number it refuses, Entered: the box shows the number the field holds, the keyboard still in it, and the field says why", async () => {
+        const { field, edits } = mountRefusing();
+        const user = userEvent.setup();
+        const crew = within(field("crew")).getByRole("spinbutton");
+        await user.clear(crew);
+        await user.type(crew, "9");
+        await user.keyboard("{Enter}");
+        await settle();
+        expectEdit(edits, "crew", equalFor(IntegerType), 9n);
+        expect((within(field("crew")).getByRole("spinbutton") as HTMLInputElement).value).toBe("4");
+        expect(refusalOf(field("crew"))).toBe(SIX);
+        expect(field("crew").querySelector("[data-scope=field][data-part=root]")!.hasAttribute("data-invalid")).toBe(true);
+        expect(document.activeElement).toBe(within(field("crew")).getByRole("spinbutton"));
+    });
+
+    test("a choice it refuses — a case, a line's — shows the choice the field holds, and the field says why under it", async () => {
+        const { field, edits } = mountRefusing();
+        await open(field("status"));
+        await choose("Cancelled");
+        expectEdit(edits, "status", statusEqual, variant("cancelled", null));
+        expect(chosenOf(field, "status")).toBe("Planned");
+        expect(refusalOf(field("status"))).toBe(SCHEDULE);
+        expect(field("status").contains(document.activeElement)).toBe(true);
+        cleanup();
+        // Drawn on one line: its radios as the field holds them, and the words under the line.
+        const Shift = StructType({ name: StringType, night: BooleanType });
+        const lines: ReadonlyMap<string, readonly FieldLineChoice[]> = new Map([["night", [{ value: true, label: "Night" }, { value: false, label: "Day" }]]]);
+        const nights: Edit[] = [];
+        const { container } = render(
+            <ChakraProvider value={system}><I18nProvider locale={LOCALE}>
+                <FieldForm specs={Fields.specs(Shift)} value={{ name: "Early", night: false }} lines={lines}
+                    onChange={(path, next) => { nights.push({ path: path.join("."), value: next }); return "Nights need a lead"; }} />
+            </I18nProvider></ChakraProvider>,
+        );
+        const night = container.querySelector<HTMLElement>('[data-field="night"]')!;
+        await act(async () => { fireEvent.click(within(night).getAllByRole("radio")[0]!); });
+        await settle();
+        expectEdit(nights, "night", equalFor(BooleanType), true);
+        expect((within(night).getAllByRole("radio") as HTMLInputElement[]).map((r) => r.checked)).toEqual([false, true]);
+        expect(night.querySelector("[data-field-error]")!.textContent).toBe("Nights need a lead");
+    });
+
+    test("typed into a live form, its words come at once, and the box shows what the field holds once the keyboard leaves it, never under the keys", async () => {
+        const { field, edits } = mountRefusing({ live: true });
+        const user = userEvent.setup();
+        await user.clear(within(field("task")).getByRole("textbox"));
+        await settle();
+        expectEdit(edits, "task", equalFor(StringType), "");
+        expect(refusalOf(field("task"))).toBe(TASK);
+        expect((within(field("task")).getByRole("textbox") as HTMLInputElement).value).toBe("");
+        await leave(within(field("task")).getByRole("textbox"));
+        expect((within(field("task")).getByRole("textbox") as HTMLInputElement).value).toBe("Hang doors");
+        expect(refusalOf(field("task"))).toBe(TASK);
     });
 });
 

@@ -36,6 +36,13 @@
  * with a Set beside it (#1188). Set gives the box it makes the keyboard, its
  * start selected, so what is typed next replaces it. A date's input takes its
  * editor's precision.
+ * An edit the host refuses — `onChange` returning why — leaves the field
+ * showing what it holds, its control drawn afresh, and its words under the
+ * field until its next edit or a new value from the host, as a reference's
+ * choice its field can't hold does: the keyboard stays where the edit left it,
+ * back on the field's control after Enter or a choice. Typed into a `live`
+ * form, the words come at once, and the box shows what the field holds once
+ * the keyboard leaves it, never under the keys typing into it.
  * A field that differs from `baseline` — what the drafts began from — is
  * tinted. A nested struct's fields sit under its name. Read-only, every field
  * is printed, and tags and a checklist keep their shape without their
@@ -78,9 +85,10 @@
  * parts set; the `fieldForm` recipe lays the fields out and tints a changed
  * one; the form sets data attributes (`data-field`, `data-editor`,
  * `data-layout`, `data-dirty`, `data-issue`, `data-field-line`,
- * `data-field-side`, `data-field-block`, `data-field-help`), a text's or a
- * choice's title and geometry only; a line's help takes the `field` recipe's
- * help style.
+ * `data-field-side`, `data-field-block`, `data-field-help`,
+ * `data-field-error`), a text's or a choice's title and geometry only; a
+ * line's help takes the `field` recipe's help style, and why its choice was
+ * refused the recipe's error style.
  *
  * @packageDocumentation
  */
@@ -146,8 +154,11 @@ export interface FieldFormProps {
      * order — and a field of any other type in its keys' order at that type, each key read once.
      */
     options?: Readonly<Record<string, readonly FieldOption[]>> | undefined;
-    /** Told each edit: the field's path, and its new value, typed as the field — an Option's `some` or `none`. */
-    onChange: (path: readonly string[], value: unknown) => void;
+    /**
+     * Told each edit: the field's path, and its new value, typed as the field — an Option's `some` or `none`. Returns why
+     * the host refuses it, where it does: the field shows what it holds again, and says so under it.
+     */
+    onChange: (path: readonly string[], value: unknown) => string | void;
     /** Prints every value, and takes no edit. */
     readOnly?: boolean | undefined;
     /** The form's words: the host's, else English in the app's locale. */
@@ -544,7 +555,7 @@ interface FieldRowProps {
     base: unknown;
     hasBaseline: boolean;
     options: Readonly<Record<string, readonly FieldOption[]>>;
-    onChange: (path: readonly string[], value: unknown) => void;
+    onChange: FieldFormProps["onChange"];
     readOnly: boolean;
     words: FieldFormWords;
     styles: Styles;
@@ -600,36 +611,67 @@ const FieldRow = memo(function FieldRow({
         }).sort((a, b) => (a.reads && b.reads ? keyText.compare(a.key, b.key) : a.reads ? -1 : b.reads ? 1 : compareStrings(a.choice.key, b.choice.key)))
             .map(({ choice }) => choice);
     }, [listed, keyText]);
-    // A choice chosen whose key reads as none of the field's values: no edit, and the field says why under it — until
-    // another choice, or a new value from the host.
-    const [unheld, setUnheld] = useState<string | undefined>(undefined);
+    // Why the field shows what it holds, not the edit last made — a reference's choice whose key reads as none of the
+    // field's values, or an edit the host refused, in its words — said under it until its next edit, or a new value
+    // from the host.
+    const [refusal, setRefusal] = useState<string | undefined>(undefined);
     // A control the host draws itself, in the field.
     const own = renderControl?.(spec);
     // Read-only, a value is printed; tags and a checklist keep their shape.
     const printed = editor.type === "readonly" || (readOnly && editor.type !== "tags" && editor.type !== "checklist");
 
-    // One edit of the field: its value, `undefined` being an Option's none.
-    const emit = useCallback((next: unknown) => {
-        const out = spec.optional ? (next === undefined ? none : some(next)) : next;
-        if (same(out, current)) return;
-        onChange(spec.path, out);
-    }, [spec.optional, spec.path, same, current, onChange]);
-
     // A typed edit waits for the focus to leave the field, or Enter; Esc drops
     // it. A new value from the host drops it too: the input shows that one.
     const pending = useRef<{ value: unknown } | undefined>(undefined);
     const [revision, setRevision] = useState(0);
+    // The field, its control's box, and — in a `live` form — whether the box holds what was typed past a refusal.
+    const rowRef = useRef<HTMLDivElement | null>(null);
+    const fieldRef = useRef<HTMLDivElement | null>(null);
+    const stale = useRef(false);
+    // Set pressed: the box it makes takes the keyboard, its start selected, once the host holds the value — the button
+    // under the keyboard is Clear by then. Focus leaving for anything outside the field first ends the wait.
+    const setting = useRef(false);
+    // A refusal: its words under the field, and the field drawn afresh — a select, a radio and a box each keep the edit
+    // last made — showing what it holds, the keyboard back on its control where the edit left it in the field.
+    const refocus = useRef(false);
+    const refuse = useCallback((words: string, keep: boolean) => {
+        setRefusal(words);
+        stale.current = false;
+        setting.current = false;
+        refocus.current = keep;
+        setRevision((r) => r + 1);
+    }, []);
     useValueSync(current, same, () => {
         pending.current = undefined;
-        setUnheld(undefined);
+        stale.current = false;
+        setRefusal(undefined);
     });
+
+    // One edit of the field: its value, `undefined` being an Option's none — a choice's at once, a typed one's as it is
+    // committed, or in a `live` form as it is typed. One the host refuses is put back: a choice's and a committed one's at
+    // once, the keyboard kept where the edit left it in the field; one typed into a live form's box once the keyboard
+    // leaves it, its words at once.
+    const emit = useCallback((next: unknown, how: "choice" | "typed" | "typing" = "choice") => {
+        const out = spec.optional ? (next === undefined ? none : some(next)) : next;
+        const refused = same(out, current) ? undefined : onChange(spec.path, out);
+        if (refused === undefined) {
+            stale.current = false;
+            setRefusal(undefined);
+        } else if (how === "typing") {
+            stale.current = true;
+            setRefusal(refused);
+        } else {
+            const row = rowRef.current;
+            refuse(refused, how === "choice" || (row !== null && row.contains(row.ownerDocument.activeElement)));
+        }
+    }, [spec.optional, spec.path, same, current, onChange, refuse]);
     // Live, each typed edit is told at once (`FieldFormProps.live`).
-    const hold = useCallback((next: unknown) => { if (live) emit(next); else pending.current = { value: next }; }, [live, emit]);
+    const hold = useCallback((next: unknown) => { if (live) emit(next, "typing"); else pending.current = { value: next }; }, [live, emit]);
     const commit = useCallback(() => {
         const edit = pending.current;
         if (edit === undefined) return;
         pending.current = undefined;
-        emit(edit.value);
+        emit(edit.value, "typed");
     }, [emit]);
 
     // A checklist: its items, and the item typed into its box.
@@ -637,10 +679,6 @@ const FieldRow = memo(function FieldRow({
     const items = (checklist === undefined || held === undefined ? [] : held) as readonly Record<string, unknown>[];
     const done = checklist === undefined ? 0 : items.filter((item) => item[checklist.done] as boolean).length;
     const typed = useRef("");
-    const fieldRef = useRef<HTMLDivElement | null>(null);
-    // Set pressed: the box it makes takes the keyboard, its start selected, once the host holds the value — the button
-    // under the keyboard is Clear by then. Focus leaving for anything outside the field first ends the wait.
-    const setting = useRef(false);
     useEffect(() => {
         if (!setting.current || held === undefined) return;
         setting.current = false;
@@ -649,13 +687,12 @@ const FieldRow = memo(function FieldRow({
         box?.focus();
         if (box instanceof HTMLInputElement || box instanceof HTMLTextAreaElement) box.select();
     }, [held]);
-    // A reference's choice it can't hold: the field drawn afresh — its select, which keeps the choice last made, showing
-    // the key the field holds again — and the keyboard back on its control.
-    const refocus = useRef(false);
+    // Drawn afresh after a refusal that left the keyboard in the field: back on its control — a line's choices, drawn on
+    // one line; past a Set's disabled box, its Set.
     useLayoutEffect(() => {
         if (!refocus.current) return;
         refocus.current = false;
-        fieldRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+        (fieldRef.current?.querySelector<HTMLElement>(FOCUSABLE) ?? rowRef.current?.querySelector<HTMLElement>(FOCUSABLE))?.focus();
     }, [revision]);
     // An Option's Clear, beside a line's choices or an input that cannot show none.
     const clear = (
@@ -667,20 +704,21 @@ const FieldRow = memo(function FieldRow({
 
     // Drawn on one line: its label at the start, cut where the line is short and whole in its tooltip, and its choices
     // at the end as one line of radios, none checked while it holds no value — or, read only, the choice made — and its
-    // help under it.
+    // help under it, then why a choice was refused, in the shared Field's style for it.
     if (choices !== undefined && own === undefined) {
         const chosen = held === undefined ? -1 : choices.findIndex((choice) => sameInner(choice.value, held));
         const printedLine = editor.type === "readonly" || readOnly;
         const lineHelp = getSomeorUndefined(spec.help);
+        const lineRefusal = printedLine ? undefined : refusal;
         return (
-            <Box css={styles.field} data-field={key} data-editor={printedLine ? "readonly" : editor.type} data-layout="line"
+            <Box ref={rowRef} css={styles.field} data-field={key} data-editor={printedLine ? "readonly" : editor.type} data-layout="line"
                 data-dirty={dirty ? "" : undefined} data-issue={issue ? "" : undefined} title={spec.label}>
                 <Box as="span" css={styles.lineLabel}>{spec.label}</Box>
                 {printedLine
                     ? <Box as="span" css={styles.lineValue} data-field-value="">{chosen < 0 ? m.notSet() : choices[chosen]!.label}</Box>
                     : (
                         <Box css={styles.lineChoices} data-field-choice="radio">
-                            <EastChakraRadioGroup label={spec.label} value={{
+                            <EastChakraRadioGroup key={revision} label={spec.label} value={{
                                 ...RADIO,
                                 value: chosen < 0 ? "" : String(chosen),
                                 items: choices.map((choice, i) => ({ value: String(i), label: some(choice.label), disabled: none })),
@@ -697,6 +735,9 @@ const FieldRow = memo(function FieldRow({
                 {!printedLine && spec.optional && held !== undefined && <Box css={styles.side} data-field-side="clear">{clear}</Box>}
                 {lineHelp !== undefined && lineHelp.length > 0 && (
                     <Box as="span" css={[fieldStyles.helperText, styles.lineHelp]} data-field-help="">{lineHelp}</Box>
+                )}
+                {lineRefusal !== undefined && (
+                    <Box as="span" css={[fieldStyles.errorText, styles.lineHelp]} aria-live="polite" data-field-error="">{lineRefusal}</Box>
                 )}
             </Box>
         );
@@ -732,6 +773,11 @@ const FieldRow = memo(function FieldRow({
         const to = e.relatedTarget;
         if (to !== null && e.currentTarget.contains(to as Node)) return;
         if (to !== null) setting.current = false;
+        // A live form's typed edit refused: its box shows what the field holds, now the keyboard has left it.
+        if (stale.current) {
+            stale.current = false;
+            setRevision((r) => r + 1);
+        }
         queueMicrotask(commit);
     };
 
@@ -824,16 +870,18 @@ const FieldRow = memo(function FieldRow({
                         ...(unlisted ? [{ value: at, label: at.length === 0 ? m.noValue() : at, disabled: none }] : []),
                     ],
                     // The key chosen, read back at the field's type from its text: one that does not read is no edit, and
-                    // the field says why.
+                    // the field says why — what it holds, in words.
                     onChange: some((next: string) => {
                         const read = stringEqual(next, NONE_CHOICE) || keyText === undefined ? undefined : keyText.parse(next);
                         if (read !== undefined && !read.success) {
-                            setUnheld(next);
-                            refocus.current = true;
-                            setRevision((r) => r + 1);
+                            refuse(m.unheld({
+                                choice: offered.find((o) => stringEqual(o.key, next))?.label ?? next,
+                                label: spec.label,
+                                holds: isTypeEqual(inner, IntegerType) ? "integer" : isTypeEqual(inner, FloatType) ? "float" : isTypeEqual(inner, DateTimeType) ? "datetime"
+                                    : isTypeEqual(inner, BooleanType) ? "boolean" : "other",
+                            }), true);
                             return null;
                         }
-                        setUnheld(undefined);
                         emit(stringEqual(next, NONE_CHOICE) ? undefined : read === undefined ? next : read.value);
                         return null;
                     }),
@@ -885,20 +933,15 @@ const FieldRow = memo(function FieldRow({
         editor.type === "number" && !printed ? numberLine(editor.value, words) : undefined,
         checklist !== undefined && !readOnly && held !== undefined ? m.checklistCount({ done: words.number(done), total: words.number(items.length) }) : undefined,
     ].filter((part): part is string => part !== undefined && part.length > 0);
-    // Why the choice chosen changed nothing: its key reads as none of the field's values — what the field holds, in words.
-    const refusal = unheld === undefined || printed || own !== undefined ? undefined : m.unheld({
-        choice: offered.find((o) => stringEqual(o.key, unheld))?.label ?? unheld,
-        label: spec.label,
-        holds: isTypeEqual(inner, IntegerType) ? "integer" : isTypeEqual(inner, FloatType) ? "float" : isTypeEqual(inner, DateTimeType) ? "datetime"
-            : isTypeEqual(inner, BooleanType) ? "boolean" : "other",
-    });
+    // Why the field shows what it holds, under it — never where it prints its value, or the host draws its control.
+    const said = refusal === undefined || printed || own !== undefined ? undefined : refusal;
     const field: FieldValue = {
         ...FIELD,
         label: spec.label,
         control,
         helperText: help.length === 0 ? none : some(help.join(" · ")),
-        errorText: refusal === undefined ? none : some(refusal),
-        invalid: refusal === undefined ? none : some(true),
+        errorText: said === undefined ? none : some(said),
+        invalid: said === undefined ? none : some(true),
         readOnly: printed || readOnly ? some(true) : none,
         style: some(FIELD_STYLE),
     };
@@ -934,15 +977,16 @@ const FieldRow = memo(function FieldRow({
     );
 
     return (
-        <Box css={styles.field} data-field={key} data-editor={own !== undefined ? "custom" : printed ? "readonly" : editor.type} data-dirty={dirty ? "" : undefined}
+        <Box ref={rowRef} css={styles.field} data-field={key} data-editor={own !== undefined ? "custom" : printed ? "readonly" : editor.type} data-dirty={dirty ? "" : undefined}
             data-issue={issue ? "" : undefined} onBlur={onBlur} onKeyDown={onKeyDown}>
             <EastChakraField key={revision} value={field} storageKey={`fieldForm.${key}`} controlNode={line} />
             {checklist !== undefined && items.length > 0 && (
                 <Box css={styles.items} data-checklist-items="">
+                    {/* Drawn afresh with the field, after a refusal: an item's checkbox keeps the toggle last made. */}
                     {items.map((item, i) => {
                         const text = item[checklist.text] as string;
                         return (
-                            <Box key={i} css={styles.item} data-checklist-item="">
+                            <Box key={`${revision}\u001f${i}`} css={styles.item} data-checklist-item="">
                                 <EastChakraCheckbox value={{
                                     ...CHECKBOX,
                                     checked: item[checklist.done] as boolean,
