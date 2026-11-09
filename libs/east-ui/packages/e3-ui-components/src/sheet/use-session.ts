@@ -14,7 +14,9 @@
 import { useCallback, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { StringType, StructType, equalFor, fromEastTypeValue, isVariant, printFor } from "@elaraai/east";
 import { Sheet, SheetBatchReadinessType } from "@elaraai/e3-ui/internal";
-import { getSomeorUndefined, useLanding, useLandingStyles, useDataStable, usePersistedState, type BatchReadiness } from "@elaraai/east-ui-components";
+import {
+    fieldBreachText, fieldFormMessages, getSomeorUndefined, useLanding, useLandingStyles, useDataStable, usePersistedState, type BatchReadiness,
+} from "@elaraai/east-ui-components";
 import { kindOfIssue } from "@elaraai/east-ui-components/internal";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { NULL_CELL, drawnPx, isLooseRow, layoutLensRun, layoutRun, type SheetGeometry } from "./model.js";
@@ -31,6 +33,8 @@ import { useCellsFromData } from "./cells-from-data.js";
 import { useSheetDay } from "./day.js";
 import { draftChanges, draftPresentation, type DraftPresentation } from "./draft-state.js";
 import { normalizeDraft } from "./draft-values.js";
+import { entryBreaches, sheetBoundsOf, type SheetBreach } from "./bounds.js";
+import type { EntryVersion } from "./transactions.js";
 import type { SheetRowValue, SheetRootValue } from "./values.js";
 import type { SheetHost, SheetRowChanges } from "./parts.js";
 import type { SheetDecode } from "./use-decode.js";
@@ -40,6 +44,7 @@ import { applyLayer } from "./local-rows.js";
 const printRowsWhere = printFor(RecordSliceWhereType);
 
 const cellEqual = equalFor(Sheet.Types.Cell);
+const stringEqual = equalFor(StringType);
 
 const readinessEqual = equalFor(SheetBatchReadinessType);
 
@@ -47,6 +52,7 @@ const readinessEqual = equalFor(SheetBatchReadinessType);
 const printNarrowedSource = printFor(StructType({ source: StringType, narrowing: StringType }));
 
 const NOTHING: ReadonlySet<string> = new Set();
+const NO_BREACHES: readonly SheetBreach[] = [];
 
 /**
  * The session's East values, by their types' names: a value's inferred type carries East's variant brand, which the
@@ -199,7 +205,9 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
             before: (position) => position === undefined ? pagesStanding.length > 0 : pagesStanding.includes(Math.floor(position / SHEET_PAGE_SIZE)),
         };
     }, [decodedRows, lensDrawn, lens.revision, lens.readBefore, paging.revision, pagesStanding]);
-    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular, day, rowsRead, renumber);
+    // The inspector's numbers held to bounds (#1585): a changed row's Save waits while one is outside them.
+    const bounds = useMemo(() => sheetBoundsOf(host.forms), [host.forms]);
+    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular, day, rowsRead, renumber, bounds);
     const session = editingState.session;
     // A new row given a new key as the drafts carried over, another write having added its own (#1583): the footer says
     // so, once — never again as the sheet mounts over a session that did so before.
@@ -274,18 +282,46 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     const layer = useMemo(() => fromData.layer(editingState.layer, layerDrafts.entries, layerDrafts.drafts), [fromData, editingState.layer, layerDrafts]);
     // A row's draft presentation, derived once per session change (#858): the
     // gutter's decisions and the row read the same one, and between changes a
-    // row keeps it by identity, so its memo holds.
+    // row keeps it by identity, so its memo holds. Any row's numbers outside
+    // their bounds join it (#1585) — a stored row's nobody changed among them,
+    // read from the source's version of it — so its cells wear the warn wash.
+    const originalOf = editingState.original;
     const draftOf = useMemo(() => {
         const byEntry = new Map<string, Map<string | undefined, DraftPresentation>>();
+        const formWords = { ...words, m: fieldFormMessages };
+        // Each entry's numbers outside their bounds, read once — from its draft, else from the source — and its lines' keys.
+        const breachesOf = new Map<string, { breaches: readonly SheetBreach[]; lines: readonly string[] }>();
+        const breaches = (id: string) => {
+            let found = breachesOf.get(id);
+            if (found !== undefined || bounds === undefined) return found;
+            let version: EntryVersion | undefined = session.entries.get(id);
+            if (version === undefined) { try { version = originalOf(id); } catch { version = undefined; } }
+            found = {
+                breaches: version?.draft === undefined ? NO_BREACHES : entryBreaches(bounds, normalizeDraft(draftType, version.draft, id).held, childField),
+                lines: version?.wire?.lines.map((line) => line.key) ?? [],
+            };
+            breachesOf.set(id, found);
+            return found;
+        };
         return (id: string, child?: string): DraftPresentation => {
             let byChild = byEntry.get(id);
             if (byChild === undefined) { byChild = new Map(); byEntry.set(id, byChild); }
             let found = byChild.get(child);
-            if (found === undefined) { found = draftPresentation(session, draftType, childField, id, child, readiness, words); byChild.set(child, found); }
+            if (found === undefined) {
+                found = draftPresentation(session, draftType, childField, id, child, readiness, words);
+                const held = breaches(id);
+                const line = child === undefined ? undefined : held?.lines.findIndex((key) => stringEqual(key, child));
+                const own = held?.breaches.filter((b) => b.line === line) ?? NO_BREACHES;
+                if (own.length > 0) {
+                    const said = new Map(own.map((b) => [b.at, fieldBreachText(b.breach, formWords)] as const));
+                    found = { ...found, bounds: said, issues: new Map([...said, ...found.issues]) };
+                }
+                byChild.set(child, found);
+            }
             return found;
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
-    }, [session, draftType, childField, readiness, draftVersion, words]);
+    }, [session, draftType, childField, readiness, draftVersion, words, bounds, originalOf]);
     // What a row's drafts changed against what the record holds (#1531), for a host's rows: derived once per session
     // change and per rows, so between changes a row keeps it by identity and its memo holds.
     const fieldChanges = useMemo(() => draftChanges(draftType), [draftType]);

@@ -230,6 +230,11 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "& [data-row][data-draft] > [data-slot=cell][data-blank][data-editable]": {
                 background: "color-mix(in srgb, var(--chakra-colors-status-warn) 17%, var(--chakra-colors-bg-surface))",
             },
+            // A number outside its field's bounds (#1585), whatever row holds it — a stored one nobody changed among them:
+            // the wash a field still missing wears.
+            "& [data-row] > [data-slot=cell][data-bounds], & [data-band-row] [data-slot=cell][data-bounds]": {
+                background: "color-mix(in srgb, var(--chakra-colors-status-warn) 17%, var(--chakra-colors-bg-surface))",
+            },
             "& [data-row][data-invalid] > [data-slot=cell][data-invalid]": {
                 background: "color-mix(in srgb, var(--chakra-colors-status-neg) 17%, var(--chakra-colors-bg-surface))",
             },

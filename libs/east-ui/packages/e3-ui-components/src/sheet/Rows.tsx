@@ -520,6 +520,8 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                         data-kind={meta.kind}
                         data-editable={meta.editable ? "" : undefined}
                         data-invalid={cell?.type === "Invalid" ? "" : undefined}
+                        // A number outside its field's bounds (#1585): the warn wash a field still missing wears.
+                        data-bounds={props.draft?.bounds?.has(meta.key) === true ? "" : undefined}
                         data-conflict={props.draft?.conflicts?.fields.has(meta.key) === true ? "" : undefined}
                         data-value={meta.kind === "enum" && cell?.type === "String" ? cell.value : undefined}
                         data-op={op}
@@ -1143,8 +1145,10 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                     const member = meta !== undefined && namesMember(meta) && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
                     const op = marks?.cells.get(colMeta.key);
                     const provenance = op === undefined || marks === undefined ? undefined : cellProvenance(op, marks.previous.get(colMeta.key), meta, marks.run, words);
-                    // A member by its label, as the cell shows it (the hand retest's 4).
-                    const bandTitle = m.bandCellTitle({ header: colMeta.header, value: member !== undefined && member.label !== "" ? member.label : cellText(cell, meta, words) });
+                    // A member by its label, as the cell shows it (the hand retest's 4); a number outside its bounds, what they are (#1585).
+                    const bound = props.draft?.bounds?.get(colMeta.key);
+                    const cellTitle = m.bandCellTitle({ header: colMeta.header, value: member !== undefined && member.label !== "" ? member.label : cellText(cell, meta, words) });
+                    const bandTitle = bound === undefined ? cellTitle : `${cellTitle} · ${bound}`;
                     return (
                         <Box
                             key={colMeta.key}
@@ -1153,6 +1157,7 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                             data-key={colMeta.key}
                             data-kind={meta?.kind}
                             data-conflict={props.draft?.conflicts?.fields.has(colMeta.key) === true ? "" : undefined}
+                            data-bounds={bound !== undefined ? "" : undefined}
                             data-selected={selected ? "" : undefined}
                             data-blank={cellIsBlank(cell) ? "" : undefined}
                             data-editable={meta !== undefined && meta.editable ? "" : undefined}

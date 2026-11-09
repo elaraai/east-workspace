@@ -1,0 +1,61 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ *
+ * @vitest-environment jsdom
+ *
+ * A number outside its field's bounds (#1585), over the machines' upkeep on e3
+ * itself: an app's write leaves the beam saw's hours under their least, 0. The
+ * stored row's cell wears the warn wash a field still missing wears, saying
+ * the bound, and holds no Save; once the row is changed, Issues names it and
+ * the field in the hint's own words, and Save waits.
+ */
+
+import { expect, test } from "vitest";
+import { fireEvent, within } from "@testing-library/react";
+import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
+import { act, sheetHarness, settle, slot, tabs } from "./harness.test-utils.js";
+
+const h = sheetHarness();
+
+/** A machine's cell, by the machine's code and the column's key. */
+const cell = (c: HTMLElement, id: string, key: string) =>
+    slot(c, "main")!.querySelector<HTMLElement>(`[data-slot="row"][data-row-id="${id}"] [data-slot="cell"][data-key="${key}"]`)!;
+/** Whether Save waits: its button takes no press. */
+const saveWaits = (c: HTMLElement) => within(slot(c, "toolbar")!).getByRole<HTMLButtonElement>("button", { name: "Save" }).disabled;
+/** The inspector's tabs, as they read. */
+const inspector = (c: HTMLElement) => tabs(slot(c, "end")!);
+
+/** Types a cell's new text in the row's editor, committed with ⏎. */
+async function typeInto(target: Element, text: string) {
+    fireEvent.doubleClick(target);
+    await settle();
+    const input = document.querySelector('[data-slot="editorInput"]')!;
+    fireEvent.input(input, { target: { value: text } });
+    await settle();
+    fireEvent.keyDown(input, { key: "Enter" });
+    await settle();
+}
+
+test("a stored number under its least wears the warn wash and holds no Save; changed, the row's issue names the field in the hint's words and Save waits (#1585)", async () => {
+    const machines = await h.read(ex.sheetMachineUpkeep);
+    machines.set("S101", { ...machines.get("S101")!, hours: -10n });
+    await h.patch(ex.sheetMachineUpkeep, machines);
+    const { container } = await h.mount(ex.sheetUpkeep, { storageKey: "bounds" });
+    const hours = () => cell(container, "S101", "hours");
+    expect([hours().hasAttribute("data-bounds"), hours().getAttribute("title")]).toEqual([true, "at least 0"]);
+    expect(cell(container, "E201", "hours").hasAttribute("data-bounds")).toBe(false);
+    // Another machine changed: the stored one holds no Save.
+    await typeInto(cell(container, "E201", "name"), "Edge bander, two");
+    expect([saveWaits(container), inspector(container)]).toEqual([false, ["Details", "Issues 0"]]);
+    // The beam saw changed: its hours are an issue, and Save waits.
+    await typeInto(cell(container, "S101", "name"), "Beam saw, east");
+    expect([saveWaits(container), inspector(container)]).toEqual([true, ["Details", "Issues 1"]]);
+    await act(async () => { fireEvent.click(within(slot(container, "end")!).getByRole("tab", { name: "Issues 1" })); });
+    await settle();
+    const issue = slot(container, "end")!.querySelector<HTMLElement>("[data-inspector-issue]")!;
+    expect(issue.textContent).toContain("S101");
+    expect(issue.textContent).toContain("Hours");
+    expect(issue.textContent).toContain("at least 0");
+    expect(hours().hasAttribute("data-bounds")).toBe(true);
+});

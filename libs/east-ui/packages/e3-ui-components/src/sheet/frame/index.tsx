@@ -218,10 +218,12 @@ const SheetPayloadFrame = memo(function SheetPayloadFrame({ value, storageKey }:
     const frameRef = useRef<HTMLDivElement | null>(null);
     const frameWidth = useContainerWidth(frameRef);
     const phone = frameWidth > 0 ? frameWidth <= NARROW_FRAME : undefined;
+    // The inspector's forms: the bounds a row's numbers are held to (#1585).
+    const forms = getSomeorUndefined(value.inspector)?.forms;
     // What the frame hands the parts: the columns the viewer hid, the drops the sheet takes, the sources' nouns, the
-    // optimiser, a phone's cell editor, and whether the grid is a phone's.
-    const host = useMemo((): SheetHost => ({ hidden, drop, nouns, optimise: optimise === undefined ? undefined : { name: optimise }, cellEditor, phone }),
-        [hidden, drop, nouns, optimise, cellEditor, phone]);
+    // optimiser, a phone's cell editor, whether the grid is a phone's, and the inspector's forms.
+    const host = useMemo((): SheetHost => ({ hidden, drop, nouns, optimise: optimise === undefined ? undefined : { name: optimise }, cellEditor, phone, forms }),
+        [hidden, drop, nouns, optimise, cellEditor, phone, forms]);
     return (
         <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>
             <SheetFrame value={value} keys={keys} hidden={hidden} onToggleColumn={onToggleColumn} nouns={nouns} frameRef={frameRef} />

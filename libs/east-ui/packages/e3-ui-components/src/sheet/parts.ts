@@ -27,6 +27,7 @@ import type { SheetFooterProps } from "./Footer.js";
 import type { DraftPresentation } from "./draft-state.js";
 import type { SheetToolbarParts } from "./Toolbar.js";
 import type { SheetCellValue, SheetRowValue, SheetSubRowValue } from "./values.js";
+import type { SheetForms } from "./bounds.js";
 
 export type Styles = Record<string, Record<string, unknown>>;
 
@@ -240,6 +241,12 @@ export interface SheetHost {
      * request has been answered, the session then saying how. Absent, nothing is told.
      */
     onHistory?: ((action: HistoryAction, session: SheetTransactions) => (() => void) | undefined) | undefined;
+    /**
+     * The inspector's forms, as the payload carries them (#1585): the bounds their numbers are held to — a changed row's
+     * Save waits while one is outside them, and any row's cell outside them wears the warn wash. Absent, a sheet with no
+     * inspector, whose fields have no bounds.
+     */
+    forms?: SheetForms | undefined;
 }
 
 /**

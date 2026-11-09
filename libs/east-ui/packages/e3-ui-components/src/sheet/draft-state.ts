@@ -11,12 +11,20 @@
  * @packageDocumentation
  */
 import { equalFor, none, variant, type EastType } from "@elaraai/east";
-import { CLEAN_DRAFT, conflictMarks, presentDraft, type DraftPresentation } from "@elaraai/east-ui-components/internal";
+import { CLEAN_DRAFT, conflictMarks, presentDraft, type DraftPresentation as EntryPresentation } from "@elaraai/east-ui-components/internal";
 import { type BatchReadiness } from "@elaraai/east-ui-components";
 import type { EntryVersion, SheetTransactions } from "./transactions.js";
 import { SHEET_WORDS, issueText, type SheetWords } from "./words.js";
 
-export type { DraftPresentation } from "@elaraai/east-ui-components/internal";
+/** How a row presents: its draft's presentation — none for a row nobody drafted — and its numbers outside their bounds. */
+export interface DraftPresentation extends EntryPresentation {
+    /**
+     * Each number the row holds outside its field's bounds (#1585), by the cell it is drawn in, and what it says there:
+     * the cells that wear the warn wash a field still missing wears — any row's, a stored one nobody changed among them.
+     * None for none.
+     */
+    readonly bounds?: ReadonlyMap<string, string> | undefined;
+}
 
 /**
  * A group's own draft: the entry's — or, on a sheet with loose rows between
