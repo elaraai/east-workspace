@@ -643,15 +643,17 @@ export interface RecordCycleStepsConfig<R extends StructType, V extends VariantT
 }
 
 /**
- * Config for `Record.column.age` — whole units from a moment to the browser's
- * clock, keyed by a name of its own.
+ * Config for `Record.column.age` — the time since a moment the row holds,
+ * keyed by a name of its own.
  *
  * @remarks
- * `since` reads the row; the count is taken to the browser's clock as the
- * cell is drawn, so a day that turns over moves it without a rebuild. As a
- * column from data ({@link SheetFromDataInput}) it names its `field`, and
- * each member's value is the moment its count starts from, in place of
- * `since`.
+ * `since` reads the row; the count is taken as the cell is drawn. Hours run to
+ * the browser's clock. Days and weeks are the calendar's: from the moment's
+ * date to the viewer's own day — the Record's day, as a column read at the
+ * day has it — so a count turns over at the viewer's midnight, without a
+ * rebuild, whatever time of day the moment holds. As a column from data
+ * ({@link SheetFromDataInput}) it names its `field`, and each member's value
+ * is the moment its count starts from, in place of `since`.
  *
  * @property header - The header line
  * @property sub - The second header line
@@ -984,8 +986,9 @@ export function cycle<R extends StructType>(rowType: R, over: string | VariantTy
 }
 
 /**
- * An age column — `Record.column.age(R, { since })`: whole units from a moment
- * the row holds to the browser's clock. Keyed by a name of its own; read only.
+ * An age column — `Record.column.age(R, { since })`: the hours since a moment
+ * the row holds, or the days or weeks since its date, to the viewer's own day.
+ * Keyed by a name of its own; read only.
  * With `each` and the `field` it reads, a column per member of a register or
  * per field of a struct, each member's value the moment its count starts from
  * ({@link SheetFromDataInput}).

@@ -183,17 +183,32 @@ describe("the Record's kinds on the wire", () => {
         assert.equal(column.editable, false);
     });
 
-    test("an age counts whole units to the clock it is given, and 0 ahead of it", () => {
+    test("an age counts hours to the instant it is given, and days and weeks from the moment's date to the day it is given — whatever the moment's time of day — and 0 ahead of either (#1584)", () => {
         const days = kindOf("days_since");
         const weeks = kindOf("weeks_in");
-        if (days.type !== "age" || weeks.type !== "age") assert.fail(`${days.type}, ${weeks.type}`);
+        const hourly: Root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const rows = $.const(PEOPLE, ArrayType(Person));
+            return createSheetRootWith(rows, { hours_in: Record.column.age(Person, { since: p => p.since, unit: "hours" }) }, { id: "id" }, { recordKinds: true });
+        }), [])();
+        const hours = hourly.columns.find((c) => c.key === "hours_in")?.kind ?? assert.fail("no hours column");
+        if (days.type !== "age" || weeks.type !== "age" || hours.type !== "age") assert.fail(`${days.type}, ${weeks.type}, ${hours.type}`);
         assert.deepEqual(days.value.stale, some(90n));
         assert.deepEqual(days.value.absent, some("not confirmed"));
+        // The viewer's day, as the renderer gives it: the date on their calendar, at UTC midnight.
+        const today = new Date("2026-11-05T00:00:00Z");
+        assert.equal(days.value.elapsed(new Date("2026-09-18T09:12:00Z"), today), 48n);
+        assert.equal(days.value.elapsed(new Date("2026-07-10T08:30:00Z"), today), 118n);
+        // A moment late yesterday is a day old from today's midnight, a minute after it; one of today's, none.
+        assert.equal(days.value.elapsed(new Date("2026-11-04T23:59:00Z"), today), 1n);
+        assert.equal(days.value.elapsed(new Date("2026-11-05T23:30:00Z"), today), 0n);
+        assert.equal(weeks.value.elapsed(new Date("2026-10-01T00:00:00Z"), today), 5n);
+        assert.equal(weeks.value.elapsed(new Date("2026-10-29T23:59:00Z"), today), 1n);
+        assert.equal(days.value.elapsed(new Date("2026-11-06T00:00:00Z"), today), 0n);
+        // Hours are time, to the instant.
         const now = new Date("2026-11-05T09:30:00Z");
-        assert.equal(days.value.elapsed(new Date("2026-09-18T09:12:00Z"), now), 48n);
-        assert.equal(days.value.elapsed(new Date("2026-07-10T08:30:00Z"), now), 118n);
-        assert.equal(weeks.value.elapsed(new Date("2026-10-01T00:00:00Z"), now), 5n);
-        assert.equal(days.value.elapsed(new Date("2026-11-06T00:00:00Z"), now), 0n);
+        assert.equal(hours.value.elapsed(new Date("2026-11-05T07:45:00Z"), now), 1n);
+        assert.equal(hours.value.elapsed(new Date("2026-11-04T23:59:00Z"), now), 9n);
+        assert.equal(hours.value.elapsed(new Date("2026-11-05T10:00:00Z"), now), 0n);
     });
 
     test("an audit's cell is the change's moment, its who and what in the rule cells", () => {

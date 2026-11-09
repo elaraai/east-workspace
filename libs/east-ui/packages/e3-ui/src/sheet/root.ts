@@ -564,12 +564,19 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
         case "cycle":   return kindOf("cycle", { register: meta.register, scale: cfg.scale === true, look: resolveTag(cfg.look ?? "chip", SheetLookType) });
         case "age": {
             const unit = (cfg as { unit?: SheetAgeUnitLiteral }).unit ?? "days";
-            const span = unit === "hours" ? 3_600_000n : unit === "weeks" ? 604_800_000n : 86_400_000n;
-            // Whole units from the moment to the browser's clock, the renderer's to call; a moment ahead of it counts 0.
-            const elapsed = East.function([DateTimeType, DateTimeType], IntegerType, ($, since, now) => {
-                const ms = $.const(since.durationMilliseconds(now));
-                return ms.less(0n).ifElse(() => 0n, () => ms.divide(span));
-            });
+            const span = unit === "weeks" ? 604_800_000n : 86_400_000n;
+            // The renderer's to call: hours from the moment to the browser's clock; days and weeks the calendar's, from the
+            // moment's date — read in UTC, as every East DateTime is — to the viewer's own day, which the renderer gives at
+            // UTC midnight, so the count turns over at their midnight, as the columns read at the day do. A moment ahead counts 0.
+            const elapsed = unit === "hours"
+                ? East.function([DateTimeType, DateTimeType], IntegerType, ($, since, now) => {
+                    const ms = $.const(since.durationMilliseconds(now));
+                    return ms.less(0n).ifElse(() => 0n, () => ms.divide(3_600_000n));
+                })
+                : East.function([DateTimeType, DateTimeType], IntegerType, ($, since, day) => {
+                    const ms = $.const(East.DateTime.roundDownDay(since, 1n).durationMilliseconds(day));
+                    return ms.less(0n).ifElse(() => 0n, () => ms.divide(span));
+                });
             return kindOf("age", {
                 unit:   variant(unit, null),
                 stale:  optionOf(cfg.stale, IntegerType),

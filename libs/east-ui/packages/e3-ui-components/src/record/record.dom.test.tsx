@@ -632,13 +632,14 @@ describe("the strip", () => {
 
     test("an age: its count to the Record's clock and its threshold, or for how long its row is stale (SP4)", async () => {
         vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
-        vi.setSystemTime(new Date("2027-01-19T10:14:00Z"));
+        // The 18th of January where the browser is: A. Morgan's last change 89 days back, D. Novak's 250.
+        vi.setSystemTime(new Date(2027, 0, 18, 10, 14));
         try {
             const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-strip-age" });
             await hover(cellAt(container, 0, "days_since"));
             expect(stripSays(container)).toEqual(["Days since · 89", "Days since the last change · stale from 90", "↑ ↓ ← → move"]);
             await hover(cellAt(container, 2, "days_since"));
-            expect(stripSays(container)).toEqual(["Days since · 251", "Stale · no change for 251 days · threshold 90", "↑ ↓ ← → move"]);
+            expect(stripSays(container)).toEqual(["Days since · 250", "Stale · no change for 250 days · threshold 90", "↑ ↓ ← → move"]);
         } finally {
             vi.useRealTimers();
         }
@@ -886,7 +887,7 @@ describe("the footer", () => {
 
     test("the stale note counts the rows past the first age's threshold, to the Record's clock; a valence's legend chips in its tones (FT1, FT2)", async () => {
         vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
-        vi.setSystemTime(new Date("2027-01-19T10:14:00Z"));
+        vi.setSystemTime(new Date(2027, 0, 18, 10, 14));
         try {
             const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-footer-stale" });
             const footer = slot(container, "footer")!;
@@ -1110,33 +1111,39 @@ describe("the cells", () => {
         expect(container.querySelector<HTMLElement>('[data-record] [data-slot="headerRow"]')!.style.height).toBe("28px");
     });
 
-    test("an age counts whole days to the Record's clock, warning from its threshold, and moves as the clock crosses a day (C7)", async () => {
-        // A minute before A. Morgan's last change is ninety days old: the clock's next read falls on the turn.
-        vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
-        vi.setSystemTime(new Date("2027-01-19T10:14:00Z"));
-        try {
-            const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-cells-age" });
-            const age = (r: number) => cellAt(container, r, "days_since");
-            expect(part(age(0), "age")!.textContent).toBe("89");
-            expect(part(age(0), "age")!.hasAttribute("data-stale")).toBe(false);
-            expect(part(age(0), "staleDot")).toBeNull();
-            expect(age(0).getAttribute("title")).toBe("89 days");
-            // D. Novak's, from May: long past the threshold.
-            expect(part(age(2), "age")!.textContent).toBe("251");
-            expect(part(age(2), "age")!.hasAttribute("data-stale")).toBe(true);
-            expect(within(age(2)).getByRole("img", { name: "Stale" })).toBe(part(age(2), "staleDot"));
-            expect(age(2).getAttribute("title")).toBe("Stale · 251 days · threshold 90");
-            // The minute turns, and nothing else changes: ninety days, and stale.
-            await act(async () => { vi.advanceTimersByTime(60_000); });
-            await settle();
-            expect(part(age(0), "age")!.textContent).toBe("90");
-            expect(part(age(0), "age")!.hasAttribute("data-stale")).toBe(true);
-            expect(within(age(0)).getByRole("img", { name: "Stale" })).toBe(part(age(0), "staleDot"));
-            expect(age(0).getAttribute("title")).toBe("Stale · 90 days · threshold 90");
-        } finally {
-            vi.useRealTimers();
-        }
-    });
+    // A minute before midnight on the 18th of January where the viewer is, behind UTC and ahead of it: A. Morgan's last
+    // change, at 10:15 UTC on the 21st of October, is 89 days back until the minute turns — at the viewer's midnight, never
+    // at the change's time of day, nor at UTC's.
+    for (const [zone, minuteBefore] of [["America/Los_Angeles", Date.UTC(2027, 0, 19, 7, 59)], ["Pacific/Kiritimati", Date.UTC(2027, 0, 18, 9, 59)]] as const) {
+        test(`an age counts days from its moment's date to the viewer's own day, warning from its threshold, and turns over at the viewer's midnight: in ${zone} (C7, #1584)`, async () => {
+            vi.stubEnv("TZ", zone);
+            vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+            vi.setSystemTime(minuteBefore);
+            try {
+                const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-cells-age" });
+                const age = (r: number) => cellAt(container, r, "days_since");
+                expect(part(age(0), "age")!.textContent).toBe("89");
+                expect(part(age(0), "age")!.hasAttribute("data-stale")).toBe(false);
+                expect(part(age(0), "staleDot")).toBeNull();
+                expect(age(0).getAttribute("title")).toBe("89 days");
+                // D. Novak's, from May: long past the threshold.
+                expect(part(age(2), "age")!.textContent).toBe("250");
+                expect(part(age(2), "age")!.hasAttribute("data-stale")).toBe(true);
+                expect(within(age(2)).getByRole("img", { name: "Stale" })).toBe(part(age(2), "staleDot"));
+                expect(age(2).getAttribute("title")).toBe("Stale · 250 days · threshold 90");
+                // The minute turns, and with it the viewer's day: ninety days, and stale.
+                await act(async () => { vi.advanceTimersByTime(60_000); });
+                await settle();
+                expect(part(age(0), "age")!.textContent).toBe("90");
+                expect(part(age(0), "age")!.hasAttribute("data-stale")).toBe(true);
+                expect(within(age(0)).getByRole("img", { name: "Stale" })).toBe(part(age(0), "staleDot"));
+                expect(age(0).getAttribute("title")).toBe("Stale · 90 days · threshold 90");
+            } finally {
+                vi.useRealTimers();
+                vi.unstubAllEnvs();
+            }
+        });
+    }
 
     test("an audit is its date, in blame mode its verb and who, the whole change on hover; while the row's drafts change its fields it reads Pending and counts them, a field set back counting none (C8, C9)", async () => {
         const { container } = await h.mount(ex.recordEveryKind, { storageKey: "record-cells-audit" });
@@ -1389,7 +1396,7 @@ describe("the inspector", () => {
 
     test("the facts last, read only: the audit's when, verb and who, and the age's count, warning once stale — none for a row the record does not hold yet (IN6)", async () => {
         vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
-        vi.setSystemTime(new Date("2027-01-19T10:14:00Z"));
+        vi.setSystemTime(new Date(2027, 0, 18, 10, 14));
         try {
             const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-details-facts" });
             const facts = () => [...details(container)!.querySelectorAll<HTMLElement>("[data-record-fact]")].map((fact) => {
@@ -1405,7 +1412,7 @@ describe("the inspector", () => {
             // D. Novak's, from May: stale.
             await press(cellAt(container, 2, "role"));
             await waitFor(() => expect(inspected(container)).toBe("P-0422"));
-            expect(facts()[0]).toEqual(["days_since", "Days since", "251", true, true]);
+            expect(facts()[0]).toEqual(["days_since", "Days since", "250", true, true]);
             await press(action(container, "add")!);
             await waitFor(() => expect(inspected(container)).toBe(drafted(container).getAttribute("data-row-id")));
             expect(details(container)!.querySelector("[data-record-facts]")).toBeNull();
@@ -1417,7 +1424,7 @@ describe("the inspector", () => {
 
     test("with no row selected: the rows shown, the drafts pending and the rows stale, then where a row's fields show (IN8)", async () => {
         vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
-        vi.setSystemTime(new Date("2027-01-19T10:14:00Z"));
+        vi.setSystemTime(new Date(2027, 0, 18, 10, 14));
         try {
             const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-details-none" });
             const nothing = openPanel(container).querySelector<HTMLElement>('[data-record-details="none"]')!;

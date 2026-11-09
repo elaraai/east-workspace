@@ -876,9 +876,9 @@ export type SheetLookLiteral = "chip" | "mark";
 /**
  * What an age column counts.
  *
- * @property hours - Whole hours
- * @property days - Whole days
- * @property weeks - Whole weeks
+ * @property hours - Whole hours, to the browser's clock
+ * @property days - Days, from the moment's date to the viewer's own day: one more at each of their midnights
+ * @property weeks - Whole weeks of those days
  */
 export const SheetAgeUnitType = VariantType({ hours: NullType, days: NullType, weeks: NullType });
 /** Type alias for {@link SheetAgeUnitType}. */
@@ -932,7 +932,7 @@ export type SheetAuditModeLiteral = "date" | "blame";
  * @property boolean - A checkbox; a Record's
  * @property toggle - Two states on a Boolean, each a word; a Record's
  * @property cycle - A register's members, stepped by a click — a `scale` steps up the heat ramp, otherwise each member's tone; a Record's
- * @property age - Whole units from a moment to the browser's clock: `elapsed(since, now)`, warning at `stale`; read only, a Record's
+ * @property age - Hours from a moment to the browser's clock, or days or weeks from its date to the viewer's own day: `elapsed(since, at)` — `at` the clock's instant for hours, the viewer's day at UTC midnight for days and weeks — warning at `stale`; read only, a Record's
  * @property audit - The last change the app kept: the cell its moment, `by` and `verb` the rule cells holding who and what; read only, a Record's
  */
 export const SheetColumnKindType = VariantType({
