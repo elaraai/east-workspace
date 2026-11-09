@@ -15,8 +15,9 @@
  * (`crypto.randomUUID()`, retried): a record read whole holds every key, and a
  * key a record read a window at a time holds unread is its Save's own
  * conflict, never an overwrite (`shared/schedule/records.ts`). A duty's own
- * form or a library card that changes its shift keeps it on its day: times it
- * leaves as they were move with the shift, as a move moves them. A find edits
+ * form or a library card that changes its shift or its team carries what it
+ * leaves as it was, as a move does: its times move with the shift, so it stays
+ * on its day, and its activity stays only where the new team offers it. A find edits
  * nothing: it asks the app's fit (#1334). Publish runs Save, then writes the
  * week's status once every record reads back as saved (`publishPeriod`). A
  * pattern dropped on a person's week (#1406, D4) replaces its seven days as
@@ -27,7 +28,7 @@
  * @packageDocumentation
  */
 
-import { BlobType, OptionType, equalFor, none, some, variant, type option } from "@elaraai/east";
+import { BlobType, OptionType, StringType, equalFor, none, some, variant, type option } from "@elaraai/east";
 import { ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { ScheduleChange } from "../shared/schedule/editing.js";
@@ -150,6 +151,7 @@ export interface PatternPlan {
 
 const sameBytes = equalFor(BlobType);
 const sameResource: (a: Roles["resource"], b: Roles["resource"]) => boolean = equalFor(OptionType(ScheduleResourceRefType));
+const sameActivity: (a: Roles["activity"], b: Roles["activity"]) => boolean = equalFor(OptionType(StringType));
 /** A new duty the app's `values` failed to make, which the console says why. */
 const NO_DUTY = "A new duty could not be made.";
 
@@ -181,7 +183,15 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
     const rowOf = (id: string) => state.duties.rows.get(id);
     const personDay = (person: string, day: bigint, except?: string) => [...week.assignments].find(([key, a]) =>
         key !== except && a.who.type === "person" && a.who.value === person && a.slot.day === day);
-    /** A duty's roles, held to §5.5's times and to what its slot takes: its start to its day, by its shift as the write drafts it. */
+    /** Whether a group offers an activity: one of its own, or a shared duty, which every group may assign. */
+    const offers = (group: string, key: string) => {
+        const activity = activityOf(value, key);
+        return activity !== undefined && (activity.group.type === "none" || activity.group.value === group);
+    };
+    /**
+     * A duty's roles, held to its shift's times and to what its slot takes: its start to its day by its shift, and its
+     * activity to its team, each as the write drafts it.
+     */
     const validRoles = (a: Pick<Assignment, "slot" | "who">, roles: Roles): string | undefined => {
         const reach = startReach(value, { ...a.slot, shift: roles.shift }, start);
         if (reach === undefined) return "Choose a configured shift.";
@@ -190,10 +200,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
         if (compareDate(roles.end, roles.start) <= 0) return "A duty ends after it starts.";
         if (value.duty.roles.position && roles.position.type === "some" && !value.positions.some(p => p.key === roles.position.value)) return "Choose a configured position.";
         if (a.who.type === "request" && roles.activity.type === "some") return "Assign an activity to a named person.";
-        if (roles.activity.type === "some") {
-            const activity = activityOf(value, roles.activity.value);
-            if (activity === undefined || (activity.group.type === "some" && activity.group.value !== a.slot.group)) return "Choose an activity for this group, or a shared duty.";
-        }
+        if (roles.activity.type === "some" && !offers(roles.group, roles.activity.value)) return "Choose an activity for this group, or a shared duty.";
         return undefined;
     };
     /** A duty moved to a slot: its times kept against the shift's start, its activity cleared off its own group. */
@@ -208,15 +215,21 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
         return written.type === "some" ? { roles, bytes: written.value } : "This duty cannot be moved there.";
     };
     /**
-     * A duty's row as a write of its own form or a library card's leaves it, kept on its day: one that changes its shift
-     * and leaves its times as they were moves them with the shift, as a move does — kept where they stood against the
-     * shift's start. Times the write gives are its own, and `validRoles` holds them to the day.
+     * A duty's row as a write of its own form or a library card's leaves it, what the write leaves as it was carried
+     * with the shift or the team it changes, as a move carries it: its times, kept where they stood against the
+     * shift's start, so it stays on its day; and its activity, kept where the new team offers it and cleared where it
+     * does not. Times and an activity the write gives are its own, and `validRoles` holds them to the day and the team.
      */
-    const onItsDay = (a: Pick<Assignment, "slot">, row: { bytes: Uint8Array; roles: Roles }, roles: Roles, bytes: Uint8Array): { roles: Roles; bytes: Uint8Array } | string => {
-        if (roles.shift === row.roles.shift || compareDate(roles.start, row.roles.start) !== 0 || compareDate(roles.end, row.roles.end) !== 0) return { roles, bytes };
-        const next = times.move({ ...roles, shift: row.roles.shift }, start, { ...a.slot, shift: roles.shift }, context);
-        if (next.type !== "some") return "Choose a configured shift.";
-        const kept: Roles = { ...roles, start: next.value.start, end: next.value.end };
+    const carried = (a: Pick<Assignment, "slot">, row: { bytes: Uint8Array; roles: Roles }, roles: Roles, bytes: Uint8Array): { roles: Roles; bytes: Uint8Array } | string => {
+        let kept = roles;
+        if (roles.shift !== row.roles.shift && compareDate(roles.start, row.roles.start) === 0 && compareDate(roles.end, row.roles.end) === 0) {
+            const next = times.move({ ...roles, shift: row.roles.shift }, start, { ...a.slot, shift: roles.shift }, context);
+            if (next.type !== "some") return "Choose a configured shift.";
+            kept = { ...kept, start: next.value.start, end: next.value.end };
+        }
+        if (roles.group !== row.roles.group && roles.activity.type === "some" && sameActivity(roles.activity, row.roles.activity)
+            && !offers(roles.group, roles.activity.value)) kept = { ...kept, activity: none };
+        if (Object.is(kept, roles)) return { roles, bytes };
         const written = value.duty.write(bytes, kept);
         return written.type === "some" ? { roles: kept, bytes: written.value } : "This duty cannot take that.";
     };
@@ -343,7 +356,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             }
             const read = value.duty.read(bytes, id);
             if (!sameResource(read.resource, row.roles.resource)) return "A card cannot replace the duty's person.";
-            const next = onItsDay(a, row, read, bytes); if (typeof next === "string") return next;
+            const next = carried(a, row, read, bytes); if (typeof next === "string") return next;
             const invalid = validRoles(a, next.roles); if (invalid !== undefined) return invalid;
             if (!checkOnly && !sameBytes(next.bytes, row.bytes)) record([{ kind: duty, id, row: next.bytes }], "drop", "Update duty");
             return undefined;
@@ -362,7 +375,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             if (a === undefined || row === undefined) return "This duty is no longer present.";
             const read = value.duty.read(bytes, id);
             if (!sameResource(read.resource, row.roles.resource)) return "A duty's own form cannot replace its person.";
-            const next = onItsDay(a, row, read, bytes); if (typeof next === "string") return next;
+            const next = carried(a, row, read, bytes); if (typeof next === "string") return next;
             const invalid = validRoles(a, next.roles); if (invalid !== undefined) return invalid;
             record([{ kind: duty, id, row: next.bytes }], "typed", "Edit duty");
             return undefined;
