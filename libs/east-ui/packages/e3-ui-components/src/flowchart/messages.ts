@@ -680,6 +680,7 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
                 case "weighed": return `${p.kind} details read another record than the rail's ${p.source}, so its picks don't add them up: each draws its row's own`;
                 case "waiting": return `${p.name} has an unsaved change the rail hides: Save writes it with the rest`;
                 case "ready": return p.message;
+                case "bounds": return `${p.field}: ${p.bound}`;
                 case "save": return p.message;
             }
         },

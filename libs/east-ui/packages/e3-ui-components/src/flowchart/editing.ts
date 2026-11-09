@@ -47,6 +47,9 @@
  *   viewer types its key; and by any other, none: the kind adds no row
  *   (`untyped`). A row whose kind builds its key from its fields moves under
  *   the key a gesture's edit of them builds (`moves`).
+ * - **A number its field's bounds don't hold (#1585).** Each kind's form goes
+ *   with its record (`fields`): a changed row whose number is under its least
+ *   or over its most holds Save, as the app's check does, and Issues names it.
  * - **Its drafts.** Each draft is decoded once: its roles read through its
  *   kind's `read`, kept while its session keeps the entry's version — what the
  *   frame draws over the stored rows (`drafted.ts`).
@@ -342,7 +345,8 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
     const wordsNow = useRef(words);
     wordsNow.current = words;
     // Each kind bound with its patch door — none while the Flowchart is read only (R13) — its check composed with the key
-    // check where its source's narrowing hides rows (D3).
+    // check where its source's narrowing hides rows (D3), and its form: a changed row's number outside its field's bounds
+    // holds Save as the app's check does (#1585).
     const records = useMemo((): ScheduleEditingRecord[] => {
         if (value.readOnly) return [];
         const chrome = getSomeorUndefined(value.slice);
@@ -391,7 +395,7 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
                 if (rest.length > 0) keyedReady(rest.map(({ entry }) => entry)).forEach((verdict, n) => { out[rest[n]!.i] = verdict; });
                 return out;
             });
-            out.push({ key: sort, name: kind.name, editing: kind.editing.value, entries: kind.entries, ready });
+            out.push({ key: sort, name: kind.name, editing: kind.editing.value, entries: kind.entries, ready, fields: kind.fields });
         }
         return out;
     }, [value]);

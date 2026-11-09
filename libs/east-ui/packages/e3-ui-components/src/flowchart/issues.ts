@@ -21,6 +21,10 @@
  *   the app binds** that hold no edge, one that is no finite number, or two
  *   that do not ascend (R38, `details.ts`). A details row keyed as no row drawn
  *   is no issue.
+ * - **A number its field's bounds don't hold** (#1585) — a row drawn whose
+ *   number is under its least or over its most, by its field's label and the
+ *   bound in its hint's own words, `Slices: at least 1`. A changed row's is
+ *   its session's readiness, which holds Save off; any other row's warns.
  * - **A draft waiting in its session**, the narrowing hiding its row: listed
  *   with the rows of the rail's sources whose narrowing leaves it out, which the
  *   inspector names the choices of (the shared hidden pick) and Go to issue
@@ -42,7 +46,8 @@
  */
 
 import { OptionType, StringType, equalFor, fromEastTypeValue, isValueOf, type PatchPath, type option } from "@elaraai/east";
-import type { EditIssue, EditSession } from "@elaraai/east-ui-components";
+import type { EditIssue, EditSession, FieldBreach } from "@elaraai/east-ui-components";
+import { breachOf } from "../shared/bounds.js";
 import type { FlowchartBinsRefusalWord, FlowchartDetailsFinding } from "./details.js";
 import type { FlowchartWaiting } from "./drafted.js";
 import type { FlowchartDecisionRoles, FlowchartModel, FlowchartRow, FlowchartTransitionRoles } from "./model.js";
@@ -80,6 +85,8 @@ export type FlowchartIssueWord =
     | { readonly issue: "waiting"; readonly name: string }
     /** The app's check — or the key check — refusing a drafted row, which holds Save off, in its own words. */
     | { readonly issue: "ready"; readonly message: string }
+    /** A number its field's bounds don't hold (#1585): its field's label, and the bound in its hint's own words. */
+    | { readonly issue: "bounds"; readonly field: string; readonly bound: string }
     /** A Save's conflict or refusal, in the source's own words. */
     | { readonly issue: "save"; readonly message: string };
 
@@ -100,6 +107,22 @@ export interface FlowchartIssue {
     readonly word: FlowchartIssueWord;
 }
 
+/** A number its field's bounds don't hold, as Issues says it (#1585). */
+export interface FlowchartBreachWords {
+    /** Its field's label. */
+    readonly field: string;
+    /** The bound, in its field's hint's own words — `at least 1`. */
+    readonly bound: string;
+}
+
+/** A row drawn whose number its field's bounds don't hold, no change of it holding Save (#1585). */
+export interface FlowchartBreach extends FlowchartBreachWords {
+    /** Its kind. */
+    readonly sort: FlowchartSort;
+    /** Its key. */
+    readonly key: string;
+}
+
 /** What the issues are worked out from. */
 export interface FlowchartIssueArgs {
     /** What the canvas draws, the drafts in place. */
@@ -116,6 +139,8 @@ export interface FlowchartIssueArgs {
     readonly decisions: boolean;
     /** What the details model finds (`details.ts`): the bins the app binds refused, and the rows' counts no bin holds. */
     readonly details: readonly FlowchartDetailsFinding[];
+    /** The rows drawn whose numbers their fields' bounds don't hold, none of them changed so (#1585); none unless given. */
+    readonly breaches?: readonly FlowchartBreach[] | undefined;
 }
 
 /**
@@ -204,11 +229,12 @@ function readerOf(args: FlowchartIssueArgs): IssueReader {
  * the Flowchart has none of;
  * then the details', as the details model finds them — each kind's refused
  * bins, naming the kind and selecting the Flowchart, then its rows' counts no
- * bin holds, each selecting its row; then each draft waiting in its session,
- * each kind's in its drafts' order.
+ * bin holds, each selecting its row; then the rows' numbers their fields'
+ * bounds don't hold, as given; then each draft waiting in its session, each
+ * kind's in its drafts' order.
  *
  * @param args - What the canvas draws, its transitions, the drafts waiting, the transitions hidden with their far end,
- *   the states read, whether decisions are given, and what the details model finds
+ *   the states read, whether decisions are given, what the details model finds, and the rows' breaches
  * @returns The issues
  */
 export function flowchartIssues(args: FlowchartIssueArgs): FlowchartIssue[] {
@@ -255,6 +281,10 @@ export function flowchartIssues(args: FlowchartIssueArgs): FlowchartIssue[] {
         const name = nameOf(found.sort, found.key);
         warn(selectionOf(found.sort, found.key), { sort: found.sort, name }, { issue: "counts", name, read: found.read });
     }
+    for (const breach of args.breaches ?? []) {
+        warn(selectionOf(breach.sort, breach.key), { sort: breach.sort, name: nameOf(breach.sort, breach.key) },
+            { issue: "bounds", field: breach.field, bound: breach.bound });
+    }
     for (const row of waiting) {
         const name = nameOf(row.sort, row.key);
         warn(selectionOf(row.sort, row.key), { sort: row.sort, name }, { issue: "waiting", name }, hidingOf(row.sort, row.key));
@@ -277,36 +307,45 @@ function isSort(kind: string): kind is FlowchartSort {
 
 /**
  * The issues each record's session raises (see the module docs): the app's
- * check — the key check's among it — refusing its drafted rows, and its latest
- * Save's conflict or refusal while it stands; each blocking, naming its row —
- * one waiting in its session with the rows of the rail's sources hiding it.
+ * check — the key check's among it — refusing its drafted rows, a changed
+ * row's number its field's bounds don't hold among them, and its latest Save's
+ * conflict or refusal while it stands; each blocking, naming its row — one
+ * waiting in its session with the rows of the rail's sources hiding it.
  *
  * @param sessions - Each record's session
  * @param args - What the canvas draws, as {@link flowchartIssues} takes it: what names a row, and what hides one waiting
  * @param kindName - A kind's name, as the payload gives it: what a record's words that name no row stand for
+ * @param breachWords - A breach of a kind's form in Issues' words (#1585): its field's label and its bound; a breach
+ *   says its bound alone unless given
  * @returns The issues, in the sessions' order
  */
 export function sessionIssues(sessions: readonly FlowchartIssueSession[], args: FlowchartIssueArgs,
-    kindName: (sort: FlowchartSort) => string): FlowchartIssue[] {
+    kindName: (sort: FlowchartSort) => string, breachWords?: (sort: FlowchartSort, breach: FieldBreach) => FlowchartBreachWords): FlowchartIssue[] {
     const { nameOf, hidingOf } = readerOf(args);
     const out: FlowchartIssue[] = [];
     for (const part of sessions) {
         if (!isSort(part.kind)) continue;
         const sort = part.kind;
-        const raise = (issue: EditIssue, word: "ready" | "save") => {
+        const raise = (issue: EditIssue, word: FlowchartIssueWord) => {
             // The source's own words name no row: they stand for the kind's record.
             const row = keyEqual(issue.entry, "") ? undefined : issue.entry;
             out.push({
                 at: row === undefined ? null : selectionOf(sort, row), blocking: true,
                 where: { sort: row === undefined ? undefined : sort, name: row === undefined ? kindName(sort) : nameOf(sort, row) },
                 hiding: row === undefined ? [] : hidingOf(sort, row),
-                word: { issue: word, message: issue.message },
+                word,
             });
         };
         const readiness = part.session.readiness;
-        if (readiness.type !== "ready") for (const issue of readiness.value) raise(issue, "ready");
+        if (readiness.type !== "ready") {
+            for (const issue of readiness.value) {
+                const breach = breachOf(issue);
+                raise(issue, breach === undefined || breachWords === undefined ? { issue: "ready", message: issue.message }
+                    : { issue: "bounds", ...breachWords(sort, breach) });
+            }
+        }
         const status = part.session.status;
-        if (status === "conflict" || status === "rejected") for (const issue of part.session.issues) raise(issue, "save");
+        if (status === "conflict" || status === "rejected") for (const issue of part.session.issues) raise(issue, { issue: "save", message: issue.message });
     }
     return out;
 }

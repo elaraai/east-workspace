@@ -68,15 +68,17 @@ import { ArrayType, StringType, equalFor, equivalentFor, type PatchPath } from "
 import { EditingBatchReadinessType } from "@elaraai/east-ui/internal";
 import { Flowchart, flowchartKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
-    implementUIComponent, takeKey, typedInto, useContainerBelow, useDataStable, useFormatters, type EditIssue, type HistoryAction, type Origin,
+    BannerView, BuilderFrame, SessionBanners, fieldBreachText, fieldBreaches, fieldFormMessages, focusKeySearch, getSomeorUndefined, historyShortcut,
+    historyToolbarItem, implementUIComponent, takeKey, typedInto, useContainerBelow, useDataStable, useFormatters,
+    type EditIssue, type FieldBreach, type HistoryAction, type Origin,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, loadingLineText, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { isBounded } from "../shared/bounds.js";
 import { pagedLoadingLine } from "../shared/loading.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import type { SourceHiding } from "../shared/schedule/hidden.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
-import { rowCodec } from "../shared/schedule/records.js";
+import { draftedRow, rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords } from "../shared/schedule/visibility.js";
 import { NARROW_WIDTH } from "../shared/schedule/window.js";
 import { kindPlural } from "../shared/schedule/words.js";
@@ -93,7 +95,9 @@ import {
 import { useFlowchartFind, type FindableState, type FoundState } from "./find.js";
 import { FlowchartFooter, useLastSaves, type FlowchartNotice } from "./footer.js";
 import { flowchartInspectorPane } from "./inspector.js";
-import { conflictValueName, flowchartIssues, selectionOf, sessionIssues, type FlowchartIssueArgs, type FlowchartKeyFields } from "./issues.js";
+import {
+    conflictValueName, flowchartIssues, selectionOf, sessionIssues, type FlowchartBreach, type FlowchartBreachWords, type FlowchartIssueArgs, type FlowchartKeyFields,
+} from "./issues.js";
 import { useFlowchartLibrary } from "./library.js";
 import { DEFAULT_FLOWCHART_NOUNS, flowchartMessagesOf, type FlowchartNouns, type FlowchartRefusalWord, type FlowchartWords } from "./messages.js";
 import { buildModel, flowchartKindKeys, type FlowchartValue } from "./model.js";
@@ -613,17 +617,65 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
 
     // ── The issues, and the panes ──────────────────────────────────────
     const decisionsGiven = getSomeorUndefined(value.decisions) !== undefined;
-    const issueArgs = useMemo((): FlowchartIssueArgs => ({
-        model, transitions: drafted.rows.transitions, waiting: drafted.waiting, hiddenWith: data.hiddenWith, stored: data.held.states, decisions: decisionsGiven,
-        details: detailsModel.findings,
-    }), [model, drafted, data.hiddenWith, data.held.states, decisionsGiven, detailsModel.findings]);
     const historyVersion = editing.version;
     // Each session's readiness, held by what it says, as the Sheet holds its own: the history checks each session again
     // as what its checks read lands — the key check's answer from e3 (D3) — and that moves no version of it.
     const readiness = useDataStable(sessions.map((part) => part.session.readiness), readinessesEqual);
-    const issues = useMemo(() => [...sessionIssues(sessions, issueArgs, kindName), ...flowchartIssues(issueArgs)],
+    // Each kind's form's numbers held to bounds (#1585), and its rows' codec: what each row drawn is checked against, in
+    // the form's own words.
+    const bounded = useMemo(() => FLOWCHART_SORTS.flatMap((sort) => {
+        const kind = kindOf(value, sort);
+        const specs = kind?.fields.filter(isBounded) ?? [];
+        return kind === undefined || specs.length === 0 ? [] : [{ sort, specs, codec: rowCodec(kind.rowType) }];
+    }), [value]);
+    const breachWords = useCallback((sort: FlowchartSort, breach: FieldBreach): FlowchartBreachWords => ({
+        field: bounded.find((one) => one.sort === sort)?.specs.find((spec) => stringEqual(spec.path.join("."), breach.key))?.label ?? breach.key,
+        bound: fieldBreachText(breach, { ...words, m: fieldFormMessages }),
+    }), [bounded, words]);
+    // Each stored row decoded once: a read keeps a row's bytes the same object while it holds the row.
+    const decodedRows = useRef(new WeakMap<Uint8Array, unknown>());
+    // The rows drawn whose numbers their fields' bounds don't hold, the drafts in place: each warns, but a changed row's,
+    // which its session's readiness lists among what holds Save.
+    const breaches = useMemo((): FlowchartBreach[] => {
+        const out: FlowchartBreach[] = [];
+        for (const { sort, specs, codec } of bounded) {
+            const session = sessions.find((part) => stringEqual(part.kind, sort))?.session;
+            const said = session === undefined || session.readiness.type === "ready" ? [] : session.readiness.value;
+            const stored: ReadonlyMap<string, { readonly row: Uint8Array }> | undefined = data.held[sort];
+            const rows = sort === "lanes" ? drafted.rows.lanes ?? [] : drafted.rows[sort];
+            for (const { key, dimmed } of rows) {
+                // What the narrowing draws as context raises none: no path selects it.
+                if (dimmed) continue;
+                const entry = session?.entries.get(key);
+                let held: unknown;
+                if (entry !== undefined) {
+                    held = draftedRow(entry)?.row;
+                } else {
+                    const bytes = stored?.get(key)?.row;
+                    if (bytes === undefined) continue;
+                    held = decodedRows.current.get(bytes);
+                    if (held === undefined) {
+                        held = codec.decode(bytes);
+                        decodedRows.current.set(bytes, held);
+                    }
+                }
+                if (held === undefined) continue;
+                for (const breach of fieldBreaches(specs, held)) {
+                    if (said.some((issue) => stringEqual(issue.entry, key) && issue.field.type === "some" && stringEqual(issue.field.value, breach.key))) continue;
+                    out.push({ sort, key, ...breachWords(sort, breach) });
+                }
+            }
+        }
+        return out;
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version and their readiness say they moved
-        [sessions, issueArgs, kindName, historyVersion, readiness]);
+    }, [bounded, drafted.rows, data.held, sessions, breachWords, historyVersion, readiness]);
+    const issueArgs = useMemo((): FlowchartIssueArgs => ({
+        model, transitions: drafted.rows.transitions, waiting: drafted.waiting, hiddenWith: data.hiddenWith, stored: data.held.states, decisions: decisionsGiven,
+        details: detailsModel.findings, breaches,
+    }), [model, drafted, data.hiddenWith, data.held.states, decisionsGiven, detailsModel.findings, breaches]);
+    const issues = useMemo(() => [...sessionIssues(sessions, issueArgs, kindName, breachWords), ...flowchartIssues(issueArgs)],
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version and their readiness say they moved
+        [sessions, issueArgs, kindName, breachWords, historyVersion, readiness]);
     // The states a Save's conflict names: the canvas marks them.
     const conflicted = useMemo(() => {
         const out = new Set<string>();

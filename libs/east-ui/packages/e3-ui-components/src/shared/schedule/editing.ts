@@ -18,13 +18,13 @@ import {
 } from "@elaraai/east";
 import type { ScheduleKindType, ScheduleItemType, ScheduleDraftsType, ScheduleGestureType, ScheduleReadType } from "@elaraai/e3-ui/internal";
 import {
-    EntryRefType, fieldBreachIssue, fieldBreaches, historyKeyOf, useEditHistory, useTrackedEvaluation,
+    EntryRefType, fieldBreaches, historyKeyOf, useEditHistory, useTrackedEvaluation,
     type EditHistory, type EditHistoryJoined, type EditHistoryPaged, type EditHistoryPart, type EditHistorySource, type EditSession,
     type EntryVersion, type Origin,
 } from "@elaraai/east-ui-components";
 import { boundedReadiness, wholeEntryReadiness, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
 import type { FieldSpecValue, RecordSliceBindType } from "@elaraai/east-ui/internal";
-import { isBounded } from "../bounds.js";
+import { breachIssue, isBounded } from "../bounds.js";
 
 /** The common event projection decoded from Schedule. */
 type Item = ValueTypeOf<typeof ScheduleItemType>;
@@ -420,7 +420,7 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
         // field (#1585) — the form's own check and words.
         const bounded = kind.fields.filter(isBounded);
         const ready = bounded.length === 0 ? app : boundedReadiness(fromEastTypeValue(kind.editing.draftType) as EastType,
-            (id, held) => fieldBreaches(bounded, held).map((breach) => fieldBreachIssue(breach, { entry: id })), originals, app);
+            (id, held) => fieldBreaches(bounded, held).map((breach) => breachIssue(breach, id)), originals, app);
         if (kind.entries.type !== "some") return { editing, ready, prepare, wireType: EntryRefType, ranges, together };
         const seam = kind.entries.value;
         const { decodeRow, keyOf } = codecs[i]!;
