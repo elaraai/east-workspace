@@ -45,7 +45,9 @@
  * - **A key built from the row follows the row** (#1549, `followBuiltKeys`):
  *   a gesture writing the fields its kind's `key` reads moves the row under the
  *   key they build, and what names the row follows — refused, naming the row,
- *   where another row holds that key.
+ *   where another row holds that key, and while a kind that may name it isn't
+ *   held whole (#1580): the rail hides some of its rows, or it takes no edit now
+ *   — a Save in flight — so what it leaves would keep the old key.
  *
  * A kind read only takes no gesture of its own (R13). Where a gesture reaches
  * past its own kind — the transitions a state's Del deletes, the queues it
@@ -152,7 +154,24 @@ export interface FlowchartHolding {
      * @param edits - The gesture's edits
      */
     readonly moves: (edits: readonly FlowchartEdit[]) => FlowchartMove[];
+    /**
+     * Why the flowchart may not hold every row of a kind it writes (#1580): the rail hides some, or the kind takes no edit
+     * now — a Save in flight, or its rows not read; `undefined` where it holds them all, or writes none of the kind.
+     *
+     * @param sort - The kind
+     */
+    readonly unheld: (sort: FlowchartSort) => FlowchartUnheld | undefined;
+    /**
+     * Whether a gesture created a row this session: no stored row names it (#1580).
+     *
+     * @param sort - The row's kind
+     * @param key - Its key
+     */
+    readonly created: (sort: FlowchartSort, key: string) => boolean;
 }
+
+/** Why the flowchart may not hold every row of a kind (#1580): the rail hides some, or the kind takes no edit now. */
+export type FlowchartUnheld = "filtered" | "busy";
 
 /** Why a gesture records nothing (#1549), as the footer says it. */
 export type FlowchartRefusal =
@@ -161,7 +180,12 @@ export type FlowchartRefusal =
     /** It names a row held under a placeholder, in another row's field: that row's key is still to be typed. */
     | { readonly refusal: "placeholder"; readonly sort: FlowchartSort; readonly key: string }
     /** Its kind's keys are of a type the form can't type, by the type's name, and its kind builds none. */
-    | { readonly refusal: "untyped"; readonly sort: FlowchartSort; readonly type: string };
+    | { readonly refusal: "untyped"; readonly sort: FlowchartSort; readonly type: string }
+    /**
+     * A row whose key the gesture moves, which rows of another kind name — by that kind (`by`) — that the flowchart doesn't
+     * all hold, and why (#1580): what it leaves out would keep naming the old key.
+     */
+    | { readonly refusal: "unheld"; readonly sort: FlowchartSort; readonly key: string; readonly by: FlowchartSort; readonly why: FlowchartUnheld };
 
 /** One gesture's edits, and the key of the row it adds, if it adds one. */
 export interface GestureEdits {
@@ -711,7 +735,38 @@ export function setRow(holding: FlowchartHolding, sort: FlowchartSort, key: stri
  */
 export function rekey(holding: FlowchartHolding, sort: "states" | "lanes", from: string, to: string): GestureEdits | undefined {
     if (!holding.can(sort) || to.length === 0 || keyEqual(from, to) || holding.taken(sort, to)) return undefined;
+    const unheld = unheldNamer(holding, [{ sort, key: from }]);
+    if (unheld !== undefined) return refusedFor(unheld);
     return { edits: [{ op: "copy", sort, key: to, from }, { op: "remove", sort, key: from }, ...namers(holding, sort, from, to)], key: to };
+}
+
+/** The kinds whose rows name a row of a kind by its key: a lane its states', a state its transitions' — and the decisions queuing it, where they do. */
+function namingSorts(holding: FlowchartHolding, sort: FlowchartSort): readonly FlowchartSort[] {
+    if (sort === "lanes") return ["states"];
+    if (sort === "states") return holding.unqueues ? ["transitions", "decisions"] : ["transitions"];
+    return [];
+}
+
+/**
+ * Why a gesture can't move the rows it moves (#1580): the first kind that may
+ * name one whose rows the flowchart doesn't all hold — the rail hiding some,
+ * which {@link namers} can't follow it in, or taking no edit now, which it
+ * leaves. A row a gesture created this session no stored row names, so the rail
+ * hiding some refuses it nothing.
+ *
+ * @param holding - What the gesture reads
+ * @param moves - The rows it moves, each by its kind and its key
+ * @returns The refusal; `undefined` where every kind that may name them is held whole
+ */
+function unheldNamer(holding: FlowchartHolding, moves: readonly { readonly sort: FlowchartSort; readonly key: string }[]): FlowchartRefusal | undefined {
+    for (const move of moves) {
+        for (const by of namingSorts(holding, move.sort)) {
+            const why = holding.unheld(by);
+            if (why === undefined || (why === "filtered" && holding.created(move.sort, move.key))) continue;
+            return { refusal: "unheld", sort: move.sort, key: move.key, by, why };
+        }
+    }
+    return undefined;
 }
 
 /**
@@ -778,11 +833,13 @@ const FOLLOWS = 4;
  * there; then gone from its old key; then what names it following — a lane's
  * states, a state's transitions and the decisions queuing it — whose own keys,
  * built from what they name, move them in turn. A key another row holds, or another moving row takes,
- * refuses the gesture, naming that key.
+ * refuses the gesture, naming that key; so does a kind that may name a moving row the flowchart doesn't hold
+ * whole (#1580).
  *
  * @param holding - What the gesture reads
  * @param made - The gesture's edits
- * @returns The edits with every move, and the rows moved; the refusal, with no edits, where a key is taken
+ * @returns The edits with every move, and the rows moved; the refusal, with no edits, where a key is taken or what may
+ *   name a moving row isn't held
  */
 export function followBuiltKeys(holding: FlowchartHolding, made: GestureEdits): GestureEdits {
     if (made.refused !== undefined || made.edits.length === 0) return made;
@@ -795,6 +852,8 @@ export function followBuiltKeys(holding: FlowchartHolding, made: GestureEdits): 
             const both = moves.some((other) => other !== move && other.sort === move.sort && keyEqual(other.to, move.to));
             if (both || holding.stands(move.sort, move.to)) return refusedFor({ refusal: "taken", sort: move.sort, key: move.to });
         }
+        const unheld = unheldNamer(holding, moves);
+        if (unheld !== undefined) return refusedFor(unheld);
         const to = (sort: FlowchartSort, key: string) => moves.find((move) => move.sort === sort && keyEqual(move.key, key))?.to;
         edits = [
             ...moves.map((move): FlowchartEdit => ({ op: "copy", sort: move.sort, key: move.to, from: move.key })),

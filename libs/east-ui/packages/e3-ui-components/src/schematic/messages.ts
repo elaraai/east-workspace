@@ -174,7 +174,10 @@ export interface SchematicMessages extends PagedLoadingMessages, HiddenWords {
      * `name` is its kind's, as running text writes it.
      */
     keyPlaceholder: (p: { name: string }) => string;
-    /** Why a gesture records nothing (#1549), in the footer — `A fibre run A01 → ODF-1 is there already`. */
+    /**
+     * Why a gesture records nothing (#1549), in the footer — `A fibre run A01 → ODF-1 is there already`, `A01 isn't changed:
+     * the filters hide some fibre runs that may name it — clear them, then try again` (#1580).
+     */
     keyRefused: (p: SchematicKeyRefusalWord) => string;
     /** A gesture's label in the history: what it did, and to how many. */
     step: (p: { step: SchematicStep; name: string; n: number }) => string;
@@ -362,11 +365,15 @@ export type SchematicDropRefusalWord =
 /**
  * Why a gesture records nothing (#1549), as the footer says it: the row holding
  * the key a row builds, by its kind's name and its own, as running text writes
- * them; or a kind adding no row, its keys of a type the form can't type.
+ * them; a kind adding no row, its keys of a type the form can't type; or an item
+ * whose key would move, by its name, while some rows of a link or net kind that
+ * may name it — by its name, as running text writes it — the filters hide or
+ * aren't read (#1580).
  */
 export type SchematicKeyRefusalWord =
     | { readonly refusal: "taken"; readonly kind: string; readonly name: string }
-    | { readonly refusal: "untyped"; readonly kind: string; readonly type: string };
+    | { readonly refusal: "untyped"; readonly kind: string; readonly type: string }
+    | { readonly refusal: "unheld"; readonly name: string; readonly kind: string; readonly why: "filtered" | "unread" };
 
 /** A tab of the library, as its words name it: its own, or an author's (`tab`). */
 export type SchematicLibraryTabWord = "templates" | "backlog" | "index" | "layers" | "tab";
@@ -502,7 +509,15 @@ export function schematicMessagesOf(v: SchematicVocabulary): SchematicMessages {
         placeholderRefused: ({ kind }) => `Type the new ${kind}'s key first`,
         keysUntyped: ({ name, type }) => keysUntyped(name, type),
         keyPlaceholder: ({ name }) => `Type this ${name}'s key: Save waits for it`,
-        keyRefused: (p) => (p.refusal === "taken" ? `${capital(article(p.kind))} ${p.kind} ${p.name} is there already` : keysUntyped(p.kind, p.type)),
+        keyRefused: (p) => {
+            switch (p.refusal) {
+                case "taken": return `${capital(article(p.kind))} ${p.kind} ${p.name} is there already`;
+                case "untyped": return keysUntyped(p.kind, p.type);
+                case "unheld": return p.why === "filtered"
+                    ? `${p.name} isn't changed: the filters hide some ${p.kind}s that may name it — clear them, then try again`
+                    : `${p.name} isn't changed: some ${p.kind}s that may name it aren't read — try again once they are`;
+            }
+        },
         step: ({ step, name, n }) => ({
             move: `Move ${n} ${plural(n, "item", "items")}`,
             connect: `Connect a ${name}`,

@@ -136,9 +136,10 @@ export const placedSpots = e3.record("schematic_placed_spots", DictType(SpotKey,
 /** A rope between two spots, by their keys. */
 export const KeyedRope = StructType({ from: SpotKey, to: SpotKey, note: StringType });
 
-/** The floor's ropes, by number: 1, along row 1 from 1-1 to 1-2. */
+/** The floor's ropes, by number, and the index the rail reads them through, by note: 1, along row 1 from 1-1 to 1-2. */
 export const keyedRopes = e3.record("schematic_keyed_ropes", DictType(IntegerType, KeyedRope), {
     initial: new SortedMap([[1n, { from: { row: 1n, col: 1n }, to: { row: 1n, col: 2n }, note: "Along row 1" }]], compareNumber),
+    indexes: (index) => ({ schematic_keyed_ropes_by_note: index.on(["note"]) }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
 

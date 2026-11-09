@@ -141,8 +141,8 @@ export function modelOf(rows: FlowchartRows): FlowchartModel {
  * What a gesture reads over rows: every kind taking gestures, the decisions
  * taking a state's key out of their queues, the lanes' order a Float, a new
  * transition keyed `t-new`, every kind keyed by String and building no key —
- * a new row's key the text its gesture makes up, and no row moving — unless
- * given.
+ * a new row's key the text its gesture makes up, and no row moving — every
+ * kind held whole and no row created this session, unless given.
  *
  * @param rows - The rows drawn
  * @param more - What differs
@@ -160,6 +160,8 @@ export function holdingOf(rows: FlowchartRows, more: Partial<FlowchartHolding> =
         unqueues: true, wholeLaneOrders: false,
         newKey: (sort, _made, madeUp, minted) => ({ key: madeUp((key) => minted?.has(key) === true || holding.taken(sort, key)) }),
         moves: () => [],
+        unheld: () => undefined,
+        created: () => false,
         ...more,
     };
     return holding;

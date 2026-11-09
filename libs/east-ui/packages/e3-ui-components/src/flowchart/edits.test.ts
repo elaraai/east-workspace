@@ -376,6 +376,31 @@ describe("a key built from the row follows the row (#1549)", () => {
         ]);
     });
 
+    test("a state's key moving while a kind that may name it isn't held whole — the rail hiding some transitions, or the decisions queuing it taking no edit now — is refused, naming that kind, with no edits; a state a gesture created this session no stored transition names (#1580)", () => {
+        const only = (by: FlowchartSort, why: "filtered" | "busy") => (sort: FlowchartSort) => (sort === by ? why : undefined);
+        const hidden = holdingOf(BUILT, { moves: builtMoves, unheld: only("transitions", "filtered") });
+        expect(followBuiltKeys(hidden, renameState(hidden, "Sorted", "Done")!))
+            .toEqual({ edits: [], refused: { refusal: "unheld", sort: "states", key: "Sorted", by: "transitions", why: "filtered" } });
+        const saving = holdingOf({ ...BUILT, decisions: [decisionRow("route", "route", ["Sorted"])] }, { moves: builtMoves, unheld: only("decisions", "busy") });
+        expect(followBuiltKeys(saving, renameState(saving, "Sorted", "Done")!))
+            .toEqual({ edits: [], refused: { refusal: "unheld", sort: "states", key: "Sorted", by: "decisions", why: "busy" } });
+        // Created this session: the rail hides no stored transition naming it — but its transitions' drafts wait while they take no edit.
+        const created = (sort: FlowchartSort, key: string) => sort === "states" && keyEqual(key, "Sorted");
+        const fresh = holdingOf(BUILT, { moves: builtMoves, unheld: only("transitions", "filtered"), created });
+        expect(followBuiltKeys(fresh, renameState(fresh, "Sorted", "Done")!).refused).toBeUndefined();
+        const freshSaving = holdingOf(BUILT, { moves: builtMoves, unheld: only("transitions", "busy"), created });
+        expect(followBuiltKeys(freshSaving, renameState(freshSaving, "Sorted", "Done")!).refused)
+            .toEqual({ refusal: "unheld", sort: "states", key: "Sorted", by: "transitions", why: "busy" });
+    });
+
+    test("a lane's new key while its states take no edit now — a Save of theirs in flight — is refused, naming them, with no edits: they would keep the old lane (#1580)", () => {
+        const saving = holdingOf(SORT, { unheld: (sort) => (sort === "states" ? "busy" : undefined) });
+        expect(rekey(saving, "lanes", "sort", "sorting")).toEqual({ edits: [], refused: { refusal: "unheld", sort: "lanes", key: "sort", by: "states", why: "busy" } });
+        // A new lane the rail hides no stored state naming.
+        const hidden = holdingOf(SORT, { unheld: (sort) => (sort === "states" ? "filtered" : undefined), created: (sort, key) => sort === "lanes" && keyEqual(key, "sort") });
+        expect(rekey(hidden, "lanes", "sort", "sorting")?.refused).toBeUndefined();
+    });
+
     test("a gesture refused is as it was", () => {
         const holding = holdingOf(BUILT, { moves: () => { throw new Error("asked"); } });
         const refused = { edits: [], refused: { refusal: "untyped", sort: "lanes", type: "Blob" } } as const;

@@ -96,13 +96,16 @@ export type FlowchartDropRefusalWord =
  * Why a gesture records nothing (#1549), as the footer says it: the row
  * holding the key a row builds — a transition by its ends' names, any other row
  * by its own; a row named in another's field while its key is still to be
- * typed; and a kind adding no row, its keys of a type the form can't type.
+ * typed; a kind adding no row, its keys of a type the form can't type; and a
+ * row whose key would move, by its name, while the rows of another kind that
+ * may name it — `by` — the rail hides some of, or take no edit now (#1580).
  */
 export type FlowchartRefusalWord =
     | { readonly refusal: "taken"; readonly sort: FlowchartSort; readonly name: string }
     | { readonly refusal: "taken"; readonly sort: "transitions"; readonly from: string; readonly to: string }
     | { readonly refusal: "placeholder"; readonly sort: FlowchartSort }
-    | { readonly refusal: "untyped"; readonly sort: FlowchartSort; readonly type: string };
+    | { readonly refusal: "untyped"; readonly sort: FlowchartSort; readonly type: string }
+    | { readonly refusal: "unheld"; readonly name: string; readonly by: FlowchartSort; readonly why: "filtered" | "busy" };
 
 /**
  * What the inspector shows, in its head and on its rail: one row, by its
@@ -333,7 +336,11 @@ export interface FlowchartMessages extends EditingMessages, HiddenWords, PagedLo
     keysUntyped: (p: { name: string; type: string }) => string;
     /** A new row held under a placeholder, its key still to be typed (#1549) — `Type this lane's key: Save waits for it`. */
     keyPlaceholder: (p: { sort: FlowchartSort }) => string;
-    /** Why a gesture records nothing (#1549), in the footer — `A move from Mix to Proof is there already`, `Type the new lane's key first`. */
+    /**
+     * Why a gesture records nothing (#1549), in the footer — `A move from Mix to Proof is there already`, `Type the new
+     * lane's key first`, `Scan isn't changed: the rail hides some transitions that may name it — clear its choices, then
+     * try again` (#1580).
+     */
     gestureRefused: (p: FlowchartRefusalWord) => string;
     /** How many states a lane holds — `Holds 3 states`; `name` as a sentence says it. */
     inspectorLaneStates: (p: { n: number; count: string; name: string }) => string;
@@ -642,6 +649,9 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
                     : `${capital(aNoun(ONE[p.sort]))} ${p.name} is there already`;
                 case "placeholder": return `Type the new ${ONE[p.sort]}'s key first`;
                 case "untyped": return keysUntyped(ONE[p.sort], p.type);
+                case "unheld": return p.why === "filtered"
+                    ? `${p.name} isn't changed: the rail hides some ${kindPlural(ONE[p.by])} that may name it — clear its choices, then try again`
+                    : `${p.name} isn't changed: ${kindPlural(ONE[p.by])} that may name it take no edit now — try again in a moment`;
             }
         },
         inspectorLaneStates: ({ n, count, name }) => (n === 0 ? `Holds no ${name}` : `Holds ${count} ${counted(n, name)}`),

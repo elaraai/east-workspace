@@ -25,7 +25,13 @@
  *   `key` builds from the row: Mix to Proof, which a move between them again
  *   would take.
  * - **Steps keyed by their station and their name** (`placedSteps`) — the key
- *   the states' `key` builds: Weigh and Mix at the bench.
+ *   the states' `key` builds: Weigh and Mix at the bench — and the moves
+ *   between them (`placedMoves`), by number, each end a step's station and
+ *   name, and the index the rail reads them through, by their note: Weigh to
+ *   Mix (#1580).
+ * - **Stations keyed by their labels** (`labelledStations`) — the key the
+ *   lanes' `key` builds — and the steps standing at them, by number
+ *   (`labelledSteps`): Weigh at the Bench and Bake at the Oven (#1580).
  * - **Shifts and batches keyed by when each starts** (`timedShifts`,
  *   `timedBatches`) — DateTime keys, which the viewer types for a new row: the
  *   Early shift at 06:00, and its Rye batch at 06:30.
@@ -100,6 +106,31 @@ export const placedSteps = e3.record("flowchart_placed_steps", DictType(StepPlac
         [{ station: 2n, name: "Weigh" }, { name: "Weigh", station: 2n }],
         [{ station: 2n, name: "Mix" }, { name: "Mix", station: 2n }],
     ], compareFor(StepPlace)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+/** A move between two placed steps, each by its station and its name, and a note the rail reads it by. */
+export const PlacedMove = StructType({ from: StepPlace, to: StepPlace, note: StringType });
+
+/** The moves between the placed steps, by number, and the index the rail reads them through, by note: Weigh to Mix. */
+export const placedMoves = e3.record("flowchart_placed_moves", DictType(IntegerType, PlacedMove), {
+    initial: new SortedMap([[1n, { from: { station: 2n, name: "Weigh" }, to: { station: 2n, name: "Mix" }, note: "Knead next" }]], compareNumber),
+    indexes: (index) => ({ flowchart_placed_moves_by_note: index.on(["note"]) }),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+/** A step: what its card calls it, and its station, by the station's label. */
+export const LabelledStep = StructType({ name: StringType, station: StringType });
+
+/** The stations keyed by their labels: the Bench and the Oven. */
+export const labelledStations = e3.record("flowchart_labelled_stations", DictType(StringType, KeyedStation), {
+    initial: new SortedMap([["Bench", { label: "Bench" }], ["Oven", { label: "Oven" }]], compareFor(StringType)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+/** The steps standing at the labelled stations, by number: Weigh at the Bench, and Bake at the Oven. */
+export const labelledSteps = e3.record("flowchart_labelled_steps", DictType(IntegerType, LabelledStep), {
+    initial: new SortedMap([[1n, { name: "Weigh", station: "Bench" }], [2n, { name: "Bake", station: "Oven" }]], compareNumber),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
 

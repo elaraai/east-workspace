@@ -240,36 +240,35 @@ interface FlowchartFrameProps extends FlowchartFollowsProps {
 
 /**
  * A refusal in the footer's words (#1549): the row holding the key a row
- * builds named as the canvas names it — a transition by its ends' states, a
- * state by its label, else its key, a lane by its label.
+ * builds, or the row whose key would move (#1580), named as the canvas names it
+ * — a transition by its ends' states, a state by its label, else its key, a
+ * lane by its label.
  *
  * @param refusal - Why the gesture records nothing
- * @param holding - What the Flowchart holds: the row holding the key, among those drawn, hidden and waiting
+ * @param holding - What the Flowchart holds: the row named, among those drawn, hidden and waiting
  * @returns Its words
  */
 function refusalWord(refusal: FlowchartRefusal, holding: FlowchartHolding): FlowchartRefusalWord {
-    if (refusal.refusal !== "taken") return refusal;
+    if (refusal.refusal === "placeholder" || refusal.refusal === "untyped") return refusal;
     const { model, rows } = holding;
     const key = refusal.key;
     const waiting = holding.waiting.find((row) => row.sort === refusal.sort && stringEqual(row.key, key));
     const stateName = (state: string): string => model.nodesByKey.get(state)?.label ?? state;
-    switch (refusal.sort) {
-        case "transitions": {
-            const roles = [...rows.transitions, ...holding.hidden].find((row) => stringEqual(row.key, key))?.roles
-                ?? (waiting?.sort === "transitions" ? waiting.roles : undefined);
-            return roles === undefined ? { refusal: "taken", sort: "transitions", name: key }
-                : { refusal: "taken", sort: "transitions", from: stateName(roles.from), to: stateName(roles.to) };
+    const labelled = (label: string | undefined): string => (label === undefined || label.length === 0 ? key : label);
+    const nameOf = (): string => {
+        switch (refusal.sort) {
+            case "states": return labelled(rows.states.find((row) => stringEqual(row.key, key))?.roles.label ?? (waiting?.sort === "states" ? waiting.roles.label : undefined));
+            case "lanes": return labelled(model.lanes.find((lane) => lane.band === "lane" && stringEqual(lane.key, key))?.label ?? (waiting?.sort === "lanes" ? waiting.roles.label : undefined));
+            case "decisions": return model.triggers.get(key)?.label ?? key;
+            case "transitions": return key;
         }
-        case "states": {
-            const label = rows.states.find((row) => stringEqual(row.key, key))?.roles.label ?? (waiting?.sort === "states" ? waiting.roles.label : undefined);
-            return { refusal: "taken", sort: "states", name: label === undefined || label.length === 0 ? key : label };
-        }
-        case "lanes": {
-            const label = model.lanes.find((lane) => lane.band === "lane" && stringEqual(lane.key, key))?.label ?? (waiting?.sort === "lanes" ? waiting.roles.label : undefined);
-            return { refusal: "taken", sort: "lanes", name: label === undefined || label.length === 0 ? key : label };
-        }
-        case "decisions": return { refusal: "taken", sort: "decisions", name: model.triggers.get(key)?.label ?? key };
-    }
+    };
+    if (refusal.refusal === "unheld") return { refusal: "unheld", name: nameOf(), by: refusal.by, why: refusal.why };
+    if (refusal.sort !== "transitions") return { refusal: "taken", sort: refusal.sort, name: nameOf() };
+    const roles = [...rows.transitions, ...holding.hidden].find((row) => stringEqual(row.key, key))?.roles
+        ?? (waiting?.sort === "transitions" ? waiting.roles : undefined);
+    return roles === undefined ? { refusal: "taken", sort: "transitions", name: key }
+        : { refusal: "taken", sort: "transitions", from: stateName(roles.from), to: stateName(roles.to) };
 }
 
 /**
@@ -381,7 +380,16 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         unqueues: editing.unqueues, wholeLaneOrders: editing.wholeLaneOrders,
         newKey: (sort, made, madeUp, minted) => editing.newKey(sort, made, madeUp, minted),
         moves: (edits) => editing.moves(edits),
-    }), [model, drafted, editing]);
+        // A state or a transition the rail narrows reads only its narrowing, under `"hide"`; under `"dim"` it reads every
+        // row, and a lane or a decision is read whole (#1580).
+        unheld: (sort) => {
+            if (!editing.editable(sort)) return undefined;
+            const narrows = (sort === "states" || sort === "transitions") && value.narrowed.type !== "dim";
+            if (narrows && (sourcePart(chrome, sort)?.read().where.size ?? 0) > 0) return "filtered";
+            return editing.available(sort) ? undefined : "busy";
+        },
+        created: (sort, key) => editing.drafts[sort].get(key)?.created === true,
+    }), [model, drafted, editing, value.narrowed, chrome]);
     const context = useMemo((): FlowchartDropContext => ({
         model,
         editable: (sort) => editing.editable(sort),

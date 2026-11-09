@@ -517,7 +517,7 @@ describe("a key built from the row follows the row (#1549)", () => {
         return [];
     };
     const holding = (over: Partial<SchematicKeyHolding> = {}): SchematicKeyHolding => ({
-        kinds: KINDS, moves, stands: () => false, edited: () => false, drawn: DRAWN, ...over,
+        kinds: KINDS, moves, stands: () => false, edited: () => false, drawn: DRAWN, unheld: () => undefined, ...over,
     });
     const SET_A01: SchematicEdit = { op: "set", ref: A01, sets: [] };
 
@@ -575,5 +575,23 @@ describe("a key built from the row follows the row (#1549)", () => {
             .toEqual({ refused: { refusal: "taken", ref: ref("racks", "A01-b") } });
         const both = holding({ moves: () => [{ ref: A01, to: "A09" }, { ref: A02, to: "A09" }] });
         expect(followBuiltKeys(both, [SET_A01])).toEqual({ refused: { refusal: "taken", ref: ref("racks", "A09") } });
+    });
+
+    test("an item's key moving while a link or a net kind that writes and may name it isn't held whole — the filters hide some, or it isn't read — refuses the gesture, naming the item and the kind; a kind that can't name it, one read only, and a new item under a placeholder refuse nothing (#1580)", () => {
+        const only = (slot: string, why: "filtered" | "unread") => (at: string) => (stringEqual(at, slot) ? why : undefined);
+        // A rack: fibre runs end at racks, power feeds feed them and trunks start at them.
+        expect(followBuiltKeys(holding({ unheld: only("fibre", "filtered") }), [SET_A01])).toEqual({ refused: { refusal: "unheld", ref: A01, kind: "fibre", why: "filtered" } });
+        expect(followBuiltKeys(holding({ unheld: only("feeds", "unread") }), [SET_A01])).toEqual({ refused: { refusal: "unheld", ref: A01, kind: "feeds", why: "unread" } });
+        expect(followBuiltKeys(holding({ unheld: only("trunks", "filtered") }), [{ op: "move", ref: A01, to: "A07" }]))
+            .toEqual({ refused: { refusal: "unheld", ref: A01, kind: "trunks", why: "filtered" } });
+        // A frame: no power feed names one.
+        const frameMoves = (edits: readonly SchematicEdit[]): SchematicMove[] => (edits.some((edit) => edit.op === "set" && refEqual(edit.ref, ODF)) ? [{ ref: ODF, to: "ODF-2" }] : []);
+        expect("refused" in followBuiltKeys(holding({ moves: frameMoves, unheld: only("feeds", "filtered") }), [{ op: "set", ref: ODF, sets: [] }])).toBe(false);
+        // A run bound read only is left naming the key it named, held or not.
+        const fixed: EditKinds = { ...KINDS, links: new Map([["fibre", { ...KINDS.links.get("fibre")!, editable: false }]]) };
+        expect("refused" in followBuiltKeys(holding({ kinds: fixed, unheld: only("fibre", "filtered") }), [SET_A01])).toBe(false);
+        // A new rack's key typed, where racks are keyed by number: no stored row names its placeholder.
+        const numbered: EditKinds = { ...KINDS, itemKeys: new Map([...KINDS.itemKeys, ["racks", { name: "Rack", keys: kindKeys(toEastTypeValue(IntegerType)) }]]) };
+        expect("refused" in followBuiltKeys(holding({ kinds: numbered, unheld: only("fibre", "filtered") }), [{ op: "move", ref: ref("racks", "new-rack"), to: "7" }])).toBe(false);
     });
 });

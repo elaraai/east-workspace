@@ -24,7 +24,8 @@
  *   built by the kind's `key` — a spot under its row and column, a pipe under
  *   its ends, a row moving as an edit changes what its key reads, its links
  *   with it, and a key another row holds refusing the gesture, naming that
- *   row; by DateTime, a placeholder — Save waiting, Issues listing it, Connect
+ *   row — as the rail's filters hiding a link that may name it does (#1580);
+ *   by DateTime, a placeholder — Save waiting, Issues listing it, Connect
  *   from it refused — until the viewer types its key in the inspector, the
  *   placeholder waiting on as another session moves the record read through
  *   the rail; and by Blob, which no form types, none: the card off, saying why.
@@ -41,14 +42,14 @@ import userEvent from "@testing-library/user-event";
 import {
     BlobType, DateTimeType, East, IntegerType, SortedMap, SortedSet, StringType, compareFor, equalFor, parseFor, printFor, some, variant,
 } from "@elaraai/east";
-import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
-import { editingMessages } from "@elaraai/east-ui-components";
+import { Reactive, RecordSlicesChromeType, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
+import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { stubScrollIntoView } from "@elaraai/east-ui-components/testing";
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as fx from "@elaraai/e3-ui/fixtures/schematic/schematic-keys";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { entityId, refOfId } from "./canvas/drawn.js";
-import { at, card, fitted, layOutCanvas, near, tap, unsaved } from "./schematic.test-utils.js";
+import { at, card, drawingCounts, fitted, layOutCanvas, near, tap, unsaved } from "./schematic.test-utils.js";
 import { schematicMessages } from "./messages.js";
 import "./index.js";
 
@@ -433,6 +434,63 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
             [{ row: 2n, col: 2n }, { name: "2-2", row: 2n, col: 2n, x: 14.0, y: 7.0 }],
             [{ row: 1n, col: 3n }, { name: "1-2", row: 1n, col: 3n, x: 22.0, y: 3.0 }],
         ]);
+        placed.delete({ row: 1n, col: 2n });
+        expect(printFor(fx.placedSpots.type)(await h.read(fx.placedSpots))).toBe(printFor(fx.placedSpots.type)(placed));
+        expect(printFor(fx.keyedRopes.type)(await h.read(fx.keyedRopes)))
+            .toBe(printFor(fx.keyedRopes.type)(withRows(ropes, compareNumber, [[1n, { from: { row: 1n, col: 1n }, to: { row: 1n, col: 3n }, note: "Along row 1" }]])));
+    });
+
+    test("keyed by row and column, the ropes read through the rail: while its filters hide the rope along row 1, a column edited is refused, saying so, and nothing is recorded — the rope would keep naming the old spot; the filters cleared, the same edit moves the spot and the rope with it, and Save writes both (#1580)", async () => {
+        const spots = await h.read(fx.placedSpots), ropes = await h.read(fx.keyedRopes);
+        const spot = printFor(fx.SpotKey);
+        // The rail as a test writes it: the same source under the Schematic's key.
+        const rail = East.compile(East.function([], RecordSlicesChromeType, ($) => $.return(recordSlicesChrome({
+            slice: Slice.bindRecords("schematic.keyed.railedRopes", {
+                ropes: { source: Data.bindPaged(fx.keyedRopes, { indexes: ["schematic_keyed_ropes_by_note"] }), fields: { note: { label: "Note" } }, search: ["note"] },
+            }),
+        }))), getRegisteredPlatformImplementations());
+        const ropesRail = () => rail().slice.parts.find((part) => keyEqual(part.source, "ropes"))!.slice;
+        const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const slice = $.let(Slice.bindRecords("schematic.keyed.railedRopes", {
+                ropes: { source: Data.bindPaged(fx.keyedRopes, { indexes: ["schematic_keyed_ropes_by_note"] }), fields: { note: { label: "Note" } }, search: ["note"] },
+            }));
+            const spotsBound = $.let(Record.bind(fx.placedSpots));
+            const ropesBound = $.let(Record.bind(fx.keyedRopes));
+            const ropeEntries = $.let(Data.bindPaged(fx.keyedRopes));
+            return Schematic({
+                id: "keyedRailedRopes",
+                inspector: true,
+                extent: fx.KEYED_FLOOR,
+                slice: { slice },
+                items: { spots: Schematic.items(spotsBound, { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", key: (row) => ({ row: row.row, col: row.col }) }) },
+                links: { ropes: Schematic.links(ropesBound, { name: "Rope", icon: "link", from: { field: "from", of: "spots" }, to: { field: "to", of: "spots" }, entries: ropeEntries }) },
+            });
+        }))) }, "spots", spot({ row: 1n, col: 1n }));
+        await waitFor(() => expect(drawingCounts(c)["links"]).toBe("1"));
+        // A note no rope's starts with: the rope along row 1 hidden.
+        await act(async () => { ropesRail().prefix("note", "Zz"); });
+        await waitFor(() => expect(drawingCounts(c)["links"]).toBe("0"), { timeout: 10_000 });
+        // 1-2's column edited to 3: refused, saying why, and the form shows its column again.
+        const canvas = canvasOf(c);
+        hits(c, [["spots", spot({ row: 1n, col: 2n }), 22, 3]]);
+        await tap(canvas, CAM, 22, 3);
+        await waitFor(() => expect(isSelected(c, "spots", spot({ row: 1n, col: 2n }))).toBe(true));
+        await retypeNumber(c, "row", "col", "3");
+        expect(refused(c)).toBe(m.keyRefused({ refusal: "unheld", name: "1-2", kind: "rope", why: "filtered" }));
+        expect(refused(c)).toBe("1-2 isn't changed: the filters hide some ropes that may name it — clear them, then try again");
+        expect(unsaved(c)).toBe(false);
+        expect(within(field(c, "row", "col")).getByRole<HTMLInputElement>("spinbutton").value).toBe("2");
+        // The filters cleared, nothing selected: the rope is back, and the same edit moves 1-2 under (1, 3), the rope with it.
+        await act(async () => { ropesRail().clearAll(); });
+        await tap(canvas, CAM, 2, 12);
+        await waitFor(() => expect(drawingCounts(c)["links"]).toBe("1"), { timeout: 10_000 });
+        hits(c, [["spots", spot({ row: 1n, col: 2n }), 22, 3]]);
+        await tap(canvas, CAM, 22, 3);
+        await waitFor(() => expect(isSelected(c, "spots", spot({ row: 1n, col: 2n }))).toBe(true));
+        await retypeNumber(c, "row", "col", "3");
+        await waitFor(() => expect(isSelected(c, "spots", spot({ row: 1n, col: 3n }))).toBe(true));
+        expect(await save(c)).toEqual([fx.keyedRopes.name, fx.placedSpots.name].sort(compareText));
+        const placed = withRows(spots, compareFor(fx.SpotKey), [[{ row: 1n, col: 3n }, { name: "1-2", row: 1n, col: 3n, x: 22.0, y: 3.0 }]]);
         placed.delete({ row: 1n, col: 2n });
         expect(printFor(fx.placedSpots.type)(await h.read(fx.placedSpots))).toBe(printFor(fx.placedSpots.type)(placed));
         expect(printFor(fx.keyedRopes.type)(await h.read(fx.keyedRopes)))

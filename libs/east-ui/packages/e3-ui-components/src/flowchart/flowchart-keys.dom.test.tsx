@@ -27,14 +27,19 @@
  *   no row named in its place — until the viewer types its key in the
  *   inspector; and by Blob, which no form types, none: + LANE, + STATE,
  *   Duplicate and the Steps' cards off, each saying why.
+ * - **A key that would move while rows that may name it aren't held**
+ *   (#1580): a step renamed while the rail's choices hide a move that may name
+ *   it, or a station renamed while the steps' Save is on its way, is refused,
+ *   saying why, and records nothing; once they are held again, the same rename
+ *   moves the row, and the rows naming it with it.
  */
 
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { BlobType, DateTimeType, FloatType, IntegerType, SortedMap, StringType, compareFor, equalFor, printFor, type BlockBuilder } from "@elaraai/east";
-import { Slice, type UIComponentType } from "@elaraai/east-ui/internal";
-import { editingMessages } from "@elaraai/east-ui-components";
+import { BlobType, DateTimeType, East, FloatType, IntegerType, SortedMap, StringType, compareFor, equalFor, printFor, type BlockBuilder } from "@elaraai/east";
+import { RecordSlicesChromeType, Slice, recordSlicesChrome, type UIComponentType } from "@elaraai/east-ui/internal";
+import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Flowchart, Record } from "@elaraai/e3-ui/internal";
 import * as fx from "@elaraai/e3-ui/fixtures/flowchart/flowchart-keys";
 import { slot } from "../e3-web-mount.test-utils.js";
@@ -478,5 +483,103 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
         expect([card.hasAttribute("data-draggable"), card.textContent?.includes(trays)]).toEqual([false, true]);
         await gesture(() => { fireEvent.keyDown(card, { key: "Enter" }); });
         expect(pending(c)).toBe(pendingText(0));
+    });
+});
+
+// ============================================================================
+// A key that would move while rows that may name it aren't held (#1580)
+// ============================================================================
+
+/** A lane's header double-clicked into its rename, a label typed, and ⏎. */
+async function renameLane(c: HTMLElement, key: string, label: string): Promise<void> {
+    const header = [...c.querySelectorAll("[data-flowchart-lane]")].find((el) => keyEqual(el.getAttribute("data-flowchart-lane") ?? "", key))!;
+    await gesture(() => { fireEvent.doubleClick(header); });
+    const input = c.querySelector<HTMLInputElement>("[data-flowchart-lane-edit]")!;
+    await gesture(() => { fireEvent.change(input, { target: { value: label } }); });
+    await gesture(() => { fireEvent.keyDown(input, { key: "Enter" }); });
+}
+
+describe("a key that would move while rows that may name it aren't held (#1580)", () => {
+    test("keyed by station and name, the moves read through the rail: while its choices hide the move into Mix, Mix renamed is refused, saying so, and nothing is recorded — the move would keep naming the old step; its choices cleared, the same rename moves Mix and the move with it, and Save writes both", async () => {
+        const steps = await h.read(fx.placedSteps), moves = await h.read(fx.placedMoves);
+        const place = printFor(fx.StepPlace);
+        // The rail as a test writes it: the same source under the Flowchart's key.
+        const rail = East.compile(East.function([], RecordSlicesChromeType, ($) => $.return(recordSlicesChrome({
+            slice: Slice.bindRecords("flowchart.placed", {
+                transitions: { source: Data.bindPaged(fx.placedMoves, { indexes: ["flowchart_placed_moves_by_note"] }), fields: { note: { label: "Note" } }, search: ["note"] },
+            }),
+        }))), getRegisteredPlatformImplementations());
+        const movesRail = () => rail().slice.parts.find((part) => keyEqual(part.source, "transitions"))!.slice;
+        const c = await open(($) => {
+            const slice = $.let(Slice.bindRecords("flowchart.placed", {
+                transitions: { source: Data.bindPaged(fx.placedMoves, { indexes: ["flowchart_placed_moves_by_note"] }), fields: { note: { label: "Note" } }, search: ["note"] },
+            }));
+            const stepsBound = $.let(Record.bind(fx.placedSteps));
+            const movesBound = $.let(Record.bind(fx.placedMoves));
+            const moveEntries = $.let(Data.bindPaged(fx.placedMoves));
+            const stationsBound = $.let(Data.bind(fx.keyedStations));
+            return {
+                slice: { slice },
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station", key: (step) => ({ station: step.station, name: step.name }) }),
+                transitions: Flowchart.transitions(movesBound, { from: "from", to: "to", entries: moveEntries }),
+                lanes: Flowchart.lanes(stationsBound, { label: "label" }),
+            };
+        }, place({ station: 2n, name: "Weigh" }));
+        await waitFor(() => expect(linkKeys(c)).toEqual(["1"]), { timeout: 10_000 });
+        // A note no move's starts with: the move into Mix hidden.
+        await act(async () => { movesRail().prefix("note", "Zz"); });
+        await waitFor(() => expect(linkKeys(c)).toEqual([]), { timeout: 10_000 });
+        // Mix renamed Fold: refused, saying why, and Mix stays as it was.
+        await renameStep(c, place({ station: 2n, name: "Mix" }), "Fold");
+        expect(footer(c)).toBe(m.gestureRefused({ refusal: "unheld", name: "Mix", by: "transitions", why: "filtered" }));
+        expect(footer(c)).toBe("Mix isn't changed: the rail hides some transitions that may name it — clear its choices, then try again");
+        expect([node(c, place({ station: 2n, name: "Mix" })) !== null, node(c, place({ station: 2n, name: "Fold" })), pending(c)])
+            .toEqual([true, null, pendingText(0)]);
+        // Its choices cleared: the move is back, and the same rename moves Mix under Fold, the move with it.
+        await act(async () => { movesRail().clearAll(); });
+        await waitFor(() => expect(linkKeys(c)).toEqual(["1"]), { timeout: 10_000 });
+        await renameStep(c, place({ station: 2n, name: "Mix" }), "Fold");
+        expect([node(c, place({ station: 2n, name: "Mix" })), node(c, place({ station: 2n, name: "Fold" })) !== null]).toEqual([null, true]);
+        expect(await save()).toEqual([fx.placedMoves.name, fx.placedSteps.name].sort(compareText));
+        const placed = withRows(steps, compareFor(fx.StepPlace), [[{ station: 2n, name: "Fold" }, { name: "Fold", station: 2n }]]);
+        placed.delete({ station: 2n, name: "Mix" });
+        expect(printFor(fx.placedSteps.type)(await h.read(fx.placedSteps))).toBe(printFor(fx.placedSteps.type)(placed));
+        expect(printFor(fx.placedMoves.type)(await h.read(fx.placedMoves))).toBe(printFor(fx.placedMoves.type)(withRows(moves, compareFor(IntegerType), [
+            [1n, { from: { station: 2n, name: "Weigh" }, to: { station: 2n, name: "Fold" }, note: "Knead next" }],
+        ])));
+    });
+
+    test("keyed by their labels, a station renamed while the steps' Save is on its way is refused, saying so — the steps standing at it take no edit until it lands; once it has, the same rename moves the station and its step with it, and Save writes both", async () => {
+        const stations = await h.read(fx.labelledStations), steps = await h.read(fx.labelledSteps);
+        const c = await open(($) => {
+            const stepsBound = $.let(Record.bind(fx.labelledSteps));
+            const stationsBound = $.let(Record.bind(fx.labelledStations));
+            return {
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station" }),
+                lanes: Flowchart.lanes(stationsBound, { label: "label", key: (station) => station.label }),
+            };
+        }, "1");
+        // Weigh renamed, and its Save held on its way to e3.
+        await renameStep(c, "1", "Weighing");
+        const saving = h.e3.hold((request) => request.kind === "mutate" && request.record === fx.labelledSteps.name);
+        await press(SAVE);
+        await saving.holding;
+        // The Bench renamed meanwhile: refused, saying why, and the Bench stays as it was.
+        await renameLane(c, "Bench", "Counter");
+        expect(footer(c)).toBe(m.gestureRefused({ refusal: "unheld", name: "Bench", by: "states", why: "busy" }));
+        expect(footer(c)).toBe("Bench isn't changed: states that may name it take no edit now — try again in a moment");
+        expect(laneKeys(c)).toEqual(["Bench", "Oven"]);
+        // The Save landed: the same rename moves the Bench under Counter, Weighing with it.
+        await act(async () => { saving.release(); });
+        await settle();
+        await waitFor(() => expect(pending(c)).toBe(pendingText(0)));
+        await renameLane(c, "Bench", "Counter");
+        expect(laneKeys(c)).toEqual(["Counter", "Oven"]);
+        expect(await save()).toEqual([fx.labelledStations.name, fx.labelledSteps.name].sort(compareText));
+        const labelled = withRows(stations, compareText, [["Counter", { label: "Counter" }]]);
+        labelled.delete("Bench");
+        expect(printFor(fx.labelledStations.type)(await h.read(fx.labelledStations))).toBe(printFor(fx.labelledStations.type)(labelled));
+        expect(printFor(fx.labelledSteps.type)(await h.read(fx.labelledSteps)))
+            .toBe(printFor(fx.labelledSteps.type)(withRows(steps, compareFor(IntegerType), [[1n, { name: "Weighing", station: "Counter" }]])));
     });
 });
