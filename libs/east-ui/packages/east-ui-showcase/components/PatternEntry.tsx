@@ -222,7 +222,7 @@ function Disclosure({ label, raw }: { label: string; raw: string }) {
                 cursor="pointer"
                 px="0"
                 color={open ? "fg" : "fg.muted"}
-                _hover={{ color: "brand.700" }}
+                _hover={{ color: "brandPressed" }}
             >
                 <FontAwesomeIcon
                     icon={open ? faChevronDown : faChevronRight}
