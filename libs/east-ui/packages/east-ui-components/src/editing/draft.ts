@@ -87,10 +87,11 @@ export function liftDraft(type: EastType, value: unknown): unknown {
  * @param type - The draft schema
  * @param draft - The draft
  * @param entry - The entry's id, for its issues
- * @returns The domain value when the draft is ready, and its readiness
+ * @returns The domain value when the draft is ready; the value as far as it holds one — a field still missing, or one
+ *   that could not be read, `undefined` — which a check of each field reads; and its readiness
  * @throws {Error} When the schema is not a draft schema
  */
-export function normalizeDraft(type: EastType, draft: unknown, entry: string): { domain: unknown; readiness: BatchReadiness } {
+export function normalizeDraft(type: EastType, draft: unknown, entry: string): { domain: unknown; held: unknown; readiness: BatchReadiness } {
     const missing: Issue[] = [];
     const invalid: Issue[] = [];
     const visit = (type: EastType, value: unknown, field?: string, row?: number): unknown => {
@@ -116,7 +117,7 @@ export function normalizeDraft(type: EastType, draft: unknown, entry: string): {
     };
     const domain = visit(type, draft);
     const readiness: BatchReadiness = invalid.length ? variant("invalid", [...invalid, ...missing]) : missing.length ? variant("incomplete", missing) : variant("ready", null);
-    return { domain: readiness.type === "ready" ? domain : undefined, readiness };
+    return { domain: readiness.type === "ready" ? domain : undefined, held: domain, readiness };
 }
 
 /** One entry's readiness, as an author's check answers it. */
@@ -180,6 +181,46 @@ export function wholeEntryReadiness(
                 issues.push(raiseIssue(result.type, { entry, row: none, field: issue.field === "" ? none : some(issue.field), message: issue.message }));
             }
         });
+        return issues.length > 0 ? variant(invalid ? "invalid" : "incomplete", issues) : variant("ready", null);
+    };
+}
+
+/**
+ * A builder's readiness with its numbers' bounds held (#1585): each entry a draft changed from the one it began from
+ * has its fields its bounds don't hold refused as a field still missing is — the builder's issues of them, over the
+ * value the draft holds as far as it holds one — beside the builder's own checks, so its Save waits. An entry drafted
+ * back to what it began from holds no Save, nor does one no draft changed: the builder flags those where it draws them.
+ *
+ * @param type - The draft schema
+ * @param breaches - An entry's issues of its bounds, given its id and the value its draft holds
+ * @param originals - The entries as the source holds them (the session's `originals`)
+ * @param ready - The builder's own checks; none by default
+ * @returns The session's `ready`
+ */
+export function boundedReadiness<E extends { readonly draft: unknown }>(
+    type: EastType,
+    breaches: (id: string, held: unknown) => readonly Issue[],
+    originals: () => ReadonlyMap<string, { readonly draft: unknown }> | undefined,
+    ready?: ((entries: ReadonlyMap<string, E>) => BatchReadiness) | undefined,
+): (entries: ReadonlyMap<string, E>) => BatchReadiness {
+    const same = equalFor(OptionType(type));
+    const optionOf = (draft: unknown) => (draft === undefined ? none : some(draft));
+    return (entries) => {
+        const own = ready?.(entries);
+        const issues: Issue[] = [];
+        let invalid = false;
+        if (own !== undefined && own.type !== "ready") {
+            invalid = own.type === "invalid";
+            for (const issue of own.value) issues.push(issue);
+        }
+        const was = originals();
+        for (const [id, entry] of entries) {
+            if (entry.draft === undefined || same(optionOf(was?.get(id)?.draft), some(entry.draft))) continue;
+            for (const issue of breaches(id, normalizeDraft(type, entry.draft, id).held)) {
+                invalid ||= issueKinds.get(issue) === "invalid";
+                issues.push(issue);
+            }
+        }
         return issues.length > 0 ? variant(invalid ? "invalid" : "incomplete", issues) : variant("ready", null);
     };
 }

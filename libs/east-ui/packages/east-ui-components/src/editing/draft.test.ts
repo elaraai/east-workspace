@@ -8,8 +8,10 @@
 
 import { expect, test } from "vitest";
 import { ArrayType, DictType, FloatType, IntegerType, SortedMap, StringType, StructType, compareFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Fields } from "@elaraai/east-ui";
 import { Editing } from "@elaraai/east-ui/internal";
-import { conflictMarks, liftDraft, presentDraft, raiseIssue, type BatchReadiness } from "./draft.js";
+import { fieldBreachIssue, fieldBreaches } from "../forms/field-form/index.js";
+import { boundedReadiness, conflictMarks, kindOfIssue, liftDraft, presentDraft, raiseIssue, type BatchReadiness } from "./draft.js";
 import { EntryMerger } from "./merge.js";
 import { DRAFT_ISSUE_TEXT } from "./messages.js";
 
@@ -76,4 +78,23 @@ test("a conflict marks the field it is in, and says where in it: a keyed map's k
     const lines = new EntryMerger(GroupDraft).merge(group(2n), group(3n), group(4n)).points;
     expect(conflictMarks(lines, GroupDraft, { field: "rows", index: 1 })).toEqual({ fields: new Set(["qty"]), within: new Map([["qty", [[]]]]), whole: false });
     expect(conflictMarks(lines, GroupDraft, { field: "rows", index: 0 })).toBeUndefined();
+});
+
+test("a changed entry's number its bounds don't hold waits as a field still missing does, naming the entry and the field in the hint's words — never one drafted back to what it began from, nor a field not given yet (#1585)", () => {
+    const specs = Fields.specs(Row, { qty: Fields.number({ min: 1n, max: 9n }) });
+    const draft = (id: string, qty: bigint | undefined) => ({ id: variant("value", id), qty: qty === undefined ? variant("missing", null) : variant("value", qty) });
+    const originals = new Map([["a", { draft: draft("a", 1n) }], ["b", { draft: draft("b", 0n) }]]);
+    const breaches = (id: string, held: unknown) => fieldBreaches(specs, held).map((breach) => fieldBreachIssue(breach, { entry: id }));
+    const ready = boundedReadiness(Draft, breaches, () => originals);
+    // A: 1 drafted to 0. B: stored at 0 and drafted back to it. C: new, its quantity not given yet. D: new, at 10.
+    const entries = new Map([["a", { draft: draft("a", 0n) }], ["b", { draft: draft("b", 0n) }], ["c", { draft: draft("c", undefined) }], ["d", { draft: draft("d", 10n) }]]);
+    const readiness = ready(entries);
+    expect(readiness.type).toBe("incomplete");
+    const issues = readiness.type === "ready" ? [] : readiness.value;
+    expect(issues.map((issue) => [issue.entry, issue.field, issue.message])).toEqual([["a", some("qty"), "at least 1"], ["d", some("qty"), "at most 9"]]);
+    expect(issues.map((issue) => kindOfIssue(issue, readiness as Exclude<BatchReadiness, { type: "ready" }>))).toEqual(["incomplete", "incomplete"]);
+    // Beside the builder's own refusal, the batch is the refusal's kind and holds both.
+    const refused = boundedReadiness(Draft, breaches, () => originals, () => variant("invalid", [raiseIssue("invalid", { entry: "b", row: none, field: none, message: "Refused" })]));
+    const both = refused(entries);
+    expect([both.type, both.type === "ready" ? 0 : both.value.length]).toEqual(["invalid", 3]);
 });

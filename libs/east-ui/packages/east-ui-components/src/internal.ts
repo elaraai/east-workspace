@@ -66,7 +66,8 @@ export { dateToCalendarDate, dateValueToDate } from "./forms/input/index.js";
 export { HistoryBar } from "./editing/HistoryBar.js";
 export { EditingScope } from "./editing/scope.js";
 export {
-    CLEAN_DRAFT, conflictMarks, kindOfIssue, normalizeDraft, presentDraft, raiseIssue, wholeEntryReadiness, type ConflictMarks, type DraftPresentation,
+    CLEAN_DRAFT, boundedReadiness, conflictMarks, kindOfIssue, normalizeDraft, presentDraft, raiseIssue, wholeEntryReadiness, type ConflictMarks,
+    type DraftPresentation,
 } from "./editing/draft.js";
 export { DRAFT_ISSUE_TEXT, SESSION_TEXT, type EditHistoryWord } from "./editing/messages.js";
 export { type EditSource } from "./editing/use-edit-session.js";

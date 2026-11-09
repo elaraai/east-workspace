@@ -111,8 +111,10 @@ import {
 import { EastChakraRadioGroup, type RadioGroupValue } from "../radio-group/index.js";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
-import { useFormatters } from "../../format/index.js";
+import { formatters as formattersIn, useFormatters } from "../../format/index.js";
 import { useValueSync } from "../../hooks/useValueSync.js";
+import { raiseIssue } from "../../editing/draft.js";
+import type { EditIssue } from "../../editing/session.js";
 import { EastChakraField, type FieldValue } from "../field/index.js";
 import { EastChakraCheckbox } from "../checkbox/index.js";
 import { fieldFormMessages, type FieldFormWords } from "./messages.js";
@@ -446,6 +448,24 @@ export function fieldBreaches(specs: readonly FieldSpecValue[], value: unknown):
 export function fieldBreachText(breach: Pick<FieldBreach, "side" | "bound">, words: FieldFormWords): string {
     const bound = words.number(breach.bound);
     return words.m.numberHelp({ min: breach.side === "min" ? bound : undefined, max: breach.side === "max" ? bound : undefined, unit: undefined, step: undefined });
+}
+
+/** The words a breach's issue says: canonical English, as every issue a patch event carries. */
+const ISSUE_WORDS: FieldFormWords = { ...formattersIn("en-US"), m: fieldFormMessages };
+
+/**
+ * A breach as an issue of a builder's readiness (#1585): raised as a field still missing is, so the row it names reads
+ * incomplete and a changed row's Save waits, naming the entry, its line and the field, and the bound in its hint's own
+ * words — canonical English, as every issue a patch event carries, which a surface shows as written.
+ *
+ * @param breach - The bound broken
+ * @param at - The entry; its line in its group, none by default; and the field as the builder's issues name it, the breach's key by default
+ * @returns The issue
+ */
+export function fieldBreachIssue(breach: FieldBreach, at: { readonly entry: string; readonly row?: bigint | undefined; readonly field?: string | undefined }): EditIssue {
+    return raiseIssue("incomplete", {
+        entry: at.entry, row: at.row === undefined ? none : some(at.row), field: some(at.field ?? breach.key), message: fieldBreachText(breach, ISSUE_WORDS),
+    });
 }
 
 /** A number editor's help line — `1–20 people · step 1` — in the form's words and its locale's figures, or none for a bare number. */
