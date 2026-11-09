@@ -39,12 +39,15 @@
  *   renamed back to build it, stays under it.
  * - **Details' lists** (#1584): the bakery's move (`flowchartBakery`) offers
  *   its ends in their numbers' order, never the drawing's.
+ * - **A new step's portion** (#1585): the bakery's new step starts as a whole
+ *   loaf, which its field allows, and Sliced, chosen, at the least its Slices
+ *   field allows.
  */
 
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { BlobType, DateTimeType, East, FloatType, IntegerType, SortedMap, StringType, compareFor, equalFor, printFor, type BlockBuilder } from "@elaraai/east";
+import { BlobType, DateTimeType, East, FloatType, IntegerType, SortedMap, StringType, compareFor, equalFor, printFor, variant, type BlockBuilder } from "@elaraai/east";
 import { RecordSlicesChromeType, Slice, recordSlicesChrome, type UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Flowchart, Record } from "@elaraai/e3-ui/internal";
@@ -517,6 +520,24 @@ test("the bakery's move offers its From and To steps in their numbers' order —
     const steps = ["10 · Mix", "20 · Proof", "30 · Bake", "40 · Cool"];
     expect(await choicesOf(c, "from")).toEqual(steps);
     expect(await choicesOf(c, "to")).toEqual(steps);
+});
+
+test("the bakery's new step starts as a whole loaf, never Sliced at 0, under the least its Slices field allows; Sliced, chosen, starts at 1 slice; and Save writes it so (#1585)", async () => {
+    const { container: c } = await h.mountExample(ex.flowchartBakery);
+    await waitFor(() => expect(node(c, "10")).not.toBeNull());
+    await settle();
+    await addStateNamed(c, "1", "Shape");
+    expect(node(c, "41")?.hasAttribute("data-selected")).toBe(true);
+    // The portion's choice made, by its words, and the block of the chosen case's fields: a whole loaf has none.
+    const choices = () => [...field(c, "portion").querySelectorAll<HTMLElement>("[data-field-choice=radio] [data-scope=radio-group][data-part=item]")];
+    const chosen = () => choices().find((item) => item.matches("[data-state=checked]"))?.textContent ?? null;
+    expect([chosen(), panel(c).querySelector("[data-field-block='portion']")]).toEqual(["Whole loaf", null]);
+    await gesture(() => { fireEvent.click(choices().find((item) => item.textContent === "Sliced")!.querySelector("input")!); });
+    expect([chosen(), within(field(c, "portion.sliced")).getByRole<HTMLInputElement>("spinbutton").value]).toEqual(["Sliced", "1"]);
+    expect(await save()).toEqual([ex.bakerySteps.name]);
+    const shaped = [...(await h.read(ex.bakerySteps))].find(([key]) => equalFor(IntegerType)(key, 41n));
+    expect(shaped, "the new step is written under 41").toBeDefined();
+    expect([shaped![1].name, printFor(ex.BakeryPortion)(shaped![1].portion)]).toEqual(["Shape", printFor(ex.BakeryPortion)(variant("sliced", 1n))]);
 });
 
 // ============================================================================

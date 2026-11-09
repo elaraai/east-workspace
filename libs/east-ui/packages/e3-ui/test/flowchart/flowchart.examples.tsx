@@ -52,7 +52,8 @@ import e3 from "@elaraai/e3";
 // - `flowchartBakery`, a bakery's line keyed as the bakery keys it (#1549): its
 //   steps and its stations by number, in their numbers' order, each move by
 //   the two steps it joins, built from the row as Connect makes it; and each
-//   step's portioning a variant, edited in the inspector as a block.
+//   step's portioning a variant, edited in the inspector as a block, a new
+//   step's a whole loaf.
 //
 // Every record but the bakery's is keyed by String. Each binds its records
 // from e3, so the showcase draws each on e3-web. A
@@ -1126,8 +1127,8 @@ export const bakeryMoves = e3.record("flowchart_bakery_moves", DictType(BakeryMo
 
 export const flowchartBakery = example({
     keywords: ["Flowchart", "key type", "IntegerType", "Integer keys", "struct keys", "key", "Flowchart.transitions", "Connect",
-        "Fields.select", "cases", "variant", "block", "inspector", "records", "Record.bind"],
-    description: "A bakery's line over records keyed as the bakery keys them: its steps and its stations by number, a new one numbered one past the largest, and each move by the two steps it joins — Connect makes the move, then its key from its ends, and a second move between the same two steps is refused; each step's portioning a variant whose cases hold data, edited in the inspector as a choice with the chosen case's fields in a block under it",
+        "Fields.select", "cases", "variant", "block", "inspector", "records", "Record.bind", "values"],
+    description: "A bakery's line over records keyed as the bakery keys them: its steps and its stations by number, a new one numbered one past the largest, and each move by the two steps it joins — Connect makes the move, then its key from its ends, and a second move between the same two steps is refused; each step's portioning a variant whose cases hold data, edited in the inspector as a choice with the chosen case's fields in a block under it, a new step's a whole loaf from the states' `values`",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const steps = $.let(Record.bind(bakerySteps));
@@ -1138,6 +1139,9 @@ export const flowchartBakery = example({
                     <Flowchart
                         states={Flowchart.states(steps, {
                             label: "name", lane: "station", order: "seq",
+                            // A new step starts as a whole loaf. Its portion's type default, Sliced at 0, is under the
+                            // least its Slices field allows: the form holds what it makes to that least, never a value given it.
+                            values: () => ({ portion: variant("whole", null) }),
                             fields: {
                                 // A variant whose cases hold data: a choice, and the chosen case's fields in a block under it.
                                 portion: Fields.select({
