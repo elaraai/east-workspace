@@ -28,13 +28,13 @@
  * or the shift's day across the groups, in the inspector; Hide requirements takes the cards away; while a week is read,
  * each figure is a placeholder.
  */
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { ArrayType, DateTimeType, IntegerType, SortedSet, StringType, compareFor, parseFor, variant } from "@elaraai/east";
+import { ArrayType, DateTimeType, IntegerType, SortedSet, StringType, compareFor, parseFor, toEastTypeValue, variant } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { signed } from "./demand.js";
-import { DAY, slotKey, weekKey } from "./model.js";
+import { DAY, rosterDomain, slotKey, weekKey } from "./model.js";
 import { NEXT, START, act, narrow, open, press, rosterHarness, scrollsAsAPageDoes, settle, slot, width, type Choice } from "./harness.test-utils.js";
 
 const h = rosterHarness();
@@ -553,6 +553,38 @@ describe("the People layout's work requirement by month (#1568)", () => {
             await waitFor(() => expect(figuresOf(slot(c, "end"))).toEqual(laneFigures(words)));
             expect(slot(c, "end").textContent).toContain(`Shift · ${label}`);
         }
+    });
+
+    test("a change to one of the month's weeks works out that week's coverage again and no other's: the weeks it leaves keep theirs, and the week the inspector reads is its own", async () => {
+        const { container: c } = await open(ex.rosterWorkRequirement);
+        await press(toolbar(c).getByRole("radio", { name: "Month" }));
+        const lane = slot(c, "main").querySelector<HTMLElement>("[data-roster-lane]")!;
+        const key = lane.getAttribute("data-roster-lane")!;
+        const group = lane.getAttribute("data-roster-lane-group")!, shift = lane.getAttribute("data-roster-lane-shift")!;
+        const mark = (day: number) => said(laneMarks(c, key, START)[day]!.getAttribute("aria-label")!);
+        const duties = await h.read(ex.rosterDuties);
+        const dayOf = (start: Date) => Math.floor((start.getTime() - START.getTime()) / DAY);
+        const inOpenWeek = (start: Date) => byDate(start, START) >= 0 && byDate(start, NEXT) < 0;
+        // A duty of the open week — the month's second — on the lane's shift, on a day its mark counts it: another session takes it off.
+        const [taken, duty] = [...duties].find(([, d]) => inOpenWeek(d.start) && d.team === group && d.shift === shift && mark(dayOf(d.start)) !== "no target")!;
+        const before = mark(dayOf(duty.start));
+        // Another duty of the open week, and one of the month's first week: with nothing selected, the week the inspector reads.
+        const kept = [...duties].find(([k, d]) => k !== taken && inOpenWeek(d.start))![0];
+        const first = [...duties].find(([, d]) => byDate(d.start, MONTH[0]!) >= 0 && byDate(d.start, START) < 0)![0];
+        const domain = rosterDomain(toEastTypeValue(ex.WarehouseDuty));
+        const calls = vi.spyOn(domain, "coverage");
+        try {
+            duties.delete(taken);
+            await h.patch(ex.rosterDuties, duties);
+            await waitFor(() => expect(mark(dayOf(duty.start))).not.toBe(before));
+            await settle();
+            const weeks = calls.mock.calls.map(([week]) => week);
+            // The open week worked out once, without the duty taken off; the first, the inspector's, as its own coverage alone.
+            expect(weeks.filter(week => week.assignments.has(kept))).toHaveLength(1);
+            expect(weeks.filter(week => week.assignments.has(taken))).toEqual([]);
+            // No other week — the three after, which the change leaves as they were — is worked out again.
+            expect(weeks.filter(week => !week.assignments.has(kept) && !week.assignments.has(first))).toEqual([]);
+        } finally { calls.mockRestore(); }
     });
 
     test("with no bands a mark selects the shift's day across the groups in its week, the inspector summing them as the mark says it", async () => {

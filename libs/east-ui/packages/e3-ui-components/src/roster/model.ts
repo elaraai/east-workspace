@@ -812,6 +812,48 @@ export class RosterPayCache {
     }
 }
 
+/** A week's coverage as last worked out: the week it was worked out over, and the coverage. */
+interface WorkedOut { readonly week: Week; readonly coverage: ReadonlyMap<Slot, Coverage> }
+
+/**
+ * Each week of a month's coverage, as the People layout's work requirement
+ * sums it (#1568): its hours alone, no pay asked, each week's kept by the week
+ * as it was worked out over, so a change works out again only the weeks it
+ * changed — an edit in one week leaves the others' standing. The week the
+ * inspector reads is given its own coverage, whose hours its pay leaves as
+ * they are. A new domain or context works out every week again.
+ */
+export class RosterSpanCoverage {
+    private kept = new Map<number, WorkedOut>();
+    private domain: RosterDomain | undefined;
+    private context: Context | undefined;
+
+    /**
+     * The span's coverage, a week at a time.
+     *
+     * @param domain - The duty row type's domain
+     * @param context - The configuration, kept by identity
+     * @param weeks - The span's weeks, each its first day and the week as drafted
+     * @param primary - The week the inspector reads, by its first day, and its coverage, the pay's costs in it
+     * @returns Each week's coverage, in the span's order
+     */
+    run(domain: RosterDomain, context: Context, weeks: readonly Pick<WeekState, "start" | "week">[],
+        primary: { readonly start: Date; readonly coverage: ReadonlyMap<Slot, Coverage> }): readonly ReadonlyMap<Slot, Coverage>[] {
+        if (!Object.is(domain, this.domain) || !Object.is(context, this.context)) { this.kept.clear(); this.domain = domain; this.context = context; }
+        const next = new Map<number, WorkedOut>();
+        const made = weeks.map(({ start, week }) => {
+            const before = this.kept.get(start.getTime());
+            const coverage = compareDate(start, primary.start) === 0 ? primary.coverage
+                : before !== undefined && domain.sameWeek(before.week, week) ? before.coverage
+                : domain.coverage(week, context, NO_PAY.pay);
+            next.set(start.getTime(), { week, coverage });
+            return coverage;
+        });
+        this.kept = next;
+        return made;
+    }
+}
+
 
 /** A pay's costs, totalled: in all, and by code. */
 export interface Costs { readonly total: number; readonly byCode: SortedMap<string, number> }

@@ -60,7 +60,7 @@ import { useRosterInspector, type RosterRefusal } from "./inspector.js";
 import { useRosterLibrary } from "./library.js";
 import { rosterMessages, type RosterWords } from "./messages.js";
 import {
-    DAY, NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, availableProposals, byDay, compareDate, configError, dayOfSlot, editableStatus, groupOf, NO_GROUP, periodOn, periodsText,
+    DAY, NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, RosterSpanCoverage, availableProposals, byDay, compareDate, configError, dayOfSlot, editableStatus, groupOf, NO_GROUP, periodOn, periodsText,
     placeDrafted, placeStored, placeTargets, rosterContext, rosterDomain, rosterReferenceCheckEncoder, selectionWeek, slotOfPlace, spanWindow, spanWords, started, takesEdits, weekBefore, weekKey, weekNumber, weekOf,
     weekPeriods, weekSpan, weekStart, type Assignment, type Coverage, type DraftedDuty, type Issue, type PlacedDuties, type PlacedPeriod, type RosterPayload, type RosterStyles,
     type RosterValue, type Selection, type Slot, type StoredDuty, type StoredTarget, type WeekPeriod, type WeekState,
@@ -252,10 +252,12 @@ function RosterFrame(props: FrameProps) {
     const weekPay = useMemo(() => source.pay.type === "some" ? payCache.current.run(domain, source.pay.value, week, start, context) : NO_PAY, [source.pay, domain, week, start, context]);
     const coverage = useMemo(() => domain.coverage(week, context, weekPay.pay), [domain, week, context, weekPay]);
     // What the People layout's work requirement sums (#1568): a week's coverage, or each of a month's weeks' — their hours
-    // alone, so no week but the one the inspector reads asks the app's pay — while the month draws it.
+    // alone, so no week but the one the inspector reads asks the app's pay — while the month draws it, each week's worked
+    // out again only as that week moves.
     const demanded = value.settings.requirements && value.targets.type === "some";
+    const spanCache = useRef(new RosterSpanCoverage());
     const spanCoverage = useMemo((): readonly ReadonlyMap<Slot, Coverage>[] => span.period !== "month" ? [coverage]
-        : demanded ? weekStates.map(state => domain.coverage(state.week, context, NO_PAY.pay)) : NO_SPAN_COVERAGE, [span.period, coverage, demanded, weekStates, domain, context]);
+        : demanded ? spanCache.current.run(domain, context, weekStates, { start, coverage }) : NO_SPAN_COVERAGE, [span.period, coverage, demanded, weekStates, domain, context, start]);
     const hours = useMemo(() => domain.hours(week, context), [domain, week, context]);
     const builtIn = useMemo(() => domain.check(week, context), [domain, week, context]);
     // Each duty's row checked against its form's bounds (#1585), once a row's bytes: a duty breaking one wears the warn

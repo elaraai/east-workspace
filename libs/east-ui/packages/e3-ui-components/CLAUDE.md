@@ -1258,7 +1258,10 @@ layout works it out, summed — a lane's day, a lane's week, a skill's, a band's
 — and what each slot is short summed on its own, so no slot's surplus nets
 another's shortfall (K4); rostered is every duty's hours, the agencies'
 requests' included (ruled 8 Nov 2026). By month the coverage is each of the
-month's weeks', its hours alone, no pay asked (`index.tsx`' `spanCoverage`).
+month's weeks', its hours alone, no pay asked (`index.tsx`' `spanCoverage`),
+each week's worked out again only as that week moves — kept by its start and
+reused while East says the week is the same (`model.ts`' `RosterSpanCoverage`),
+the week the inspector reads its own coverage.
 Under each open band, or with `peopleBands={false}` one block over every group
 at the list's head: the eyebrow, headed the vocabulary's `demand`, each day's hours
 rostered of needed; a lane a shift a target of the scope names in the week, in
