@@ -32,6 +32,11 @@
  *   it, or a station renamed while the steps' Save is on its way, is refused,
  *   saying why, and records nothing; once they are held again, the same rename
  *   moves the row, and the rows naming it with it.
+ * - **A key of several parts, and a key stored apart from its fields**
+ *   (#1581): a step's station and name typed a part at a time — the step
+ *   waiting under its placeholder, Save with it — until Set key takes them
+ *   whole; and a step an app stored under a key its name no longer builds,
+ *   renamed back to build it, stays under it.
  */
 
 import { describe, expect, test, vi } from "vitest";
@@ -581,5 +586,86 @@ describe("a key that would move while rows that may name it aren't held (#1580)"
         expect(printFor(fx.labelledStations.type)(await h.read(fx.labelledStations))).toBe(printFor(fx.labelledStations.type)(labelled));
         expect(printFor(fx.labelledSteps.type)(await h.read(fx.labelledSteps)))
             .toBe(printFor(fx.labelledSteps.type)(withRows(steps, compareFor(IntegerType), [[1n, { name: "Weighing", station: "Counter" }]])));
+    });
+});
+
+// ============================================================================
+// A key of several parts, and a key stored apart from its fields (#1581)
+// ============================================================================
+
+/**
+ * Types a number field of Details' new value, a key at a time — the shared input writes back on a frame — and commits it
+ * with ⏎: a field holding no value yet, Not set, takes Set first.
+ */
+async function retypeNumber(c: HTMLElement, key: string, text: string): Promise<void> {
+    const user = userEvent.setup();
+    const set = field(c, key).querySelector<HTMLElement>("[data-field-set]");
+    if (set !== null) await gesture(() => { fireEvent.click(set); });
+    const input = within(field(c, key)).getByRole("spinbutton");
+    await user.clear(input);
+    await settle();
+    for (const ch of text) {
+        await user.type(input, ch);
+        await settle();
+        await act(async () => { for (let i = 0; i < 3; i++) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); });
+    }
+    await user.type(input, "{Enter}");
+    await settle();
+}
+
+/** Types a text field of Details' new text and commits it with ⏎. */
+async function retypeText(c: HTMLElement, key: string, text: string): Promise<void> {
+    const user = userEvent.setup();
+    const box = within(field(c, key)).getByRole("textbox");
+    await user.clear(box);
+    await user.type(box, text);
+    await user.type(box, "{Enter}");
+    await settle();
+}
+
+describe("a key of several parts, and a key stored apart from its fields (#1581)", () => {
+    test("keyed by station and name the kind builds none of, a new step's key is typed a part at a time: its station alone is no key, so the step waits under its placeholder, Save with it, until Set key takes the station and the name whole; and Save writes it", async () => {
+        const steps = await h.read(fx.placedSteps);
+        const place = printFor(fx.StepPlace);
+        const c = await open(($) => {
+            const stepsBound = $.let(Record.bind(fx.placedSteps));
+            const stationsBound = $.let(Data.bind(fx.keyedStations));
+            return {
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station" }),
+                lanes: Flowchart.lanes(stationsBound, { label: "label" }),
+            };
+        }, place({ station: 2n, name: "Weigh" }));
+        await addStateNamed(c, "2", "Knead");
+        expect([node(c, "state-3")?.hasAttribute("data-selected"), enabled(SAVE)]).toEqual([true, false]);
+        // Its station typed: no key yet — the step waits on, and Save with it.
+        await retypeNumber(c, "key.station", "2");
+        expect([node(c, "state-3") !== null, enabled(SAVE)]).toEqual([true, false]);
+        // Its name typed, then Set key: the step under (2, Knead), still selected.
+        await retypeText(c, "key.name", "Knead");
+        expect(node(c, "state-3")).not.toBeNull();
+        await gesture(() => { fireEvent.click(panel(c).querySelector("[data-inspector-key-set]")!); });
+        expect([node(c, "state-3"), node(c, place({ station: 2n, name: "Knead" }))?.hasAttribute("data-selected"), enabled(SAVE)]).toEqual([null, true, true]);
+        expect(await save()).toEqual([fx.placedSteps.name]);
+        expect(printFor(fx.placedSteps.type)(await h.read(fx.placedSteps)))
+            .toBe(printFor(fx.placedSteps.type)(withRows(steps, compareFor(fx.StepPlace), [[{ station: 2n, name: "Knead" }, { name: "Knead", station: 2n }]])));
+    });
+
+    test("a step an app stored under Fold at the bench, its name Folding, renamed back to Fold stays under its key, refusing nothing; and Save writes its name", async () => {
+        const place = printFor(fx.StepPlace);
+        const steps = withRows(await h.read(fx.placedSteps), compareFor(fx.StepPlace), [[{ station: 2n, name: "Fold" }, { name: "Folding", station: 2n }]]);
+        await h.patch(fx.placedSteps, steps);
+        const c = await open(($) => {
+            const stepsBound = $.let(Record.bind(fx.placedSteps));
+            const stationsBound = $.let(Data.bind(fx.keyedStations));
+            return {
+                states: Flowchart.states(stepsBound, { label: "name", lane: "station", key: (step) => ({ station: step.station, name: step.name }) }),
+                lanes: Flowchart.lanes(stationsBound, { label: "label" }),
+            };
+        }, place({ station: 2n, name: "Fold" }));
+        await renameStep(c, place({ station: 2n, name: "Fold" }), "Fold");
+        expect([footer(c), node(c, place({ station: 2n, name: "Fold" })) !== null, pending(c)]).toEqual(["", true, pendingText(1)]);
+        expect(await save()).toEqual([fx.placedSteps.name]);
+        expect(printFor(fx.placedSteps.type)(await h.read(fx.placedSteps)))
+            .toBe(printFor(fx.placedSteps.type)(withRows(steps, compareFor(fx.StepPlace), [[{ station: 2n, name: "Fold" }, { name: "Fold", station: 2n }]])));
     });
 });

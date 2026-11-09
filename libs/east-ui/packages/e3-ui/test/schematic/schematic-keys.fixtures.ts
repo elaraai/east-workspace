@@ -36,6 +36,13 @@
  *   numbered 5 (`timedChutes`).
  * - **Crates keyed by their tags' bytes** (`taggedCrates`) — Blob keys, which
  *   no form types, so no crate is added: Crate 7.
+ * - **Pegs keyed by a row and a column the viewer types** (`typedPegs`) — a key
+ *   of two parts their kind builds none of: 2-0 and 0-2, each holding what one
+ *   part typed alone, the other at its default, would be (#1581).
+ * - **Tiles keyed by the cell their centre stands in** (`cellTiles`) — the key
+ *   the tiles' `key` builds from where each stands, a cell 4 m wide: West in
+ *   cell 2 and East in cell 3, side by side, so a drag of both one cell along
+ *   moves West under East's key as East leaves it (#1581).
  *
  * @packageDocumentation
  */
@@ -198,5 +205,26 @@ export const KeyedCrate = StructType({ name: StringType, x: FloatType, y: FloatT
 /** The floor's crates, by their tags' bytes: Crate 7. */
 export const taggedCrates = e3.record("schematic_tagged_crates", DictType(BlobType, KeyedCrate), {
     initial: new SortedMap([[CRATE_7, { name: "Crate 7", x: 24.0, y: 3.0 }]], compareFor(BlobType)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+/** A peg: its name, and where its centre stands. */
+export const TypedPeg = StructType({ name: StringType, x: FloatType, y: FloatType });
+
+/** The floor's pegs, by a row and a column the viewer types: 2-0 and 0-2. */
+export const typedPegs = e3.record("schematic_typed_pegs", DictType(SpotKey, TypedPeg), {
+    initial: new SortedMap([
+        [{ row: 2n, col: 0n }, { name: "2-0", x: 6.0, y: 12.0 }],
+        [{ row: 0n, col: 2n }, { name: "0-2", x: 10.0, y: 12.0 }],
+    ], compareFor(SpotKey)),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+/** A floor tile: its name, and where its centre stands, whose cell is its key. */
+export const CellTile = StructType({ name: StringType, x: FloatType, y: FloatType });
+
+/** The floor's tiles, by the cell their centre stands in, 4 m wide: West in cell 2 and East in cell 3. */
+export const cellTiles = e3.record("schematic_cell_tiles", DictType(IntegerType, CellTile), {
+    initial: new SortedMap([[2n, { name: "West", x: 10.0, y: 3.0 }], [3n, { name: "East", x: 14.0, y: 3.0 }]], compareNumber),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });

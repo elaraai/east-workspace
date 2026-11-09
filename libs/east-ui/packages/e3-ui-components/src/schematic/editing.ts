@@ -182,7 +182,8 @@ export interface SchematicEditing {
     stands(slot: string, key: string): boolean;
     /**
      * The rows a gesture moves under the keys their fields build once it writes them (#1549): each row it finds held —
-     * never one it makes — whose kind builds its key from its row, where the key its row builds changes.
+     * never one it makes — whose kind builds its key from its row, where the key its row builds changes, to another than
+     * the one it stands under — a row whose fields an app wrote apart from its key, edited back to build it, stays (#1581).
      *
      * @param edits - The gesture's edits
      * @returns Each row it moves, and the key it moves under
@@ -526,7 +527,9 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
                     break;
                 case "move": {
                     // The row, or its details row, under its new key as the gesture finds it, and gone from its own (#1549): a
-                    // details row the record holds none of moves nothing; a row gone, or still read, refuses the gesture.
+                    // details row the record holds none of moves nothing; a row gone, or still read, refuses the gesture. In a
+                    // swap or a shift (#1581) it replaces the row moving off its new key, never a new one, and its own key,
+                    // which another row moves under, stays.
                     const record = edit.details === true ? detailsKey(slot) : slot;
                     const found = rowNow(record, id);
                     if (found.state === "reading") return undefined;
@@ -534,7 +537,8 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
                         if (edit.details === true) break;
                         return undefined;
                     }
-                    changes.push({ kind: record, id: edit.to, row: found.row, created: true }, { kind: record, id, remove: true });
+                    changes.push({ kind: record, id: edit.to, row: found.row, ...(edit.replaces === true ? {} : { created: true as const }) });
+                    if (edit.refilled !== true) changes.push({ kind: record, id, remove: true });
                     break;
                 }
             }
@@ -630,7 +634,7 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
             if (made.has(id) || build === undefined || was === undefined || after === undefined) continue;
             try {
                 const to = build(after);
-                if (!stringEqual(build(was), to)) out.push({ ref: { kind: record, key }, to });
+                if (!stringEqual(build(was), to) && !stringEqual(key, to)) out.push({ ref: { kind: record, key }, to });
             } catch (err) {
                 console.error(`[Schematic] ${kind?.name ?? record}'s key could not be built from ${key}'s row:`, err);
             }

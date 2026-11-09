@@ -45,9 +45,10 @@
  * - **A key built from the row follows the row** (#1549, `followBuiltKeys`):
  *   a gesture writing the fields its kind's `key` reads moves the row under the
  *   key they build, and what names the row follows — refused, naming the row,
- *   where another row holds that key, and while a kind that may name it isn't
- *   held whole (#1580): the rail hides some of its rows, or it takes no edit now
- *   — a Save in flight — so what it leaves would keep the old key.
+ *   where another row holds that key once the gesture is made, so a swap or a
+ *   shift passes (#1581), and while a kind that may name it isn't held whole
+ *   (#1580): the rail hides some of its rows, or it takes no edit now — a Save
+ *   in flight — so what it leaves would keep the old key.
  *
  * A kind read only takes no gesture of its own (R13). Where a gesture reaches
  * past its own kind — the transitions a state's Del deletes, the queues it
@@ -725,7 +726,8 @@ export function setRow(holding: FlowchartHolding, sort: FlowchartSort, key: stri
  * A new row's key, changed in the form before Save (R9): the row under its new
  * key, and the transitions naming a state and the decisions queuing it, or the
  * states naming a lane, following it — those drawn, those hidden with their far
- * end and those waiting. A key the flowchart holds already is refused.
+ * end and those waiting. A key a row of the flowchart stands under already is
+ * refused; one whose row a draft deletes is free (#1581).
  *
  * @param holding - What the gesture reads
  * @param sort - The row's kind: a state's or a lane's
@@ -734,7 +736,7 @@ export function setRow(holding: FlowchartHolding, sort: FlowchartSort, key: stri
  * @returns Its edits; `undefined` for a key taken or empty, or while the kind takes no gesture
  */
 export function rekey(holding: FlowchartHolding, sort: "states" | "lanes", from: string, to: string): GestureEdits | undefined {
-    if (!holding.can(sort) || to.length === 0 || keyEqual(from, to) || holding.taken(sort, to)) return undefined;
+    if (!holding.can(sort) || to.length === 0 || keyEqual(from, to) || holding.stands(sort, to)) return undefined;
     const unheld = unheldNamer(holding, [{ sort, key: from }]);
     if (unheld !== undefined) return refusedFor(unheld);
     return { edits: [{ op: "copy", sort, key: to, from }, { op: "remove", sort, key: from }, ...namers(holding, sort, from, to)], key: to };
@@ -827,14 +829,33 @@ function sortOfEdit(edit: FlowchartEdit): FlowchartSort {
 const FOLLOWS = 4;
 
 /**
+ * Whether a key a row moves to is held once the gesture is made (#1581):
+ * another row moves there too, or a row stands there that the gesture leaves
+ * there — a row moving off it frees it, so a swap or a shift passes.
+ *
+ * @param holding - What the gesture reads
+ * @param moves - The rows the gesture moves
+ * @param move - The row moving
+ * @returns Whether its new key is held
+ */
+function heldOnceMoved(holding: FlowchartHolding, moves: readonly FlowchartMove[], move: FlowchartMove): boolean {
+    const at = (sort: FlowchartSort, key: string): boolean => sort === move.sort && keyEqual(key, move.to);
+    if (moves.some((other) => other !== move && at(other.sort, other.to))) return true;
+    return holding.stands(move.sort, move.to) && !moves.some((other) => at(other.sort, other.key));
+}
+
+/**
  * A gesture's edits with each row whose kind builds its key from its row
  * moved under the key its fields build once the gesture writes them (#1549):
  * the row copied under its new key before any of its edits, so each writes it
  * there; then gone from its old key; then what names it following — a lane's
  * states, a state's transitions and the decisions queuing it — whose own keys,
- * built from what they name, move them in turn. A key another row holds, or another moving row takes,
- * refuses the gesture, naming that key; so does a kind that may name a moving row the flowchart doesn't hold
- * whole (#1580).
+ * built from what they name, move them in turn. A key another row stands under
+ * once the gesture is made, or another moving row takes, refuses the gesture,
+ * naming that key — one a row moves off is free, so a swap or a shift passes,
+ * the row copied onto it replacing the one moving off, whose key it leaves
+ * standing (#1581); so does a kind that may name a moving row the flowchart
+ * doesn't hold whole (#1580).
  *
  * @param holding - What the gesture reads
  * @param made - The gesture's edits
@@ -849,19 +870,21 @@ export function followBuiltKeys(holding: FlowchartHolding, made: GestureEdits): 
         const moves = holding.moves(edits);
         if (moves.length === 0) break;
         for (const move of moves) {
-            const both = moves.some((other) => other !== move && other.sort === move.sort && keyEqual(other.to, move.to));
-            if (both || holding.stands(move.sort, move.to)) return refusedFor({ refusal: "taken", sort: move.sort, key: move.to });
+            if (heldOnceMoved(holding, moves, move)) return refusedFor({ refusal: "taken", sort: move.sort, key: move.to });
         }
         const unheld = unheldNamer(holding, moves);
         if (unheld !== undefined) return refusedFor(unheld);
         const to = (sort: FlowchartSort, key: string) => moves.find((move) => move.sort === sort && keyEqual(move.key, key))?.to;
+        // A row copied onto a key another moving row leaves replaces that row; a key another moving row takes stays.
+        const vacated = (move: FlowchartMove) => moves.some((other) => other.sort === move.sort && keyEqual(other.key, move.to));
+        const refilled = (move: FlowchartMove) => moves.some((other) => other.sort === move.sort && keyEqual(other.to, move.key));
         edits = [
-            ...moves.map((move): FlowchartEdit => ({ op: "copy", sort: move.sort, key: move.to, from: move.key })),
+            ...moves.map((move): FlowchartEdit => ({ op: "copy", sort: move.sort, key: move.to, from: move.key, ...(vacated(move) ? { replaces: true as const } : {}) })),
             ...edits.map((edit): FlowchartEdit => {
                 const moving = edit.op === "copy" || edit.op === "remove" ? undefined : to(sortOfEdit(edit), edit.key);
                 return moving === undefined ? edit : { ...edit, key: moving };
             }),
-            ...moves.map((move): FlowchartEdit => ({ op: "remove", sort: move.sort, key: move.key })),
+            ...moves.filter((move) => !refilled(move)).map((move): FlowchartEdit => ({ op: "remove", sort: move.sort, key: move.key })),
             ...moves.flatMap((move) => namers(holding, move.sort, move.key, move.to)),
         ];
         moved.push(...moves);

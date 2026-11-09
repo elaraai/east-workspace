@@ -123,9 +123,10 @@ export type FlowchartEdit =
     | { readonly op: "row"; readonly sort: FlowchartSort; readonly key: string; readonly row: Uint8Array }
     /**
      * A new row under `key`, a copy of the row under `from` as its session finds it — a duplicate, or a new row under the
-     * key the form gives it — its order written where given.
+     * key the form gives it — its order written where given. In a swap or a shift (#1581) it `replaces` the row the
+     * gesture moves off `key`, never a new one.
      */
-    | { readonly op: "copy"; readonly sort: FlowchartSort; readonly key: string; readonly from: string; readonly order?: number | undefined }
+    | { readonly op: "copy"; readonly sort: FlowchartSort; readonly key: string; readonly from: string; readonly order?: number | undefined; readonly replaces?: true }
     | { readonly op: "remove"; readonly sort: FlowchartSort; readonly key: string };
 
 /** What the key check says, in the flowchart's words. */
@@ -235,7 +236,8 @@ export interface FlowchartEditing {
     newKey(sort: FlowchartSort, made: FlowchartEdit, madeUp: (taken: (key: string) => boolean) => string, minted?: ReadonlySet<string>): FlowchartNewKey | undefined;
     /**
      * The rows a gesture moves under the keys their fields build once it writes them (#1549): each row it finds held —
-     * never one it makes — whose kind builds its key from its row, where the key its row builds changes.
+     * never one it makes — whose kind builds its key from its row, where the key its row builds changes, to another than
+     * the one it stands under — a row whose fields an app wrote apart from its key, edited back to build it, stays (#1581).
      *
      * @param edits - The gesture's edits
      * @returns Each row it moves, and the key it moves under
@@ -555,7 +557,7 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
                         if (placed.type !== "some") return undefined;
                         row = placed.value;
                     }
-                    changes.push({ kind: edit.sort, id: edit.key, row, created: true });
+                    changes.push({ kind: edit.sort, id: edit.key, row, ...(edit.replaces === true ? {} : { created: true as const }) });
                     break;
                 }
                 case "remove":
@@ -657,7 +659,7 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
             if (made.has(id) || build === undefined || was === undefined || after === undefined) continue;
             try {
                 const to = build(after);
-                if (!stringEqual(build(was), to)) out.push({ sort, key, to });
+                if (!stringEqual(build(was), to) && !stringEqual(key, to)) out.push({ sort, key, to });
             } catch (err) {
                 console.error(`[Flowchart] ${kindOf(payload, sort)?.name ?? sort}'s key could not be built from ${key}'s row:`, err);
             }

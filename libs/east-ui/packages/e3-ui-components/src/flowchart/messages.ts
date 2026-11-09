@@ -314,6 +314,10 @@ export interface FlowchartMessages extends EditingMessages, HiddenWords, PagedLo
     inspectorField: (p: { field: Exclude<FlowchartFieldWord, "moveTo"> } | { field: "moveTo"; name: string }) => string;
     /** The line under a new row's key field. */
     inspectorKeyHelp: () => string;
+    /** The line under a new row's key of several parts — a struct's fields, a variant's case and its value (#1581). */
+    inspectorKeyPartsHelp: () => string;
+    /** A key of several parts' Set, which takes it whole (#1581). */
+    inspectorKeySet: () => string;
     /** A row in a select of the inspector's — `SCN · Scan`. */
     inspectorChoice: (p: { key: string; label: string }) => string;
     /** A part's head in Details — `Transitions · 3`, `In · 2`, `Evidence`; `name` is the transitions kind's. */
@@ -626,6 +630,8 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
         },
         inspectorField: (p) => (p.field === "moveTo" ? `Move to ${p.name}` : FIELDS[p.field]),
         inspectorKeyHelp: () => "A new row's key can change until it is saved; what names it follows the change.",
+        inspectorKeyPartsHelp: () => "Type each part, then Set key: the row takes the key whole, and Save waits until it does.",
+        inspectorKeySet: () => "Set key",
         inspectorChoice: ({ key, label }) => `${key} · ${label}`,
         inspectorSection: ({ section, count, name }) => {
             switch (section) {

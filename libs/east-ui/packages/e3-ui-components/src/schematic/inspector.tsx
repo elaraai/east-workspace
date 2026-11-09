@@ -54,9 +54,12 @@
  * viewer types, its record building none — shows its key field at the head of
  * Details while it is new: the form's own editor for the key type, its help
  * line under it, washed and taking the keyboard while the item waits under a
- * placeholder, which holds Save. A key typed moves the item, and its details
- * row, under it — refused, the footer saying why, where the Schematic holds
- * it already. Until it is typed, no link's end or net's side names the item:
+ * placeholder, which holds Save. A key of several parts — a struct's fields, a
+ * variant's case and its value — is typed a part at a time and taken whole by
+ * Set key (#1581, `shared/schedule/key-draft.tsx`). A key typed moves the item,
+ * and its details row, under it — refused, the footer saying why, where a row
+ * of its kind stands under it already; a key whose row a draft deletes is free
+ * (#1581). Until it is typed, no link's end or net's side names the item:
  * Connect to…, a link's ends and a net's sides refuse it, saying so.
  *
  * Every edit is one step of the editing's history (`editing.ts`): a field
@@ -118,7 +121,8 @@ import {
 } from "@elaraai/east-ui-components";
 import { PlaceholderShape, type PlaceholderKind } from "@elaraai/east-ui-components/internal";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
-import { keyEdited, keyFieldSpecs, kindKeys } from "../shared/schedule/kind-keys.js";
+import { KeySetButton, useKeyDraft } from "../shared/schedule/key-draft.js";
+import { keyFieldSpecs, kindKeys } from "../shared/schedule/kind-keys.js";
 import { askHiding, hiddenLine, hiddenOf, type RowHidden, type RowHiding, type SourceHiding } from "../shared/schedule/hidden.js";
 import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
@@ -635,14 +639,16 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
     const keys = kindKeys(kind.keyType);
     const waiting = !keys.isKey(item.ref.key);
     const keyed = self.state.chip === "new" && self.writes && editing.keysTyped(kind.key);
-    const keySpecs = useMemo(() => (keyed ? keyFieldSpecs(keys, m.inspectorField({ field: "key" }), m.inspectorKeyHelp(), true) : []), [keyed, keys, m]);
+    const keySpecs = useMemo(() => (keyed
+        ? keyFieldSpecs(keys, m.inspectorField({ field: "key" }), keys.specs.length > 1 ? m.inspectorKeyPartsHelp() : m.inspectorKeyHelp(), true) : []),
+    [keyed, keys, m]);
     const keyIssues = useMemo(() => (waiting ? new Set(keySpecs.map((spec) => spec.path.join("."))) : undefined), [waiting, keySpecs]);
     const [keyRefused, bumpKey] = useRefused();
-    const onKey = useCallback((path: readonly string[], next: unknown) => {
+    // A key typed whole: refused where a row of its kind stands under it — one whose row a draft deletes is free (#1581).
+    const takeKey = useCallback((to: string) => {
         const from = item.ref.key;
-        const to = keys.textOf(keyEdited(keys, keys.keyOf(from), path, next));
         if (stringEqual(to, from)) return;
-        if (editing.taken(kind.key, to)) {
+        if (editing.stands(kind.key, to)) {
             say(m.inspectorKeyRefused({ name: kind.name.toLocaleLowerCase(words.locale), key: to }));
             bumpKey();
             return;
@@ -654,7 +660,8 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
         ];
         if (commit(moved, "typed", m.inspectorStep({ edit: "key", name: item.label }))) select(entityId({ kind: kind.key, key: to }));
         else bumpKey();
-    }, [item.ref, item.label, keys, kind, editing, commit, say, select, m, words.locale, bumpKey]);
+    }, [item.ref, item.label, kind, editing, commit, say, select, m, words.locale, bumpKey]);
+    const keyDraft = useKeyDraft(keys, item.ref.key, takeKey);
     // Its centre as its record holds it — what the position is tinted against; nothing for a new row.
     const stored = rowsOf(rows, item.ref).row;
     const heldAt = useMemo(() => {
@@ -697,8 +704,11 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
                 status={status} pending={self.state.chip} home />
             <Edits styles={styles} available={self.available} actions={actions}>
                 {/* A placeholder's key holds no value: its field is Not set, with Set, until it is typed. */}
-                <Form styles={styles} head={undefined} section="key" specs={keySpecs} value={{ key: keys.keyOf(item.ref.key) }} baseline={NEW_ROW}
-                    onChange={onKey} readOnly={false} refused={keyRefused} issues={keyIssues} focus={waiting ? keySpecs[0]?.path.join(".") : undefined} />
+                <Form styles={styles} head={undefined} section="key" specs={keySpecs} value={{ key: keyDraft.value }} baseline={NEW_ROW}
+                    onChange={keyDraft.onChange} readOnly={false} refused={keyRefused} issues={keyIssues} focus={waiting ? keySpecs[0]?.path.join(".") : undefined} />
+                {keyed && keyDraft.parts && (
+                    <Box css={styles.actions} data-inspector-actions="key"><KeySetButton draft={keyDraft} label={m.inspectorKeySet()} /></Box>
+                )}
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={self.own}
                     state={self.state} onField={self.onField} writes={self.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
                     refused={self.refused} />

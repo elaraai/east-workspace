@@ -16,7 +16,8 @@
  * Extend's (#1394); and a new row's key as its kind makes it, a gesture
  * naming an item still waiting for its key refused, and a row whose key its
  * fields build following them, what names it with it — and what names a new
- * item following the key typed for it (#1549). Fixtures are
+ * item following the key typed for it (#1549) — a swap or a shift passing, a
+ * key a row moves off free once the gesture is made (#1581). Fixtures are
  * real East values typed from the Schematic's East types; each gesture's
  * edits are compared as East prints them.
  */
@@ -60,7 +61,7 @@ function printed(edit: SchematicEdit): string {
         case "retype": return `retype ${printRef(edit.ref)} ${printBlob(edit.values)}`;
         case "set": return `set${edit.details === true ? " details" : ""} ${printRef(edit.ref)} ${printWrites([...edit.sets])}`;
         case "row": return `row${edit.details === true ? " details" : ""} ${printRef(edit.ref)} ${printBlob(edit.row)}`;
-        case "move": return `move${edit.details === true ? " details" : ""} ${printRef(edit.ref)} ${printString(edit.to)}`;
+        case "move": return `move${edit.details === true ? " details" : ""} ${printRef(edit.ref)} ${printString(edit.to)}${edit.replaces === true ? " replacing" : ""}${edit.refilled === true ? " refilled" : ""}`;
         case "remove": return `remove ${printRef(edit.ref)}`;
     }
 }
@@ -575,6 +576,41 @@ describe("a key built from the row follows the row (#1549)", () => {
             .toEqual({ refused: { refusal: "taken", ref: ref("racks", "A01-b") } });
         const both = holding({ moves: () => [{ ref: A01, to: "A09" }, { ref: A02, to: "A09" }] });
         expect(followBuiltKeys(both, [SET_A01])).toEqual({ refused: { refusal: "taken", ref: ref("racks", "A09") } });
+    });
+
+    test("a shift and a swap pass (#1581): a key a rack moves off is free once the gesture is made — the rack moving onto it replacing the one moving off, whose key it leaves standing — and a key a rack stays under still refuses", () => {
+        const standing = new Set(["A01", "A02", "A03"]);
+        const stands = (slot: string, key: string) => stringEqual(slot, "racks") && standing.has(key);
+        // The racks the gesture moves, the first time it is asked; none once they have moved.
+        const once = (moved: readonly SchematicMove[]) => {
+            let asked = false;
+            return (): SchematicMove[] => {
+                if (asked) return [];
+                asked = true;
+                return [...moved];
+            };
+        };
+        const SET_A02: SchematicEdit = { op: "set", ref: A02, sets: [] };
+        const at = (key: string) => ref("racks", key);
+        // A01 onto A02's key, A02 onto a free one: the run and the feed follow both.
+        const shifted = followBuiltKeys(holding({ stands, moves: once([{ ref: A01, to: "A02" }, { ref: A02, to: "A04" }]) }), [SET_A01, SET_A02]);
+        if ("refused" in shifted) throw new Error("refused");
+        expect(shifted.edits.map(printed)).toEqual([
+            `move ${printRef(A01)} ${printString("A02")} replacing`,
+            `move ${printRef(A02)} ${printString("A04")} refilled`,
+            `set ${printRef(at("A02"))} ${printWrites([])}`, `set ${printRef(at("A04"))} ${printWrites([])}`,
+            `ends ${printRef(U1)} ${printEnds({ from: at("A02"), to: ODF })}`,
+            `sides ${printRef(FEED)} ${printSides({ sources: [PDU], destinations: [at("A02"), at("A04")] })}`,
+        ]);
+        // A01 and A02 swapping keys: each replaces the other, and neither key is deleted.
+        const swapped = followBuiltKeys(holding({ stands, moves: once([{ ref: A01, to: "A02" }, { ref: A02, to: "A01" }]) }), [SET_A01, SET_A02]);
+        if ("refused" in swapped) throw new Error("refused");
+        expect(swapped.edits.map(printed).slice(0, 2)).toEqual([
+            `move ${printRef(A01)} ${printString("A02")} replacing refilled`, `move ${printRef(A02)} ${printString("A01")} replacing refilled`,
+        ]);
+        // A02 onto A03's key, which A03 stays under: refused, naming it.
+        expect(followBuiltKeys(holding({ stands, moves: once([{ ref: A01, to: "A02" }, { ref: A02, to: "A03" }]) }), [SET_A01, SET_A02]))
+            .toEqual({ refused: { refusal: "taken", ref: at("A03") } });
     });
 
     test("an item's key moving while a link or a net kind that writes and may name it isn't held whole — the filters hide some, or it isn't read — refuses the gesture, naming the item and the kind; a kind that can't name it, one read only, and a new item under a placeholder refuse nothing (#1580)", () => {

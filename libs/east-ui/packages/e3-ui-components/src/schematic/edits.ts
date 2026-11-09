@@ -39,10 +39,11 @@
  * **A key built from the row follows the row** (#1549, {@link followBuiltKeys}):
  * a gesture writing the fields its kind's `key` reads moves the row under the
  * key they build, its details row with it, and the links and nets naming an
- * item follow — refused, naming the row, where another row holds that key,
- * and where a link or net kind that may name a moving item isn't held whole
- * (#1580): its rows the rail's filters hide, or not read, would keep the old
- * key. They follow a new item's key typed in the inspector too.
+ * item follow — refused, naming the row, where another row holds that key
+ * once the gesture is made, so a swap or a shift passes (#1581), and where a
+ * link or net kind that may name a moving item isn't held whole (#1580): its
+ * rows the rail's filters hide, or not read, would keep the old key. They
+ * follow a new item's key typed in the inspector too.
  *
  * A library card's drop (#1390, `drop.ts`) writes its rows as edits too: an
  * item template's new item, a backlog row placed, a link or net template's
@@ -108,7 +109,10 @@ const sidesEqual = equalFor(Schematic.Types.Sides);
  * - `move`: the row — or its details row (`details`) — under a new key, as the
  *   gesture finds it, and gone from its own (#1549): a row whose kind builds
  *   its key from its fields, once a gesture moves them; or a new item's
- *   placeholder, once its key is typed;
+ *   placeholder, once its key is typed. In a swap or a shift (#1581) it
+ *   `replaces` the row the gesture moves off its new key — never a new one —
+ *   and its own key, which another row the gesture moves takes, is `refilled`:
+ *   not deleted;
  * - `remove`: the row deleted.
  */
 export type SchematicEdit =
@@ -121,7 +125,7 @@ export type SchematicEdit =
     | { readonly op: "retype"; readonly ref: SchematicRef; readonly values: Uint8Array }
     | { readonly op: "set"; readonly ref: SchematicRef; readonly sets: readonly SchematicFieldWrite[]; readonly details?: true }
     | { readonly op: "row"; readonly ref: SchematicRef; readonly row: Uint8Array; readonly details?: true }
-    | { readonly op: "move"; readonly ref: SchematicRef; readonly to: string; readonly details?: true }
+    | { readonly op: "move"; readonly ref: SchematicRef; readonly to: string; readonly details?: true; readonly replaces?: true; readonly refilled?: true }
     | { readonly op: "remove"; readonly ref: SchematicRef };
 
 /** A link kind, as the edits read it: its name, whether it writes, and the item slots each end holds keys of. */
@@ -864,17 +868,35 @@ function unheldNamer(holding: SchematicKeyHolding, moves: readonly SchematicMove
 }
 
 /**
+ * Whether a key a row moves to is held once the gesture is made (#1581):
+ * another row moves there too, or a row stands there that the gesture leaves
+ * there — a row moving off it frees it, so a swap or a shift passes.
+ *
+ * @param holding - What the gesture reads
+ * @param moves - The rows the gesture moves
+ * @param move - The row moving
+ * @returns Whether its new key is held
+ */
+function heldOnceMoved(holding: SchematicKeyHolding, moves: readonly SchematicMove[], move: SchematicMove): boolean {
+    const at = (kind: string, key: string): boolean => stringEqual(kind, move.ref.kind) && stringEqual(key, move.to);
+    if (moves.some((other) => other !== move && at(other.ref.kind, other.to))) return true;
+    return holding.stands(move.ref.kind, move.to) && !moves.some((other) => at(other.ref.kind, other.ref.key));
+}
+
+/**
  * A gesture's edits with each row whose kind builds its key from its row
  * moved under the key its fields build once the gesture writes them (#1549):
  * the row moved under its new key before any of its edits — its details row
  * with it, where they are edited — so each writes it there; then what names
  * it following — an item's links and nets — whose own keys, built from what
- * they name, move them in turn. A key another row stands under, or another
- * moving row takes, refuses the gesture, naming that key. A row the gesture
- * moves itself — a new item's key typed in the inspector — is followed the
- * same way by what names it. An item that a link or a net kind the Schematic
- * doesn't hold whole may name refuses the gesture too (#1580): what it leaves
- * out would keep the old key.
+ * they name, move them in turn. A key another row stands under once the
+ * gesture is made, or another moving row takes, refuses the gesture, naming
+ * that key — one a row moves off is free, so a swap or a shift passes, the row
+ * moving onto it replacing the one moving off, whose key it leaves standing
+ * (#1581). A row the gesture moves itself — a new item's key typed in the
+ * inspector — is followed the same way by what names it. An item that a link
+ * or a net kind the Schematic doesn't hold whole may name refuses the gesture
+ * too (#1580): what it leaves out would keep the old key.
  *
  * @param holding - What the gesture reads
  * @param made - The gesture's edits
@@ -891,16 +913,21 @@ export function followBuiltKeys(holding: SchematicKeyHolding, made: readonly Sch
         const moves = holding.moves(edits);
         if (moves.length === 0) break;
         for (const move of moves) {
-            const both = moves.some((other) => other !== move && stringEqual(other.ref.kind, move.ref.kind) && stringEqual(other.to, move.to));
-            if (both || holding.stands(move.ref.kind, move.to)) return { refused: { refusal: "taken", ref: { kind: move.ref.kind, key: move.to } } };
+            if (heldOnceMoved(holding, moves, move)) return { refused: { refusal: "taken", ref: { kind: move.ref.kind, key: move.to } } };
         }
         const unheld = unheldNamer(holding, moves);
         if (unheld !== undefined) return { refused: unheld };
         const to = (ref: SchematicRef) => moves.find((move) => refEqual(move.ref, ref))?.to;
+        // A row moving onto a key another moving row leaves replaces that row; a key another moving row takes stays.
+        const sameKind = (a: SchematicMove, b: SchematicMove) => stringEqual(a.ref.kind, b.ref.kind);
+        const flags = (move: SchematicMove) => ({
+            ...(moves.some((other) => sameKind(other, move) && stringEqual(other.ref.key, move.to)) ? { replaces: true as const } : {}),
+            ...(moves.some((other) => sameKind(other, move) && stringEqual(other.to, move.ref.key)) ? { refilled: true as const } : {}),
+        });
         edits = [
             ...moves.flatMap((move): SchematicEdit[] => [
-                { op: "move", ref: move.ref, to: move.to },
-                ...(holding.edited(detailsKey(move.ref.kind)) ? [{ op: "move", ref: move.ref, to: move.to, details: true } as const] : []),
+                { op: "move", ref: move.ref, to: move.to, ...flags(move) },
+                ...(holding.edited(detailsKey(move.ref.kind)) ? [{ op: "move", ref: move.ref, to: move.to, details: true, ...flags(move) } as const] : []),
             ]),
             ...edits.map((edit): SchematicEdit => {
                 const moving = edit.op === "move" || edit.op === "remove" ? undefined : to(edit.ref);

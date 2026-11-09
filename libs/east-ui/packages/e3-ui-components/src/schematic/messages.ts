@@ -272,6 +272,10 @@ export interface SchematicMessages extends PagedLoadingMessages, HiddenWords {
     inspectorField: (p: { field: "x" | "y" | "from" | "to" | "sources" | "destinations" | "kind" | "key" }) => string;
     /** The line under a new item's key field, while it waits under a placeholder (#1549). */
     inspectorKeyHelp: () => string;
+    /** The line under a new item's key of several parts — a struct's fields, a variant's case and its value (#1581). */
+    inspectorKeyPartsHelp: () => string;
+    /** A key of several parts' Set, which takes it whole (#1581). */
+    inspectorKeySet: () => string;
     /** Why a key typed in the inspector is refused, in the footer (#1549) — `A rack is keyed 2026-11-07T06:00:00.000 already`; `name` as running text writes it. */
     inspectorKeyRefused: (p: { name: string; key: string }) => string;
     /** A gesture's button: Delete, Unplace, Remove, and below 480px of main an item with no position's Place (#1394). */
@@ -574,6 +578,8 @@ export function schematicMessagesOf(v: SchematicVocabulary): SchematicMessages {
             x: "x", y: "y", from: "From", to: "To", sources: v.source.other, destinations: v.destination.other, kind: `${v.link.one} kind`, key: "Key",
         })[field],
         inspectorKeyHelp: () => "Its kind makes no key of its own: Save waits for this one, and nothing joins the item until it is typed.",
+        inspectorKeyPartsHelp: () => "Its kind makes no key of its own: type each part, then Set key. Save waits for it, and nothing joins the item until it is set.",
+        inspectorKeySet: () => "Set key",
         inspectorKeyRefused: ({ name, key }) => `${capital(article(name))} ${name} is keyed ${key} already`,
         inspectorAction: ({ action }) => ({ delete: "Delete", unplace: "Unplace", remove: "Remove", place: "Place" })[action],
         inspectorUnplaced: () => "Not placed",

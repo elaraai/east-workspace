@@ -29,6 +29,13 @@
  *   from it refused — until the viewer types its key in the inspector, the
  *   placeholder waiting on as another session moves the record read through
  *   the rail; and by Blob, which no form types, none: the card off, saying why.
+ * - **A key of several parts, a deleted row's key, a shift and a key stored
+ *   apart from its fields** (#1581): a peg's row and column typed a part at a
+ *   time, the peg waiting under its placeholder until Set key takes them
+ *   whole; a key a peg deleted this session held taken again; two tiles keyed
+ *   by their cells dragged one cell along together, West under East's key as
+ *   East leaves it; and a spot stored under a key its column no longer builds,
+ *   edited back to build it, staying under it.
  *
  * jsdom lays nothing out: the canvas is given the box a page would give it,
  * 1080 × 540 px at the client origin, so a pointer's client point is the
@@ -40,7 +47,7 @@ import { describe, expect, test, vi } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
-    BlobType, DateTimeType, East, IntegerType, SortedMap, SortedSet, StringType, compareFor, equalFor, parseFor, printFor, some, variant,
+    BlobType, DateTimeType, DictType, East, IntegerType, SortedMap, SortedSet, StringType, compareFor, equalFor, parseFor, printFor, some, variant,
 } from "@elaraai/east";
 import { Reactive, RecordSlicesChromeType, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
@@ -290,9 +297,14 @@ const field = (c: HTMLElement, name: string, key: string): HTMLElement => sectio
 /** Details' head: what it titles. */
 const title = (c: HTMLElement): string | null => inspector(c).querySelector("[data-inspector-title]")?.textContent ?? null;
 
-/** Types a number field's new value, a key at a time — the shared input writes back on a frame — and commits it with ⏎. */
+/**
+ * Types a number field's new value, a key at a time — the shared input writes back on a frame — and commits it with ⏎: a
+ * field holding no value yet, Not set, takes Set first.
+ */
 async function retypeNumber(c: HTMLElement, name: string, key: string, text: string): Promise<void> {
     const user = userEvent.setup();
+    const set = field(c, name, key).querySelector<HTMLElement>("[data-field-set]");
+    if (set !== null) await click(set);
     const input = within(field(c, name, key)).getByRole("spinbutton");
     await user.clear(input);
     await settle();
@@ -701,5 +713,129 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
         await enter(cardEl);
         expect(unsaved(c)).toBe(false);
         expect(h.requests("mutate")).toEqual([]);
+    });
+});
+
+// ============================================================================
+// A key of several parts, a deleted row's key, a shift and a stored key (#1581)
+// ============================================================================
+
+/** The floor's pegs, keyed by a row and a column the viewer types, and its one card. */
+const pegFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const slice = $.let(Slice.bindRecords("schematic.keyed.pegs", {
+        floorCards: { source: Data.bindPaged(fx.floorCards, { indexes: ["schematic_floor_cards_by_name"] }) },
+    }));
+    const pegs = $.let(Record.bind(fx.typedPegs));
+    const cards = $.let(Data.bind(fx.floorCards));
+    return Schematic({
+        id: "keyedPegs",
+        inspector: true,
+        extent: fx.KEYED_FLOOR,
+        slice: { slice },
+        items: {
+            pegs: Schematic.items(pegs, {
+                name: "Peg", icon: "pallet", x: "x", y: "y", label: "name",
+                templates: Schematic.templates(cards.read(), { name: (row) => row.name, values: (row) => row.values, source: "floorCards" }),
+            }),
+        },
+        library: [Schematic.library.templates()],
+    });
+}))) };
+
+describe("a key of several parts, a deleted row's key, a shift and a key stored apart from its fields (#1581)", () => {
+    test("a key of two parts is typed a part at a time and set whole: its row alone is no key, so 2-0, which a peg holds, refuses nothing, and the new peg waits under its placeholder, Save with it, until Set key takes 2-2; and Save writes it", async () => {
+        const pegs = await h.read(fx.typedPegs);
+        const peg = printFor(fx.SpotKey);
+        const c = await open(pegFloor, "pegs", peg({ row: 2n, col: 0n }));
+        await openTab(c, "start", "Templates");
+        await enter(libraryCard(c, entityId({ kind: "pegs", key: "spare" })));
+        const waiting = await selectedItem(c);
+        expect(saveButton(c).disabled).toBe(true);
+        // Its row typed 2: no key yet — nothing refused, the peg waits on, and Save with it.
+        await retypeNumber(c, "key", "key.row", "2");
+        expect([refused(c), card(c, "pegs", waiting.key) !== null, saveButton(c).disabled]).toEqual([undefined, true, true]);
+        // Its column typed 2, then Set key: the peg under 2-2, still selected.
+        await retypeNumber(c, "key", "key.col", "2");
+        expect(isSelected(c, "pegs", waiting.key)).toBe(true);
+        await click(inspector(c).querySelector("[data-inspector-key-set]")!);
+        await waitFor(() => expect(isSelected(c, "pegs", peg({ row: 2n, col: 2n }))).toBe(true));
+        expect([card(c, "pegs", waiting.key), saveButton(c).disabled]).toEqual([null, false]);
+        expect(await save(c)).toEqual([fx.typedPegs.name]);
+        expect(printFor(fx.typedPegs.type)(await h.read(fx.typedPegs)))
+            .toBe(printFor(fx.typedPegs.type)(withRows(pegs, compareFor(fx.SpotKey), [[{ row: 2n, col: 2n }, { name: "Spare", x: 14.0, y: 7.0 }]])));
+    });
+
+    test("a key a peg deleted this session held is free: 0-2 deleted, a new peg's key set to 0-2 takes it, and Save writes the new peg there", async () => {
+        const pegs = await h.read(fx.typedPegs);
+        const peg = printFor(fx.SpotKey);
+        const c = await open(pegFloor, "pegs", peg({ row: 0n, col: 2n }));
+        const canvas = canvasOf(c);
+        hits(c, [["pegs", peg({ row: 0n, col: 2n }), 10, 12]]);
+        await tap(canvas, CAM, 10, 12);
+        await waitFor(() => expect(isSelected(c, "pegs", peg({ row: 0n, col: 2n }))).toBe(true));
+        await click(inspector(c).querySelector("[data-inspector-action='delete']")!);
+        expect(card(c, "pegs", peg({ row: 0n, col: 2n }))).toBeNull();
+        // A new peg, its key set to 0-2: free again.
+        await openTab(c, "start", "Templates");
+        await enter(libraryCard(c, entityId({ kind: "pegs", key: "spare" })));
+        await selectedItem(c);
+        await retypeNumber(c, "key", "key.row", "0");
+        await retypeNumber(c, "key", "key.col", "2");
+        await click(inspector(c).querySelector("[data-inspector-key-set]")!);
+        await waitFor(() => expect(isSelected(c, "pegs", peg({ row: 0n, col: 2n }))).toBe(true));
+        expect(refused(c)).toBeUndefined();
+        expect(await save(c)).toEqual([fx.typedPegs.name]);
+        expect(printFor(fx.typedPegs.type)(await h.read(fx.typedPegs)))
+            .toBe(printFor(fx.typedPegs.type)(withRows(pegs, compareFor(fx.SpotKey), [[{ row: 0n, col: 2n }, { name: "Spare", x: 14.0, y: 7.0 }]])));
+    });
+
+    test("keyed by the cell their centre stands in, two tiles dragged one cell along together shift: West moves under East's key as East leaves it, nothing refused and no tile lost; and Save writes both under their new cells, West's old one gone", async () => {
+        const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const tiles = $.let(Record.bind(fx.cellTiles));
+            return Schematic({
+                id: "keyedTiles",
+                extent: fx.KEYED_FLOOR,
+                items: { tiles: Schematic.items(tiles, { name: "Tile", icon: "pallet", x: "x", y: "y", label: "name", key: (row) => East.Float.roundFloor(row.x.divide(4.0)) }) },
+            });
+        }))) }, "tiles", "2");
+        // West, then East with Shift: both selected.
+        const canvas = canvasOf(c);
+        hits(c, [["tiles", "2", 10, 3], ["tiles", "3", 14, 3]]);
+        await tap(canvas, CAM, 10, 3);
+        await act(async () => { pointer(canvas, "pointerDown", 14, 3, true); pointer(canvas, "pointerUp", 14, 3, true); });
+        await settle();
+        await waitFor(() => expect([isSelected(c, "tiles", "2"), isSelected(c, "tiles", "3")]).toEqual([true, true]));
+        // Both a cell east: West into cell 3 as East leaves it for cell 4.
+        await tool(c, "Move");
+        await drag(canvas, [10, 3], [14, 3]);
+        expect([refused(c), unsaved(c)]).toEqual([undefined, true]);
+        expect(await save(c)).toEqual([fx.cellTiles.name]);
+        const names = printFor(DictType(IntegerType, StringType));
+        const saved = await h.read(fx.cellTiles);
+        expect(names(new SortedMap([...saved].map(([cell, tile]) => [cell, tile.name] as const), compareNumber)))
+            .toBe(names(new SortedMap([[3n, "West"], [4n, "East"]], compareNumber)));
+    });
+
+    test("a spot an app stored under 3-1, its column 5, edited back to column 1 stays under its key, refusing nothing; and Save writes its column", async () => {
+        const spot = printFor(fx.SpotKey);
+        const spots = withRows(await h.read(fx.placedSpots), compareFor(fx.SpotKey), [[{ row: 3n, col: 1n }, { name: "3-1", row: 3n, col: 5n, x: 6.0, y: 10.0 }]]);
+        await h.patch(fx.placedSpots, spots);
+        const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const spotsBound = $.let(Record.bind(fx.placedSpots));
+            return Schematic({
+                id: "keyedStored",
+                inspector: true,
+                extent: fx.KEYED_FLOOR,
+                items: { spots: Schematic.items(spotsBound, { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", key: (row) => ({ row: row.row, col: row.col }) }) },
+            });
+        }))) }, "spots", spot({ row: 3n, col: 1n }));
+        hits(c, [["spots", spot({ row: 3n, col: 1n }), 6, 10]]);
+        await tap(canvasOf(c), CAM, 6, 10);
+        await waitFor(() => expect(isSelected(c, "spots", spot({ row: 3n, col: 1n }))).toBe(true));
+        await retypeNumber(c, "row", "col", "1");
+        expect([refused(c), isSelected(c, "spots", spot({ row: 3n, col: 1n })), unsaved(c)]).toEqual([undefined, true, true]);
+        expect(await save(c)).toEqual([fx.placedSpots.name]);
+        expect(printFor(fx.placedSpots.type)(await h.read(fx.placedSpots)))
+            .toBe(printFor(fx.placedSpots.type)(withRows(spots, compareFor(fx.SpotKey), [[{ row: 3n, col: 1n }, { name: "3-1", row: 3n, col: 1n, x: 6.0, y: 10.0 }]])));
     });
 });

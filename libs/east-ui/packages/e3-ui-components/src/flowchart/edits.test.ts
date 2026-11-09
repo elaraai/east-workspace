@@ -25,7 +25,8 @@
  * made up, given, still being read, or refused as built under a key held or of
  * a type the form can't type; a row under a placeholder takes no row into it or
  * onto it until its key is typed; and a key built from a row follows the row,
- * what names it following in turn, refused where another row holds it (#1549).
+ * what names it following in turn, refused where another row holds it (#1549)
+ * once the gesture is made — a swap or a shift passing (#1581).
  * Each edit is read as a line, its writes printed through East.
  *
  * @packageDocumentation
@@ -399,6 +400,38 @@ describe("a key built from the row follows the row (#1549)", () => {
         // A new lane the rail hides no stored state naming.
         const hidden = holdingOf(SORT, { unheld: (sort) => (sort === "states" ? "filtered" : undefined), created: (sort, key) => sort === "lanes" && keyEqual(key, "sort") });
         expect(rekey(hidden, "lanes", "sort", "sorting")?.refused).toBeUndefined();
+    });
+
+    test("a shift and a swap pass (#1581): a key a state moves off is free once the gesture is made — the state copied onto it replacing the one moving off, whose key is never removed — and a key a state stays under still refuses", () => {
+        const LINE = rowsOf({ lanes: SORT.lanes, states: [stateRow("a", "A", { lane: "sort", order: 1 }), stateRow("b", "B", { lane: "sort", order: 2 }), stateRow("c", "C", { lane: "sort", order: 3 })] });
+        // The rows the gesture moves, the first time it is asked; none once they have moved.
+        const once = (moves: readonly FlowchartMove[]) => {
+            let asked = false;
+            return (): FlowchartMove[] => {
+                if (asked) return [];
+                asked = true;
+                return [...moves];
+            };
+        };
+        const label = (key: string, to: string): FlowchartEdit => ({ op: "writeState", key, write: { label: some(to), lane: none, order: none } });
+        // a onto b's key, b onto a free one.
+        const shift = holdingOf(LINE, { moves: once([{ sort: "states", key: "a", to: "b" }, { sort: "states", key: "b", to: "d" }]) });
+        const shifted = followBuiltKeys(shift, { edits: [label("a", "b"), label("b", "d")] });
+        expect(lines(shifted)?.edits).toEqual([
+            "copy states b from a replacing", "copy states d from b",
+            `writeState b ${w.state("b", undefined, undefined)}`, `writeState d ${w.state("d", undefined, undefined)}`,
+            "remove states a",
+        ]);
+        expect(shifted.moved).toEqual([{ sort: "states", key: "a", to: "b" }, { sort: "states", key: "b", to: "d" }]);
+        // a and b swapping keys: each copy replaces the other, and neither key is removed.
+        const swap = holdingOf(LINE, { moves: once([{ sort: "states", key: "a", to: "b" }, { sort: "states", key: "b", to: "a" }]) });
+        expect(lines(followBuiltKeys(swap, { edits: [label("a", "b"), label("b", "a")] }))?.edits).toEqual([
+            "copy states b from a replacing", "copy states a from b replacing",
+            `writeState b ${w.state("b", undefined, undefined)}`, `writeState a ${w.state("a", undefined, undefined)}`,
+        ]);
+        // b onto c's key, which c stays under: refused, naming it.
+        const blocked = holdingOf(LINE, { moves: once([{ sort: "states", key: "a", to: "b" }, { sort: "states", key: "b", to: "c" }]) });
+        expect(followBuiltKeys(blocked, { edits: [label("a", "b"), label("b", "c")] })).toEqual({ edits: [], refused: { refusal: "taken", sort: "states", key: "c" } });
     });
 
     test("a gesture refused is as it was", () => {
