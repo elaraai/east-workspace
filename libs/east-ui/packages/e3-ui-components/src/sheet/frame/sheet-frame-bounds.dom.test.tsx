@@ -8,13 +8,15 @@
  * itself: an app's write leaves the beam saw's hours under their least, 0. The
  * stored row's cell wears the warn wash a field still missing wears, saying
  * the bound, and holds no Save; once the row is changed, Issues names it and
- * the field in the hint's own words, and Save waits.
+ * the field in the hint's own words, and Save waits. On a phone, the cell's
+ * stepper says the bound under it, as Details does.
  */
 
 import { expect, test } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { act, sheetHarness, settle, slot, tabs } from "./harness.test-utils.js";
+import { touchFrame } from "../frame.test-utils.js";
 
 const h = sheetHarness();
 
@@ -58,4 +60,21 @@ test("a stored number under its least wears the warn wash and holds no Save; cha
     expect(issue.textContent).toContain("Hours");
     expect(issue.textContent).toContain("at least 0");
     expect(hours().hasAttribute("data-bounds")).toBe(true);
+});
+
+test("on a phone, the stepper of a stored number under its least says the bound under it, as Details does; another's says nothing (#1585)", async () => {
+    const machines = await h.read(ex.sheetMachineUpkeep);
+    machines.set("S101", { ...machines.get("S101")!, hours: -10n });
+    await h.patch(ex.sheetMachineUpkeep, machines);
+    const restore = touchFrame(390);
+    try {
+        const { container } = await h.mount(ex.sheetUpkeep, { storageKey: "bounds-phone" });
+        const editor = () => slot(container, "main")!.querySelector<HTMLElement>("[data-sheet-cell-editor]");
+        fireEvent.mouseDown(cell(container, "S101", "hours"), { button: 0 });
+        await settle();
+        expect([editor()?.getAttribute("data-sheet-cell-editor"), editor()?.querySelector("[data-cell-error]")?.textContent]).toEqual(["hours", "at least 0"]);
+        fireEvent.mouseDown(cell(container, "E201", "hours"), { button: 0 });
+        await settle();
+        expect([editor()?.getAttribute("data-sheet-cell-editor"), editor()?.querySelector("[data-cell-error]") ?? null]).toEqual(["hours", null]);
+    } finally { restore(); }
 });

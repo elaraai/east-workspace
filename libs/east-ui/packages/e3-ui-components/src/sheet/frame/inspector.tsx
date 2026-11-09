@@ -69,7 +69,8 @@ import {
 import type { FieldEditorValue, FieldSpecValue } from "@elaraai/east-ui/internal";
 import { Sheet, type sheetKeys } from "@elaraai/e3-ui/internal";
 import {
-    EastChakraComponent, FieldForm, fieldFormMessages, getSomeorUndefined, useDataStable, type BuilderFrameDock, type EditIssue, type FieldOption,
+    EastChakraComponent, FieldForm, fieldBreachText, fieldBreaches, fieldFormMessages, getSomeorUndefined, useDataStable, type BuilderFrameDock, type EditIssue,
+    type FieldOption,
 } from "@elaraai/east-ui-components";
 import { FrameDrawer, useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { useSheetInspect, type SheetCellEditorAt, type SheetInspect, type SheetInspectPlace, type SheetInspectTarget, type SheetInspectWrite, type SheetSelected } from "../index.js";
@@ -1094,9 +1095,10 @@ interface TouchControlProps {
 
 /**
  * A field's touch control, as a phone's cell editor and a phone's Details draw
- * it (SH10, SH12): a number − · the field · its unit · + (digits only), a time
- * of day its `hh:mm` field, filled as digits are typed, and Clear — or `null`
- * for every other kind, which its form's own input edits.
+ * it (SH10, SH12): a number − · the field · its unit · + (digits only), and
+ * under it, a value its bounds don't hold in its hint's own words (#1585); a
+ * time of day its `hh:mm` field, filled as digits are typed, and Clear — or
+ * `null` for every other kind, which its form's own input edits.
  */
 function TouchControl({ inspect, words, bar, r, columnKey, spec, header, dirty, joins }: TouchControlProps) {
     const { m } = words;
@@ -1137,6 +1139,9 @@ function TouchControl({ inspect, words, bar, r, columnKey, spec, header, dirty, 
             min: min === undefined ? undefined : words.number(min), max: max === undefined ? undefined : words.number(max), unit: undefined, step: undefined,
         });
         const help = [bounds, getSomeorUndefined(spec.help)].filter((part): part is string => part !== undefined && part !== "");
+        // A value its bounds don't hold, said under it in its hint's own words, as Details says it (#1585).
+        const breach = held === undefined ? undefined
+            : fieldBreaches([spec], spec.path.reduceRight<unknown>((inner, name) => ({ [name]: inner }), spec.optional ? some(held) : held))[0];
         return (
             <>
                 <chakra.div css={bar.cellLine}>
@@ -1151,6 +1156,7 @@ function TouchControl({ inspect, words, bar, r, columnKey, spec, header, dirty, 
                     </chakra.button>
                 </chakra.div>
                 {help.length > 0 && <chakra.span css={bar.cellHelp} data-cell-help="">{help.join(" · ")}</chakra.span>}
+                {breach !== undefined && <chakra.span css={bar.cellError} data-cell-error="">{fieldBreachText(breach, { ...words, m: fieldFormMessages })}</chakra.span>}
             </>
         );
     }
