@@ -13,7 +13,8 @@
  * and a cell take — under the pointer, the ring's, drafted, and a new row's
  * empty cells. The read-only skills matrix (Example 5) takes no hover, cuts
  * its long header and sorts nothing; the skills matrix (Example 2) holds its
- * head as its rows scroll under it; and each legend is its register's. The
+ * head as its rows scroll under it; the worked case's skills, beside a pinned
+ * inspector, cut no lock and no skill's name; and each legend is its register's. The
  * page's clock is held at the day the proposal walks, so the stale note counts
  * the same rows whenever the suite runs; a spec that holds the clock keeps
  * Playwright's own page.
@@ -386,6 +387,20 @@ test("a desktop's frame too narrow for the legend beside the counts folds it who
     await sized("");
     await expect(more).toHaveAttribute("data-footer-cut", "");
     await expect(footer.locator('[data-slot="legendItem"]:not([data-footer-cut])')).toHaveCount(3);
+});
+
+test("the worked case's skills beside a pinned inspector: each skill's column wide enough for a level and its licence's lock, and for a skill named in two words — none cut @desktop", async ({ page }) => {
+    const entry = await openRecord(page, "recordSkillHistory", "light", 1662);
+    await expect(entry.locator('[data-frame-slot="end"]')).toHaveAttribute("data-pane-mode", "pinned");
+    const words = await entry.locator("[data-record]").evaluate((root) => {
+        const cut = (el: Element) => el.scrollWidth > el.clientWidth + 0.5;
+        const head = root.querySelector('[data-slot="headerCell"][data-key="skills:First aid"] span')!;
+        return {
+            locks: [...root.querySelectorAll('[data-slot="row"] [data-slot="lock"]')].map((lock) => [lock.textContent, cut(lock)]),
+            head: [head.textContent, cut(head)],
+        };
+    });
+    expect(words).toEqual({ locks: [["licence", false], ["no licence", false]], head: ["First aid", false] });
 });
 
 test("the rows scroll under the head, the group row and the header row held together over them @desktop", async ({ page }) => {

@@ -402,12 +402,13 @@ export const skillsPage = East.function([], UIComponentType, (_$) => (
                     }),
                 }}
                 columns={{
-                    name: Record.column.title(Employee, { header: "Name", width: "176px",
+                    name: Record.column.title(Employee, { header: "Name", width: "112px",
                         value: (p) => p.name.match({ some: (_$, name) => name, none: () => p.id }) }),
-                    // The skills field: a column for each skill, under its team.
+                    // The skills field: a column for each skill, under its team — wide enough for a level and its
+                    // licence's lock, and a skill named in two words.
                     skills: Record.column.cycle(Employee, Level, {
                         each: "skills", groups: "teams",
-                        width: "72px", scale: true,
+                        width: "104px", scale: true,
                         steps: [
                             { case: "not_trained", label: "0", meta: "Not trained" },
                             { case: "trainee",     label: "1", meta: "Trainee" },
