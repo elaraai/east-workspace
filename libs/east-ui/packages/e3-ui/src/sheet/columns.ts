@@ -215,7 +215,8 @@ export type SheetMarkInput<R extends StructType> = SubtypeExprOrValue<FunctionTy
  * member's key; with `groups`, each column sits under its member's `parent`,
  * the groups in their own register's order. Over a struct's fields
  * (`each: { mon: "Mon", … }`) the columns are fixed, in the order given and
- * headed as given, and the functions take the struct.
+ * headed as given, and the functions take the struct. A column from data
+ * takes no `header` of its own.
  *
  * With no `read` and no `write`, a `Dict` keyed by the member reads its
  * entry, sets it, and removes it on a clear; the struct `each` names reads
@@ -249,17 +250,18 @@ export interface SheetFromDataInput<T extends EastType> {
 }
 
 /**
- * A builder's config as a column from data: its own options, less `fill`,
- * `options` and the row's `mark`, which a column from data does not take, and
- * the options that make it ({@link SheetFromDataInput}) — with `field` where
- * the column is keyed by a name of its own.
+ * A builder's config as a column from data: its own options, less those a
+ * column from data does not take — `fill`, `options`, the row's `mark`, and
+ * `header`, since a member's name heads each of its columns — and the options
+ * that make it ({@link SheetFromDataInput}), with `field` where the column is
+ * keyed by a name of its own.
  *
  * @typeParam C - The builder's own config
  * @typeParam T - The kind's value: what one cell holds
  * @typeParam F - The field the column reads and writes, where it is keyed by a name of its own
  */
 export type SheetFromDataConfig<C, T extends EastType, F extends string | undefined> =
-    Omit<C, "fill" | "options" | "mark"> & SheetFromDataInput<T> & {
+    Omit<C, "fill" | "options" | "mark" | "header"> & SheetFromDataInput<T> & {
         /** The field the column reads and writes, where the column is keyed by a name of its own. */
         field?: F;
     };
@@ -981,7 +983,7 @@ export function cycle<R extends StructType>(rowType: R, over: string | VariantTy
  * per field of a struct, each member's value the moment its count starts from
  * ({@link SheetFromDataInput}).
  */
-export function age<R extends StructType>(rowType: R, config: Omit<RecordAgeConfig<R>, "since" | "mark"> & SheetFromDataInput<DateTimeType | RecordChangeType> & {
+export function age<R extends StructType>(rowType: R, config: Omit<RecordAgeConfig<R>, "since" | "mark" | "header"> & SheetFromDataInput<DateTimeType | RecordChangeType> & {
     /** The field the columns read. */
     field: SheetFieldKey<R>;
 }): RecordAgeColumn<R>;

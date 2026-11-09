@@ -902,6 +902,9 @@ function buildSheet(
         if (internal.recordKinds !== true && (col.config.each !== undefined || col.config.mark !== undefined)) {
             throw new Error(`Sheet: column "${key}" ${col.config.each !== undefined ? "makes its columns from data, with `each`," : "has a `mark`,"} which a Record draws and a Sheet does not yet — show a system of records' rows with <Record>`);
         }
+        if (col.config.each !== undefined && col.config.header !== undefined) {
+            throw new Error(`Sheet: column "${key}" makes its columns from data, which take no \`header\` — a member's name heads each of its columns: a register member's label, or the header \`each\` gives a struct's field`);
+        }
         if (col.rowType === undefined || col.rowType === lineType) continue;
         throw new Error(groupDecl !== undefined && col.rowType === groupType
             ? `Sheet: column "${key}" was built over the group's row type — columns are declared over the line type \`${groupDecl.lines}\` holds (Sheet.column.${col.kind}(LineType, …))`

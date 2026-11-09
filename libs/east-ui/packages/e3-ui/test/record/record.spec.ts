@@ -917,6 +917,25 @@ describe("a column from data refuses", () => {
             /^Error: Sheet: column "name" is a lookup column, the sheet's driver and one column of its own — it makes no columns from data, so give it no `each`/);
     });
 
+    test("a `header` — a member's name heads each of its columns — refused by the compiler, and built, by the root, in the Record's words too", () => {
+        assert.throws(() => createSheetRootWith(rows, {
+            // @ts-expect-error — a column from data takes no header: its members head its columns
+            hours: Record.column.quantity(Staff, { each: "projects", header: "Hours" }),
+        }, STAFF_OPTIONS, { recordKinds: true }), /^Error: Sheet: column "hours" makes its columns from data, which take no `header` — a member's name heads each of its columns: a register member's label, or the header `each` gives a struct's field/);
+        assert.throws(() => createSheetRootWith(ROSTERED, {
+            // @ts-expect-error — nor over a struct's fields, which `each` heads
+            week: Record.column.integer(Rostered, { each: { mon: "Mon" }, header: "Week" }),
+        }, { id: "id" }, { recordKinds: true }), /^Error: Sheet: column "week" makes its columns from data, which take no `header`/);
+        assert.throws(() => createSheetRootWith(rows, {
+            // @ts-expect-error — nor an age's, keyed by a name of its own
+            seen: Record.column.age(Staff, { each: "projects", field: "hours", header: "Seen" }),
+        }, STAFF_OPTIONS, { recordKinds: true }), /^Error: Sheet: column "seen" makes its columns from data, which take no `header`/);
+        assert.throws(() => Record.Payload({
+            record: Record.bind(ex.recordHours), registers: STAFF_OPTIONS.registers,
+            columns: { hours: Record.column.quantity(ex.Person, { each: "projects", header: "Hours" } as never) },
+        }), /^Error: Record: column "hours" makes its columns from data, which take no `header` — a member's name heads each of its columns/);
+    });
+
     test("`field` on a column keyed by the field, naming a field the row lacks, or left out where the key is no field — an age's always", () => {
         assert.throws(() => createSheetRootWith(rows, { hours: Record.column.quantity(Staff, { each: "projects", field: "hours" }) }, STAFF_OPTIONS, { recordKinds: true }),
             /^Error: Sheet: column "hours" is keyed by the row's "hours" field, and reads and writes it — key it by a name of its own to read "hours" with `field`/);
