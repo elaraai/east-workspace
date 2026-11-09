@@ -137,3 +137,29 @@ test("A duty's Start twelve hours past its shift's start is refused: its box sho
     await expect(segment('start', 'AM/PM')).toHaveText('AM');
     await expect(end.locator('[data-field="start"] [data-part="error-text"]')).toHaveText("A duty starts up to 12 hours before its shift's start, or less than 12 hours after it.");
 });
+
+test("A click into a duty's Start just after an edit of its End: the End taken as the keyboard leaves it, the keyboard lands in Start, never on the Details heading (#1585) @desktop", async ({ page }) => {
+    const route = "e3/roster/roster/rosterWarehouse";
+    await page.goto(`/#${route}`);
+    const entry = page.locator('[data-index]', { has: page.locator(`a[href="#${route}"]`) });
+    const frame = entry.locator('[data-roster-frame]').first();
+    await expect(frame).toBeVisible({ timeout: 30_000 });
+    await entry.scrollIntoViewIfNeeded(); await settled(page);
+    const end = frame.locator('[data-frame-slot="end"]');
+    const segment = (field: string, name: string) => end.locator(`[data-field="${field}"] [role="spinbutton"][aria-label^="${name}"]`);
+    // A. Alder's early on the day the example opens on, Thursday: 6:00 AM to 2:00 PM.
+    await frame.locator('[data-roster-assignment="s1"]').click(); await settled(page);
+    const expand = frame.getByRole('button', { name: 'Expand Inspector', exact: true });
+    if (await expand.isVisible()) { await expand.click(); await settled(page); }
+    await expect(segment('end', 'hour')).toHaveText('2');
+    // Its end an hour on, then a click into its start's hour: the end taken as the keyboard goes, the duty drawn again.
+    await segment('end', 'hour').click();
+    await page.keyboard.press('ArrowUp');
+    await segment('start', 'hour').click(); await settled(page);
+    await expect(end.locator('[data-inspector-marks]')).toContainText('Edited · unsaved');
+    await expect(segment('end', 'hour')).toHaveText('3');
+    // The keyboard where the click put it: the next key steps the start, never the heading's.
+    await expect(segment('start', 'hour')).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(segment('start', 'hour')).toHaveText('7');
+});

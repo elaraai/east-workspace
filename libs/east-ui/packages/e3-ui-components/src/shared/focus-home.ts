@@ -15,7 +15,10 @@
  * a screen reader says where the keyboard is and the next Tab goes on from
  * there. A focus that left the region — for another element, for the page with
  * the control it was on still there, or a press anywhere outside it — is let
- * be.
+ * be. So is one on its way to another of the region's controls, still there —
+ * a click into it, a Tab to it — though what the region shows is drawn again
+ * meanwhile, as a field commits its edit while the keyboard leaves it: it
+ * lands where it was given (#1585).
  *
  * Every builder's Details is such a region: the Schematic's, the Flowchart's,
  * the Plan's, the Calendar's, the Roster's and the Allocation's. A view's home
@@ -53,12 +56,16 @@ export function useFocusHome<E extends HTMLElement = HTMLDivElement>(): FocusHom
     // Whether the keyboard is the region's: set as the focus enters it; let go as the focus leaves for another element, or
     // for the page with the control it was on still there, and at a press outside it.
     const held = useRef(false);
+    // Where the focus is on its way to in the region: named by the blur it leaves a control with, until it lands. Between
+    // the two the page's body has it, while the field it left commits its edit and the region is drawn again.
+    const going = useRef<Node | null>(null);
     useEffect(() => {
         const region = ref.current;
         if (region === null || typeof MutationObserver === "undefined") return undefined;
         const doc = region.ownerDocument;
         // What the region shows drawn again: a control it held the focus on gone, the focus lands on the home it shows
-        // now — or on the one a later drawing shows, while this one shows none.
+        // now — or on the one a later drawing shows, while this one shows none — unless it is on its way to a control
+        // still there.
         const observer = new MutationObserver(() => {
             if (!held.current) return;
             const active = doc.activeElement;
@@ -66,6 +73,8 @@ export function useFocusHome<E extends HTMLElement = HTMLDivElement>(): FocusHom
                 if (!region.contains(active)) held.current = false;
                 return;
             }
+            const to = going.current;
+            if (to !== null && to.isConnected && region.contains(to)) return;
             region.querySelector<HTMLElement>(`[${FOCUS_HOME}]`)?.focus();
         });
         observer.observe(region, { childList: true, subtree: true });
@@ -79,10 +88,14 @@ export function useFocusHome<E extends HTMLElement = HTMLDivElement>(): FocusHom
             doc.removeEventListener("pointerdown", onDown, true);
         };
     }, []);
-    const onFocus = useCallback(() => { held.current = true; }, []);
+    const onFocus = useCallback(() => { held.current = true; going.current = null; }, []);
     const onBlur = useCallback((event: FocusEvent<E>) => {
         const next = event.relatedTarget;
-        if (next instanceof Node && ref.current?.contains(next) === true) return;
+        if (next instanceof Node && ref.current?.contains(next) === true) {
+            going.current = next;
+            return;
+        }
+        going.current = null;
         if (next !== null) {
             held.current = false;
             return;
