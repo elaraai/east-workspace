@@ -17,10 +17,9 @@
  *   bars;
  * - the baseline, 1px of `border.subtle` along the track's bottom, under the
  *   bars: it shows in their gaps and under an empty bucket;
- * - the bars (`brushBars`), one width, each its bucket's count twice — by
- *   height and by a step on the heat ramp — at 0.45 outside the window and
- *   at full strength inside it: the same bars again on a layer clipped to
- *   the window, so an edge can split a bar;
+ * - the bars (`brushBars`), one width, each its bucket's count by its height,
+ *   in the ink outside the window and in the brand inside it: the same bars
+ *   again on a layer clipped to the window, so an edge can split a bar;
  * - the now line, 1px of `brand.solid`, the track's full height;
  * - the handles: an outlined tab on each edge, in a zone 12 wide (24 on a
  *   coarse pointer); while the window is narrower than its two zones, each
@@ -132,13 +131,13 @@ type DragState = BrushDrag & {
 
 type Styles = ReturnType<ReturnType<typeof useSlotRecipe>>;
 
-/** One layer of the histogram's bars, each at its whole-pixel place: dimmed outside the window, or clipped to it. */
-function Bars({ bars, styles, dim, clip }: { bars: readonly BrushBar[]; styles: Styles; dim?: boolean; clip?: string }) {
+/** One layer of the histogram's bars, each at its whole-pixel place: the track's, drawn as outside the window under one, or clipped to it. */
+function Bars({ bars, styles, outside, clip }: { bars: readonly BrushBar[]; styles: Styles; outside?: boolean; clip?: string }) {
     return (
-        <Box css={styles.bars} data-brush-bars={clip === undefined ? "" : "in"} data-dim={dim ? "" : undefined}
+        <Box css={styles.bars} data-brush-bars={clip === undefined ? "" : "in"} data-outside={outside ? "" : undefined}
             style={clip === undefined ? undefined : { clipPath: clip }}>
             {bars.map((b) => (
-                <Box key={b.index} css={styles.bar} data-brush-bar="" data-step={b.step} data-count={b.count}
+                <Box key={b.index} css={styles.bar} data-brush-bar="" data-count={b.count}
                     style={{ left: `${b.x}px`, width: `${b.width}px`, height: `${b.height}px` }} />
             ))}
         </Box>
@@ -311,7 +310,7 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
         >
             {shown !== undefined && <Box css={styles.band} data-brush-band="" style={{ left: `${shown.from * 100}%`, width: `${(shown.to - shown.from) * 100}%` }} />}
             <Box css={styles.baseline} data-brush-baseline="" />
-            {bars.length > 0 && <Bars bars={bars} styles={styles} dim={shown !== undefined} />}
+            {bars.length > 0 && <Bars bars={bars} styles={styles} outside={shown !== undefined} />}
             {bars.length > 0 && shown !== undefined && (
                 <Bars bars={bars} styles={styles} clip={`inset(0 ${(1 - shown.to) * 100}% 0 ${shown.from * 100}%)`} />
             )}

@@ -260,11 +260,6 @@ describe("brushBars — the histogram's bars on whole pixels (#1438)", () => {
         expect(bars.map((b) => [b.index, b.height])).toEqual([[0, 28], [1, 14], [2, 2], [4, 7]]);
     });
 
-    test("its tone is a step on the heat ramp: ceil(count ÷ max × 5)", () => {
-        const bars = brushBars(equal([100, 81, 80, 41, 40, 1]), 120, 28);
-        expect(bars.map((b) => b.step)).toEqual([5, 5, 4, 3, 2, 1]);
-    });
-
     test("bars of unequal slots are one width, the narrowest's, and an end bucket the horizon clips draws inside its slot", () => {
         // Calendar months, 30 to 31 days each across 120px: slots of 9 to 11 whole pixels, every bar 7 wide.
         const year = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];

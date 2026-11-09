@@ -14,10 +14,12 @@
  *   behind the bars.
  * - **baseline** — 1px of `border.subtle` along the track's bottom, under the
  *   bars: it shows in their gaps and under an empty bucket.
- * - **bars** — one layer of the histogram; each **bar** a step on the heat
- *   ramp (`heat.1` … `heat.5`, by its count), top corners 1. Outside the
- *   window the layer dims its bars to 0.45; the same bars again on a layer
- *   clipped to the window draw at full strength.
+ * - **bars** — one layer of the histogram, each **bar** its count by its
+ *   height, top corners 1: the horizon brush card's two hues, the brand inside
+ *   the window and the ink outside it (`data-outside`, the layer under a
+ *   window), the same bars again in the brand on a layer clipped to the window.
+ *   Each is solid: the card's translucent mixes, as the heat ramp's low steps
+ *   before them, left a bar under 3:1 on the paper or the band in either theme.
  * - **now** — 1px of `brand.solid`, the track's full height, over the bars,
  *   under the handles.
  * - **window** — the window's own stop between the handles: it carries the
@@ -75,17 +77,15 @@ export const brushStripSlotRecipe = defineSlotRecipe({
             position: "absolute",
             inset: "0",
             pointerEvents: "none",
-            "&[data-dim] > *": { opacity: "0.45" },
         },
         bar: {
             position: "absolute",
             bottom: "0",
             borderRadius: "1px 1px 0 0",
-            "&[data-step='1']": { background: "heat.1" },
-            "&[data-step='2']": { background: "heat.2" },
-            "&[data-step='3']": { background: "heat.3" },
-            "&[data-step='4']": { background: "heat.4" },
-            "&[data-step='5']": { background: "heat.5" },
+            background: "brand.solid",
+            // The lightest ink that reads as more than a muted mark: it holds 3:1 on the paper in both themes, and
+            // stands apart from the window's bars by its hue as well as by the band behind them.
+            "[data-outside] > &": { background: "fg.subtle" },
         },
         now: {
             position: "absolute",

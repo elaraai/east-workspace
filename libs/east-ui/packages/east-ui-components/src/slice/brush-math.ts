@@ -267,7 +267,7 @@ export interface BrushBucketSpan {
     count: number;
 }
 
-/** A bar as the strip draws it: its bucket, its place and size in whole track pixels, and its step on the heat ramp. */
+/** A bar as the strip draws it: its bucket, and its place and size in whole track pixels. */
 export interface BrushBar {
     /** Its bucket's place among the buckets. */
     index: number;
@@ -277,8 +277,6 @@ export interface BrushBar {
     width: number;
     /** Its height, px from the track's bottom. */
     height: number;
-    /** Its step on the heat ramp, 1–5. */
-    step: 1 | 2 | 3 | 4 | 5;
     /** Its bucket's count. */
     count: number;
 }
@@ -289,8 +287,7 @@ export interface BrushBar {
  * from 8px a bucket — at its slot's start; a short slot's bar, or an end bucket the
  * horizon clips, keeps the gap to the next slot's start. Its height is
  * linear to the largest bucket, up to `barMax`, a non-zero bucket's at least
- * 2; a zero draws none. Its tone is a step on the heat ramp, `ceil(count ÷
- * max × 5)`, so tone repeats height.
+ * 2; a zero draws none.
  *
  * @param buckets - The buckets, in order along the track
  * @param trackPx - The track's width, px
@@ -315,8 +312,7 @@ export function brushBars(buckets: readonly BrushBucketSpan[], trackPx: number, 
         const w = Math.min(width, room);
         if (w <= 0) return;
         const height = Math.max(2, Math.round((b.count / max) * barMax));
-        const step = Math.min(5, Math.max(1, Math.ceil((b.count / max) * 5))) as BrushBar["step"];
-        bars.push({ index, x, width: w, height, step, count: b.count });
+        bars.push({ index, x, width: w, height, count: b.count });
     });
     return bars;
 }
