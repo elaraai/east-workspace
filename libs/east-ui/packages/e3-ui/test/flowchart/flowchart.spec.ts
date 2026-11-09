@@ -252,6 +252,9 @@ describe("each role is a field of the app's row, named and checked (R2)", () => 
             "Flowchart.states: `order` names a Float field, the state's place in its lane — \"flow\" holds .String");
         refused(states({ label: "phase", lane: "phase" }),
             "Flowchart.states: `label` and `lane` both name \"phase\" — a state's name and its lane are two fields");
+        // Lanes keyed by Float would take "seq" as a lane: every move would write the order over it.
+        refused(states({ label: "name", lane: "seq", order: "seq" }),
+            "Flowchart.states: `lane` and `order` both name \"seq\" — a state's lane and its place in it are two fields");
         refused(states({ label: "name", lane: "phase", members: "slots" }),
             "Flowchart.states: `members` is an accessor, (row, key) => an Option of an Integer");
         refused(states({ label: "name", lane: "phase", name: "" }), "Flowchart.states: `name` is what one is called, a string");

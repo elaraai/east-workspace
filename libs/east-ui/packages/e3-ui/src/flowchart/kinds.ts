@@ -573,7 +573,7 @@ export interface FlowchartStatesSpec<R extends StructType, L extends string, O e
  *   Details and check
  * @returns The states, for the Flowchart's `states`
  * @throws {Error} Naming the role or the binding (R2, R3): a role naming a field the row lacks, or one of another type —
- *   a `lane` of a type no Dict is keyed by among them; `label` and `lane` naming one field; an accessor returning
+ *   a `lane` of a type no Dict is keyed by among them; `label` and `lane`, or `lane` and `order`, naming one field; an accessor returning
  *   another type; cards written in the code, or giving other fields than every field but `lane` and `order`; a
  *   `values` giving other fields than every field but `label`, `lane` and `order`, or one of another type, naming it;
  *   a `key` building another type than the states' key, naming both; details keyed by another type than the states;
@@ -714,6 +714,10 @@ export function flowchartStates<R extends StructType, L extends FlowchartKeyFiel
     const orderField = role("order", spec.order as string | undefined, FloatType, "a Float field, the state's place in its lane");
     if (laneField !== undefined && laneField === label.field) {
         throw new Error(`${where}: \`label\` and \`lane\` both name "${laneField}" — a state's name and its lane are two fields`);
+    }
+    // Lanes keyed by Float let the lane name the order's field: every move would write the order over the lane.
+    if (laneField !== undefined && laneField === orderField) {
+        throw new Error(`${where}: \`lane\` and \`order\` both name "${laneField}" — a state's lane and its place in it are two fields`);
     }
     // The role the app computes.
     const membersOf = accessorRole(bound.keyType, rowType, where, "members", OptionType(IntegerType), "an Option of an Integer", spec.members);
