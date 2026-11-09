@@ -191,6 +191,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     const ofNarrowing = narrowedCount === undefined ? undefined : layerCounts(layer, savedFrom, lensMatches !== undefined ? lens.revision : undefined, sourceRows);
     const entries: SheetEntries = {
         rows,
+        changes: changesOf,
         whole: decodedRows !== undefined || (!unreadRuns && (lensDrawn ? lensLayout !== undefined : paging.exhausted)),
         count: { shown: !lensDrawn ? recordTotal : narrowedCount === undefined || ofNarrowing === undefined ? undefined : narrowedCount + ofNarrowing.added - ofNarrowing.removed, total: recordTotal },
         narrowing: rowsQuery,

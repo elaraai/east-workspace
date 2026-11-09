@@ -335,10 +335,10 @@ function RecordFrame({ value, keys, styles, frameRef, tab, onTab, onOpen, openDe
         onDelete: readOnly || !capabilities.removeRows ? undefined : onDelete,
         ticked, tickedCount: words.number(ticked), writable: session.writable && inspect.writable,
     });
-    // The footer (FT1, FT2): the rows shown of the record's, the stale note over every row shown, and the legend.
+    // The footer (FT1, FT2): the rows shown of the record's, the stale note over every row shown but a new one, and the legend.
     const count = shown === undefined || total === undefined ? undefined
         : rm.shownOf({ shown: words.number(shown), total: words.number(total), n: total, noun: noun.singular, nouns: noun.plural });
-    const stale = entries.whole ? staleNoteOf(columns, entries.rows, now, words) : undefined;
+    const stale = entries.whole ? staleNoteOf(columns, entries.rows, entries.changes, now, words) : undefined;
     const legend = useMemo(() => legendOf(columns, registers), [columns, registers]);
     // An issue's place in a banner: its row, named as the Issues tab names it — a Record's rows have no lines.
     const where = useCallback((issue: EditIssue) => issueWhere(issue, placeOf.current(issue)), [issueWhere]);

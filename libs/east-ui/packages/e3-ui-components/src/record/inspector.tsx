@@ -401,7 +401,7 @@ function RecordNothing({ styles, inspect, words, columns }: { styles: Styles; in
     const entries = useSheetEntries();
     const now = useRecordNow();
     const shown = entries.count.shown;
-    const stale = entries.whole ? staleCountOf(columns, entries.rows, now) : undefined;
+    const stale = entries.whole ? staleCountOf(columns, entries.rows, entries.changes, now) : undefined;
     const stats: [stat: "shown" | "pending" | "stale", text: string | undefined][] = [
         ["shown", shown === undefined ? undefined : words.number(shown)],
         ["pending", words.number(inspect.counts.pending)],

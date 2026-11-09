@@ -96,14 +96,19 @@ export interface SheetParts {
 
 /**
  * The rows as a host's own chrome counts and changes them (#1533) — the
- * Record's title, status line, Add, Delete and footer: the rows drawn, how
- * many the narrowing shows and the record holds, the last gesture's notice,
- * the gestures recorded, and a gesture that adds a row and one that removes
- * rows.
+ * Record's title, status line, Add, Delete and footer: the rows drawn and
+ * what each one's drafts changed, how many the narrowing shows and the record
+ * holds, the last gesture's notice, the gestures recorded, and a gesture that
+ * adds a row and one that removes rows.
  */
 export interface SheetEntries {
     /** The rows drawn, the drafts applied: the resident rows — under the lens, the narrowing's. */
     rows: readonly SheetRowValue[];
+    /**
+     * What a row's drafts changed against what the record holds, by its id and the row as drawn — whether it is new
+     * among it — as a host's rows are told it; `undefined` for a row no gesture has touched.
+     */
+    changes: (id: string, row: SheetRowValue) => SheetRowChanges | undefined;
     /** Whether `rows` is every row the narrowing shows: inline rows, or a paged source or a lens with no run left to read. */
     whole: boolean;
     /** How many rows the narrowing shows, and how many the record holds — the drafts applied; `undefined` while not known. */

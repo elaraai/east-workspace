@@ -42,7 +42,7 @@ import { Reactive, RecordSlicesChromeType, Slice, UIComponentType, recordSlicesC
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Record, Sheet } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/record/record";
-import { width } from "../e3-web-mount.test-utils.js";
+import { reloadPage, width } from "../e3-web-mount.test-utils.js";
 import { act, settle, sheetHarness, slot } from "../sheet/frame/harness.test-utils.js";
 import { boundFrame, frameScrolls, offsetOf, touchFrame } from "../sheet/frame.test-utils.js";
 import { offering } from "../shared/schedule/keys.test-utils.js";
@@ -912,6 +912,30 @@ describe("the footer", () => {
                 item.querySelector('[data-slot="legendChip"]')?.getAttribute("data-look"), item.querySelector('[data-slot="legendName"]')?.textContent,
             ]);
             expect(legend).toEqual([["none", "Can work"], ["success", "Prefers"], ["danger", "Can't work"]]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    test("a new row is never stale: a copy of a stale row, which the grid draws with no age, counts in neither the stale note nor the Stale count with no row selected", async () => {
+        vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+        vi.setSystemTime(new Date("2027-01-19T10:14:00Z"));
+        try {
+            const first = await h.mount(ex.recordShiftPreferences, { storageKey: "record-stale-new" });
+            // D. Novak's, from May, copied: every field but the name hers.
+            await press(cellAt(first.container, 2, "role"));
+            await waitFor(() => expect(inspected(first.container)).toBe("P-0422"));
+            await press(details(first.container)!.querySelector('[data-inspector-action="duplicate"]')!);
+            await waitFor(() => expect(rows(first.container)).toHaveLength(4));
+            expect(part(cellOf(drafted(first.container), "days_since"), "absent")!.textContent).toBe("not confirmed");
+            expect(slot(first.container, "footer")!.querySelector('[data-slot="footerNote"]')!.textContent).toBe("1 stale · no update in 90 days");
+            // Opened again in this tab, the copy kept and no row selected: four shown, one pending, one stale.
+            reloadPage();
+            const { container } = await h.mount(ex.recordShiftPreferences, { storageKey: "record-stale-new" });
+            await waitFor(() => expect(rows(container)).toHaveLength(4));
+            const nothing = openPanel(container).querySelector<HTMLElement>('[data-record-details="none"]')!;
+            expect([...nothing.querySelectorAll("[data-count]")].map((stat) => [...stat.children].map((child) => child.textContent)))
+                .toEqual([["4", "Shown"], ["1", "Pending"], ["1", "Stale"]]);
         } finally {
             vi.useRealTimers();
         }

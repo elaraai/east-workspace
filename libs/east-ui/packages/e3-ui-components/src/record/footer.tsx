@@ -29,6 +29,7 @@ import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal, useRevealed, type SlotStyles } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingLine } from "../shared/loading.js";
 import type { SheetLoadingLine } from "../sheet/Footer.js";
+import type { SheetEntries } from "../sheet/index.js";
 import type { SheetColumnIndex, SheetRegisterIndex } from "../sheet/model.js";
 import type { SheetRowValue } from "../sheet/values.js";
 import { useSheetWords, type SheetWords } from "../sheet/words.js";
@@ -102,21 +103,23 @@ export interface RecordStaleCount {
 /**
  * How many of the rows the first age column with a threshold says are stale,
  * to the Record's clock: what the footer's note (FT1) and the inspector's
- * count with no row selected (IN8) say.
+ * count with no row selected (IN8) say. A new row is never stale: the record
+ * holds no age of it yet, and the grid draws it none.
  *
  * @param columns - The columns
  * @param rows - The rows to count: every row the narrowing shows
+ * @param changes - What a row's drafts changed: whether it is new
  * @param now - The Record's now
  * @returns The count; `undefined` with no such column
  */
-export function staleCountOf(columns: SheetColumnIndex, rows: readonly SheetRowValue[], now: Date): RecordStaleCount | undefined {
+export function staleCountOf(columns: SheetColumnIndex, rows: readonly SheetRowValue[], changes: SheetEntries["changes"], now: Date): RecordStaleCount | undefined {
     for (const meta of columns.list) {
         const kind = meta.raw.kind;
         if (kind.type !== "age") continue;
         const threshold = getSomeorUndefined(kind.value.stale);
         if (threshold === undefined) continue;
         let n = 0;
-        for (const row of rows) if (ageOf(meta, row.cells.get(meta.key), now)?.stale === true) n += 1;
+        for (const row of rows) if (changes(row.id, row)?.added !== true && ageOf(meta, row.cells.get(meta.key), now)?.stale === true) n += 1;
         return { n, threshold, unit: kind.value.unit.type };
     }
     return undefined;
@@ -124,16 +127,17 @@ export function staleCountOf(columns: SheetColumnIndex, rows: readonly SheetRowV
 
 /**
  * The stale note (FT1): how many of the rows the first age column with a
- * threshold says are stale, to the Record's clock.
+ * threshold says are stale, to the Record's clock — a new row never.
  *
  * @param columns - The columns
  * @param rows - The rows to count: every row the narrowing shows
+ * @param changes - What a row's drafts changed: whether it is new
  * @param now - The Record's now
  * @param words - The Sheet's words: the counts in the viewer's language
  * @returns The note; `undefined` with no such column, or no row stale
  */
-export function staleNoteOf(columns: SheetColumnIndex, rows: readonly SheetRowValue[], now: Date, words: SheetWords): string | undefined {
-    const stale = staleCountOf(columns, rows, now);
+export function staleNoteOf(columns: SheetColumnIndex, rows: readonly SheetRowValue[], changes: SheetEntries["changes"], now: Date, words: SheetWords): string | undefined {
+    const stale = staleCountOf(columns, rows, changes, now);
     if (stale === undefined || stale.n === 0) return undefined;
     return m.staleNote({ count: words.number(stale.n), threshold: words.number(stale.threshold), unit: stale.unit, one: integerEqual(stale.threshold, 1n) });
 }
