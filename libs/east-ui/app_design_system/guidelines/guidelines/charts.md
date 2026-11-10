@@ -11,7 +11,7 @@ shared x-axis with `<AlignedStack>`.
 
 - Axis lines `--rule` · no axis ticks · gridlines **solid** `--rule`
   (dashed is reserved for ephemeral data); no gridlines top/right.
-- Axis labels: JetBrains Mono · 10px · 500 · `--ink-4`. Axis names mono
+- Axis labels: Geist Mono · 10px · 500 · `--ink-4`. Axis names mono
   10px `--ink-4`. Every numeral tabular.
 - All chart text is mono. Grid margins (reference): left 44 · right 24 ·
   top 24 · bottom 28. No animation on load.

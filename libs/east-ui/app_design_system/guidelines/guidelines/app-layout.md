@@ -24,7 +24,7 @@ shell (collapsible sidebar + breadcrumb + logo + routed body); `<NavList>`,
    in-flow banners next to what they describe; the one modal is
    `<Dialog>`, a confirmation step for irreversible and destructive actions.
 7. **Mono labels frame everything** — eyebrows/statuses/keys:
-   JetBrains Mono · 9.5–11px · 600 · 0.1–0.18em · uppercase.
+   Geist Mono · 9.5–11px · 600 · 0.1–0.18em · uppercase.
 8. **Composition over invention** — new surfaces compose catalogued
    patterns; a missing pattern gets specified first, not invented in the
    screen.
