@@ -21,8 +21,9 @@
  * - **nothing** — the rows shown, the drafts pending and the rows stale, then
  *   where a row's fields show (IN8).
  *
- * Every edit is the Sheet's form's, written as the row's cell writes it: one
- * draft and one step of the history — or, refused by its cell, none, the field
+ * Every edit is the Sheet's form's, written as the row's cell writes it — a
+ * number's box emptied as its cell emptied: one draft and one step of the
+ * history — or, refused by its cell, none, the field
  * showing what the row holds and why under it. A complete row given the author's own
  * Details shows them in the form's place (SB58). A title opened, a copy made
  * and an issue gone to put the keyboard in their field (AD1, IN7, IN9): the
@@ -361,7 +362,7 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
                     : own !== undefined
                         ? <EastChakraComponent value={own} storageKey={`${keys.frame}.inspector`} />
                         : <FieldForm specs={specs} value={edit.formValue} baseline={edit.baseline} options={edit.options} onChange={edit.onChange}
-                            readOnly={!inspect.writable} renderControl={renderControl} lines={lines} issues={named} focus={focusKey} />}
+                            takesUnset readOnly={!inspect.writable} renderControl={renderControl} lines={lines} issues={named} focus={focusKey} />}
             </Box>
             {facts.length > 0 && (
                 <Box css={record.facts} data-record-facts="">

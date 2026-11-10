@@ -8,7 +8,9 @@
  * holds again, the reason under it, as the status line says it, and the row
  * takes no draft. Over the Record's operators deployed to e3 itself, each
  * one's notes read as a column from data of one member, a String a clear can't
- * leave empty.
+ * leave empty; and over the roster's shifts, each day's heads a column from
+ * data of a struct's field, a number whose box, emptied, it can't leave empty
+ * either.
  */
 
 import { expect, test } from "vitest";
@@ -72,4 +74,22 @@ test("a Note cleared in Details, which its column can't leave empty: the box sho
     expect(status(container)).toBe("Note can't be left empty — the edit was not kept");
     expect(cell(container, "P-0401", "notes:note").textContent).toBe("Prefers day shifts through March");
     expect(cell(container, "P-0401", "name").closest('[data-slot="row"]')!.hasAttribute("data-draft")).toBe(false);
+});
+
+test("a Mon emptied in Details, which a day's heads can't be left without: the box shows the 4 the row holds again, the reason under it as the status line says it — as emptying its cell says it — and the row takes no draft (#1585)", async () => {
+    const { container } = await h.mount(ex.recordRosterByDay, { storageKey: "record-details-emptied" });
+    // The early shift, the ring placed on its name: Details shows it.
+    await act(async () => { fireEvent.mouseDown(cell(container, "S-1", "name"), { button: 0 }); });
+    await settle();
+    const box = () => within(field(container, "week:mon")).getByRole("spinbutton") as HTMLInputElement;
+    expect(box().value).toBe("4");
+    const user = userEvent.setup();
+    await user.clear(box());
+    await user.type(box(), "{Enter}");
+    await settle();
+    expect(box().value).toBe("4");
+    expect(field(container, "week:mon").querySelector("[data-scope=field][data-part=error-text]")?.textContent).toBe("Mon can't be left empty");
+    expect(status(container)).toBe("Mon can't be left empty — the edit was not kept");
+    expect(cell(container, "S-1", "week:mon").textContent).toBe("4");
+    expect(cell(container, "S-1", "name").closest('[data-slot="row"]')!.hasAttribute("data-draft")).toBe(false);
 });

@@ -21,11 +21,13 @@
  *   edit is one transaction, as typing in the cell is: a field with a column
  *   is written through its cell — the cells a patch of it sets, or a custom
  *   column's text read by its own parse — and asks the copilot again when its
- *   column is a trigger; a field with none is set on the draft (SB52). An
- *   edit its cell refuses — a clear of a value that is never empty — leaves
- *   the field showing what the row holds, the reason under it as the footer's
- *   line says it. A field the drafts changed is tinted against what the
- *   source holds. With
+ *   column is a trigger; a field with none is set on the draft (SB52). A
+ *   number's box emptied is its cell emptied, as emptying the cell is: blank,
+ *   the field then not set, where its column takes a clear. An edit its cell
+ *   refuses — a clear of a value that is never empty — leaves the field
+ *   showing what the row holds, the reason under it as the footer's line says
+ *   it. A field the drafts changed is tinted against what the source holds.
+ *   With
  *   the author's own Details (SB58), a complete row shows what they return in
  *   place of the form, and their `update` is one transaction; a row still
  *   missing a field, or holding one unreadable, shows the form until it is
@@ -741,7 +743,7 @@ function TargetView(props: TargetProps) {
                     : own !== undefined
                         ? <EastChakraComponent value={own} storageKey={`${keys.frame}.inspector`} />
                         : <FieldForm specs={edit.specs} value={edit.formValue} baseline={edit.baseline} options={edit.options}
-                            onChange={edit.onChange} readOnly={!inspect.writable} renderControl={edit.renderControl} />}
+                            onChange={edit.onChange} takesUnset readOnly={!inspect.writable} renderControl={edit.renderControl} />}
             </Box>
             {subRows.length > 0 && (
                 <Box css={styles.subRows} data-inspector-sub-rows="">
@@ -933,7 +935,7 @@ function PhoneField({ words, styles, bar, inspect, r, columnKey, spec, section, 
                 : columnKey !== undefined && touch !== undefined
                     ? <TouchControl inspect={inspect} words={words} bar={bar} r={r} columnKey={columnKey} spec={spec} header={header} dirty={dirty} joins={undefined} />
                     : <FieldForm specs={section} value={edit.formValue} baseline={edit.baseline} options={edit.options}
-                        onChange={edit.onChange} readOnly={!inspect.writable} renderControl={edit.renderControl} />}
+                        onChange={edit.onChange} takesUnset readOnly={!inspect.writable} renderControl={edit.renderControl} />}
         </Box>
     );
 }
@@ -1303,7 +1305,7 @@ function SeveralRows({ value, pane, words, styles, inspect, rs, r0, r1 }: Severa
             {chosen !== undefined && chosenKey !== undefined && (
                 <Box css={styles.bulk} data-inspector-bulk="">
                     <Box css={styles.sectionHead}>{m.inspectorBulk({ part: "column" })}</Box>
-                    <FieldForm specs={specs} value={formValue} options={options} onChange={onChange} readOnly={!inspect.writable} />
+                    <FieldForm specs={specs} value={formValue} options={options} onChange={onChange} takesUnset readOnly={!inspect.writable} />
                     <Box css={styles.marks}>
                         <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled={!inspect.writable} data-inspector-action="clear"
                             onClick={() => { setHeld(undefined); writeAcross((r) => ({ r, cells: new Map([[chosenKey, NULL_CELL]]) })); }}>
