@@ -186,6 +186,26 @@ describe("DatasetKeySearch", () => {
         await waitFor(() => expect(onJump).toHaveBeenCalledWith(42, "pick"));
     });
 
+    test("a list opened by typing asks only what is typed, never what an empty box browses: Enter before its answer picks nothing, and after it the first row the text finds (#1585)", async () => {
+        // The browse lists every row from the first; what is typed finds rows from 40.
+        const onFind = vi.fn(async (query: unknown) => ((query as { prefix?: string }).prefix === ""
+            ? { found: true, row: 0, count: 100 } : { found: true, row: 40, count: 3 }));
+        const onListRange = vi.fn(async (row: number, limit: number) => Array.from({ length: Math.min(limit, 3) }, (_, i) => `state-${row + i}`));
+        const onJump = vi.fn();
+        renderSearch({ keyType: StringKey, onFind, onListRange, onJump, browseQuery: { prefix: "" } });
+        const input = screen.getByPlaceholderText("Search Records") as HTMLInputElement;
+        // One input event opens the list with its text: the combobox tells the box of the text, then of the open, in one turn.
+        await act(async () => { input.focus(); fireEvent.input(input, { target: { value: "s" } }); });
+        // The text waits out its debounce, its rows not yet asked: Enter has no match of its own to pick.
+        fireEvent.keyDown(input, { key: "Enter" });
+        expect(onJump).not.toHaveBeenCalled();
+        await waitFor(() => expect(screen.getByRole("status").textContent).toBe("3 matches"));
+        expect([onFind.mock.calls, onListRange.mock.calls]).toEqual([[[{ prefix: "s" }]], [[40, 3]]]);
+        fireEvent.keyDown(input, { key: "Enter" });
+        await waitFor(() => expect(onJump).toHaveBeenCalledWith(40, "pick"));
+        expect(onJump).toHaveBeenCalledTimes(1);
+    });
+
     test("found, the count shows and Enter jumps while the lines are on their way; a listing that fails keeps both, and the popup says why — never No matches (#1398, CL10)", async () => {
         // The lines of a far match: its rows' window, still on its way.
         let release = () => {};

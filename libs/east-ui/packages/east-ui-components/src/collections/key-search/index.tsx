@@ -389,8 +389,11 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
 
     const handleOpen = useCallback((next: boolean) => {
         setOpen(next);
-        if (next && !typed && browseQuery !== undefined) runFind(browseQuery);
-    }, [typed, browseQuery, runFind]);
+        // An empty box browses as its list opens. A list opened by typing is told of the text first, in the same turn and
+        // before any render has seen it, so what the box holds is read from what it was told, never from the render's
+        // `typed`: a browse under the text would list rows it does not find, and Enter would pick the first of them.
+        if (next && typedRef.current === '' && !showingRef.current && browseQuery !== undefined) runFind(browseQuery);
+    }, [browseQuery, runFind]);
 
     const clearSearch = useCallback(() => {
         resetQueryState();
