@@ -29,7 +29,9 @@
  *   {@link INDEX_MATCHES} matches read, and how many more it holds said.
  *
  * Nothing it reads is the record whole. Each result is the same object while
- * what it was read from is.
+ * what it was read from is, and names the revision it read each kind at: what
+ * a Save landed of a kind is drawn until the Index reads it since
+ * (`drafted.ts`' `landedRead`).
  *
  * @packageDocumentation
  */
@@ -106,10 +108,12 @@ export interface IndexAreaRead {
     readonly crowded: ReadonlySet<string>;
     /** How many matches of the search those kinds hold past those read. */
     readonly more: number;
+    /** The revision each kind was read at, by its slot. */
+    readonly revisions: ReadonlyMap<string, string>;
 }
 
 /** Nothing read: no kind read by area, or no zone open and no search. */
-export const NO_INDEX_AREA: IndexAreaRead = { items: [], read: new Set(), crowded: new Set(), more: 0 };
+export const NO_INDEX_AREA: IndexAreaRead = { items: [], read: new Set(), crowded: new Set(), more: 0, revisions: new Map() };
 
 /** A zone's box, in world units. */
 function boxOf(zone: DrawnZone): { minX: number; minY: number; maxX: number; maxY: number } {
@@ -151,11 +155,13 @@ export class SchematicIndexArea {
         const items = new Map<string, DrawnItem>();
         const read = new Set<string>();
         const crowded = new Set<string>();
+        const revisions = new Map<string, string>();
         let more = 0;
         for (const kind of kinds) {
             const revision = recordSliceRevision(kind.part);
             if (revision.type !== "some") return READING;
             from.push(kind.kind, revision.value);
+            revisions.set(kind.kind.key, revision.value);
             const got = query === ""
                 ? this.zones(kind, revision.value, open, from, read, crowded)
                 : this.search(kind, revision.value, query, from);
@@ -165,7 +171,7 @@ export class SchematicIndexArea {
         }
         const last = this.last;
         if (last !== undefined && sameFrom(last.from, from)) return last.result;
-        const result = { items: [...items.values()], read, crowded, more };
+        const result = { items: [...items.values()], read, crowded, more, revisions };
         this.last = { from, result };
         return result;
     }

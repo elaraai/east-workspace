@@ -31,6 +31,17 @@
  * checked, drawn or not (ruled 27 Oct 2026, "Checked in view, said so"), and
  * Go to issue flies to where it stands (`waitingPoint`).
  *
+ * What a confirmed Save landed of a kind read by area draws as the Save left
+ * it until the kind's reads are from after the commit (`landedDrafts`): a
+ * window read before the Save landed holds each row as it stood, and drawn
+ * from the window alone a moved rack showed where it was until the window was
+ * read again. Over a window read at the revision a Save was drafted at — or
+ * none, its read failed — each row the Save landed is laid under the drafts as
+ * a draft is; over one read since, only a row the window holds none of. Details
+ * reads the windows with the rows so (`landedWindows`), and a kind's are let go
+ * once its window, and the Index's read of it, are from after them
+ * (`landedRead`).
+ *
  * @packageDocumentation
  */
 
@@ -40,7 +51,7 @@ import {
     type CardRoles, type DetailsRoles, type ItemRoles, type LinkRoles, type NetRoles, type SchematicDrawn, type SchematicRef, type ZoneRoles,
 } from "./canvas/drawn.js";
 import { zoneAnchor } from "./canvas/paint.js";
-import type { SchematicHeldRows } from "./data.js";
+import type { SchematicHeldRows, SchematicWindowHeld, SchematicWindowRows } from "./data.js";
 
 const stringEqual = equalFor(StringType);
 
@@ -75,6 +86,33 @@ export interface SchematicDrafts {
 
 /** No drafts. */
 export const NO_DRAFTS: SchematicDrafts = { items: new Map(), zones: new Map(), links: new Map(), nets: new Map() };
+
+/**
+ * What a confirmed Save landed of a row of a kind read by area (`EditSession.landed`): the row as the Save left it, drawn
+ * so until the reads of its kind are from after the commit (see the module docs).
+ */
+export interface LandedRow<R> {
+    /** The row as the Save left it, as the drawing takes a drafted row; `undefined` for one it deleted. */
+    readonly drawn: DraftedRow<R> | undefined;
+    /** Its bytes as the Save left it, as a window holds a row; `undefined` for one it deleted. */
+    readonly row: Uint8Array | undefined;
+    /** The revision the Save's request was drafted at: a read there holds the row as it stood before. */
+    readonly from: string;
+}
+
+/** One sort's landed rows: by each kind's slot, then by key. */
+export type SortLanded<R> = ReadonlyMap<string, ReadonlyMap<string, LandedRow<R>>>;
+
+/** What Saves landed of the kinds read by area, by sort: the sorts a kind is read by area of. */
+export interface SchematicLanded {
+    /** The item kinds'. */
+    readonly items: SortLanded<ItemRoles>;
+    /** The zone kinds'. */
+    readonly zones: SortLanded<ZoneRoles>;
+}
+
+/** Nothing landed. */
+export const NO_LANDED: SchematicLanded = { items: new Map(), zones: new Map() };
 
 /** What a drafted row was drawn as, by the roles it was drawn from: kept while they are, and its details' and what of them is unread. */
 export type DraftedCache = WeakMap<object, { readonly details: DetailsRoles | undefined; readonly pending: CardRoles | undefined; readonly drawn: unknown }>;
@@ -269,5 +307,115 @@ export function waitingPoint(id: string, waiting: SchematicDrawn, drawn: Schemat
     if (placed.length === 0) return undefined;
     const xs = placed.map((at) => at.x), ys = placed.map((at) => at.y);
     return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+}
+
+/**
+ * Whether a read of a kind is from before what Saves landed of it: read at the revision one of their requests was
+ * drafted at, so holding its rows as they stood. Two Saves landing before the kind is read again each name their own.
+ *
+ * @param revision - The revision the read was read at
+ * @param rows - The kind's landed rows
+ * @returns Whether it is
+ */
+function readBefore(revision: string, rows: ReadonlyMap<string, LandedRow<unknown>>): boolean {
+    for (const row of rows.values()) if (stringEqual(row.from, revision)) return true;
+    return false;
+}
+
+/**
+ * One sort's drafts with what Saves landed of it laid under them, as {@link landedDrafts} lays them.
+ *
+ * @param drafts - The sort's drafts
+ * @param landed - What Saves landed of it
+ * @param windows - Each kind read by area's window
+ * @returns The drafts; themselves while nothing is laid
+ */
+function laidSort<R>(drafts: SortDrafts<R>, landed: SortLanded<R>, windows: SchematicWindowRows): SortDrafts<R> {
+    let out: Map<string, ReadonlyMap<string, DraftedRow<R> | undefined>> | undefined;
+    for (const [slot, rows] of landed) {
+        const window = windows.get(slot);
+        const before = window === undefined || readBefore(window.revision, rows);
+        const own = drafts.get(slot);
+        let laid: Map<string, DraftedRow<R> | undefined> | undefined;
+        for (const [key, row] of rows) {
+            if (own?.has(key) === true || (!before && window?.rows.has(key) === true)) continue;
+            laid ??= new Map(own);
+            laid.set(key, row.drawn);
+        }
+        if (laid === undefined) continue;
+        out ??= new Map(drafts);
+        out.set(slot, laid);
+    }
+    return out ?? drafts;
+}
+
+/**
+ * The drafts with what confirmed Saves landed of the kinds read by area laid under them (see the module docs): over a
+ * window read at the revision a Save was drafted at — or none, its read failed and what was drawn of it standing —
+ * every row the Saves landed, as they left it, one they deleted drawing nowhere; over a window read since, only a row it
+ * holds none of, which the Index, its read perhaps older, lists where the Save left it. A draft of a row made since
+ * draws in its place.
+ *
+ * @param drafts - Every kind's drafts
+ * @param landed - What Saves landed of the kinds read by area
+ * @param windows - Each kind read by area's window, at the revision it was read at
+ * @returns The drafts, each kind's landed rows after its own; the drafts themselves while nothing is laid
+ */
+export function landedDrafts(drafts: SchematicDrafts, landed: SchematicLanded, windows: SchematicWindowRows): SchematicDrafts {
+    const items = laidSort(drafts.items, landed.items, windows), zones = laidSort(drafts.zones, landed.zones, windows);
+    return Object.is(items, drafts.items) && Object.is(zones, drafts.zones) ? drafts : { ...drafts, items, zones };
+}
+
+/**
+ * Each kind read by area's window with what Saves landed of it in place while the window is from before them: each row
+ * as the Save left it, and none of one it deleted. Details reads a row of a kind read by area from its window
+ * (`inspector-rows.ts`), so its fields never show the row as it stood before the Save; a window read since holds the
+ * rows itself.
+ *
+ * @param windows - Each kind read by area's window
+ * @param landed - What Saves landed of the kinds read by area
+ * @returns The windows; themselves while none is from before a Save
+ */
+export function landedWindows(windows: SchematicWindowRows, landed: SchematicLanded): SchematicWindowRows {
+    let out: Map<string, SchematicWindowHeld> | undefined;
+    const sorts: readonly SortLanded<unknown>[] = [landed.items, landed.zones];
+    for (const sort of sorts) {
+        for (const [slot, rows] of sort) {
+            const window = windows.get(slot);
+            if (window === undefined || !readBefore(window.revision, rows)) continue;
+            const held = new Map(window.rows);
+            for (const [key, row] of rows) {
+                if (row.row === undefined) held.delete(key);
+                else held.set(key, { row: row.row });
+            }
+            out ??= new Map(windows);
+            out.set(slot, { revision: window.revision, rows: held });
+        }
+    }
+    return out ?? windows;
+}
+
+/**
+ * What Saves landed that the reads draw now, which their sessions let go (`EditSession.shown`): every landed row of a
+ * kind whose window is read since the revisions its Saves were drafted at — and the Index's read of it too, where the
+ * Index reads the kind. Over a window from before them, or none, its read failed, they draw as landed still.
+ *
+ * @param landed - What Saves landed of the kinds read by area
+ * @param windows - Each kind read by area's window
+ * @param index - The revision the Index read each kind it lists at (`index-area.ts`); none for a kind it reads none of
+ * @returns Each such kind's landed keys, by slot
+ */
+export function landedRead(landed: SchematicLanded, windows: SchematicWindowRows,
+    index: ReadonlyMap<string, string>): ReadonlyMap<string, readonly string[]> {
+    const out = new Map<string, readonly string[]>();
+    const sorts: readonly SortLanded<unknown>[] = [landed.items, landed.zones];
+    for (const sort of sorts) {
+        for (const [slot, rows] of sort) {
+            const window = windows.get(slot), listed = index.get(slot);
+            if (window === undefined || readBefore(window.revision, rows) || (listed !== undefined && readBefore(listed, rows))) continue;
+            out.set(slot, [...rows.keys()]);
+        }
+    }
+    return out;
 }
 

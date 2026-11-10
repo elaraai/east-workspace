@@ -54,6 +54,12 @@
  *   them, kept while its session keeps the entry's version — what the frame
  *   draws over the stored rows (`drafted.ts`), and where a kind read by area's
  *   Backlog lists it (`backlog.ts`).
+ * - **What a Save landed.** A kind read by area draws its rows from its
+ *   window, which a Save's confirmation does not read again: its session keeps
+ *   what each Save landed (`drawsLanded`, `EditSession.landed`), each row
+ *   decoded once, which the frame draws over a window read before the commit
+ *   (`drafted.ts`' `landedDrafts`) and lets go once the window is read since
+ *   (`shown`).
  * - **What stands in.** While what the canvas draws stands in for a new
  *   narrowing, or a narrowing the frame follows could not be read, it is
  *   retained (#1398, CL8): no record takes an edit — every route asks
@@ -69,7 +75,7 @@
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { StringType, equalFor, some, variant, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
 import type { EditingReadinessType, RecordSliceBindType } from "@elaraai/east-ui/internal";
-import type { EditHistory, EntryVersion, Origin } from "@elaraai/east-ui-components";
+import type { EditHistory, EntryVersion, LandedEntry, Origin } from "@elaraai/east-ui-components";
 import {
     useScheduleEditing,
     type ScheduleChange, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead,
@@ -78,7 +84,7 @@ import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
 import { draftedRow, heldInWindow, keptAtRevision, madeFromValues, mintKey, rowCodec } from "../shared/schedule/records.js";
 import type { SchematicRef } from "./canvas/drawn.js";
 import type { SchematicHeldRows, SchematicValue, SchematicWindowRows } from "./data.js";
-import type { DraftedRow, SchematicDrafts, SortDrafts } from "./drafted.js";
+import { NO_LANDED, type DraftedRow, type LandedRow, type SchematicDrafts, type SchematicLanded, type SortDrafts, type SortLanded } from "./drafted.js";
 import type { SchematicEdit } from "./edits.js";
 import { detailsKey } from "./record-keys.js";
 
@@ -129,8 +135,21 @@ export interface SchematicEditing {
     readonly edits: boolean;
     /** Every kind's drafts, by sort, each decoded once. */
     readonly drafts: SchematicDrafts;
+    /**
+     * What each confirmed Save landed of the kinds read by area, as their sessions keep it (`EditSession.landed`), each
+     * row decoded once: drawn as the Save left it over a window read before the commit (`drafted.ts`' `landedDrafts`).
+     */
+    readonly landed: SchematicLanded;
     /** The history's version: it moves with every change of it or of its sessions. */
     readonly version: number;
+    /**
+     * Lets go of what Saves landed of a kind's rows, once its reads draw them as the record holds them now (`drafted.ts`'
+     * `landedRead`).
+     *
+     * @param slot - The kind's slot
+     * @param keys - The rows' keys
+     */
+    shown(slot: string, keys: readonly string[]): void;
     /**
      * Whether a record takes an edit now: its session takes one, and nothing the canvas draws is retained (#1398, CL8).
      *
@@ -311,7 +330,9 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
                 }));
             if (kind.editable && kind.editing.type === "some") {
                 const ready = waiting(kind.ready, () => variant("incomplete", [{ field: "", message: wordsNow.current.placeholder({ name: kind.name }) }]));
-                out.push({ key: kind.key, name: kind.name, editing: kind.editing.value, entries: kind.entries, ready, fields: kind.fields });
+                // A kind read by area draws its rows from its window, which a Save's confirmation doesn't read: its session
+                // keeps what each Save landed, drawn until the window is read again.
+                out.push({ key: kind.key, name: kind.name, editing: kind.editing.value, entries: kind.entries, ready, fields: kind.fields, drawsLanded: areas.has(kind.key) });
             }
             const details = someOf(kind.details);
             if (details !== undefined && details.editable && details.editing.type === "some") {
@@ -322,7 +343,7 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
             }
         }
         return out;
-    }, [kinds, value.readOnly]);
+    }, [kinds, value.readOnly, areas]);
     // Each record a change names, by its key in the history — a kind's own and its details' — as a row is found in it.
     const sides = useMemo(() => {
         const out = new Map<string, RecordSide>();
@@ -409,9 +430,53 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [draftsNow, value.items, value.zones, value.links, value.nets]);
 
+    // What each Save landed of a kind read by area, each row decoded once: a session keeps a landed entry the same object
+    // until it lets it go.
+    const landedDecoded = useRef(new WeakMap<LandedEntry<ScheduleEntryRef>, LandedRow<unknown>>());
+    const version = schedule.version;
+    const landed = useMemo((): SchematicLanded => {
+        const sort = <R,>(sorted: readonly {
+            readonly key: string; readonly rowType: EastTypeValue; readonly keyType: EastTypeValue; readonly read: (bytes: Uint8Array, key: string) => R;
+        }[]): SortLanded<R> => {
+            const out = new Map<string, ReadonlyMap<string, LandedRow<R>>>();
+            for (const kind of sorted) {
+                if (!areas.has(kind.key)) continue;
+                const entries = schedule.sessions.find((part) => stringEqual(part.kind, kind.key))?.session.landed;
+                if (entries === undefined || entries.size === 0) continue;
+                const codec = rowCodec(kind.rowType);
+                const keys = kindKeys(kind.keyType);
+                const rows = new Map<string, LandedRow<R>>();
+                for (const [id, entry] of entries) {
+                    let row = landedDecoded.current.get(entry) as LandedRow<R> | undefined;
+                    if (row === undefined) {
+                        // A row the Save deleted is none; one it added, a row no read held before it.
+                        const after = draftedRow(entry.after);
+                        const bytes = after === undefined ? undefined : codec.encode(after.row);
+                        row = {
+                            drawn: bytes === undefined ? undefined : { roles: kind.read(bytes, keys.readKey(id)), created: draftedRow(entry.before) === undefined },
+                            row: bytes, from: entry.from,
+                        };
+                        landedDecoded.current.set(entry, row);
+                    }
+                    rows.set(id, row);
+                }
+                out.set(kind.key, rows);
+            }
+            return out;
+        };
+        // Nothing landed is the one object, so what reads it holds still while gestures move the history.
+        const items = sort(value.items), zones = sort(value.zones);
+        return items.size === 0 && zones.size === 0 ? NO_LANDED : { items, zones };
+        // What the sessions keep moves with the history's version.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [version, schedule.sessions, areas, value.items, value.zones]);
+
     // Stable to the canvas: each runs the latest render's.
     const latest = useRef({ value, schedule, held, retained, reads, sides });
     latest.current = { value, schedule, held, retained, reads, sides };
+    const shown = useCallback((slot: string, keys: readonly string[]): void => {
+        latest.current.schedule.sessions.find((part) => stringEqual(part.kind, slot))?.session.shown(keys);
+    }, []);
     // Retained, no record takes an edit: every route asks it, and `record` refuses one (#1398, CL8).
     const scheduleAvailable = schedule.available;
     const available = useCallback((slot: string): boolean => !retained && scheduleAvailable(slot), [retained, scheduleAvailable]);
@@ -658,7 +723,7 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
     }, []);
 
     return useMemo(() => ({
-        schedule, history: schedule.history, edits: records.length > 0, drafts, version: schedule.version, available, record, edited, newKey, taken,
-        stands, moves, builds, untyped, keysTyped,
-    }), [schedule, records.length, drafts, available, record, edited, newKey, taken, stands, moves, builds, untyped, keysTyped]);
+        schedule, history: schedule.history, edits: records.length > 0, drafts, landed, version: schedule.version, shown, available, record, edited,
+        newKey, taken, stands, moves, builds, untyped, keysTyped,
+    }), [schedule, records.length, drafts, landed, shown, available, record, edited, newKey, taken, stands, moves, builds, untyped, keysTyped]);
 }

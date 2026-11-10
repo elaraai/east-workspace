@@ -141,6 +141,12 @@ export interface ScheduleEditingRecord {
      * holds Save as the app's check does, naming the row and the field. None unless given.
      */
     readonly fields?: readonly FieldSpecValue[] | undefined;
+    /**
+     * Whether the builder draws what a confirmed Save landed of it over the rows it read before the commit, until they
+     * are read again (`EditSession.landed`): a record read by key whose rows the builder reads apart from the
+     * confirmation — the Schematic's kinds read by area, their windows. `false` by default.
+     */
+    readonly drawsLanded?: boolean | undefined;
 }
 
 /**
@@ -307,6 +313,8 @@ interface EditedPart<I extends Item> {
     readonly kind: ScheduleEditingKind<I> | undefined;
     /** Its rows as its builder's own reads hold them. */
     readonly read: ScheduleRowRead | undefined;
+    /** Whether its builder draws what a Save landed over the rows it read before the commit: a record's own say. */
+    readonly drawsLanded: boolean | undefined;
 }
 
 /** A kind's codecs, or a record's, read once per kind. */
@@ -385,10 +393,12 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
     boundsRef.current = boundsOf;
     // Each kind, then each record: a session each, in that order.
     const parts = useMemo((): EditedPart<I>[] => [
-        ...kinds.map((kind) => ({ key: kind.key, name: kind.name, editing: kind.editing, entries: kind.entries, ready: kind.ready, fields: kind.fields, kind,
-            read: reads?.[kind.key] })),
+        ...kinds.map((kind) => ({
+            key: kind.key, name: kind.name, editing: kind.editing, entries: kind.entries, ready: kind.ready, fields: kind.fields, kind, read: reads?.[kind.key],
+            drawsLanded: undefined,
+        })),
         ...records.map((record) => ({ key: record.key, name: record.name, editing: record.editing, entries: record.entries, ready: record.ready ?? none,
-            fields: record.fields ?? NO_FIELDS, kind: undefined, read: reads?.[record.key] })),
+            fields: record.fields ?? NO_FIELDS, kind: undefined, read: reads?.[record.key], drawsLanded: record.drawsLanded })),
     ], [kinds, records, reads]);
     const codecs = useMemo(() => parts.map((kind): KindCodecs => {
         const entryType = fromEastTypeValue(kind.editing.entryType) as EastType;
@@ -466,7 +476,7 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
                 return read.value.type === "some" ? some(some(decodeRow(read.value.value))) : some(none);
             },
         };
-        return { editing, ready, paged, prepare, wireType: EntryRefType, ranges, together };
+        return { editing, ready, paged, prepare, wireType: EntryRefType, ranges, together, drawsLanded: kind.drawsLanded };
     }), [parts, codecs, storageKey, recordSlices, quantityLabel]);
     const state = useEditHistory<ScheduleEntryRef>(sources, storageKey, joined);
     historyRef.current = state.history;

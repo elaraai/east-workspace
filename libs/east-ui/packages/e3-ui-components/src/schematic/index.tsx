@@ -123,7 +123,10 @@
  * Every gesture is one step of one history over a session per record the
  * Schematic writes (`editing.ts`, #1388): the canvas records each gesture's
  * edits (`edits.ts`), and draws the stored rows with the drafts in place
- * (`drafted.ts`). A new row is keyed as its kind makes one (#1549), and a row
+ * (`drafted.ts`), and what a Save landed of a kind read by area as the Save
+ * left it — on the canvas, in the Index and in Details — until the kind's
+ * window and the Index's read of it are read since. A new row is keyed as its
+ * kind makes one (#1549), and a row
  * whose kind builds its key from its fields follows the key a gesture's edit
  * of them builds, the links and nets naming it with it — every route's edits,
  * the canvas's, a drop's and the inspector's, recorded so — refused, the
@@ -149,7 +152,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { ArrayType, StringType, compareFor, equalFor, equivalentFor, none, printFor, some, type EastType, type PatchPath, type option } from "@elaraai/east";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
@@ -184,7 +187,7 @@ import { hostZones, zoneHolding, type WorldBox } from "./canvas/model.js";
 import { INITIAL_SCHEMATIC_DATA, SchematicDataReader, areaSlots, type SchematicData, type SchematicValue } from "./data.js";
 import { SchematicAreaCountsReader, NO_AREA_COUNTS } from "./area-counts.js";
 import { draftedAreaCounts, savedRecords, schematicCounts, type SchematicDrawingCount } from "./counts.js";
-import { draftedDrawing, waitingDrafts, waitingPoint, withWaiting, type DraftedCache } from "./drafted.js";
+import { draftedDrawing, landedDrafts, landedRead, landedWindows, waitingDrafts, waitingPoint, withWaiting, type DraftedCache } from "./drafted.js";
 import { NO_DRAFTS_NARROWING, SchematicDraftsReader, draftHeld, type SchematicDraftsNarrowing } from "./drafts-narrowing.js";
 import type { SchematicDropContext, SchematicDropKind } from "./drop.js";
 import { connectVeto, editKinds, followBuiltKeys, type NetLeg, type SchematicEdit, type SchematicKeyRefusal, type SchematicUnheld } from "./edits.js";
@@ -363,6 +366,25 @@ const NOTHING_SELECTED: ReadonlySet<string> = new Set();
 /** No card of the library selected. */
 const NO_PICKS: ReadonlyMap<string, string> = new Map();
 
+/** No kind the Index reads by area. */
+const NO_INDEX_REVISIONS: ReadonlyMap<string, string> = new Map();
+
+/**
+ * Whether two reports of the revision the Index read each kind at say the same.
+ *
+ * @param a - One, by slot
+ * @param b - The other
+ * @returns Whether they do
+ */
+function sameRevisions(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>): boolean {
+    if (a.size !== b.size) return false;
+    for (const [slot, revision] of a) {
+        const other = b.get(slot);
+        if (other === undefined || !stringEqual(other, revision)) return false;
+    }
+    return true;
+}
+
 /** The zoom as the canvas opens: at Fit. */
 const AT_FIT: ZoomRange = { atFit: true, atLimit: false };
 
@@ -432,8 +454,13 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const dim = look.dim;
     const drafted = useCallback((ref: SchematicRef) => draftHeld(draftsNarrowing, ref), [draftsNarrowing]);
     const leftOut = useCallback((ref: SchematicRef) => !dim && drafted(ref) === false, [dim, drafted]);
-    const drawing = useMemo(() => draftedDrawing(data.drawn, data.held, editing.drafts, draftedCache.current, areas, leftOut),
-        [data.drawn, data.held, editing.drafts, areas, leftOut]);
+    // A kind read by area draws from its window, which a Save's confirmation doesn't read again: what the Save landed draws
+    // as the Save left it over a window read before the commit, until the window is read again — drawn from the window
+    // alone, a moved rack showed where it was meanwhile. Details reads the windows so; the drafts unsaved stay the drafts.
+    const canvasDrafts = useMemo(() => landedDrafts(editing.drafts, editing.landed, data.windows), [editing.drafts, editing.landed, data.windows]);
+    const inspectedWindows = useMemo(() => landedWindows(data.windows, editing.landed), [data.windows, editing.landed]);
+    const drawing = useMemo(() => draftedDrawing(data.drawn, data.held, canvasDrafts, draftedCache.current, areas, leftOut),
+        [data.drawn, data.held, canvasDrafts, areas, leftOut]);
     // The drafted rows the drawing leaves out — each waiting in its session, the narrowing leaving out the row it drafts —
     // as their kinds draw them, never drawn: Issues checks and names every unsaved change, drawn or not (ruled 27 Oct 2026,
     // "Checked in view, said so").
@@ -805,11 +832,30 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                 if (row?.created === true) created.add(id);
             }
         }
+        // What a Save landed is listed as the canvas draws it, whatever its window holds: the Index's read may be older.
+        for (const [slot, rows] of editing.landed.items) {
+            for (const [key, row] of rows) {
+                const id = entityId({ kind: slot, key });
+                drafted.add(id);
+                if (row.drawn?.created === true) created.add(id);
+            }
+        }
         return { drafted, created };
-    }, [editing.drafts.items, areas]);
+    }, [editing.drafts.items, editing.landed.items, areas]);
+    // The revision the Index read each kind by area at: what a Save landed of a kind is listed so until it has read it since.
+    const [indexRevisions, setIndexRevisions] = useState<ReadonlyMap<string, string>>(NO_INDEX_REVISIONS);
+    const onIndexRead = useCallback((revisions: ReadonlyMap<string, string>) => {
+        setIndexRevisions((was) => (sameRevisions(was, revisions) ? was : revisions));
+    }, []);
     const indexArea = useMemo(() => (!listsIndex || areaItemKinds.length === 0 ? undefined
-        : { kinds: areaItemKinds, reader: indexReader, hiddenLayers, drafted: areaDrafts.drafted, created: areaDrafts.created }),
-    [listsIndex, areaItemKinds, indexReader, hiddenLayers, areaDrafts]);
+        : { kinds: areaItemKinds, reader: indexReader, hiddenLayers, drafted: areaDrafts.drafted, created: areaDrafts.created, onRead: onIndexRead }),
+    [listsIndex, areaItemKinds, indexReader, hiddenLayers, areaDrafts, onIndexRead]);
+    // What a Save landed is let go once its kind's window, and the Index's read of it, are from after it: before paint, so
+    // the frame never draws both.
+    const landed = editing.landed, shownLanded = editing.shown;
+    useLayoutEffect(() => {
+        for (const [slot, keys] of landedRead(landed, data.windows, indexRevisions)) shownLanded(slot, keys);
+    }, [landed, data.windows, indexRevisions, shownLanded]);
 
     // ── What a selection keeps of a row of a kind read by area its window no longer holds (#1393, §4.5) ──
     // Each selected entity of such a kind, read by its key once its window lets it go: it stays selected and Details shows
@@ -819,11 +865,11 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const [selectedRows, setSelectedRows] = useState<SchematicSelectedRows>(NO_SELECTED_ROWS);
     const draftedArea = useMemo(() => {
         const out = new Set<string>();
-        for (const sort of [editing.drafts.items, editing.drafts.zones]) {
+        for (const sort of [canvasDrafts.items, canvasDrafts.zones]) {
             for (const [slot, rows] of sort) if (areas.has(slot)) for (const key of rows.keys()) out.add(entityId({ kind: slot, key }));
         }
         return out;
-    }, [editing.drafts.items, editing.drafts.zones, areas]);
+    }, [canvasDrafts.items, canvasDrafts.zones, areas]);
     const standing = useMemo((): SchematicStanding => {
         if (selectedArea.length === 0) return { items: new Map(), zones: new Map() };
         const drawnIds = new Set([...drawing.items.map((item) => item.key), ...drawing.zones.map((zone) => zone.key)]);
@@ -1183,9 +1229,9 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
 
     return (
         <FieldAskProvider value={fieldAsks}><Box css={styles.root} data-schematic="" data-schematic-layout={narrow ? "narrow" : "wide"}>
-            {value.inspector && <SchematicInspectedReader value={value} inspected={inspectedRef} areas={areas} windows={data.windows} onRows={setInspectedRows} />}
+            {value.inspector && <SchematicInspectedReader value={value} inspected={inspectedRef} areas={areas} windows={inspectedWindows} onRows={setInspectedRows} />}
             {areas.size > 0 && editing.edits && (
-                <SchematicDraftsReader value={value} areas={areas} drafts={editing.drafts} original={editing.schedule.held} onRead={setDraftsNarrowing} />
+                <SchematicDraftsReader value={value} areas={areas} drafts={canvasDrafts} original={editing.schedule.held} onRead={setDraftsNarrowing} />
             )}
             {areas.size > 0 && <SchematicSelectedReader value={value} areas={areas} selected={selectedArea} windows={data.windows} onRead={setSelectedRows} />}
             {value.inspector && areas.size > 0 && <SchematicAreaCountsReader value={value} areas={areas} onRead={setAreaCounts} />}

@@ -77,6 +77,12 @@ export interface EditHistorySource<W> {
     readonly ranges?: readonly ConflictRange[] | undefined;
     /** Its entries' fields that change together, each a value and those that follow it (the session's `together`). */
     readonly together?: readonly ConflictTogether[] | undefined;
+    /**
+     * Whether its host draws what a confirmed Save landed over rows it read before the commit, until they are read again
+     * (the session's `drawsLanded`): a source read a window at a time whose windows its host reads apart from the
+     * confirmation. `false` by default.
+     */
+    readonly drawsLanded?: boolean | undefined;
 }
 
 /**
@@ -179,7 +185,10 @@ export function useEditHistory<W>(
         const entryType = fromEastTypeValue(editing.entryType);
         const draftType = fromEastTypeValue(editing.draftType);
         const keyType = fromEastTypeValue(editing.keyType.value);
-        const binding = { ...bindingOf<W>(editing, { entryType, draftType, keyType }, source.ready, paged?.refresh), prepare: source.prepare, ranges: source.ranges, together: source.together };
+        const binding = {
+            ...bindingOf<W>(editing, { entryType, draftType, keyType }, source.ready, paged?.refresh), prepare: source.prepare, ranges: source.ranges,
+            together: source.together, drawsLanded: source.drawsLanded,
+        };
         const kept = sourceSessionsOf(store, scope, editing.sourceId);
         const session = keptSession<W>(kept, sessionKeyOf(storageKey, editing.entryType, editing.draftType), () => {
             const next = new EditSession<W>(binding);

@@ -46,7 +46,9 @@
  *   under the zone it now stands in — a row a gesture made is listed in its
  *   zone, and the search finds it as it finds a kind read whole's, and a row
  *   a draft deletes or unplaces is listed nowhere. Its items in no zone are the
- *   search's and the Backlog's alone.
+ *   search's and the Backlog's alone. A row a Save landed is listed as the
+ *   canvas draws it too, until the tab has read its kind since: the tab tells
+ *   its host the revision it read each kind at (`onRead`).
  * - **The keys** — the tree is one tab stop, pointing at its active row
  *   (`aria-activedescendant`, as the Sheet's grid does): ↑ and ↓ move between
  *   the rows, Home and End to the first and the last, → opens a zone or goes
@@ -126,6 +128,11 @@ export interface SchematicIndexAreaProps {
     readonly drafted: ReadonlySet<string>;
     /** Of them, those a gesture made: no source holds them, so the search finds them as it finds a kind read whole's. */
     readonly created: ReadonlySet<string>;
+    /**
+     * Hears the revision the tab read each of those kinds at, by slot, as it moves — none once the tab is gone: what a
+     * Save landed of a kind is drawn until the tab has read it since (`drafted.ts`' `landedRead`).
+     */
+    readonly onRead?: ((revisions: ReadonlyMap<string, string>) => void) | undefined;
 }
 
 /** Props of {@link SchematicIndexTab}. */
@@ -147,6 +154,9 @@ export interface SchematicIndexTabProps {
     /** The item kinds read by area, which the tab reads itself; `undefined` with none. */
     readonly area?: SchematicIndexAreaProps | undefined;
 }
+
+/** No kind read by the tab: what it tells its host once it is gone. */
+const NO_REVISIONS: ReadonlyMap<string, string> = new Map();
 
 /**
  * The Index's reads of the item kinds read by area (#1393, D52), in a
@@ -205,6 +215,11 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
         setFailedZone(undefined);
     }, []);
     const onAreaFailed = useCallback(() => setFailedZone(openZone), [openZone]);
+    // The revision the tab's items were read at, kind by kind: a Save's rows are listed as landed until it moves past it.
+    const onRevisions = area?.onRead;
+    const revisions = areaRead.revisions;
+    useEffect(() => { onRevisions?.(revisions); }, [onRevisions, revisions]);
+    useEffect(() => () => onRevisions?.(NO_REVISIONS), [onRevisions]);
     const [areaQuery, setAreaQuery] = useState("");
     useEffect(() => {
         const text = query.trim();
