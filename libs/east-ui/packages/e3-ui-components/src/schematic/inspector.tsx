@@ -12,18 +12,21 @@
  *
  * Details shows what is selected (`inspect.ts`), every field through the
  * shared `FieldForm` — the shared input its East type takes, by its kind's
- * form (`fields`: the `Fields` specs of the fields no role writes) — under the
- * shared inspector head: its kind's icon and name, its own name, where it
- * stands, its status, and a Pending or New chip while its drafts hold it
- * otherwise than its record. Its own name is the one the Schematic gives it
- * everywhere (`inspect.ts`' `entityNames`), which the collapsed rail says too:
- * a link's ends, its caption under them; a net's label, else its ends — never
- * a key the Schematic minted for a new link or net:
+ * form (`fields`: the `Fields` specs of the fields no role writes, and of the
+ * fields an item's or a zone's box is, which Details leaves out of it, a hint
+ * holding them to their bounds (#1585)) — under the shared inspector head: its
+ * kind's icon and name, its own name, where it stands, its status, and a
+ * Pending or New chip while its drafts hold it otherwise than its record. Its
+ * own name is the one the Schematic gives it everywhere (`inspect.ts`'
+ * `entityNames`), which the collapsed rail says too: a link's ends, its caption
+ * under them; a net's label, else its ends — never a key the Schematic minted
+ * for a new link or net:
  *
  * - **an item**: its kind's form — or its kind's own `inspector` in its place
  *   — its details record's form, or its details' own; its position, `x` and
- *   `y`, with Unplace where its kind has a backlog; Delete; and what it is
- *   joined to, each link and net a control that selects it;
+ *   `y` — held to the bounds a hint gives its centre, one it breaks said under
+ *   its field (#1585) — with Unplace where its kind has a backlog; Delete; and
+ *   what it is joined to, each link and net a control that selects it;
  * - **a zone**: its form, or its own Details;
  * - **a link**: its ends, each a Chooser over the items of the slots its role
  *   names; its form; Delete;
@@ -519,6 +522,15 @@ function kindOf<K extends { readonly key: string }>(kinds: readonly K[], slot: s
     return kinds.find((kind) => stringEqual(kind.key, slot));
 }
 
+/**
+ * An item's or a zone's side as Details draws its form: its kind's, but the fields its box is, which its kind's form
+ * holds so a hint holds them to their bounds (#1585) — Details draws an item's centre as its position, and its box nowhere.
+ */
+function formSide<K extends SchematicValue["items"][number] | SchematicValue["zones"][number]>(kind: K): K {
+    const box = [kind.box.x, kind.box.y, getSomeorUndefined(kind.box.width), getSomeorUndefined(kind.box.height)];
+    return { ...kind, fields: kind.fields.filter((spec) => !box.some((field) => field !== undefined && stringEqual(field, spec.path[0]!))) };
+}
+
 /** A row whose read is in flight. */
 const READING: SchematicRowRead = { state: "reading" };
 
@@ -654,8 +666,9 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
     const { item, kind, styles, words, value, names: entityNames, listed, rows, zoneAt, reveal, storageKey, editing, refuse: say, select } = props;
     const m = words.m;
     const unit = getSomeorUndefined(value.scaleUnit);
-    // The item's own row, and its details row: each its record's side.
-    const self = useSide(props, item.ref, item.label, kind, false);
+    // The item's own row, and its details row: each its record's side — its own form but its box (#1585).
+    const form = useMemo(() => formSide(kind), [kind]);
+    const self = useSide(props, item.ref, item.label, form, false);
     const details = getSomeorUndefined(kind.details);
     const theirs = useSide(props, item.ref, item.label, details, true);
     const { commit, remove } = useCommit(props);
@@ -697,10 +710,20 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
         const at = getSomeorUndefined(kind.read(stored.row, item.ref.key).position);
         return at === undefined ? NEW_ROW : { x: at.x, y: at.y };
     }, [stored, kind, item.ref.key]);
-    const positionSpecs = useMemo(() => Fields.specs(PositionType, {
-        x: Fields.number<number>({ label: m.inspectorField({ field: "x" }), ...(unit === undefined ? {} : { unit }) }),
-        y: Fields.number<number>({ label: m.inspectorField({ field: "y" }), ...(unit === undefined ? {} : { unit }) }),
-    }), [m, unit]);
+    // Its centre held to the bounds a hint gives its fields in its kind's form (#1585): a coordinate they don't hold is
+    // said under its field, as the form says one.
+    const positionSpecs = useMemo(() => {
+        const bounds = (field: string) => {
+            const spec = kind.fields.find((s) => s.path.length === 1 && stringEqual(s.path[0]!, field));
+            if (spec?.editor.type !== "number") return {};
+            const min = getSomeorUndefined(spec.editor.value.min), max = getSomeorUndefined(spec.editor.value.max);
+            return { ...(min === undefined ? {} : { min }), ...(max === undefined ? {} : { max }) };
+        };
+        return Fields.specs(PositionType, {
+            x: Fields.number<number>({ label: m.inspectorField({ field: "x" }), ...(unit === undefined ? {} : { unit }), ...bounds(kind.box.x) }),
+            y: Fields.number<number>({ label: m.inspectorField({ field: "y" }), ...(unit === undefined ? {} : { unit }), ...bounds(kind.box.y) }),
+        });
+    }, [m, unit, kind]);
     // A position refused shows where the item stands again: one refused for the key its centre builds — another item's
     // (#1581) — saying why under the field; one its kind's `write` refuses, the form drawn again.
     const [positionRefused, bumpPosition] = useRefused();
@@ -742,7 +765,7 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
                 {keyed && keyDraft.parts && (
                     <Box css={styles.actions} data-inspector-actions="key"><KeySetButton draft={keyDraft} label={m.inspectorKeySet()} /></Box>
                 )}
-                <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={self.own}
+                <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={form} own={self.own}
                     state={self.state} onField={self.onField} writes={self.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
                     refused={self.refused} />
                 <Form styles={styles} head={m.inspectorSection({ section: "position", name: kind.name })} section="position" specs={positionSpecs}
@@ -875,13 +898,15 @@ function ZoneView(props: ViewProps & { readonly zone: DrawnZone; readonly kind: 
     const { zone, kind, styles, words, value, storageKey } = props;
     const m = words.m;
     const unit = getSomeorUndefined(value.scaleUnit);
-    const own = useSide(props, zone.ref, zone.label, kind, false);
+    // Its own form but its box (#1585).
+    const form = useMemo(() => formSide(kind), [kind]);
+    const own = useSide(props, zone.ref, zone.label, form, false);
     return (
         <Box css={styles.root} data-schematic-inspector="zone">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon: kind.icon === "" ? "vector-square" : kind.icon }} title={zone.label}
                 when={m.inspectorSize({ width: coordinate(zone.width, words), height: coordinate(zone.height, words), unit })} pending={own.state.chip} writes={own.writes} home />
             <Edits styles={styles} available={own.available} actions={undefined}>
-                <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={own.own}
+                <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={form} own={own.own}
                     state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
                     refused={own.refused} />
             </Edits>

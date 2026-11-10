@@ -699,7 +699,7 @@ describe("an item kind's closed functions, over decoded bytes (SC2, SC35)", () =
         assert.ok(boxEqual(racks.box, { x: "x", y: "y", width: some("w"), height: some("h") }));
     });
 
-    hostTest("the kind on the wire: its slot, its name and icon, its status table, editable with its session and history, its form over the fields no role writes", () => {
+    hostTest("the kind on the wire: its slot, its name and icon, its status table, editable with its session and history, its form over the fields no role writes and over its centre and box (#1585)", () => {
         assert.equal(racks.key, "racks");
         assert.equal(racks.name, "Rack");
         assert.equal(racks.icon, "server");
@@ -709,7 +709,8 @@ describe("an item kind's closed functions, over decoded bytes (SC2, SC35)", () =
         assert.equal(racks.history.type, "some");
         assert.equal(racks.entries.type, "none", "a record read whole is read by key from its snapshot");
         assert.equal(racks.paged.type, "none", "and through no paged read: a far end of a kind read whole is in its rows (#1393)");
-        assert.deepEqual(racks.fields.map((f) => f.path), [["model"], ["corners"], ["hall"], ["owner"], ["notes"]], "the row's own corners among them: no role writes them");
+        assert.deepEqual(racks.fields.map((f) => f.path), [["x"], ["y"], ["w"], ["h"], ["model"], ["corners"], ["hall"], ["owner"], ["notes"]],
+            "its centre and box among them, which a hint holds to its bounds, and the row's own corners: no role writes them");
         assert.ok(isTypeEqual(fromEastTypeValue(racks.rowType), Rack), "its row type, which the renderer decodes a row at");
     });
 
@@ -824,6 +825,7 @@ describe("a link kind's, a net kind's, a zone kind's and a details record's clos
         const made = zones.rowsOf(readOf(Area, [{ key: "hall-1", row: AREAS.get("hall-1")! }]));
         assert.ok(equalFor(Schematic.Types.Zone)(made.get("hall-1")!.roles, hall));
         assert.ok(boxEqual(zones.box, { x: "x", y: "y", width: some("w"), height: some("h") }));
+        assert.deepEqual(zones.fields.map((f) => f.path), [["x"], ["y"], ["w"], ["h"], ["radius"]], "its form over its box too, which a hint holds to its bounds (#1585)");
     });
 
     hostTest("a kind's details give its cards' status, bar and figure, read whole beside a kind read whole", () => {

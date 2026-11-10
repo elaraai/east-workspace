@@ -73,7 +73,7 @@ export type KindReadyType = typeof KindReadyType;
  * @property editing - The shared session over the record, with its patch door; `none` for a record bound read only
  * @property entries - The record read by key, for a record read through its source or bound with `Data.bindPaged`; `none` for one read whole
  * @property history - The record's commits, newest first; `none` for a record bound with `Data.bind` or `Data.bindPaged`
- * @property fields - The inspector's form over the fields no role writes (`Fields`)
+ * @property fields - The inspector's form over the fields no role writes (`Fields`) — and over a Schematic item's centre and box and a zone's box, which a hint holds to their bounds (#1585)
  * @property inspector - The kind's own Details in place of its form, over bytes
  * @property ready - The app's check on drafted rows, one result each
  * @property set - The row with each field write applied in order — a field at any depth, its value as bytes at the field's type — and every other field as it was: what an author's card dropped on a row sets (#1390); `none` for a write naming no field of the row
@@ -597,7 +597,7 @@ export interface RecordSide<R extends StructType = StructType, K extends EastTyp
  * @param entries - Its `entries`, checked
  * @param byKey - The paged read its rows are read by key through, if any
  * @param config - Its form's hints, its check and its own Details
- * @param omitted - The fields its roles write, which its form leaves out
+ * @param omitted - The fields its form leaves out: those its roles write, but any a hint holds to its bounds (#1585)
  * @param where - The kind, as a refusal names it
  * @returns The fields every kind carries
  * @throws {Error} As `Fields.specs`, `rowInspector` and the patch door's check refuse

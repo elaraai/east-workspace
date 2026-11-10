@@ -559,7 +559,11 @@ export interface SchematicItemsConfig<R extends StructType, X extends string, Y 
      * is one past the largest, and any other the viewer types in the inspector.
      */
     key?: KindKeyBuilder<R, K>;
-    /** Hints for the inspector's form over the fields no role writes (`Fields`). */
+    /**
+     * Hints for the inspector's form over the fields no role writes (`Fields`) — and over its centre and its box, which
+     * Details leaves out of the form, drawing its centre as its position: a number hint on one holds it to its bounds as
+     * it holds a form field (#1585).
+     */
     fields?: FieldHints<R["fields"]>;
     /** Its own Details in the inspector, in place of its form. */
     inspector?: RowInspector<R>;
@@ -753,8 +757,9 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
         templatesSource: templates?.source,
         build(slot, part, every = false) {
             const { rows, byKey } = readsOf(bound, entries, slot, part, where, every);
-            const side = recordSide(bound, entries, byKey, config,
-                [config.x, config.y, labelField, widthField, heightField, layerField, status?.field], where);
+            // Its form over the fields no role writes, and over its centre and its box, as an Allocation's over its quantity:
+            // a hint on one holds it to its bounds as a form field's does, and Details leaves them out of the form (#1585).
+            const side = recordSide(bound, entries, byKey, config, [labelField, layerField, status?.field], where);
             return East.value({
                 ...side,
                 key: slot,
@@ -832,7 +837,10 @@ export interface SchematicZonesConfig<R extends StructType, K extends EastType =
     weight?: Accessor<R, OptionType<FloatType>, K>;
     /** Its details: a record keyed as this one is. */
     details?: SchematicDetails;
-    /** Hints for the inspector's form over the fields no role writes. */
+    /**
+     * Hints for the inspector's form over the fields no role writes — and over its box, which Details leaves out of the
+     * form: a number hint on one holds it to its bounds as it holds a form field (#1585).
+     */
     fields?: FieldHints<R["fields"]>;
     /** Its own Details in the inspector, in place of its form. */
     inspector?: RowInspector<R>;
@@ -901,8 +909,8 @@ export function schematicZones<R extends StructType, K extends EastType = String
         templatesSource: undefined,
         build(slot, part, every = false) {
             const { rows, byKey } = readsOf(bound, entries, slot, part, where, every);
-            const side = recordSide(bound, entries, byKey, config,
-                [xField, yField, widthField, heightField, labelField, layerField], where);
+            // Its form over the fields no role writes, and over its box, as an item's: a hint on one holds it to its bounds (#1585).
+            const side = recordSide(bound, entries, byKey, config, [labelField, layerField], where);
             return East.value({
                 ...side,
                 key: slot,
