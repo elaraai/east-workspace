@@ -395,17 +395,13 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
         expect([paneOf("end"), scrim(), document.activeElement]).toEqual([["overlay", true], null, screen.getByRole("button", { name: "Expand Properties" })]);
     });
 
-    test("an overlay pane its host opens and closes from code — its control clicked with the focus in main, as a selection in main opens the Inspector — leaves the focus in main (#1584)", async () => {
+    test("an overlay pane opened by a press on its rail's tile — no control, and taking no focus of its own — takes the focus, so Esc reaches it (#1584)", async () => {
         mount({ start: library(), end: properties({ mode: "overlay", defaultCollapsed: true }), children: <button type="button">IN MAIN</button> });
         frameAt(1200);
-        const inMain = screen.getByRole("button", { name: "IN MAIN" });
-        act(() => { inMain.focus(); });
-        await act(async () => { screen.getByRole("button", { name: "Expand Properties" }).click(); });
+        act(() => { screen.getByRole("button", { name: "IN MAIN" }).focus(); });
+        await act(async () => { fireEvent.click(slot("end").querySelector<HTMLElement>('[data-surface] > [title="Properties"]')!); });
         await told();
-        expect([paneOf("end"), document.activeElement]).toEqual([["overlay", false], inMain]);
-        await act(async () => { screen.getByRole("button", { name: "Collapse Properties" }).click(); });
-        await told();
-        expect([paneOf("end"), document.activeElement]).toEqual([["overlay", true], inMain]);
+        expect([paneOf("end"), document.activeElement]).toEqual([["overlay", false], screen.getByRole("button", { name: "Collapse Properties" })]);
     });
 
     test("a pane its host opens from code (`panesRef`) — the Inspector a selection in main reveals, the Issues the issues chip asks for — opens as its rail opens it, kept where it persists, and leaves the focus where the viewer has it (#1584, #1585)", async () => {

@@ -733,11 +733,6 @@ export function BuilderFrame(props: BuilderFrameProps) {
         start: { open: () => fromCode.current.open("start", false), close: () => fromCode.current.close("start") },
         end: { open: () => fromCode.current.open("end", false), close: () => fromCode.current.close("end") },
     }), []);
-    // The pane the viewer pressed — its rail, its collapse — read as the click starts, before the control it pressed goes
-    // with the change: a click the browser dispatched for a press, which need focus nothing (the rail's tile, a button in
-    // Safari), or one begun with the focus in the pane. A host that opens or closes a pane from code, clicking its control
-    // as a selection in main does, dispatches the click itself, with the focus elsewhere.
-    const pressedIn = useRef<Side | undefined>(undefined);
     /** A strip tab: its drawer opens, or, open, closes; one of the pane's own tabs opens it there. */
     const onPaneTab = (side: Side, tab?: string) => {
         const open = !collapseOf(side).collapsed;
@@ -803,10 +798,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
         return (
             <Box ref={slotRefs[side]} css={styles.pane} data-frame-slot={side} data-pane-mode={placedAt}
                 data-collapsed={collapsed ? "" : undefined}
-                style={{ width: placedAt === "overlay" || collapsed ? `${RAIL}px` : size }}
-                onClickCapture={(event) => {
-                    pressedIn.current = event.isTrusted || slotRefs[side].current?.contains(rootRef.current?.ownerDocument.activeElement ?? null) === true ? side : undefined;
-                }}>
+                style={{ width: placedAt === "overlay" || collapsed ? `${RAIL}px` : size }}>
                 <Box css={styles.sheet} style={floating ? { width: sheetWidth === undefined ? size : `${sheetWidth}px`, transform: aside } : undefined}>
                     <FramePane.Provider value={paneHandles[side]}>
                     <DockPane
@@ -828,14 +820,14 @@ export function BuilderFrame(props: BuilderFrameProps) {
                         collapsible={described.collapsible}
                         collapsed={collapsed}
                         onCollapsedChange={(next) => {
-                            // The control pressed goes with the change, and the focus on it with it: opened from its rail, an
-                            // overlay pane takes the focus, so Esc reaches it; closed by its own collapse, it gives the focus
-                            // back to its rail, as Esc does. Opened or closed by its host's code, the focus in main stays there.
-                            if (placedAt === "overlay" && pressedIn.current === side) {
+                            // The viewer's press — its rail's control or its tile, its collapse: no host presses them, opening
+                            // a pane from code through `panesRef` (#1585). The control pressed goes with the change, and the
+                            // focus on it with it: opened from its rail, an overlay pane takes the focus, so Esc reaches it;
+                            // closed by its own collapse, it gives the focus back to its rail, as Esc does.
+                            if (placedAt === "overlay") {
                                 if (next) railFocus.current = side;
                                 else drawerFocus.current = side;
                             }
-                            pressedIn.current = undefined;
                             toggled(side, next);
                         }}
                     />
