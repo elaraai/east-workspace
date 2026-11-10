@@ -55,6 +55,8 @@ export interface CardsProps extends ChoiceScene {
     sameBin: (a: Bin, b: Bin) => boolean;
     /** Whether a bin holds a conflict not yet chosen: it wears the warn ring. None by default. */
     conflicted?: ((id: string) => boolean) | undefined;
+    /** Whether a bin's row breaks its form's bounds (#1585), stored or changed: it wears the warn ring too. None by default. */
+    bounded?: ((id: string) => boolean) | undefined;
     loads: SortedMap<string, Load>;
     /** Each resource's line on the day (A19). */
     lines: ReadonlyMap<string, ResourceLine>;
@@ -220,8 +222,8 @@ function ResourceBin({ props, words, resource, mate, row, open, setOpen }: {
         fit={props.fit} words={words.inspector} shown={props.visibleResources} trigger={label => <Button size="xs" variant="outline" title={label} data-allocation-split-open="">Split…</Button>} />;
     // What a run of the optimiser did to the bin (#1409, R7, R17), while it is still the run's draft: its mark, and its provenance on hover.
     const op = draft ? props.optimised?.ops.get(mate.id) : undefined;
-    return <Box css={styles.agendaBin} data-allocation-card-bin={mate.id} data-draft={draft ? "" : undefined} data-conflict={props.conflicted?.(mate.id) === true ? "" : undefined} data-selected={selected ? "" : undefined}
-        data-op={op?.op} data-fill={op === undefined ? undefined : "own"} title={op?.provenance}>
+    return <Box css={styles.agendaBin} data-allocation-card-bin={mate.id} data-draft={draft ? "" : undefined} data-conflict={props.conflicted?.(mate.id) === true ? "" : undefined}
+        data-bounds={props.bounded?.(mate.id) === true ? "" : undefined} data-selected={selected ? "" : undefined} data-op={op?.op} data-fill={op === undefined ? undefined : "own"} title={op?.provenance}>
         <chakra.button ref={given} type="button" css={styles.agendaBinHead} title={mate.tip} aria-pressed={selected} onClick={() => props.select({ type: "bin", id: mate.id })}>
             <span>{mate.time} · {mate.lane}</span><span>{mate.code}</span><span>{mate.quantity}</span>
         </chakra.button>
@@ -378,7 +380,8 @@ function RowCard({ props, words, row, open, setOpen }: { props: CardsProps; word
     // What a run of the optimiser did to the row's bin (#1409, R7, R17), while it is still the run's draft: its mark, and its provenance on hover.
     const op = row.bin === undefined || !draft ? undefined : props.optimised?.ops.get(row.bin);
     return <Box css={styles.agendaCard} data-allocation-row-card={row.key} data-kind={row.kind} data-draft={draft ? "" : undefined}
-        data-conflict={row.bin !== undefined && props.conflicted?.(row.bin) === true ? "" : undefined} data-selected={selected ? "" : undefined}
+        data-conflict={row.bin !== undefined && props.conflicted?.(row.bin) === true ? "" : undefined}
+        data-bounds={row.bin !== undefined && props.bounded?.(row.bin) === true ? "" : undefined} data-selected={selected ? "" : undefined}
         data-op={op?.op} data-fill={op === undefined ? undefined : "own"} title={op?.provenance}>
         <chakra.button ref={given} type="button" css={styles.agendaCardHead} aria-pressed={selected}
             onClick={() => props.select(row.bin !== undefined ? { type: "bin", id: row.bin } : { type: "slot", lane: row.lane, at: row.slotAt.getTime() })}>

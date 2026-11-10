@@ -21,20 +21,25 @@
  * once, in its first row in view, with Retry (CL11). With an optimiser bound,
  * the Elara eye (#1409): one run over the day in view, its result landed on
  * the day's bins as one step of the history, and what it left on them marked
- * until Apply.
+ * until Apply. A bin whose row holds a number outside its form's bounds
+ * (#1585) wears the warn ring, stored or changed; a stored one's breach is a
+ * warning in Issues, holding no Save, and a changed one's the refusal its
+ * session raises, which holds it.
  *
  * @packageDocumentation
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SortedMap, StringType, equalFor, isVariant, none, variant, type option } from "@elaraai/east";
+import { ArrayType, SortedMap, StringType, equalFor, isVariant, none, some, variant, type option } from "@elaraai/east";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { AllocationComponent } from "@elaraai/e3-ui/internal";
+import { AllocationComponent, AllocationIssueType } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useFormatters,
-    useLanding, useLandingStyles, usePersistedState, useSliceReactivity, useTrackedEvaluation, type EditIssue, type HistoryAction,
+    BannerView, BuilderFrame, SessionBanners, fieldBreachIssue, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow,
+    useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState, useSliceReactivity, useTrackedEvaluation, type EditIssue, type FieldBreach,
+    type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, formatDatePattern, keptRead } from "@elaraai/east-ui-components/internal";
+import { rowBreaches } from "../shared/bounds.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
@@ -93,6 +98,7 @@ const NO_BIN_DRAFTS: ReadonlyMap<string, DraftedBin | undefined> = new Map();
 const NO_PERIOD_DRAFTS: ReadonlyMap<string, Uint8Array | undefined> = new Map();
 const NO_ISSUES: Issue[] = [];
 const keyEqual = equalFor(StringType);
+const sameIssues = equalFor(ArrayType(AllocationIssueType));
 /** The Table's view has rested nowhere yet. */
 const NO_ANCHOR: { table?: RowAnchor | undefined } = {};
 /**
@@ -260,12 +266,38 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const builtIn = useMemo(() => domain.check(day, plan, context), [domain, day, plan, context]);
     const slots = useMemo(() => domain.slots(day, plan, context), [domain, day, plan, context]);
     const focus = focusOf(selection, plan);
-    // The app's check, after the built-in ones wherever issues show; a check that fails leaves them shown. A day not read
-    // yet has no issue: what its bins break is not known until they land (#1398, CL13).
+    // Each bin's row checked against its form's bounds (#1585), once a row's bytes — a draft's as it holds it, else the
+    // stored row: a bin breaking one wears the warn ring, stored or changed, and a stored bin's breach is a warning among
+    // the day's issues, holding no Save — a changed bin's is the refusal its session's readiness raises, which holds Save.
+    const binKind = value.bin.kind.key, binFields = value.bin.kind.fields;
+    const breachesOf = useMemo(() => rowBreaches(binFields, domain.rowType), [binFields, domain]);
+    const draftedBins = editing?.bins;
+    const binBreaches = useMemo(() => {
+        const out = new Map<string, readonly FieldBreach[]>();
+        for (const id of plan.bins.keys()) {
+            const bytes = draftedBins?.get(id)?.bytes ?? stored.get(id)?.bytes;
+            const found = bytes === undefined ? [] : breachesOf(bytes);
+            if (found.length > 0) out.set(id, found);
+        }
+        return out;
+    }, [plan.bins, draftedBins, stored, breachesOf]);
+    const bounded = useCallback((id: string) => binBreaches.has(id), [binBreaches]);
+    const refused = scheduleRefusals(editing?.schedule.sessions ?? []);
+    const storedBreaches = useDataStable([...binBreaches].flatMap(([id, breaches]): Issue[] => {
+        const bin = plan.bins.get(id)!;
+        return breaches.flatMap((breach): Issue[] => refused.some(({ kind, issue }) => keyEqual(kind, binKind) && keyEqual(issue.entry, id)
+            && issue.field.type === "some" && keyEqual(issue.field.value, breach.key)) ? [] : [{
+            kind: variant("custom", "Out of range"), tone: variant("warning", null), title: binCode(context, bin, value.labels),
+            detail: refusalText(fieldBreachIssue(breach, { entry: id }), binFields), bin: some(id), resource: none, flag: none, fix: none,
+        }]);
+    }), sameIssues);
+    // The app's check, after the built-in ones and the stored bins' breaches wherever issues show; a check that fails leaves
+    // them shown. A day not read yet has no issue: what its bins break is not known until they land (#1398, CL13).
     const readCheck = useCallback((): Issue[] => current && value.check.type === "some"
         ? value.check.value(domain.encodeCheckContext({ day, plan, context, loads })) : NO_ISSUES, [current, value.check, domain, day, plan, context, loads]);
     const custom = useTrackedEvaluation(readCheck);
-    const issues = useMemo(() => current ? [...builtIn, ...(custom.result.ok ? custom.result.value : [])] : NO_ISSUES, [current, builtIn, custom.result]);
+    const issues = useMemo(() => current ? [...builtIn, ...storedBreaches, ...(custom.result.ok ? custom.result.value : [])] : NO_ISSUES,
+        [current, builtIn, storedBreaches, custom.result]);
     // Publish (B7): Save, then once every record reads back as saved, the day's status — over its row as last saved. The
     // day is the one shown as Publish is pressed: a day stepped to while the Save settles is not the one published.
     const [publishing, setPublishing] = useState(false);
@@ -588,7 +620,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     };
     // Each refusal holding Save, of every day's drafts, in the board's words (#1525): a bin by its code, or by its key for
     // one the board can't read, and its field by its form's label.
-    const refusals = scheduleRefusals(editing?.schedule.sessions ?? []).map(({ kind, issue }): AllocationRefusal => {
+    const refusals = refused.map(({ kind, issue }): AllocationRefusal => {
         const found = binOf(kind, issue.entry);
         return { kind, issue, title: found === undefined ? issue.entry : binCode(context, found.bin, nouns),
             text: refusalText(issue, keyEqual(kind, value.bin.kind.key) ? value.bin.kind.fields : []) };
@@ -674,19 +706,19 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
                 {/* Below 480px of main, cards with explicit actions, each one of the board's commands (A78); resizing keeps the layout, the
                     selection and the drafts, which are the frame's. */}
                 {narrow ? <AllocationCards value={value} context={context} styles={styles} day={day} plan={plan} held={held}
-                        sameBin={domain.sameBin} conflicted={conflicted} loads={loads} lines={lines} slots={slots} layout={window.view.layout} surface={drag.surface}
+                        sameBin={domain.sameBin} conflicted={conflicted} bounded={bounded} loads={loads} lines={lines} slots={slots} layout={window.view.layout} surface={drag.surface}
                         selection={selection} select={inspect} follow={follow} editable={commands.canEdit()} commands={commands} fit={fit}
                         without={without} reserving={reserving} visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys}
                         visibleArrivals={arrivalsShown.keys} clearFilters={clearFilters} read={read} optimised={optimised} lit={landing.lit}
                         bookOnto={(arrival, resource) => { setRefusal(undefined); bookOnto(scene, { kind: "arrival", arrival }, resource); }} />
                     : window.view.layout === "timeline" ? <AllocationTimeline value={value} context={context} styles={styles} format={format} day={day} plan={plan}
-                        held={held} sameBin={domain.sameBin} conflicted={conflicted} loads={loads} slots={slots} issues={issues} visible={resourcesShown.keys} visibleLanes={lanesShown.keys}
+                        held={held} sameBin={domain.sameBin} conflicted={conflicted} bounded={bounded} loads={loads} slots={slots} issues={issues} visible={resourcesShown.keys} visibleLanes={lanesShown.keys}
                         visibleArrivals={arrivalsShown.keys} read={read} empty={empty} optimised={optimised} lit={landing.lit}
                         clearFilters={clearFilters} selection={selection} focus={focus} highlight={highlight} picked={pickGrip !== undefined} book={bookPicked}
                         editable={commands.canEdit()} select={inspect} choose={id => { inspect({ type: "bin", id }); setChooser(id); revealPane("Inspector"); }} follow={follow}
                         link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} drag={drag} candidates={domain.candidates} />
                     : <AllocationTable value={value} domain={domain} context={context} styles={styles} format={format} day={day} plan={plan} held={held}
-                        sameBin={domain.sameBin} conflicted={conflicted} loads={loads} slots={slots} selection={selection} editable={commands.canEdit()} select={inspect} follow={follow}
+                        sameBin={domain.sameBin} conflicted={conflicted} bounded={bounded} loads={loads} slots={slots} selection={selection} editable={commands.canEdit()} select={inspect} follow={follow}
                         drag={drag} commands={commands} fit={fit} without={without} reserving={reserving} highlight={highlight} book={bookPicked} read={read}
                         visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys} visibleArrivals={arrivalsShown.keys} clearFilters={clearFilters}
                         anchor={anchor.table} onAnchor={onTableAnchor} narrowing={tableNarrowing} optimised={optimised} lit={landing.lit} />}

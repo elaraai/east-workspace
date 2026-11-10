@@ -72,6 +72,8 @@ export interface TableProps {
     sameBin: (a: Bin, b: Bin) => boolean;
     /** Whether a bin holds a conflict not yet chosen: it wears the warn ring. None by default. */
     conflicted?: ((id: string) => boolean) | undefined;
+    /** Whether a bin's row breaks its form's bounds (#1585), stored or changed: it wears the warn ring too. None by default. */
+    bounded?: ((id: string) => boolean) | undefined;
     loads: SortedMap<string, Load>;
     slots: readonly Slot[];
     selection: Selection | undefined;
@@ -458,7 +460,8 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
         title={remainderWords} aria-label={remainderWords} aria-haspopup="listbox" onPointerDown={event => event.stopPropagation()}>{remainderInside}</chakra.button>;
     return <Box ref={given} css={styles.tableRow} role="row" tabIndex={row.bin !== undefined ? -1 : undefined} data-allocation-row={row.key} data-kind={row.kind}
         data-columns={shown === 0 ? "none" : undefined} data-selected={selectedAs !== undefined ? "" : undefined} data-draft={draft ? "" : undefined}
-        data-conflict={row.bin !== undefined && props.conflicted?.(row.bin) === true ? "" : undefined} onClick={select}>
+        data-conflict={row.bin !== undefined && props.conflicted?.(row.bin) === true ? "" : undefined}
+        data-bounds={row.bin !== undefined && props.bounded?.(row.bin) === true ? "" : undefined} onClick={select}>
         <Box as="span" css={styles.tableTime} data-holds={bin !== undefined ? "" : undefined}>{time}</Box>
         <Box as="span" css={styles.tableLane}>{lane}</Box>
         {row.kind === "bin" && bin !== undefined ? <>
