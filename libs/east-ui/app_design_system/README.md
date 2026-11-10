@@ -120,7 +120,7 @@ nothing is decorative.
 
 - Three families, all from Google Fonts: **DM Sans** (`--font-brand`) for
   titles, with negative tracking; **Inter Tight** (`--font-body`) for
-  running text; **Geist Mono** (`--font-mono`) for every numeral and
+  running text; **Chivo Mono** (`--font-mono`) for every numeral and
   every label — the data voice.
 - The sizes are tokens and there are no others: labels 9.5 / 10 / 10.5 /
   11px (`--fs-label-*`), running text 12.5 / 13 / 14px (`--fs-body-*`),
@@ -132,7 +132,7 @@ nothing is decorative.
   are mono, tabular, 26px, weight 600 (`.num-lg`).
 - Labels — eyebrows, keys, statuses, tabs, table headers, axis labels —
   are mono, 600, uppercase, 0.1–0.18em tracking, `--ink-4`.
-- No italic, except muted "no data" values (Geist Mono italic 400 is
+- No italic, except muted "no data" values (Chivo Mono italic 400 is
   loaded for them).
 
 ### Space & density
@@ -243,7 +243,7 @@ checklist.
   `circle-exclamation` (`--neg`), `check` (`--pos`).
 - Every icon has an accessible label; icon-only buttons are 32×32 (24×24
   at sm) with an `aria-label` and a Tooltip that names them.
-- Mono glyphs stand in for icons inside data: ▲ ▼ ▾ △ ☐ × →. Geist Mono
+- Mono glyphs stand in for icons inside data: ▲ ▼ ▾ △ ☐ × →. Chivo Mono
   draws only the ×; the others come from the fallback fonts after it in
   `--font-mono`, or the platform's own. The Tooltip affordance is a 14px ⓘ
   ring in `--ink-4`.
