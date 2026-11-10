@@ -77,6 +77,9 @@
  *   Go to issue clears them, then flies to where its draft stands and selects
  *   it once it draws — the frame's one hidden pick, Find's too. Enter, or a
  *   double-click on an entity, opens Details, its open tab kept per viewer.
+ *   The toolbar's issue gone to asks its row's Details for the field it
+ *   names, which takes the keyboard there, the inspector opened at Details
+ *   where it is collapsed or at Issues (#1585).
  *   A selected row of a kind read by area its window no longer holds stays
  *   selected, and Details shows it as its stored row reads, by its key
  *   (`selected-rows.ts`, §4.5): a pan or a zoom lets go of nothing, and only a
@@ -157,6 +160,7 @@ import {
     type EditIssue, type EditingWords, type HistoryAction, type Origin,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, loadingLineText, schematicColorTokens, type LoadingLineText, type LoadingLineValue, keptRead } from "@elaraai/east-ui-components/internal";
+import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import type { SourceHiding } from "../shared/schedule/hidden.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
@@ -666,14 +670,19 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         history.act(action);
     }, [history]);
     // An issue a Save raised: the canvas flies to the item it names, and selects it — a conflict's Go to, beside the
-    // conflicts popover open over the canvas, which stays open.
+    // conflicts popover open over the canvas, which stays open. The field it names, asked of its row's Details, takes the
+    // keyboard there, the inspector opened where it is collapsed (`../shared/schedule/field-ask.tsx`, #1585) — a
+    // conflict's Go to, which names its path, asks none.
     const sessions = editing.schedule.sessions;
-    const onIssue = useCallback((issue: EditIssue) => {
+    const { asks: fieldAsks, request: askField } = useFieldAsks();
+    const onIssue = useCallback((issue: EditIssue, at?: PatchPath) => {
         const key = history.sourceOf(issue);
         const part = key === undefined ? undefined : sessions.find((held) => stringEqual(held.key, key));
         const popover = document.querySelector("[data-conflict-card]")?.closest("[data-part='content']")?.getBoundingClientRect();
-        if (part !== undefined) reveal(entityId({ kind: recordSlot(part.kind), key: issue.entry }), popover);
-    }, [history, sessions, reveal]);
+        if (part === undefined) return;
+        askField(part.kind, issue.entry, at === undefined ? issue.field : none);
+        reveal(entityId({ kind: recordSlot(part.kind), key: issue.entry }), popover);
+    }, [history, sessions, reveal, askField]);
     // A conflict's item in the history bar's popover, named as its session's banners name its issues — by the names this
     // render draws, read as the popover draws.
     const namesNow = useRef<ReadonlyMap<string, string>>(new Map());
@@ -1175,7 +1184,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     });
 
     return (
-        <Box css={styles.root} data-schematic="" data-schematic-layout={narrow ? "narrow" : "wide"}>
+        <FieldAskProvider value={fieldAsks}><Box css={styles.root} data-schematic="" data-schematic-layout={narrow ? "narrow" : "wide"}>
             {value.inspector && <SchematicInspectedReader value={value} inspected={inspectedRef} areas={areas} windows={data.windows} onRows={setInspectedRows} />}
             {areas.size > 0 && editing.edits && (
                 <SchematicDraftsReader value={value} areas={areas} drafts={editing.drafts} original={editing.schedule.held} onRead={setDraftsNarrowing} />
@@ -1213,7 +1222,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                         standing={standing} fit={canvasFit} onElement={onCanvasElement} />
                 </BuilderFrame>
             </LoadingReveal>
-        </Box>
+        </Box></FieldAskProvider>
     );
 }
 

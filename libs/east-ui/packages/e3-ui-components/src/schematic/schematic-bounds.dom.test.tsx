@@ -11,7 +11,9 @@
  * field's help line, as a warning, and it holds no Save — another rack's
  * change saves; A04's capacity changed, Save waits, the help line an error,
  * Issues saying it among what blocks, by the field's label and the bound in
- * its hint's own words, and the ring stays.
+ * its hint's own words, and the ring stays. The toolbar's issue pressed puts
+ * the keyboard in A04's load — the Inspector, collapsed at Issues, opened at
+ * Details first.
  */
 
 import { expect, test } from "vitest";
@@ -126,4 +128,30 @@ test("a stored load over its most: A04's card wears the warn ring, Issues warns 
     await openTab(c, "Issues");
     expect(issues(c)).toEqual([["Load: at most 10", "invalid"]]);
     expect(ringed(c, "A04")).toBe(true);
+});
+
+test("the Inspector collapsed at Issues, the toolbar's issue pressed opens it at Details, as its rail and its tab do, and A04's load takes the keyboard (#1585)", async () => {
+    const { container: c } = await h.mount(bounded);
+    await settle();
+    await waitFor(() => expect(card(c, "racks", "A01")).not.toBeNull());
+    const found = CENTRES.flatMap(([key, x, y]) => {
+        const el = card(c, "racks", key);
+        return el === null ? [] : [[el, x, y] as const];
+    });
+    canvasLayout.hits((px, py) => found.find(([, x, y]) => near(CAM, px, py, x, y))?.[0] ?? (px >= 0 && px < 1080 && py >= 0 && py < 540 ? canvasOf(c) : null));
+    fireEvent.pointerEnter(canvasOf(c));
+    await tap(canvasOf(c), CAM, 13.2, 2.9);
+    await settle();
+    await retypeNumber(c, "capacity", "14");
+    expect(saveOff(c)).toBe(true);
+    // The Inspector left at Issues, and collapsed.
+    await openTab(c, "Issues");
+    await act(async () => { fireEvent.click(within(slot(c, "end")).getByRole("button", { name: "Collapse Inspector" })); });
+    await settle();
+    expect(slot(c, "end").hasAttribute("data-collapsed")).toBe(true);
+    await act(async () => { fireEvent.click(slot(c, "toolbar").querySelector<HTMLButtonElement>('[data-slot="historyIssues"] button')!); });
+    await settle();
+    const open = slot(c, "end").querySelector("[role='tab'][aria-selected='true']")?.textContent;
+    const load = slot(c, "end").querySelector("[role='tabpanel']:not([hidden]) [data-inspector-fields='details'] [data-field='kw']");
+    expect([slot(c, "end").hasAttribute("data-collapsed"), open, load?.contains(document.activeElement) === true]).toEqual([false, "Details", true]);
 });
