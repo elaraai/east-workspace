@@ -131,6 +131,11 @@
  * Undo, Redo, Discard and Save — and ⌘Z, ⇧⌘Z and ⌘Y take it anywhere in the
  * frame but a field typed into.
  *
+ * An item whose row, or its details row, holds a number outside its field's
+ * bounds (#1585) wears the warn ring, stored or changed, as one holding a
+ * conflict does — the rows read in a component of their own (`bounds.ts`) —
+ * and Issues lists a stored row's as a warning; a changed row's holds Save.
+ *
  * The layers hide, lock and dim the entities on them as their author defaults
  * say (`canvas/layers.ts`), and the viewer's choices in the Layers tab over
  * them, kept under the Schematic's `id`. The host hears the whole selection through
@@ -165,6 +170,7 @@ import type { ZoomRange } from "../shared/schedule/zoom.js";
 import { createViewportStore, type SchematicViewportStore } from "./area.js";
 import { backlogEntries } from "./backlog.js";
 import { SchematicBacklogPages, type BacklogAreaKind, type BacklogPageCount } from "./backlog-pages.js";
+import { NO_BREACHES, SchematicBoundsReader } from "./bounds.js";
 import {
     SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasFailure, type SchematicCanvasFit, type SchematicCanvasHandle, type SchematicCanvasNarrowing,
 } from "./canvas/view.js";
@@ -185,7 +191,7 @@ import { SchematicFooter, type SchematicNotice } from "./footer.js";
 import { drawnEntities, entityNames, inspectedEqual, inspectedOf, nameOfEntity, type SchematicInspected, type SchematicUnplaced } from "./inspect.js";
 import { schematicInspectorPane, type SchematicInspectorEditing } from "./inspector.js";
 import { NO_INSPECTED_ROWS, SchematicInspectedReader, type SchematicInspectedRows } from "./inspector-rows.js";
-import { drawingIssues, sessionIssues } from "./issues.js";
+import { boundsIssues, drawingIssues, sessionIssues, type SchematicBreaches } from "./issues.js";
 import { SchematicIndexArea, type IndexAreaKind } from "./index-area.js";
 import { KindRows } from "./kind-rows.js";
 import { layersInForce, useSchematicLayerView } from "./layers-view.js";
@@ -1109,9 +1115,9 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // What Details and Issues name, selected through the canvas — and flown to.
     const revealEntity = useCallback((id: string | undefined, at?: NetLeg) => canvasRef.current?.reveal(id, at), []);
     const zoneAt = useCallback((x: number, y: number) => zoneHolding(hosts, x, y)?.label, [hosts]);
-    // The issues: each record's session's first — they block — then the drawing's, every unsaved change the drawing leaves
-    // out checked beside it as its draft has it. Whether an item is held is known for an item kind read whole: its drawn
-    // rows and its backlog, the drafts in place.
+    // The issues: each record's session's first — they block — then the stored rows' numbers outside their bounds, then the
+    // drawing's, every unsaved change the drawing leaves out checked beside it as its draft has it. Whether an item is held
+    // is known for an item kind read whole: its drawn rows and its backlog, the drafts in place.
     const itemSlots = useMemo(() => new Set(value.items.map((kind) => kind.key)), [value.items]);
     const wholeItems = useMemo(() => new Set(value.items.filter((kind) => kind.entries.type === "none").map((kind) => kind.key)), [value.items]);
     const heldItems = useMemo(() => new Set([...drawing.items.map((item) => item.key), ...backlog.map((entry) => entry.id)]), [drawing.items, backlog]);
@@ -1124,15 +1130,20 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         return out;
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
     }, [sessions, historyVersion]);
+    // The rows drawn whose numbers their fields' bounds don't hold (#1585), by entity, read in a component of their own:
+    // each wears the conflicts' warn ring, stored or changed, and a stored one's breach warns in Issues, after what blocks.
+    const [breaches, setBreaches] = useState<SchematicBreaches>(NO_BREACHES);
+    const bounded = useMemo(() => new Set(breaches.keys()), [breaches]);
     const issues = useMemo(() => [
         ...sessionIssues(sessions, kindName, (id) => names.get(id)),
+        ...boundsIssues(breaches, kindName, (id) => nameOfEntity(names, id)),
         ...drawingIssues({
             drawn: withWaiting(drawing, waiting), extent: value.extent, names: kindName, nameOf: (id) => nameOfEntity(names, id), layers: layerValues,
             colours: THEME_COLOURS, holds: (ref) => (!itemSlots.has(ref.kind) ? false : wholeItems.has(ref.kind) ? heldItems.has(entityId(ref)) : undefined),
         }),
         // A session's readiness and its Save's issues move with the history's version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    ], [sessions, historyVersion, kindName, names, drawing, waiting, value.extent, layerValues, itemSlots, wholeItems, heldItems]);
+    ], [sessions, historyVersion, kindName, names, breaches, drawing, waiting, value.extent, layerValues, itemSlots, wholeItems, heldItems]);
     // Each unsaved change the drawing leaves out, its reference by its id: an issue of one says which of the rail's choices
     // hide it. Go to issue on one is the frame's hidden pick, as Find's is: those choices cleared, it flies to where its
     // draft stands, and selects it once the narrowing they leave draws it.
@@ -1172,6 +1183,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
             {areas.size > 0 && <SchematicSelectedReader value={value} areas={areas} selected={selectedArea} windows={data.windows} onRead={setSelectedRows} />}
             {value.inspector && areas.size > 0 && <SchematicAreaCountsReader value={value} areas={areas} onRead={setAreaCounts} />}
             {backlogPages !== undefined && <SchematicBacklogCountReader source={backlogPages} parts={backlogPartKeys} onCount={setBacklogCount} />}
+            <SchematicBoundsReader value={value} areas={areas} windows={data.windows} drawing={drawing} schedule={editing.schedule} version={historyVersion}
+                onBreaches={setBreaches} />
             {/* The frame's one reveal clock (CL4): the footer's line, the canvas's wash and placeholders and the inspector's show a
                 read in flight after 150 ms, held 300 ms once shown. */}
             <LoadingReveal waiting={line?.kind === "loading" || inspectorReading}>
@@ -1191,7 +1204,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                     liveFooter
                     onKeyDown={onKeyDown}
                 >
-                    <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} conflicted={conflicted} tool={held.tool} linkKind={held.link}
+                    <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} conflicted={conflicted} bounded={bounded} tool={held.tool} linkKind={held.link}
                         words={words} editing={canvasEditing} onRefused={setRefusal} onAction={refusal === undefined ? undefined : dropRefusal}
                         onSelection={onSelection} onOpen={value.inspector ? openDetails : undefined}
                         onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues}

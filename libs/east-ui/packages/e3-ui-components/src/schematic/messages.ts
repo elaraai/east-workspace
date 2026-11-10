@@ -407,6 +407,7 @@ function issueText(p: SchematicIssueWord): string {
         case "outside": return "Outside the drawing";
         case "geometry": return "Its shape reaches past its box";
         case "colour": return `Its colour, ${p.colour}, is no theme colour: it draws its tone`;
+        case "bounds":
         case "ready":
         case "save": return p.field === undefined ? p.message : `${p.field}: ${p.message}`;
     }

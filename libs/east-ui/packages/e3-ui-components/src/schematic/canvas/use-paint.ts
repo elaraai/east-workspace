@@ -124,7 +124,7 @@ export interface PaintProps {
     readonly look: SchematicNarrowedLook;
     /** The narrowing's matches, by id (#1392). */
     readonly matches: ReadonlySet<string>;
-    /** The items holding a conflict not yet chosen, by key: what wears the conflicts' warn ring. */
+    /** The items wearing the conflicts' warn ring, by key: holding a conflict not yet chosen, or a row its fields' bounds don't hold (#1585). */
     readonly conflicted: ReadonlySet<string>;
     /** The camera (`use-camera.ts`). */
     readonly camera: Camera;

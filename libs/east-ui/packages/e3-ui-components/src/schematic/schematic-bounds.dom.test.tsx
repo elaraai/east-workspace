@@ -6,10 +6,11 @@
  *
  * A number outside its field's bounds (#1585), over the data centre's racks
  * and their loads on e3 itself, in a test's own Schematic whose loads' form
- * holds a rack's load to at most 10 kW: A04's is stored at 11.6. Stored,
- * Details says it under the field and it holds no Save — another rack's
- * change saves; A04's capacity changed, Save waits, Issues saying it among
- * what blocks, by the field's label and the bound in its hint's own words.
+ * holds a rack's load to at most 10 kW: A04's is stored at 11.6. Stored, its
+ * card wears the warn ring, Issues warns of it, Details says it under the
+ * field and it holds no Save — another rack's change saves; A04's capacity
+ * changed, Save waits, Issues saying it among what blocks, by the field's
+ * label and the bound in its hint's own words, and the ring stays.
  */
 
 import { expect, test } from "vitest";
@@ -62,6 +63,15 @@ const field = (c: HTMLElement, key: string): HTMLElement => panel(c).querySelect
 const saveOff = (c: HTMLElement) => within(slot(c, "toolbar")).getByRole<HTMLButtonElement>("button", { name: editingMessages.apply() }).disabled;
 /** Issues, each as it reads: what it says, and whether it blocks or warns. */
 const issues = (c: HTMLElement) => [...panel(c).querySelectorAll("[data-inspector-issue] [data-kind]")].map((el) => [el.textContent, el.getAttribute("data-kind")]);
+/** Whether a rack's card wears the warn ring of a broken bound. */
+const ringed = (c: HTMLElement, key: string) => card(c, "racks", key)?.hasAttribute("data-bounds") === true;
+
+/** Opens a tab of the inspector, by the words it starts with. */
+async function openTab(c: HTMLElement, name: "Details" | "Issues"): Promise<void> {
+    const tab = [...slot(c, "end").querySelectorAll("[role='tab']")].find((t) => t.textContent?.startsWith(name) === true)!;
+    await act(async () => { fireEvent.click(tab); });
+    await settle();
+}
 
 /** Types a number field's new value, a key at a time — the shared input writes back on a frame — and commits it with ⏎. */
 async function retypeNumber(c: HTMLElement, key: string, text: string): Promise<void> {
@@ -78,7 +88,7 @@ async function retypeNumber(c: HTMLElement, key: string, text: string): Promise<
     await settle();
 }
 
-test("a stored load over its most: Details says it under the field and it holds no Save — another rack's change saves; A04's capacity changed, Save waits and Issues says it among what blocks (#1585)", async () => {
+test("a stored load over its most: A04's card wears the warn ring, Issues warns of it and Details says it under the field, holding no Save — another rack's change saves; A04's capacity changed, Save waits, Issues says it among what blocks and the ring stays (#1585)", async () => {
     const { container: c } = await h.mount(bounded);
     await settle();
     await waitFor(() => expect(card(c, "racks", "A01")).not.toBeNull());
@@ -88,6 +98,11 @@ test("a stored load over its most: Details says it under the field and it holds 
     });
     canvasLayout.hits((px, py) => found.find(([, x, y]) => near(CAM, px, py, x, y))?.[0] ?? (px >= 0 && px < 1080 && py >= 0 && py < 540 ? canvasOf(c) : null));
     fireEvent.pointerEnter(canvasOf(c));
+    // Stored: A04's card wears the warn ring, and Issues warns of it — nothing blocks.
+    await waitFor(() => expect([ringed(c, "A04"), ringed(c, "A03")]).toEqual([true, false]));
+    await openTab(c, "Issues");
+    expect(issues(c)).toEqual([["Load: at most 10", "warning"]]);
+    await openTab(c, "Details");
     // Another rack's change saves: the stored breach holds nothing.
     await tap(canvasOf(c), CAM, 9.6, 2.9);
     await settle();
@@ -97,11 +112,10 @@ test("a stored load over its most: Details says it under the field and it holds 
     await tap(canvasOf(c), CAM, 13.2, 2.9);
     await settle();
     expect(field(c, "kw").querySelector("[data-scope=field][data-part=error-text]")?.textContent).toBe("at most 10");
-    // A04's capacity changed: Save waits, and Issues says why among what blocks.
+    // A04's capacity changed: Save waits, Issues says why among what blocks — no longer a warning — and the ring stays.
     await retypeNumber(c, "capacity", "14");
     expect(saveOff(c)).toBe(true);
-    const tab = [...slot(c, "end").querySelectorAll("[role='tab']")].find((t) => t.textContent?.startsWith("Issues") === true)!;
-    await act(async () => { fireEvent.click(tab); });
-    await settle();
+    await openTab(c, "Issues");
     expect(issues(c)).toEqual([["Load: at most 10", "invalid"]]);
+    expect(ringed(c, "A04")).toBe(true);
 });

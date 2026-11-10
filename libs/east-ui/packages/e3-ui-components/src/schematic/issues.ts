@@ -18,14 +18,17 @@
  *   bulges draw (as the painter draws them), and a band's half-width.
  * - **A colour naming no theme colour** (D14) — an item's, a zone's or a
  *   layer's, which draws its tone instead.
- * - **The app's `ready` refusals** — they hold Save.
+ * - **A stored row's number outside its field's bounds** (#1585) — a row the
+ *   drawing draws, or its details row, as its read holds it (`bounds.ts`).
+ * - **The app's `ready` refusals**, and a changed row's number outside its
+ *   field's bounds — they hold Save.
  * - **A Save's conflict or refusal**, while it stands.
  *
- * The last two name a field by its form's label, as every builder's do.
+ * The last three name a field by its form's label, as every builder's do.
  *
- * The last two block, and come first; the rest warn, and Save goes ahead with
- * them. Two items of one key in one kind can't arise: each kind is a record
- * keyed by String.
+ * The last two block, and come first, then the stored rows' bounds; the rest
+ * warn, and Save goes ahead with them. Two items of one key in one kind can't
+ * arise: each kind is a record keyed by String.
  *
  * What is checked is what the drawing holds — a kind read by area's rows read
  * around the view, and the drafts drawn — and every unsaved change it leaves
@@ -65,6 +68,8 @@ export type SchematicIssueWord =
     | { readonly issue: "geometry" }
     /** A colour naming no theme colour token: it draws its tone. */
     | { readonly issue: "colour"; readonly colour: string }
+    /** A stored row's number its field's bounds don't hold (#1585): its field by its form's label, and the bound in its hint's own words. */
+    | { readonly issue: "bounds"; readonly field: string; readonly message: string }
     /** The app's check refusing a drafted row, which holds Save — its field by its form's label, if it names one. */
     | { readonly issue: "ready"; readonly field: string | undefined; readonly message: string }
     /** A Save's conflict or refusal, in the source's own words — its field by its form's label, if it names one. */
@@ -249,6 +254,48 @@ export function drawingIssues(args: SchematicIssueArgs): SchematicIssue[] {
     for (const layer of layers) {
         const colour = badColour(layer.color);
         if (colour !== undefined) warn(undefined, { kind: undefined, name: layer.label }, { issue: "colour", colour });
+    }
+    return out;
+}
+
+/**
+ * A number a row the drawing draws holds outside its field's bounds (#1585): the row's, or its details row's, as its draft
+ * has it, else as its read holds it (`bounds.ts`).
+ */
+export interface SchematicBreach {
+    /** The row's record's key in the history: its kind's slot, or its details record's (`detailsKey`). */
+    readonly record: string;
+    /** The field, by its form's label. */
+    readonly field: string;
+    /** The bound it breaks, in its hint's own words — `at most 10` — as its session's readiness says it of a changed row. */
+    readonly message: string;
+    /** Whether a draft changed the row: its session's readiness raises the breach then, holding Save. */
+    readonly changed: boolean;
+}
+
+/** The breaches of the rows the drawing draws, by the id of the entity each row is drawn as: one whose rows break none is absent. */
+export type SchematicBreaches = ReadonlyMap<string, readonly SchematicBreach[]>;
+
+/**
+ * The stored rows' breaches, as Issues lists them (see the module docs): each a warning naming its entity and the field
+ * by its form's label, in the drawing's order. A changed row's is its session's readiness's, which blocks: never here.
+ *
+ * @param breaches - The breaches of the rows the drawing draws, by entity
+ * @param names - Each kind's name, by its slot
+ * @param nameOf - Each entity's name, by its id, as the Schematic names it everywhere
+ * @returns The issues
+ */
+export function boundsIssues(breaches: SchematicBreaches, names: ReadonlyMap<string, string>, nameOf: (id: string) => string): SchematicIssue[] {
+    const out: SchematicIssue[] = [];
+    for (const [id, found] of breaches) {
+        for (const breach of found) {
+            if (breach.changed) continue;
+            const slot = recordSlot(breach.record);
+            out.push({
+                at: id, blocking: false, where: { kind: names.get(slot) ?? slot, name: nameOf(id) },
+                word: { issue: "bounds", field: breach.field, message: breach.message },
+            });
+        }
     }
     return out;
 }

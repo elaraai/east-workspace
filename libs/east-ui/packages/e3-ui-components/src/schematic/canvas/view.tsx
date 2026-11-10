@@ -227,6 +227,8 @@ export interface SchematicCanvasProps {
     readonly narrowing: SchematicCanvasNarrowing;
     /** The items holding a conflict not yet chosen, by key: each wears the conflicts' warn ring. None by default. */
     readonly conflicted?: ReadonlySet<string> | undefined;
+    /** The items whose rows break their fields' bounds (#1585), stored or changed, by key: each wears the same warn ring. None by default. */
+    readonly bounded?: ReadonlySet<string> | undefined;
     /** The tool held. */
     readonly tool: SchematicTool;
     /** The link kind Connect draws; `undefined` where no link kind is editable. */
@@ -345,7 +347,8 @@ const NO_FIT: SchematicCanvasFit = { key: undefined, reading: false, box: undefi
  * the editing's history.
  */
 export const SchematicCanvas = memo(function SchematicCanvas({
-    value, data, layers, narrowing, conflicted = EMPTY_STRING_SET, tool, linkKind, words, editing, onRefused, onAction, onSelection, onOpen, onZoneInView, drop, connectValues,
+    value, data, layers, narrowing, conflicted = EMPTY_STRING_SET, bounded = EMPTY_STRING_SET, tool, linkKind, words, editing, onRefused, onAction, onSelection, onOpen,
+    onZoneInView, drop, connectValues,
     viewport, density = NO_DENSITY, overview = NO_DENSITY, reading = false, standing = NO_STANDING, fit = NO_FIT, unread = NO_UNREAD, failure, stale = false,
     retained = false, onZoomRange, narrow = false, onElement, ref,
 }: SchematicCanvasProps) {
@@ -586,10 +589,15 @@ export const SchematicCanvas = memo(function SchematicCanvas({
 
     const scaleLen = ppu > 0 ? niceScaleLength(ppu, 100) : 0;
 
+    // A marker's warn ring is one, a conflict's or a broken bound's (#1585): the painter rings each item either names, the
+    // set kept while both are, as its short-circuit compares it.
+    const warned = useMemo(() => (bounded.size === 0 ? conflicted : conflicted.size === 0 ? bounded : new Set([...conflicted, ...bounded])),
+        [conflicted, bounded]);
     // The commit-phase snapshot, the paint's identity short-circuit and the painter's call (`use-paint.ts`).
     const paint = usePaint({
         value, data, paintValue, visibleItems, tiers, centers, layerHiddenKeys, layerAlpha, connectDraftWorld, litShown, wasLink, dropMark, paintEffect, fitBox,
-        density, stale, retained, showMinimap, minimapBox, shownZones, minimapDensities, minimapItems, look, matches, conflicted, camera, canvasSelection, gestureState,
+        density, stale, retained, showMinimap, minimapBox, shownZones, minimapDensities, minimapItems, look, matches, conflicted: warned, camera, canvasSelection,
+        gestureState,
     });
     const {
         drawRef, cardSizesRef, applyCardSizes, cardLayerRef, gridRef, washLayerRef, tintIndex, probeRef, renderSelected, renderSnapRef, onReveal,
@@ -744,7 +752,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                         per-card React re-layout (issue #57, invariant 6). It
                         holds the widest card too, which the recipe reads. */}
                     <SchematicCardLayer cardLayerRef={cardLayerRef} styles={styles} visibleItems={visibleItems} tiers={tiers} lod={lod} context={context}
-                        look={look} matches={matches} conflicted={conflicted} renderSelected={renderSelected} lockedKeys={lockedKeys} layerAlpha={layerAlpha}
+                        look={look} matches={matches} conflicted={conflicted} bounded={bounded} renderSelected={renderSelected} lockedKeys={lockedKeys} layerAlpha={layerAlpha}
                         connectDraft={connectDraft} dropMark={dropMark} centers={centers} cardSizesRef={cardSizesRef} applyCamera={applyCardSizes} />
                     {/* Drag box overlay — zoom (#153) or marquee (#159). The marquee
                         carries a live hit-count badge. Screen-space, host-relative. */}
