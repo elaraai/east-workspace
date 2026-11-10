@@ -75,6 +75,8 @@ const partsShown = (c: HTMLElement) => [...details(c).querySelectorAll<HTMLEleme
     return [f.getAttribute("data-field"), Number(f.querySelector("input")?.value)];
 });
 const remainder = (c: HTMLElement) => text(details(c).querySelector("[data-allocation-remainder]"));
+/** What a part's field says of an edit it refused. */
+const refusalOf = (c: HTMLElement, key: string) => text(details(c).querySelector(`[data-allocation-parts] [data-field="${key}"] [data-scope=field][data-part=error-text]`));
 /** `Split…`'s popover, portaled out of the pane, and whether it is open: closed, it stays mounted while its bin has something to split. */
 const splitBox = (bin: string) => document.querySelector<HTMLElement>(`[data-allocation-split="${bin}"]`);
 const splitOpen = (bin: string) => splitBox(bin)?.closest("[role=dialog]")?.getAttribute("data-state") === "open";
@@ -173,23 +175,26 @@ describe("splitting (A71, A73)", () => {
         expect([...(await saved("3202")).kilns]).toEqual(split);
     });
 
-    test("A71, A73 — a part's field sets what it holds, no more than it and the remainder: 20 → 16 leaves 8; its Clear, or nothing, unlinks it", async () => {
+    test("A71, A73 — a part's field sets what it holds, no more than it and the remainder: 20 → 16 leaves 8; more refused, never held to them; its Clear, or nothing, unlinks it", async () => {
         const c = await open();
         await press(card(c, "3201"));
         const user = userEvent.setup();
-        const k601 = within(details(c).querySelector<HTMLElement>('[data-allocation-parts] [data-field="K-601"]')!).getByRole("spinbutton");
-        await user.clear(k601);
-        for (const k of "16") { await user.type(k601, k); await settle(); }
-        await user.keyboard("{Enter}");
-        await settle();
+        const k601 = () => within(details(c).querySelector<HTMLElement>('[data-allocation-parts] [data-field="K-601"]')!).getByRole("spinbutton");
+        const type = async (value: string) => {
+            await user.clear(k601());
+            for (const k of value) { await user.type(k601(), k); await settle(); }
+            await user.keyboard("{Enter}");
+            await settle();
+            await frames();
+        };
+        await type("16");
         expect([partsShown(c), remainder(c)]).toEqual([[["K-208", 6], ["K-601", 16]], "8 m³ unallocated"]);
-        // More than the part and the remainder together is held to them: 24.
-        const again = within(details(c).querySelector<HTMLElement>('[data-allocation-parts] [data-field="K-601"]')!).getByRole("spinbutton");
-        await user.clear(again);
-        for (const k of "99") { await user.type(again, k); await settle(); }
-        await user.keyboard("{Enter}");
-        await settle();
-        expect([partsShown(c), remainder(c)]).toEqual([[["K-208", 6], ["K-601", 24]], null]);
+        // More than the part and the remainder together is refused, never held to them: the field shows the 16 it holds,
+        // and says the most it takes — and 24, all of them, is taken.
+        await type("99");
+        expect([partsShown(c), remainder(c), refusalOf(c, "K-601")]).toEqual([[["K-208", 6], ["K-601", 16]], "8 m³ unallocated", "at most 24"]);
+        await type("24");
+        expect([partsShown(c), remainder(c), refusalOf(c, "K-601")]).toEqual([[["K-208", 6], ["K-601", 24]], null, null]);
         // Its Clear unlinks K-208: what it held is unallocated again.
         await press(button(details(c), "Unlink LD-2232 from K-208"));
         expect([partsShown(c), remainder(c)]).toEqual([[["K-601", 24]], "6 m³ unallocated"]);
@@ -198,6 +203,20 @@ describe("splitting (A71, A73)", () => {
         expect(partsShown(c)).toEqual([["K-208", 6], ["K-601", 24]]);
         await press(save(c));
         expect([...(await saved("3201")).kilns]).toEqual([["K-208", 6], ["K-601", 24]]);
+    });
+
+    test("A57, A71 — a split bin's quantity under what its parts take is refused, never held to them: the field shows the 30 it holds, and says the least, 26", async () => {
+        const c = await open();
+        await press(card(c, "3201"));
+        const user = userEvent.setup();
+        const field = () => details(c).querySelector<HTMLElement>('[data-allocation-bin-section] [data-field="quantity"]')!;
+        await user.clear(within(field()).getByRole("spinbutton"));
+        for (const k of "20") { await user.type(within(field()).getByRole("spinbutton"), k); await settle(); }
+        await user.keyboard("{Enter}");
+        await settle();
+        await frames();
+        expect([Number((within(field()).getByRole("spinbutton") as HTMLInputElement).value), text(field().querySelector("[data-scope=field][data-part=error-text]")), remainder(c)])
+            .toEqual([30, "at least 26", "4 m³ unallocated"]);
     });
 
     test("A71, A73 — the connector links the remainder: the fit asked for 4 m³, a drop on a fit puts 4 m³ there", async () => {

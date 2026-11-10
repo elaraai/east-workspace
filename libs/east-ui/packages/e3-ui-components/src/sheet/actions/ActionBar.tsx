@@ -11,7 +11,8 @@
  * line below (two and More… past four), the first case's consequence (X3,
  * X5, X6). A choice or a form opens inside the bar, never floating: a head
  * with ← back and the eyebrow, a choice's reasons as 44px rows, a form's
- * fields through `FieldForm`, its consequence, then Cancel and the verb as two
+ * fields through `FieldForm` — a number typed past its bounds refused, the
+ * field saying the bound — its consequence, then Cancel and the verb as two
  * halves (X7). Taking a case returns the bar to the row's new offer (X8),
  * through the same command as the grid's.
  *
@@ -164,7 +165,7 @@ export const ActionBar = memo(function ActionBar({ host, api, r, columnKey, name
             <chakra.div key="form" ref={formRef} css={styles.bar} data-sheet-action-bar="form" data-case={c.name}
                 onInput={() => setEmptied(emptyRequired(specs, valueRef.current, formRef.current))}>
                 {back}
-                <FieldForm specs={specs} value={value} options={options} onChange={onChange} live />
+                <FieldForm specs={specs} value={value} options={options} onChange={onChange} live refusesBreaches />
                 {missing !== undefined && <chakra.span css={styles.formError} role="alert">{m.issueRequired()} — {missing.label}</chakra.span>}
                 <chakra.span css={styles.barConsequence}>
                     {emptied !== undefined ? m.actionNeeds({ fields: [emptied.label] }) : api.consequence(r, columnKey, c, caseOf(value))}

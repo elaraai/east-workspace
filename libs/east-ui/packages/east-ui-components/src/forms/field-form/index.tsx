@@ -17,7 +17,7 @@
  * | Editor | Input |
  * |---|---|
  * | `text` | `StringInput` |
- * | `number` | `IntegerInput` or `FloatInput`, by the field's type: moved by its step, clamped to its bounds, its unit and bounds in the help line; a value given it that they don't hold said once, in the tone its host says it in (`breaches`) — the help line, or where the field prints its value the bound in their words, on a line of its own in it (`fieldBreaches`, #1585) |
+ * | `number` | `IntegerInput` or `FloatInput`, by the field's type: moved by its step within its bounds, and never clamped to them; its unit and bounds in the help line; a value they don't hold said once, in the tone its host says it in (`breaches`) — the help line, or where the field prints its value the bound in their words, on a line of its own in it (`fieldBreaches`, #1585) |
  * | `checkbox` | `Checkbox` |
  * | `datetime` | `DateTimeInput` |
  * | `select` | `RadioGroup` of the variant's cases while it has up to four, Not set first for an Option (#1473); `Select` past four; a case holding data, its fields in a block under the choice |
@@ -33,7 +33,11 @@
  * any other Option has a Clear beside it, and a Set while it holds none. Any
  * other number's box emptied leaves its field no value: a host that takes one
  * (`takesUnset`) is told it as `undefined`, and the form refuses it for any
- * other, saying the field can't be left empty. A field with
+ * other, saying the field can't be left empty. A number is held to its bounds
+ * by its box's steps alone: a stored one the keyboard passes through stays as
+ * stored, and one typed past them is told as typed, for the host to flag and
+ * hold its Save on — or, where what the form edits can't stand outside them
+ * (`refusesBreaches`), refused, the field saying the bound. A field with
  * no value yet — a draft's field not given, whatever its type — shows Not
  * set: a text empty, a select or a reference with nothing chosen, any other
  * with a Set beside it (#1188). Set gives the box it makes the keyboard, its
@@ -177,6 +181,12 @@ export interface FieldFormProps {
      * none either way.
      */
     takesUnset?: boolean | undefined;
+    /**
+     * Whether what the form edits can't stand outside its fields' bounds — an Allocation's parts, an action's values: a
+     * number typed past them is refused, the field showing what it holds and saying the bound, as an edit the host
+     * refuses is. Absent, it is told the host as typed, for the host to flag and to hold its Save on (`fieldBreaches`).
+     */
+    refusesBreaches?: boolean | undefined;
     /** Prints every value, and takes no edit. */
     readOnly?: boolean | undefined;
     /** The form's words: the host's, else English in the app's locale. */
@@ -409,9 +419,10 @@ function clampOf(editor: NumberEditor, integer: boolean): (n: bigint | number) =
 }
 
 /**
- * A number its field's bounds don't hold (#1585): under its least, or over its most. The form holds what it makes to
- * them, never a value given it — a new row's default, stored data, a card's values, an app's write — which is held as it
- * is and flagged, as a field still missing is: here and in the host's issues.
+ * A number its field's bounds don't hold (#1585): under its least, or over its most. The form holds to them only what
+ * it makes itself — a Set's start, a step of its box — never a value typed into it or given it — a new row's default,
+ * stored data, a card's values, an app's write — which is held as it is and flagged, as a field still missing is: here
+ * and in the host's issues.
  */
 export interface FieldBreach {
     /** The field's path, as its spec's. */
@@ -597,8 +608,8 @@ function printOf(
  * ```
  */
 export const FieldForm = memo(function FieldForm({
-    specs, value, baseline, options = NO_OPTIONS, onChange, takesUnset = false, readOnly = false, words, renderControl, live = false, lines, issues, focus,
-    breaches = "error",
+    specs, value, baseline, options = NO_OPTIONS, onChange, takesUnset = false, refusesBreaches = false, readOnly = false, words, renderControl, live = false,
+    lines, issues, focus, breaches = "error",
 }: FieldFormProps) {
     const styles = useSlotRecipe({ key: "fieldForm" })() as Styles;
     const formatters = useFormatters();
@@ -620,7 +631,8 @@ export const FieldForm = memo(function FieldForm({
         return (
             <FieldRow key={spec.path.join("\u001f")} spec={spec} under={under} current={valueAt(value, spec.path)}
                 base={baseline === undefined ? undefined : valueAt(baseline, spec.path)} hasBaseline={baseline !== undefined}
-                options={options} onChange={onChange} takesUnset={takesUnset} readOnly={readOnly} words={said} styles={styles} renderControl={renderControl} live={live}
+                options={options} onChange={onChange} takesUnset={takesUnset} refusesBreaches={refusesBreaches} readOnly={readOnly} words={said} styles={styles}
+                renderControl={renderControl} live={live}
                 choices={under === undefined ? lines?.get(key) : undefined} issue={issues?.has(key) === true} breaches={breaches} />
         );
     };
@@ -680,6 +692,8 @@ interface FieldRowProps {
     options: Readonly<Record<string, readonly FieldOption[]>>;
     onChange: FieldFormProps["onChange"];
     takesUnset: boolean;
+    /** A number typed past its bounds is refused, in their words. */
+    refusesBreaches: boolean;
     readOnly: boolean;
     words: FieldFormWords;
     styles: Styles;
@@ -698,7 +712,8 @@ interface FieldRowProps {
  * checklist's items; or, drawn on one line, its label and its choices.
  */
 const FieldRow = memo(function FieldRow({
-    spec, under, current, base, hasBaseline, options, onChange, takesUnset, readOnly, words, styles, renderControl, live, choices, issue, breaches,
+    spec, under, current, base, hasBaseline, options, onChange, takesUnset, refusesBreaches, readOnly, words, styles, renderControl, live, choices, issue,
+    breaches,
 }: FieldRowProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
@@ -783,7 +798,10 @@ const FieldRow = memo(function FieldRow({
     // leaves it, its words at once.
     const emit = useCallback((next: unknown, how: "choice" | "typed" | "typing" = "choice") => {
         const out = spec.optional ? (next === undefined ? none : some(next)) : next;
-        const refused = same(out, current) ? undefined : onChange(spec.path, out);
+        // A number typed past its bounds, where what the form edits can't stand outside them: refused, in their words.
+        const breach = refusesBreaches && how !== "choice" && editor.type === "number" && next !== undefined
+            ? breachOf(editor.value, next as bigint | number, isTypeEqual(inner, IntegerType)) : undefined;
+        const refused = same(out, current) ? undefined : breach !== undefined ? fieldBreachText(breach, words) : onChange(spec.path, out);
         if (refused === undefined) {
             stale.current = false;
             setRefusal(undefined);
@@ -794,7 +812,7 @@ const FieldRow = memo(function FieldRow({
             const row = rowRef.current;
             refuse(refused, how === "choice" || (row !== null && row.contains(row.ownerDocument.activeElement)));
         }
-    }, [spec.optional, spec.path, same, current, onChange, refuse]);
+    }, [spec.optional, spec.path, same, current, onChange, refuse, refusesBreaches, editor, inner, words]);
     // Live, each typed edit is told at once (`FieldFormProps.live`).
     const hold = useCallback((next: unknown) => { if (live) emit(next, "typing"); else pending.current = { value: next }; }, [live, emit]);
     const commit = useCallback(() => {
@@ -961,26 +979,26 @@ const FieldRow = memo(function FieldRow({
                 const min = getSomeorUndefined(number.min);
                 const max = getSomeorUndefined(number.max);
                 const step = getSomeorUndefined(number.step);
+                // What is typed is told as typed — never held to its bounds, a number nobody typed: the field says one
+                // past them, or refuses it where what the form edits can't stand outside them (`emit`).
                 if (isTypeEqual(inner, IntegerType)) {
-                    const clamp = clampOf(number, true);
                     return variant("IntegerInput", {
                         ...INTEGER_INPUT,
                         value: held as bigint,
                         min: min === undefined ? none : some(BigInt(Math.ceil(min))),
                         max: max === undefined ? none : some(BigInt(Math.floor(max))),
                         step: step === undefined ? none : some(BigInt(Math.max(1, Math.round(step)))),
-                        onChange: some((next: bigint) => { hold(clamp(next)); return null; }),
+                        onChange: some((next: bigint) => { hold(next); return null; }),
                         style: INPUT_STYLE,
                     });
                 }
-                const clamp = clampOf(number, false);
                 return variant("FloatInput", {
                     ...FLOAT_INPUT,
                     value: held as number,
                     min: min === undefined ? none : some(min),
                     max: max === undefined ? none : some(max),
                     step: step === undefined ? none : some(step),
-                    onChange: some((next: number) => { hold(clamp(next)); return null; }),
+                    onChange: some((next: number) => { hold(next); return null; }),
                     style: INPUT_STYLE,
                 });
             }
@@ -1057,9 +1075,10 @@ const FieldRow = memo(function FieldRow({
         }
     })();
     // Its input: a number's drawn here, its box telling the field its text as each change lands — but in a live form,
-    // whose host reads the box itself; any other through the dispatcher.
-    const input = control.type === "IntegerInput" ? <EastChakraIntegerInput value={control.value} onText={live ? undefined : typedText} />
-        : control.type === "FloatInput" ? <EastChakraFloatInput value={control.value} onText={live ? undefined : typedText} />
+    // whose host reads the box itself — and keeping a number its bounds don't hold as the keyboard leaves it, for the
+    // field to say: a stored one the keyboard only passes through is no edit. Any other through the dispatcher.
+    const input = control.type === "IntegerInput" ? <EastChakraIntegerInput value={control.value} onText={live ? undefined : typedText} clampOnBlur={false} />
+        : control.type === "FloatInput" ? <EastChakraFloatInput value={control.value} onText={live ? undefined : typedText} clampOnBlur={false} />
             : <EastChakraComponent value={control} storageKey={`fieldForm.${key}.control`} />;
 
     // A choice of up to four cases is a radio group, each in view, chosen at once; past four, the select above.

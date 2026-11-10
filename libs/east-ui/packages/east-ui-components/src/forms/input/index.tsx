@@ -177,13 +177,18 @@ export interface EastChakraIntegerInputProps {
     draft?: NumericInputDraft;
     /** Told the box's text as each change lands — an empty or a partial one among them, which the value's `onChange` never hears. */
     onText?: ((text: string) => void) | undefined;
+    /**
+     * Whether a number its bounds don't hold is clamped to them as the keyboard leaves the box — the input's own way,
+     * by default — or kept as it is, for a host that says it is out of range itself. Its steps keep to them either way.
+     */
+    clampOnBlur?: boolean | undefined;
 }
 
 
 /**
  * Renders an East UI IntegerInput value using Chakra UI Input component.
  */
-export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ value, draft, onText }: EastChakraIntegerInputProps) {
+export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ value, draft, onText, clampOnBlur }: EastChakraIntegerInputProps) {
     const [props, setProps] = useState(toChakraIntegerInput(value));
     const draftStyles = useSlotRecipe({ key: "numberInput" })({ size: props.size ?? "md" });
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
@@ -244,7 +249,7 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
         onChange={event => draft.onChange(event.target.value)} /></Box>;
 
     return (
-        <ChakraNumberInput.Root {...props} onValueChange={handleValueChange}>
+        <ChakraNumberInput.Root {...props} {...(clampOnBlur === undefined ? {} : { clampValueOnBlur: clampOnBlur })} onValueChange={handleValueChange}>
             {/* Mobile keyboards (#348): digits-only layout for integers. */}
             <ChakraNumberInput.Input
                 inputMode="numeric"
@@ -258,7 +263,7 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
             </ChakraNumberInput.Control>
         </ChakraNumberInput.Root>
     );
-}, (prev, next) => integerInputEqual(prev.value, next.value) && prev.draft === next.draft && prev.onText === next.onText);
+}, (prev, next) => integerInputEqual(prev.value, next.value) && prev.draft === next.draft && prev.onText === next.onText && prev.clampOnBlur === next.clampOnBlur);
 
 
 const floatInputEqual = equivalentFor(Input.Types.Float);
@@ -295,13 +300,18 @@ export interface EastChakraFloatInputProps {
     draft?: NumericInputDraft;
     /** Told the box's text as each change lands — an empty or a partial one among them, which the value's `onChange` never hears. */
     onText?: ((text: string) => void) | undefined;
+    /**
+     * Whether a number its bounds don't hold is clamped to them as the keyboard leaves the box — the input's own way,
+     * by default — or kept as it is, for a host that says it is out of range itself. Its steps keep to them either way.
+     */
+    clampOnBlur?: boolean | undefined;
 }
 
 
 /**
  * Renders an East UI FloatInput value using Chakra UI Input component.
  */
-export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value, draft, onText }: EastChakraFloatInputProps) {
+export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value, draft, onText, clampOnBlur }: EastChakraFloatInputProps) {
     const [props, setProps] = useState(toChakraFloatInput(value));
     const draftStyles = useSlotRecipe({ key: "numberInput" })({ size: props.size ?? "md" });
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
@@ -340,7 +350,7 @@ export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value, 
         onChange={event => draft.onChange(event.target.value)} /></Box>;
 
     return (
-        <ChakraNumberInput.Root {...props} onValueChange={handleValueChange}>
+        <ChakraNumberInput.Root {...props} {...(clampOnBlur === undefined ? {} : { clampValueOnBlur: clampOnBlur })} onValueChange={handleValueChange}>
             {/* Mobile keyboards (#348): decimal layout for floats. */}
             <ChakraNumberInput.Input
                 inputMode="decimal"
@@ -353,7 +363,7 @@ export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value, 
             </ChakraNumberInput.Control>
         </ChakraNumberInput.Root>
     );
-}, (prev, next) => floatInputEqual(prev.value, next.value) && prev.draft === next.draft && prev.onText === next.onText);
+}, (prev, next) => floatInputEqual(prev.value, next.value) && prev.draft === next.draft && prev.onText === next.onText && prev.clampOnBlur === next.clampOnBlur);
 
 
 // Pre-define equality functions at module level

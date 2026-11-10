@@ -8,7 +8,8 @@
  * the shared one, which the Inspector's Assigned to and the narrow cards (A78)
  * each open from a trigger of their own. It holds the quantity — with some of
  * the bin unallocated, what it places, that by default and at most; with all
- * of it on its resources, what it takes off a part, half of it by default —
+ * of it on its resources, what it takes off a part, half of it by default; one
+ * typed past what it takes refused, the field saying the bound —
  * and the resource it goes to, through the shared Chooser, every section of it
  * the fit's answer for that quantity (A73), the bin's own resources left out.
  * A choice is the board's `split`: one step that Undo takes back.
@@ -87,7 +88,7 @@ export function SplitPopover({ id, bin, from, context, plan, commands, fit, word
     return <SliceEditPopover open={open} onOpenChange={setOpen} label={label} trigger={trigger(label)}
         initialFocusEl={() => document.querySelector<HTMLElement>(`[data-allocation-split="${id}"] [data-chooser] input`)}>
         <Box css={styles.split} data-allocation-split={id}>
-            <FieldForm specs={specs} value={shownValue} onChange={onChange} />
+            <FieldForm specs={specs} value={shownValue} onChange={onChange} refusesBreaches />
             {open && <Chooser sections={sections} placeholder={`Find ${a(nouns.resource)}`} surface="inline"
                 onChoose={key => { setOpen(false); commands.split(id, key, placed, take.from); }} />}
         </Box>

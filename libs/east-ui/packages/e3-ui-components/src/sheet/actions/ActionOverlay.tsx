@@ -228,7 +228,9 @@ export interface ActionFormProps {
 /**
  * A form case's Popover (§6): the eyebrow naming the action and the row, the
  * case's fields through `FieldForm`, the consequence, Cancel and the verb. A
- * required field left empty keeps it open, the focus on that field (F9).
+ * required field left empty keeps it open, the focus on that field (F9); a
+ * number typed past its field's bounds is refused as it is typed, the field
+ * saying the bound, so an action takes no value its form's bounds don't hold.
  */
 export const ActionForm = memo(function ActionForm({ state, registers, consequence, onTake, onClose }: ActionFormProps) {
     const styles = useSlotStyles("sheetAction");
@@ -327,7 +329,7 @@ export const ActionForm = memo(function ActionForm({ state, registers, consequen
                     event.stopPropagation();
                     queueMicrotask(take);
                 }}>
-                <FieldForm specs={specs} value={value} options={options} onChange={onChange} live />
+                <FieldForm specs={specs} value={value} options={options} onChange={onChange} live refusesBreaches />
                 {missingSpec !== undefined && <chakra.span css={styles.formError} data-slot="actionFormError" role="alert">{m.issueRequired()} — {missingSpec.label}</chakra.span>}
             </chakra.div>
         </SliceEditPopover>

@@ -246,14 +246,14 @@ describe("FieldForm — each field the shared Field around the shared input its 
         expect(equalFor(StringType)(edits[1]!.value as string, "Hang doors and frames!")).toBe(true);
     });
 
-    test("a number is clamped to its bounds and handed back typed: an Integer as a bigint, a Float as a number", async () => {
+    test("a number is handed back as typed, its bounds or not — 25 of a crew of at most 20 — and typed as its field: an Integer as a bigint, a Float as a number", async () => {
         const { field, edits } = mount();
         const user = userEvent.setup();
         const crew = within(field("crew")).getByRole("spinbutton");
         await user.clear(crew);
         await user.type(crew, "25");
         await leave(crew);
-        expectEdit(edits, "crew", equalFor(IntegerType), 20n);
+        expectEdit(edits, "crew", equalFor(IntegerType), 25n);
 
         edits.length = 0;
         const length = within(field("length")).getByRole("spinbutton");
@@ -884,7 +884,7 @@ describe("FieldForm — a variant whose cases hold data, a block under its choic
         expect(keysIn(container)).toEqual(["finish", "bench", "spare", "slot", "name"]);
     });
 
-    test("an edit inside the block reaches onChange along a path through the case, typed as the field and held to its bounds", async () => {
+    test("an edit inside the block reaches onChange along a path through the case, typed as the field — a number as typed, past its bounds too", async () => {
         const { edits, field } = mountPiece(PAINTED);
         const user = userEvent.setup();
         const colour = within(field("finish.paint.colour")).getByRole("textbox");
@@ -899,7 +899,7 @@ describe("FieldForm — a variant whose cases hold data, a block under its choic
         await user.clear(coats);
         await user.type(coats, "9");
         await leave(coats);
-        expectEdit(edits, "finish.paint.coats", equalFor(IntegerType), 4n);
+        expectEdit(edits, "finish.paint.coats", equalFor(IntegerType), 9n);
     });
 
     test("against the baseline, the choice is tinted where its case differs, and a block's field where it does", async () => {

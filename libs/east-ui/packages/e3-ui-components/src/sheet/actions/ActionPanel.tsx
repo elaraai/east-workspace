@@ -7,7 +7,8 @@
  * An action field in the inspector's Details (#1478): the row's state and
  * summary as its cell draws them, then a button for each case its row is
  * offered — off, with why, while it may not act — and under them, inline, a
- * choice's reasons or a form's fields through `FieldForm`, its consequence,
+ * choice's reasons or a form's fields through `FieldForm` — a number typed past
+ * its bounds refused, the field saying the bound — its consequence,
  * Cancel and the verb. Every case is taken through the same command as the
  * grid's, one transaction (T1). In a phone's drawer (`Mobile Sheet Spec.md`
  * SH12) the state stands 44 tall and the cases are the action bar's Default
@@ -147,7 +148,7 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
             {open !== undefined && open.kind === "form" && (
                 <chakra.div ref={formRef} css={styles.panelForm} data-inspector-action-form={open.name}
                     onInput={() => setEmptied(emptyRequired(specs, valueRef.current, formRef.current))}>
-                    <FieldForm specs={specs} value={value} options={options} onChange={onChange} live />
+                    <FieldForm specs={specs} value={value} options={options} onChange={onChange} live refusesBreaches />
                     {missing !== undefined && <chakra.span css={styles.formError} role="alert">{m.issueRequired()} — {missing.label}</chakra.span>}
                     <chakra.div css={styles.formFoot}>
                         <chakra.span css={styles.formConsequence} data-consequence="">

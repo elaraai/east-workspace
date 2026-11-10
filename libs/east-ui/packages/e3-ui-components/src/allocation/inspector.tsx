@@ -59,7 +59,7 @@ import {
 import { DateTimeType, FloatType, OptionType, StringType, StructType, equalFor, none, some, variant, type SortedMap, type option } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui";
 import {
-    BannerView, EastChakraComponent, FieldForm, fieldFormMessages, getSomeorUndefined, useDropCell, useFormatters, useTrackedEvaluation, type BuilderFrameDock,
+    BannerView, EastChakraComponent, FieldForm, fieldBreachText, fieldFormMessages, getSomeorUndefined, useDropCell, useFormatters, useTrackedEvaluation, type BuilderFrameDock,
     type EditIssue, type FieldFormWords,
 } from "@elaraai/east-ui-components";
 import { Chooser, formatDatePattern } from "@elaraai/east-ui-components/internal";
@@ -498,7 +498,14 @@ function BinSection({ id, bin, committed, refused, breaches, ...part }: Part & {
         return undefined;
     }, [nouns.lane.one, lanes, editable, bin.lane, bin.at, toSlot, index, own.length, stepper, earlier, later, args.retained]);
     const { setQuantity } = commands;
-    const onChange = useCallback((path: readonly string[], next: unknown) => { if (path[0] === "quantity") setQuantity(id, next as number); }, [setQuantity, id]);
+    // A quantity under what its parts take, or under nothing, its command refuses: the field says what they take, and
+    // shows what the bin holds. One past a hint's bound is the draft's, flagged as it stands.
+    const format = useFormatters();
+    const fieldWords = useMemo((): FieldFormWords => ({ ...format, m: fieldFormMessages }), [format]);
+    const onChange = useCallback((path: readonly string[], next: unknown) => {
+        if (path[0] !== "quantity" || setQuantity(id, next as number)) return undefined;
+        return compareFloat(next as number, min) < 0 ? fieldBreachText({ side: "min", bound: min }, fieldWords) : undefined;
+    }, [setQuantity, id, min, fieldWords]);
     const shownValue = useMemo(() => ({ key: id, lane: bin.lane, at: bin.at, quantity: bin.quantity }), [id, bin.lane, bin.at, bin.quantity]);
     // What the drafts began from: the bin as the day holds it, or nothing for a new one, every field of which is a draft.
     const baseline = useMemo(() => committed === undefined ? {} : { key: id, lane: committed.lane, at: committed.at, quantity: committed.quantity }, [committed, id]);
@@ -689,8 +696,9 @@ function AssignedTo({ id, bin, current, at, breaches, ...part }: Part & {
  * A bin's parts (A70, A71): each part's quantity a field of the shared form,
  * in its resources' order, labelled by its resource; its Clear unlinks the
  * part, as nothing on it does; each holds at most itself and the remainder —
- * one past it said in the tone the bin's Save stands in (`breaches`, #1585).
- * Then what the parts leave unallocated, in warn. Every edit is a command.
+ * one typed past it refused, the field saying so, and one stored past it said
+ * in the tone the bin's Save stands in (`breaches`, #1585). Then what the
+ * parts leave unallocated, in warn. Every edit is a command.
  */
 function Parts({ args, styles, words, id, bin, remainder, breaches }: Part & { id: string; bin: Bin; remainder: number; breaches: "warn" | "error" }) {
     const { context, commands, held } = args;
@@ -721,7 +729,7 @@ function Parts({ args, styles, words, id, bin, remainder, breaches }: Part & { i
     // Off while main is retained (CL8), as the bin's own fields are.
     return <chakra.fieldset css={[styles.edits, styles.parts]} disabled={args.retained} data-allocation-parts="">
         <Box css={styles.sectionHead}>Parts</Box>
-        <FieldForm specs={specs} value={value} baseline={baseline} onChange={onChange} readOnly={!editable} words={formWords} breaches={breaches} />
+        <FieldForm specs={specs} value={value} baseline={baseline} onChange={onChange} readOnly={!editable} words={formWords} breaches={breaches} refusesBreaches />
         {compareFloat(remainder, 0) > 0 && <Box css={styles.remainder} data-allocation-remainder="">{words.quantity(remainder)} unallocated</Box>}
     </chakra.fieldset>;
 }
