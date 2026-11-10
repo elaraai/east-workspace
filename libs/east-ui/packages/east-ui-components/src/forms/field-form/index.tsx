@@ -111,6 +111,7 @@ import {
 import {
     Checkbox, Field, FieldEditorType, Input, RadioGroup, Select, TagsInput, spellOut, type FieldEditorValue, type FieldSpecValue,
 } from "@elaraai/east-ui/internal";
+import { EastChakraFloatInput, EastChakraIntegerInput } from "../input/index.js";
 import { EastChakraRadioGroup, type RadioGroupValue } from "../radio-group/index.js";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
@@ -745,8 +746,14 @@ const FieldRow = memo(function FieldRow({
         refocus.current = keep;
         setRevision((r) => r + 1);
     }, []);
+    // A number's box emptied, as its control last told the field its text: an empty box hands on no number — none reads
+    // from it — so the field keeps what the control told it, never reading the box back from the page. A new value from
+    // the host, Esc and each commit end it.
+    const blank = useRef(false);
+    const typedText = useCallback((text: string) => { blank.current = text.trim().length === 0; }, []);
     useValueSync(current, same, () => {
         pending.current = undefined;
+        blank.current = false;
         stale.current = false;
         setRefusal(undefined);
     });
@@ -771,17 +778,11 @@ const FieldRow = memo(function FieldRow({
     }, [spec.optional, spec.path, same, current, onChange, refuse]);
     // Live, each typed edit is told at once (`FieldFormProps.live`).
     const hold = useCallback((next: unknown) => { if (live) emit(next, "typing"); else pending.current = { value: next }; }, [live, emit]);
-    // A number's box emptied: its input tells nothing as it is typed — no number reads from it — so its text is read as
-    // the edit commits. A live form's host reads the box itself.
-    const emptied = useCallback((): boolean => {
-        if (live || editor.type !== "number" || held === undefined) return false;
-        const box = fieldRef.current?.querySelector<HTMLInputElement>("input[role=spinbutton]");
-        return box !== null && box !== undefined && box.value.trim().length === 0;
-    }, [live, editor.type, held]);
     const commit = useCallback(() => {
         // Emptied, the number typed before it is no edit: an Option's box is none, any other field's no value — the
         // host's, where it takes a field unset; else refused, the keyboard kept where the edit left it in the field.
-        if (emptied()) {
+        if (blank.current) {
+            blank.current = false;
             pending.current = undefined;
             if (spec.optional || takesUnset) emit(undefined, "typed");
             else {
@@ -794,7 +795,7 @@ const FieldRow = memo(function FieldRow({
         if (edit === undefined) return;
         pending.current = undefined;
         emit(edit.value, "typed");
-    }, [emit, emptied, spec.optional, spec.label, takesUnset, refuse, m]);
+    }, [emit, spec.optional, spec.label, takesUnset, refuse, m]);
     // A control the host draws itself, in the field: an edit it hands the field is a choice of the field's own.
     const own = renderControl?.(spec, emit);
 
@@ -887,9 +888,10 @@ const FieldRow = memo(function FieldRow({
                 }
                 return;
             }
-            if (pending.current !== undefined || emptied()) queueMicrotask(commit);
-        } else if (e.key === "Escape" && (pending.current !== undefined || emptied())) {
+            if (pending.current !== undefined || blank.current) queueMicrotask(commit);
+        } else if (e.key === "Escape" && (pending.current !== undefined || blank.current)) {
             pending.current = undefined;
+            blank.current = false;
             setRevision((r) => r + 1);
         }
     };
@@ -1035,6 +1037,11 @@ const FieldRow = memo(function FieldRow({
                 });
         }
     })();
+    // Its input: a number's drawn here, its box telling the field its text as each change lands — but in a live form,
+    // whose host reads the box itself; any other through the dispatcher.
+    const input = control.type === "IntegerInput" ? <EastChakraIntegerInput value={control.value} onText={live ? undefined : typedText} />
+        : control.type === "FloatInput" ? <EastChakraFloatInput value={control.value} onText={live ? undefined : typedText} />
+            : <EastChakraComponent value={control} storageKey={`fieldForm.${key}.control`} />;
 
     // A choice of up to four cases is a radio group, each in view, chosen at once; past four, the select above.
     const radio = ((): RadioGroupValue | undefined => {
@@ -1086,9 +1093,7 @@ const FieldRow = memo(function FieldRow({
         <Box css={styles.line} data-field-line="">
             <Box ref={fieldRef} css={styles.control} title={radio !== undefined || whole === undefined || whole.length === 0 ? undefined : whole}
                 data-field-choice={radio !== undefined ? "radio" : undefined}>
-                {own ?? (radio !== undefined
-                    ? <EastChakraRadioGroup value={radio} />
-                    : <EastChakraComponent value={control} storageKey={`fieldForm.${key}.control`} />)}
+                {own ?? (radio !== undefined ? <EastChakraRadioGroup value={radio} /> : input)}
             </Box>
             {side !== undefined && (
                 <Box css={styles.side} data-field-side={side}>

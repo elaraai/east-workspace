@@ -175,13 +175,15 @@ export interface NumericInputDraft { text: string; label: string; onChange: (tex
 export interface EastChakraIntegerInputProps {
     value: IntegerInputValue;
     draft?: NumericInputDraft;
+    /** Told the box's text as each change lands — an empty or a partial one among them, which the value's `onChange` never hears. */
+    onText?: ((text: string) => void) | undefined;
 }
 
 
 /**
  * Renders an East UI IntegerInput value using Chakra UI Input component.
  */
-export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ value, draft }: EastChakraIntegerInputProps) {
+export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ value, draft, onText }: EastChakraIntegerInputProps) {
     const [props, setProps] = useState(toChakraIntegerInput(value));
     const draftStyles = useSlotRecipe({ key: "numberInput" })({ size: props.size ?? "md" });
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
@@ -216,13 +218,14 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
         const raw = details.value;
         // Always update local state so partial inputs ("-", "") render while typing
         setProps(prev => ({ ...prev, value: raw }));
+        onText?.(raw);
         if (onChangeFn) {
             // Only an entry East reads as an Integer fires the callback — a
             // partial one ("", "-") or one past 64 bits waits.
             const read = readInteger(raw);
             if (read.success) queueMicrotask(() => onChangeFn(read.value));
         }
-    }, [onChangeFn]);
+    }, [onChangeFn, onText]);
 
     const handleBlur = useCallback((_e: FocusEvent<HTMLInputElement>) => {
         if (onBlurFn) {
@@ -255,7 +258,7 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
             </ChakraNumberInput.Control>
         </ChakraNumberInput.Root>
     );
-}, (prev, next) => integerInputEqual(prev.value, next.value) && prev.draft === next.draft);
+}, (prev, next) => integerInputEqual(prev.value, next.value) && prev.draft === next.draft && prev.onText === next.onText);
 
 
 const floatInputEqual = equivalentFor(Input.Types.Float);
@@ -290,13 +293,15 @@ export function toChakraFloatInput(value: FloatInputValue): NumberInputRootProps
 export interface EastChakraFloatInputProps {
     value: FloatInputValue;
     draft?: NumericInputDraft;
+    /** Told the box's text as each change lands — an empty or a partial one among them, which the value's `onChange` never hears. */
+    onText?: ((text: string) => void) | undefined;
 }
 
 
 /**
  * Renders an East UI FloatInput value using Chakra UI Input component.
  */
-export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value, draft }: EastChakraFloatInputProps) {
+export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value, draft, onText }: EastChakraFloatInputProps) {
     const [props, setProps] = useState(toChakraFloatInput(value));
     const draftStyles = useSlotRecipe({ key: "numberInput" })({ size: props.size ?? "md" });
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
@@ -309,13 +314,14 @@ export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value, 
         const raw = details.value;
         // Always update local state so partial inputs ("-", ".", "-.") render while typing
         setProps(prev => ({ ...prev, value: raw }));
+        onText?.(raw);
         if (onChangeFn) {
             // Only an entry East reads as a Float fires the callback — a
             // partial one ("", "-", ".", "1e") waits.
             const read = readFloat(raw);
             if (read.success) queueMicrotask(() => onChangeFn(read.value));
         }
-    }, [onChangeFn]);
+    }, [onChangeFn, onText]);
 
     const handleBlur = useCallback((_e: FocusEvent<HTMLInputElement>) => {
         if (onBlurFn) {
@@ -347,7 +353,7 @@ export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value, 
             </ChakraNumberInput.Control>
         </ChakraNumberInput.Root>
     );
-}, (prev, next) => floatInputEqual(prev.value, next.value) && prev.draft === next.draft);
+}, (prev, next) => floatInputEqual(prev.value, next.value) && prev.draft === next.draft && prev.onText === next.onText);
 
 
 // Pre-define equality functions at module level
