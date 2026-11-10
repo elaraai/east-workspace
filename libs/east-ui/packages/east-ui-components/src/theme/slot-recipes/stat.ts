@@ -7,9 +7,9 @@
  * Stat slot recipe — pattern_spec/spec.css `.cell` data-rail.
  *
  * Label: `caption.eyebrow` (mono 11 / 600 / 0.18 em / uppercase).
- * Value: tabular figures at the size variant — 20 (sm) or 26 (md, lg; the
- * design system's large number, `--fs-num`). Unit: mono 10.5 (the design
- * system's unit suffix).
+ * Value: the design system's large number (`num-lg`: mono, tabular, 600) at
+ * the size variant — 20 (sm) or 26 (md, lg; `--fs-num`). Unit: mono 10.5 (the
+ * design system's unit suffix).
  * HelpText: `mono.tabular.sm` muted numerics.
  * Indicator: Font Awesome's caret (#1263) in the 1em square Chakra's arrow
  * took — Chakra sizes its height, `--fa-width` its width.
@@ -32,12 +32,8 @@ export const statSlotRecipe = defineSlotRecipe({
             textStyle: "caption.eyebrow",
         },
         valueText: {
-            fontFamily: "heading",
-            fontWeight: "bold",
-            letterSpacing: "-0.01em",
-            fontVariantNumeric: "tabular-nums",
+            textStyle: "num-lg",
             color: "fg",
-            lineHeight: "1",
         },
         valueUnit: {
             fontFamily: "mono",
