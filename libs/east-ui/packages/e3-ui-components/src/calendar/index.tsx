@@ -95,6 +95,7 @@ import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { pagedLoadingLine, pagedLoadingMessages, periodLoading, periodLoadingLine, periodRead, retryPeriod, type PagedLoading } from "../shared/loading.js";
 import type { ScheduleCellNotice, ScheduleCellResources } from "../shared/schedule/cells.js";
 import { scheduleIssueName, useScheduleEditing, type ScheduleEditing, type ScheduleEventDraftsValue, type ScheduleHeldRows, type ScheduleRowRead } from "../shared/schedule/editing.js";
+import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
 import { openFramePane } from "../shared/schedule/open-pane.js";
@@ -276,8 +277,11 @@ function CalendarBacklogCountReader({ pages, onCount }: { pages: CalendarBacklog
     return null;
 }
 
-/** An event drawn whose stored row breaks its kind's bounds (#1585): its kind and key, and its words — its title, then its field's label and the bound. */
-interface CalendarWarning { readonly kind: string; readonly key: string; readonly text: string }
+/**
+ * An event drawn whose stored row breaks its kind's bounds (#1585): its kind and key, the field, by its form's key — what
+ * its Go to asks the event's form for — and its words: its title, then its field's label and the bound.
+ */
+interface CalendarWarning { readonly kind: string; readonly key: string; readonly field: string; readonly text: string }
 
 /** The events drawn whose rows break their kind's bounds (#1585): those that wear the warn ring, and the stored ones' breaches. */
 interface CalendarBreaches { readonly bounded: ReadonlySet<string>; readonly warnings: readonly CalendarWarning[] }
@@ -288,7 +292,10 @@ const NO_BREACHES: CalendarBreaches = { bounded: new Set(), warnings: [] };
 /** Whether two readings of the events' bounds say the same. */
 function sameBreaches(a: CalendarBreaches, b: CalendarBreaches): boolean {
     return a.bounded.size === b.bounded.size && [...b.bounded].every(key => a.bounded.has(key)) && a.warnings.length === b.warnings.length
-        && a.warnings.every((was, i) => { const now = b.warnings[i]!; return stringEqual(was.kind, now.kind) && stringEqual(was.key, now.key) && stringEqual(was.text, now.text); });
+        && a.warnings.every((was, i) => {
+            const now = b.warnings[i]!;
+            return stringEqual(was.kind, now.kind) && stringEqual(was.key, now.key) && stringEqual(was.field, now.field) && stringEqual(was.text, now.text);
+        });
 }
 
 /**
@@ -321,7 +328,7 @@ function CalendarBoundsReader({ kinds, items, editing, onBreaches }: {
             for (const breach of breaches) {
                 if (refused.some(({ kind, issue }) => stringEqual(kind, item.kind) && stringEqual(issue.entry, item.key)
                     && issue.field.type === "some" && stringEqual(issue.field.value, breach.key))) continue;
-                warnings.push({ kind: item.kind, key: item.key, text: `${item.title} · ${refusalText(fieldBreachIssue(breach, { entry: item.key }), check.fields)}` });
+                warnings.push({ kind: item.kind, key: item.key, field: breach.key, text: `${item.title} · ${refusalText(fieldBreachIssue(breach, { entry: item.key }), check.fields)}` });
             }
         }
         return { bounded, warnings };
@@ -695,13 +702,16 @@ function CalendarFrame(props: HostProps) {
     const finder = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format: words, onPick: found, held: cellRows, picks,
         resourcesShown, laysResources });
     const search = useMemo(() => (finder === undefined ? undefined : hiddenPick.search(finder)), [finder, hiddenPick]);
+    // The field an issue or a warning gone to names, asked of its event's form: it takes the keyboard as the form draws it,
+    // and so comes into view (`../shared/schedule/field-ask.tsx`).
+    const { asks: fieldAsks, request: askField } = useFieldAsks();
     // The window's own count: "…" while the period is read, never a count of another period's (#1398, CL13).
     const toolbar = useCalendarToolbar({ view, setView, resourcesWord: value.vocabulary.resources.other, layouts: dates.layouts, periods: dates.periods, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now,
         count: current ? items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length : undefined, uncounted,
         chrome: dates.chrome, affordances: dates.affordances, nouns, windowParts: dates.windowParts,
         ...(timeline ? { visible: visibleDays, events: { items, covered } } : {}), onToday, search, optimise: parts.toolbarItem, locked,
         styles, words, commands, onAction, overlaps, overlapsShown, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some"),
-        warnings: breaches.warnings });
+        warnings: breaches.warnings, askField });
     // No drag source or target while a run is out (R2).
     const drag = useCalendarDrag({ value, key: storageKey, commands: locked ? undefined : gestures, narrow, items, backlog, served: backlogPages, selection: selectedItems, templates: templates.shown,
         activeTemplate, onError: setError });
@@ -774,7 +784,8 @@ function CalendarFrame(props: HostProps) {
     const grips = editing !== undefined && !locked && read.state !== "failed";
     // The cold load's cover at the board's own pitch: an hour of its time grid (CL1).
     const pitch = view.layout === "timeline" || (view.layout === "calendar" && view.period === "month") ? undefined : calendarHour(value.settings.density);
-    return <EventFocusContext.Provider value={eventFocus}><Box ref={root} css={[styles.root, landingStyles.main]} data-calendar-frame="" data-calendar-readonly={value.settings.readOnly ? "" : undefined}
+    return <EventFocusContext.Provider value={eventFocus}><FieldAskProvider value={fieldAsks}>
+        <Box ref={root} css={[styles.root, landingStyles.main]} data-calendar-frame="" data-calendar-readonly={value.settings.readOnly ? "" : undefined}
         {...landing.attributes} onPointerDownCapture={dropFocus} onKeyDownCapture={dropFocus}>
         {pagedValue !== undefined && pagedKind !== undefined
             && <CalendarPagesReader paged={pagedValue} name={pagedKind.name} icon={pagedKind.icon} demand={demand} onPages={setPages} />}
@@ -835,7 +846,7 @@ function CalendarFrame(props: HostProps) {
         </BuilderFrame>
         </CalendarChooserContext.Provider>
         </LoadingReveal>
-    </Box></EventFocusContext.Provider>;
+    </Box></FieldAskProvider></EventFocusContext.Provider>;
 }
 /** Calendar in its own shared frame, with the same renderer for read-only views. */
 export function EastChakraCalendar({ value, storageKey }: EastChakraCalendarProps) {

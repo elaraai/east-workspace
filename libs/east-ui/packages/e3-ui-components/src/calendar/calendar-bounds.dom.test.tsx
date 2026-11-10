@@ -9,10 +9,12 @@
  * to at least 1: the prototype plates' job is stored at half an hour. Stored,
  * its block wears the warn ring, the toolbar's issues button warns of it, by
  * its title, the field's label and the bound, and it holds no Save — another
- * job's change saves; the warning pressed, Details shows it, the line under
- * the field saying it; its customer retyped, Save waits, the banner over its
- * form saying it in the hint's own words, the warning now the issue holding
- * Save, and the block keeps its ring.
+ * job's change saves; the warning pressed, Details shows it, the field taking
+ * the keyboard and its help line saying the bound once, as a warning, the
+ * field never invalid; its customer retyped, Save waits, the banner over its
+ * form saying it in the hint's own words, the help line now an error and the
+ * field invalid, the warning now the issue holding Save — which, pressed, gives
+ * the field the keyboard too — and the block keeps its ring.
  */
 
 import { expect, test } from "vitest";
@@ -64,15 +66,32 @@ test("a stored job's hours under their least: its block wears the warn ring, the
     await select("job2");
     await retype("Birch Engineering Ltd");
     expect([save().disabled, issues().getAttribute("aria-label")]).toEqual([false, "1 warning"]);
-    // The warning pressed goes to its job: the line under the field, and no banner.
+    // The warning pressed goes to its job: the field it names taking the keyboard, its help line saying the bound once, as
+    // a warning, the field not invalid — and no banner.
+    const hours = () => pane().querySelector<HTMLElement>('[data-field="hours"]')!;
+    /** The hours' help line, the tone it says the bound in, its error line, and whether its box is invalid. */
+    const said = () => {
+        const toned = hours().querySelector("[data-scope=field][data-part=helper-text] [data-breach]");
+        return [toned?.textContent, toned?.getAttribute("data-breach"), hours().querySelector("[data-scope=field][data-part=error-text]"),
+            within(hours()).getByRole("spinbutton").getAttribute("aria-invalid")];
+    };
     await act(async () => { fireEvent.click(issues()); });
     await settle();
-    expect(pane().querySelector('[data-field="hours"] [data-scope=field][data-part=error-text]')?.textContent).toBe("at least 1");
+    expect(document.activeElement).toBe(within(hours()).getByRole("spinbutton"));
+    expect(said()).toEqual(["at least 1", "warn", null, null]);
     expect(banner()).toBeNull();
-    // Its own customer retyped: Save waits, the banner says why, the warning is now the issue holding Save, and the ring stays.
+    // Its own customer retyped: Save waits, the banner says why, the help line is an error and the field invalid, the
+    // warning is now the issue holding Save, and the ring stays.
     await retype("Cedar Fabrication Ltd");
     expect(save().disabled).toBe(true);
     expect(banner()?.textContent).toContain("Hours: at least 1");
+    expect(said()).toEqual(["at least 1", "error", null, "true"]);
     expect(issues().getAttribute("aria-label")).toBe("1 issue");
     expect(event(container, "job", "job3").hasAttribute("data-bounds")).toBe(true);
+    // The issue pressed, the keyboard on another job's field: it goes back to the hours, as the warning did.
+    await select("job2");
+    (pane().querySelector<HTMLInputElement>('[data-field="customer"] input')!).focus();
+    await act(async () => { fireEvent.click(issues()); });
+    await settle();
+    expect(document.activeElement).toBe(within(hours()).getByRole("spinbutton"));
 });

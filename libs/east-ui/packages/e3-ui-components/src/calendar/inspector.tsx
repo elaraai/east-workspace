@@ -10,7 +10,12 @@
  *
  * It keeps the keyboard (#1398): a control that goes with the view it was pressed in — Delete, Return to backlog,
  * Duplicate, an overlapping event's link, Remove from selection, Delete selected — leaves the focus on the heading of the
- * view drawn in its place, Nothing selected's included (`../shared/focus-home.ts`), never on the page's body.
+ * view drawn in its place, Nothing selected's included (`../shared/focus-home.ts`), never on the page's body. An issue or
+ * a warning gone to from the toolbar gives the keyboard to the field it names, as the form draws it
+ * (`../shared/schedule/field-ask.tsx`).
+ *
+ * A number an event's row holds outside its field's bounds (#1585) is said in the tone its Save stands in: a warning
+ * while the event stands as stored, an error once its session refuses its change, holding Save.
  */
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
@@ -21,6 +26,7 @@ import { BannerView, EastChakraComponent, FieldForm, useFormatters, useTrackedEv
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { EMPTY_SCHEDULE_DRAFTS, heldRowOf, type ScheduleHeldRows } from "../shared/schedule/editing.js";
+import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { refusalText } from "../shared/schedule/refusals.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { PagedChooser, pagedControl, useCalendarChooser } from "./chooser.js";
@@ -169,6 +175,11 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
     const session = commands?.editing.sessions.find(held => held.kind === kind.key)?.session;
     const readiness = session?.readiness;
     const issues = (readiness !== undefined && readiness.type !== "ready" ? readiness.value : session?.issues ?? []).filter(issue => issue.entry === item.key);
+    // A bound its row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change refused, holding
+    // Save, it is an error.
+    const breaches = readiness !== undefined && readiness.type !== "ready" && readiness.value.some(issue => stringEqual(issue.entry, item.key)) ? "error" : "warn";
+    // The field an issue or a warning gone to names takes the keyboard, in whichever of its forms draws it.
+    const focus = useFieldAsk(kind.key, item.key);
     return <>
         <ScheduleInspectorHead styles={styles} kind={kind} title={item.title}
             when={item.start.type === "some" ? `${format.weekdayDate(item.start.value)} · ${format.time(item.start.value)}–${item.end.type === "some" ? format.time(item.end.value) : ""}` : value.vocabulary.unscheduled}
@@ -183,7 +194,8 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
             <BannerView status="warning" title={item.title} description={issues.map(issue => refusalText(issue, kind.fields)).join("; ")} />
         </Box>}
         <Box css={styles.fields}><Box css={styles.sectionHead}>Schedule</Box>
-        <FieldForm specs={roleSpecs} words={fieldWords} value={row} baseline={baseline} options={options} onChange={onField} readOnly={fieldsReadOnly} renderControl={chooser === undefined ? undefined : renderReference} />
+        <FieldForm specs={roleSpecs} words={fieldWords} value={row} baseline={baseline} options={options} onChange={onField} readOnly={fieldsReadOnly} renderControl={chooser === undefined ? undefined : renderReference}
+            focus={focus} breaches={breaches} />
         {commands !== undefined && item.start.type === "some" && item.end.type === "some" && <PlacementFields source={{ kind, item }} value={value} shown={shown} readOnly={!commands.editing.available(kind.key)}
             placement={{ start: item.start.value, end: item.end.value, resource: item.resource }} onChange={at => commands.place({ kind, item }, at)} />}
         {commands === undefined && <Box css={styles.detail}>{item.start.type === "some" ? `${format.dateTime(item.start.value)} – ${item.end.type === "some" ? format.dateTime(item.end.value) : ""}` : value.vocabulary.unscheduled}</Box>}
@@ -191,7 +203,7 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
         <Box css={styles.fields}><Box css={styles.sectionHead}>{kind.name} fields</Box>
         {own?.value !== undefined ? <EastChakraComponent value={own.value} storageKey={`${storageKey}.inspector.${kind.key}`} />
             : <FieldForm specs={kind.fields.filter(field => !roleNames.includes(field.path[0]!))} words={fieldWords} value={row} baseline={baseline} options={options} onChange={onField} readOnly={fieldsReadOnly}
-                renderControl={chooser === undefined ? undefined : renderReference} />}
+                renderControl={chooser === undefined ? undefined : renderReference} focus={focus} breaches={breaches} />}
         </Box>
         {own?.error !== undefined && <Box role="alert" css={styles.error}>{own.error}</Box>}
         {commands !== undefined && <EventActions item={item} value={value} shown={shown} commands={commands} day={range.from} styles={styles} />}

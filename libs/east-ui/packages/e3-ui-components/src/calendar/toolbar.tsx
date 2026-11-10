@@ -10,7 +10,7 @@
  * counts the events drawn, and names the kinds past the cap it counts none of (#1424): `13 events, print jobs not
  * counted`, never a count that leaves them out unsaid.
  */
-import type { ValueTypeOf } from "@elaraai/east";
+import { some, type ValueTypeOf, type option } from "@elaraai/east";
 import type { RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import type { ReactNode } from "react";
 import { Box, Button, Menu as ChakraMenu, chakra, useRecipe } from "@chakra-ui/react";
@@ -98,9 +98,14 @@ interface ToolbarArgs {
     locked?: boolean | undefined;
     /**
      * The events drawn whose stored rows break their kind's bounds (#1585): each a warning beside the history's issues,
-     * holding no Save — its event, and its words, `Mounting plates · Hours: at least 1`.
+     * holding no Save — its event, the field, by its form's key, and its words, `Mounting plates · Hours: at least 1`.
      */
-    warnings?: readonly { readonly kind: string; readonly key: string; readonly text: string }[] | undefined;
+    warnings?: readonly { readonly kind: string; readonly key: string; readonly field: string; readonly text: string }[] | undefined;
+    /**
+     * Asks an event's form for the field an issue or a warning gone to names, which takes the keyboard as the form draws
+     * it (`../shared/schedule/field-ask.tsx`); one naming no field asks for none.
+     */
+    askField?: ((kind: string, entry: string, field: option<string>) => void) | undefined;
 }
 
 /** The navigator over the days the timeline shows: its date the day under the view's centre, its label the days shown. */
@@ -218,8 +223,10 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
     const navigation = (compact = false, combined = false) => visible === undefined ? navigator(compact, combined)(args.navigationDate, args.rangeLabel)
         : <VisibleNavigator visible={visible} words={words} fallback={{ date: args.navigationDate, label: args.rangeLabel }} navigator={navigator(compact, combined)} />;
     // An event's Go to — an issue's, a warning's — selects it and shows its day, as a pick of Search Records does, wherever
-    // the view stood.
-    const goTo = (kind: string, key: string) => {
+    // the view stood, and asks its form for the field it names, which takes the keyboard: never the page's body, where the
+    // history's buttons, which keep no focus, leave it.
+    const goTo = (kind: string, key: string, field: option<string>) => {
+        args.askField?.(kind, key, field);
         select([{ kind, key }]);
         const start = commands === undefined ? undefined : startOfIssue(commands, kind, key);
         if (start !== undefined) args.onNavigate(dayStart(start).getTime());
@@ -243,8 +250,8 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         commands !== undefined && historyToolbarItem({ session: commands.editing.history, words, editing: false, showError: false, onAction, locked: args.locked === true,
             // A conflict's event, named as its kind's banners name it.
             where: issue => { const kind = kindOfIssue(commands, issue); return kind === undefined ? issue.entry : scheduleIssueName(commands.editing, kind, issue.entry); },
-            onIssue: issue => { const kind = kindOfIssue(commands, issue); if (kind !== undefined) goTo(kind, issue.entry); },
+            onIssue: issue => { const kind = kindOfIssue(commands, issue); if (kind !== undefined) goTo(kind, issue.entry, issue.field); },
             // A stored event's breach (#1585): a warning beside the issues, holding no Save, gone to as an issue is.
-            warnings: args.warnings?.map(warning => ({ text: warning.text, go: () => goTo(warning.kind, warning.key) })) }),
+            warnings: args.warnings?.map(warning => ({ text: warning.text, go: () => goTo(warning.kind, warning.key, some(warning.field)) })) }),
     ];
 }
