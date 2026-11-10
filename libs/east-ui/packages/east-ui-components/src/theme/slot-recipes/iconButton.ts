@@ -49,12 +49,14 @@ export const iconButtonSlotRecipe = defineSlotRecipe({
             borderRadius: "full",
             borderWidth: "1.5px",
             borderColor: "bg.surface",
+            // Its count in the design system's mono face, as every numeral is.
+            // Its bold numerals sit on the centre of their line box, so a
+            // flex-centred digit reads on the circle's centre with no nudge
+            // (the body face set them half a pixel low, and took a 1px
+            // bottom padding to lift them).
+            fontFamily: "mono",
             fontSize: "9px",
             fontWeight: "bold",
-            // This font renders bold numerals slightly low in their line box, so
-            // a flex-centred digit reads a hair below the circle centre. A 1px
-            // bottom padding shrinks the content box from the bottom, nudging the
-            // digit UP onto the true centre (the `dot` shape has no text).
             lineHeight: "1",
             display: "flex",
             alignItems: "center",
@@ -69,7 +71,7 @@ export const iconButtonSlotRecipe = defineSlotRecipe({
         // growing to a pill via minWidth + horizontal padding on overflow).
         shape: {
             dot:   { badge: { minWidth: "8px",  height: "8px",  paddingX: "0" } },
-            count: { badge: { minWidth: "16px", height: "16px", paddingX: "1", paddingBottom: "1px" } },
+            count: { badge: { minWidth: "16px", height: "16px", paddingX: "1" } },
         },
         // Pulse the badge to draw the eye to the count.
         pulse: {
