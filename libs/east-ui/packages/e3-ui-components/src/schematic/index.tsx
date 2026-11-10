@@ -669,15 +669,14 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         history.act(action);
     }, [history]);
     // An issue a Save raised: the canvas flies to the item it names, and selects it — a conflict's Go to, beside the
-    // conflicts popover open over the canvas, which stays open. The field it names, asked of its row's Details, takes the
-    // keyboard there, the inspector opened where it is collapsed (`../shared/schedule/field-ask.tsx`, #1585) — a
-    // conflict's Go to, which names its path, asks none.
+    // conflicts popover open over the canvas, which stays open and says where it lies. The field it names, asked of its
+    // row's Details, takes the keyboard there, the inspector opened where it is collapsed (`../shared/schedule/field-ask.tsx`,
+    // #1585) — a conflict's Go to, which names its path, asks none.
     const sessions = editing.schedule.sessions;
     const { asks: fieldAsks, request: askField } = useFieldAsks();
-    const onIssue = useCallback((issue: EditIssue, at?: PatchPath) => {
+    const onIssue = useCallback((issue: EditIssue, at?: PatchPath, popover?: DOMRectReadOnly) => {
         const key = history.sourceOf(issue);
         const part = key === undefined ? undefined : sessions.find((held) => stringEqual(held.key, key));
-        const popover = document.querySelector("[data-conflict-card]")?.closest("[data-part='content']")?.getBoundingClientRect();
         if (part === undefined) return;
         askField(part.kind, issue.entry, at === undefined ? issue.field : none);
         reveal(entityId({ kind: recordSlot(part.kind), key: issue.entry }), popover);
@@ -710,7 +709,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         return unit === undefined ? text : `${text} ${unit}`;
     }, [history, sessions, value.items, unit, words]);
     const historyItem = editing.edits
-        ? historyToolbarItem({ session: history, words: editingWords, editing: false, showError: false, onIssue, where, conflictValue, onAction })
+        ? historyToolbarItem({ session: history, words: editingWords, editing: false, showError: false, onIssue, onConflict: onIssue, where, conflictValue, onAction })
         : undefined;
     const items = useSchematicToolbarItems({
         styles, words, chrome, nouns, tools, held, links: narrow ? NO_LINK_CHOICES : linkChoices, onTools: pickTools, find,

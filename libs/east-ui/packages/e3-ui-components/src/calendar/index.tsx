@@ -210,24 +210,20 @@ function noticeWords(notice: ScheduleCellNotice, format: Pick<Formatters, "numbe
 /**
  * Brings a picked event out from under a pane the frame lays over main (the hand retest, 27 Oct 2026). The Inspector a
  * pick opens floats over main's edge for lack of room, as a start pane overlaid floats over its other; what main shows
- * between them, clear of the sticky column the view keeps at its left too — the timeline's resources, the time grid's
- * hours — is where the viewer sees the event. The view is scrolled across by as much as the event stands outside that
- * part: its middle to the part's middle, or, wider than the part, its start to the part's start. A view that has no
- * room left across it is left as it is.
+ * between them, as the frame says it (`BuilderFramePanes.mainShown`), clear of the sticky column the view keeps at its
+ * left too — the timeline's resources, the time grid's hours — is where the viewer sees the event. The view is scrolled
+ * across by as much as the event stands outside that part: its middle to the part's middle, or, wider than the part,
+ * its start to the part's start. A view that has no room left across it is left as it is.
  *
  * @param element - The event's element, drawn
+ * @param shown - What of main the frame's panes leave in view; `undefined` with no frame drawn
  */
-function clearOfPanes(element: HTMLElement): void {
-    const frame = element.closest("[data-builder-frame]");
-    const main = element.closest('[data-frame-slot="main"]');
+function clearOfPanes(element: HTMLElement, shown: Pick<DOMRectReadOnly, "left" | "right"> | undefined): void {
     const view = element.closest<HTMLElement>("[data-calendar-timeline], [data-calendar-time-grid], [data-calendar-month-grid]");
-    if (!element.isConnected || frame === null || main === null || view === null) return;
-    const shown = main.getBoundingClientRect();
-    const laid = (side: "start" | "end") =>
-        frame.querySelector(`[data-frame-slot="${side}"][data-pane-mode="overlay"]:not([data-collapsed]) > :first-child`)?.getBoundingClientRect();
+    if (!element.isConnected || shown === undefined || view === null) return;
     const sticky = view.querySelector("[data-calendar-row-head], [data-calendar-gutter]")?.getBoundingClientRect();
-    const left = Math.max(shown.left, laid("start")?.right ?? shown.left, sticky !== undefined && sticky.width > 0 ? sticky.right : shown.left);
-    const right = Math.min(shown.right, laid("end")?.left ?? shown.right);
+    const left = Math.max(shown.left, sticky !== undefined && sticky.width > 0 ? sticky.right : shown.left);
+    const right = shown.right;
     const box = element.getBoundingClientRect();
     if (right <= left || (box.left >= left && box.right <= right)) return;
     view.scrollLeft += box.width >= right - left ? box.left - left : (box.left + box.right - left - right) / 2;
@@ -476,8 +472,8 @@ function CalendarFrame(props: HostProps) {
         panes.current?.reveal("end");
         setReveal(undefined);
         // The Inspector just opened may float over main, for lack of room: once it is laid out, the event is brought out from
-        // under it (the hand retest, 27 Oct 2026).
-        requestAnimationFrame(() => clearOfPanes(element));
+        // under it (the hand retest, 27 Oct 2026), by what of main the frame says it leaves in view.
+        requestAnimationFrame(() => clearOfPanes(element, panes.current?.mainShown()));
     }, []);
     // Enter on an event opens its Details, as the Schematic's Enter does (retest C5): the Inspector, folded, opened on it.
     const openDetails = useCallback(() => { panes.current?.open("end"); }, []);
