@@ -273,6 +273,12 @@ export interface ScheduleEditingArgs<I extends Item = Item> {
      * a quantity: the two change together, so the conflicts popover shows them as one card under it.
      */
     quantityLabel?: string | undefined;
+    /**
+     * The fields of a kind's form a changed row's numbers are held to the bounds of (#1585), by the kind's slot, from the
+     * row as its draft holds it — every bounded field of its form unless given: an Allocation's reservation holds no
+     * quantity until an arrival is booked into it, so none of its quantity's bounds are its own.
+     */
+    boundsOf?: Readonly<Record<string, (row: unknown) => readonly FieldSpecValue[]>> | undefined;
 }
 
 /** An event kind or a record, as the history holds its session. */
@@ -362,12 +368,16 @@ function sameDrafts(a: ScheduleEventDraftsValue, b: ScheduleEventDraftsValue): b
  * @param args - The kinds, the records beside them, the canvas's storage key, the sessions that join, and the range the canvas reads
  * @returns The history, the kinds' and the records' sessions and drafts, how an event is read, and how a gesture is recorded
  */
-export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_RECORDS, reads, storageKey, joined, range, recordSlices, held: cellRows, quantityLabel }: ScheduleEditingArgs<I>): ScheduleEditing<I> {
+export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_RECORDS, reads, storageKey, joined, range, recordSlices, held: cellRows, quantityLabel, boundsOf }: ScheduleEditingArgs<I>): ScheduleEditing<I> {
     // The history, as the kinds' checks read their originals through it.
     const historyRef = useRef<EditHistory<ScheduleEntryRef> | undefined>(undefined);
     // The latest rows the kinds' cells hold: the kinds' reads read them as they run, so new cells make no new kinds.
     const heldRef = useRef(cellRows);
     heldRef.current = cellRows;
+    // The latest fields each kind's rows are held to the bounds of (#1585): the checks read them as they run, so a builder's
+    // new ones make no new sessions.
+    const boundsRef = useRef(boundsOf);
+    boundsRef.current = boundsOf;
     // Each kind, then each record: a session each, in that order.
     const parts = useMemo((): EditedPart<I>[] => [
         ...kinds.map((kind) => ({ key: kind.key, name: kind.name, editing: kind.editing, entries: kind.entries, ready: kind.ready, fields: kind.fields, kind,
@@ -419,10 +429,11 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
             equal: equalFor(entryType) as (a: unknown, b: unknown) => boolean,
         });
         // A changed row's number outside its field's bounds holds Save as the app's check does, naming the row and the
-        // field (#1585) — the form's own check and words.
+        // field (#1585) — the form's own check and words, over the fields its builder holds the row to.
         const bounded = kind.fields.filter(isBounded);
+        const heldTo = (held: unknown) => (held === undefined ? undefined : boundsRef.current?.[kind.key]?.(held)) ?? bounded;
         const ready = bounded.length === 0 ? app : boundedReadiness(fromEastTypeValue(kind.editing.draftType) as EastType,
-            (id, held) => fieldBreaches(bounded, held).map((breach) => breachIssue(breach, id)), originals, app);
+            (id, held) => fieldBreaches(heldTo(held), held).map((breach) => breachIssue(breach, id)), originals, app);
         if (kind.entries.type !== "some") return { editing, ready, prepare, wireType: EntryRefType, ranges, together };
         const seam = kind.entries.value;
         const { decodeRow, keyOf } = codecs[i]!;

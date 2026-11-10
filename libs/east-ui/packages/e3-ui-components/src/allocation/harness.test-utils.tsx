@@ -93,18 +93,21 @@ export function allocationHarness(): AllocationHarness {
  * test needs: the yard's own, or its locked bins or its locked days, whose
  * door refuses every change. Given `ready`, the yard's check on a draft holds
  * Save while a bin's measured grade is empty (#1525); given `failingValues`,
- * the yard's values for a reservation fail as they run (#1526); given `most`,
- * a hint holds a bin's m³, its quantity, to at most that many (#1585).
+ * the yard's values for a reservation fail as they run (#1526); given `most`
+ * or `least`, a hint holds a bin's m³, its quantity, to at most or at least
+ * that many (#1585).
  *
- * @param options - Which of its records is locked, if either, whether the yard checks a draft, whether its values fail, and the most a bin holds
+ * @param options - Which of its records is locked, if either, whether the yard checks a draft, whether its values fail, and the most and the least a bin holds
  * @returns The example
  */
 export function kilnYard(options: {
-    readonly locked?: "bins" | "days"; readonly ready?: boolean; readonly failingValues?: boolean; readonly most?: number;
+    readonly locked?: "bins" | "days"; readonly ready?: boolean; readonly failingValues?: boolean; readonly most?: number; readonly least?: number;
 } = {}): Example {
     const lockedBins = options.locked === "bins", lockedDays = options.locked === "days";
-    // The yard's hint on a bin's quantity: at most `most` m³.
-    const bounded = options.most === undefined ? {} : { fields: { m3: Schedule.field.number({ label: "Volume", max: options.most }) } };
+    // The yard's hint on a bin's quantity: at most `most` m³, at least `least`.
+    const bounded = options.most === undefined && options.least === undefined ? {} : { fields: { m3: Schedule.field.number({
+        label: "Volume", ...(options.most === undefined ? {} : { max: options.most }), ...(options.least === undefined ? {} : { min: options.least }),
+    }) } };
     // The yard's check on a draft: a bin's measured grade, which Save waits for.
     const check = options.ready !== true ? {} : {
         ready: (bin: ExprType<KilnBinType>) => East.equal(bin.gradeMeasured, "").ifElse(

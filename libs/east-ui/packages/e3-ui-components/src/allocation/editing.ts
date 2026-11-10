@@ -18,15 +18,35 @@
  */
 
 import { useMemo, useRef } from "react";
-import type { ValueTypeOf } from "@elaraai/east";
-import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
-import type { EditHistory, EditSession, EntryVersion } from "@elaraai/east-ui-components";
+import { StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
+import type { FieldSpecValue, RecordSliceBindType } from "@elaraai/east-ui/internal";
+import { getSomeorUndefined, type EditHistory, type EditSession, type EntryVersion } from "@elaraai/east-ui-components";
+import { isBounded } from "../shared/bounds.js";
 import { useScheduleEditing, type ScheduleEditing, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead } from "../shared/schedule/editing.js";
 import { draftedRow, heldInWindow, keptAtRevision, periodRowRead, rowCodec } from "../shared/schedule/records.js";
 import { DAY, allocationDomain, dayKey, type AllocationValue, type DraftedBin } from "./model.js";
 
 /** What a change names the days' record by in the history: no bin kind's slot. */
 export const PERIODS = "allocation.periods";
+
+const keyEqual = equalFor(StringType);
+
+/**
+ * The fields of the bin kind's form a bin's numbers are held to the bounds of (#1585), from its row: every bounded one,
+ * but a reservation's quantity — it holds none until an arrival is booked into it, and is checked once that makes it a
+ * bin.
+ *
+ * @param bin - The bin kind
+ * @returns A row's bounded fields
+ */
+export function binBounds(bin: AllocationValue["bin"]): (row: unknown) => readonly FieldSpecValue[] {
+    const bounded = bin.kind.fields.filter(isBounded);
+    const quantity = getSomeorUndefined(bin.kind.schedule.quantity);
+    const reserved = quantity === undefined ? bounded : bounded.filter(spec => !(spec.path.length === 1 && keyEqual(spec.path[0]!, quantity)));
+    if (reserved.length === bounded.length) return () => bounded;
+    const { encodeRow } = allocationDomain(bin.rowType);
+    return row => bin.read(encodeRow(row)).arrival.type === "none" ? reserved : bounded;
+}
 
 /** The Allocation's editing: its history, and every draft of each record, decoded once. */
 export interface AllocationEditing {
@@ -70,8 +90,10 @@ export function useAllocationEditing(value: AllocationValue, storageKey: string,
         if (value.periods.type === "some") out[PERIODS] = periodRowRead(value.periods.value, from, to, dayKey(from));
         return out;
     }, [value.bin, value.periods, epoch]);
+    // A reservation holds no quantity yet: none of its quantity's bounds hold its Save (#1585).
+    const boundsOf = useMemo(() => ({ [value.bin.kind.key]: binBounds(value.bin) }), [value.bin]);
     // A bin's quantity and its split across resources change together: one conflict, under the board's word for a quantity.
-    const schedule = useScheduleEditing({ kinds, records, reads, storageKey, joined: NO_JOINED, range, recordSlices, quantityLabel: value.labels.quantity });
+    const schedule = useScheduleEditing({ kinds, records, reads, storageKey, joined: NO_JOINED, range, recordSlices, quantityLabel: value.labels.quantity, boundsOf });
     const bin = value.bin.kind.key;
     const sessionOf = (key: string): EditSession<ScheduleEntryRef> | undefined => schedule.sessions.find(held => held.kind === key)?.session;
     // Each draft decoded once: a session keeps an entry's version the same object until a gesture replaces it.

@@ -8,40 +8,74 @@
  * 3104 is stored at 47. Stored, Details says it under the bin's quantity and
  * it holds no Save — another bin's change saves; its own measured spec
  * retyped, Save waits, Issues saying it among what is not saved yet, by the
- * hint's label, in its own words.
+ * hint's label, in its own words. A hint holding a bin to at least 1 m³ holds
+ * a bin of none so too, but never a reservation, which holds no quantity
+ * until a load is booked into it.
  */
 import { expect, test } from "vitest";
 import { within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { allocationHarness, kilnYard, settle } from "./harness.test-utils.js";
-import { card, details, issuesTab, press, save, tab } from "./inspector.test-utils.js";
+import { SortedMap } from "@elaraai/east";
+import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
+import { dayKey } from "./model.js";
+import { allocationHarness, kilnYard, offering, settle } from "./harness.test-utils.js";
+import { button, byKey, card, details, hour, issuesTab, pane, press, save, tab, tableRow, toolbar } from "./inspector.test-utils.js";
 
 const h = allocationHarness();
+
+/** The line under the selected bin's quantity. */
+const said = (c: HTMLElement) => details(c).querySelector('[data-allocation-bin-section] [data-field="quantity"] [data-scope=field][data-part=error-text]')?.textContent;
+/** Retypes the selected bin's measured spec, committed with Enter. */
+async function retype(c: HTMLElement, user: ReturnType<typeof userEvent.setup>, text: string) {
+    const spec = within(details(c).querySelector<HTMLElement>('[data-field="specMeasured"]')!).getByRole("textbox");
+    await user.clear(spec);
+    await user.type(spec, `${text}{Enter}`);
+    await settle();
+}
+/** What Issues says is not saved yet: each refusal's bin and its words. */
+const refusals = (c: HTMLElement) => [...issuesTab(c).querySelectorAll<HTMLElement>('[data-allocation-issue="refusal"]')]
+    .map(refusal => [refusal.querySelector("[title]")?.textContent, refusal.lastElementChild?.textContent]);
 
 test("a stored bin past its most: Details says it under its quantity and it holds no Save — another bin's change saves; its own spec retyped, Save waits and Issues says it (#1585)", async () => {
     const c = (await h.mount(kilnYard({ most: 40 }))).container;
     const user = userEvent.setup();
-    /** The line under the selected bin's quantity. */
-    const said = () => details(c).querySelector('[data-allocation-bin-section] [data-field="quantity"] [data-scope=field][data-part=error-text]')?.textContent;
-    /** Retypes the selected bin's measured spec, committed with Enter. */
-    const retype = async (text: string) => {
-        const spec = within(details(c).querySelector<HTMLElement>('[data-field="specMeasured"]')!).getByRole("textbox");
-        await user.clear(spec);
-        await user.type(spec, `${text}{Enter}`);
-        await settle();
-    };
     // Another bin's change saves: the stored breach holds nothing.
     await press(card(c, "3113"));
-    expect(said()).toBeUndefined();
-    await retype("MC08");
+    expect(said(c)).toBeUndefined();
+    await retype(c, user, "MC08");
     expect(save(c)).toHaveProperty("disabled", false);
     // Stored: the line under its quantity.
     await press(card(c, "3104"));
-    expect(said()).toBe("at most 40");
+    expect(said(c)).toBe("at most 40");
     // Its own spec retyped: Save waits, and Issues says why.
-    await retype("MC12");
+    await retype(c, user, "MC12");
     expect(save(c)).toHaveProperty("disabled", true);
     await tab(c, "Issues");
-    const refusal = issuesTab(c).querySelector<HTMLElement>('[data-allocation-issue="refusal"]');
-    expect([refusal?.querySelector("[title]")?.textContent, refusal?.lastElementChild?.textContent]).toEqual(["LD-2204", "Volume: at most 40"]);
+    expect(refusals(c)).toEqual([["LD-2204", "Volume: at most 40"]]);
+});
+
+test("a bin of 0 m³ under a least of 1 waits as one past its most does, but never a reservation, which holds no quantity until a load is booked into it (#1585)", async () => {
+    // Another session empties LD-2204's bin 3104, on K-501 still.
+    const bins = await h.read(ex.kilnBins);
+    bins.set("3104", { ...bins.get("3104")!, m3: 0, kilns: new SortedMap([["K-501", 0]], byKey) });
+    await h.patch(ex.kilnBins, bins);
+    const c = (await h.mount(kilnYard({ least: 1 }))).container;
+    const user = userEvent.setup();
+    // A reservation holds 0 m³: Save waits for nothing, and Issues says nothing of it.
+    await press(toolbar(c).getByRole("radio", { name: "Table" }));
+    await press(tableRow(c, `slot:B-1|${dayKey(hour(0, 15))}`).querySelector("span"));
+    offering(["V1"]);
+    await press(button(pane(c).querySelector<HTMLElement>('[data-allocation-reserve] [data-allocation-option="K-305"]')!, "Reserve"));
+    expect(save(c)).toHaveProperty("disabled", false);
+    await tab(c, "Issues");
+    expect(refusals(c)).toEqual([]);
+    // The bin of none: the line under its quantity; its spec retyped, Save waits, and Issues says it alone.
+    await tab(c, "Details");
+    await press(toolbar(c).getByRole("radio", { name: "Timeline" }));
+    await press(card(c, "3104"));
+    expect(said(c)).toBe("at least 1");
+    await retype(c, user, "MC12");
+    expect(save(c)).toHaveProperty("disabled", true);
+    await tab(c, "Issues");
+    expect(refusals(c)).toEqual([["LD-2204", "Volume: at least 1"]]);
 });
