@@ -474,6 +474,68 @@ test("a row the rows hold twice — a window read again beside one still standin
     expect(qtys()).toEqual([variant("Integer", 7n)]);
 });
 
+test("a positional source's Save is read back from the windows its rows are read in, a few at a time, never a row at a time (#1596)", async () => {
+    initializeStore(new UIStore());
+    let domain: ValueTypeOf<typeof Rows> = Array.from({ length: 450 }, (_unused, i) => ({ id: `r${i}`, qty: BigInt(i), hidden: [] }));
+    let revision = "r0";
+    const compile = East.function([], Sheet.Types.Root, ($) => {
+        const source = $.const(PINNED_ROWS, Paged.Types.PinnedSource(Rows));
+        return Sheet.Root(source, { qty: Sheet.column.integer(Row) }, { id: "id", onApply: East.function([Sheet.Types.ChangeSet(Row)], Sheet.Types.ApplyResult, () => variant("conflict", [])), edits: { insertRows: false } });
+    }).toIR().compile([]);
+    const root = compile();
+    if (root.rows.type !== "pinned") throw new Error("Expected a pinned Sheet");
+    const apply = East.compile(Sheet.apply(Row, "id"), []);
+    const decodeBatch = decodeBeast2For(Sheet.Types.ChangeSet(Row));
+    const encode = encodeBeast2For(Row);
+    const decodeWire = decodeBeast2For(Sheet.Types.Row);
+    const projected = () => domain.map((row) => decodeWire(root.editing.project(encode(row), row.id)) as SheetRowValue);
+    // The windows asked of the source, and which of them have landed at the revision the Save committed.
+    const asked: string[] = [];
+    const landed = new Set<number>();
+    const source = {
+        ...root.rows.value,
+        page: (offset: bigint, count: bigint) => {
+            if (revision === "r1") asked.push(`${offset}+${count}`);
+            if (revision === "r1" && !landed.has(Number(offset))) return none;
+            return some(projected().slice(Number(offset), Number(offset + count)));
+        },
+        revision: () => some(revision),
+        refresh: () => null,
+        total: () => some(BigInt(domain.length)),
+    };
+    const editing = { ...root.editing, readEntry: (id: string, offset: bigint) => {
+        const row = domain[Number(offset)];
+        return row !== undefined && stringEqual(row.id, id) ? some(encode(row)) : none;
+    }, onApply: some(variant("sync", (payload: Uint8Array) => {
+        const applied = apply(domain, decodeBatch(payload), some(revision));
+        if (applied.type === "conflict") return variant("conflict", applied.value);
+        domain = applied.value;
+        return variant("applied", { revision: some("r1") });
+    })) };
+    const drawn = projected();
+    const hook = renderHook(() => useSheetEditing(editing, { ...source }, drawn, useIndexes(drawn), "paged-windows"));
+    const commits = [0, 1, 250, 449].map((at) => variant("commit", { rowId: drawn[at]!.id, offset: BigInt(at), key: "qty", row: { ...drawn[at]!, cells: new Map([["qty", variant("Integer", 999n)]]) }, source: variant("typed", null) })) as SheetEditValue[];
+    act(() => hook.result.current.record(commits));
+    await act(async () => { await hook.result.current.session.apply(); });
+    expect(hook.result.current.session.status).toBe("reconciling");
+    // At the revision committed, its rows are asked of the windows they lie in, whole, and none a row at a time.
+    revision = "r1";
+    hook.rerender();
+    expect([...new Set(asked)].sort()).toEqual(["0+200", "200+200", "400+200"]);
+    // Each window read once a pass, however many of the rows it holds the Save wrote: two of them lie in the first.
+    const reads = (window: string) => asked.filter((at) => stringEqual(at, window)).length;
+    expect(reads("0+200")).toBeGreaterThan(0);
+    expect([reads("0+200"), reads("400+200")]).toEqual([reads("200+200"), reads("200+200")]);
+    expect(hook.result.current.session.status).toBe("reconciling");
+    // Each landed window confirms the rows it holds; every row in hand, the Save is read back.
+    landed.add(0);
+    hook.rerender();
+    expect(hook.result.current.session.status).toBe("reconciling");
+    landed.add(200).add(400);
+    hook.rerender();
+    expect(hook.result.current.session.status).toBe("idle");
+});
+
 test("creation defaults survive a multi-event gesture, later clearing, and applied undo/redo", async () => {
     initializeStore(new UIStore());
     const Item = StructType({ id: StringType, qty: IntegerType, note: StringType, hidden: ArrayType(StringType) });

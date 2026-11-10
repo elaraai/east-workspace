@@ -286,12 +286,14 @@ export type ScheduleReadyEntryType = typeof ScheduleReadyEntryType;
  * @property refresh - Moves every read of the record to a revision, or to the one it holds now
  * @property entry - One event by its key's text: `none` while its read is in flight, `some(none)` for a key the record does not hold, else its row as bytes at the record's entry type
  * @property last - The record's largest key's text — how a new Integer key is made past every key it holds: `none` while its read is in flight, `some(none)` for an empty record
+ * @property paged - The `id` of the paged read of the record's own entries: what a Save reads back many entries through in one request (#1596)
  */
 export const ScheduleEntriesType = StructType({
     revision: FunctionType([], OptionType(StringType)),
     refresh: FunctionType([OptionType(StringType)], NullType),
     entry: FunctionType([StringType], OptionType(OptionType(BlobType))),
     last: FunctionType([], OptionType(OptionType(StringType))),
+    paged: StringType,
 });
 
 /** Type representing {@link ScheduleEntriesType}. */

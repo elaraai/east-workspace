@@ -46,6 +46,21 @@ export interface EditSource<W> {
     /** Confirm by primary identity independently of a filtered view. Outer none
      * is pending; inner none means the record no longer contains the entry. */
     readCurrent?: ((id: string) => option<option<Uint8Array>>) | undefined;
+    /**
+     * Several entries by their identities in one read (#1596), each as
+     * `readCurrent` answers it but decoded — a value of the entry type, as the
+     * read holds it: what a Save reads every entry it wrote back by, however
+     * many. Outer none is pending; `undefined` for a source that cannot read
+     * several at once, whose entries are read a bounded batch at a time.
+     */
+    readCurrentAll?: ((ids: readonly string[]) => option<ReadonlyMap<string, option<unknown>>> | undefined) | undefined;
+    /**
+     * The size of the windows the collection reads its rows in, each at a
+     * multiple of it. Given, a positional source's entries are read back from
+     * those windows, the very ones its rows are drawn from, never a row at a
+     * time (#1596).
+     */
+    pageSize?: number | undefined;
 }
 
 /**
@@ -85,6 +100,8 @@ export interface EditSessionOptions<W> {
 }
 
 const entryOffsets = new WeakMap<object, Map<string, number>>();
+/** How many windows a positional source's entries are read back from at a time, past those landed (#1596). */
+const WINDOWS_READ_AT_ONCE = 8;
 const stringEqual = equalFor(StringType);
 const printString = printFor(StringType);
 const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: none };
@@ -161,7 +178,18 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         if (editing.snapshot.type === "some") return { base: variant("snapshot", codecs.decodeSnapshot(editing.snapshot.value)), reads };
         const revision = source?.revision();
         if (revision?.type !== "some" || source === undefined) return undefined;
-        const ids = session.readIdsAt(revision.value);
+        // Every entry still to judge in one read, where the source reads several at once (#1596): its rows as it decoded them.
+        const all = source.readCurrentAll?.(session.unresolvedIdsAt(revision.value));
+        if (all !== undefined) {
+            if (all.type === "some") for (const [id, current] of all.value) reads.set(id, current);
+            return { base: variant("revision", revision.value), reads };
+        }
+        // A positional source's entries, from the windows its rows are read in (#1596); any other's, a bounded batch at a time.
+        const size = keyType === undefined ? source.pageSize : undefined;
+        const ids = size === undefined ? session.readIdsAt(revision.value) : session.unresolvedIdsAt(revision.value);
+        const reading = new Set<number>();
+        // Each window read once a pass, however many of its entries are judged: a page builds every row it holds (#1596).
+        const pages = new Map<number, option<W[]>>();
         for (const id of ids) {
             if (source.readCurrent !== undefined) {
                 const current = source.readCurrent(id);
@@ -178,11 +206,22 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
                 at = Number(found.value.row);
             }
             if (at === undefined) continue;
+            const start = size === undefined ? at : at - (at % size);
+            if (reading.size === WINDOWS_READ_AT_ONCE && !reading.has(start)) continue;
             // A loaded page distinguishes confirmed absence from an
             // entry whose page has not arrived. Keep this read tracked.
-            const page = source.page(BigInt(at), 1n);
-            if (page.type === "none") continue;
-            if (!page.value.some(row => stringEqual(idOf(row), id))) {
+            let page = pages.get(start);
+            if (page === undefined) {
+                page = source.page(BigInt(start), BigInt(size ?? 1));
+                pages.set(start, page);
+            }
+            if (page.type === "none") {
+                reading.add(start);
+                continue;
+            }
+            // In a window, the row at the entry's own position; a one-row read holds no other.
+            const rowsAt = size === undefined ? page.value : page.value.slice(at - start, at - start + 1);
+            if (!rowsAt.some(row => stringEqual(idOf(row), id))) {
                 reads.set(id, none);
                 continue;
             }

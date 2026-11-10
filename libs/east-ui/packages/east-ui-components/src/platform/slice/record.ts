@@ -38,6 +38,11 @@ interface BindingDeclarations {
     readonly nested: unknown;
 }
 type Descriptor = [string, RecordSliceBinding & BindingDeclarations, Config, State];
+/**
+ * What a record Slice's narrowed data adds to its binding's id, before the Slice's key (#1354): a reader that holds
+ * the narrowed data alone finds the binding by it (#1596).
+ */
+export const RECORD_SLICE_DATA_MARK = "@slice:";
 const encodeState = encodeBeast2For(RecordSliceStateType);
 const decodeState = decodeBeast2For(RecordSliceStateType);
 const printConfig = printFor(RecordSliceConfigType);
@@ -280,7 +285,7 @@ export function createRecordSliceImplementation(platforms: () => PlatformFunctio
                     // The source, never its narrowing: its reads read the narrowing as it stands, and `query` names it,
                     // so a reader keys its windows by it as by the revision. Revision remains the record's real state
                     // hash, so optimistic editing and a confirmed Save still agree.
-                    id: `${source.id}@slice:${key}`,
+                    id: `${source.id}${RECORD_SLICE_DATA_MARK}${key}`,
                     page: compile("dataPage", [IntegerType, IntegerType], dataType.fields.page.output),
                     total: methods["count"],
                     seek: some(compile("dataSeek", [SeekQueryType], dataType.fields.seek.cases.some.output)),
@@ -332,12 +337,23 @@ export function recordSliceSeeded(slice: Pick<ValueTypeOf<RecordSliceBindType>, 
  * redeployed binding have made another.
  *
  * @param slice - The record Slice
+ * @returns Its controller; `undefined` when no binding of it lives in the page's store
+ */
+function boundController(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">): RecordSliceController | undefined {
+    let found: RecordSliceController | undefined;
+    for (const entry of bindings.get(getStore())?.values() ?? []) if (entry.descriptor[0] === slice.key) found = entry.controller;
+    return found;
+}
+
+/**
+ * {@link boundController}, for a read only a binding can answer.
+ *
+ * @param slice - The record Slice
  * @returns Its controller
  * @throws {Error} When no binding of it lives in the page's store
  */
 function controllerOf(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">): RecordSliceController {
-    let found: RecordSliceController | undefined;
-    for (const entry of bindings.get(getStore())?.values() ?? []) if (entry.descriptor[0] === slice.key) found = entry.controller;
+    const found = boundController(slice);
     if (found === undefined) throw new Error(`The record Slice '${slice.key}' is bound in no store this page holds`);
     return found;
 }
@@ -387,6 +403,39 @@ export function recordSlicePlace(slice: Pick<ValueTypeOf<RecordSliceBindType>, "
  */
 export function recordSliceWithin(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, rows: readonly { key: unknown; row: unknown }[]): option<boolean[]> {
     return controllerOf(slice).within(where, rows);
+}
+
+/**
+ * Which of some entries a record Slice's narrowing holds, by their identities,
+ * in one read (#1596): what a Save's view check asks of every entry it wrote.
+ * A tracked read, as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param where - The narrowing
+ * @param ids - The entries' primary identities: the same array while the question stands
+ * @param held - The rows the caller holds at the record's current revision, beast2 of the record's row type, by identity
+ * @returns Whether the narrowing holds each, by identity; none while pending; `undefined` for a binding whose runtime
+ *   batches none of its reads, or a Slice no binding in the page's store made, whose entries are asked one at a time
+ */
+export function recordSliceContainsAll(
+    slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, ids: readonly string[], held: ReadonlyMap<string, Uint8Array> | undefined,
+): option<ReadonlyMap<string, boolean>> | undefined {
+    return boundController(slice)?.containsAll(where, ids, held);
+}
+
+/**
+ * Several entries of a record Slice's record by their identities, in one read
+ * (#1596): what a Save's read-back reads every entry it wrote by. A tracked
+ * read, as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param ids - The entries' primary identities
+ * @returns Each entry's row, a value of the record's row type, `none` for one the record does not hold, by identity;
+ *   none while pending; `undefined` for a binding whose runtime batches none of its reads, or a Slice no binding in the
+ *   page's store made, whose entries are read one at a time
+ */
+export function recordSliceReadEntries(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, ids: readonly string[]): option<ReadonlyMap<string, option<unknown>>> | undefined {
+    return boundController(slice)?.readEntries(ids);
 }
 
 /**

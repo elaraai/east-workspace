@@ -22,6 +22,7 @@ import {
     type Choice,
 } from "./harness.test-utils.js";
 import { conflictCards, reloadPage } from "../e3-web-mount.test-utils.js";
+import { rowKeysOf } from "../e3-web.test-utils.js";
 import { DAY } from "./model.js";
 import { resetKept } from "@elaraai/east-ui-components/internal";
 const h = rosterHarness();
@@ -73,6 +74,19 @@ describe("Roster week lifecycle", () => {
         expect((await h.read(ex.rosterWeeks)).has(NEXT)).toBe(false);
         expect(h.requests("mutate").map(request => request.record)).toEqual([ex.rosterDuties.name]);
     });
+    test("a Save of hundreds of duties asks its view check in one read, never a request an index key (#1596)", async () => {
+        const { container } = await h.mount(ex.rosterWindowed);
+        await press(within(container).getByRole("button", { name: "Copy previous week" }));
+        const from = h.requests().length;
+        await press(history(container, editingMessages.apply()));
+        expect(weekDuties(await h.read(ex.rosterDuties), NEXT).size).toBe(316);
+        const asked = h.requests().slice(from).filter(request => request.dataset === DUTIES);
+        expect(asked.filter(request => request.kind === "find" && request.method === "GET" && request.query.get("index") !== null)).toEqual([]);
+        expect(asked.filter(request => request.kind === "within").length).toBeLessThanOrEqual(1);
+        // The Save holds every row it wrote: no duty is sought by its key, nor read by it while the week's window reads them.
+        expect(asked.filter(request => request.kind === "find" && request.method === "GET" && request.query.get("index") === null)).toEqual([]);
+        expect(asked.flatMap(rowKeysOf)).toEqual([]);
+    });
     test("drafts stay in their session across navigation and remount, and Save includes those of another week", async () => {
         const first = await h.mount(ex.rosterWarehouse);
         await press(within(assignment(first.container, "s37")).getByRole("button", { name: "Remove C. Clover" }));
@@ -86,12 +100,12 @@ describe("Roster week lifecycle", () => {
         expect(again.container.querySelectorAll('[data-roster-assignment][data-drafted]').length).toBeGreaterThan(0);
         // The Save confirms what the week's own window holds from it, every duty it copied into the week among them, and the
         // view's notice checks those by the rows the Save confirmed: only the removed duty of another week, which the
-        // window does not hold, is sought by its key.
-        const before = h.requests("find", DUTIES).length;
+        // window does not hold, is read by its key, and in a read of rows (#1596), never a search and a page of its own.
+        const finds = h.requests("find", DUTIES).length;
+        const rows = h.requests("rows", DUTIES).length;
         await press(history(again.container, editingMessages.apply()));
-        const byKey = h.requests("find", DUTIES).slice(before).filter(request => request.query.get("index") === null && request.query.has("key"));
-        expect(byKey).toHaveLength(1);
-        expect(searched(byKey[0]!, undefined, '"s37"')).toBe(true);
+        expect(h.requests("find", DUTIES).slice(finds).filter(request => request.query.get("index") === null && request.query.has("key"))).toEqual([]);
+        expect(h.requests("rows", DUTIES).slice(rows).map(rowKeysOf), "one read of rows, of the duty the window does not hold alone").toEqual([['"s37"']]);
         const duties = await h.read(ex.rosterDuties);
         expect(duties.has("s37")).toBe(false);
         expect(weekDuties(duties, NEXT).size).toBe(316);

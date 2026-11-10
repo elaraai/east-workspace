@@ -40,15 +40,15 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-    DateTimeType, NullType, StringType, decodeBeast2For, encodeBeast2For, equalFor, equivalentFor, none, parseFor, printFor, some, toEastTypeValue,
-    variant, type PatchPath, type ValueTypeOf,
+    DateTimeType, NullType, StringType, decodeBeast2For, encodeBeast2For, equalFor, equivalentFor, fromEastTypeValue, none, parseFor, printFor, some,
+    toEastTypeValue, variant, type PatchPath, type ValueTypeOf,
 } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import {
     EntryRefType, historyKeyOf, useEditSession, useTrackedEvaluation, type EditHistory, type EditingValue, type EditSession, type EditSessionBinding, type EntryUpdate, type EntryVersion,
     type Origin, type HistoryAction, type DragEventValue,
 } from "@elaraai/east-ui-components";
-import { type EditSource, kindOfIssue, wholeEntryReadiness, windowedSourceOf, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
+import { type EditSource, kindOfIssue, wholeEntryReadiness, windowedSourceOf, prepareRecordSliceSave, recordSliceReadEntries } from "@elaraai/east-ui-components/internal";
 import { fromPlanSlot } from "./slot.js";
 import type { PlanMoveRequest } from "./edit/use-carry.js";
 import { PLAN_PAGE_SIZE, windowedArm, type PlanPagedSourceValue } from "./use-plan-paging.js";
@@ -56,6 +56,7 @@ import { rowIdOfKey, rowKeyOf, type PlanRootValue, type PlanRowId, type PlanRowV
 import type { RowKey } from "./plan-state.js";
 import { planPart, planSlices, ROWS_SOURCE } from "./root/sources.js";
 import { mintKey } from "../shared/schedule/records.js";
+import { entriesByKeyOf } from "../platform/paged-runtime.js";
 import type { PlanWholeRows } from "./root/nested.js";
 import type { PlanTypedValue } from "./edit/typing.js";
 
@@ -348,11 +349,16 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     }, [editing, codec]);
 
     // ── The paged source a reconcile reads ───────────────────────────────
+    // Where no slice gives the rows, a Save's entries are read by key from the source's own rows (#1596).
+    const pagedId = paged?.id;
+    const entriesKeyType = editing?.keyType;
+    const entriesByKey = useMemo(() => pagedId === undefined || entriesKeyType?.type !== "some" || entryTypeValue === undefined ? undefined
+        : entriesByKeyOf(pagedId, fromEastTypeValue(entriesKeyType.value), fromEastTypeValue(entryTypeValue)), [pagedId, entriesKeyType, entryTypeValue]);
     // Only a PINNED source names the revision a session's base is (#880): an
     // unpinned one leaves the session without a base, so no gesture drafts —
     // and the factory refuses editing over such a source.
     const source = useMemo<EditSource<PlanEntryRef> | undefined>(() => {
-        if (editing === undefined || paged === undefined) return undefined;
+        if (editing === undefined || paged === undefined || codec === undefined) return undefined;
         const { revision, refresh } = paged;
         if (revision === undefined || refresh === undefined) return undefined;
         return {
@@ -366,8 +372,14 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
             // A Save's entries read back by key outside every narrowing: over rows read lean, whole (#1438) — a lean binding
             // pages no row whole, so its slice's read of one would be refused — else through the slice, when it gives the rows.
             readCurrent: whole !== undefined ? (id: string) => whole.read(id) : recordSlice?.readEntry,
+            // Every entry a Save wrote, in one read (#1596), each decoded: over rows read lean, the rows read whole are held as bytes.
+            readCurrentAll: whole !== undefined ? (ids: readonly string[]) => {
+                const read = whole.readAll(ids);
+                return read.type !== "some" ? none
+                    : some(new Map([...read.value].map(([id, row]) => [id, row.type === "some" ? some(codec.decode(row.value)) : none] as const)));
+            } : recordSlice === undefined ? entriesByKey : (ids: readonly string[]) => recordSliceReadEntries(recordSlice, ids),
         };
-    }, [editing, paged, recordSlice, whole]);
+    }, [editing, paged, recordSlice, whole, entriesByKey, codec]);
 
     const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
     const { session, observed, original, available, version } = useEditSession<PlanEntryRef>(

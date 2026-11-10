@@ -44,6 +44,7 @@ export {
     RecordSliceImpl,
     createRecordSliceImplementation,
     registerRecordSliceBatches,
+    RECORD_SLICE_DATA_MARK,
     type RecordSliceBatches,
     SliceApplyImpl,
     buildSliceHandle,

@@ -44,13 +44,20 @@
  * A window a landed one covers is never fetched (#1217): its rows are that
  * window's, at the same revision, so the read is answered from it and keeps
  * the answer in its own channel. A sheet reads an entry it is about to draft
- * as a one-element window, beside the windows it draws.
+ * as a one-element window, beside the windows it draws. A window one in flight
+ * covers waits on that one, asking nothing of its own (#1596): its rows are
+ * cut from it once it lands — a sheet's row checks over the rows a Save's new
+ * revision reads again, a request a row otherwise.
  *
  * Landed windows are kept least recently read first, at most
  * {@link MAX_RETAINED_WINDOWS} of them: past the cap a window no reader holds
  * goes whole, and none a reader holds is evicted under it (#1409, R24), so a
  * reader of more windows than the cap — rows read a key at a time among
- * them, each a key search and a one-row window — settles, each read once.
+ * them, each a key search and a one-row window — settles, each read once. A
+ * one-row window cut from a landed one cost no request, and is kept apart from
+ * them (at most {@link MAX_RETAINED_CUTS}): a reader of many rows a row at a
+ * time, each answered from a landed window, never pushes that window out
+ * (#1596). A cut of more rows is kept as a window is.
  *
  * Several reads of one source are asked as one request when a reader asks
  * them together (#1351): `seekAll` a batch of key searches (`findKeys`),
@@ -96,8 +103,10 @@ import {
     SortedSet,
     compareFor,
     fromEastTypeValue,
+    toEastTypeValue,
     type EastType,
     BooleanType,
+    DictType,
     IntegerType,
     NullType,
     OptionType,
@@ -152,7 +161,7 @@ import { TreePathType, datasetRowsType, type TreePath } from "@elaraai/e3-types"
 
 import { datasetPathToString, type ReactiveDatasetCacheInterface } from "./dataset-store.js";
 import { TrackedChannelStore } from "./tracked-channel.js";
-import { IndexedPagedRuntime, recordSliceBatchesOf } from "./indexed-paged.js";
+import { IndexedPagedRuntime, indexedBindingOfSource, recordSliceBatchesOf } from "./indexed-paged.js";
 import { toFindQuery } from "./find-query.js";
 import { PagedReadError } from "./paged-read-error.js";
 
@@ -402,6 +411,9 @@ interface PageEntry {
      *  a window the server trimmed holds fewer than it asked for. A read it
      *  covers is answered from it (#1217). */
     span?: WindowSpan;
+    /** Where a window in flight asked: its family, its first element's offset,
+     *  and how many elements it asked for. A read it covers waits on it (#1596). */
+    asking?: WindowSpan;
     /** A landed runs read's place (#1351): its family, and where each run's
      *  entries sit in it — a read inside one of its runs is answered from it,
      *  as from a window's span. */
@@ -879,6 +891,17 @@ export type PagedLandingFrame = (apply: () => void) => () => void;
 export const MAX_RETAINED_WINDOWS = 24;
 
 /**
+ * One-row windows cut from a landed one, or from the rows a read by key holds,
+ * kept across all paged sources, least recently read first (#1596). A one-row
+ * cut holds a row and asked nothing of e3, so it counts toward none of
+ * {@link MAX_RETAINED_WINDOWS}, and a reader that reads every row it draws a
+ * row at a time — a sheet's row checks, its cells from data — leaves the
+ * windows those rows came from where they are. A cut of more rows is a window
+ * of the cap's, as one fetched is: at most this many rows are held by cuts.
+ */
+const MAX_RETAINED_CUTS = 4096;
+
+/**
  * What a spec watches a paging runtime by (test use only), as the Calendar's
  * frame is watched by its render probe: each landed channel a read looks at as
  * it seeks one that answers it — a window covering the window it reads
@@ -1148,6 +1171,9 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      *  insertion order; a read re-inserts). Bounds the decoded-window cache. */
     private readonly loadedWindows = new Map<string, true>();
 
+    /** The one-row windows cut from a landed one, least-recently-READ order (#1596): apart from {@link loadedWindows}, whose cap they never press on. */
+    private readonly cutWindows = new Map<string, true>();
+
     /** Each dataset's snapshot, by workspace and path. */
     private readonly snapshots = new Map<string, Snapshot>();
 
@@ -1216,6 +1242,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         this.snapshots.clear();
         this.clearChannels();
         this.loadedWindows.clear();
+        this.cutWindows.clear();
         this.bursts.clear();
         this.cancelLanding();
         this.landed.clear();
@@ -1435,6 +1462,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             for (const owner of this.entries.get(key)?.owners ?? []) if (owner !== snapshot) owner.channels.delete(key);
             this.entries.delete(key);
             this.loadedWindows.delete(key);
+            this.cutWindows.delete(key);
             this.forgetVersion(key);
         }
         snapshot.channels.clear();
@@ -1514,6 +1542,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         }
         this.entries.delete(key);
         this.loadedWindows.delete(key);
+        this.cutWindows.delete(key);
         this.forgetVersion(key);
     }
 
@@ -1527,9 +1556,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      * bounded by the windows retained: held by no reader any longer, it is the
      * cap's to let go again, and past the cap the least recently read windows
      * no reader holds go ({@link trimWindows}), so readers that held more than
-     * the cap leave no more than it behind (#1409, R24). A placement stays,
-     * bounded by the placements a revision holds ({@link MAX_HELD_PLACEMENTS});
-     * and so do a failure and a total.
+     * the cap leave no more than it behind (#1409, R24); a one-row cut stays
+     * bounded by the cuts retained ({@link trimCuts}) as a window is by the
+     * windows. A placement stays, bounded by the placements a revision holds
+     * ({@link MAX_HELD_PLACEMENTS}); and so do a failure and a total.
      *
      * @param key - The channel
      */
@@ -1550,6 +1580,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             return;
         }
         if (this.loadedWindows.has(key)) this.trimWindows();
+        else if (this.cutWindows.has(key)) this.trimCuts();
     }
 
     /** Whether a channel is due a fetch: never fetched, evicted, or failed
@@ -1748,6 +1779,33 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     }
 
     /**
+     * Note a one-row cut as most-recently-read (#1596), and let the coldest no
+     * reader holds go past {@link MAX_RETAINED_CUTS} ({@link trimCuts}). Read
+     * again, one is cut again from what it came from, for nothing.
+     *
+     * @param key - The cut's channel
+     */
+    private touchCut(key: string): void {
+        this.cutWindows.delete(key);
+        this.cutWindows.set(key, true);
+        this.trimCuts();
+    }
+
+    /**
+     * Past {@link MAX_RETAINED_CUTS} one-row cuts, let the least recently read
+     * that no reader holds go, coldest first, as {@link trimWindows} lets
+     * windows go (#1596).
+     */
+    private trimCuts(): void {
+        if (this.cutWindows.size <= MAX_RETAINED_CUTS) return;
+        for (const candidate of [...this.cutWindows.keys()]) {
+            if (this.cutWindows.size <= MAX_RETAINED_CUTS) break;
+            if (this.isTracked(candidate) || this.isSubscribed(candidate)) continue;
+            this.dropChannel(candidate);
+        }
+    }
+
+    /**
      * Past {@link MAX_RETAINED_WINDOWS} landed windows, let the least recently
      * read that no reader holds go, whole (#1351), coldest first, until the
      * cap holds or none is left to go.
@@ -1820,6 +1878,8 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         const entry = this.channel(snapshot, key);
         if (!this.due(entry)) return entry;
         const { seq, signal } = this.launchFetch(key, entry);
+        // Where it asked: a read inside it waits on it while it is in flight (#1596).
+        entry.asking = { family: pagedWindowFamily(workspace, path, revision, selector), offset, count: limit };
         const api = this.api;
 
         void (async () => {
@@ -1888,14 +1948,15 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      * @param family - The window's family
      * @param offset - The window's first element
      * @param limit - How many elements it asks for
+     * @param key - The window's channel's key
      * @param into - The window's channel, not loaded
      */
     private cutFromCovering(
-        sourceType: EastTypeValue, family: string, offset: number, limit: number, into: PageEntry,
+        sourceType: EastTypeValue, family: string, offset: number, limit: number, key: string, into: PageEntry,
     ): void {
-        for (const key of this.loadedWindows.keys()) {
+        for (const landed of this.loadedWindows.keys()) {
             pagedRuntimeProbe?.looked?.();
-            const covering = this.entries.get(key);
+            const covering = this.entries.get(landed);
             if (covering === undefined || covering === into || covering.status !== "loaded" || covering.window === undefined) continue;
             const from = coveringAt(covering, family, offset, limit);
             if (from === undefined) continue;
@@ -1908,10 +1969,34 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             delete into.error;
             delete into.failedAtMs;
             delete into.permanent;
+            // A one-row cut is kept apart from the windows it is cut from (#1596); one of more rows is a window of the cap's.
+            if (limit === 1) this.cutWindows.set(key, true);
             // The covering window was read, through its cut.
-            this.touchWindow(key);
+            this.touchWindow(landed);
             return;
         }
+    }
+
+    /**
+     * A window in flight that covers a read of `[offset, offset + limit)` of a
+     * family (#1596): the read waits on it, its rows cut from that window once
+     * it lands, rather than asking for them on its own. Only the reads in
+     * flight are looked at, never every channel of the revision.
+     *
+     * @param family - The read's family
+     * @param offset - The read's first element
+     * @param limit - How many elements it asks for
+     * @param key - The read's own channel
+     * @returns The covering window's channel; `undefined` when no window in flight covers it
+     */
+    private coveringInFlight(family: string, offset: number, limit: number, key: string): string | undefined {
+        for (const candidate of this.fetching.keys()) {
+            if (candidate === key) continue;
+            const entry = this.entries.get(candidate);
+            const asked = entry?.status === "running" ? entry.asking : undefined;
+            if (asked !== undefined && asked.family === family && asked.offset <= offset && offset + limit <= asked.offset + asked.count) return candidate;
+        }
+        return undefined;
     }
 
     /** Start the pinned fence search for one key query if it is due one,
@@ -2117,7 +2202,9 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         if (typeof revision !== "string") return none;
         const snapshot = this.snapshotOf(workspace, path);
         const keyType = (source.type.value as { key: EastTypeValue }).key;
-        const literals = keys.map(this.printerOf(keyType));
+        // Each key printed alone: `map` hands a callback its index too, which a printer reads as its print context.
+        const print = this.printerOf(keyType);
+        const literals = keys.map((key) => print(key));
         const batchKey = pagedBatchKey(workspace, path, revision, selector, "rows", literals);
         this.track(batchKey);
         const batch = this.channel(snapshot, batchKey);
@@ -2819,7 +2906,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     // A window a landed one covers is answered from it, never fetched (#1217).
                     const own = this.channel(snapshot, key);
                     if (own.status !== "loaded") {
-                        this.cutFromCovering(sourceType, family, offset, limit, own);
+                        this.cutFromCovering(sourceType, family, offset, limit, key, own);
                     }
                     // A one-row window at a row a read by key holds is answered from it (#1351).
                     if (own.status !== "loaded" && limit === 1 && selector.index === null && sourceType.type === "Dict") {
@@ -2830,10 +2917,23 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                             own.window = new SortedMap([[held.key, held.row.value]], compareFor(keyType));
                             own.span = { family, offset, count: 1 };
                             delete own.error;
+                            this.cutWindows.set(key, true);
+                        }
+                    }
+                    // A window one in flight covers waits on it, asking nothing of its own (#1596): its rows are cut from
+                    // that window once it lands, which re-fires this read.
+                    if (own.status !== "loaded" && this.due(own)) {
+                        const covering = this.coveringInFlight(family, offset, limit, key);
+                        if (covering !== undefined) {
+                            this.track(covering);
+                            return none;
                         }
                     }
                     const entry = this.ensureWindow(sourceType, workspace, path, snapshot, revision, offset, limit, selector, key);
-                    if (entry.status === "loaded" && entry.window !== undefined) this.touchWindow(key);
+                    if (entry.status === "loaded" && entry.window !== undefined) {
+                        if (this.cutWindows.has(key)) this.touchCut(key);
+                        else this.touchWindow(key);
+                    }
                     return this.answer(entry, entry.window);
                 }),
             DataPagedPrimitives.total.implement((_sourceType: EastTypeValue) =>
@@ -3056,6 +3156,60 @@ export const defaultPagedRuntime = new PagedRuntime();
  */
 export function pagedSourceOf(id: string): PagedSource | undefined {
     return defaultPagedRuntime.sourceOf(id);
+}
+
+/**
+ * Reads a keyed source's entries by their ids.
+ *
+ * @param ids - The entries' ids
+ * @returns Each entry's row, `none` for one the source does not hold, by id; none while the read is in flight;
+ *   `undefined` for a source that cannot be read by key
+ */
+export type EntriesByKey = (ids: readonly string[]) => option<ReadonlyMap<string, option<unknown>>> | undefined;
+
+/**
+ * Reads a keyed source's entries by their ids, every one in one request
+ * (#1596): what a Save reads the entries it wrote back by, however many, and
+ * wherever they sit. A source's entries are its dataset's own rows, whichever
+ * of them it pages — all of them in key order, one of a record's indexes, a
+ * binding's unfiltered view, or a record Slice's narrowing — so each is read
+ * from the record itself, an id naming no key of the source's type being an
+ * entry it does not hold. The source is found as each read runs: its handle is
+ * bound as the page's program runs.
+ *
+ * @param id - The source's id, as its handle carries it, no narrowing printed into it
+ * @param keyType - The source's key type
+ * @param rowType - The type of its entries
+ * @returns The reader
+ */
+export function entriesByKeyOf(id: string, keyType: EastType, rowType: EastType): EntriesByKey {
+    const parse = keyType.type === "String" ? undefined : parseFor(keyType);
+    const keyOf = (text: string): unknown => {
+        if (parse === undefined) return text;
+        const read = parse(text);
+        return read.success ? read.value : undefined;
+    };
+    // Made once: a read by key keeps its printer of the key type by this value.
+    const type = toEastTypeValue(DictType(keyType, rowType));
+    const rowsOf = (keys: readonly unknown[]): option<readonly option<unknown>[]> | undefined => {
+        const binding = indexedBindingOfSource(id);
+        if (binding !== undefined) return binding.readsRows ? binding.batches.rowsAll(keys) : undefined;
+        const source = pagedSourceOf(id);
+        if (source === undefined) return undefined;
+        const rows = defaultPagedRuntime.rowsAll({ path: source.path, selector: NO_INDEX, type }, keys);
+        return rows.type === "some" ? some(rows.value.map((entry) => entry.row)) : none;
+    };
+    return (ids) => {
+        const asked = ids.flatMap((entry) => {
+            const key = keyOf(entry);
+            return key === undefined ? [] : [{ entry, key }];
+        });
+        const read = asked.length === 0 ? some<readonly option<unknown>[]>([]) : rowsOf(asked.map(({ key }) => key));
+        if (read === undefined || read.type === "none") return read as undefined | typeof none;
+        const found = new Map<string, option<unknown>>(ids.map((entry) => [entry, none] as const));
+        asked.forEach(({ entry }, i) => found.set(entry, read.value[i]!));
+        return some(found);
+    };
 }
 
 /**

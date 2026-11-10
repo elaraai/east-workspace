@@ -48,7 +48,7 @@ import { expect, type Locator } from "playwright/test";
 import { test } from "./kept-page";
 import { e3Requests, heldE3, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { recordField } from "./record-slice";
-import { RECORD_INDEXES, cardOverlaps, cardsIn, openSchematic, screenPoint, viewOf, zoomInto, type WorldBox } from "./schematic-page";
+import { RECORD_INDEXES, cardOverlaps, cardsIn, openSchematic, pressZoomIn, screenPoint, viewOf, zoomInto, type WorldBox } from "./schematic-page";
 import { settled } from "./settle";
 
 /** The racks' loads, as the page's reads name them. */
@@ -269,12 +269,10 @@ test.describe("A tap on the density (#1393)", () => {
         await settled(page);
         await expect(notice(root)).toHaveCount(0);
         // In about the canvas's middle, a press at a time, until the racks there draw as their cards.
-        const zoomIn = root.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "Zoom in" });
         const cards = root.locator("[data-card-key]");
         for (let presses = 0; await cards.count() === 0; presses++) {
             expect(presses, "presses of Zoom in before the racks draw as their cards").toBeLessThan(12);
-            await zoomIn.click();
-            await settled(page);
+            await pressZoomIn(page, root);
         }
         expect(await cardOverlaps(root)).toEqual([]);
         // A pan of 60 × 40px: the cards whose centres stood in the canvas's middle, 150px in from each edge, stand there

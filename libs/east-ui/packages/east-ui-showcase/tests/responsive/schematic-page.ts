@@ -9,11 +9,12 @@
  * inspector collapsed to its rail, an item's card, a world point of its drawing
  * on the screen, the cards that overlap and those standing in a box, a box of
  * the drawing zoomed into, the box the canvas shows and its camera at rest on
- * one, its library's tabs and cards, a card picked up from it and carried onto the
- * canvas, with what the drag's ghost says, the history's Discard and Save — and
- * whether each of its buttons stays inside the toolbar and takes a click — an
- * item found by Find and picked, what Find's box shows wherever the row holds
- * it, and the drawing's counts as the inspector says them.
+ * one, a press of Zoom in once it takes one, its library's tabs and cards, a
+ * card picked up from it and carried onto the canvas, with what the drag's
+ * ghost says, the history's Discard and Save — and whether each of its buttons
+ * stays inside the toolbar and takes a click — an item found by Find and
+ * picked, what Find's box shows wherever the row holds it, and the drawing's
+ * counts as the inspector says them.
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
@@ -252,6 +253,23 @@ export async function zoomInto(page: Page, root: Locator, box: WorldBox): Promis
     await page.keyboard.up("Control");
     await expect(canvas).not.toHaveAttribute("data-tool", "zoom");
     await restsOn(root, box);
+    await settled(page);
+}
+
+/**
+ * Presses the toolbar's Zoom in once it takes a press, and waits for the page to be at rest. It takes none at the zoom's
+ * limit, which the view's items raise as they land (#1393), and the canvas tells its reader where it rests only once it
+ * has rested a moment, so a page at rest can still be about to read the view. A press while the button is off is
+ * retried, and Playwright scrolls the button into view before it tries again: the page moves, and the canvas with it,
+ * out from under the gesture that follows.
+ *
+ * @param page - The page
+ * @param root - The Schematic's root
+ */
+export async function pressZoomIn(page: Page, root: Locator): Promise<void> {
+    const zoomIn = root.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "Zoom in", exact: true });
+    await expect(zoomIn).toBeEnabled();
+    await zoomIn.click();
     await settled(page);
 }
 

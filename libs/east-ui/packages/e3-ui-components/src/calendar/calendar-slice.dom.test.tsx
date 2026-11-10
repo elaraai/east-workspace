@@ -26,7 +26,7 @@ import { DateTimeType, OptionType, StringType, printFor, some, variant } from "@
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import { act, calendarHarness, card, event, narrow, narrowing, programOf, searched, settle, slot, width, type Where } from "./harness.test-utils.js";
-import type { E3Request } from "../e3-web.test-utils.js";
+import { readsRow, type E3Request } from "../e3-web.test-utils.js";
 import { countBuilds } from "../shared/builds.test-utils.js";
 import { setCalendarFrameRenderProbe } from "./index.js";
 
@@ -250,7 +250,7 @@ describe("the windowed Calendar's own navigation picks its days (#1343)", () => 
         const input = slot(container, "end").querySelector<HTMLInputElement>('[data-field="customer"] input')!;
         const user = userEvent.setup(); await user.clear(input); await user.type(input, "Scoped customer{Enter}"); await settle();
         await press(toolbar(container).getByRole("button", { name: editingMessages.apply() }));
-        expect(h.requests("find", JOBS).some(request => searched(request, undefined, '"job1"'))).toBe(true);
+        expect(h.requests("rows", JOBS).some(request => readsRow(request, '"job1"'))).toBe(true);
         expect(h.requests("read", JOBS)).toEqual([]);
         expect((await h.read(ex.calendarJobs)).get("job1")!.customer).toBe("Scoped customer");
     });

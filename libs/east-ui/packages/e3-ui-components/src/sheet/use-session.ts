@@ -18,7 +18,7 @@ import {
     fieldBreachIssue, fieldBreachText, fieldFormMessages, getSomeorUndefined, useLanding, useLandingStyles, useDataStable, usePersistedState, type BatchReadiness,
     type EditIssue,
 } from "@elaraai/east-ui-components";
-import { kindOfIssue } from "@elaraai/east-ui-components/internal";
+import { kindOfIssue, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { NULL_CELL, drawnPx, isLooseRow, layoutLensRun, layoutRun, type SheetGeometry } from "./model.js";
 import { SHEET_PAGE_SIZE, useSheetPaging } from "./paging.js";
@@ -217,7 +217,7 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     }, [decodedRows, lensDrawn, lens.revision, lens.readBefore, paging.revision, pagesStanding]);
     // The inspector's numbers held to bounds (#1585): a changed row's Save waits while one is outside them.
     const bounds = useMemo(() => sheetBoundsOf(host.forms), [host.forms]);
-    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular, day, rowsRead, renumber, bounds);
+    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular, day, rowsRead, renumber, bounds, windowedSourceOf(value.rows)?.id);
     const session = editingState.session;
     // A new row given a new key as the drafts carried over, another write having added its own (#1583): the footer says
     // so, once — never again as the sheet mounts over a session that did so before.

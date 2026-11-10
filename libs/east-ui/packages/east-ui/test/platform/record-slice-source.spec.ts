@@ -333,21 +333,47 @@ test("which of some entries a narrowing holds is asked of its resolved runs in o
     assert.throws(() => new RecordSliceSource(batchingSource(100n, new Map()).reader).within(union, entries), /cannot read which rows/);
 });
 
-test("more entries than one request takes are asked as several reads, all in one pass, and answered in order (#1349)", () => {
+test("more entries than one request takes are asked as several reads, all in one pass, each part kept as it lands until every one has, and answered in order (#1349, #1596)", () => {
     const source = placingSource(100n, new Map([['"a"', { row: 10n, count: 10n }], ['"b"', { row: 55n, count: 20n }]]));
-    const engine = new RecordSliceSource(source.reader);
-    // A record segment's rows, each with as many entries as its index fans them out to: past a request's keys.
-    const entries = Array.from({ length: MAX_RECORD_SLICE_BATCH + 3 }, (_, i) => ({ ik: `${BigInt(i % 100)}`, key: BigInt(i) }));
-    const within = unwrap(engine.within(union, entries));
-    assert.deepEqual(source.asked.map(read => read.entries.length), [MAX_RECORD_SLICE_BATCH, 3], "a read for each request's worth, in one pass");
-    assert.deepEqual(within, entries.map(({ ik }) => {
+    // The reader holds the parts beginning at some entries pending, as a runtime holds a read it waits on: each part
+    // asked kept, by its first entry and as the array it was handed.
+    let pending = new Set<bigint>();
+    const parts: (readonly { ik: string; key: unknown }[])[] = [];
+    const engine = new RecordSliceSource<bigint>({
+        ...source.reader,
+        withinAll(index, runs, part) {
+            parts.push(part);
+            return pending.has(part[0]!.key as bigint) ? none : source.reader.withinAll!(index, runs, part);
+        },
+    });
+    const firstOf = (from: number) => parts.slice(from).map(part => part[0]!.key);
+    // A record segment's rows, each with as many entries as its index fans them out to: past two requests' keys.
+    const entries = Array.from({ length: 2 * MAX_RECORD_SLICE_BATCH + 3 }, (_, i) => ({ ik: `${BigInt(i % 100)}`, key: BigInt(i) }));
+    const within = entries.map(({ ik }) => {
         const row = parseInteger(ik);
         return (row >= 10n && row < 20n) || (row >= 55n && row < 75n);
-    }), "the answers in the entries' order");
-    // The runs held at the revision, each part's read pending: no partial answer.
-    source.pending(true);
+    });
+    const SECOND = BigInt(MAX_RECORD_SLICE_BATCH);
+    const THIRD = BigInt(2 * MAX_RECORD_SLICE_BATCH);
+    // The second and third parts pending: no partial answer, and every part asked in the pass, a request's worth each.
+    pending = new Set([SECOND, THIRD]);
     assert.deepEqual(engine.within(union, entries), none, "a part pending is none");
-    assert.deepEqual(source.asked.slice(2).map(read => read.entries.length), [MAX_RECORD_SLICE_BATCH, 3], "every part asked in the pass");
+    assert.deepEqual(parts.map(part => part.length), [MAX_RECORD_SLICE_BATCH, MAX_RECORD_SLICE_BATCH, 3], "every part asked in the pass");
+    // The second lands: the first, kept as it landed, is not asked again — whatever the reader holds of it by now.
+    pending = new Set([THIRD]);
+    assert.deepEqual(engine.within(union, entries), none);
+    assert.deepEqual(firstOf(3), [SECOND, THIRD], "only the parts still to land are asked");
+    assert.equal(parts[3], parts[1], "a part asked again is the same array: a reader keeping what it made of it by the array finds it");
+    // The last lands: every entry answered, in the entries' order.
+    pending = new Set();
+    assert.deepEqual(unwrap(engine.within(union, entries)), within, "the answers in the entries' order");
+    assert.deepEqual(firstOf(5), [THIRD]);
+    assert.deepEqual(unwrap(engine.within(union, entries)), within, "asked again, every part is kept");
+    assert.equal(parts.length, 6, "nothing is asked");
+    // Another revision's runs are other runs: every part is asked again.
+    source.revision(some("B"));
+    assert.deepEqual(unwrap(engine.within(union, entries)), within);
+    assert.deepEqual(firstOf(6), [0n, SECOND, THIRD], "another revision asks every part again");
 });
 
 test("a plan of more searches than one batch takes is asked as several batches, all in one pass (#1351)", () => {

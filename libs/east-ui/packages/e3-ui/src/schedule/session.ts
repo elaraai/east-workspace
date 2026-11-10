@@ -151,6 +151,7 @@ export function scheduleEntriesSeam(
     const pinned = entries as unknown as ExprType<StructType<{
         revision: FunctionType<[], OptionType<StringType>>;
         refresh: FunctionType<[OptionType<StringType>], NullType>;
+        id: StringType;
     }>>;
     const entry = East.function([StringType], OptionType(OptionType(BlobType)), ($, id) => {
         const find = $.const(byKey);
@@ -161,7 +162,7 @@ export function scheduleEntriesSeam(
         });
         return result;
     });
-    return East.value(some({ revision: pinned.revision, refresh: pinned.refresh, entry, last: lastKey }) as never, OptionType(ScheduleEntriesType)) as
+    return East.value(some({ revision: pinned.revision, refresh: pinned.refresh, entry, last: lastKey, paged: pinned.id }) as never, OptionType(ScheduleEntriesType)) as
         ExprType<OptionType<typeof ScheduleEntriesType>>;
 }
 

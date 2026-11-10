@@ -32,7 +32,7 @@ import { StateRuntime, UIStore, editingMessages, system } from "@elaraai/east-ui
 import { SEARCH_DELAY_MS } from "@elaraai/east-ui-components/internal";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar-records";
 import { act, e3Harness, settle, slot, width } from "../e3-web-mount.test-utils.js";
-import type { E3Request } from "../e3-web.test-utils.js";
+import { readsRow, type E3Request } from "../e3-web.test-utils.js";
 import { setOverlapsProbe } from "../shared/schedule/overlaps.js";
 import { setNavigatorStylesProbe } from "../shared/time/navigation.js";
 import { DAY, eventKey, parseEventKey } from "./model.js";
@@ -111,7 +111,7 @@ test("indexed Calendar preserves overlaps, replaces windows atomically, and save
     expect(committed.get("job")?.status).toBe("Done");
     expect(committed.size).toBe(12000);
     // The hidden draft was found by its original key.
-    expect(h.requests("find", EVENTS).some(request => request.query.get("key") === '"job"')).toBe(true);
+    expect(h.requests("rows", EVENTS).some(request => readsRow(request, '"job"'))).toBe(true);
     expect(container.querySelector('[data-record-save-notice]')).toBeNull();
     await act(async () => { store.write(scope, encodeBeast2For(RecordSliceStateType)(state)); });
     await settle();
