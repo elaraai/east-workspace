@@ -96,7 +96,7 @@ function OverlapsChip({ n, short, onSelect }: OverlapsChipProps) {
     const words = usePlanWords();
     const count = words.number(n);
     return (
-        <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]}
+        <chakra.button type="button" css={[chip({ tone: "warn" }), coarseHitArea({ position: true })]}
             data-plan-overlaps={short ? "short" : ""} aria-label={words.m.overlapsLabel({ n, count })} onClick={onSelect}>
             <Box as="span" data-chip-icon="" aria-hidden="true"><FontAwesomeIcon icon={faTriangleExclamation} /></Box>
             {short ? words.m.overlapsShort({ n, count }) : words.m.overlaps({ n, count })}

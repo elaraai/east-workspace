@@ -218,7 +218,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         if (focus === undefined) return null;
         const unit = value.bin.unit.type === "some" ? value.bin.unit.value : "";
         const meta = `${counted(Number(focus.load.bins), value.labels.bin)} · ${allocationWords().quantity(focus.load.fill, unit)}${focus.hidden ? " · hidden by Filters" : ""}`;
-        return <chakra.span css={chip({ tone: "brand", numeric: true })} title="The focus: its links are drawn · Esc returns to all" data-allocation-focus=""
+        return <chakra.span css={chip({ tone: "brand" })} title="The focus: its links are drawn · Esc returns to all" data-allocation-focus=""
             aria-label={`Focus ${focus.resource.label}, ${meta}`}>
             <span data-chip-icon=""><FontAwesomeIcon icon={faLink} /></span>
             {!compact && <><span>{focus.resource.label}</span><span data-chip-meta="">{meta}</span></>}
@@ -251,7 +251,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
             : <Box css={styles.status} data-tone={args.published && !args.publishing ? "success" : "neutral"} data-allocation-status="" title="Plan status">{status}</Box>, null] },
         value.inspector && { key: "allocation.issues", side: "end", rank: HOST_RANK + 3, forms: [unread
             ? <Box css={styles.heldSlot} data-allocation-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
-            : summary.count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} onClick={args.onIssues}
+            : summary.count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn" }), coarseHitArea({ position: true })]} onClick={args.onIssues}
                 aria-label={summary.aria} title={summary.tip} data-allocation-issues="" data-opn={args.issuesFlash === true ? "" : undefined}>
                 <FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{summary.label}</span>
             </chakra.button>

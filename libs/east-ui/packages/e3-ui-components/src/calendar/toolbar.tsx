@@ -195,7 +195,7 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
     };
     const overlapNoun = (n: number) => n === 1 ? "overlap" : "overlaps";
     const warning = (short: boolean) => <OverlapsCount overlaps={overlaps} visible={visible}>{n =>
-        <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]}
+        <chakra.button type="button" css={[chip({ tone: "warn" }), coarseHitArea({ position: true })]}
             aria-label={`${n} ${overlapNoun(n)}`} data-calendar-overlaps="" onClick={showOverlaps}><span data-chip-icon=""><FontAwesomeIcon icon={faTriangleExclamation} /></span><span data-chip-label="">{n}{!short && ` ${overlapNoun(n)}`}</span></chakra.button>}
     </OverlapsCount>;
     const overlapsWords = <OverlapsCount overlaps={overlaps} visible={visible}>{n => `${n} ${overlapNoun(n)}`}</OverlapsCount>;

@@ -284,7 +284,7 @@ export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value
         if (coarse) {
             // The chip at its own size, a 44px target by its halo (#1253): it
             // opens the cohort's editor — on a preset bar it toggles.
-            const whole = [chip({ tone: on ? "brand" : "neutral", numeric: true }), coarseHitArea({ position: true })];
+            const whole = [chip({ tone: on ? "brand" : "neutral" }), coarseHitArea({ position: true })];
             return manage
                 ? editorFrom(
                     <chakra.button type="button" css={whole} data-slice-cohort={c.id} data-state={on ? "on" : "off"} aria-label={`Edit cohort ${c.name}`}>
@@ -299,7 +299,7 @@ export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value
                 );
         }
         return (
-            <Box key={c.id} css={chip({ tone: on ? "brand" : "neutral", numeric: true })} data-slice-cohort={c.id}>
+            <Box key={c.id} css={chip({ tone: on ? "brand" : "neutral" })} data-slice-cohort={c.id}>
                 <chakra.button
                     type="button"
                     css={edit.chipToggle}
@@ -349,7 +349,7 @@ export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value
                     footActions={foot.actions}
                     trigger={
                         // A button the keyboard reaches; a 44px touch target on a coarse pointer, by its halo (#1231).
-                        <chakra.button type="button" css={[chip({ tone: "dashed", numeric: true }), coarseHitArea({ position: true })]} cursor="pointer"
+                        <chakra.button type="button" css={[chip({ tone: "dashed" }), coarseHitArea({ position: true })]} cursor="pointer"
                             data-slice-add="cohort" aria-label="New cohort">
                             <FontAwesomeIcon icon={faPlus} style={{ fontSize: "9px" }} />
                             <Box as="span">cohort</Box>

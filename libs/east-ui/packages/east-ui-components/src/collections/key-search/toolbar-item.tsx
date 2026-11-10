@@ -285,7 +285,7 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
                     </chakra.button>
                 ) : (
                     // A 44px touch target on a coarse pointer (#346).
-                    <chakra.button type="button" css={[chip({ tone: active ? "brand" : "neutral", numeric: true }), coarseHitArea({ position: true })]}
+                    <chakra.button type="button" css={[chip({ tone: active ? "brand" : "neutral" }), coarseHitArea({ position: true })]}
                         aria-label={heading} data-key-search="icon" data-state={open ? "open" : "closed"}>
                         <FontAwesomeIcon icon={faMagnifyingGlass} data-chip-icon="" />
                         <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />

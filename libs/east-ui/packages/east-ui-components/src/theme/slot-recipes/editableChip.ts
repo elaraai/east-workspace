@@ -6,7 +6,8 @@
 /**
  * EditableChip slot recipe — a chip that triggers a consumer-provided
  * picker. The chip outline follows the `tag` / `.chip` atom; the trailing
- * slot carries the "editable" affordance icon.
+ * slot carries the "editable" affordance icon. Its words are set in the design
+ * system's mono face, at most 11.5px, as a chip's and a tag's are.
  *
  * @packageDocumentation
  */
@@ -26,7 +27,7 @@ export const editableChipSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderColor: "border.strong",
             background: "bg.surface",
-            fontFamily: "body",
+            fontFamily: "mono",
             fontWeight: "medium",
             color: "brand.fg",
             cursor: "pointer",
@@ -46,11 +47,11 @@ export const editableChipSlotRecipe = defineSlotRecipe({
     },
     variants: {
         size: {
-            xs: { root: { paddingX: "{spacing.1.5}", paddingY: "0", fontSize: "{fontSizes.body.sm}" } },
-            sm: { root: { paddingX: "{spacing.2}", paddingY: "{spacing.0.5}", fontSize: "{fontSizes.body.lg}" } },
-            md: { root: { paddingX: "{spacing.2.5}", paddingY: "{spacing.1}", fontSize: "{fontSizes.body.lg}" } },
-            lg: { root: { paddingX: "{spacing.3}", paddingY: "{spacing.1.5}", fontSize: "{fontSizes.body.lg}" } },
-            xl: { root: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2}", fontSize: "{fontSizes.body.lg}" } },
+            xs: { root: { paddingX: "{spacing.1.5}", paddingY: "0", fontSize: "11.5px" } },
+            sm: { root: { paddingX: "{spacing.2}", paddingY: "{spacing.0.5}", fontSize: "11.5px" } },
+            md: { root: { paddingX: "{spacing.2.5}", paddingY: "{spacing.1}", fontSize: "11.5px" } },
+            lg: { root: { paddingX: "{spacing.3}", paddingY: "{spacing.1.5}", fontSize: "11.5px" } },
+            xl: { root: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2}", fontSize: "11.5px" } },
         },
         // Density cascade — mirrors the chipRail `--cr-*` sets so an editable
         // chip lines up with tags and traces at the same density. No default:
@@ -66,7 +67,7 @@ export const editableChipSlotRecipe = defineSlotRecipe({
                 trigger: { fontSize: "10px" },
             },
             comfortable: {
-                root: { fontSize: "12.5px", lineHeight: "1", paddingX: "15px", paddingY: "9.75px", borderRadius: "6px", gap: "7px" },
+                root: { fontSize: "11.5px", lineHeight: "1", paddingX: "15px", paddingY: "9.75px", borderRadius: "6px", gap: "7px" },
                 trigger: { fontSize: "12.5px" },
             },
         },

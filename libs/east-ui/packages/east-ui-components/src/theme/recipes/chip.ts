@@ -7,8 +7,8 @@
  * Chip recipe — spec `.chip`.
  *
  * A neutral inline chip: paper surface, 1 px `rule-strong` border, 4 px
- * radius, body type. Counts and values inside use mono via the `numeric`
- * variant. The only tonal escape hatches are `brand` (brand-tint fill),
+ * radius, set in the design system's mono face, as its chip card sets a
+ * chip. The only tonal escape hatches are `brand` (brand-tint fill),
  * `dashed`, and `warn` — an advisory count, the Plan's overlaps and the
  * Calendar's conflicts (#1198), in the warn rule over its 6% wash with its text
  * step, as the design system draws an advisory readout. Saturated red/green
@@ -17,9 +17,9 @@
  *
  * Nothing is pill-shaped (`component-rules.md` §3, #949): a chip keeps its
  * 4px radius at every density. A control's own label (`+ FILTER`) takes the
- * `caps` variant — the toolbar's mono uppercase label voice. Numerals set in
- * mono at most 11.5px: mono runs larger than the body face at the same size,
- * so a value never reads as the loudest text beside its body-type siblings.
+ * `caps` variant — the toolbar's mono uppercase label voice. Its type runs at
+ * most 11.5px: mono runs larger than the body face at the same size, so a chip
+ * never reads as the loudest text beside its body-type siblings.
  *
  * A chip's own parts are styled here, by attribute, never inline: a leading
  * icon (`data-chip-icon`), the disclosure caret (`data-chip-caret`), a
@@ -47,8 +47,8 @@ export const chipRecipe = defineRecipe({
         display: "inline-flex",
         alignItems: "center",
         gap: "var(--cr-igap, 6px)",
-        fontFamily: "body",
-        fontSize: "var(--cr-fs, 12px)",
+        fontFamily: "mono",
+        fontSize: "min(var(--cr-fs, 12px), 11.5px)",
         fontWeight: "medium",
         paddingInline: "var(--cr-px, 10px)",
         paddingBlock: "var(--cr-py, 4px)",
@@ -79,10 +79,6 @@ export const chipRecipe = defineRecipe({
             /** An advisory count (#1198) — the warn rule over its 6% wash, in the warn text step. */
             warn: { background: "bg.warning.subtle", borderColor: "status.warn", color: "fg.warning" },
         },
-        numeric: {
-            true: { fontFamily: "mono", fontSize: "min(var(--cr-fs, 12px), 11.5px)" },
-            false: {},
-        },
         /** Corner shape — the 4px `.chip`; the design system has no pill. */
         shape: {
             rounded: { borderRadius: "4px" },
@@ -97,5 +93,5 @@ export const chipRecipe = defineRecipe({
             md: {},
         },
     },
-    defaultVariants: { tone: "neutral", numeric: false, shape: "rounded", caps: false, size: "md" },
+    defaultVariants: { tone: "neutral", shape: "rounded", caps: false, size: "md" },
 });

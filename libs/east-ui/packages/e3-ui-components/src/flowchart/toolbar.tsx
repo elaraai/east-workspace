@@ -147,7 +147,7 @@ export function useFlowchartToolbarItems({
     // The freshness chip: the shared chip, its dot first and its date muted after its label.
     const chipRecipe = useRecipe({ key: "chip" });
     const chip = freshness === undefined ? undefined : (
-        <Box as="span" css={chipRecipe({ tone: "neutral", numeric: true })} data-flowchart-freshness="">
+        <Box as="span" css={chipRecipe({ tone: "neutral" })} data-flowchart-freshness="">
             <Box as="span" css={styles.freshnessDot} />
             <Box as="span">{freshness.label}</Box>
             {freshness.date !== undefined && <Box as="span" data-chip-meta="">{words.monthDay(freshness.date)}</Box>}

@@ -155,7 +155,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(null)}>Done</chakra.button>}
             trigger={
                 // A 44px touch target on a coarse pointer, by its halo: the row keeps its height (#346, #1221).
-                <chakra.button type="button" css={[chip({ tone: "dashed", numeric: true, caps: true }), coarseHitArea({ position: true })]} cursor="pointer"
+                <chakra.button type="button" css={[chip({ tone: "dashed", caps: true }), coarseHitArea({ position: true })]} cursor="pointer"
                     data-slice-add="filter" aria-label="Add filter">
                     <FontAwesomeIcon icon={faPlus} style={{ fontSize: "9px" }} />
                     <Box as="span">{compact ? "filter" : "add filter"}</Box>
@@ -222,7 +222,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
                                 )}
                             trigger={
                                 // A 44px touch target on a coarse pointer, by its halo (#1231).
-                                <chakra.button type="button" css={[chip({ tone: "more", numeric: true }), coarseHitArea({ position: true })]} cursor="pointer"
+                                <chakra.button type="button" css={[chip({ tone: "more" }), coarseHitArea({ position: true })]} cursor="pointer"
                                     data-slice-more="">
                                     <Box as="span">{`+${measuring ? filters.length : overflow} more`}</Box>
                                     <FontAwesomeIcon icon={faChevronDown} style={{ fontSize: "8px" }} />

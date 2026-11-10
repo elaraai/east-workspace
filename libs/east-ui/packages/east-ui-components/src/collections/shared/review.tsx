@@ -358,7 +358,7 @@ function ReviewMenu({ controller, labels }: { controller: ReviewFootModel; label
             else if (d.value === "approve") controller.approveAll();
         }}>
             <ChakraMenu.Trigger asChild>
-                <chakra.button type="button" css={[chip({ tone: "neutral", numeric: true }), coarseHitArea({ position: true })]}
+                <chakra.button type="button" css={[chip({ tone: "neutral" }), coarseHitArea({ position: true })]}
                     data-slot="reviewMenu" aria-label={labels.menu}>
                     <FontAwesomeIcon icon={faListCheck} data-chip-icon="" />
                     <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />

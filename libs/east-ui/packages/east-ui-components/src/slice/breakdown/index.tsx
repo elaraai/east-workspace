@@ -136,7 +136,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                         footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setEditOpen(false)}>Done</chakra.button>}
                         trigger={
                             // One button opening its editor; a 44px touch target on a coarse pointer, by its halo (#1253).
-                            <chakra.button type="button" css={[chip({ tone: "brand", numeric: true }), coarseHitArea({ position: true })]} cursor="pointer"
+                            <chakra.button type="button" css={[chip({ tone: "brand" }), coarseHitArea({ position: true })]} cursor="pointer"
                                 data-slice-breakdown={activeDim.fieldId} aria-label={`Split by ${activeDim.label}`} onKeyDown={onChipKey}>
                                 <Box as="span">{activeDim.label}</Box>
                                 {/* The pointer's clear; the keyboard's is Delete on the chip. */}
@@ -169,7 +169,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                         footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setPickOpen(false)}>Done</chakra.button>}
                         trigger={
                             // A button the keyboard reaches; a 44px touch target on a coarse pointer, by its halo (#1231).
-                            <chakra.button type="button" css={[chip({ tone: "dashed", numeric: true, caps: true }), coarseHitArea({ position: true })]} cursor="pointer"
+                            <chakra.button type="button" css={[chip({ tone: "dashed", caps: true }), coarseHitArea({ position: true })]} cursor="pointer"
                                 data-slice-add="dimension" aria-label="Add dimension">
                                 <FontAwesomeIcon icon={faPlus} style={{ fontSize: "9px" }} />
                                 <Box as="span">dimension</Box>

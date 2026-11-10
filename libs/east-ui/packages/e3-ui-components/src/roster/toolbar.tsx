@@ -183,7 +183,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
             : <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-roster-status="">{status}</Box>, null] },
         value.inspector && { key: "roster.issues", side: "end", rank: HOST_RANK + 3, forms: [unread
             ? <Box css={styles.heldSlot} data-roster-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
-            : count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} data-roster-issues="" data-opn={args.issuesFlash === true ? "" : undefined} onClick={args.onIssues} aria-label={`${count} roster issues`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{count} issues</span></chakra.button>
+            : count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn" }), coarseHitArea({ position: true })]} data-roster-issues="" data-opn={args.issuesFlash === true ? "" : undefined} onClick={args.onIssues} aria-label={`${count} roster issues`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{count} issues</span></chakra.button>
                 : <Box css={styles.heldSlot} data-roster-issues="" aria-hidden="true" />, null] },
         search !== undefined && { ...search, forms: [...search.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "roster.controls"] },
         // The Elara eye (#1409), between the issues item and the history item, whose actions a run out locks (R2): in the row

@@ -85,7 +85,7 @@ export function SegMenu<K extends string>({ label, name, scope = "plan", items, 
         }}>
             <ChakraMenu.Trigger asChild>
                 {/* A 44px touch target on a coarse pointer, by its halo: the row keeps its height (#346, #1221). */}
-                <chakra.button type="button" css={[chip({ tone: "neutral", numeric: true }), coarseHitArea({ position: true })]} data-slot="segMenu"
+                <chakra.button type="button" css={[chip({ tone: "neutral" }), coarseHitArea({ position: true })]} data-slot="segMenu"
                     {...{ [`data-${scope}-segmenu`]: name }} aria-label={label}>
                     {current?.label ?? active}
                     <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />
