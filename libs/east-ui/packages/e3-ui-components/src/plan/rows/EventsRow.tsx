@@ -31,7 +31,7 @@ import { Plan } from "@elaraai/e3-ui/internal";
 import { usePlanScale, type PlanElementRefValue } from "../context.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
-import { usePlanElementConflicted, usePlanElementDrafted } from "./element-draft.js";
+import { usePlanElementBounded, usePlanElementConflicted, usePlanElementDrafted } from "./element-draft.js";
 import { usePlanElementOp } from "./element-optimise.js";
 import { markName } from "../a11y.js";
 import type { PlanRowId } from "../model.js";
@@ -82,6 +82,8 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
     const drafted = usePlanElementDrafted(mark.key);
     // An event holding a conflict not yet chosen wears the warn ring.
     const conflict = usePlanElementConflicted(mark.key);
+    // An event whose row breaks its kind's bounds wears the warn ring too, stored or changed (#1585).
+    const bounds = usePlanElementBounded(mark.key);
     // What a run of the optimiser did to its event (#1409, R17), while it is still the run's draft.
     const op = usePlanElementOp(mark.key);
     const optimised = drafted ? op : undefined;
@@ -98,6 +100,7 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
         "data-overlap": overlap ? "" : undefined,
         "data-draft": drafted ? "" : undefined,
         "data-conflict": conflict ? "" : undefined,
+        "data-bounds": bounds ? "" : undefined,
         "data-op": optimised?.op,
         "data-fill": optimised !== undefined ? "own" : undefined,
         title: optimised?.provenance,

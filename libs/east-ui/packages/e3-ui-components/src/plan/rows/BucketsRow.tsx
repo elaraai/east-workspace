@@ -51,7 +51,7 @@ import { usePlanDispatch, usePlanScale, type PlanElementRefValue } from "../cont
 import { runStateKey, type PlanRowMove } from "./SpanRow.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
-import { PlanDraftedContext, usePlanElementConflicted, usePlanElementDrafted } from "./element-draft.js";
+import { PlanDraftedContext, usePlanElementBounded, usePlanElementConflicted, usePlanElementDrafted } from "./element-draft.js";
 import { usePlanElementOp } from "./element-optimise.js";
 import { BucketCell, type BucketCellTile } from "./BucketCell.js";
 import { usePlanMovable } from "../edit/movable.js";
@@ -116,6 +116,8 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded 
     // An event its drafts changed wears the brand tint in a brand border (#1196).
     const drafted = usePlanElementDrafted(ev.key);
     const conflict = usePlanElementConflicted(ev.key);
+    // An event whose row breaks its kind's bounds wears the warn ring too, stored or changed (#1585).
+    const bounds = usePlanElementBounded(ev.key);
     // What a run of the optimiser did to its event (#1409, R17), while it is still the run's draft.
     const op = usePlanElementOp(ev.key);
     const optimised = drafted ? op : undefined;
@@ -148,6 +150,7 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded 
             data-overlap={overlap ? "" : undefined}
             data-draft={drafted ? "" : undefined}
             data-conflict={conflict ? "" : undefined}
+            data-bounds={bounds ? "" : undefined}
             data-op={optimised?.op}
             data-fill={optimised !== undefined ? "own" : undefined}
             title={optimised?.provenance}

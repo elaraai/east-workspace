@@ -134,8 +134,9 @@ import {
     type PlanEventLead, type PlanEventRows, type PlanEventShownValue,
 } from "./root/events.js";
 import { cellKinds, createCellSpanStore, shownCellSpan } from "./root/cells.js";
+import { NO_BOUNDED, PlanBoundsReader } from "./root/bounds.js";
 import { PlanNestedReader, createNestedViewStore, usePlanNestedRoot, usePlanWholeRows, type PlanNestedLead, type PlanNestedSpanRead, type SPAN_READING } from "./root/nested.js";
-import { hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
+import { NONE_HIDDEN, hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
 import { usePlanExpand, usePlanFocus } from "./root/focus.js";
@@ -163,7 +164,7 @@ import { PlanTypingStore, planZooms, type PlanTyping } from "./edit/typing.js";
 import { originOf, unmoved, usePlanCarry, type PlanMoveRequest } from "./edit/use-carry.js";
 import { PlanCarryAnnouncer } from "./edit/announce.js";
 import { PlanSelectableContext, elementKeyOf, holdsElement, selectableOf } from "./rows/element-select.js";
-import { PlanConflictCellsContext, PlanConflictedContext, PlanDraftedContext } from "./rows/element-draft.js";
+import { PlanBoundedContext, PlanConflictCellsContext, PlanConflictedContext, PlanDraftedContext } from "./rows/element-draft.js";
 import { PlanOptimisedContext, type PlanOptimisedMarks } from "./rows/element-optimise.js";
 import { rowValueAt, type PlanCanvasInspect } from "./root/inspect.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
@@ -1759,6 +1760,10 @@ export function usePlanCanvas({
         return out;
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the session is mutable: the history's version says it moved
     }, [dataSession, index, historyVersion]);
+    // The events whose rows break their kind's bounds (#1585), by their elements' keys: each element of one wears the warn
+    // ring, stored or changed. Read by a component of its own (`PlanBoundsReader`, in `provide`), which hands them over
+    // only as they move.
+    const [bounded, setBounded] = useState<ReadonlySet<string>>(NO_BOUNDED);
     // The canvas's contexts and its declared density wrap everything the
     // frame draws — main, and the toolbar's items, the banners and the
     // footer — so each speaks as the canvas does.
@@ -1788,6 +1793,9 @@ export function usePlanCanvas({
     const optimiseReader = optimise !== undefined && planWindow !== undefined && eventRange !== undefined
         ? <PlanOptimiseReader kinds={kinds} editing={eventEditing} window={planWindow} range={eventRange} cells={cellsRead} onReady={setOptimiseReady} />
         : null;
+    const boundsReader = kinds.length > 0 && eventRange !== undefined
+        ? <PlanBoundsReader kinds={kinds} editing={eventEditing} range={eventRange} cells={cellsRead} hidden={hidden ?? NONE_HIDDEN} onBounded={setBounded} />
+        : null;
     const provide = (children: ReactNode): ReactNode => {
         const provided = (
             <PlanWordsContext.Provider value={words}>
@@ -1798,7 +1806,7 @@ export function usePlanCanvas({
             <PlanCursorContext.Provider value={cursor}>
             <PlanResolversContext.Provider value={resolvers}>
             <PlanSelectableContext.Provider value={selectable}>
-            <PlanDraftedContext.Provider value={drafted}><PlanConflictedContext.Provider value={conflicted}><PlanConflictCellsContext.Provider value={conflictCells}>
+            <PlanDraftedContext.Provider value={drafted}><PlanConflictedContext.Provider value={conflicted}><PlanBoundedContext.Provider value={bounded}><PlanConflictCellsContext.Provider value={conflictCells}>
             <PlanOptimisedContext.Provider value={optimisedMarks}>
             <PlanGridContext.Provider value={gridCtx}>
             <PlanEditContext.Provider value={editCtx}>
@@ -1808,7 +1816,7 @@ export function usePlanCanvas({
             </PlanEditContext.Provider>
             </PlanGridContext.Provider>
             </PlanOptimisedContext.Provider>
-            </PlanConflictCellsContext.Provider></PlanConflictedContext.Provider></PlanDraftedContext.Provider>
+            </PlanConflictCellsContext.Provider></PlanBoundedContext.Provider></PlanConflictedContext.Provider></PlanDraftedContext.Provider>
             </PlanSelectableContext.Provider>
             </PlanResolversContext.Provider>
             </PlanCursorContext.Provider>
@@ -1823,6 +1831,7 @@ export function usePlanCanvas({
                 {eventsReader}
                 {nestedReader}
                 {optimiseReader}
+                {boundsReader}
                 {densityTag !== undefined ? <DensityProvider value={densityTag}>{provided}</DensityProvider> : provided}
             </>
         );
