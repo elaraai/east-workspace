@@ -7,14 +7,16 @@
  * An event's number outside its field's bounds (#1585), over the operations'
  * jobs on e3 itself, in a test's own Calendar whose job form holds the hours
  * to at least 1: the prototype plates' job is stored at half an hour. Stored,
- * its block wears the warn ring, Details says it under the field and it holds
- * no Save — another job's change saves; its customer retyped, Save waits, the
- * banner over its form saying it by the field's label, in the hint's own
- * words, and the block keeps its ring.
+ * its block wears the warn ring, the toolbar's issues button warns of it, by
+ * its title, the field's label and the bound, and it holds no Save — another
+ * job's change saves; the warning pressed, Details shows it, the line under
+ * the field saying it; its customer retyped, Save waits, the banner over its
+ * form saying it in the hint's own words, the warning now the issue holding
+ * Save, and the block keeps its ring.
  */
 
 import { expect, test } from "vitest";
-import { fireEvent, within } from "@testing-library/react";
+import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { East } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
@@ -34,10 +36,11 @@ const bounded = { fn: East.function([], UIComponentType, _$ => Reactive.Root(Eas
     });
 }))) };
 
-test("a stored job's hours under their least: its block wears the warn ring, Details says it under the field and it holds no Save — another job's change saves; its own customer retyped, Save waits, the banner says it and the ring stays (#1585)", async () => {
+test("a stored job's hours under their least: its block wears the warn ring, the toolbar warns of it and it holds no Save — another job's change saves; the warning pressed, Details says it under the field; its own customer retyped, Save waits, the banner says it, the warning is the issue holding Save and the ring stays (#1585)", async () => {
     const { container } = await h.mount(bounded);
     const pane = () => slot(container, "end");
     const save = () => within(slot(container, "toolbar")).getByRole<HTMLButtonElement>("button", { name: editingMessages.apply() });
+    const issues = () => slot(container, "toolbar").querySelector<HTMLButtonElement>('[data-slot="historyIssues"] button')!;
     const banner = () => pane().querySelector("[data-calendar-inspector-refusals]");
     const select = async (key: string) => {
         await act(async () => { fireEvent.click(event(container, "job", key)); });
@@ -51,19 +54,25 @@ test("a stored job's hours under their least: its block wears the warn ring, Det
         await user.type(customer, `${text}{Enter}`);
         await settle();
     };
-    // Stored, the block under its least wears the warn ring; another job's does not.
+    // Stored, the block under its least wears the warn ring; another job's does not. The toolbar warns of it, by its words.
     expect([event(container, "job", "job3").hasAttribute("data-bounds"), event(container, "job", "job2").hasAttribute("data-bounds")]).toEqual([true, false]);
-    // Another job's change saves: the stored breach holds nothing.
+    expect(issues().getAttribute("aria-label")).toBe("1 warning");
+    await userEvent.setup().hover(issues());
+    await waitFor(() => expect(document.querySelector("[data-scope=tooltip][data-part=content]")?.textContent)
+        .toBe("1 warning · Save still works · Go to Long title: stainless steel mounting plates for the prototype assembly · Hours: at least 1"));
+    // Another job's change saves: the stored breach holds nothing, and is still a warning.
     await select("job2");
     await retype("Birch Engineering Ltd");
-    expect(save().disabled).toBe(false);
-    // Stored: the line under the field, and no banner.
-    await select("job3");
+    expect([save().disabled, issues().getAttribute("aria-label")]).toEqual([false, "1 warning"]);
+    // The warning pressed goes to its job: the line under the field, and no banner.
+    await act(async () => { fireEvent.click(issues()); });
+    await settle();
     expect(pane().querySelector('[data-field="hours"] [data-scope=field][data-part=error-text]')?.textContent).toBe("at least 1");
     expect(banner()).toBeNull();
-    // Its own customer retyped: Save waits, and the banner says why.
+    // Its own customer retyped: Save waits, the banner says why, the warning is now the issue holding Save, and the ring stays.
     await retype("Cedar Fabrication Ltd");
     expect(save().disabled).toBe(true);
     expect(banner()?.textContent).toContain("Hours: at least 1");
+    expect(issues().getAttribute("aria-label")).toBe("1 issue");
     expect(event(container, "job", "job3").hasAttribute("data-bounds")).toBe(true);
 });

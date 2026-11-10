@@ -85,8 +85,8 @@ import { SortedMap, StringType, compareFor, equalFor, fromEastTypeValue, none, s
 import { CalendarComponent } from "@elaraai/e3-ui/internal";
 import type { RecordTile } from "@elaraai/east-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useFormatters,
-    usePersistedState, useLanding, useLandingStyles, useTrackedEvaluation, type Formatters,
+    BannerView, BuilderFrame, SessionBanners, fieldBreachIssue, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow,
+    useFormatters, usePersistedState, useLanding, useLandingStyles, useTrackedEvaluation, type Formatters,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, PAGED_LIBRARY_PAGE } from "@elaraai/east-ui-components/internal";
 import { isBounded, rowBreaches } from "../shared/bounds.js";
@@ -99,6 +99,7 @@ import { FollowSources, type FollowedSources } from "../shared/schedule/follow-s
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
 import { openFramePane } from "../shared/schedule/open-pane.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
+import { refusalText, scheduleRefusals } from "../shared/schedule/refusals.js";
 import { lowerWord } from "../shared/schedule/words.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { useNow } from "../shared/time/now-line.js";
@@ -275,40 +276,64 @@ function CalendarBacklogCountReader({ pages, onCount }: { pages: CalendarBacklog
     return null;
 }
 
+/** An event drawn whose stored row breaks its kind's bounds (#1585): its kind and key, and its words — its title, then its field's label and the bound. */
+interface CalendarWarning { readonly kind: string; readonly key: string; readonly text: string }
+
+/** The events drawn whose rows break their kind's bounds (#1585): those that wear the warn ring, and the stored ones' breaches. */
+interface CalendarBreaches { readonly bounded: ReadonlySet<string>; readonly warnings: readonly CalendarWarning[] }
+
 /** No event whose row breaks its kind's bounds. */
-const NO_BOUNDED: ReadonlySet<string> = new Set();
+const NO_BREACHES: CalendarBreaches = { bounded: new Set(), warnings: [] };
+
+/** Whether two readings of the events' bounds say the same. */
+function sameBreaches(a: CalendarBreaches, b: CalendarBreaches): boolean {
+    return a.bounded.size === b.bounded.size && [...b.bounded].every(key => a.bounded.has(key)) && a.warnings.length === b.warnings.length
+        && a.warnings.every((was, i) => { const now = b.warnings[i]!; return stringEqual(was.kind, now.kind) && stringEqual(was.key, now.key) && stringEqual(was.text, now.text); });
+}
 
 /**
  * The events drawn whose rows break their kind's bounds (#1585), read in a component of its own — each event read as the
  * inspector reads it, its drafts in place, each read landing re-running it alone — handed to the frame only as they move:
- * each wears the warn ring, stored or changed. A kind whose form holds no number to bounds is read for nothing.
+ * each wears the warn ring, stored or changed, and a stored one's breach is a warning beside the history's issues,
+ * holding no Save — a changed one's is the refusal its session's readiness raises, which holds Save. A kind whose form
+ * holds no number to bounds is read for nothing.
  *
- * @param props - The event kinds, the events drawn, the editing, and where the events go
+ * @param props - The event kinds, the events drawn, the editing, and where what it reads goes
  * @returns Nothing: it reads
  */
-function CalendarBoundsReader({ kinds, items, editing, onBounded }: {
-    kinds: CalendarValue["events"]; items: readonly CalendarItem[]; editing: ScheduleEditing; onBounded: (bounded: ReadonlySet<string>) => void;
+function CalendarBoundsReader({ kinds, items, editing, onBreaches }: {
+    kinds: CalendarValue["events"]; items: readonly CalendarItem[]; editing: ScheduleEditing; onBreaches: (breaches: CalendarBreaches) => void;
 }): null {
     const checks = useMemo(() => new Map(kinds.flatMap(kind => kind.fields.some(isBounded)
-        ? [[kind.key, rowBreaches(kind.fields, fromEastTypeValue(kind.editing.entryType) as EastType)] as const] : [])), [kinds]);
-    const read = useCallback(() => {
-        const out = new Set<string>();
+        ? [[kind.key, { fields: kind.fields, breachesOf: rowBreaches(kind.fields, fromEastTypeValue(kind.editing.entryType) as EastType) }] as const] : [])), [kinds]);
+    const version = editing.version;
+    const read = useCallback((): CalendarBreaches => {
+        const bounded = new Set<string>();
+        const warnings: CalendarWarning[] = [];
+        const refused = scheduleRefusals(editing.sessions);
         for (const item of items) {
-            const breachesOf = checks.get(item.kind);
-            if (breachesOf === undefined) continue;
+            const check = checks.get(item.kind);
+            if (check === undefined) continue;
             const event = editing.read(item.kind, item.key);
-            if (event !== undefined && breachesOf(event.row).length > 0) out.add(eventKey(item));
+            const breaches = event === undefined ? [] : check.breachesOf(event.row);
+            if (breaches.length === 0) continue;
+            bounded.add(eventKey(item));
+            for (const breach of breaches) {
+                if (refused.some(({ kind, issue }) => stringEqual(kind, item.kind) && stringEqual(issue.entry, item.key)
+                    && issue.field.type === "some" && stringEqual(issue.field.value, breach.key))) continue;
+                warnings.push({ kind: item.kind, key: item.key, text: `${item.title} · ${refusalText(fieldBreachIssue(breach, { entry: item.key }), check.fields)}` });
+            }
         }
-        return out;
-    }, [checks, items, editing]);
+        return { bounded, warnings };
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
+    }, [checks, items, editing, version]);
     const { result } = useTrackedEvaluation(read);
     const now = result.ok ? result.value : undefined;
-    const reported = useRef(NO_BOUNDED);
+    const reported = useRef(NO_BREACHES);
     useLayoutEffect(() => {
-        const was = reported.current;
-        if (now === undefined || (was.size === now.size && [...now].every(key => was.has(key)))) return;
+        if (now === undefined || sameBreaches(reported.current, now)) return;
         reported.current = now;
-        onBounded(now);
+        onBreaches(now);
     });
     return null;
 }
@@ -497,8 +522,9 @@ function CalendarFrame(props: HostProps) {
             && !data.items.some(held => stringEqual(eventKey(held), eventKey(item))));
         return picked.length === 0 ? data.items : chronological([...data.items, ...picked]);
     }, [covered, selectedItems, data.capped, data.items]);
-    // The events drawn whose rows break their kind's bounds (#1585): each wears the warn ring, stored or changed.
-    const [bounded, setBounded] = useState<ReadonlySet<string>>(NO_BOUNDED);
+    // The events drawn whose rows break their kind's bounds (#1585): each wears the warn ring, stored or changed, and a
+    // stored one's breach is a warning beside the history's issues.
+    const [breaches, setBreaches] = useState<CalendarBreaches>(NO_BREACHES);
     // The Backlog (#1424): every kind narrowed through its source a page at a time (`backlog-pages.ts`), through the source
     // with its start Unset — its choices but its window, so no step of the dates reads it again, and it never blinks — after
     // the events in hand: every other kind's, read apart once, whatever the dates.
@@ -674,7 +700,8 @@ function CalendarFrame(props: HostProps) {
         count: current ? items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length : undefined, uncounted,
         chrome: dates.chrome, affordances: dates.affordances, nouns, windowParts: dates.windowParts,
         ...(timeline ? { visible: visibleDays, events: { items, covered } } : {}), onToday, search, optimise: parts.toolbarItem, locked,
-        styles, words, commands, onAction, overlaps, overlapsShown, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some") });
+        styles, words, commands, onAction, overlaps, overlapsShown, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some"),
+        warnings: breaches.warnings });
     // No drag source or target while a run is out (R2).
     const drag = useCalendarDrag({ value, key: storageKey, commands: locked ? undefined : gestures, narrow, items, backlog, served: backlogPages, selection: selectedItems, templates: templates.shown,
         activeTemplate, onError: setError });
@@ -752,7 +779,7 @@ function CalendarFrame(props: HostProps) {
         {pagedValue !== undefined && pagedKind !== undefined
             && <CalendarPagesReader paged={pagedValue} name={pagedKind.name} icon={pagedKind.icon} demand={demand} onPages={setPages} />}
         {backlogPages !== undefined && <CalendarBacklogCountReader pages={backlogPages} onCount={setBacklogCount} />}
-        {editing !== undefined && <CalendarBoundsReader kinds={value.events} items={items} editing={editing} onBounded={setBounded} />}
+        {editing !== undefined && <CalendarBoundsReader kinds={value.events} items={items} editing={editing} onBreaches={setBreaches} />}
         <CalendarDataReader value={value} range={range} editing={editing} view={view} travel={timeline ? travel : undefined}
             resources={cellResources} bucket={bucket} pages={pages} demand={pagedValue === undefined ? undefined : demand} onData={setData} />
         {/* The selection is read where its events are drawn: the held read, while a continuation's window is read. */}
@@ -803,7 +830,7 @@ function CalendarFrame(props: HostProps) {
                     uncounted={uncounted} shading={data.cells?.shading} bucket={bucket} pages={pages} demand={demand} drawnRows={data.cells?.drawn}
                     selected={selected} select={pick} clear={clear} overlaps={overlaps} commands={gestures} drag={drag}
                     nowRevision={nowAsked} anchor={anchor} onAnchor={onAnchor} reveal={reveal === undefined ? undefined : eventKey(reveal)} onRevealed={revealed}
-                    onOpen={value.inspector ? openDetails : undefined} optimised={optimised} lit={landing.lit} editing={editing} bounded={bounded} grips={grips} />
+                    onOpen={value.inspector ? openDetails : undefined} optimised={optimised} lit={landing.lit} editing={editing} bounded={breaches.bounded} grips={grips} />
             </Box>
         </BuilderFrame>
         </CalendarChooserContext.Provider>

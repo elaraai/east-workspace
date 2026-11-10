@@ -96,6 +96,11 @@ interface ToolbarArgs {
     optimise?: ToolbarItem | undefined;
     /** Whether a run of the optimiser is out (#1409, R2): the history item's actions locked. */
     locked?: boolean | undefined;
+    /**
+     * The events drawn whose stored rows break their kind's bounds (#1585): each a warning beside the history's issues,
+     * holding no Save — its event, and its words, `Mounting plates · Hours: at least 1`.
+     */
+    warnings?: readonly { readonly kind: string; readonly key: string; readonly text: string }[] | undefined;
 }
 
 /** The navigator over the days the timeline shows: its date the day under the view's centre, its label the days shown. */
@@ -212,6 +217,13 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         label={combined ? "View" : "Choose date"} controls={combined ? controls : undefined} rangeEditor={rangeEditor} onToday={args.onToday} />;
     const navigation = (compact = false, combined = false) => visible === undefined ? navigator(compact, combined)(args.navigationDate, args.rangeLabel)
         : <VisibleNavigator visible={visible} words={words} fallback={{ date: args.navigationDate, label: args.rangeLabel }} navigator={navigator(compact, combined)} />;
+    // An event's Go to — an issue's, a warning's — selects it and shows its day, as a pick of Search Records does, wherever
+    // the view stood.
+    const goTo = (kind: string, key: string) => {
+        select([{ kind, key }]);
+        const start = commands === undefined ? undefined : startOfIssue(commands, kind, key);
+        if (start !== undefined) args.onNavigate(dayStart(start).getTime());
+    };
     return [
         ...rail,
         switches && { key: "calendar.layout", side: "start", rank: HOST_RANK + 1, bundle: "calendar.view", forms: [<Seg label="Layout" scope="calendar" name="layout" items={layouts} active={view.layout} onPick={layout => setView({ ...view, layout })} />, null] },
@@ -231,13 +243,8 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         commands !== undefined && historyToolbarItem({ session: commands.editing.history, words, editing: false, showError: false, onAction, locked: args.locked === true,
             // A conflict's event, named as its kind's banners name it.
             where: issue => { const kind = kindOfIssue(commands, issue); return kind === undefined ? issue.entry : scheduleIssueName(commands.editing, kind, issue.entry); },
-            // An issue's Go to selects its event and shows its day, as a pick of Search Records does, wherever the view stood.
-            onIssue: issue => {
-                const kind = kindOfIssue(commands, issue);
-                if (kind === undefined) return;
-                select([{ kind, key: issue.entry }]);
-                const start = startOfIssue(commands, kind, issue.entry);
-                if (start !== undefined) args.onNavigate(dayStart(start).getTime());
-            } }),
+            onIssue: issue => { const kind = kindOfIssue(commands, issue); if (kind !== undefined) goTo(kind, issue.entry); },
+            // A stored event's breach (#1585): a warning beside the issues, holding no Save, gone to as an issue is.
+            warnings: args.warnings?.map(warning => ({ text: warning.text, go: () => goTo(warning.kind, warning.key) })) }),
     ];
 }
