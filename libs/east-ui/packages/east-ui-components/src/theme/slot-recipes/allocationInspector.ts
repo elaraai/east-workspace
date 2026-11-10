@@ -15,7 +15,8 @@
  * - `refusal` — a refused drop's note at the top of Details (A40), the shared banner 12px in.
  * - `banner` — an issue's banner (A56, A62): the shared banner in its section.
  * - `section` — one section; `sectionRow` its head with its actions at its end (`sectionActions`: `Split…`, `Open resource →`).
- * - `link` — a brand text action (`Split…`, `Open resource →`, `Show →`).
+ * - `link` — a brand text action (`Split…`, `Open resource →`, `Show →`); faint while it is off — `Split…` while the board
+ *   takes no edit.
  * - `parts` — a bin's parts in Assigned to (A70, A71): each part's quantity a field of the shared form; `remainder` what they
  *   leave unallocated, in warn-text; `split` the `Split…` popover's body: its quantity over the Chooser.
  * - `resourceField` — the resource field (A58): 32px, its name in mono, `+ Choose a resource` in warn; `fill` the
@@ -69,6 +70,7 @@ export const allocationInspectorSlotRecipe = defineSlotRecipe({
             textStyle: "body.sm", fontWeight: "medium", color: "brand.solid", whiteSpace: "nowrap",
             "& svg": fontAwesomeSize("10px"),
             _hover: { color: "brandPressed", textDecoration: "underline" },
+            _disabled: { color: "fg.faint", cursor: "default", _hover: { color: "fg.faint", textDecoration: "none" } },
             _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "2px" },
         },
         // The resource field (A58): 32px, its name in mono 14 / 600; with none, `+ Choose a resource` in warn.

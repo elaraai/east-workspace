@@ -30,7 +30,11 @@
  * lands, and Details' fields are off, as every builder's are meanwhile: a
  * bin's lane, time and quantity, its own fields or its own form, its
  * resource, a part's quantity, and a reservation's fields. None takes a value
- * the board would drop.
+ * the board would drop. So are its buttons that edit, in their places:
+ * Unlink, Revert, Back to Arrivals, a fit's Link or Move, `Split…`, a Book,
+ * a Reserve and a reservation's Remove — none pressed to do nothing, unsaid.
+ * Find a fit, `Open resource →` and a bin of a resource's day edit nothing,
+ * and stay on.
  *
  * Details keeps the keyboard (#1398): a control that goes with the view it was
  * pressed in — Back to Arrivals, Unlink, Revert, Remove, a Book or a Reserve, a
@@ -135,7 +139,7 @@ export interface InspectorArgs {
     drag: AllocationDrag;
     fit: AllocationFit;
     commands: AllocationCommands;
-    /** Whether what main shows is retained while a narrowing of it is read, or one failed (#1398, CL8): Details' fields are off. */
+    /** Whether what main shows is retained while a narrowing of it is read, or one failed (#1398, CL8): Details' fields, and its buttons that edit, are off. */
     retained: boolean;
     /** The day without a bin, and with a probe reservation in a free slot: what a reservation's and a free slot's questions are asked of. */
     without: (bin: string) => Day;
@@ -325,7 +329,7 @@ function DropRow({ args, styles, target, rank, name, why, book }: Part & { targe
     return <Box ref={ref} css={styles.dropRow} data-allocation-drop-row={target.resource}>
         <Box as="span" css={styles.dropRank}>{rank}</Box>
         <Box as="span" data-drop-row="name">{name}</Box>
-        <Box as="span" data-drop-row="action">{book && args.commands.canEdit() && <Button size="xs" variant="outline" onClick={() => args.book(target)}>Book</Button>}</Box>
+        <Box as="span" data-drop-row="action">{book && args.commands.canEdit() && <Button size="xs" variant="outline" disabled={args.retained} onClick={() => args.book(target)}>Book</Button>}</Box>
         <Box as="span" data-drop-row="why">{why}</Box>
     </Box>;
 }
@@ -356,9 +360,10 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
         <ScheduleInspectorHead styles={styles} kind={{ name: committed === undefined ? `New ${one(nouns.bin)}` : `${nouns.bin.one} ${id}`, icon: "box" }} title={`${code} · ${words.quantity(bin.quantity)}`}
             when={arrival?.meta.type === "some" ? arrival.meta.value : undefined} status={statusOf(status)} pending={status.pending} home>
             {(editable || find !== undefined) && <Box css={styles.headActions} data-allocation-bin-actions="">
-                {editable && bin.parts.size > 0 && <Button size="xs" variant="outline" onClick={() => commands.unlink(id)}><FontAwesomeIcon icon={faLinkSlash} />Unlink</Button>}
-                {editable && committed !== undefined && draft && <Button size="xs" variant="outline" onClick={() => commands.revert(id)}><FontAwesomeIcon icon={faRotateLeft} />Revert</Button>}
-                {editable && <Button size="xs" variant="outline" onClick={() => commands.remove(id)}><FontAwesomeIcon icon={faXmark} />Back to {nouns.arrival.other}</Button>}
+                {/* Each an edit: off while main is retained (CL8), as the fields are. */}
+                {editable && bin.parts.size > 0 && <Button size="xs" variant="outline" disabled={args.retained} onClick={() => commands.unlink(id)}><FontAwesomeIcon icon={faLinkSlash} />Unlink</Button>}
+                {editable && committed !== undefined && draft && <Button size="xs" variant="outline" disabled={args.retained} onClick={() => commands.revert(id)}><FontAwesomeIcon icon={faRotateLeft} />Revert</Button>}
+                {editable && <Button size="xs" variant="outline" disabled={args.retained} onClick={() => commands.remove(id)}><FontAwesomeIcon icon={faXmark} />Back to {nouns.arrival.other}</Button>}
                 {find !== undefined && <Button size="xs" variant="outline" data-allocation-find="" onClick={() => find(id)}>
                     <FontAwesomeIcon icon={faMagnifyingGlass} />{args.finding?.(id) === true ? "Finding…" : "Find a fit"}
                 </Button>}
@@ -374,7 +379,7 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
                     : alternatives.map(o => <Box key={o.key} css={styles.option} data-ranked="" data-allocation-alternative={o.key}>
                         <Box as="span" css={styles.rank}>{o.rank}</Box>
                         <Box css={styles.optionText}><Box css={styles.optionName}>{o.name}</Box><Box css={styles.optionLine} title={o.why}>{o.why}</Box></Box>
-                        {editable ? <Button size="xs" variant="outline" onClick={() => commands.link(id, o.key, undefined)}>{moves ? "Move" : "Link"}</Button> : <span />}
+                        {editable ? <Button size="xs" variant="outline" disabled={args.retained} onClick={() => commands.link(id, o.key, undefined)}>{moves ? "Move" : "Link"}</Button> : <span />}
                     </Box>)}
         </Box>
         {arrival !== undefined && arrival.details.length > 0 && <Box css={styles.section} data-allocation-details="">
@@ -591,10 +596,11 @@ function AssignedTo({ id, bin, current, at, ...part }: Part & { id: string; bin:
     </chakra.button>;
     const choices = open && <Chooser sections={sections} placeholder={`Find ${a(nouns.resource)}`} surface="inline" autoFocus
         onChoose={key => { close(); if (key !== current) commands.link(id, key, current); }} onClose={close} />;
-    // `Split…` (A71, #1362) on every bin with something to split: the remainder, or with none some of its largest part, onto another resource.
+    // `Split…` (A71, #1362) on every bin with something to split: the remainder, or with none some of its largest part, onto another resource —
+    // off while main is retained (CL8), as the fields are.
     const remainder = remainderOf(bin);
     const split = editable && splitOf(bin) !== undefined ? <SplitPopover id={id} bin={bin} context={context} plan={args.plan} commands={commands} fit={fit} words={words}
-        shown={args.shown.resources} trigger={label => <chakra.button type="button" css={styles.link} data-allocation-split-open="" title={label}>
+        shown={args.shown.resources} trigger={label => <chakra.button type="button" css={styles.link} disabled={args.retained} data-allocation-split-open="" title={label}>
             <FontAwesomeIcon icon={faArrowsSplitUpAndLeft} />Split…
         </chakra.button>} /> : undefined;
     const opener = current !== undefined && at !== undefined
@@ -700,7 +706,7 @@ function SlotDetails({ lane, at, ...part }: Part & { lane: string; at: Date }) {
             <Box css={styles.sectionHead}>Book {a(nouns.arrival)}</Box>
             {books.length === 0 ? <Box css={styles.absent}>no {other(nouns.arrival)} to book</Box>
                 : books.map(o => <ListOption key={o.key} styles={styles} name={o.code} quantity={o.quantity} line={o.line} warn={o.warn} testid={o.key}>
-                    {editable ? <Button size="xs" variant="outline" onClick={() => run(o)}>Book</Button> : <span />}
+                    {editable ? <Button size="xs" variant="outline" disabled={args.retained} onClick={() => run(o)}>Book</Button> : <span />}
                 </ListOption>)}
         </Box>
         <Box css={styles.section} data-allocation-reserve="">
@@ -708,7 +714,7 @@ function SlotDetails({ lane, at, ...part }: Part & { lane: string; at: Date }) {
             {reserve === undefined ? <Box css={styles.absent}>{fit.error !== undefined ? "fits unavailable" : CHECKING}</Box>
                 : reserve.length === 0 ? <Box css={styles.absent}>no {one(nouns.resource)} has a gap that fits</Box>
                     : reserve.map(o => <ListOption key={o.key} styles={styles} name={o.name} quantity={o.range} line={o.line} warn={false} testid={o.key}>
-                        {editable ? <Button size="xs" variant="outline" onClick={() => commands.reserve(lane, where, o.key)}>Reserve</Button> : <span />}
+                        {editable ? <Button size="xs" variant="outline" disabled={args.retained} onClick={() => commands.reserve(lane, where, o.key)}>Reserve</Button> : <span />}
                     </ListOption>)}
             <Box css={styles.line}>Or drag {a(nouns.arrival)} or {a(nouns.resource)} from the library onto this row.</Box>
         </Box>
@@ -779,7 +785,7 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
             <Box css={styles.sectionRow}>
                 <Box css={styles.sectionHead}>Assigned to</Box>
                 <Box as="span" css={styles.sectionRow}>
-                    {editable && <Button size="xs" variant="outline" title={`Remove the ${one(nouns.reservation)} · the slot becomes free`} onClick={() => commands.remove(id)}><FontAwesomeIcon icon={faXmark} />Remove</Button>}
+                    {editable && <Button size="xs" variant="outline" disabled={args.retained} title={`Remove the ${one(nouns.reservation)} · the slot becomes free`} onClick={() => commands.remove(id)}><FontAwesomeIcon icon={faXmark} />Remove</Button>}
                     {resource !== undefined && <chakra.button type="button" css={styles.link} onClick={() => args.inspect({ type: "resource", key: resource })}>Open {one(nouns.resource)}<FontAwesomeIcon icon={faArrowRight} /></chakra.button>}
                 </Box>
             </Box>
@@ -796,13 +802,13 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
             <Box css={styles.sectionHead}>Book {a(nouns.arrival)}</Box>
             {books.length === 0 ? <Box css={styles.absent}>no {other(nouns.arrival)} to book</Box>
                 : books.map(o => { const said = lineOf(o); return <ListOption key={o.key} styles={styles} name={o.code} quantity={o.quantity} line={said.line} warn={said.warn} testid={o.key}>
-                    {editable ? <Button size="xs" variant="outline" disabled={!said.enabled} onClick={() => run(o)}>Book</Button> : <span />}
+                    {editable ? <Button size="xs" variant="outline" disabled={!said.enabled || args.retained} onClick={() => run(o)}>Book</Button> : <span />}
                 </ListOption>; })}
             {name !== undefined && <Box css={styles.line}>Each {one(nouns.arrival)} is checked against {name}. Book is off when it doesn’t fit.</Box>}
         </Box>
         {draft && <Box css={styles.was} data-allocation-was="">
             <span>{wasLine(committed, context, words)}</span>
-            {editable && <Button size="sm" variant="outline" onClick={() => commands.revert(id)}><FontAwesomeIcon icon={faRotateLeft} />Revert</Button>}
+            {editable && <Button size="sm" variant="outline" disabled={args.retained} onClick={() => commands.revert(id)}><FontAwesomeIcon icon={faRotateLeft} />Revert</Button>}
         </Box>}
     </>;
 }

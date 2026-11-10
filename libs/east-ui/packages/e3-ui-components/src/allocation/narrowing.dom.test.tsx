@@ -20,7 +20,7 @@ import { StringType, decodeBeast2For, encodeBeast2For, none, printFor, variant }
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { act, allocationHarness, programOf, settle, slot, type Example, type MountOptions } from "./harness.test-utils.js";
+import { act, allocationHarness, offering, programOf, settle, slot, type Example, type MountOptions } from "./harness.test-utils.js";
 import { countBuilds } from "../shared/builds.test-utils.js";
 
 const h = allocationHarness();
@@ -294,6 +294,40 @@ describe("the Table, narrowed", () => {
         await waitFor(() => expect(c.querySelector("[data-allocation-narrowed-empty]")).not.toBeNull());
         expect(c.querySelector("[data-allocation-timeline]")).toBeNull();
     });
+
+    test("while main is retained, a free slot's Book and Reserve are off, and a reservation's Remove and Book — each in its place, saying nothing — until the narrowing lands (#1398, CL8, #1585)", async () => {
+        const { c, store } = await open(ex.allocationTable);
+        const details = () => slot(c, "end").querySelector<HTMLElement>('[data-allocation-inspector="details"]')!;
+        const board = () => slot(c, "main").querySelector<HTMLElement>("[data-allocation-main]")!;
+        /** Whether each of Details' buttons that edits is off — a Book, a Reserve, a reservation's Remove — by its option and its words. */
+        const off = () => Object.fromEntries([...details().querySelectorAll<HTMLButtonElement>("[data-allocation-book] button, [data-allocation-reserve] button, [data-allocation-assigned] button[title^='Remove']")]
+            .map(b => [`${b.closest("[data-allocation-option]")?.getAttribute("data-allocation-option") ?? ""} ${b.textContent}`.trim(), b.disabled] as const));
+        /** The lanes narrowed to `values` while the bays' reads are held on their way to e3: every one off, main retained, and each as it was once they land. */
+        const retained = async (values: readonly string[]) => {
+            const was = off();
+            const held = h.e3.hold(request => request.dataset === "records.yard_bays");
+            await narrow(store, "allocationTable", "bays", "area", values);
+            expect(board().getAttribute("aria-disabled")).toBe("true");
+            expect(off()).toEqual(Object.fromEntries(Object.keys(was).map(name => [name, true])));
+            await act(async () => { held.release(); });
+            await settle();
+            await waitFor(() => expect(board().hasAttribute("aria-disabled")).toBe(false));
+            expect(off()).toEqual(was);
+        };
+        // B-1's free slot at 00:15: every arrival it can book, and the resources to reserve it on.
+        await press(tableRow(c, "slot:B-1|2027-05-11T00:15:00.000")!.querySelector("span")!);
+        await waitFor(() => expect(details().querySelector("[data-allocation-reserve] button")).not.toBeNull());
+        expect(Object.keys(off())).toEqual(expect.arrayContaining(["arrival:LD-2231 Book", "K-305 Reserve"]));
+        expect(Object.values(off())).not.toContain(true);
+        await retained(["North"]);
+        // Reserved on K-305: its Remove, and each Book of an arrival that fits it, off the same way.
+        offering(["V1"]);
+        await press(within(details().querySelector<HTMLElement>('[data-allocation-reserve] [data-allocation-option="K-305"]')!).getByRole("button", { name: "Reserve" }));
+        await waitFor(() => expect(details().querySelector("[data-allocation-book]")!.textContent).not.toContain("checking fits…"));
+        expect(Object.keys(off())).toEqual(expect.arrayContaining(["Remove"]));
+        expect(Object.values(off())).toContain(false);
+        await retained(["North", "South"]);
+    });
 });
 
 describe("the Timeline, narrowed", () => {
@@ -369,33 +403,48 @@ describe("the Timeline, narrowed", () => {
         expect(cards(c)).not.toContain("3103");
     });
 
-    test("while main is retained — a narrowing being read, or one that could not be — Details' fields are off, as the board takes no edit: a bin's quantity, its own fields, its resource and its parts take no value it would drop, until the narrowing lands (#1398, CL8, #1585)", async () => {
+    test("while main is retained — a narrowing being read, or one that could not be — Details' fields and its buttons that edit are off, as the board takes no edit: a bin's quantity, its own fields, its resource and its parts take no value it would drop, and its Unlink, Back to Arrivals, each other gap's Move and its Split… do nothing unsaid — until the narrowing lands (#1398, CL8, #1585)", async () => {
         const { c, store } = await open(ex.allocationKilnYard);
         await waitFor(() => expect(cards(c)).toHaveLength(26));
         await press(c.querySelector('[data-allocation-card="3103"]')!);
         const details = () => slot(c, "end").querySelector<HTMLElement>('[data-allocation-inspector="details"]')!;
-        /** Whether each is off: LD-2203's quantity, its own Spec measured, its resource field and its part on K-109. */
-        const off = () => ['[data-allocation-bin-section] [data-field="quantity"] input', '[data-allocation-bin-section] [data-field="specMeasured"] input',
-            "[data-allocation-resource-field]", '[data-allocation-parts] [data-field="K-109"] input'].map(at => details().querySelector(at)!.matches(":disabled"));
-        expect(off()).toEqual([false, false, false, false]);
+        /**
+         * Whether each is off, by name: LD-2203's quantity, its own Spec measured, its resource field and its part on K-109; its
+         * Split…; and each of its head's buttons and its other gaps' by its words — never Find a fit, which edits nothing.
+         */
+        const off = () => {
+            const at = (name: string, selector: string) => [name, details().querySelector(selector)!.matches(":disabled")] as const;
+            const buttons = [...details().querySelectorAll<HTMLButtonElement>("[data-allocation-bin-actions] button:not([data-allocation-find]), [data-allocation-alternative] button")];
+            return Object.fromEntries([
+                at("quantity", '[data-allocation-bin-section] [data-field="quantity"] input'), at("specMeasured", '[data-allocation-bin-section] [data-field="specMeasured"] input'),
+                at("resource", "[data-allocation-resource-field]"), at("part", '[data-allocation-parts] [data-field="K-109"] input'), at("split", "[data-allocation-split-open]"),
+                ...buttons.map(b => [`${b.textContent} ${b.closest("[data-allocation-alternative]")?.getAttribute("data-allocation-alternative") ?? ""}`.trim(), b.disabled] as const),
+            ]);
+        };
+        /** Each of them on, or each off. */
+        const every = (value: boolean) => Object.fromEntries(Object.keys(off()).map(name => [name, value]));
+        // Its other gaps, the fit's answer, each its Move.
+        await waitFor(() => expect(details().querySelector("[data-allocation-alternative] button")).not.toBeNull());
+        expect(Object.keys(off())).toEqual(expect.arrayContaining(["Unlink", "Back to Arrivals", "split"]));
+        expect(off()).toEqual(every(false));
         // The bays' reads held on their way to e3: the lanes' new membership is in flight, main retained.
         const held = h.e3.hold(request => request.dataset === "records.yard_bays");
         await narrow(store, "allocationKilnYard", "bays", "area", ["North"]);
         expect(slot(c, "main").querySelector("[data-allocation-main]")!.getAttribute("aria-disabled")).toBe("true");
-        expect(off()).toEqual([true, true, true, true]);
+        expect(off()).toEqual(every(true));
         await act(async () => { held.release(); });
         await settle();
         await waitFor(() => expect(laneHeads(c)).toEqual(["B-1", "B-2"]));
-        expect(off()).toEqual([false, false, false, false]);
+        expect(off()).toEqual(every(false));
         // A narrowing that could not be read keeps them off — the last lanes shown — until Retry lands it.
         const failing = h.unavailable(ex.yardBays);
         await narrow(store, "allocationKilnYard", "bays", "area", ["North", "South"]);
         await waitFor(() => expect(within(slot(c, "banners")).queryByText("Lane results unavailable")).not.toBeNull());
-        expect(off()).toEqual([true, true, true, true]);
+        expect(off()).toEqual(every(true));
         failing();
         await press(within(slot(c, "banners")).getByRole("button", { name: "Retry" }));
         await waitFor(() => expect(laneHeads(c)).toEqual(["B-1", "B-2", "B-3"]));
-        expect(off()).toEqual([false, false, false, false]);
+        expect(off()).toEqual(every(false));
     });
 
     test("whatever source's narrowing is read — the lanes', the resources' or the arrivals' — the footer's line says the board's bins are being filtered, `Filtering bins…`, until it lands (#1398, CL3)", async () => {
