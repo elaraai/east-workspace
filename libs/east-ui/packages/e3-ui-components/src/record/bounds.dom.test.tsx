@@ -8,9 +8,10 @@
  * itself: an app's write leaves the window seat at bench 10, past the bench's
  * most, 9, and the hall door's paint at no coats, under their least, 1. The
  * window seat's bench cell wears the warn wash a field still missing wears,
- * saying the bound; the hall door's Details say it under Coats; Issues lists
- * both as warnings, and neither holds Save. Once the hall door is changed, its
- * issue is its own, as a field still missing is, and Save waits.
+ * saying the bound; the hall door's Details say it once, in Coats' help line,
+ * as a warning; Issues lists both as warnings, and neither holds Save. Once the
+ * hall door is changed, its issue is its own, as a field still missing is, Save
+ * waits, and Coats' help line is an error.
  */
 
 import { expect, test } from "vitest";
@@ -66,6 +67,18 @@ const listed = (c: HTMLElement) => [...pane(c).querySelectorAll<HTMLElement>("[d
     return [issue.firstElementChild?.textContent, message.textContent, message.getAttribute("data-kind")];
 });
 
+/** What the hall door's Coats says of its bound: the part of its help line said in a tone, and that tone — never a line of its own. */
+const coatsSaid = async (c: HTMLElement) => {
+    const coats = await waitFor(() => {
+        const field = pane(c).querySelector<HTMLElement>('[data-field="finish.paint.coats"]');
+        expect(field).not.toBeNull();
+        return field!;
+    });
+    expect(coats.querySelector("[data-scope=field][data-part=error-text]")).toBeNull();
+    const toned = coats.querySelector("[data-scope=field][data-part=helper-text] [data-breach]");
+    return toned === null ? undefined : [toned.textContent, toned.getAttribute("data-breach")];
+};
+
 /** Presses an element, as a pointer does. */
 async function press(el: Element) {
     fireEvent.mouseDown(el, { button: 0 });
@@ -89,7 +102,7 @@ async function typeInto(c: HTMLElement, id: string, key: string, text: string) {
     await settle();
 }
 
-test("a stored number outside its bounds is washed and said, and Issues lists it as a warning, holding no Save; changed, the issue is the row's own and Save waits (#1585)", async () => {
+test("a stored number outside its bounds is washed and said once, as a warning, and Issues lists it as a warning, holding no Save; changed, the issue is the row's own, Save waits and Details says it as an error (#1585)", async () => {
     const pieces = await h.read(ex.recordPieces);
     pieces.set("J-103", { ...pieces.get("J-103")!, bench: 10n });
     pieces.set("J-101", { ...pieces.get("J-101")!, finish: variant("paint", { colour: "Teal", coats: 0n, gloss: variant("matt", null) }) });
@@ -99,22 +112,21 @@ test("a stored number outside its bounds is washed and said, and Issues lists it
     const bench = () => cell(container, "J-103", "bench");
     expect([bench().hasAttribute("data-bounds"), bench().getAttribute("title")]).toEqual([true, "at most 9"]);
     expect(cell(container, "J-101", "bench").hasAttribute("data-bounds")).toBe(false);
-    // The hall door's Details: its coats under their least, said under the field.
+    // The hall door's Details: its coats under their least, said once, in the field's help line, as a warning.
     await press(cell(container, "J-101", "room"));
-    const coats = await waitFor(() => {
-        const field = pane(container).querySelector<HTMLElement>('[data-field="finish.paint.coats"]');
-        expect(field).not.toBeNull();
-        return field!;
-    });
-    expect(coats.querySelector("[data-scope=field][data-part=error-text]")?.textContent).toBe("at least 1");
+    expect(await coatsSaid(container)).toEqual(["1–4", "warn"]);
     // The stair rail changed: neither stored piece holds Save, and Issues lists both as warnings.
     await typeInto(container, "J-102", "room", "Stairs, east");
     expect([saveWaits(container), issuesTab(container).textContent]).toEqual([false, "Issues 2"]);
     await act(async () => { fireEvent.click(issuesTab(container)); });
     await settle();
     expect(listed(container)).toEqual([["Hall door · Coats", "at least 1", "warning"], ["Window seat · Bench", "at most 9", "warning"]]);
-    // The hall door changed: its coats are its own issue, as a field still missing is, and Save waits.
+    // The hall door changed: its coats are its own issue, as a field still missing is, Save waits, and Details says it as
+    // an error.
     await typeInto(container, "J-101", "room", "Hall, east");
     expect([saveWaits(container), issuesTab(container).textContent]).toEqual([true, "Issues 2"]);
     expect(listed(container)).toEqual([["Hall door · Coats", "at least 1", "incomplete"], ["Window seat · Bench", "at most 9", "warning"]]);
+    await act(async () => { fireEvent.click(within(pane(container)).getByRole("tab", { name: "Details" })); });
+    await settle();
+    expect(await coatsSaid(container)).toEqual(["1–4", "error"]);
 });

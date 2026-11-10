@@ -66,7 +66,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
         "form", "formHead", "formLabel", "formEyebrow", "formMeta", "formClose", "formBody", "formError", "formFoot", "formConsequence", "formButton",
         "panel", "panelState", "panelActions", "panelChoices", "panelForm",
         "bar", "barHead", "barEyebrow", "barState", "barFirst", "barRest", "barButton", "barConsequence", "barBack", "barChoice", "barClose", "barWhy",
-        "cellLine", "cellStep", "cellInput", "cellUnit", "cellHelp", "cellError", "cellClear", "cellForm",
+        "cellLine", "cellStep", "cellInput", "cellUnit", "cellHelp", "cellClear", "cellForm",
     ],
     base: {
         /* The cell's content, filling it inside its rules; the ring the grid draws after it paints over. */
@@ -427,7 +427,8 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             _focusVisible: { outline: "2px solid {colors.brand.solid}", outlineOffset: "2px" },
             _disabled: { color: "fg.faint", borderColor: "border.subtle", cursor: "default", _hover: { background: "bg.surface" } },
         },
-        /* The field: 44 tall, padded 0 12, mono 13/500 in tabular figures at its end; a drafted value on the brand's tint. */
+        /* The field: 44 tall, padded 0 12, mono 13/500 in tabular figures at its end; a drafted value on the brand's tint;
+         * a value its bounds don't hold, its edge in the tone its row's Save stands in, as the form's is (#1585). */
         cellInput: {
             flex: "1", minWidth: 0, height: "44px", boxSizing: "border-box", paddingX: "12px",
             borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "md",
@@ -435,15 +436,20 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             fontFamily: "mono", fontSize: "body", fontWeight: 500, fontVariantNumeric: "tabular-nums", textAlign: "right",
             outline: "none",
             "&[data-dirty]": { background: "brandTint", color: "brandPressed" },
+            "&[data-breach=warn]": { borderColor: "status.warn" },
+            "&[data-breach=error]": { borderColor: "status.neg" },
             _focusVisible: { borderColor: "brand.solid", boxShadow: "inset 0 0 0 1px {colors.brand.solid}" },
             _placeholder: { color: "fg.faint" },
         },
         /* A number's unit after the field: mono 10.5/500 in `--ink-4`. */
         cellUnit: { flex: "none", fontFamily: "mono", fontSize: "label.md", fontWeight: 500, lineHeight: "1.4", color: "fg.subtle" },
-        /* The help line under the field: mono 10.5 in `--ink-4`. */
-        cellHelp: { fontFamily: "mono", fontSize: "label.md", lineHeight: "1.4", color: "fg.subtle" },
-        /* A value its field's bounds don't hold, said under the field in its hint's own words, as the form says it (#1585). */
-        cellError: { fontFamily: "mono", fontSize: "label.md", lineHeight: "1.4", color: "fg.danger" },
+        /* The help line under the field: mono 10.5 in `--ink-4` — naming bounds its value doesn't hold, in the tone its row's
+         * Save stands in, as the form says it (#1585): a warning as stored, an error once its change holds Save. */
+        cellHelp: {
+            fontFamily: "mono", fontSize: "label.md", lineHeight: "1.4", color: "fg.subtle",
+            "&[data-breach=warn]": { color: "fg.warning" },
+            "&[data-breach=error]": { color: "fg.danger" },
+        },
         /* A time's Clear: a Default 44 button, padded 0 16, 12.5/500 in ink. */
         cellClear: {
             flex: "none", height: "44px", boxSizing: "border-box", paddingX: "16px",

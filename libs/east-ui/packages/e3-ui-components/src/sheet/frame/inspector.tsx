@@ -27,8 +27,10 @@
  *   refuses — a clear of a value that is never empty — leaves the field
  *   showing what the row holds, the reason under it as the footer's line says
  *   it. A field the drafts changed is tinted against what the source holds.
- *   With
- *   the author's own Details (SB58), a complete row shows what they return in
+ *   A number its field's bounds don't hold is said once, in its help line —
+ *   a phone's stepper's too — in the tone the row's Save stands in (#1585): a
+ *   warning while the row is as stored, an error once its change holds Save.
+ *   With the author's own Details (SB58), a complete row shows what they return in
  *   place of the form, and their `update` is one transaction; a row still
  *   missing a field, or holding one unreadable, shows the form until it is
  *   complete;
@@ -71,7 +73,7 @@ import {
 import type { FieldEditorValue, FieldSpecValue } from "@elaraai/east-ui/internal";
 import { Sheet, type sheetKeys } from "@elaraai/e3-ui/internal";
 import {
-    EastChakraComponent, FieldForm, fieldBreachText, fieldBreaches, fieldFormMessages, getSomeorUndefined, useDataStable, type BuilderFrameDock, type EditIssue,
+    EastChakraComponent, FieldForm, fieldBreaches, fieldFormMessages, getSomeorUndefined, useDataStable, type BuilderFrameDock, type EditIssue,
     type FieldOption,
 } from "@elaraai/east-ui-components";
 import { FrameDrawer, useSlotStyles } from "@elaraai/east-ui-components/internal";
@@ -689,6 +691,8 @@ function TargetView(props: TargetProps) {
     const edit = useTargetForm(props);
     const band = target.kind === "band";
     const issues = targetIssues(target, inspect, form, words);
+    // A bound the row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change held, an error.
+    const breaches = issues.some((issue) => issue.kind !== "warning") ? "error" : "warn";
     const isNew = target.baseline === undefined && target.value !== undefined;
     const idField = getSomeorUndefined(value.sheet.editing.idField);
     // Its id: a line's own where it has one (beside loose rows), else its entry's.
@@ -703,7 +707,7 @@ function TargetView(props: TargetProps) {
     // In a phone's drawer (SH12): its head, each field a section of its own at touch size, and its gestures at 44.
     const phone = useContext(FrameDrawer);
     if (phone && own === undefined && target.value !== undefined) {
-        return <PhoneTarget {...props} edit={edit} issues={issues} isNew={isNew} ownId={ownId as string | undefined} writes={writes} />;
+        return <PhoneTarget {...props} edit={edit} issues={issues} breaches={breaches} isNew={isNew} ownId={ownId as string | undefined} writes={writes} />;
     }
     return (
         <Box css={styles.root} data-sheet-inspector={target.kind}>
@@ -743,7 +747,7 @@ function TargetView(props: TargetProps) {
                     : own !== undefined
                         ? <EastChakraComponent value={own} storageKey={`${keys.frame}.inspector`} />
                         : <FieldForm specs={edit.specs} value={edit.formValue} baseline={edit.baseline} options={edit.options}
-                            onChange={edit.onChange} takesUnset readOnly={!inspect.writable} renderControl={edit.renderControl} />}
+                            onChange={edit.onChange} takesUnset readOnly={!inspect.writable} renderControl={edit.renderControl} breaches={breaches} />}
             </Box>
             {subRows.length > 0 && (
                 <Box css={styles.subRows} data-inspector-sub-rows="">
@@ -785,6 +789,8 @@ function TargetView(props: TargetProps) {
 interface PhoneTargetProps extends TargetProps {
     edit: ReturnType<typeof useTargetForm>;
     issues: TargetIssue[];
+    /** The tone a bound the row breaks is said in (#1585): a warning as stored, an error once its change holds Save. */
+    breaches: "warn" | "error";
     isNew: boolean;
     ownId: string | undefined;
     /** Whether the sheet takes edits: its head keeps its chip's row. */
@@ -801,7 +807,7 @@ interface PhoneTargetProps extends TargetProps {
  * every other kind its form's own input at touch size), its sub rows, and its
  * gestures as Default 44 buttons.
  */
-function PhoneTarget({ value, words, hidden, styles, inspect, target, form, noun, edit, issues, isNew, ownId, writes }: PhoneTargetProps) {
+function PhoneTarget({ value, words, hidden, styles, inspect, target, form, noun, edit, issues, breaches, isNew, ownId, writes }: PhoneTargetProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const bar = useSlotStyles("sheetAction");
@@ -865,7 +871,8 @@ function PhoneTarget({ value, words, hidden, styles, inspect, target, form, noun
                     const spec = section[0]!;
                     const f = byPath.get(pathKey(spec.path));
                     const key = f === undefined ? undefined : getSomeorUndefined(f.column);
-                    return <PhoneField key={pathKey(spec.path)} words={words} hidden={hidden} styles={styles} bar={bar} inspect={inspect} r={r} columnKey={key} spec={spec} section={section} edit={edit} value={value} />;
+                    return <PhoneField key={pathKey(spec.path)} words={words} hidden={hidden} styles={styles} bar={bar} inspect={inspect} r={r} columnKey={key} spec={spec} section={section} edit={edit} value={value}
+                        breaches={breaches} />;
                 })}
             </Box>
             {target.subRows.length > 0 && (
@@ -913,10 +920,12 @@ interface PhoneFieldProps {
     /** The field's specs: its own, then — a variant's — the fields of its cases, drawn in its block (#1549). */
     section: readonly FieldSpecValue[];
     edit: ReturnType<typeof useTargetForm>;
+    /** The tone a bound the row breaks is said in (#1585). */
+    breaches: "warn" | "error";
 }
 
 /** One field of a phone's Details (SH12): a section of its own, its label over its name, then its control at touch size. */
-function PhoneField({ words, styles, bar, inspect, r, columnKey, spec, section, edit }: PhoneFieldProps) {
+function PhoneField({ words, styles, bar, inspect, r, columnKey, spec, section, edit, breaches }: PhoneFieldProps) {
     const dirty = useDirty(spec, edit.formValue, edit.baseline);
     const meta = columnKey === undefined ? undefined : inspect.columnAt(r, columnKey);
     const header = meta?.header ?? spec.label;
@@ -933,9 +942,10 @@ function PhoneField({ words, styles, bar, inspect, r, columnKey, spec, section, 
             {columnKey !== undefined && meta?.kind === "action"
                 ? inspect.drawAction(r, columnKey)
                 : columnKey !== undefined && touch !== undefined
-                    ? <TouchControl inspect={inspect} words={words} bar={bar} r={r} columnKey={columnKey} spec={spec} header={header} dirty={dirty} joins={undefined} />
+                    ? <TouchControl inspect={inspect} words={words} bar={bar} r={r} columnKey={columnKey} spec={spec} header={header} dirty={dirty} joins={undefined}
+                        breaches={breaches} />
                     : <FieldForm specs={section} value={edit.formValue} baseline={edit.baseline} options={edit.options}
-                        onChange={edit.onChange} takesUnset readOnly={!inspect.writable} renderControl={edit.renderControl} />}
+                        onChange={edit.onChange} takesUnset readOnly={!inspect.writable} renderControl={edit.renderControl} breaches={breaches} />}
         </Box>
     );
 }
@@ -1051,14 +1061,17 @@ function CellEditorField({ value, words, hidden, styles, bar, inspect, target, f
     const specs = useMemo(() => [spec], [spec]);
     const writable = inspect.writable;
     const dirty = useDirty(spec, edit.formValue, edit.baseline);
+    // A bound the row breaks (#1585), said in the tone its Save stands in, as Details says it.
+    const breaches = targetIssues(target, inspect, form, words).some((issue) => issue.kind !== "warning") ? "error" : "warn";
     if (touchKind(inspect, at.r, at.columnKey, spec) !== undefined) {
-        return <TouchControl inspect={inspect} words={words} bar={bar} r={at.r} columnKey={at.columnKey} spec={spec} header={header} dirty={dirty} joins={joins} />;
+        return <TouchControl inspect={inspect} words={words} bar={bar} r={at.r} columnKey={at.columnKey} spec={spec} header={header} dirty={dirty} joins={joins}
+            breaches={breaches} />;
     }
     // Every other kind (R9): the form's own input, at touch size.
     return (
         <chakra.div css={bar.cellForm} data-cell-form="">
             <FieldForm specs={specs} value={edit.formValue} baseline={edit.baseline} options={edit.options}
-                onChange={edit.onChange} readOnly={!writable} renderControl={edit.renderControl} live />
+                onChange={edit.onChange} readOnly={!writable} renderControl={edit.renderControl} live breaches={breaches} />
         </chakra.div>
     );
 }
@@ -1093,16 +1106,20 @@ interface TouchControlProps {
     dirty: boolean;
     /** The key a run of edits joins under as one step, if it is one (SH10.1). */
     joins: string | undefined;
+    /** The tone a bound the row breaks is said in (#1585): a warning as stored, an error once its change holds Save. */
+    breaches: "warn" | "error";
 }
 
 /**
  * A field's touch control, as a phone's cell editor and a phone's Details draw
  * it (SH10, SH12): a number − · the field · its unit · + (digits only), and
- * under it, a value its bounds don't hold in its hint's own words (#1585); a
- * time of day its `hh:mm` field, filled as digits are typed, and Clear — or
- * `null` for every other kind, which its form's own input edits.
+ * under it its help, its bounds as the form words them — a value they don't
+ * hold said there once, as the form says it, in the tone the row's Save stands
+ * in, the field's edge with it (#1585); a time of day its `hh:mm` field,
+ * filled as digits are typed, and Clear — or `null` for every other kind,
+ * which its form's own input edits.
  */
-function TouchControl({ inspect, words, bar, r, columnKey, spec, header, dirty, joins }: TouchControlProps) {
+function TouchControl({ inspect, words, bar, r, columnKey, spec, header, dirty, joins, breaches }: TouchControlProps) {
     const { m } = words;
     const kind = touchKind(inspect, r, columnKey, spec);
     const cell = inspect.cellAt(r, columnKey);
@@ -1141,9 +1158,10 @@ function TouchControl({ inspect, words, bar, r, columnKey, spec, header, dirty, 
             min: min === undefined ? undefined : words.number(min), max: max === undefined ? undefined : words.number(max), unit: undefined, step: undefined,
         });
         const help = [bounds, getSomeorUndefined(spec.help)].filter((part): part is string => part !== undefined && part !== "");
-        // A value its bounds don't hold, said under it in its hint's own words, as Details says it (#1585).
+        // A value its bounds don't hold: its help line, which names them, in the row's tone, as Details says it (#1585).
         const breach = held === undefined ? undefined
             : fieldBreaches([spec], spec.path.reduceRight<unknown>((inner, name) => ({ [name]: inner }), spec.optional ? some(held) : held))[0];
+        const tone = breach === undefined ? undefined : breaches;
         return (
             <>
                 <chakra.div css={bar.cellLine}>
@@ -1151,14 +1169,13 @@ function TouchControl({ inspect, words, bar, r, columnKey, spec, header, dirty, 
                         <FontAwesomeIcon icon={faMinus} aria-hidden />
                     </chakra.button>
                     <TypedInput css={bar.cellInput} printed={printed} dirty={dirty} label={header} disabled={!writable} inputMode={integer ? "numeric" : "decimal"}
-                        accept={(typed) => (integer ? typed.replace(/[^\d-]/g, "") : typed.replace(/[^\d.,-]/g, ""))} onTyped={writeText} />
+                        accept={(typed) => (integer ? typed.replace(/[^\d-]/g, "") : typed.replace(/[^\d.,-]/g, ""))} onTyped={writeText} breach={tone} />
                     {unit !== undefined && <chakra.span css={bar.cellUnit} data-cell-unit="">{unit}</chakra.span>}
                     <chakra.button type="button" css={bar.cellStep} aria-label={m.cellEditorStep({ header, more: true })} disabled={!writable} data-cell-step="more" onClick={() => stepBy(true)}>
                         <FontAwesomeIcon icon={faPlus} aria-hidden />
                     </chakra.button>
                 </chakra.div>
-                {help.length > 0 && <chakra.span css={bar.cellHelp} data-cell-help="">{help.join(" · ")}</chakra.span>}
-                {breach !== undefined && <chakra.span css={bar.cellError} data-cell-error="">{fieldBreachText(breach, { ...words, m: fieldFormMessages })}</chakra.span>}
+                {help.length > 0 && <chakra.span css={bar.cellHelp} data-cell-help="" data-breach={tone}>{help.join(" · ")}</chakra.span>}
             </>
         );
     }
@@ -1204,14 +1221,16 @@ interface TypedInputProps {
     accept: (typed: string) => string;
     /** Told what the field holds after each keystroke. */
     onTyped: (text: string) => void;
+    /** The tone of a bound its value breaks (#1585): its edge, and — an error — invalid; `undefined` while it breaks none. */
+    breach?: "warn" | "error" | undefined;
 }
 
 /** A phone's cell editor's field: what is typed into it stands while it is typed, and the cell's value otherwise. */
-function TypedInput({ css, printed, dirty, label, disabled, inputMode, placeholder, accept, onTyped }: TypedInputProps) {
+function TypedInput({ css, printed, dirty, label, disabled, inputMode, placeholder, accept, onTyped, breach }: TypedInputProps) {
     const [typed, setTyped] = useState<string | undefined>(undefined);
     return (
         <chakra.input css={css} value={typed ?? printed} aria-label={label} disabled={disabled} inputMode={inputMode} placeholder={placeholder}
-            data-dirty={dirty ? "" : undefined} data-cell-input=""
+            aria-invalid={breach === "error" ? true : undefined} data-dirty={dirty ? "" : undefined} data-breach={breach} data-cell-input=""
             onChange={(e) => { const next = accept(e.currentTarget.value); setTyped(next); onTyped(next); }}
             onBlur={() => setTyped(undefined)} />
     );

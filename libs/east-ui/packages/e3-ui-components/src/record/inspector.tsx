@@ -24,7 +24,10 @@
  * Every edit is the Sheet's form's, written as the row's cell writes it — a
  * number's box emptied as its cell emptied: one draft and one step of the
  * history — or, refused by its cell, none, the field
- * showing what the row holds and why under it. A complete row given the author's own
+ * showing what the row holds and why under it. A number its field's bounds
+ * don't hold is said once, in its help line, in the tone the row's Save stands
+ * in (#1585): a warning while the row is as stored, an error once its change
+ * holds Save. A complete row given the author's own
  * Details shows them in the form's place (SB58). A title opened, a copy made
  * and an issue gone to put the keyboard in their field (AD1, IN7, IN9): the
  * focus the Record asks for ({@link RecordInspector}). Several rows are the
@@ -183,6 +186,8 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
     const edit = useTargetForm({ value, words, hidden, styles, inspect, target, form });
     const own = useAuthorDetails({ value, pane, inspect, target, form, struct: edit.struct });
     const issues = targetIssues(target, inspect, form, words);
+    // A bound the row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change held, an error.
+    const breaches = issues.some((issue) => issue.kind !== "warning") ? "error" : "warn";
     const registers = useMemo(() => indexRegisters(value.sheet.registers), [value.sheet.registers]);
     const isNew = target.baseline === undefined && target.value !== undefined;
     const r = target.r;
@@ -362,7 +367,7 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
                     : own !== undefined
                         ? <EastChakraComponent value={own} storageKey={`${keys.frame}.inspector`} />
                         : <FieldForm specs={specs} value={edit.formValue} baseline={edit.baseline} options={edit.options} onChange={edit.onChange}
-                            takesUnset readOnly={!inspect.writable} renderControl={renderControl} lines={lines} issues={named} focus={focusKey} />}
+                            takesUnset readOnly={!inspect.writable} renderControl={renderControl} lines={lines} issues={named} focus={focusKey} breaches={breaches} />}
             </Box>
             {facts.length > 0 && (
                 <Box css={record.facts} data-record-facts="">
