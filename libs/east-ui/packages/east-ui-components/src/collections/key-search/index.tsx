@@ -559,7 +559,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     return (
         <Box css={[styles.search, { '--key-search-width': `${placeholder.length + (status === null ? 10 : 26)}ch` }]}
             onKeyDownCapture={onKeyDownCapture} data-part="dataset-key-search">
-            <EastChakraCombobox key={resetSeq} value={payload} selectionBehavior="preserve" filterItems={false} openOnClick={browseQuery !== undefined} text={shown}
+            <EastChakraCombobox key={resetSeq} value={payload} selectionBehavior="preserve" filterItems={false} keyed openOnClick={browseQuery !== undefined} text={shown}
                 // Its lines on their way, the popup says so — never `No matches` over a range found (#1398, CL13).
                 indicators={indicators} emptyText={loading || listing ? 'Searching…' : listFailure ?? hint ?? (range === null ? 'Type to search' : noMatchesText ?? (keyType.type === 'String'
                     ? 'No matches. Keys are case-sensitive.' : 'No matches'))} />

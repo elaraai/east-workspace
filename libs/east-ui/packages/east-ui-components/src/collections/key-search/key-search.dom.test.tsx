@@ -150,8 +150,10 @@ describe("DatasetKeySearch", () => {
 
         const input = screen.getByPlaceholderText("Search Records") as HTMLInputElement;
         await userEvent.type(input, "K");
-        await waitFor(() => expect(screen.getByText("K19 · Rack")).toBeTruthy());
-        fireEvent.click(screen.getByText("K19 · Rack"));
+        await waitFor(() => expect(screen.getByRole("option", { name: "K19 · Rack" })).toBeTruthy());
+        // The line's key, up to its first ` · `, is set apart for the design system's mono face.
+        expect(screen.getByRole("option", { name: "K19 · Rack" }).querySelector("[data-item-key]")?.textContent).toBe("K19");
+        fireEvent.click(screen.getByRole("option", { name: "K19 · Rack" }));
         await waitFor(() => expect(input.value).toBe("K19"));
         expect(screen.getByRole("status").textContent).toBe("20 of 30");
         // A host that keeps the search is told what the box shows.

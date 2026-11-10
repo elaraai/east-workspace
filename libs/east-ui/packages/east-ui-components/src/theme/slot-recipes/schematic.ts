@@ -633,9 +633,12 @@ export const schematicSlotRecipe = defineSlotRecipe({
             "&[data-open] svg": { transform: "rotate(90deg)" },
             "&[data-leaf]": { visibility: "hidden" },
         },
+        /* A row's name, in the design system's mono face as the Find list's keys are. */
         indexName: {
             flex: "1",
             minWidth: "0",
+            fontFamily: "mono",
+            fontVariantNumeric: "tabular-nums",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
