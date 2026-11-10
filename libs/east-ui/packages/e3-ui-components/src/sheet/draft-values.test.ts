@@ -18,7 +18,8 @@ const Draft = Sheet.Types.Draft(Row);
 const value = { id: "a", qty: 0n, enabled: false, text: "", tags: [], note: none };
 
 test("schema completeness accepts zero, false, empty strings, and empty arrays without an author callback", () => {
-    expect(normalizeDraft(Draft, liftDraft(Draft, value), "a")).toEqual({ domain: value, readiness: variant("ready", null) });
+    // Complete, it holds its whole value: the check of each field's bounds reads it (#1585).
+    expect(normalizeDraft(Draft, liftDraft(Draft, value), "a")).toEqual({ domain: value, held: value, readiness: variant("ready", null) });
 });
 
 test("every missing required field is reported, independently of visible columns", () => {
