@@ -312,8 +312,8 @@ test("a write with no answer leaves the session unknown: Save turns into Retry, 
     await waitFor(() => expect(banners(container)).toEqual(["unknown"]), { timeout: 15_000 });
     expect(statusLine(container)).toBe(editingMessages.historyStatus({ status: "unknown" }));
     expect(toolbar(container).queryByRole("button", { name: "Save" })).toBeNull();
-    // No gesture while the request is unresolved.
-    expect(disabled(toolbar(container).getByRole("button", { name: "Undo" }))).toBe(true);
+    // The write stands unanswered, and the editing goes on: Undo is there for the change it sent.
+    expect(disabled(toolbar(container).getByRole("button", { name: "Undo" }))).toBe(false);
     losing();
     await press(toolbar(container).getByRole("button", { name: "Retry request" }));
     const keys = h.requests("mutate", JOBS.name).map((request) => request.idempotencyKey);

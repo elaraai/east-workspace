@@ -173,7 +173,7 @@ for (const arm of ["inline", "paged"] as const) {
             expect(canvas.applies).toHaveLength(1);
         });
 
-        test("an acknowledgement lost after the write freezes the session — and Retry sends the SAME request, written once", async () => {
+        test("an acknowledgement lost after the write leaves its Save to ask again while the editing goes on — Undo and the canvas take their gestures, Discard waits — and Retry sends the SAME request, written once, what was dropped since left to save", async () => {
             const canvas = await mountCanvas({ arm });
             const c = canvas.container;
             await dropJob(canvas, "job-1", "p1");
@@ -182,19 +182,25 @@ for (const arm of ["inline", "paged"] as const) {
             // The banner says so, with its Retry; the toolbar keeps one row.
             expect(banner(c, "unknown")!.textContent).toContain("Acknowledgement lost");
             expect(c.querySelector('[data-frame-slot="toolbar"] [role="alert"]')).toBeNull();
-            expect(historyButton(canvas, "Undo").disabled).toBe(true);
-            expect(historyButton(canvas, "Discard").disabled).toBe(true);
-            // The canvas takes no gesture until the answer is known.
-            expect(dropCellOf(c, "p2")).toBeNull();
+            // A Save never stops the editing: Undo is on, and the canvas takes a drop. Discard waits for the answer.
+            expect([historyButton(canvas, "Undo").disabled, historyButton(canvas, "Discard").disabled]).toEqual([false, true]);
+            expect(dropCellOf(c, "p1")).not.toBeNull();
+            await dropJob(canvas, "job-2", "p1");
+            // The drop is a gesture of the history, as any other.
+            expect(labels(canvas)).toEqual(["Drop job-1 on Press 1", "Drop job-2 on Press 1"]);
             await bannerAction(c, "unknown", "apply");
             expect(banner(c, "unknown")).toBeNull();
             expect(canvas.queryByRole("alert")).toBeNull();
+            // The request as it was first sent, the drop made since no part of it.
             expect(canvas.applies).toHaveLength(2);
             expect(canvas.applies[1]).toEqual(canvas.applies[0]);
             expect(await canvas.writes()).toBe(1);
+            expect([...(await canvas.stored()).get("p1")!.jobs.keys()]).toEqual(["job-1"]);
             await canvas.confirm();
-            expect(marks(c)).toEqual({});
-            expect(jobsDrawn(c, "p1")).toEqual(["job-1"]);
+            // Read back: the first drop is the source's, and the second is what is left to save.
+            expect(marks(c)).toEqual({ p1: "pending" });
+            expect(jobs(c).map((drawn) => [...drawn].sort())).toEqual([["job-1", "job-2"], [], []]);
+            expect(historyButton(canvas, "Save").disabled).toBe(false);
         });
 
         test("the author's check marks the press it refuses — and Save waits for it", async () => {

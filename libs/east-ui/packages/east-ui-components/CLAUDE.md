@@ -600,6 +600,18 @@ component, nothing in east-ui.
   (`shared/schedule/cells.ts`) read by it; its Sheet reads its rows by the
   same test, said over its own row positions (`sheet/use-editing.ts`'
   `awaiting`).
+- **A Save never stops the editing** (`EditSession`, `src/editing/session.ts`). A session takes gestures, Undo and
+  Redo while its request is on its way, while what it saved is read back, while a write has no answer and while its
+  drafts are carried over to a source that moved; another view's request for the source holds its Save, never its
+  gestures (`writable` says a gesture is taken, `canApply` that a Save can be sent). The request keeps the bytes it
+  was sent with. Confirmed, what it left is the original of each entry it held, so what was drafted since is what is
+  left to save, each change from what the Save left. A read back that differs — another write beside the Save's —
+  keeps those drafts, each merged over the source's value from the version the request sent, a part both changed a
+  conflict to choose; what was not drafted since goes with the history, as when the source moves under no drafts.
+  Discard stays off until the request resolves. A host that tells a Save's own entries from those drafted since it
+  was sent asks `sends(id)` (the Sheet's counts). Over several sessions (`EditHistory`), a session whose drafts fail
+  their checks, or that holds a conflict still to choose, holds back its own changes alone: Save sends the others',
+  and waits, saying why, only once nothing else can be sent.
 - **The data set editing belongs to** (`EditingScope`, `src/editing/scope.ts`).
   A host whose sources are one data set's names it — e3-ui-components'
   `E3Provider` names the server, repository and workspace — and each

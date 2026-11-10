@@ -524,7 +524,8 @@ test("view preparation precedes submission; only changed primary entries reach i
     session.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");
     const save = session.apply();
     expect(applied).toBe(0);
-    expect(session.writable).toBe(false);
+    // The request is unresolved: the next Save waits for it, a gesture does not.
+    expect([session.locked, session.canApply, session.writable]).toEqual([true, false, true]);
     release();
     await save;
     expect(seen).toEqual([["a"]]);

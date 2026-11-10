@@ -100,13 +100,13 @@ export interface EditingMessages {
     conflictShowAll: () => string;
     /** Folds it again. */
     conflictShowLess: () => string;
-    /** Its first words: what happened, and what to do. */
+    /** Its first words: what happened, what to do, and that these changes wait for it — another record's still save. */
     conflictsIntro: () => string;
     /** Every conflict chosen — `All 2 conflicts chosen. Save is on.` */
     conflictsSettled: (p: { n: number; count: string }) => string;
     /** Every conflict chosen, and nothing left to save: each choice took the newer value. */
     conflictsSettledNothing: (p: { n: number; count: string }) => string;
-    /** Said as conflicts appear, to a screen reader. */
+    /** Said as conflicts appear, to a screen reader: how many, and that they are not saved until chosen. */
     conflictsAppeared: (p: { n: number; count: string }) => string;
     /** Keep every one's draft value. */
     conflictsKeepAll: () => string;
@@ -245,10 +245,10 @@ export const editingMessages: EditingMessages = {
     conflictsLockedTip: ({ n, count }) => `${count} ${plural(n, "conflict", "conflicts")} · Choices are off while the optimiser runs`,
     conflictShowAll: () => "Show all",
     conflictShowLess: () => "Show less",
-    conflictsIntro: () => "Someone else changed these while you were editing. Choose which version to keep. Save is off until every one is chosen.",
+    conflictsIntro: () => "Someone else changed these while you were editing. Choose which version to keep. These changes are not saved until every one is chosen.",
     conflictsSettled: ({ n, count }) => (n === 1 ? "The conflict is chosen. Save is on." : `All ${count} conflicts chosen. Save is on.`),
     conflictsSettledNothing: ({ n, count }) => (n === 1 ? "The conflict is chosen. Nothing is left to save." : `All ${count} conflicts chosen. Nothing is left to save.`),
-    conflictsAppeared: ({ n, count }) => `${count} of your ${plural(n, "changes conflicts", "changes conflict")} with newer changes. Save is off until you choose.`,
+    conflictsAppeared: ({ n, count }) => `${count} of your ${plural(n, "changes conflicts", "changes conflict")} with newer changes. ${plural(n, "It is", "They are")} not saved until you choose.`,
     conflictsKeepAll: () => "Keep all mine",
     conflictsTakeAll: () => "Use all theirs",
     conflictYours: () => "Yours",

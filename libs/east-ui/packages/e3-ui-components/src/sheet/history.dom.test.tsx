@@ -88,7 +88,7 @@ test("Undo first commits an open editor, then undoes that gesture; Redo restores
     expect(quantity()).toBe(1n);
 });
 
-test("an acknowledgement lost after persistence freezes mutations and retries the identical request", async () => {
+test("an acknowledgement lost after persistence leaves the editing going — Undo on, Discard waiting, a cell typed meanwhile taken — and Retry sends the identical request, the edit made since left to save", async () => {
     const sheet = view();
     const root = sheet.sheet;
     if (root.editing.onApply.type !== "some") throw new Error("Expected writer");
@@ -105,10 +105,12 @@ test("an acknowledgement lost after persistence freezes mutations and retries th
     expect(quantity()).toBe(8n);
     // The frame's banner says so (#1184), the error under its title, and holds the Retry.
     expect(ui.getByRole("alert").closest('[data-session-banner="unknown"]')!.textContent).toContain("Acknowledgement lost");
-    expect((ui.getByRole("button", { name: "Undo" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((ui.getByRole("button", { name: "Discard" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.doubleClick(ui.cell());
-    expect(ui.input()).toBeNull();
+    // A Save never stops the editing: Undo is on, and the cell takes another edit. Discard waits for the answer.
+    const disabled = (name: string) => (ui.getByRole("button", { name }) as HTMLButtonElement).disabled;
+    expect([disabled("Undo"), disabled("Discard")]).toEqual([false, true]);
+    await ui.edit("9");
+    await act(async () => { fireEvent.keyDown(ui.input(), { key: "Enter" }); });
+    expect([ui.input(), ui.cell().textContent]).toEqual([null, "9"]);
     // Retry from the banner, as the history item's own Retry would.
     const retry = ui.container.querySelector<HTMLElement>('[data-session-banner="unknown"] [data-banner-action="apply"]')!;
     expect(retry.textContent).toBe("Retry request");
@@ -118,11 +120,17 @@ test("an acknowledgement lost after persistence freezes mutations and retries th
     });
     expect(ui.container.querySelector('[data-session-banner="unknown"]')).toBeNull();
     expect(ui.queryByRole("alert")?.textContent).toBeUndefined();
+    // The request as it was first sent, the edit made since no part of it.
     expect(requests).toHaveLength(2);
     expect(requests[1]).toEqual(requests[0]);
+    expect(quantity()).toBe(8n);
     ui.refresh();
-    expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(ui.saveStatus()).toBeNull();
+    // Read back: 8 is the source's, and the 9 typed since is what is left to save.
+    expect([ui.cell().textContent, disabled("Save"), ui.saveStatus()]).toEqual(["9", false, null]);
+    await ui.press("Save");
+    expect(quantity()).toBe(9n);
+    ui.refresh();
+    expect([disabled("Save"), ui.saveStatus()]).toEqual([true, null]);
 });
 
 test("a missing required field blocks Save and the issue button focuses its cell", async () => {

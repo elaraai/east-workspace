@@ -131,7 +131,7 @@ test("while conflicts wait, their button leads the bar's buttons with how many, 
     fireEvent.click(save);
     expect(ui.onAction).not.toHaveBeenCalled();
     // Said once, as they appear.
-    expect(document.querySelector("[data-conflicts-said]")!.textContent).toBe("2 of your changes conflict with newer changes. Save is off until you choose.");
+    expect(document.querySelector("[data-conflicts-said]")!.textContent).toBe("2 of your changes conflict with newer changes. They are not saved until you choose.");
 });
 
 test("the folded bar keeps the button: it is what turns Save back on", () => {

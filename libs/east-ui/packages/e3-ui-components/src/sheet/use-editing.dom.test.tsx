@@ -309,6 +309,64 @@ test("a paged Save's rows are drawn as it left them over the rows read before it
     expect(hook.result.current.savedFrom.size).toBe(0);
 });
 
+test("a row drafted while a paged Save is read back is none of that Save's: only the rows the Save wrote are held by the revision it was drafted at — one of them drafted again since among them — and what was drafted since is left to save", async () => {
+    initializeStore(new UIStore());
+    let domain = [...rows, { id: "c", qty: 3n, hidden: [] }];
+    let revision = "r0";
+    const compile = East.function([], Sheet.Types.Root, ($) => {
+        const source = $.const(PINNED_ROWS, Paged.Types.PinnedSource(Rows));
+        return Sheet.Root(source, { qty: Sheet.column.integer(Row) }, { id: "id", onApply: East.function([Sheet.Types.ChangeSet(Row)], Sheet.Types.ApplyResult, () => variant("conflict", [])), edits: { insertRows: false } });
+    }).toIR().compile([]);
+    const root = compile();
+    if (root.rows.type !== "pinned") throw new Error("Expected a pinned Sheet");
+    const apply = East.compile(Sheet.apply(Row, "id"), []);
+    const decodeBatch = decodeBeast2For(Sheet.Types.ChangeSet(Row));
+    const encode = encodeBeast2For(Row);
+    const decodeWire = decodeBeast2For(Sheet.Types.Row);
+    // The source's rows as the sheet projects them, at the revision it serves.
+    const projected = () => domain.map((row) => decodeWire(root.editing.project(encode(row), row.id)) as SheetRowValue);
+    const source = {
+        ...root.rows.value,
+        page: (offset: bigint, count: bigint) => some(projected().slice(Number(offset), Number(offset + count))),
+        revision: () => some(revision),
+        refresh: () => null,
+        total: () => some(BigInt(domain.length)),
+    };
+    const editing = { ...root.editing, readEntry: (id: string, offset: bigint) => {
+        const row = domain[Number(offset)];
+        return row !== undefined && stringEqual(row.id, id) ? some(encode(row)) : none;
+    }, onApply: some(variant("sync", (payload: Uint8Array) => {
+        const applied = apply(domain, decodeBatch(payload), some(revision));
+        if (applied.type === "conflict") return variant("conflict", applied.value);
+        domain = applied.value;
+        return variant("applied", { revision: some("r1") });
+    })) };
+    const before = projected();
+    let drawn: { rows: readonly SheetRowValue[]; read: SheetRowsRead } = { rows: before, read: { revision: "r0", before: () => false } };
+    const hook = renderHook(() => useSheetEditing(editing, { ...source }, drawn.rows, useIndexes(drawn.rows), "paged-since", undefined, undefined, false, false, undefined, undefined, drawn.read));
+    const qtyOf = (id: string) => hook.result.current.layer.edits.get(id)?.cells.get("qty");
+    const setQty = (at: number, qty: bigint): SheetEditValue =>
+        variant("commit", { rowId: before[at]!.id, offset: BigInt(at), key: "qty", row: { ...before[at]!, cells: new Map([["qty", variant("Integer", qty)]]) }, source: variant("typed", null) });
+    act(() => { hook.result.current.record([setQty(0, 7n)]); });
+    await act(async () => { await hook.result.current.session.apply(); });
+    expect(hook.result.current.session.status).toBe("reconciling");
+    // While it is read back, the row it wrote is drafted again, and another row for the first time: both are recorded.
+    let recorded: boolean[] = [];
+    act(() => { recorded = [hook.result.current.record([setQty(0, 8n)]), hook.result.current.record([setQty(2, 9n)])]; });
+    expect(recorded).toEqual([true, true]);
+    expect([qtyOf("a"), qtyOf("c")]).toEqual([variant("Integer", 8n), variant("Integer", 9n)]);
+    // The Save's own row alone is held by the revision it was drafted at: a count read there adds the other as a draft.
+    expect([...hook.result.current.savedFrom]).toEqual([["a", "r0"]]);
+    // Read back at the revision it committed: what was drafted since is what is left to save, drawn as it was.
+    revision = "r1";
+    drawn = { rows: before, read: { revision: "r1", before: () => true } };
+    hook.rerender();
+    expect([hook.result.current.session.status, hook.result.current.session.pending]).toEqual(["idle", 2]);
+    expect([qtyOf("a"), qtyOf("c")]).toEqual([variant("Integer", 8n), variant("Integer", 9n)]);
+    await act(async () => { await hook.result.current.session.apply(); });
+    expect(domain.map((row) => [row.id, row.qty])).toEqual([["a", 8n], ["b", 2n], ["c", 9n]]);
+});
+
 test.each([["exactly", false], ["beside another write", true]] as const)("a Save's new row and the row it changed, read back %s, are edited from what the Save left — the new row drawn where it was placed, its edit one more change of it and never a second add — and drawn once over another query's rows that read it already (#1583)", async (_how, beside) => {
     initializeStore(new UIStore());
     const Item = StructType({ id: StringType, qty: IntegerType, note: StringType });

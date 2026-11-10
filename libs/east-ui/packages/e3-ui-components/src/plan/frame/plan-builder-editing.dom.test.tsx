@@ -599,8 +599,8 @@ describe("Save per kind (PB45–PB48)", () => {
         await press(historyButton(container, SAVE));
         await writes.holding;
         expect(statusLine(container)).toBe(editingMessages.historyStatus({ status: "applying" }));
-        // While the stop's write is out its kind takes no gesture: the selected stop's edits are off.
-        expect(edits(container).disabled).toBe(true);
+        // A Save never stops the editing: while the stop's write is out its kind takes a gesture still, the selected stop's edits on.
+        expect(edits(container).disabled).toBe(false);
         await act(async () => { writes.release(); });
         await settle();
         expect(edits(container).disabled).toBe(false);

@@ -26,7 +26,8 @@
  *   changes what its key reads, its links with it — a Shift session growing
  *   its line where it moved (#1584) — and a key another row holds refusing
  *   the gesture, naming that row — as the rail's filters hiding a link that
- *   may name it does (#1580), and a Save of the links naming it in flight
+ *   may name it does (#1580), while a Save of the links naming it, on its
+ *   way, refuses nothing: the row moves, its links with it, left to save
  *   (#1584);
  *   by DateTime, a placeholder — Save waiting, Issues listing it, Connect
  *   from it refused — until the viewer types its key in the inspector, the
@@ -512,7 +513,7 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
             .toBe(printFor(fx.keyedRopes.type)(withRows(ropes, compareNumber, [[1n, { from: { row: 1n, col: 1n }, to: { row: 1n, col: 3n }, note: "Along row 1" }]])));
     });
 
-    test("keyed by row and column, a column edited while the ropes' Save is in flight is refused, saying so, and nothing is recorded — the rope along row 1 couldn't follow the spot; the Save landed, the same edit moves the spot and the rope with it (#1584)", async () => {
+    test("keyed by row and column, a column edited while the ropes' Save is on its way is taken as any other — a Save never stops the editing: the spot moves under its new key, still selected, and the rope along row 1 follows it, drafted beside the Save's own rope; the Save landed, the move is what is left to save, and Save writes both (#1584)", async () => {
         const spots = await h.read(fx.placedSpots), ropes = await h.read(fx.keyedRopes);
         const spot = printFor(fx.SpotKey);
         const c = await open({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
@@ -534,21 +535,24 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
         const saving = h.e3.hold((request) => request.kind === "mutate" && request.record === fx.keyedRopes.name);
         await click(saveButton(c));
         await saving.holding;
-        // 1-2's column edited to 3 meanwhile: refused, saying why, and the form shows its column again.
+        // 1-2's column edited to 3 meanwhile: the ropes naming it take the edit as they always do, so it moves under
+        // (1, 3), refusing nothing, still selected, and the form shows its new column.
         await tool(c, "Select");
         await tap(canvas, CAM, 22, 3);
         await waitFor(() => expect(isSelected(c, "spots", spot({ row: 1n, col: 2n }))).toBe(true));
         await retypeNumber(c, "row", "col", "3");
-        expect(refused(c)).toBe(m.keyRefused({ refusal: "unheld", name: "1-2", kind: "rope", why: "busy" }));
-        expect(refused(c)).toBe("1-2 isn't changed: the ropes naming it take no edit now — try again in a moment");
-        expect(within(field(c, "row", "col")).getByRole<HTMLInputElement>("spinbutton").value).toBe("2");
-        expect(isSelected(c, "spots", spot({ row: 1n, col: 2n }))).toBe(true);
-        // The Save landed: the same edit moves 1-2 under (1, 3), the rope along row 1 with it.
+        await waitFor(() => expect(isSelected(c, "spots", spot({ row: 1n, col: 3n }))).toBe(true));
+        expect([refused(c), card(c, "spots", spot({ row: 1n, col: 2n }))]).toEqual([undefined, null]);
+        expect(within(field(c, "row", "col")).getByRole<HTMLInputElement>("spinbutton").value).toBe("3");
+        // The Save landed: the new rope is the record's, the rope along row 1 still naming 1-2 there, and the move — the
+        // spot's, and its rope's — is what is left to save.
         await act(async () => { saving.release(); });
         await settle();
-        await waitFor(() => expect(unsaved(c)).toBe(false));
-        await retypeNumber(c, "row", "col", "3");
-        await waitFor(() => expect(isSelected(c, "spots", spot({ row: 1n, col: 3n }))).toBe(true));
+        const roped = printFor(fx.keyedRopes.type)(withRows(ropes, compareNumber, [[2n, { from: { row: 2n, col: 1n }, to: { row: 1n, col: 1n }, note: "" }]]));
+        await waitFor(async () => expect(printFor(fx.keyedRopes.type)(await h.read(fx.keyedRopes))).toBe(roped));
+        expect(printFor(fx.placedSpots.type)(await h.read(fx.placedSpots))).toBe(printFor(fx.placedSpots.type)(spots));
+        expect(isSelected(c, "spots", spot({ row: 1n, col: 3n }))).toBe(true);
+        await waitFor(() => expect([unsaved(c), saveButton(c).disabled]).toEqual([true, false]));
         expect(await save(c)).toEqual([fx.keyedRopes.name, fx.placedSpots.name].sort(compareText));
         const placed = withRows(spots, compareFor(fx.SpotKey), [[{ row: 1n, col: 3n }, { name: "1-2", row: 1n, col: 3n, x: 22.0, y: 3.0 }]]);
         placed.delete({ row: 1n, col: 2n });

@@ -212,8 +212,8 @@ test("a write with no answer leaves its session unknown: Save is Retry for it al
     expect(history.status).toBe("unknown");
     expect(sessions.shifts.status).toBe("reconciling");
     expect(shiftsSent).toHaveLength(1);
-    // While the jobs' write stands unanswered, no gesture of theirs can be undone.
-    expect(sessions.jobs.writable).toBe(false);
+    // While the jobs' write stands unanswered its session takes gestures still; its next Save waits for the answer.
+    expect([sessions.jobs.locked, sessions.jobs.writable, sessions.jobs.canApply]).toEqual([true, true, false]);
     await history.apply();
     expect(requests).toHaveLength(2);
     expect(requests[1]).toBe(requests[0]);
@@ -222,17 +222,46 @@ test("a write with no answer leaves its session unknown: Save is Retry for it al
     expect(sessions.jobs.status).toBe("reconciling");
 });
 
-test("Save is held while one session's drafts fail its checks, however ready another's are", () => {
-    const { history, sessions } = setup();
+test("drafts that fail one session's checks hold back that session's Save alone: another's changes are sent past them", async () => {
+    const sent: Source[] = [];
+    const answer = (source: Source) => () => { sent.push(source); return variant("applied", { revision: none }); };
+    const { history, sessions } = setup({ jobs: { apply: answer("jobs") }, stops: { apply: answer("stops") } });
     history.record([rename("jobs", "Spring catalogue", "One")], "typed", "Edit job");
     expect(history.canApply).toBe(true);
     // A stop whose draft cannot be read: invalid.
     const value = SOURCES.stops.job;
     const unread: EntryVersion<string> = { draft: variant("invalid", "plate chnage"), wire: value.title, place: KEY_ORDER };
     history.record([{ key: "stops", updates: [{ id: "S-1", before: job(value), after: unread }] }], "typed", "Edit stop");
-    expect(sessions.jobs.canApply).toBe(true);
-    expect(history.readiness.type).toBe("invalid");
-    expect(history.canApply).toBe(false);
+    expect([sessions.jobs.canApply, sessions.stops.canApply]).toEqual([true, false]);
+    // The history still says what holds the stops back, and Save sends the jobs.
+    expect([history.readiness.type, history.canApply]).toEqual(["invalid", true]);
+    await history.apply();
+    expect(sent).toEqual(["jobs"]);
+    expect([sessions.jobs.status, sessions.stops.status, sessions.stops.pending]).toEqual(["reconciling", "idle", 1]);
+    // The jobs saved, only the stops' draft is left, and it cannot be sent: Save is off.
+    expect(sessions.jobs.reconcile(variant("snapshot", held([["J-1", { title: "One", sheets: 96000.0 }]])), () => undefined)).toBe(true);
+    expect([history.pending, history.canApply]).toEqual([1, false]);
+});
+
+test("a conflict still to choose holds back its own session's Save alone: another's changes are sent past it, and once it is chosen its own go too", async () => {
+    const sent: Source[] = [];
+    const answer = (source: Source) => () => { sent.push(source); return variant("applied", { revision: none }); };
+    const { history, sessions } = setup({ jobs: { apply: answer("jobs") }, shifts: { apply: answer("shifts") } });
+    history.record([rename("jobs", "Spring catalogue", "One")], "typed", "Edit job");
+    history.record([rename("shifts", "Early", "Two")], "typed", "Edit shift");
+    // The shifts' source moves under its draft, its title another write's too: a conflict to choose.
+    sessions.shifts.observeBase(variant("snapshot", held([["SH-1", { title: "Early, moved", sheets: 0.0 }]])));
+    expect([history.unsettled, sessions.shifts.canApply, history.canApply]).toEqual([1, false, true]);
+    await history.apply();
+    expect(sent).toEqual(["jobs"]);
+    expect(sessions.jobs.reconcile(variant("snapshot", held([["J-1", { title: "One", sheets: 96000.0 }]])), () => undefined)).toBe(true);
+    // Nothing else can be sent until the conflict is chosen.
+    expect([history.pending, history.canApply]).toEqual([1, false]);
+    const [conflict] = history.conflicts;
+    expect(history.settleConflict(conflict!.key, conflict!.entry.id, conflict!.entry.points[0]!.path, "draft")).toBe(true);
+    expect(history.canApply).toBe(true);
+    await history.apply();
+    expect(sent).toEqual(["jobs", "shifts"]);
 });
 
 test("a session whose own history goes leaves the steps — its source moving under no draft, its drafts discarded from its banner — and the others' stand", () => {
@@ -260,7 +289,7 @@ test("a session whose own history goes leaves the steps — its source moving un
     expect(history.canUndo).toBe(false);
 });
 
-test("it reads as one session does: its pending changes summed, a conflict in one session holding its Save, and a sync that takes a session away takes its steps", () => {
+test("it reads as one session does: its pending changes summed, a conflict in one session counted while another's changes can still be saved, and a sync that takes a session away takes its steps", () => {
     const { history, sessions } = setup();
     let heard = 0;
     history.subscribe(() => { heard += 1; });
@@ -270,9 +299,10 @@ test("it reads as one session does: its pending changes summed, a conflict in on
     expect(heard).toBe(2);
     expect(history.pending).toBe(2);
     expect(history.stale).toBe(false);
-    // The shifts' source moves under its draft, its title another write's too: a conflict, and Save waits for it.
+    // The shifts' source moves under its draft, its title another write's too: a conflict, which holds the shifts' Save
+    // alone — the jobs' change can still be sent.
     sessions.shifts.observeBase(variant("snapshot", held([["SH-1", { title: "Early, moved", sheets: 0.0 }]])));
-    expect([history.stale, history.unsettled, history.canApply]).toEqual([false, 1, false]);
+    expect([history.stale, history.unsettled, sessions.shifts.canApply, history.canApply]).toEqual([false, 1, false, true]);
     // The shifts leave the history: their step with them.
     history.sync([["jobs", sessions.jobs], ["stops", sessions.stops]]);
     expect(history.keys).toEqual(["jobs", "stops"]);
@@ -294,6 +324,7 @@ test("every conflict settled one way is one step across the sessions that hold o
     expect([history.unsettled, titleOf(sessions, "jobs"), titleOf(sessions, "shifts")]).toEqual([2, "One", "Two"]);
     const [jobs] = history.conflicts;
     expect(history.settleConflict(jobs!.key, jobs!.entry.id, jobs!.entry.points[0]!.path, "draft")).toBe(true);
-    expect([history.unsettled, history.canApply]).toEqual([1, false]);
+    // The jobs' conflict chosen, their change can be sent; the shifts' still waits, and holds only the shifts'.
+    expect([history.unsettled, sessions.jobs.canApply, sessions.shifts.canApply, history.canApply]).toEqual([1, true, false, true]);
     expect(history.settled.map((settled) => [settled.key, settled.conflict.choice])).toEqual([["jobs", "draft"]]);
 });

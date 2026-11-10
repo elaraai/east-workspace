@@ -107,7 +107,7 @@ test("incomplete edits emit draft patches without manufacturing domain values", 
     session.undo(); expect(session.pending).toBe(0);
 });
 
-test("retry freezes request bytes and callback; unresolved requests lock mutations and history", async () => {
+test("retry freezes request bytes and callback; a write with no answer takes gestures and Undo still, and holds Discard and the next Save until it resolves", async () => {
     const bytes: Uint8Array[] = [];
     const apply = vi.fn((payload: Uint8Array) => {
         bytes.push(payload.slice()); payload.fill(0);
@@ -116,9 +116,13 @@ test("retry freezes request bytes and callback; unresolved requests lock mutatio
     });
     const session = create({ apply }); editA(session);
     await session.apply(); expect(session.status).toBe("unknown");
-    expect(session.canUndo).toBe(false);
-    expect(editA(session, 42n)).toBe(false);
+    // The write stands unanswered: a gesture is taken beside the request's own change, and Undo takes it back.
+    expect(editA(session, 42n)).toBe(true);
+    expect(session.canUndo).toBe(true);
+    session.undo();
+    // Discard waits for the answer, and so does a Save of anything drafted since.
     session.discard(); expect(session.pending).toBe(1);
+    expect([session.locked, session.canApply]).toEqual([true, false]);
     const replacement = vi.fn(() => variant("applied", { revision: none }));
     session.bind(binding({ apply: replacement }));
     await session.apply();
@@ -171,12 +175,12 @@ test("paged overlays settle at the revision their commit made or a later one, ne
     expect(session.pending).toBe(0);
 });
 
-test("an external revision holds the drafts while their entries are read there: no gesture, no undo and no Save meanwhile, and Discard still drops them", () => {
+test("an external revision carries the drafts over once their entries are read there: gestures and Undo are taken meanwhile, Save waits for it, and Discard still drops them", () => {
     const session = new SheetTransactions(binding());
     session.observeBase(variant("revision", "r1")); editA(session);
     session.observeBase(variant("revision", "r2"));
-    expect([session.carrying, session.stale, session.writable]).toEqual([true, false, false]);
-    expect(session.canUndo).toBe(false);
+    expect([session.carrying, session.stale, session.writable]).toEqual([true, false, true]);
+    expect(session.canUndo).toBe(true);
     expect(session.canApply).toBe(false);
     expect(session.pending).toBe(1);
     session.discard(); expect(session.pending).toBe(0);

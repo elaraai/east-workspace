@@ -9,7 +9,8 @@
  * editable collection, in its collection's words, on the `editHistory` slot
  * recipe. While a part of a draft another write changed differently waits to
  * be chosen, the conflicts button leads its buttons, and Apply waits for it
- * (`conflicts.tsx`). While a Save is out, and until the page reads back what it
+ * (`conflicts.tsx`) — over several records, only while no other record has a
+ * change to save. While a Save is out, and until the page reads back what it
  * saved, Save shows it: the live dot in its place, `aria-busy`, at full strength
  * (#1573). Retry refresh takes its place once that read back failed, or has not
  * moved for ten seconds, to ask again. Beside the issues that hold Save, the
@@ -284,7 +285,10 @@ export function HistoryBar<W>({
     const status = session.status;
     const issues = readiness.type === "ready" ? session.issues : readiness.value;
     const pending = session.pending;
+    // An open editor is committed before Undo, Discard and Save: each is on for it while the session takes a gesture —
+    // and Save only while a Save could be sent, so one unresolved shows on it, off, with an editor open as with none.
     const commitEditor = editing && session.writable;
+    const commitToSave = editing && session.canSend;
     const message = session.stale ? m.historyStatus({ status: "stale" })
         : session.carrying ? m.historyStatus({ status: "carrying" })
         : status !== "idle" ? m.historyStatus({ status })
@@ -298,13 +302,14 @@ export function HistoryBar<W>({
     const n = issues.length;
     const unsettled = session.unsettled;
     // Save waits for the conflicts to be chosen aria-disabled, never disabled: it keeps the focus, and its Tooltip says why.
-    const waiting = status !== "unknown" && unsettled > 0;
+    // Only while nothing else can be saved: over several records a conflict holds back its own record's changes alone.
+    const waiting = status !== "unknown" && unsettled > 0 && !session.canApply;
     // Drafts a reload would lose, or that a reload could not restore: said under the buttons where the bar says its error.
     const keeping = useDraftsKeeping(session);
     const keepingText = keeping.state === "unkept" ? m.bannerUnkept({ reason: keeping.reason })
         : keeping.state === "lost" ? m.bannerLost({ reason: keeping.reason }) : undefined;
     const discardOff = !session.canDiscard || (pending === 0 && !commitEditor);
-    const saveOff = !waiting && status !== "unknown" && !session.canApply && !commitEditor;
+    const saveOff = !waiting && status !== "unknown" && !session.canApply && !commitToSave;
     if (phone) {
         const askingNow = asking && !discardOff;
         // The focus back on Discard before what holds it goes.

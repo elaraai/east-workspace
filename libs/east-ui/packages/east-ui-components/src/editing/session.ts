@@ -22,6 +22,14 @@
  * Settling one — the draft's value, or the source's — is a step of the history,
  * which Undo takes back.
  *
+ * A Save never stops the editing. A gesture is recorded while a request is on
+ * its way, while its saved state is read back, while a write has no answer and
+ * while the drafts are carried over: the request keeps the bytes it was sent
+ * with, and once the source reads back as it left them, what was drafted since
+ * is what is left to save, each change beginning from what the request left
+ * ({@link EditSession.reconcile}). One request at a time: the next Save waits
+ * for it.
+ *
  * @packageDocumentation
  */
 import { ArrayType, BlobType, ConflictError, DictType, East, EastTypeType, OptionType, StringType, StructType, applyFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, pathFromString, some, toEastTypeValue, variant, type EastType, type PatchPath, type ValueTypeOf, type option } from "@elaraai/east";
@@ -441,7 +449,9 @@ interface Submission<W> {
     /**
      * Each confirmed entry read back otherwise than the request left it, as the
      * source holds it: what a host that draws a landed Save draws it as
-     * ({@link EditSession.landed}) — never an entry read back exactly.
+     * ({@link EditSession.landed}), and what a draft made since the request
+     * was sent is merged over ({@link EditSession.behind}) — never an entry
+     * read back exactly.
      */
     otherwise: Map<string, option<unknown>>;
     base: Base;
@@ -694,10 +704,26 @@ export class EditSession<W> {
     private changed(): void { this.serial++; for (const listener of this.listeners) listener(); }
     /** Another view of the source took or released the source's one request. */
     availabilityChanged(): void { this.changed(); }
-    /** A request is unresolved. */
+    /** A request is unresolved: on its way, its saved state read back, or its answer unknown. The next Save waits for it; a gesture does not. */
     get locked(): boolean { return this.submission !== undefined; }
-    /** A gesture may be recorded now. */
-    get writable(): boolean { return this.binding.apply !== undefined && !this.locked && !this.stale && this.moving === undefined && (this.binding.gate?.available() ?? true); }
+    /**
+     * A gesture may be recorded now. A request that is unresolved, drafts being
+     * carried over to a source that moved, and another view's request for the
+     * source take gestures as an idle session does: what is drafted meanwhile
+     * is what the next Save sends ({@link EditSession.canSend}). Only a session
+     * with no Save to send to, or out of date, takes none.
+     */
+    get writable(): boolean { return this.binding.apply !== undefined && !this.stale; }
+    /**
+     * Whether the unresolved request changes an entry: what tells a Save's own
+     * entries from those drafted since it was sent, for a host that counts
+     * what a Save wrote before its rows read it. An entry the request changes
+     * and a draft made since stands over is the request's still.
+     *
+     * @param id - The entry
+     * @returns Whether the request on its way, read back or unanswered changes it
+     */
+    sends(id: string): boolean { return this.submission?.targets.has(id) === true; }
     /** The drafts are being carried over to the base the source moved to: each drafted entry is still being read there. */
     get carrying(): boolean { return this.moving !== undefined; }
     /** The drafts may be discarded now. */
@@ -783,8 +809,34 @@ export class EditSession<W> {
     }
     /** The drafts changed: the next read derives the readiness afresh. */
     private draftsChanged(): void { this.readinessCache = undefined; }
-    /** Apply is available. */
-    get canApply(): boolean { return this.writable && this.unsettled === 0 && this.readiness.type === "ready" && this.status === "idle" && this.changes(this.baseline, this.current, false).length > 0; }
+    /**
+     * A Save could be sent now, had the session a change that passes its
+     * checks: no request of this session's or of another view's is unresolved,
+     * and the drafts are not being carried over. What a Save waits on, where a
+     * gesture waits on none of it ({@link EditSession.writable}).
+     */
+    get canSend(): boolean {
+        return this.writable && !this.locked && this.moving === undefined && (this.binding.gate?.available() ?? true);
+    }
+    /**
+     * Apply is available: a Save can be sent ({@link EditSession.canSend}), no
+     * conflict waits, the drafts pass their checks, and one of them is a
+     * change to send.
+     */
+    get canApply(): boolean {
+        return this.canSend && this.unsettled === 0
+            && this.readiness.type === "ready" && this.status === "idle" && this.changes(this.baseline, this.current, false).length > 0;
+    }
+    /**
+     * A gesture ends what the last request left to say — a refusal, its
+     * issues, an error — as it always has. While a request is unresolved, or
+     * the drafts are carried over, what the session says is that request's, or
+     * the refused Save's the carry-over sends again: it stands until then.
+     */
+    private gestured(): void {
+        if (this.locked || this.moving !== undefined) return;
+        this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
+    }
 
     /**
      * Each entry whose draft conflicts with its source's newer value, and its
@@ -1249,7 +1301,8 @@ export class EditSession<W> {
     }
 
     private settleEach(targets: ReadonlyMap<string, readonly string[]>, choice: ConflictChoice): boolean {
-        if (!this.writable) return false;
+        // Not while the drafts are carried over again: the conflicts are read afresh once they are.
+        if (!this.writable || this.moving !== undefined) return false;
         const open = this.conflicts;
         const before = new Map<string, EntryVersion<W>>();
         const after = new Map<string, EntryVersion<W>>();
@@ -1314,7 +1367,7 @@ export class EditSession<W> {
             settled: { before: settledBefore, after: settledAfter },
         });
         this.cursor++;
-        this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
+        this.gestured();
         if (before.size > 0) this.emit(before, after, "settle", label);
         this.changed();
         return true;
@@ -1435,7 +1488,7 @@ export class EditSession<W> {
         } else {
             this.history.splice(this.cursor); this.history.push({ label, origin, before, after, joins }); this.cursor++;
         }
-        this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
+        this.gestured();
         this.emit(before, after, origin, label);
         this.changed();
         return true;
@@ -1448,7 +1501,7 @@ export class EditSession<W> {
         if (step.ancestors !== undefined) this.setAncestors(step.ancestors.before);
         if (step.settled !== undefined) this.setSettled(step.settled.before);
         this.draftsChanged();
-        this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
+        this.gestured();
         this.emit(step.after, step.before, "undo", `Undo ${step.label}`);
         this.changed();
     }
@@ -1460,7 +1513,7 @@ export class EditSession<W> {
         if (step.ancestors !== undefined) this.setAncestors(step.ancestors.after);
         if (step.settled !== undefined) this.setSettled(step.settled.after);
         this.draftsChanged();
-        this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
+        this.gestured();
         this.emit(step.before, step.after, "redo", `Redo ${step.label}`);
         this.changed();
     }
@@ -1665,8 +1718,14 @@ export class EditSession<W> {
      * otherwise than its edit began, with what the request set — the change,
      * undone, applies to it — so a field another write set beside the
      * request's is the source's. The session's versions of such an entry are
-     * behind the source then: they go, with the history over them, as when the
-     * source moves under no drafts.
+     * behind the source then: what was not drafted since the request was sent
+     * goes, with the history, as when the source moves under no drafts, and
+     * what was is kept, merged over the source's value
+     * ({@link EditSession.behind}).
+     *
+     * What was drafted while the request was unresolved stands through it: an
+     * entry the request held has what it left for its original, so a draft
+     * made since is a change from that, and the next Save's to send.
      *
      * @param base - The base the source is at now
      * @param read - An entry the request changed, as a source at a revision holds it: its value, `none` for one it does not hold, or `undefined` while it is not read
@@ -1687,12 +1746,22 @@ export class EditSession<W> {
             if (!blobEqual(this.encodeCollection(base.value), request.expected)) {
                 if (!this.leftIn(base, request)) return false;
                 exact = false;
+                // Each of its entries the collection holds otherwise than the request left it, as it holds it.
+                request.otherwise.clear();
+                for (const [id, target] of request.targets) {
+                    const now = this.inSnapshot(base.value, id);
+                    if (!this.domainEqual(now, target.after)) request.otherwise.set(id, now);
+                }
             }
         } else if (base.type === "snapshot") {
+            // Read whole at each pass: what an earlier pass read otherwise is read again here.
+            request.otherwise.clear();
             for (const [id, target] of request.targets) {
                 const now = this.heldIn(base.value, id);
                 if (!this.leftAs(now, target)) return false;
-                exact &&= this.domainEqual(now, target.after);
+                if (this.domainEqual(now, target.after)) continue;
+                exact = false;
+                request.otherwise.set(id, now);
             }
         } else {
             const before = request.checked.size;
@@ -1731,13 +1800,13 @@ export class EditSession<W> {
                 this.landedEntries.set(id, { before: this.baseline.get(id) ?? ABSENT, after, from: request.base.value });
             }
         }
-        this.base = this.cloneBase(base); this.baseline = new Map(request.after); this.ancestors.clear(); this.forgetConflicts(); this.moving = undefined;
+        this.base = this.cloneBase(base); this.ancestors.clear(); this.forgetConflicts(); this.moving = undefined;
         this.submission = undefined; request.release?.(); this.status = "idle"; this.error = undefined; this.confirmReason = undefined; this.issues = []; this.stale = false;
         this.conflicted = undefined;
-        if (!exact) {
-            this.baseline.clear(); this.current.clear(); this.history = []; this.cursor = 0;
-            this.draftsChanged();
-        }
+        // What the request left is the original of each entry it held; one first drafted since it was sent keeps its own.
+        // The drafts stand, so what was drafted since is what is left to save.
+        if (exact) for (const [id, version] of request.after) this.baseline.set(id, version);
+        else this.behind(request);
         this.changed();
         if (request.confirmed !== undefined) {
             const confirmed = request.base.type === "revision" && base.type === "revision"
@@ -1745,6 +1814,52 @@ export class EditSession<W> {
             queueMicrotask(() => request.confirmed!(confirmed));
         }
         return true;
+    }
+
+    /**
+     * A request read back otherwise than it was sent — another write beside
+     * it, or since: the session's versions are behind the source. What was not
+     * drafted since the request was sent is the source's now, and goes. What
+     * was is kept as drafts are carried over ({@link EditSession.merge}): an
+     * entry read back as it was sent, a change from what the request left; one
+     * read back otherwise, merged three ways from the version the request
+     * sent — the draft, and the source's value — a part both changed a
+     * conflict to choose. The history starts over at what is left: an undo
+     * would take an entry back to a version from before the other write.
+     *
+     * @param request - The request, each entry read back otherwise as the source holds it
+     */
+    private behind(request: Submission<W>): void {
+        const baseline = new Map<string, EntryVersion<W>>();
+        const current = new Map<string, EntryVersion<W>>();
+        const ancestors = new Map<string, option<unknown>>();
+        for (const [id, mine] of this.current) {
+            const sent = request.after.get(id);
+            // First drafted since the request was sent: no part of it.
+            if (sent === undefined) {
+                baseline.set(id, this.baseline.get(id) ?? ABSENT);
+                current.set(id, mine);
+                continue;
+            }
+            // As the request sent it: the source's now.
+            if (Object.is(mine, sent)) continue;
+            const otherwise = request.otherwise.get(id);
+            if (otherwise === undefined) {
+                baseline.set(id, sent);
+                current.set(id, mine);
+                continue;
+            }
+            const source: option<unknown> = otherwise.type === "some" ? some(liftDraft(this.binding.draftType, otherwise.value)) : none;
+            const merged = this.merger.merge(draftOf(sent), draftOf(mine), source, this.joined);
+            // A draft the source's value holds whole is a draft no more.
+            if (this.merger.equal(merged.draft, source)) continue;
+            baseline.set(id, this.versionOf(id, source, sent));
+            current.set(id, this.versionOf(id, merged.draft, mine));
+            if (merged.ancestor !== undefined) ancestors.set(id, merged.ancestor);
+        }
+        this.baseline = baseline; this.current = current; this.ancestors = ancestors;
+        this.history = []; this.cursor = 0;
+        this.draftsChanged();
     }
 
     /**

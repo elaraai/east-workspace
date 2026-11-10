@@ -18,10 +18,12 @@
  * - **Discard** drops every session's drafts, and the steps with them.
  * - **Save** commits each session with a change it can send, each its own
  *   request with its own outcome: one session's conflict, refusal or
- *   unanswered write leaves the others' commits standing. It is on while every
- *   session's drafts pass their checks, none holds a conflict still to settle,
- *   and one has a change to send. While a session's write has no answer, Save
- *   is Retry, which resends that session's request, its id unchanged.
+ *   unanswered write leaves the others' commits standing. It is on while one
+ *   session has a change it can send: a session whose drafts fail their
+ *   checks, or that holds a conflict still to settle, holds back its own
+ *   changes alone, and the others' are sent past it. While a session's write
+ *   has no answer, Save is Retry, which resends that session's request, its id
+ *   unchanged.
  * - **Conflicts** — a part of a draft another write changed differently — are
  *   every session's, each settled in its session as one step of the history;
  *   settling all one way is one step across the sessions that hold them.
@@ -196,6 +198,8 @@ export class EditHistory<W> {
     get pending(): number { return this.all.reduce((n, session) => n + session.pending, 0); }
     /** Every session may record a gesture now. */
     get writable(): boolean { return this.all.every((session) => session.writable); }
+    /** A Save could be sent for every session, had each a change to send: none has a request unresolved, nor drafts being carried over. */
+    get canSend(): boolean { return this.all.every((session) => session.canSend); }
     /** Undo is available: the last step's every session can take its part back. */
     get canUndo(): boolean {
         const step = this.steps[this.cursor - 1];
@@ -218,11 +222,14 @@ export class EditHistory<W> {
     }
     /** Discard is available: no session's request is unresolved. */
     get canDiscard(): boolean { return this.all.every((session) => session.canDiscard); }
-    /** Save is available: every session's drafts pass their checks, none holds a conflict to settle, and one has a change it can send. */
-    get canApply(): boolean {
-        const all = this.all;
-        return this.unsettled === 0 && all.some((session) => session.canApply) && all.every((session) => session.readiness.type === "ready");
-    }
+    /**
+     * Save is available: one session has a change it can send — its drafts
+     * pass their checks, it holds no conflict to settle, and no request of its
+     * source's is unresolved. A session that cannot send holds back its own
+     * changes alone ({@link EditHistory.readiness} and
+     * {@link EditHistory.unsettled} still say what holds it).
+     */
+    get canApply(): boolean { return this.all.some((session) => session.canApply); }
     /** Every session's entries in conflict, each with the session it is in, in the sessions' order. */
     get conflicts(): readonly { readonly key: string; readonly entry: EntryConflicts }[] {
         const out: { key: string; entry: EntryConflicts }[] = [];
@@ -235,7 +242,7 @@ export class EditHistory<W> {
         for (const [key, session] of this.sessions) for (const conflict of session.settled) out.push({ key, conflict });
         return out;
     }
-    /** How many conflicts are still to settle, every session's: Save waits until none is. */
+    /** How many conflicts are still to settle, every session's: each holds back its own session's Save until it is. */
     get unsettled(): number { return this.all.reduce((n, session) => n + session.unsettled, 0); }
     /** How many settled conflicts the conflicts popover shows, across the sessions: a range's in one entry counting once. */
     get chosen(): number { return this.all.reduce((n, session) => n + session.chosen, 0); }

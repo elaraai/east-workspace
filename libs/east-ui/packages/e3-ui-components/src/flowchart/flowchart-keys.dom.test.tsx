@@ -29,9 +29,10 @@
  *   Duplicate and the Steps' cards off, each saying why.
  * - **A key that would move while rows that may name it aren't held**
  *   (#1580): a step renamed while the rail's choices hide a move that may name
- *   it, or a station renamed while the steps' Save is on its way, is refused,
- *   saying why, and records nothing; once they are held again, the same rename
- *   moves the row, and the rows naming it with it.
+ *   it is refused, saying why, and records nothing; its choices cleared, the
+ *   same rename moves the row, and the rows naming it with it. A Save on its
+ *   way holds nothing back: a station renamed while the steps' Save is out
+ *   moves, the step standing at it following, and is what is left to save.
  * - **A key of several parts, and a key stored apart from its fields**
  *   (#1581): a step's station and name typed a part at a time — the step
  *   waiting under its placeholder, Save with it — until Set key takes them
@@ -603,7 +604,7 @@ describe("a key that would move while rows that may name it aren't held (#1580)"
         ])));
     });
 
-    test("keyed by their labels, a station renamed while the steps' Save is on its way is refused, saying so — the steps standing at it take no edit until it lands; once it has, the same rename moves the station and its step with it, and Save writes both", async () => {
+    test("keyed by their labels, a station renamed while the steps' Save is on its way is taken as any other — a Save never stops the editing: the station moves under its new label and the step standing at it follows, drafted beside the Save's own change; the Save landed, the rename is what is left to save, and Save writes both", async () => {
         const stations = await h.read(fx.labelledStations), steps = await h.read(fx.labelledSteps);
         const c = await open(($) => {
             const stepsBound = $.let(Record.bind(fx.labelledSteps));
@@ -618,17 +619,18 @@ describe("a key that would move while rows that may name it aren't held (#1580)"
         const saving = h.e3.hold((request) => request.kind === "mutate" && request.record === fx.labelledSteps.name);
         await press(SAVE);
         await saving.holding;
-        // The Bench renamed meanwhile: refused, saying why, and the Bench stays as it was.
+        // The Bench renamed meanwhile: the steps standing at it take the edit as they always do, so it moves under
+        // Counter, refusing nothing, and Weighing with it.
         await renameLane(c, "Bench", "Counter");
-        expect(footer(c)).toBe(m.gestureRefused({ refusal: "unheld", name: "Bench", by: "states", why: "busy" }));
-        expect(footer(c)).toBe("Bench isn't changed: states that may name it take no edit now — try again in a moment");
-        expect(laneKeys(c)).toEqual(["Bench", "Oven"]);
-        // The Save landed: the same rename moves the Bench under Counter, Weighing with it.
+        expect([footer(c), laneKeys(c)]).toEqual(["", ["Counter", "Oven"]]);
+        // The Save landed: Weighing's name is the record's, still at the Bench there, and the rename — the station's,
+        // and its step's — is what is left to save.
         await act(async () => { saving.release(); });
         await settle();
-        await waitFor(() => expect(pending(c)).toBe(pendingText(0)));
-        await renameLane(c, "Bench", "Counter");
+        const named = printFor(fx.labelledSteps.type)(withRows(steps, compareFor(IntegerType), [[1n, { name: "Weighing", station: "Bench" }]]));
+        await waitFor(async () => expect(printFor(fx.labelledSteps.type)(await h.read(fx.labelledSteps))).toBe(named));
         expect(laneKeys(c)).toEqual(["Counter", "Oven"]);
+        await waitFor(() => expect(enabled(SAVE)).toBe(true));
         expect(await save()).toEqual([fx.labelledStations.name, fx.labelledSteps.name].sort(compareText));
         const labelled = withRows(stations, compareText, [["Counter", { label: "Counter" }]]);
         labelled.delete("Bench");

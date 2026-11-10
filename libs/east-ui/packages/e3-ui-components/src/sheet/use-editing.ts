@@ -319,8 +319,9 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         const samePlace = equalFor(OptionType(Sheet.Types.EntryPlacement));
         // The entries drafted away from the source: what a Save landed of one is not drawn while it is.
         const drafted = new Set<string>();
-        // A Save's entries, by the revision they were drafted at: while the source's commit is read back, every draft is
-        // the Save's — the session takes no gesture until it has been — at the base the session holds still.
+        // A Save's entries, by the revision they were drafted at: while the source's commit is read back, each entry its
+        // request changes — one drafted again since among them — at the base the session holds still. An entry first
+        // drafted since the request was sent is a draft as any other.
         const savedFrom = new Map<string, string>();
         const committedFrom = session.status === "reconciling" ? session.drafts.revision : undefined;
         // Whether the rows draw an entry: while another query's rows stand in, theirs — which the session indexes none
@@ -342,7 +343,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
                 continue;
             }
             drafted.add(id);
-            if (committedFrom !== undefined) savedFrom.set(id, committedFrom);
+            if (committedFrom !== undefined && session.sends(id)) savedFrom.set(id, committedFrom);
             // A draft over what a Save landed is drawn over the rows as that Save's version is, against what they hold
             // of it from before the Save (#1583): one the Save added stands where it placed it, never off the rows.
             const saved = session.landed.get(id);
