@@ -579,6 +579,12 @@ function indexedWindow(t: EastType, fields: Record<string, EastType>): ArrayType
 }
 
 /**
+ * What a record's indexed binding's unfiltered view adds to the binding's id
+ * (#1435): a reader that holds the view alone finds the binding by it (#1596).
+ */
+export const INDEXED_ROWS_SUFFIX = "@rows";
+
+/**
  * A record's indexed binding as its unfiltered view (#1435): a pinned source
  * of its default index's window — each row once, in that index's order —
  * counted, searched and following its revision as the binding does.
@@ -590,7 +596,7 @@ function indexedWindow(t: EastType, fields: Record<string, EastType>): ArrayType
 function indexedRows(expr: ExprType<EastType>, window: ArrayType<StructType>): ExprType<StructType> {
     const handle = expr as unknown as IndexedSource<EastType, StructType, EastType, StructType, VariantType>;
     return East.value({
-        id: handle.id.concat("@rows"),
+        id: handle.id.concat(INDEXED_ROWS_SUFFIX),
         page: East.function([IntegerType, IntegerType], OptionType(window), ($, offset, limit) => handle.page(handle.defaultIndex, offset, limit)),
         total: East.function([], OptionType(IntegerType), () => handle.total("primary")),
         seek: some(East.function([SeekQueryType], OptionType(SeekRangeType), ($, query) => handle.seek(handle.defaultIndex, query))),

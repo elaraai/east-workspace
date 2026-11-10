@@ -104,7 +104,7 @@ export { recordSliceWindow, recordSliceDomain, recordSliceWindowFits, setRecordS
 // (#1393); and a generated index's `on` printer, which those searches name its leading values with (#1432).
 export {
     recordSliceSeeded, recordSlicePlace, recordSliceWithin, recordSliceWithinAt, recordSliceSeek, recordSliceCellRuns, recordSliceCellEntries,
-    recordSliceCellJoins, recordSliceRows, recordSliceRevision, recordSlicePage, recordSliceBounds, recordSliceRunEntries, recordSliceRunJoins,
+    recordSliceCellJoins, recordSliceContainsAll, recordSliceReadEntries, recordSliceRows, recordSliceRevision, recordSlicePage, recordSliceBounds, recordSliceRunEntries, recordSliceRunJoins,
     recordSliceOnPrinter, recordSlicePosition,
 } from "./platform/slice/record.js";
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.

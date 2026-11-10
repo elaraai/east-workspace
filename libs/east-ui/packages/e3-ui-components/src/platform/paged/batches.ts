@@ -193,7 +193,9 @@ export class PagedBatches extends PagedReads {
         if (typeof revision !== "string") return none;
         const snapshot = this.snapshotOf(workspace, path);
         const keyType = (source.type.value as { key: EastTypeValue }).key;
-        const literals = keys.map(this.printerOf(keyType));
+        // Each key printed alone: `map` hands a callback its index too, which a printer reads as its print context.
+        const print = this.printerOf(keyType);
+        const literals = keys.map((key) => print(key));
         const batchKey = pagedBatchKey(workspace, path, revision, selector, "rows", literals);
         this.track(batchKey);
         const batch = this.channel(snapshot, batchKey);

@@ -69,6 +69,17 @@ export type PagedLandingFrame = (apply: () => void) => () => void;
 export const MAX_RETAINED_WINDOWS = 24;
 
 /**
+ * One-row windows cut from a landed one, or from the rows a read by key holds,
+ * kept across all paged sources, least recently read first (#1596). A one-row
+ * cut holds a row and asked nothing of e3, so it counts toward none of
+ * {@link MAX_RETAINED_WINDOWS}, and a reader that reads every row it draws a
+ * row at a time — a sheet's row checks, its cells from data — leaves the
+ * windows those rows came from where they are. A cut of more rows is a window
+ * of the cap's, as one fetched is: at most this many rows are held by cuts.
+ */
+const MAX_RETAINED_CUTS = 4096;
+
+/**
  * The channels of every dataset's snapshot, and their fetches: the paging runtime's first layer.
  */
 export class PagedChannels extends TrackedChannelStore<PageEntry> {
@@ -78,6 +89,9 @@ export class PagedChannels extends TrackedChannelStore<PageEntry> {
     /** Loaded window keys in least-recently-READ order (a Map preserves
      *  insertion order; a read re-inserts). Bounds the decoded-window cache. */
     protected readonly loadedWindows = new Map<string, true>();
+
+    /** The one-row windows cut from a landed one, least-recently-READ order (#1596): apart from {@link loadedWindows}, whose cap they never press on. */
+    protected readonly cutWindows = new Map<string, true>();
 
     /** Each dataset's snapshot, by workspace and path. */
     protected readonly snapshots = new Map<string, Snapshot>();
@@ -114,6 +128,7 @@ export class PagedChannels extends TrackedChannelStore<PageEntry> {
         this.snapshots.clear();
         this.clearChannels();
         this.loadedWindows.clear();
+        this.cutWindows.clear();
         this.bursts.clear();
         this.cancelLanding();
         this.landed.clear();
@@ -333,6 +348,7 @@ export class PagedChannels extends TrackedChannelStore<PageEntry> {
             for (const owner of this.entries.get(key)?.owners ?? []) if (owner !== snapshot) owner.channels.delete(key);
             this.entries.delete(key);
             this.loadedWindows.delete(key);
+            this.cutWindows.delete(key);
             this.forgetVersion(key);
         }
         snapshot.channels.clear();
@@ -412,6 +428,7 @@ export class PagedChannels extends TrackedChannelStore<PageEntry> {
         }
         this.entries.delete(key);
         this.loadedWindows.delete(key);
+        this.cutWindows.delete(key);
         this.forgetVersion(key);
     }
 
@@ -425,9 +442,10 @@ export class PagedChannels extends TrackedChannelStore<PageEntry> {
      * bounded by the windows retained: held by no reader any longer, it is the
      * cap's to let go again, and past the cap the least recently read windows
      * no reader holds go ({@link trimWindows}), so readers that held more than
-     * the cap leave no more than it behind (#1409, R24). A placement stays,
-     * bounded by the placements a revision holds ({@link MAX_HELD_PLACEMENTS});
-     * and so do a failure and a total.
+     * the cap leave no more than it behind (#1409, R24); a one-row cut stays
+     * bounded by the cuts retained ({@link trimCuts}) as a window is by the
+     * windows. A placement stays, bounded by the placements a revision holds
+     * ({@link MAX_HELD_PLACEMENTS}); and so do a failure and a total.
      *
      * @param key - The channel
      */
@@ -448,6 +466,7 @@ export class PagedChannels extends TrackedChannelStore<PageEntry> {
             return;
         }
         if (this.loadedWindows.has(key)) this.trimWindows();
+        else if (this.cutWindows.has(key)) this.trimCuts();
     }
 
     /** Whether a channel is due a fetch: never fetched, evicted, or failed
@@ -643,6 +662,33 @@ export class PagedChannels extends TrackedChannelStore<PageEntry> {
         this.loadedWindows.delete(key);
         this.loadedWindows.set(key, true);
         this.trimWindows();
+    }
+
+    /**
+     * Note a one-row cut as most-recently-read (#1596), and let the coldest no
+     * reader holds go past {@link MAX_RETAINED_CUTS} ({@link trimCuts}). Read
+     * again, one is cut again from what it came from, for nothing.
+     *
+     * @param key - The cut's channel
+     */
+    protected touchCut(key: string): void {
+        this.cutWindows.delete(key);
+        this.cutWindows.set(key, true);
+        this.trimCuts();
+    }
+
+    /**
+     * Past {@link MAX_RETAINED_CUTS} one-row cuts, let the least recently read
+     * that no reader holds go, coldest first, as {@link trimWindows} lets
+     * windows go (#1596).
+     */
+    protected trimCuts(): void {
+        if (this.cutWindows.size <= MAX_RETAINED_CUTS) return;
+        for (const candidate of [...this.cutWindows.keys()]) {
+            if (this.cutWindows.size <= MAX_RETAINED_CUTS) break;
+            if (this.isTracked(candidate) || this.isSubscribed(candidate)) continue;
+            this.dropChannel(candidate);
+        }
     }
 
     /**

@@ -27,6 +27,7 @@ import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { act, sheetHarness, settle, slot, tabs } from "./harness.test-utils.js";
 import { overlaidFrame } from "../frame.test-utils.js";
 import { conflictCards } from "../../e3-web-mount.test-utils.js";
+import { rowKeysOf } from "../../e3-web.test-utils.js";
 import { keptName } from "@elaraai/east-ui-components/internal";
 
 const h = sheetHarness();
@@ -204,7 +205,8 @@ test("a record read a window at a time carries a Save's drafts over to the rows 
     await typeTask(container, 0, "Panel cutting, maple");
     await typeTask(container, 1, "Edge banding, both edges");
     // Another session moves the first job just as Save goes; the second it leaves as its edit began.
-    const asked = h.requests("find", JOBS_DATASET).length;
+    const readsBefore = h.requests("rows", JOBS_DATASET).length;
+    const searchesBefore = h.requests("find", JOBS_DATASET).length;
     await h.race(JOBS, () => press(getByRole("button", { name: "Save" })), (jobs) => withTask(jobs, "J-0001", "Panel cutting, walnut"));
     await carriedOver(container, ["conflicts"]);
     // The first job's task, which both changed, waits to be chosen; the second's draft is carried over beside it.
@@ -213,9 +215,9 @@ test("a record read a window at a time carries a Save's drafts over to the rows 
         .toEqual(["Panel cutting, maple", "Edge banding, both edges"]);
     // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
     expect((getByRole("button", { name: "Save" }) as HTMLButtonElement).getAttribute("aria-disabled")).toBe("true");
-    // Each row the Save changed was sought by its key once it answered; the record never whole.
-    const sought = h.requests("find", JOBS_DATASET).slice(asked).map((request) => request.query.get("key"));
-    expect(sought).toEqual(expect.arrayContaining(['"J-0001"', '"J-0002"']));
+    // Each row the Save changed was read by its key once it answered, in reads of many keys and no search of one; the record never whole.
+    expect(h.requests("rows", JOBS_DATASET).slice(readsBefore).flatMap(rowKeysOf)).toEqual(expect.arrayContaining(['"J-0001"', '"J-0002"']));
+    expect(h.requests("find", JOBS_DATASET).slice(searchesBefore)).toEqual([]);
     expect(h.requests("read", JOBS_DATASET)).toEqual([]);
 });
 

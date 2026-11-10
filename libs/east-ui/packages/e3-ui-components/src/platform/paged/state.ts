@@ -33,6 +33,9 @@ export interface PageEntry {
      *  a window the server trimmed holds fewer than it asked for. A read it
      *  covers is answered from it (#1217). */
     span?: WindowSpan;
+    /** Where a window in flight asked: its family, its first element's offset,
+     *  and how many elements it asked for. A read it covers waits on it (#1596). */
+    asking?: WindowSpan;
     /** A landed runs read's place (#1351): its family, and where each run's
      *  entries sit in it — a read inside one of its runs is answered from it,
      *  as from a window's span. */

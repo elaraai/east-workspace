@@ -43,6 +43,14 @@ export interface EditHistoryPaged {
     /** An entry by its id, read by its key at the source's revision — tracked: `none` while the read is in flight, `some(none)` for an entry the source does not hold. */
     readonly entry: (id: string) => option<option<unknown>>;
     /**
+     * Several entries by their ids in one read (#1596), each as
+     * {@link EditHistoryPaged.entry} answers it: what a Save reads back the
+     * entries {@link EditHistoryPaged.held} does not hold by, however many.
+     * `none` while it is in flight; `undefined` for a source that cannot read
+     * several at once, whose entries are read a bounded batch at a time.
+     */
+    readonly entriesAll?: ((ids: readonly string[]) => option<ReadonlyMap<string, option<unknown>>> | undefined) | undefined;
+    /**
      * An entry as the collection's own reads hold it at the source's revision,
      * read with no request — tracked: `undefined` for one they do not hold,
      * which {@link EditHistoryPaged.entry} reads by its key; `none` while they
@@ -229,18 +237,25 @@ export function useEditHistory<W>(
                 const { session } = part;
                 const got = new Map<string, option<unknown>>();
                 // What the collection's own reads hold costs no request: every entry still to judge that they hold, at once.
+                // One they are still reading waits on that read (#1596): only those they do not hold are read by their keys.
                 const held = part.paged.held;
-                if (held !== undefined) {
-                    for (const id of session.unresolvedIdsAt(revision.value)) {
-                        const entry = held(id);
-                        if (entry !== undefined && entry.type === "some") got.set(id, entry.value);
-                    }
+                const byKey: string[] = [];
+                for (const id of session.unresolvedIdsAt(revision.value)) {
+                    const entry = held?.(id);
+                    if (entry === undefined) byKey.push(id);
+                    else if (entry.type === "some") got.set(id, entry.value);
                 }
-                // The rest by their keys, a bounded batch at a time.
-                for (const id of session.readIdsAt(revision.value)) {
-                    if (got.has(id)) continue;
-                    const entry = part.paged.entry(id);
-                    if (entry.type === "some") got.set(id, entry.value);
+                // The rest by their keys: in one read where the source reads several at once (#1596), else a bounded batch at a time.
+                const all = part.paged.entriesAll?.(byKey);
+                if (all !== undefined) {
+                    if (all.type === "some") for (const [id, entry] of all.value) got.set(id, entry);
+                } else {
+                    const unheld = held === undefined ? undefined : new Set(byKey);
+                    for (const id of session.readIdsAt(revision.value)) {
+                        if (got.has(id) || unheld?.has(id) === false) continue;
+                        const entry = part.paged.entry(id);
+                        if (entry.type === "some") got.set(id, entry.value);
+                    }
                 }
                 bases.set(part.key, variant("revision", revision.value) as Base);
                 reads.set(part.key, got);

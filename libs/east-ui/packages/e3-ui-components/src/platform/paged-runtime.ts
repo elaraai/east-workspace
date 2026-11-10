@@ -49,13 +49,20 @@
  * A window a landed one covers is never fetched (#1217): its rows are that
  * window's, at the same revision, so the read is answered from it and keeps
  * the answer in its own channel. A sheet reads an entry it is about to draft
- * as a one-element window, beside the windows it draws.
+ * as a one-element window, beside the windows it draws. A window one in flight
+ * covers waits on that one, asking nothing of its own (#1596): its rows are
+ * cut from it once it lands — a sheet's row checks over the rows a Save's new
+ * revision reads again, a request a row otherwise.
  *
  * Landed windows are kept least recently read first, at most
  * {@link MAX_RETAINED_WINDOWS} of them: past the cap a window no reader holds
  * goes whole, and none a reader holds is evicted under it (#1409, R24), so a
  * reader of more windows than the cap — rows read a key at a time among
- * them, each a key search and a one-row window — settles, each read once.
+ * them, each a key search and a one-row window — settles, each read once. A
+ * one-row window cut from a landed one cost no request, and is kept apart from
+ * them (at most {@link MAX_RETAINED_CUTS}): a reader of many rows a row at a
+ * time, each answered from a landed window, never pushes that window out
+ * (#1596). A cut of more rows is kept as a window is.
  *
  * Several reads of one source are asked as one request when a reader asks
  * them together (#1351): `seekAll` a batch of key searches (`findKeys`),
@@ -105,8 +112,8 @@
  */
 
 import {
-    East, SortedMap, compareFor, fromEastTypeValue, type EastType, BooleanType, IntegerType, NullType, OptionType, StringType, none, some,
-    type EastTypeValue, type option,
+    East, SortedMap, compareFor, fromEastTypeValue, toEastTypeValue, type EastType, BooleanType, DictType, IntegerType, NullType, OptionType, StringType,
+    none, parseFor, some, type EastTypeValue, type option,
 } from "@elaraai/east";
 import { type PlatformFunction, EastTypeType } from "@elaraai/east/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
@@ -115,7 +122,7 @@ import { registerReactiveTracker, registerPlatformImplementation, registerRecord
 import { TreePathType, type TreePath } from "@elaraai/e3-types";
 
 import { datasetPathToString } from "./dataset-store.js";
-import { IndexedPagedRuntime, recordSliceBatchesOf } from "./indexed-paged.js";
+import { IndexedPagedRuntime, indexedBindingOfSource, recordSliceBatchesOf } from "./indexed-paged.js";
 import { toFindQuery } from "./find-query.js";
 import type { PagedSelector, PagedSource, PagedApi } from "./paged/api.js";
 import { NO_INDEX, selectorKey, pagedWindowFamily, pagedWindowKey, pagedTotalKey, pagedSeekKey } from "./paged/keys.js";
@@ -290,7 +297,7 @@ export class PagedRuntime extends PagedBatches {
                     // A window a landed one covers is answered from it, never fetched (#1217).
                     const own = this.channel(snapshot, key);
                     if (own.status !== "loaded") {
-                        this.cutFromCovering(sourceType, family, offset, limit, own);
+                        this.cutFromCovering(sourceType, family, offset, limit, key, own);
                     }
                     // A one-row window at a row a read by key holds is answered from it (#1351).
                     if (own.status !== "loaded" && limit === 1 && selector.index === null && sourceType.type === "Dict") {
@@ -301,10 +308,23 @@ export class PagedRuntime extends PagedBatches {
                             own.window = new SortedMap([[held.key, held.row.value]], compareFor(keyType));
                             own.span = { family, offset, count: 1 };
                             delete own.error;
+                            this.cutWindows.set(key, true);
+                        }
+                    }
+                    // A window one in flight covers waits on it, asking nothing of its own (#1596): its rows are cut from
+                    // that window once it lands, which re-fires this read.
+                    if (own.status !== "loaded" && this.due(own)) {
+                        const covering = this.coveringInFlight(family, offset, limit, key);
+                        if (covering !== undefined) {
+                            this.track(covering);
+                            return none;
                         }
                     }
                     const entry = this.ensureWindow(sourceType, workspace, path, snapshot, revision, offset, limit, selector, key);
-                    if (entry.status === "loaded" && entry.window !== undefined) this.touchWindow(key);
+                    if (entry.status === "loaded" && entry.window !== undefined) {
+                        if (this.cutWindows.has(key)) this.touchCut(key);
+                        else this.touchWindow(key);
+                    }
                     return this.answer(entry, entry.window);
                 }),
             DataPagedPrimitives.total.implement((_sourceType: EastTypeValue) =>
@@ -527,6 +547,60 @@ export const defaultPagedRuntime = new PagedRuntime();
  */
 export function pagedSourceOf(id: string): PagedSource | undefined {
     return defaultPagedRuntime.sourceOf(id);
+}
+
+/**
+ * Reads a keyed source's entries by their ids.
+ *
+ * @param ids - The entries' ids
+ * @returns Each entry's row, `none` for one the source does not hold, by id; none while the read is in flight;
+ *   `undefined` for a source that cannot be read by key
+ */
+export type EntriesByKey = (ids: readonly string[]) => option<ReadonlyMap<string, option<unknown>>> | undefined;
+
+/**
+ * Reads a keyed source's entries by their ids, every one in one request
+ * (#1596): what a Save reads the entries it wrote back by, however many, and
+ * wherever they sit. A source's entries are its dataset's own rows, whichever
+ * of them it pages — all of them in key order, one of a record's indexes, a
+ * binding's unfiltered view, or a record Slice's narrowing — so each is read
+ * from the record itself, an id naming no key of the source's type being an
+ * entry it does not hold. The source is found as each read runs: its handle is
+ * bound as the page's program runs.
+ *
+ * @param id - The source's id, as its handle carries it, no narrowing printed into it
+ * @param keyType - The source's key type
+ * @param rowType - The type of its entries
+ * @returns The reader
+ */
+export function entriesByKeyOf(id: string, keyType: EastType, rowType: EastType): EntriesByKey {
+    const parse = keyType.type === "String" ? undefined : parseFor(keyType);
+    const keyOf = (text: string): unknown => {
+        if (parse === undefined) return text;
+        const read = parse(text);
+        return read.success ? read.value : undefined;
+    };
+    // Made once: a read by key keeps its printer of the key type by this value.
+    const type = toEastTypeValue(DictType(keyType, rowType));
+    const rowsOf = (keys: readonly unknown[]): option<readonly option<unknown>[]> | undefined => {
+        const binding = indexedBindingOfSource(id);
+        if (binding !== undefined) return binding.readsRows ? binding.batches.rowsAll(keys) : undefined;
+        const source = pagedSourceOf(id);
+        if (source === undefined) return undefined;
+        const rows = defaultPagedRuntime.rowsAll({ path: source.path, selector: NO_INDEX, type }, keys);
+        return rows.type === "some" ? some(rows.value.map((entry) => entry.row)) : none;
+    };
+    return (ids) => {
+        const asked = ids.flatMap((entry) => {
+            const key = keyOf(entry);
+            return key === undefined ? [] : [{ entry, key }];
+        });
+        const read = asked.length === 0 ? some<readonly option<unknown>[]>([]) : rowsOf(asked.map(({ key }) => key));
+        if (read === undefined || read.type === "none") return read as undefined | typeof none;
+        const found = new Map<string, option<unknown>>(ids.map((entry) => [entry, none] as const));
+        asked.forEach(({ entry }, i) => found.set(entry, read.value[i]!));
+        return some(found);
+    };
 }
 
 /**

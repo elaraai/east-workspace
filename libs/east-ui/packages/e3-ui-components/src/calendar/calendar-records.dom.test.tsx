@@ -30,7 +30,7 @@ import { StateRuntime, UIStore, editingMessages, system } from "@elaraai/east-ui
 import { SEARCH_DELAY_MS } from "@elaraai/east-ui-components/internal";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar-records";
 import { act, e3Harness, settle, slot, width } from "../e3-web-mount.test-utils.js";
-import type { E3Request } from "../e3-web.test-utils.js";
+import { readsRow, type E3Request } from "../e3-web.test-utils.js";
 import { setNavigatorStylesProbe } from "../shared/time/navigation.js";
 import { DAY, eventKey } from "./model.js";
 import { TIMELINE_GUTTER, timelineDayWidth, timelineDays, timelineOpensAt, timelineScrollTo } from "./timeline.js";
@@ -108,7 +108,7 @@ test("indexed Calendar preserves overlaps, replaces windows atomically, and save
     expect(committed.get("job")?.status).toBe("Done");
     expect(committed.size).toBe(12000);
     // The hidden draft was found by its original key.
-    expect(h.requests("find", EVENTS).some(request => request.query.get("key") === '"job"')).toBe(true);
+    expect(h.requests("rows", EVENTS).some(request => readsRow(request, '"job"'))).toBe(true);
     expect(container.querySelector('[data-record-save-notice]')).toBeNull();
     await act(async () => { store.write(scope, encodeBeast2For(RecordSliceStateType)(state)); });
     await settle();
@@ -852,9 +852,18 @@ describe("a Save: what it landed, as it left it, while the window is read again"
     /** The window's reads of the record — its batches of key searches, the rows of its runs and what the narrowing holds — which a Save's own confirmation, a key's search and its row, is none of. */
     const windowRead = (request: E3Request) => request.dataset === EVENTS
         && ((request.kind === "find" && request.query.get("findKeys") !== null) || request.kind === "runs" || request.kind === "within");
-    /** Saves through the history's Save with the window's reads held: its commit confirmed and its drafts gone, those reads not answered yet. */
+    /**
+     * Saves through the history's Save with the window's reads held from the commit on: its commit confirmed and its drafts
+     * gone, those reads not answered yet. Before it commits, a Save asks what the narrowing holds of the rows it writes, in
+     * one read (#1596) — the kind of read the window makes too — which goes through: only what is asked once the commit
+     * has gone is the window's read again.
+     */
     async function saveHeld(container: HTMLElement) {
-        const held = h.e3.hold(windowRead);
+        let committed = false;
+        const held = h.e3.hold((request) => {
+            if (request.kind === "mutate") committed = true;
+            return committed && windowRead(request);
+        });
         await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("button", { name: "Save" })); });
         await held.holding;
         await settle();

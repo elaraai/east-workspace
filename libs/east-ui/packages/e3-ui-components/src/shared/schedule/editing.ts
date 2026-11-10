@@ -29,6 +29,7 @@ import {
 import { boundedReadiness, wholeEntryReadiness, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
 import type { FieldSpecValue, RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { breachIssue, isBounded } from "../bounds.js";
+import { entriesByKeyOf } from "../../platform/paged-runtime.js";
 
 /** The common event projection decoded from Schedule. */
 type Item = ValueTypeOf<typeof ScheduleItemType>;
@@ -529,6 +530,8 @@ export function useScheduleEditing<I extends Item = Item>({
                 if (read.type !== "some") return none;
                 return read.value.type === "some" ? some(some(decodeRow(read.value.value))) : some(none);
             },
+            // Every entry a Save wrote, in one read of the record's own rows (#1596).
+            entriesAll: kind.editing.keyType.type === "some" ? entriesByKeyOf(seam.paged, fromEastTypeValue(kind.editing.keyType.value) as EastType, entryType) : undefined,
         };
         return { editing, ready, paged, prepare, wireType: EntryRefType, ranges, together, drawsLanded: kind.drawsLanded };
     }), [parts, codecs, storageKey, recordSlices, quantityLabel]);

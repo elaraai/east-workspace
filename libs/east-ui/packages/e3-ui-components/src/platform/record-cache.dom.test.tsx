@@ -19,7 +19,7 @@ import {
 import { Editing, RecordSliceBindType, RecordSliceReadType, RecordSliceWhereType, bindRecord, recordSliceReadPlatform } from "@elaraai/east-ui/internal";
 import { getRegisteredPlatformImplementations, useEditSession, useTrackedEvaluation, type EditingValue } from "@elaraai/east-ui-components";
 import { RecordSliceImpl } from "@elaraai/east-ui-components/platform";
-import { createTrackedRead, prepareRecordSliceSave, RecordSliceSaveNotice, type EditSource } from "@elaraai/east-ui-components/internal";
+import { createTrackedRead, prepareRecordSliceSave, recordSliceReadEntries, RecordSliceSaveNotice, type EditSource } from "@elaraai/east-ui-components/internal";
 import { Data, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
 import type { E3Request } from "../e3-web.test-utils.js";
@@ -84,21 +84,15 @@ const pagesAsked = () => h.requests().filter(ownPage).map((request) => ({ offset
  * installed over the test's workspace as a mounted page's providers install them, and the program bound.
  *
  * @param count - How many orders
- * @returns The orders' ids, the record Slice, its Apply, and what the Save notice asks of its membership
+ * @returns The orders' ids, the record Slice and its Apply
  */
 async function fixture(count: number) {
     const ids = idsOf(count);
     await h.patch(ex.workOrders, new SortedMap(ids.map((id, i) => [id, orderOf(i)] as const), compareString));
     await h.install({ fn: program });
     const bound = East.compile(program, getRegisteredPlatformImplementations())() as unknown as Bound;
-    // What the Save notice asks of each saved order's membership: by its key, or by a row the Save holds.
-    const asked = { byKey: [] as string[], byRow: [] as string[] };
-    const slice = {
-        ...bound.slice,
-        contains: (where: Where, id: string) => { asked.byKey.push(id); return bound.slice.contains(where, id); },
-        containsRow: (where: Where, id: string, row: Uint8Array) => { asked.byRow.push(id); return bound.slice.containsRow(where, id, row); },
-    } as typeof bound.slice;
-    return { ids, slice, apply: bound.apply, asked, choose: (status: string) => slice.choose("status", [printString(status)]) };
+    const slice = bound.slice;
+    return { ids, slice, apply: bound.apply, choose: (status: string) => slice.choose("status", [printString(status)]) };
 }
 
 /** Resolve from dependency notifications, with no polling or timing assumptions. */
@@ -209,6 +203,7 @@ test("40 drafts survive paging, filters and remounts; Save confirms all original
     const source: EditSource<Bar> = { revision: f.slice.data.revision, refresh: f.slice.data.refresh, seek: none,
         page: () => { throw new Error("Save must confirm hidden drafts by primary identity"); },
         readCurrent: (id) => f.slice.readEntry(id),
+        readCurrentAll: (ids) => recordSliceReadEntries(f.slice, ids),
     };
     const options = { idOf: (bar: Bar) => bar.id, prepare: prepareRecordSliceSave(f.slice, f.slice.data.revision) };
     await settled(() => f.slice.data.revision());
@@ -239,15 +234,19 @@ test("40 drafts survive paging, filters and remounts; Save confirms all original
     expect(session.pending).toBe(40);
     act(() => { f.choose("open"); });
     const notice = render(<RecordSliceSaveNotice slice={f.slice} />);
+    const from = h.requests().length;
     await act(async () => { await session.apply(); });
     await waitFor(() => expect(session.status).toBe("idle"), { timeout: 60_000 });
     await waitFor(() => expect(notice.container.textContent).toBe("40 rows left this view"), { timeout: 60_000 });
-    // The notice asked every saved order's membership in both its checks — before the Save by the row its draft
-    // began from, after it by the row its confirmation read back (a check asks again what was pending) — and read
-    // none of them by its key again.
-    expect(f.asked.byKey).toEqual([]);
-    expect(new Set(f.asked.byRow)).toEqual(new Set(f.ids.slice(0, 40)));
-    expect(f.ids.slice(0, 40).every((id) => f.asked.byRow.filter((asked) => asked === id).length >= 2)).toBe(true);
+    // However many orders the Save wrote (#1596): the notice's two checks — before the Save, by the rows its drafts began
+    // from, and after it, by the rows its confirmation read back — are one read of memberships each, and the
+    // confirmation one read of rows. No order is sought, or read a row at a time, by its key.
+    const asked = h.requests().slice(from);
+    const ofOrders = asked.filter((request) => request.dataset === "records.work_orders");
+    expect(ofOrders.filter((request) => request.kind === "within")).toHaveLength(2);
+    expect(ofOrders.filter((request) => request.kind === "rows")).toHaveLength(1);
+    expect(ofOrders.filter((request) => request.kind === "find" && request.method === "GET")).toEqual([]);
+    expect(ofOrders.filter((request) => request.kind === "page")).toEqual([]);
     expect(submitted).toEqual([f.ids.slice(0, 40)]);
     expect(session.pending).toBe(0);
     // The record holds the drafts as saved, and the rest as they were.

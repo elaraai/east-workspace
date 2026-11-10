@@ -65,7 +65,7 @@ import * as rowDrop from "@elaraai/e3-ui/examples/plan/plan";
 import * as events from "@elaraai/e3-ui/examples/plan/plan-events";
 import { PrintJob, PrintStock, planLinkStock, planPrintJobTemplates } from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
-import type { E3Request } from "../../e3-web.test-utils.js";
+import { rowKeysOf, type E3Request } from "../../e3-web.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
@@ -101,9 +101,9 @@ const PRESSES = pathText(ex.planWindowPresses.output.path as TreePath);
  */
 type Served = "interval" | "days" | "backlog" | "entries" | "templates" | "presses";
 
-/** The collection a page or a key search reads; none for any other request. */
+/** The collection a page, a key search or a read of rows by key reads; none for any other request. */
 function servedOf(request: E3Request): Served | undefined {
-    if (request.kind !== "page" && request.kind !== "find") return undefined;
+    if (request.kind !== "page" && request.kind !== "find" && request.kind !== "rows") return undefined;
     const index = request.query.get("index") ?? undefined;
     if (request.dataset === PRESSES && index === undefined) return "presses";
     if (request.dataset === TEMPLATES) return "templates";
@@ -116,13 +116,15 @@ function servedOf(request: E3Request): Served | undefined {
 }
 
 /**
- * What a request asked: a page's `offset+limit`; a key search's key text, an
- * index's exact fields then the prefix after them, a key's first letters, or a
- * range from its bound — each field its literal, space apart.
+ * What a request asked: a page's `offset+limit`; a read of rows' keys; a key
+ * search's key text, an index's exact fields then the prefix after them, a
+ * key's first letters, or a range from its bound — each field its literal,
+ * space apart.
  */
 function askedOf(request: E3Request): string {
     const query = request.query;
     if (request.kind === "page") return `page ${query.get("offset")}+${query.get("limit")}`;
+    if (request.kind === "rows") return `rows ${rowKeysOf(request).join(" ")}`;
     const key = query.get("key");
     if (key !== null) return `seek ${key}`;
     const fields = query.getAll("field");
@@ -829,7 +831,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         await settle();
         expect(bannerTexts(c)).toEqual([]);
         expect((await readJobs()).get("W-0001")!.customer).toBe("Alder & Finch Ltd");
-        expect(of("entries").slice(before)).toContain(`seek "W-0001"`);
+        expect(of("entries").slice(before)).toContain(`rows "W-0001"`);
         expect(customerOf(c)).toBe("Alder & Finch Ltd");
         expect(inspectorField(c, "customer").hasAttribute("data-dirty")).toBe(false);
         expect(h.requests("read", JOBS)).toEqual([]);
@@ -853,7 +855,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         const cards = await conflictCards(c);
         expect(cards.map((card) => card.item)).toEqual(["Brochure run"]);
         expect(cards[0]!.theirs).toContain("Changed since this edit began — last changed by another session");
-        expect(of("entries")).toEqual(expect.arrayContaining([`seek "W-0001"`, `seek "W-0003"`]));
+        expect(of("entries")).toEqual(expect.arrayContaining([`rows "W-0001" "W-0003"`]));
         // Nothing of the job's draft was written; the other planner's stands, and each draft stands over it.
         expect((await readJobs()).get("W-0001")!.customer).toBe("Alder & Finch Group");
         await select(bar(c, "W-0001", "P-1001")!);
@@ -979,7 +981,9 @@ describe("planRowDrop's data session, its record read a window at a time (#1199)
             // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
             expect(historyButton(container, SAVE).getAttribute("aria-disabled")).toBe("true");
             expect(pending(container)).toBe("1 pending");
-            expect(h.requests("find", opsPath).some((request) => request.query.get("key") === '"p03"')).toBe(true);
+            // Read by its key at the record's new revision, in a read of rows, and never searched for alone (#1596).
+            expect(h.requests("rows", opsPath).flatMap(rowKeysOf)).toContain('"p03"');
+            expect(h.requests("find", opsPath).filter((request) => request.query.get("key") === '"p03"')).toEqual([]);
             expect(h.requests("read", opsPath)).toEqual([]);
         } finally {
             restore();

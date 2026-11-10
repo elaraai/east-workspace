@@ -151,6 +151,20 @@ interface AskedRuns {
     readonly runs: readonly Range[];
 }
 
+/**
+ * A membership read of more entries than one read asks (#1596): its parts, each
+ * the same array whenever it is asked again, and what each answered at the runs
+ * it was asked of — kept from the pass it lands in until every part has.
+ */
+interface WithinParts {
+    /** The entries, a read's worth at a time. */
+    readonly parts: readonly (readonly RecordSliceEntryKey[])[];
+    /** The runs the answers are of; `undefined` before any is asked. */
+    runs: RecordSliceRuns | undefined;
+    /** Each part's answers, once landed, by its place among the parts. */
+    answers: (readonly boolean[] | undefined)[];
+}
+
 /** Resolved, ascending, disjoint ranges within one immutable revision. */
 export interface RecordSliceRuns {
     /** Named source. */
@@ -247,6 +261,13 @@ export class RecordSliceSource<T> {
     private readonly askedRuns: AskedRuns[] = [];
     private readonly pages = new Map<RecordSliceRuns, Map<string, { rows: T[]; complete: boolean }>>();
     private pageCount = 0;
+    /**
+     * What each membership read of more entries than one read asks has had answered (#1596), by the entries asked.
+     * A reader holds the answers it read to a bound of its own — the paged runtime's, at twice a read's worth — so
+     * past it a landed part's answers may go before the last part lands, and a pass asking them again would never
+     * have them all at once: each part's are kept here until every one has landed.
+     */
+    private readonly withinParts = new WeakMap<readonly RecordSliceEntryKey[], WithinParts>();
 
     /** @param reader - Existing indexed-source reads, sharing one revision. */
     constructor(private readonly reader: RecordSliceReader<T>) {}
@@ -779,10 +800,13 @@ export class RecordSliceSource<T> {
      * Which of some entries a narrowing's resolved runs hold (#1349), each
      * answered by the reader from the runs: no row is examined here. Past
      * {@link MAX_RECORD_SLICE_BATCH} entries, they are asked as several reads,
-     * all in this pass, as `resolve` asks a plan's searches.
+     * all in this pass, as `resolve` asks a plan's searches — each part's
+     * answers kept here as it lands, until every part has (#1596), so only the
+     * parts still to land are asked again.
      *
      * @param plan - Current narrowing
-     * @param entries - The entries asked of: each one's index key text and primary key
+     * @param entries - The entries asked of: each one's index key text and primary key — past a read's worth, the same
+     *   array whenever they are asked again, which what each part answered is kept by
      * @returns Whether each entry lies in the narrowing's runs, or none while pending
      * @throws {Error} When the reader reads no memberships
      */
@@ -791,18 +815,33 @@ export class RecordSliceSource<T> {
         const resolved = this.resolve(plan);
         if (resolved.type === "none") return none;
         if (entries.length === 0) return some([]);
-        const answers: boolean[] = [];
-        let pending = false;
-        for (let at = 0; at < entries.length; at += MAX_RECORD_SLICE_BATCH) {
+        if (entries.length <= MAX_RECORD_SLICE_BATCH) {
             // Entries that fit one read are handed on as they are, the same array whenever they are asked again, so a
             // reader keeping what it made of them by the array finds it.
-            const batch = entries.length <= MAX_RECORD_SLICE_BATCH ? entries : entries.slice(at, at + MAX_RECORD_SLICE_BATCH);
-            const part = this.reader.withinAll(resolved.value.index, resolved.value.runs, batch);
-            if (part.type === "none") pending = true;
-            else answers.push(...part.value);
+            const answers = this.reader.withinAll(resolved.value.index, resolved.value.runs, entries);
+            return this.current() !== resolved.value.revision ? none : answers;
+        }
+        let held = this.withinParts.get(entries);
+        if (held === undefined) {
+            const parts: (readonly RecordSliceEntryKey[])[] = [];
+            for (let at = 0; at < entries.length; at += MAX_RECORD_SLICE_BATCH) parts.push(entries.slice(at, at + MAX_RECORD_SLICE_BATCH));
+            held = { parts, runs: undefined, answers: [] };
+            this.withinParts.set(entries, held);
+        }
+        // Answers of other runs — another narrowing, or the record at another revision — are not these.
+        if (!Object.is(held.runs, resolved.value)) {
+            held.runs = resolved.value;
+            held.answers = [];
+        }
+        let pending = false;
+        for (const [i, part] of held.parts.entries()) {
+            if (held.answers[i] !== undefined) continue;
+            const answer = this.reader.withinAll(resolved.value.index, resolved.value.runs, part);
+            if (answer.type === "none") pending = true;
+            else held.answers[i] = answer.value;
         }
         if (this.current() !== resolved.value.revision || pending) return none;
-        return some(answers);
+        return some(held.answers.flatMap((answer) => [...answer!]));
     }
 
     /**

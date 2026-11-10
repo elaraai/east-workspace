@@ -11,10 +11,10 @@ import {
 } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
-import { IndexedEntryType, type RecordSliceEntryKey } from "@elaraai/east-ui/internal";
+import { INDEXED_ROWS_SUFFIX, IndexedEntryType, type RecordSliceEntryKey } from "@elaraai/east-ui/internal";
 import { bindIndexedPagedPlatformFn, DataIndexedPrimitives, NestedPartType } from "@elaraai/e3-ui/internal";
 import { NestedSpanKeyType, RecordSummaryTotalsType, TreePathType, entriesRowsName, indexWindowType, nestedSpanName, type TreePath } from "@elaraai/e3-types";
-import type { RecordSliceBatches } from "@elaraai/east-ui-components/platform";
+import { RECORD_SLICE_DATA_MARK, type RecordSliceBatches } from "@elaraai/east-ui-components/platform";
 import { datasetPathToString } from "./dataset-store.js";
 import type { PagedRuntime } from "./paged-runtime.js";
 import { toFindQuery } from "./find-query.js";
@@ -141,6 +141,11 @@ export interface IndexedBindingRead {
     readonly nested: { readonly index: string; readonly entry: StructType<{ ik: EastType; value: EastType }> } | undefined;
     /** Each listed entries index, by its name (#1522); empty where the binding lists none. */
     readonly entries: ReadonlyMap<string, IndexedEntries>;
+    /**
+     * Whether a read of the record's own rows by key reads them as the binding's windows hold them (#1596): it joins
+     * them. Beside a nested series index a binding's windows hold lean rows, which a row read whole by key is not.
+     */
+    readonly readsRows: boolean;
     /** The record's identity, as a record Slice bound over the binding names it (`sourceId`): what tells two records' bindings apart (#1522). */
     readonly recordId: string;
     /** Asks every read of the record that failed again, at once — a Retry's, as a source of the rail asks (#1522). */
@@ -158,6 +163,25 @@ const bindingsById = new Map<string, IndexedBindingRead>();
  */
 export function indexedBindingOf(id: string): IndexedBindingRead | undefined {
     return bindingsById.get(id);
+}
+
+/**
+ * The binding a windowed source of its rows reads (#1596): the source's id is
+ * the binding's own, or the binding's with what the source shows of it after —
+ * its unfiltered view ({@link INDEXED_ROWS_SUFFIX}), or a record Slice's
+ * narrowing of it ({@link RECORD_SLICE_DATA_MARK} and the Slice's key), the
+ * marks the sources' builders add.
+ *
+ * @param id - The source's id, as its handle carries it
+ * @returns The binding read; `undefined` for a source of no binding built here
+ */
+export function indexedBindingOfSource(id: string): IndexedBindingRead | undefined {
+    const own = bindingsById.get(id);
+    if (own !== undefined) return own;
+    if (id.endsWith(INDEXED_ROWS_SUFFIX)) return bindingsById.get(id.slice(0, id.length - INDEXED_ROWS_SUFFIX.length));
+    // A binding's id holds no Slice's mark; the Slice's key after it may.
+    const narrowed = id.indexOf(RECORD_SLICE_DATA_MARK);
+    return narrowed < 0 ? undefined : bindingsById.get(id.slice(0, narrowed));
 }
 
 /**
@@ -567,6 +591,7 @@ export class IndexedPagedRuntime {
                     handle, batches, key: args[0], row: args[1],
                     nested: nestedName === undefined || ik === undefined ? undefined : { index: nestedName, entry: StructType({ ik, value: args[6] }) },
                     entries: this.entriesIndexes(schema),
+                    readsRows: joined,
                     recordId,
                     // A Retry asks again of the record's path, every source of it alike: its own rows' source names it.
                     askAgain: () => {

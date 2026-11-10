@@ -18,13 +18,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, DateTimeType, East, Expr, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isValueOf, none,
-    printFor, some, variant, type ValueTypeOf,
+    printFor, some, variant, type EastType, type option, type ValueTypeOf,
 } from "@elaraai/east";
 import { SeekQueryType } from "@elaraai/east-ui";
 import {
-    RecordSliceReadType, RecordSliceWhereType, areaQueries, bindRecord, resolveRowSource, type RecordSliceJoined, type ResolvedRowSource,
+    INDEXED_ROWS_SUFFIX, RecordSliceReadType, RecordSliceWhereType, areaQueries, bindRecord, resolveRowSource, type RecordSliceJoined, type ResolvedRowSource,
 } from "@elaraai/east-ui/internal";
-import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
+import { RECORD_SLICE_DATA_MARK, createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
 import {
     recordSliceCellEntries, recordSliceCellJoins, recordSliceCellRuns, recordSliceOnPrinter, recordSlicePlace, recordSliceWithin, recordSliceWithinAt,
 } from "@elaraai/east-ui-components/internal";
@@ -37,7 +37,7 @@ import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
 import * as nx from "@elaraai/e3-ui/fixtures/bind/data/data-nested";
 import { patchRecord, readDataset } from "../src/e3-web.test-utils.js";
 import { recordSliceBatchesOf } from "../src/platform/indexed-paged.js";
-import { PagedRuntime, createDefaultPagedApi } from "../src/platform/paged-runtime.js";
+import { PagedRuntime, createDefaultPagedApi, entriesByKeyOf } from "../src/platform/paged-runtime.js";
 import { e3Spec } from "./fixtures/e3.js";
 
 const h = e3Spec({ "bind/data/data": ex, "bind/data/data-nested.fixtures": nx });
@@ -734,6 +734,24 @@ test("a machine is read whole by its key beside a nested series index, and the n
     assert.throws(() => reads.placeAll("machines_in_time", [{ found: true, row: 0n, count: 1n }]), refusal);
     assert.throws(() => reads.withinAll("machines_in_time", [{ found: true, row: 0n, count: 1n }], []), refusal);
     assert.equal(pagesOf(machines).length, 0, "nothing paged");
+    runtime.clear();
+});
+
+test("a Save's rows are read back by key as the binding's windows hold them: the people's, joined, in one read through its unfiltered view or a Slice's narrowing; the machines' lean ones, beside a nested series index, never whole (#1596)", async () => {
+    const { runtime } = newRuntime();
+    const peopleBinding = East.compile(program, platform(runtime))();
+    const machinesHandle = East.compile(machinesProgram, platform(runtime))();
+    /** A Save's read-back, by the id of the source a builder's rows are read through. */
+    const readBack = (id: string, row: EastType) => entriesByKeyOf(id, StringType, row);
+    const viaRows = await h.ready(() => readBack(`${peopleBinding.id}${INDEXED_ROWS_SUFFIX}`, Person)(["p2", "missing"])!);
+    assert.ok(rowEqual(viaRows.get("p2") as option<ValueTypeOf<typeof Person>>, some({ name: "Abe", skills: new Set<string>() })), "Abe, as the record holds him");
+    assert.deepEqual(viaRows.get("missing"), none, "a key the record does not hold");
+    const viaSlice = await h.ready(() => readBack(`${peopleBinding.id}${RECORD_SLICE_DATA_MARK}test.people`, Person)(["p2", "missing"])!);
+    assert.ok(rowEqual(viaSlice.get("p2") as option<ValueTypeOf<typeof Person>>, some({ name: "Abe", skills: new Set<string>() })), "the same, through a Slice's narrowing");
+    assert.equal(h.requests("rows", `records.${people.name}`).length, 1, "one read of rows, which the second answers from");
+    assert.equal(readBack(`${machinesHandle.id}${INDEXED_ROWS_SUFFIX}`, nx.NestedMachine)(["M-007"]), undefined,
+        "beside a nested series index the binding's windows hold lean rows: none is read whole by its key, and the Save reads them as its windows do");
+    assert.equal(h.requests("rows", `records.${machines.name}`).length, 0);
     runtime.clear();
 });
 

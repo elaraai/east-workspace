@@ -411,6 +411,28 @@ export function searched(request: E3Request, index: string | undefined, text: st
     return keys.some((key) => key.startsWith(text));
 }
 
+/**
+ * Whether a read of rows by key (`rows`, #1351) asks for a key, as East prints it.
+ *
+ * @param request - The request
+ * @param key - The key's `.east` text
+ * @returns Whether it reads that key's row
+ */
+export function readsRow(request: E3Request, key: string): boolean {
+    return rowKeysOf(request).includes(key);
+}
+
+/**
+ * The keys a read of rows by key (`rows`, #1351) asks for, each as East prints it, in the order asked.
+ *
+ * @param request - The request
+ * @returns Its keys; none for any other request
+ */
+export function rowKeysOf(request: E3Request): readonly string[] {
+    if (request.kind !== "rows") return [];
+    return (JSON.parse(new TextDecoder().decode(request.body)) as { keys?: string[] }).keys ?? [];
+}
+
 /** A single key search, as its query names it. */
 function searchOf(query: URLSearchParams): DatasetKeySearch {
     const fields = query.getAll("field");

@@ -75,6 +75,8 @@ export class PagedReads extends PagedChannels {
         const entry = this.channel(snapshot, key);
         if (!this.due(entry)) return entry;
         const { seq, signal } = this.launchFetch(key, entry);
+        // Where it asked: a read inside it waits on it while it is in flight (#1596).
+        entry.asking = { family: pagedWindowFamily(workspace, path, revision, selector), offset, count: limit };
         const api = this.api;
 
         void (async () => {
@@ -143,14 +145,15 @@ export class PagedReads extends PagedChannels {
      * @param family - The window's family
      * @param offset - The window's first element
      * @param limit - How many elements it asks for
+     * @param key - The window's channel's key
      * @param into - The window's channel, not loaded
      */
     protected cutFromCovering(
-        sourceType: EastTypeValue, family: string, offset: number, limit: number, into: PageEntry,
+        sourceType: EastTypeValue, family: string, offset: number, limit: number, key: string, into: PageEntry,
     ): void {
-        for (const key of this.loadedWindows.keys()) {
+        for (const landed of this.loadedWindows.keys()) {
             pagedRuntimeProbe?.looked?.();
-            const covering = this.entries.get(key);
+            const covering = this.entries.get(landed);
             if (covering === undefined || covering === into || covering.status !== "loaded" || covering.window === undefined) continue;
             const from = coveringAt(covering, family, offset, limit);
             if (from === undefined) continue;
@@ -163,10 +166,34 @@ export class PagedReads extends PagedChannels {
             delete into.error;
             delete into.failedAtMs;
             delete into.permanent;
+            // A one-row cut is kept apart from the windows it is cut from (#1596); one of more rows is a window of the cap's.
+            if (limit === 1) this.cutWindows.set(key, true);
             // The covering window was read, through its cut.
-            this.touchWindow(key);
+            this.touchWindow(landed);
             return;
         }
+    }
+
+    /**
+     * A window in flight that covers a read of `[offset, offset + limit)` of a
+     * family (#1596): the read waits on it, its rows cut from that window once
+     * it lands, rather than asking for them on its own. Only the reads in
+     * flight are looked at, never every channel of the revision.
+     *
+     * @param family - The read's family
+     * @param offset - The read's first element
+     * @param limit - How many elements it asks for
+     * @param key - The read's own channel
+     * @returns The covering window's channel; `undefined` when no window in flight covers it
+     */
+    protected coveringInFlight(family: string, offset: number, limit: number, key: string): string | undefined {
+        for (const candidate of this.fetching.keys()) {
+            if (candidate === key) continue;
+            const entry = this.entries.get(candidate);
+            const asked = entry?.status === "running" ? entry.asking : undefined;
+            if (asked !== undefined && asked.family === family && asked.offset <= offset && offset + limit <= asked.offset + asked.count) return candidate;
+        }
+        return undefined;
     }
 
     /** Start the pinned fence search for one key query if it is due one,

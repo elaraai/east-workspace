@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-records";
-import type { E3Request } from "../e3-web.test-utils.js";
+import { readsRow, type E3Request } from "../e3-web.test-utils.js";
 import { frameScrolls } from "./frame.test-utils.js";
 import { act, settle, sheetHarness } from "./frame/harness.test-utils.js";
 
@@ -79,7 +79,7 @@ test("indexed Sheet keeps the record's order under its lens, restores saved narr
     expect((await h.read(ui.record)).get("JOB-10000")?.status).toBe("Scheduled");
     expect(await commits()).toEqual(["patch", ...ui.deployed]);
     expect(h.requests("read", ORDERS), "neither narrowing nor confirmation reads the record whole").toEqual([]);
-    expect(h.requests("find", ORDERS).some(request => request.query.get("key") === '"JOB-10000"')).toBe(true);
+    expect(h.requests("rows", ORDERS).some(request => readsRow(request, '"JOB-10000"'))).toBe(true);
     expect(ui.container.querySelector('[data-record-save-notice]')).toBeNull();
 
     fireEvent.mouseDown(ui.tab("view-1"), { button: 0 });
@@ -104,7 +104,7 @@ test("indexed Sheet keeps the record's order under its lens, restores saved narr
     await settle();
     expect(ui.row(leavingId)).not.toBeNull();
     expect(ui.container.querySelector('[data-record-save-notice]')).toBeNull();
-    // Save goes: its patch commits, and the saved row is read back by its key at the revision it committed.
+    // Save goes: its patch commits, and the saved row is read back by its key at the revision it committed, in one read of rows.
     await act(async () => { fireEvent.click(ui.getByRole("button", { name: "Save" })); });
     await settle();
     expect(ui.container.querySelector('[data-record-save-notice]')?.textContent).toBe("1 row left this view");
