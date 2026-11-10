@@ -70,6 +70,19 @@ test("a stored bin past its most: Details says it once, as a warning, in its qua
     expect(refusals(c)).toEqual([["LD-2204", "Volume: at most 40"]]);
 });
 
+test("the Inspector collapsed, the toolbar's issue pressed opens it, as its rail does, and the bin's quantity takes the keyboard (#1585)", async () => {
+    const c = (await h.mount(kilnYard({ most: 40 }))).container;
+    const user = userEvent.setup();
+    await press(card(c, "3104"));
+    await retype(c, user, "MC12");
+    expect(save(c)).toHaveProperty("disabled", true);
+    await press(within(pane(c)).getByRole("button", { name: "Collapse Inspector" }));
+    expect(pane(c).hasAttribute("data-collapsed")).toBe(true);
+    await press(c.querySelector('[data-frame-slot="toolbar"] [data-slot="historyIssues"] button'));
+    const quantity = details(c).querySelector('[data-allocation-bin-section] [data-field="quantity"]');
+    expect([pane(c).hasAttribute("data-collapsed"), quantity?.contains(document.activeElement) === true]).toEqual([false, true]);
+});
+
 test("a bin of 0 m³ under a least of 1 rings, warns and waits as one past its most does, but never a reservation, which holds no quantity until a load is booked into it (#1585)", async () => {
     // Another session empties LD-2204's bin 3104, on K-501 still.
     const bins = await h.read(ex.kilnBins);

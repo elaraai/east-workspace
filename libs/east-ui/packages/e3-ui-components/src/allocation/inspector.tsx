@@ -420,7 +420,8 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
  * (`refused`) ringed — and the app's columns as rows; or, with the bin kind's
  * own `inspector`, that form over the row in place of the quantity, the
  * fields and the rows. A number outside its field's bounds is said in the tone
- * the bin's Save stands in (`breaches`, #1585).
+ * the bin's Save stands in (`breaches`, #1585), and the quantity takes the
+ * keyboard where an issue gone to names the kind's field it is.
  */
 function BinSection({ id, bin, committed, refused, breaches, ...part }: Part & {
     id: string; bin: Bin; committed: Bin | undefined; refused: ReadonlySet<string>; breaches: "warn" | "error";
@@ -457,6 +458,11 @@ function BinSection({ id, bin, committed, refused, breaches, ...part }: Part & {
     const least = most !== undefined && compareFloat(higher, most) > 0 ? most : higher;
     // The stepper's help says how it steps: a day that takes no edit has no stepper, and says nothing of it.
     const help = editable ? stepHelp(own, bin.lane, value.every, day, words) : undefined;
+    // The field an issue gone to asks for (#1585): the kind's quantity is drawn here, its row's other fields by the form
+    // under it, which reads its own.
+    const asked = useFieldAsk(value.bin.kind.key, id);
+    const quantityField = getSomeorUndefined(value.bin.kind.schedule.quantity);
+    const focus = asked !== undefined && quantityField !== undefined && keyEqual(asked, quantityField) ? "quantity" : undefined;
     const quantityLabel = nouns.quantity;
     const keyLabel = args.m.binKey();
     const specs = useMemo(() => Fields.specs(BIN_FIELDS, {
@@ -500,7 +506,7 @@ function BinSection({ id, bin, committed, refused, breaches, ...part }: Part & {
     return <chakra.fieldset css={[styles.edits, styles.fields]} disabled={args.retained} data-allocation-bin-section="">
         <Box css={styles.sectionHead}>{nouns.bin.one}</Box>
         <FieldForm specs={specs} value={shownValue} baseline={baseline} options={laneNames} onChange={onChange} readOnly={!editable} renderControl={renderControl}
-            breaches={breaches} />
+            focus={focus} breaches={breaches} />
         {form !== undefined ? <CustomBin {...part} id={id} bin={bin} form={form} /> : <>
             <RowFields {...part} id={id} bin={bin} committed={committed} refused={refused} breaches={breaches} />
             <ValueRows {...part} bin={bin} />
