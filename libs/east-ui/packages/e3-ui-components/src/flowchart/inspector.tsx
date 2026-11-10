@@ -64,7 +64,10 @@
  * held — says so under the field, as the footer does, the keyboard where the
  * edit left it (`FieldForm`'s refusal); one refused with nothing to say — its
  * kind's own `set` or `write` refusing it — draws its form again. A key whose
- * row a draft deletes is free (#1581).
+ * row a draft deletes is free (#1581). A number a row holds outside its
+ * field's bounds is said in the tone the row's Save stands in (#1585): a
+ * warning as stored, an error once its record's session refuses the row's
+ * change, holding Save.
  *
  * Details keeps the keyboard (#1398): a control that goes with the view it
  * belongs to — Delete, which leaves nothing selected; Duplicate and a
@@ -505,7 +508,8 @@ function useRowState(editing: FlowchartEditing, sort: FlowchartSort, kind: AnyKi
  * @param sort - The row's kind
  * @param key - Its key
  * @param what - What it is, for the console
- * @returns The kind, whether it writes and takes an edit now, the row's state, the form's edit, and the own Details
+ * @returns The kind, whether it writes and takes an edit now, the row's state, the form's edit, the own Details, and the
+ *   tone a bound its row breaks is said in
  */
 function useSide(props: ViewProps, sort: FlowchartSort, key: string, what: string) {
     const { value, editing, held, act, edit } = props;
@@ -530,7 +534,12 @@ function useSide(props: ViewProps, sort: FlowchartSort, key: string, what: strin
     }, [writes, sort, key, act]);
     // Read only, the form prints every field: an own Details is for a record that takes its edits.
     const own = useOwnDetails(writes && kind !== undefined ? getSomeorUndefined(kind.inspector) : undefined, state.bytes, update, what);
-    return { kind, writes, available, state, onField, own, refused, bump };
+    // A bound its row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change refused by its
+    // record's session, holding Save, it is an error.
+    const readiness = editing.schedule.sessions.find((part) => stringEqual(part.kind, sort))?.session.readiness;
+    const breaches: "warn" | "error" = readiness !== undefined && readiness.type !== "ready" && readiness.value.some((issue) => stringEqual(issue.entry, key))
+        ? "error" : "warn";
+    return { kind, writes, available, state, onField, own, refused, bump, breaches };
 }
 
 /**
@@ -540,7 +549,7 @@ function useSide(props: ViewProps, sort: FlowchartSort, key: string, what: strin
 function RowFields({ styles, roles, side, storageKey }: {
     styles: Styles; roles: ReactNode; side: ReturnType<typeof useSide>; storageKey: string;
 }) {
-    const { kind, writes, state, onField, own, refused } = side;
+    const { kind, writes, state, onField, own, refused, breaches } = side;
     const specs = kind?.fields ?? [];
     return (
         <>
@@ -548,7 +557,8 @@ function RowFields({ styles, roles, side, storageKey }: {
                 {roles}
                 {own === undefined && specs.length > 0 && (
                     <Box data-inspector-form="fields">
-                        <FieldForm key={refused} specs={specs} value={state.row} baseline={state.baseline} onChange={writes ? onField : NO_EDIT} readOnly={!writes} />
+                        <FieldForm key={refused} specs={specs} value={state.row} baseline={state.baseline} onChange={writes ? onField : NO_EDIT} readOnly={!writes}
+                            breaches={breaches} />
                     </Box>
                 )}
             </Box>

@@ -121,9 +121,12 @@ function DutyPay({ props, id }: { props: Args; id: string }) {
  * field a refusal names (`refused`) ringed — the one a refusal gone to names
  * taking the keyboard as the form draws it. A field's edit the duty refuses
  * leaves the field showing what the duty holds, the reason under it as the
- * frame's line says it.
+ * frame's line says it. A number outside its field's bounds is said in the tone
+ * the duty's Save stands in (`breaches`, #1585).
  */
-function DutyForm({ props, assignment, id, refused }: { props: Args; assignment: Assignment; id: string; refused: ReadonlySet<string> }) {
+function DutyForm({ props, assignment, id, refused, breaches }: {
+    props: Args; assignment: Assignment; id: string; refused: ReadonlySet<string>; breaches: "warn" | "error";
+}) {
     const { onError, commands } = props;
     const kind = props.value.duty.kind;
     const focus = useFieldAsk(kind.key, id);
@@ -146,7 +149,7 @@ function DutyForm({ props, assignment, id, refused }: { props: Args; assignment:
         <AssignmentFields assignment={assignment} form={form} baseline={baseline} value={props.value} readOnly={readOnly} onChange={change} />
         {result.ok && result.value !== undefined ? <chakra.fieldset disabled={readOnly}><EastChakraComponent value={result.value} storageKey={`${props.storageKey}.duty.${id}`} /></chakra.fieldset>
             : decoded !== undefined && kind.fields.length > 0 && <FieldForm specs={kind.fields} value={decoded} baseline={baselineRow ?? {}} readOnly={readOnly}
-                issues={refused} focus={focus} onChange={field} />}
+                issues={refused} focus={focus} breaches={breaches} onChange={field} />}
         {!result.ok && <Box css={props.styles.error} role="alert">The duty's form could not be rendered.</Box>}
     </>;
 }
@@ -160,6 +163,9 @@ function OneAssignment({ props, id, assignment: a }: { props: Args; id: string; 
     const refusals = props.refusals.filter(r => keyEqual(r.kind, props.value.duty.kind.key) && keyEqual(r.issue.entry, id));
     const refused = refusals.length === 0 ? NO_REFUSED
         : new Set(refusals.flatMap(r => (r.issue.field.type === "some" ? [r.issue.field.value] : [])));
+    // A bound its row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change refused, holding
+    // Save, it is an error.
+    const breaches = refusals.length > 0 ? "error" : "warn";
     return <><ScheduleInspectorHead styles={props.styles} kind={{ name: `Duty · ${props.value.groups.find(g => g.key === a.slot.group)?.label} · ${props.value.shifts.find(s => s.key === a.slot.shift)?.label}`, icon: a.who.type === "request" ? "building" : "user" }} title={assignmentName(props.value, a)}
         when={`${position === undefined ? "" : `${position.label} · `}${props.format.weekdayDate(dayOfSlot(props.start, a.slot))}${person?.trainer ? " · trainer" : person?.trainee ? " · trainee" : ""}`} status={{ label: state, tone: { type: removed ? "warning" : "neutral" }, ring: changed }} pending={changed ? baseline === undefined ? "new" : "pending" : undefined} home />
         {!removed && refusals.length > 0 && <Box css={props.styles.section} data-roster-refusals=""><BannerView status="warning" title="Not saved yet" description={refusals.map(r => r.text).join("; ")} /></Box>}
@@ -167,7 +173,7 @@ function OneAssignment({ props, id, assignment: a }: { props: Args; id: string; 
         {!removed && <Box css={props.styles.fields}><Box css={props.styles.sectionHead}>Shift</Box>
             <Seg fullWidth label="Duty shift" scope="roster" name="assignment-shift" active={a.slot.shift} items={props.value.shifts.map(s => ({ key: s.key, label: s.label, disabled: !props.commands.available }))} onPick={shift => props.onError(props.commands.place({ type: "assignment", key: id }, { ...a.slot, shift }))} />
             <Box css={props.styles.detail}>{props.format.time(a.start)}–{props.format.time(a.end)} · {props.format.number(a.hours)} h{props.format.weekday(a.end) !== props.format.weekday(a.start) && " · ends next day"}</Box>
-            <DutyForm props={props} assignment={a} id={id} refused={refused} />
+            <DutyForm props={props} assignment={a} id={id} refused={refused} breaches={breaches} />
         </Box>}
         {!removed && <DutyPay props={props} id={id} />}
         {person !== undefined && <PersonFacts props={props} person={person} slot={a.slot} />}

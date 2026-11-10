@@ -24,9 +24,10 @@
  *
  * - **an item**: its kind's form — or its kind's own `inspector` in its place
  *   — its details record's form, or its details' own; its position, `x` and
- *   `y` — held to the bounds a hint gives its centre, one it breaks said under
- *   its field (#1585) — with Unplace where its kind has a backlog; Delete; and
- *   what it is joined to, each link and net a control that selects it;
+ *   `y` — held to the bounds a hint gives its centre, one it breaks said once,
+ *   in its field's help line (#1585) — with Unplace where its kind has a
+ *   backlog; Delete; and what it is joined to, each link and net a control
+ *   that selects it;
  * - **a zone**: its form, or its own Details;
  * - **a link**: its ends, each a Chooser over the items of the slots its role
  *   names; its form; Delete;
@@ -78,7 +79,10 @@
  * only, or the Schematic `readOnly` — Details shows every field and edits
  * none, an own Details giving way to the form; while a record takes no edit
  * — a Save in flight, or what the canvas draws standing in while a new
- * narrowing is read (#1398, CL8) — its controls are off.
+ * narrowing is read (#1398, CL8) — its controls are off. A number a row holds
+ * outside its field's bounds is said in the tone the row's Save stands in
+ * (#1585): a warning as stored, an error once its record's session refuses the
+ * row's change, holding Save.
  *
  * Details keeps the keyboard (#1398): a control that goes with the view it was
  * pressed in — Delete and Unplace, which leave nothing selected, a leg's
@@ -365,20 +369,21 @@ const pendingControl = (spec: FieldSpecValue): ReactNode => <PlaceholderShape ki
  * refused saying why (`onChange` handing back the words) puts its field back, saying so under it; one refused with
  * nothing to say remounts it (`refused`), so it shows what the row holds again. While its row is read (`pending`),
  * each field is its label over a placeholder (#1398). A field an issue names (`issues`) takes the warn wash, and the
- * field named (`focus`) the keyboard (#1549).
+ * field named (`focus`) the keyboard (#1549); a number outside its bounds is said in the tone its row's Save stands in
+ * (`breaches`, #1585).
  */
-function Form({ styles, head, section, specs, value, baseline, options, onChange, readOnly, refused, pending = false, issues, focus }: {
+function Form({ styles, head, section, specs, value, baseline, options, onChange, readOnly, refused, pending = false, issues, focus, breaches }: {
     styles: Styles; head: string | undefined; section: string; specs: readonly FieldSpecValue[]; value: unknown; baseline: unknown;
     options?: Readonly<Record<string, readonly FieldOption[]>> | undefined;
     onChange: (path: readonly string[], value: unknown) => string | void; readOnly: boolean; refused?: number; pending?: boolean;
-    issues?: ReadonlySet<string> | undefined; focus?: string | undefined;
+    issues?: ReadonlySet<string> | undefined; focus?: string | undefined; breaches?: "warn" | "error" | undefined;
 }) {
     if (specs.length === 0) return null;
     return (
         <Box css={styles.fields} data-inspector-fields={section} data-pending={pending ? "" : undefined}>
             {head !== undefined && <Box css={styles.sectionHead}>{head}</Box>}
             <FieldForm key={refused ?? 0} specs={specs} value={value} baseline={baseline} options={options} onChange={onChange} readOnly={readOnly}
-                renderControl={pending ? pendingControl : undefined} issues={issues} focus={focus} />
+                renderControl={pending ? pendingControl : undefined} issues={issues} focus={focus} breaches={breaches} />
         </Box>
     );
 }
@@ -641,13 +646,19 @@ function useSide(props: ViewProps, ref: SchematicRef, name: string, side: Record
     }, [writes, ref, details, commit, m, name]);
     // Read only, the form shows every field: an own Details is for a record that takes its edits.
     const own = useOwnDetails(writes && side !== undefined ? getSomeorUndefined(side.inspector) : undefined, state.bytes, update, name);
-    return { side, writes, available, state, onField, own, refused };
+    // A bound its row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change refused by its
+    // record's session, holding Save, it is an error.
+    const readiness = editing.schedule.sessions.find((part) => stringEqual(part.kind, record))?.session.readiness;
+    const breaches: "warn" | "error" = readiness !== undefined && readiness.type !== "ready" && readiness.value.some((issue) => stringEqual(issue.entry, ref.key))
+        ? "error" : "warn";
+    return { side, writes, available, state, onField, own, refused, breaches };
 }
 
 /** A record's side drawn: its form, or its own Details, under its head; while its row is read, its fields' placeholders; no row, said so. */
-function SideBody({ styles, head, section, side, own, state, onField, writes, storageKey, empty, refused }: {
+function SideBody({ styles, head, section, side, own, state, onField, writes, storageKey, empty, refused, breaches }: {
     styles: Styles; head: string; section: string; side: RecordSide; own: unknown; state: RowState;
     onField: (path: readonly string[], value: unknown) => string | void; writes: boolean; storageKey: string; empty: string; refused: number;
+    breaches: "warn" | "error";
 }) {
     // Read, its form's fields stand at their places, each a placeholder until the row lands (#1398): its head is real.
     if (state.reading) {
@@ -656,7 +667,7 @@ function SideBody({ styles, head, section, side, own, state, onField, writes, st
     if (state.row === undefined) return <Fact styles={styles} fact={`${section}-none`}>{empty}</Fact>;
     if (own !== undefined) return <Custom styles={styles} head={head} section={section} ui={own} storageKey={storageKey} />;
     return <Form styles={styles} head={head} section={section} specs={side.fields} value={state.row} baseline={state.baseline}
-        onChange={writes ? onField : NO_EDIT} readOnly={!writes} refused={refused} />;
+        onChange={writes ? onField : NO_EDIT} readOnly={!writes} refused={refused} breaches={breaches} />;
 }
 
 // ── An item ─────────────────────────────────────────────────────────────────
@@ -767,9 +778,10 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
                 )}
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={form} own={self.own}
                     state={self.state} onField={self.onField} writes={self.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
-                    refused={self.refused} />
+                    refused={self.refused} breaches={self.breaches} />
                 <Form styles={styles} head={m.inspectorSection({ section: "position", name: kind.name })} section="position" specs={positionSpecs}
-                    value={{ x: item.x, y: item.y }} baseline={heldAt} onChange={self.writes ? onPosition : NO_EDIT} readOnly={!self.writes} refused={positionRefused} />
+                    value={{ x: item.x, y: item.y }} baseline={heldAt} onChange={self.writes ? onPosition : NO_EDIT} readOnly={!self.writes} refused={positionRefused}
+                    breaches={self.breaches} />
             </Edits>
             {/* Below 480px of main, what a Connect drag from it records (#1394, D15). */}
             {props.narrow && <ConnectTo {...props} item={item} />}
@@ -777,7 +789,8 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
                 <Edits styles={styles} available={theirs.available} actions={undefined}>
                     <SideBody styles={styles} head={m.inspectorSection({ section: "details", name: kind.name })} section="details" side={details}
                         own={theirs.own} state={theirs.state} onField={theirs.onField} writes={theirs.writes}
-                        storageKey={`${storageKey}.inspector.${kind.key}.details`} empty={m.inspectorNoDetails({ name: kind.name })} refused={theirs.refused} />
+                        storageKey={`${storageKey}.inspector.${kind.key}.details`} empty={m.inspectorNoDetails({ name: kind.name })} refused={theirs.refused}
+                        breaches={theirs.breaches} />
                 </Edits>
             )}
             {(joins.links.length > 0 || joins.nets.length > 0) && (
@@ -908,7 +921,7 @@ function ZoneView(props: ViewProps & { readonly zone: DrawnZone; readonly kind: 
             <Edits styles={styles} available={own.available} actions={undefined}>
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={form} own={own.own}
                     state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
-                    refused={own.refused} />
+                    refused={own.refused} breaches={own.breaches} />
             </Edits>
         </Box>
     );
@@ -988,7 +1001,7 @@ function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: 
                     onChange={own.writes ? onEnd : NO_EDIT} readOnly={!own.writes} refused={refused} />
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={own.own}
                     state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
-                    refused={own.refused} />
+                    refused={own.refused} breaches={own.breaches} />
             </Edits>
         </Box>
     );
@@ -1061,7 +1074,7 @@ function NetView(props: ViewProps & { readonly net: DrawnNet; readonly kind: Sch
                     onChange={own.writes ? onSide : NO_EDIT} readOnly={!own.writes} refused={refused} />
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={own.own}
                     state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
-                    refused={own.refused} />
+                    refused={own.refused} breaches={own.breaches} />
             </Edits>
         </Box>
     );

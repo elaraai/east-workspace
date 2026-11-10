@@ -7,10 +7,11 @@
  * A number outside its field's bounds (#1585), over the data centre's racks
  * and their loads on e3 itself, in a test's own Schematic whose loads' form
  * holds a rack's load to at most 10 kW: A04's is stored at 11.6. Stored, its
- * card wears the warn ring, Issues warns of it, Details says it under the
- * field and it holds no Save — another rack's change saves; A04's capacity
- * changed, Save waits, Issues saying it among what blocks, by the field's
- * label and the bound in its hint's own words, and the ring stays.
+ * card wears the warn ring, Issues warns of it, Details says it once, in the
+ * field's help line, as a warning, and it holds no Save — another rack's
+ * change saves; A04's capacity changed, Save waits, the help line an error,
+ * Issues saying it among what blocks, by the field's label and the bound in
+ * its hint's own words, and the ring stays.
  */
 
 import { expect, test } from "vitest";
@@ -59,6 +60,11 @@ const canvasOf = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-schemat
 const panel = (c: HTMLElement): HTMLElement => slot(c, "end").querySelector<HTMLElement>("[role='tabpanel']:not([hidden])")!;
 /** A field of Details' loads, by its key. */
 const field = (c: HTMLElement, key: string): HTMLElement => panel(c).querySelector<HTMLElement>(`[data-inspector-fields="details"] [data-field="${key}"]`)!;
+/** What a field of Details' loads says of its bound: the part of its help line said in a tone, that tone, and its error line. */
+const said = (c: HTMLElement, key: string) => {
+    const toned = field(c, key).querySelector("[data-scope=field][data-part=helper-text] [data-breach]");
+    return [toned?.textContent, toned?.getAttribute("data-breach"), field(c, key).querySelector("[data-scope=field][data-part=error-text]")];
+};
 /** Whether Save is off. */
 const saveOff = (c: HTMLElement) => within(slot(c, "toolbar")).getByRole<HTMLButtonElement>("button", { name: editingMessages.apply() }).disabled;
 /** Issues, each as it reads: what it says, and whether it blocks or warns. */
@@ -108,13 +114,15 @@ test("a stored load over its most: A04's card wears the warn ring, Issues warns 
     await settle();
     await retypeNumber(c, "capacity", "9");
     expect(saveOff(c)).toBe(false);
-    // Stored: the line under the field.
+    // Stored: the field's help line, as a warning.
     await tap(canvasOf(c), CAM, 13.2, 2.9);
     await settle();
-    expect(field(c, "kw").querySelector("[data-scope=field][data-part=error-text]")?.textContent).toBe("at most 10");
-    // A04's capacity changed: Save waits, Issues says why among what blocks — no longer a warning — and the ring stays.
+    expect(said(c, "kw")).toEqual(["at most 10", "warn", null]);
+    // A04's capacity changed: Save waits, the help line is an error, Issues says why among what blocks — no longer a
+    // warning — and the ring stays.
     await retypeNumber(c, "capacity", "14");
     expect(saveOff(c)).toBe(true);
+    expect(said(c, "kw")).toEqual(["at most 10", "error", null]);
     await openTab(c, "Issues");
     expect(issues(c)).toEqual([["Load: at most 10", "invalid"]]);
     expect(ringed(c, "A04")).toBe(true);

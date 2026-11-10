@@ -7,9 +7,10 @@
  * A step's number outside its field's bounds (#1585), over the bakery's line
  * on e3 itself (`flowchartBakery`): an app's write leaves Cool sliced into 0,
  * under the least its Slices field allows, 1. Stored, its card wears the warn
- * ring, Details says it under the field and Issues warns of it — `Slices: at
- * least 1` — and Save holds for no such row: Mix renamed saves. Cool renamed
- * holds Save, Issues saying it among what blocks, and keeps its ring.
+ * ring, Details says it once, in the field's help line, as a warning, and
+ * Issues warns of it — `Slices: at least 1` — and Save holds for no such row:
+ * Mix renamed saves. Cool renamed holds Save, the help line an error, Issues
+ * saying it among what blocks, and keeps its ring.
  */
 
 import { expect, test } from "vitest";
@@ -41,6 +42,14 @@ const issues = (c: HTMLElement): (string | null)[][] => [...panel(c).querySelect
     return [el.querySelector("span:first-child")?.textContent ?? null, said?.textContent ?? null, said?.getAttribute("data-kind") ?? null];
 });
 
+/** What Details' Slices says of its bound: the part of its help line said in a tone, and that tone — never a line of its own. */
+const said = (c: HTMLElement) => {
+    const slices = panel(c).querySelector('[data-field="portion.sliced"]');
+    expect(slices?.querySelector("[data-scope=field][data-part=error-text]") ?? null).toBeNull();
+    const toned = slices?.querySelector("[data-scope=field][data-part=helper-text] [data-breach]");
+    return toned === null || toned === undefined ? undefined : [toned.textContent, toned.getAttribute("data-breach")];
+};
+
 /** Fires a gesture's events, and lets the sessions and the renders settle. */
 async function gesture(fire: () => void): Promise<void> {
     await act(async () => { fire(); });
@@ -62,7 +71,7 @@ async function renameStep(c: HTMLElement, key: string, label: string): Promise<v
     await gesture(() => { fireEvent.keyDown(input, { key: "Enter" }); });
 }
 
-test("a stored step sliced under its Slices' least: its card wears the warn ring, Details says it under the field, Issues warns of it and Save holds for no such row; renamed, it holds Save, Issues saying it among what blocks (#1585)", async () => {
+test("a stored step sliced under its Slices' least: its card wears the warn ring, Details says it once as a warning, Issues warns of it and Save holds for no such row; renamed, it holds Save, the help line an error and Issues saying it among what blocks (#1585)", async () => {
     const steps = new SortedMap(await h.read(ex.bakerySteps), compareFor(IntegerType));
     const cool = [...steps].find(([key]) => integerEqual(key, 40n))![1];
     steps.set(40n, { ...cool, portion: variant("sliced", 0n) });
@@ -71,22 +80,25 @@ test("a stored step sliced under its Slices' least: its card wears the warn ring
     await waitFor(() => expect(node(c, "40")).not.toBeNull());
     await settle();
     const where = m.issueWhere({ kind: "State", name: "40" });
-    const said = m.issueText({ issue: "bounds", field: "Slices", bound: "at least 1" });
-    expect(said).toBe("Slices: at least 1");
-    // Stored: its card wears the warn ring — Mix's none — Details says it under the field, and Issues warns of it.
+    const issue = m.issueText({ issue: "bounds", field: "Slices", bound: "at least 1" });
+    expect(issue).toBe("Slices: at least 1");
+    // Stored: its card wears the warn ring — Mix's none — Details says it once, in the field's help line, as a warning,
+    // and Issues warns of it.
     expect([node(c, "40")!.hasAttribute("data-bounds"), node(c, "10")!.hasAttribute("data-bounds")]).toEqual([true, false]);
     await gesture(() => { fireEvent.click(node(c, "40")!); });
-    const slices = panel(c).querySelector('[data-field="portion.sliced"]');
-    expect(slices?.querySelector("[data-scope=field][data-part=error-text]")?.textContent).toBe("at least 1");
+    expect(said(c)).toEqual(["at least 1 slices", "warn"]);
     await openTab(c, "Issues");
-    expect(issues(c)).toEqual([[where, said, "warning"]]);
+    expect(issues(c)).toEqual([[where, issue, "warning"]]);
     // It holds no Save: Mix renamed saves.
     await renameStep(c, "10", "Mixing");
     expect(enabled(SAVE)).toBe(true);
-    // Cool renamed: Save waits, and Issues says it among what blocks.
+    // Cool renamed: Save waits, the help line is an error, and Issues says it among what blocks.
     await renameStep(c, "40", "Cooling");
-    await openTab(c, "Issues");
     expect(enabled(SAVE)).toBe(false);
-    expect(issues(c)).toEqual([[where, said, "invalid"]]);
+    await gesture(() => { fireEvent.click(node(c, "40")!); });
+    await openTab(c, "Details");
+    expect(said(c)).toEqual(["at least 1 slices", "error"]);
+    await openTab(c, "Issues");
+    expect(issues(c)).toEqual([[where, issue, "invalid"]]);
     expect(node(c, "40")!.hasAttribute("data-bounds")).toBe(true);
 });

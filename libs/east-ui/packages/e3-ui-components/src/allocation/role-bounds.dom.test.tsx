@@ -5,10 +5,11 @@
  *
  * A bin's quantity outside the bounds a hint gives it (#1585), over the kiln
  * yard on e3 itself, a hint holding a bin to at most 40 m³: LD-2204's bin
- * 3104 is stored at 47. Stored, Details says it under the bin's quantity and
- * it holds no Save — another bin's change saves; its own measured spec
- * retyped, Save waits, Issues saying it among what is not saved yet, by the
- * hint's label, in its own words. A hint holding a bin to at least 1 m³ holds
+ * 3104 is stored at 47. Stored, Details says it once, in the help line of the
+ * bin's quantity, as a warning, and it holds no Save — another bin's change
+ * saves; its own measured spec retyped, Save waits, the help line an error,
+ * Issues saying it among what is not saved yet, by the hint's label, in its
+ * own words. A hint holding a bin to at least 1 m³ holds
  * a bin of none so too — its card ringed and Issues warning of it while it is
  * stored — but never a reservation, which holds no quantity until a load is
  * booked into it: no ring, no warning and no wait, changed or saved.
@@ -24,8 +25,13 @@ import { button, byKey, card, details, hour, issuesTab, pane, press, save, tab, 
 
 const h = allocationHarness();
 
-/** The line under the selected bin's quantity. */
-const said = (c: HTMLElement) => details(c).querySelector('[data-allocation-bin-section] [data-field="quantity"] [data-scope=field][data-part=error-text]')?.textContent;
+/** What the selected bin's quantity says of its bound: the part of its help line said in a tone, and that tone — never a second line. */
+const said = (c: HTMLElement) => {
+    const quantity = details(c).querySelector('[data-allocation-bin-section] [data-field="quantity"]');
+    const toned = quantity?.querySelector("[data-scope=field][data-part=helper-text] [data-breach]");
+    expect(quantity?.querySelector("[data-scope=field][data-part=error-text]") ?? null).toBeNull();
+    return toned === null || toned === undefined ? undefined : [toned.textContent, toned.getAttribute("data-breach")];
+};
 /** Retypes the selected bin's measured spec, committed with Enter. */
 async function retype(c: HTMLElement, user: ReturnType<typeof userEvent.setup>, text: string) {
     const spec = within(details(c).querySelector<HTMLElement>('[data-field="specMeasured"]')!).getByRole("textbox");
@@ -45,7 +51,7 @@ const outOfRange = (c: HTMLElement) => {
 /** Whether an element of a bin — its Timeline card, its Table row — wears the warn ring of a broken bound. */
 const ringed = (el: HTMLElement) => el.hasAttribute("data-bounds");
 
-test("a stored bin past its most: Details says it under its quantity and it holds no Save — another bin's change saves; its own spec retyped, Save waits and Issues says it (#1585)", async () => {
+test("a stored bin past its most: Details says it once, as a warning, in its quantity's help line and it holds no Save — another bin's change saves; its own spec retyped, Save waits, the help line is an error and Issues says it (#1585)", async () => {
     const c = (await h.mount(kilnYard({ most: 40 }))).container;
     const user = userEvent.setup();
     // Another bin's change saves: the stored breach holds nothing.
@@ -53,12 +59,13 @@ test("a stored bin past its most: Details says it under its quantity and it hold
     expect(said(c)).toBeUndefined();
     await retype(c, user, "MC08");
     expect(save(c)).toHaveProperty("disabled", false);
-    // Stored: the line under its quantity.
+    // Stored: its quantity's help line, as a warning.
     await press(card(c, "3104"));
-    expect(said(c)).toBe("at most 40");
-    // Its own spec retyped: Save waits, and Issues says why.
+    expect(said(c)).toEqual(["0–40 m³ · step 1", "warn"]);
+    // Its own spec retyped: Save waits, the help line is an error, and Issues says why.
     await retype(c, user, "MC12");
     expect(save(c)).toHaveProperty("disabled", true);
+    expect(said(c)).toEqual(["0–40 m³ · step 1", "error"]);
     await tab(c, "Issues");
     expect(refusals(c)).toEqual([["LD-2204", "Volume: at most 40"]]);
 });
@@ -91,14 +98,15 @@ test("a bin of 0 m³ under a least of 1 rings, warns and waits as one past its m
     expect(ringed(tableRow(c, "bin:V1"))).toBe(false);
     await tab(c, "Issues");
     expect([refusals(c), outOfRange(c)]).toEqual([[], emptied]);
-    // The bin of none: the line under its quantity; its spec retyped, Save waits, Issues saying it alone among what is
-    // not saved yet, and its card keeps the ring.
+    // The bin of none: its quantity's help line, as a warning; its spec retyped, Save waits, the help line an error, Issues
+    // saying it alone among what is not saved yet, and its card keeps the ring.
     await tab(c, "Details");
     await press(toolbar(c).getByRole("radio", { name: "Timeline" }));
     await press(card(c, "3104"));
-    expect(said(c)).toBe("at least 1");
+    expect(said(c)).toEqual(["at least 1 m³ · step 1", "warn"]);
     await retype(c, user, "MC12");
     expect(save(c)).toHaveProperty("disabled", true);
+    expect(said(c)).toEqual(["at least 1 m³ · step 1", "error"]);
     await tab(c, "Issues");
     expect([refusals(c), outOfRange(c)]).toEqual([[["LD-2204", "Volume: at least 1"]], []]);
     expect(ringed(card(c, "3104"))).toBe(true);

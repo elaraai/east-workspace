@@ -18,7 +18,9 @@
  * over its `fields` (`FieldForm`), or its own `inspector` over the row, in
  * place of the quantity and the rows (#1372). The kind's form holds its
  * quantity too, which the Bin section draws: to the bounds a hint gives it,
- * a quantity they don't hold said under the field (#1585). A bin's key is printed first
+ * a quantity they don't hold said once, in the field's help line (#1585). Each
+ * of a bin's forms says a bound in the tone its Save stands in: a warning as
+ * stored, an error once its change is refused. A bin's key is printed first
  * among its facts, and a reservation's in a section of its own: what Search
  * Records finds them by (#1398). Every edit is one of the
  * board's commands, a draft of the bins' session until Save; every fit is the
@@ -185,16 +187,30 @@ const keyEqual = equalFor(StringType);
 /** No field a refusal names: the one set, so a form's memo holds while none does. */
 const NO_REFUSED: ReadonlySet<string> = new Set();
 
+/** A bin's refusals holding Save, as its Details show them. */
+interface BinRefusals {
+    /** Its Details' first banner, over its form. */
+    readonly banners: InspectorBanner[];
+    /** The fields they name, which its form rings. */
+    readonly fields: ReadonlySet<string>;
+    /**
+     * The tone its forms say a number outside its bounds in (#1585): as stored, refused nothing, it warns; its change
+     * refused, holding Save, it is an error.
+     */
+    readonly breaches: "warn" | "error";
+}
+
 /**
  * A bin's refusals holding Save (#1525), as its Details' first banner — over its form, as the Calendar's shows an
- * event's — and the fields they name, which its form rings.
+ * event's — the fields they name, which its form rings, and the tone its forms say a bound it breaks in.
  */
-function refusalsOf(args: InspectorArgs, id: string): { banners: InspectorBanner[]; fields: ReadonlySet<string> } {
+function refusalsOf(args: InspectorArgs, id: string): BinRefusals {
     const own = args.refusals.filter(r => keyEqual(r.kind, args.value.bin.kind.key) && keyEqual(r.issue.entry, id));
-    if (own.length === 0) return { banners: [], fields: NO_REFUSED };
+    if (own.length === 0) return { banners: [], fields: NO_REFUSED, breaches: "warn" };
     return {
         banners: [{ status: "warning", title: "Not saved yet", text: own.map(r => r.text).join("; ") }],
         fields: new Set(own.flatMap(r => (r.issue.field.type === "some" ? [r.issue.field.value] : []))),
+        breaches: "error",
     };
 }
 
@@ -372,8 +388,8 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
             </Box>}
         </ScheduleInspectorHead>
         <Banners styles={styles} banners={banners} />
-        <BinSection {...part} id={id} bin={bin} committed={committed} refused={refused.fields} />
-        <AssignedTo {...part} id={id} bin={bin} current={current} at={at[0]} />
+        <BinSection {...part} id={id} bin={bin} committed={committed} refused={refused.fields} breaches={refused.breaches} />
+        <AssignedTo {...part} id={id} bin={bin} current={current} at={at[0]} breaches={refused.breaches} />
         <Box css={styles.section} data-allocation-alternatives="">
             <Box css={styles.sectionHead}>{bin.parts.size > 0 ? "Other gaps that fit" : "Gaps that fit"}</Box>
             {alternatives === undefined ? <Box css={styles.absent}>{fit.error !== undefined ? "fits unavailable" : CHECKING}</Box>
@@ -403,9 +419,12 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
  * fields, the bin kind's form over its `fields` — each field a refusal names
  * (`refused`) ringed — and the app's columns as rows; or, with the bin kind's
  * own `inspector`, that form over the row in place of the quantity, the
- * fields and the rows.
+ * fields and the rows. A number outside its field's bounds is said in the tone
+ * the bin's Save stands in (`breaches`, #1585).
  */
-function BinSection({ id, bin, committed, refused, ...part }: Part & { id: string; bin: Bin; committed: Bin | undefined; refused: ReadonlySet<string> }) {
+function BinSection({ id, bin, committed, refused, breaches, ...part }: Part & {
+    id: string; bin: Bin; committed: Bin | undefined; refused: ReadonlySet<string>; breaches: "warn" | "error";
+}) {
     const { args, styles, words } = part;
     const { value, slots, plan, commands, day, context, shown } = args;
     const nouns = words.nouns;
@@ -480,9 +499,10 @@ function BinSection({ id, bin, committed, refused, ...part }: Part & { id: strin
     // Off while main is retained (CL8): the board takes no edit until it lands.
     return <chakra.fieldset css={[styles.edits, styles.fields]} disabled={args.retained} data-allocation-bin-section="">
         <Box css={styles.sectionHead}>{nouns.bin.one}</Box>
-        <FieldForm specs={specs} value={shownValue} baseline={baseline} options={laneNames} onChange={onChange} readOnly={!editable} renderControl={renderControl} />
+        <FieldForm specs={specs} value={shownValue} baseline={baseline} options={laneNames} onChange={onChange} readOnly={!editable} renderControl={renderControl}
+            breaches={breaches} />
         {form !== undefined ? <CustomBin {...part} id={id} bin={bin} form={form} /> : <>
-            <RowFields {...part} id={id} bin={bin} committed={committed} refused={refused} />
+            <RowFields {...part} id={id} bin={bin} committed={committed} refused={refused} breaches={breaches} />
             <ValueRows {...part} bin={bin} />
         </>}
     </chakra.fieldset>;
@@ -491,9 +511,12 @@ function BinSection({ id, bin, committed, refused, ...part }: Part & { id: strin
 /**
  * The row's own fields (`Builder Interfaces Spec.md` §1, rule 2): the bin kind's form over its `fields` but its quantity,
  * the Bin section's (#1585), each edit one command, a draft until Save, and each field a refusal names ringed (#1525) —
- * the one a refusal gone to names taking the keyboard as the form draws it.
+ * the one a refusal gone to names taking the keyboard as the form draws it — and a number outside its bounds said in the
+ * tone the bin's Save stands in (`breaches`).
  */
-function RowFields({ args, id, bin, committed, refused }: Part & { id: string; bin: Bin; committed: Bin | undefined; refused: ReadonlySet<string> }) {
+function RowFields({ args, id, bin, committed, refused, breaches }: Part & {
+    id: string; bin: Bin; committed: Bin | undefined; refused: ReadonlySet<string>; breaches: "warn" | "error";
+}) {
     const { value, commands } = args;
     const { field } = commands;
     const onChange = useCallback((path: readonly string[], next: unknown) => { field(id, path, next); }, [field, id]);
@@ -503,7 +526,8 @@ function RowFields({ args, id, bin, committed, refused }: Part & { id: string; b
         return value.bin.kind.fields.filter(spec => quantity === undefined || !keyEqual(spec.path[0]!, quantity));
     }, [value.bin.kind]);
     if (specs.length === 0) return null;
-    return <FieldForm specs={specs} value={bin.row} baseline={committed?.row ?? {}} onChange={onChange} readOnly={!commands.canEdit()} issues={refused} focus={focus} />;
+    return <FieldForm specs={specs} value={bin.row} baseline={committed?.row ?? {}} onChange={onChange} readOnly={!commands.canEdit()} issues={refused} focus={focus}
+        breaches={breaches} />;
 }
 
 /** The app's columns as rows (A57): each column's text, in warn-text 600 when its tone warns; read through the app's callbacks over the bin's row. */
@@ -582,7 +606,9 @@ function Mates({ args, styles, words, resource, current }: Part & { resource: st
  * meter, the group line, the jobs before and after the day and the hold between, the resource's bins today
  * and the batch line. Not linked: the field, and the layout's hint.
  */
-function AssignedTo({ id, bin, current, at, ...part }: Part & { id: string; bin: Bin; current: string | undefined; at: ResourceAt | undefined }) {
+function AssignedTo({ id, bin, current, at, breaches, ...part }: Part & {
+    id: string; bin: Bin; current: string | undefined; at: ResourceAt | undefined; breaches: "warn" | "error";
+}) {
     const { args, styles, words, horizonEnd } = part;
     const { commands, context, fit, chooser, setChooser, day } = args;
     const nouns = words.nouns;
@@ -649,17 +675,18 @@ function AssignedTo({ id, bin, current, at, ...part }: Part & { id: string; bin:
         <Box css={styles.sectionHead}>On this {one(nouns.resource)} today</Box>
         <Mates {...part} resource={current} current={id} />
         <Box css={styles.line} data-allocation-batch="">{batchLine(at.load, words)}</Box>
-        <Parts {...part} id={id} bin={bin} remainder={remainder} />
+        <Parts {...part} id={id} bin={bin} remainder={remainder} breaches={breaches} />
     </Box>;
 }
 
 /**
  * A bin's parts (A70, A71): each part's quantity a field of the shared form,
  * in its resources' order, labelled by its resource; its Clear unlinks the
- * part, as nothing on it does; each holds at most itself and the remainder.
+ * part, as nothing on it does; each holds at most itself and the remainder —
+ * one past it said in the tone the bin's Save stands in (`breaches`, #1585).
  * Then what the parts leave unallocated, in warn. Every edit is a command.
  */
-function Parts({ args, styles, words, id, bin, remainder }: Part & { id: string; bin: Bin; remainder: number }) {
+function Parts({ args, styles, words, id, bin, remainder, breaches }: Part & { id: string; bin: Bin; remainder: number; breaches: "warn" | "error" }) {
     const { context, commands, held } = args;
     const editable = commands.canEdit();
     const code = binCode(context, bin, words.nouns);
@@ -688,7 +715,7 @@ function Parts({ args, styles, words, id, bin, remainder }: Part & { id: string;
     // Off while main is retained (CL8), as the bin's own fields are.
     return <chakra.fieldset css={[styles.edits, styles.parts]} disabled={args.retained} data-allocation-parts="">
         <Box css={styles.sectionHead}>Parts</Box>
-        <FieldForm specs={specs} value={value} baseline={baseline} onChange={onChange} readOnly={!editable} words={formWords} />
+        <FieldForm specs={specs} value={value} baseline={baseline} onChange={onChange} readOnly={!editable} words={formWords} breaches={breaches} />
         {compareFloat(remainder, 0) > 0 && <Box css={styles.remainder} data-allocation-remainder="">{words.quantity(remainder)} unallocated</Box>}
     </chakra.fieldset>;
 }
@@ -799,7 +826,7 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
             <FieldForm specs={keySpecs} value={keyValue} baseline={keyBaseline} onChange={NO_EDIT} readOnly />
             {/* Its own fields, as a bin's: a field a refusal names is set right here. */}
             {form !== undefined ? <CustomBin {...part} id={id} bin={bin} form={form} />
-                : <RowFields {...part} id={id} bin={bin} committed={committed} refused={refused.fields} />}
+                : <RowFields {...part} id={id} bin={bin} committed={committed} refused={refused.fields} breaches={refused.breaches} />}
         </chakra.fieldset>
         <Box css={styles.section} data-allocation-assigned="">
             <Box css={styles.sectionRow}>

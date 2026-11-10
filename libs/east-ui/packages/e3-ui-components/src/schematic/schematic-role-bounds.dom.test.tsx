@@ -8,10 +8,10 @@
  * centre's racks on e3 itself, in a test's own Schematic whose racks' centres
  * are roles — a move writes them, and Details draws them as the rack's
  * position, never in its form — a hint holding a rack's x to at most 15 m:
- * A05 stands at 16.8. Stored, Details says it under the position's x and it
- * holds no Save — another rack's move saves; A05's y retyped, Save waits,
- * Issues saying it among what blocks, by the hint's label and the bound in its
- * own words.
+ * A05 stands at 16.8. Stored, Details says it once, in the help line of the
+ * position's x, as a warning, and it holds no Save — another rack's move
+ * saves; A05's y retyped, Save waits, the help line an error, Issues saying it
+ * among what blocks, by the hint's label and the bound in its own words.
  */
 
 import { expect, test } from "vitest";
@@ -59,8 +59,12 @@ const canvasOf = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-schemat
 const panel = (c: HTMLElement): HTMLElement => slot(c, "end").querySelector<HTMLElement>("[role='tabpanel']:not([hidden])")!;
 /** A field of Details' position, by its key. */
 const position = (c: HTMLElement, key: string): HTMLElement => panel(c).querySelector<HTMLElement>(`[data-inspector-fields="position"] [data-field="${key}"]`)!;
-/** What Details says under a field of its position: the bound its coordinate breaks; `undefined` for none. */
-const said = (c: HTMLElement, key: string) => position(c, key).querySelector("[data-scope=field][data-part=error-text]")?.textContent;
+/** What a field of Details' position says of the bound its coordinate breaks — the part of its help line said in a tone, and that tone, never a line of its own; `undefined` for none. */
+const said = (c: HTMLElement, key: string) => {
+    expect(position(c, key).querySelector("[data-scope=field][data-part=error-text]")).toBeNull();
+    const toned = position(c, key).querySelector("[data-scope=field][data-part=helper-text] [data-breach]");
+    return toned === null ? undefined : [toned.textContent, toned.getAttribute("data-breach")];
+};
 /** Whether Save is off. */
 const saveOff = (c: HTMLElement) => within(slot(c, "toolbar")).getByRole<HTMLButtonElement>("button", { name: editingMessages.apply() }).disabled;
 /** Issues, each as it reads: what it says, and whether it blocks or warns. */
@@ -97,14 +101,15 @@ test("a stored rack's centre past its most: Details says it under its position a
     expect(said(c, "x")).toBeUndefined();
     await retype(c, "y", "4");
     expect(saveOff(c)).toBe(false);
-    // Stored: the line under its position's x, its centre no field of its form.
+    // Stored: its position's x's help line, as a warning, its centre no field of its form.
     await tap(canvasOf(c), CAM, 16.8, 2.9);
     await settle();
-    expect(said(c, "x")).toBe("at most 15");
+    expect(said(c, "x")).toEqual(["at most 15", "warn"]);
     expect(panel(c).querySelector('[data-inspector-fields="row"] [data-field="x"]')).toBeNull();
-    // A05's y retyped: Save waits, and Issues says why among what blocks.
+    // A05's y retyped: Save waits, the help line is an error, and Issues says why among what blocks.
     await retype(c, "y", "4");
     expect(saveOff(c)).toBe(true);
+    expect(said(c, "x")).toEqual(["at most 15", "error"]);
     const tab = [...slot(c, "end").querySelectorAll("[role='tab']")].find((t) => t.textContent?.startsWith("Issues") === true)!;
     await act(async () => { fireEvent.click(tab); });
     await settle();
