@@ -11,7 +11,6 @@ import {
     Table as ChakraTable,
     Box,
     chakra,
-    HStack,
     Text,
     Skeleton,
     useSlotRecipe,
@@ -2170,49 +2169,35 @@ const TableCore = function TableCore({
                 `value.pagination` is defined. Calls the East-side
                 onChange (when present) with the new page (1-based). */}
             {paginationConfig && !hidePaginationBand && (
-                <HStack gap="2" justify="flex-end" px="3" py="2" borderTop="1px solid" borderColor="border.subtle">
-                    <Text fontSize="body.lg" color="fg.muted">
+                <Box css={tableCustomSlots.pageBand} data-table-page-band="">
+                    <Box as="span" css={tableCustomSlots.pageBandText}>
                         Page {words.number(currentPage + 1)} of {words.number(totalPages)} ({words.number(tree.roots.length)} total)
-                    </Text>
-                    <button
+                    </Box>
+                    <chakra.button
                         type="button"
+                        css={tableCustomSlots.pageBandStep}
                         aria-label="Previous page"
                         disabled={currentPage <= 0}
-                        style={{
-                            cursor: currentPage <= 0 ? "not-allowed" : "pointer",
-                            opacity: currentPage <= 0 ? 0.4 : 1,
-                            padding: "4px 8px",
-                            borderRadius: "4px",
-                            border: "none",
-                            background: "transparent",
-                        }}
                         onClick={() => {
                             if (currentPage <= 0) return;
                             if (paginationOnChange) queueMicrotask(() => paginationOnChange(BigInt(currentPage - 1)));
                         }}
                     >
-                        <FontAwesomeIcon icon={faChevronLeft} style={{ width: 10, height: 10 }} />
-                    </button>
-                    <button
+                        <FontAwesomeIcon icon={faChevronLeft} />
+                    </chakra.button>
+                    <chakra.button
                         type="button"
+                        css={tableCustomSlots.pageBandStep}
                         aria-label="Next page"
                         disabled={currentPage >= totalPages - 1}
-                        style={{
-                            cursor: currentPage >= totalPages - 1 ? "not-allowed" : "pointer",
-                            opacity: currentPage >= totalPages - 1 ? 0.4 : 1,
-                            padding: "4px 8px",
-                            borderRadius: "4px",
-                            border: "none",
-                            background: "transparent",
-                        }}
                         onClick={() => {
                             if (currentPage >= totalPages - 1) return;
                             if (paginationOnChange) queueMicrotask(() => paginationOnChange(BigInt(currentPage + 1)));
                         }}
                     >
-                        <FontAwesomeIcon icon={faChevronRight} style={{ width: 10, height: 10 }} />
-                    </button>
-                </HStack>
+                        <FontAwesomeIcon icon={faChevronRight} />
+                    </chakra.button>
+                </Box>
             )}
             {/* Review batch foot (#264) — the shared commitBar foot, stacked
                 BELOW the pager band so the page controls stay beside the rows
