@@ -517,11 +517,13 @@ describe("an event's refusals holding Save (#1525)", () => {
         expect(toolbar().getByRole("button", { name: editingMessages.apply() })).toHaveProperty("disabled", true);
         expect(banner()!.textContent).toBe("Not saved yet" + "Pallets: Pallets must be positive");
         expect(ringed()).toEqual(["pallets"]);
-        // Esc clears the selection; the history's warning button selects the refused delivery again, its refusal over its form.
+        // Esc clears the selection; the history's warning button selects the refused delivery again, its refusal over its form —
+        // the issue goes before the warning beside it, the holiday catalogue's stored sheets.
         fireEvent.keyDown(container.querySelector(rowAt(BAY))!, { key: "Escape" });
         await settle();
         expect(showing(container)).toBe("none");
-        fireEvent.click(toolbar().getByRole("button", { name: editingMessages.issues({ n: 1, count: "1" }) }));
+        const counted = editingMessages.issuesAndWarnings({ issues: editingMessages.issues({ n: 1, count: "1" }), warnings: editingMessages.warnings({ n: 1, count: "1" }) });
+        fireEvent.click(toolbar().getByRole("button", { name: counted }));
         await settle();
         expect(delivery().getAttribute("aria-pressed")).toBe("true");
         expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Handbooks");

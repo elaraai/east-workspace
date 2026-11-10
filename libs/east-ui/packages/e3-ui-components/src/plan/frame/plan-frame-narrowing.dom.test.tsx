@@ -321,13 +321,14 @@ describe("each source narrows every place its records appear (#1344)", () => {
         await settle();
         const start = narrowing("job").get("start")!;
         await narrow("job", where(["start", start], ["stock", values(stockOf(variant("coated", null)))]));
-        // The holiday catalogue, coated, printed on uncoated stock instead.
-        await pick(bar(container, "J-1013", "Hall B", "b1"));
+        // The magazine run, coated, printed on uncoated stock instead — not the holiday catalogue, whose stored sheets are
+        // over a press run's most, so a change to it waits on them.
+        await pick(bar(container, "J-1014", "Hall B", "b1"));
         await choose(slot(container, "end")!.querySelector<HTMLElement>("[data-inspector-fields='form'] [data-field='stock']")!, "Uncoated");
         await press(toolbar(container).getByRole("button", { name: editingMessages.apply() }));
         await waitFor(() => expect(slot(container, "footer")!.querySelector("[data-record-save-notice]")?.textContent).toBe("1 print job event left this view"));
-        expect((await storedJobs()).get("J-1013")!.stock).toEqual(variant("uncoated", null));
-        expect(bar(container, "J-1013", "Hall B", "b1")).toBeNull();
+        expect((await storedJobs()).get("J-1014")!.stock).toEqual(variant("uncoated", null));
+        expect(bar(container, "J-1014", "Hall B", "b1")).toBeNull();
         expect(h.requests("read", JOBS)).toEqual([]);
     });
 });

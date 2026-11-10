@@ -354,7 +354,8 @@ describe("overlaps never block Save (#1198, PB53)", () => {
         const history = slot(container, "toolbar")!.querySelector("[data-slot='history']")!;
         const save = [...history.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.getAttribute("aria-label") === editingMessages.apply())!;
         expect(save.disabled).toBe(false);
-        expect(history.querySelector("[data-slot='historyIssues']")!.hasAttribute("data-empty")).toBe(true);
+        // No issue of the history's: its one entry is a warning, the holiday catalogue's stored sheets over a press run's most.
+        expect(history.querySelector("[data-slot='historyIssues'] button")!.getAttribute("aria-label")).toBe(editingMessages.warnings({ n: 1, count: "1" }));
         expect(chip(container)).not.toBeNull();
     });
 });
