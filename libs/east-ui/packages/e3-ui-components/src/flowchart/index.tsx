@@ -48,9 +48,10 @@
  *   (`use-drop.ts`);
  * - **the inspector** (`inspector.tsx`), the end pane: what is selected, and
  *   the flowchart's issues — each one selecting what it names, an unsaved
- *   change the rail hides by the same hidden pick. The toolbar's issue gone to
- *   asks its row's Details for the field it names, which takes the keyboard
- *   there, the inspector opened where it is collapsed (#1585);
+ *   change the rail hides by the same hidden pick. An issue gone to, from the
+ *   toolbar or from its line in Issues, asks its row's Details for the field
+ *   it names, which takes the keyboard there, the inspector opened at Details
+ *   where it is collapsed or at Issues;
  * - **the footer** (`footer.tsx`): the counts, the changes waiting on Save,
  *   the last save, each Save's notice, a refused gesture's words, and the
  *   loading line — `Loading states…`, `Updating states…`, or a failed read
@@ -553,8 +554,9 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         const key = history.sourceOf(issue);
         return key === undefined ? undefined : sessions.find((part) => stringEqual(part.key, key));
     }, [history, sessions]);
-    // The field an issue gone to names, asked of its row's Details: it takes the keyboard there, the inspector opened where
-    // it is collapsed (`../shared/schedule/field-ask.tsx`, #1585) — a conflict's Go to, which names its path, asks none.
+    // The field an issue gone to names, from the toolbar or from Issues, asked of its row's Details: it takes the keyboard
+    // there, the inspector opened where it is collapsed (`../shared/schedule/field-ask.tsx`) — a conflict's Go to, which
+    // names its path, asks none.
     const { asks: fieldAsks, request: askField } = useFieldAsks();
     const onIssue = useCallback((issue: EditIssue, at?: PatchPath) => {
         const sort = sortOf(partOf(issue)?.kind ?? "");
@@ -673,7 +675,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
                 if (sort === "states" && found.length > 0) states.add(key);
                 for (const breach of found) {
                     if (said.some((issue) => stringEqual(issue.entry, key) && issue.field.type === "some" && stringEqual(issue.field.value, breach.key))) continue;
-                    warned.push({ sort, key, ...breachWords(sort, breach) });
+                    warned.push({ sort, key, fieldKey: breach.key, ...breachWords(sort, breach) });
                 }
             }
         }
@@ -698,7 +700,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
     const start = useFlowchartLibrary({ value, keys, words, enter: drop.enter, followed, narrow, off: keysOff });
     const end = flowchartInspectorPane({
         value, model, rows: drafted.rows, held: data.held, selection, editing, act, edit, refuse: setNotice, reveal: revealSelection,
-        issues, picks, goToWaiting, saves, details: detailsModel, storageKey: keys.frame, words,
+        issues, picks, goToWaiting, ask: askField, saves, details: detailsModel, storageKey: keys.frame, words,
     });
 
     // ── The banners: each session's, and each source the rail could not read ──

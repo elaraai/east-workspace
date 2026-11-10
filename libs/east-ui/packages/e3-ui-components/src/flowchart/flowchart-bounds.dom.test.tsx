@@ -12,7 +12,8 @@
  * Mix renamed saves. Cool renamed holds Save, the help line an error, Issues
  * saying it among what blocks, and keeps its ring. The toolbar's issue pressed
  * puts the keyboard in Slices — the Inspector, collapsed at Issues, opened at
- * Details first.
+ * Details first — and so does its line pressed in Issues, the warning's and
+ * the refusal's alike.
  */
 
 import { expect, test } from "vitest";
@@ -123,4 +124,29 @@ test("the Inspector collapsed at Issues, the toolbar's issue pressed opens it at
     const open = slot(c, "end").querySelector("[role='tab'][aria-selected='true']")?.textContent;
     const slices = slot(c, "end").querySelector("[role='tabpanel']:not([hidden]) [data-field='portion.sliced']");
     expect([slot(c, "end").hasAttribute("data-collapsed"), open, slices?.contains(document.activeElement) === true]).toEqual([false, "Details", true]);
+});
+
+test("the issue's line pressed in Issues opens Details with Slices taking the keyboard, as the toolbar's issue does: the stored step's warning, then — renamed — its refusal", async () => {
+    const steps = new SortedMap(await h.read(ex.bakerySteps), compareFor(IntegerType));
+    const cool = [...steps].find(([key]) => integerEqual(key, 40n))![1];
+    steps.set(40n, { ...cool, portion: variant("sliced", 0n) });
+    await h.patch(ex.bakerySteps, steps);
+    const { container: c } = await h.mountExample(ex.flowchartBakery);
+    await waitFor(() => expect(node(c, "40")).not.toBeNull());
+    await settle();
+    // The line pressed: how it is said, the tab left open, and whether Slices holds the keyboard.
+    const goTo = async () => {
+        await openTab(c, "Issues");
+        const line = panel(c).querySelector<HTMLButtonElement>('[data-inspector-issue="bounds"]')!;
+        const kind = line.querySelector("[data-kind]")?.getAttribute("data-kind");
+        await gesture(() => { fireEvent.click(line); });
+        const open = slot(c, "end").querySelector("[role='tab'][aria-selected='true']")?.textContent;
+        return [kind, open, panel(c).querySelector("[data-field='portion.sliced']")?.contains(document.activeElement) === true];
+    };
+    // Nothing selected: the stored step's warning.
+    expect(await goTo()).toEqual(["warning", "Details", true]);
+    // Renamed, its refusal, which holds Save — its Details drawn already.
+    await renameStep(c, "40", "Cooling");
+    expect(enabled(SAVE)).toBe(false);
+    expect(await goTo()).toEqual(["invalid", "Details", true]);
 });

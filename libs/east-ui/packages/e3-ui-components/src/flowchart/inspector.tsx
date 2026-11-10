@@ -67,9 +67,9 @@
  * row a draft deletes is free (#1581). A number a row holds outside its
  * field's bounds is said in the tone the row's Save stands in (#1585): a
  * warning as stored, an error once its record's session refuses the row's
- * change, holding Save. The toolbar's issue gone to puts the keyboard in the
- * field it names, the inspector opened at Details where it is collapsed or at
- * Issues.
+ * change, holding Save. An issue gone to, from the toolbar or from its line in
+ * Issues, puts the keyboard in the field it names, the inspector opened at
+ * Details where it is collapsed or at Issues.
  *
  * Details keeps the keyboard (#1398): a control that goes with the view it
  * belongs to — Delete, which leaves nothing selected; Duplicate and a
@@ -78,11 +78,13 @@
  * (`../shared/focus-home.ts`), never on the page's body.
  *
  * Issues (R16) lists the Flowchart's issues (`issues.ts`), each a control that
- * selects what it names and brings it into view. An issue of an unsaved change
- * the narrowing hides says on a line of its own which of the rail's choices
- * hide it, asked of e3 through its source's hidden pick, and Go to issue on it
- * is the frame's hidden pick: those choices cleared, then selected once it is
- * drawn (R11).
+ * selects what it names and brings it into view, the field it names taking
+ * the keyboard in its Details, as the toolbar's issue gone to puts it there:
+ * the viewer lands where the issue is fixed, not left on Issues. An issue of
+ * an unsaved change the narrowing hides says on a line of its own which of the
+ * rail's choices hide it, asked of e3 through its source's hidden pick, and Go
+ * to issue on it is the frame's hidden pick: those choices cleared, then
+ * selected once it is drawn (R11).
  *
  * Its look is the `flowchartInspector` recipe's, the form's `fieldForm`'s and
  * the buttons the shared `button`'s; the pane — its tab row, its collapse
@@ -207,6 +209,15 @@ export interface FlowchartInspectorProps {
      * @param hidden - What hides it, as far as e3 has said; `undefined` where nothing does
      */
     readonly goToWaiting: (at: FlowchartSelection, hidden: readonly SourceHiding[] | undefined) => void;
+    /**
+     * Asks a row's Details for a field, which takes the keyboard there, the inspector opened at Details: what an issue's
+     * line in Issues asks, as the toolbar's issue gone to does. Asked for none, any ask standing is dropped.
+     *
+     * @param sort - The row's kind
+     * @param key - Its key
+     * @param field - The field the issue names, by its form's key; none for an issue naming none
+     */
+    readonly ask: (sort: FlowchartSort, key: string, field: option<string>) => void;
     /** Each record's last save, and who made it. */
     readonly saves: FlowchartLastSaves;
     /** The details: the reads a state's or a transition's Details shows after its head. */
@@ -542,7 +553,8 @@ function useSide(props: ViewProps, sort: FlowchartSort, key: string, what: strin
     const readiness = editing.schedule.sessions.find((part) => stringEqual(part.kind, sort))?.session.readiness;
     const breaches: "warn" | "error" = readiness !== undefined && readiness.type !== "ready" && readiness.value.some((issue) => stringEqual(issue.entry, key))
         ? "error" : "warn";
-    // The field the toolbar's issue gone to names (#1585): it takes the keyboard, the inspector opened where it is collapsed.
+    // The field an issue gone to names, from the toolbar or from Issues: it takes the keyboard, the inspector opened at
+    // Details.
     const focus = useFieldAsk(sort, key);
     return { kind, writes, available, state, onField, own, refused, bump, breaches, focus };
 }
@@ -1135,11 +1147,11 @@ function FlowchartView({ styles, words, value, model, saves, editing }: ViewProp
 
 /**
  * The Issues tab: every issue of the Flowchart and of its unsaved changes, each a control that selects what it names and
- * brings it into view. An issue of a change the narrowing hides says on a line of its own which of the rail's choices
- * hide its row, asked of e3 through its source's hidden pick, and Go to issue on it is the frame's hidden pick
- * (`goToWaiting`): those choices cleared, then selected once it is drawn.
+ * brings it into view, the field it names taking the keyboard in its Details. An issue of a change the narrowing hides
+ * says on a line of its own which of the rail's choices hide its row, asked of e3 through its source's hidden pick, and
+ * Go to issue on it is the frame's hidden pick (`goToWaiting`): those choices cleared, then selected once it is drawn.
  */
-const FlowchartInspectorIssues = memo(function FlowchartInspectorIssues({ issues, value, picks, reveal, goToWaiting, words }: FlowchartInspectorProps) {
+const FlowchartInspectorIssues = memo(function FlowchartInspectorIssues({ issues, value, picks, reveal, goToWaiting, ask, words }: FlowchartInspectorProps) {
     const styles = useSlotRecipe({ key: "flowchartInspector" })() as Styles;
     const m = words.m;
     // Each issue's rows of the rail's sources whose narrowing hides what it names: each source's hidden pick, and the row.
@@ -1160,8 +1172,14 @@ const FlowchartInspectorIssues = memo(function FlowchartInspectorIssues({ issues
         return of.length === 0 ? undefined : hiddenOf(of);
     };
     // Go to issue: what it names selected and brought into view — a change the narrowing hides through the frame's hidden
-    // pick, the choices hiding it cleared first.
+    // pick, the choices hiding it cleared first. Its row's Details is asked for the field it names, as the toolbar's issue
+    // gone to asks, so Details opens where it is fixed; an issue naming none drops an earlier ask, which would otherwise
+    // take the keyboard when that row's Details is next drawn.
     const goTo = (issue: FlowchartIssue) => {
+        const sort = issue.where.sort;
+        if (sort !== undefined && issue.at !== null && issue.at.kind !== "states") {
+            ask(sort, issue.at.key, issue.field === undefined ? none : some(issue.field));
+        }
         if (issue.at !== null && issue.hiding.length > 0) goToWaiting(issue.at, hiddenOfIssue(issue));
         else reveal(issue.at);
     };

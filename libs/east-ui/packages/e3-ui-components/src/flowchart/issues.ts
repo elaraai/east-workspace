@@ -6,7 +6,8 @@
 /**
  * The Flowchart's issues (#1504, `Flowchart Records Spec.md` R6, R7, R11,
  * R12, R16, D3, D12) — pure and React-free: what the inspector's Issues tab
- * lists, each naming what a click on it selects.
+ * lists, each naming what a click on it selects, and the field it names, if
+ * any, which the click asks of its row's Details.
  *
  * - **An end no state is keyed by** — a transition's end the canvas draws as a
  *   ghost. Under `"hide"` such an end is read by key first: one the states'
@@ -105,6 +106,11 @@ export interface FlowchartIssue {
     readonly hiding: readonly FlowchartHiding[];
     /** What it says. */
     readonly word: FlowchartIssueWord;
+    /**
+     * The field it names, by its form's key: a click on it asks its row's Details for it, and it takes the keyboard
+     * there, as it does for the toolbar's issue gone to. `undefined` for an issue naming none.
+     */
+    readonly field?: string | undefined;
 }
 
 /** A number its field's bounds don't hold, as Issues says it (#1585). */
@@ -121,6 +127,8 @@ export interface FlowchartBreach extends FlowchartBreachWords {
     readonly sort: FlowchartSort;
     /** Its key. */
     readonly key: string;
+    /** The field, by its form's key: what a click on its issue asks of its row's Details. */
+    readonly fieldKey: string;
 }
 
 /** What the issues are worked out from. */
@@ -230,8 +238,8 @@ function readerOf(args: FlowchartIssueArgs): IssueReader {
  * then the details', as the details model finds them — each kind's refused
  * bins, naming the kind and selecting the Flowchart, then its rows' counts no
  * bin holds, each selecting its row; then the rows' numbers their fields'
- * bounds don't hold, as given; then each draft waiting in its session, each
- * kind's in its drafts' order.
+ * bounds don't hold, as given, each naming its field; then each draft waiting
+ * in its session, each kind's in its drafts' order.
  *
  * @param args - What the canvas draws, its transitions, the drafts waiting, the transitions hidden with their far end,
  *   the states read, whether decisions are given, what the details model finds, and the rows' breaches
@@ -241,8 +249,8 @@ export function flowchartIssues(args: FlowchartIssueArgs): FlowchartIssue[] {
     const { model, transitions, waiting, decisions, details } = args;
     const { nameOf, hidingOf } = readerOf(args);
     const out: FlowchartIssue[] = [];
-    const warn = (at: FlowchartSelection, where: FlowchartIssue["where"], word: FlowchartIssueWord, hiding: readonly FlowchartHiding[] = []) =>
-        out.push({ at, blocking: false, where, hiding, word });
+    const warn = (at: FlowchartSelection, where: FlowchartIssue["where"], word: FlowchartIssueWord, hiding: readonly FlowchartHiding[] = [], field?: string) =>
+        out.push({ at, blocking: false, where, hiding, word, field });
     for (const key of model.noLane) {
         const node = model.nodesByKey.get(key);
         if (node === undefined || node.dimmed) continue;
@@ -283,7 +291,7 @@ export function flowchartIssues(args: FlowchartIssueArgs): FlowchartIssue[] {
     }
     for (const breach of args.breaches ?? []) {
         warn(selectionOf(breach.sort, breach.key), { sort: breach.sort, name: nameOf(breach.sort, breach.key) },
-            { issue: "bounds", field: breach.field, bound: breach.bound });
+            { issue: "bounds", field: breach.field, bound: breach.bound }, [], breach.fieldKey);
     }
     for (const row of waiting) {
         const name = nameOf(row.sort, row.key);
@@ -310,7 +318,8 @@ function isSort(kind: string): kind is FlowchartSort {
  * check — the key check's among it — refusing its drafted rows, a changed
  * row's number its field's bounds don't hold among them, and its latest Save's
  * conflict or refusal while it stands; each blocking, naming its row — one
- * waiting in its session with the rows of the rail's sources hiding it.
+ * waiting in its session with the rows of the rail's sources hiding it — and
+ * the field the source's issue names.
  *
  * @param sessions - Each record's session
  * @param args - What the canvas draws, as {@link flowchartIssues} takes it: what names a row, and what hides one waiting
@@ -334,6 +343,7 @@ export function sessionIssues(sessions: readonly FlowchartIssueSession[], args: 
                 where: { sort: row === undefined ? undefined : sort, name: row === undefined ? kindName(sort) : nameOf(sort, row) },
                 hiding: row === undefined ? [] : hidingOf(sort, row),
                 word,
+                field: row === undefined || issue.field.type !== "some" ? undefined : issue.field.value,
             });
         };
         const readiness = part.session.readiness;
