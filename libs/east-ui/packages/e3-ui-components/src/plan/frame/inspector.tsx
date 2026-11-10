@@ -14,10 +14,13 @@
  *   PB53), a line per event it overlaps whose click selects that event; the
  *   banner of its refusals holding Save while the app's `ready` refuses it
  *   (#1525), as the Calendar's inspector has it, each field one names ringed
- *   in its form — the one the warning button's issue names taking the keyboard
- *   as the form draws it; its resource, its start and end or its instant, its lane, its state and its
- *   quantity — the bound a hint gives its field that it breaks said under it,
- *   as the form says one under a field (#1585); its kind's fields through `FieldForm`, the fields its roles
+ *   in its form — the one the warning button's issue or warning names taking
+ *   the keyboard as the form draws it, or, a field a role reads, its fact
+ *   taking it; its resource, its start and end or its instant, its lane, its
+ *   state and its quantity — the bound a hint gives its field that it breaks
+ *   said on a line of its own under it, in the form's help line's style and in
+ *   the tone the form says one in: a row as stored warns, a changed one's,
+ *   holding Save, is an error (#1585); its kind's fields through `FieldForm`, the fields its roles
  *   read left to their own lines — or, when the kind has its own inspector,
  *   what that returns for the event in place of the form (PB60); then
  *   Duplicate and Delete;
@@ -87,7 +90,7 @@
 
 import { ScheduleInspectorHead } from "../../shared/schedule/inspector-head.js";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../../shared/focus-home.js";
-import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
@@ -638,14 +641,55 @@ interface OneEventProps extends BodyProps {
     event: InspectedEvent;
 }
 
-/** One fact: its label and its value. */
-function Fact({ styles, label, value, fact }: { styles: Styles; label: string; value: ReactNode; fact: string }) {
+/**
+ * One fact: its label and its value. A fact a field of the event's row is drawn as — its quantity, its state, its lane,
+ * which no control edits here — takes the keyboard where an issue gone to asks for that field (`focusable`): by script,
+ * out of the tab order, named by its label and its value.
+ */
+function Fact({ styles, label, value, fact, focusable = false }: { styles: Styles; label: string; value: ReactNode; fact: string; focusable?: boolean }) {
+    const id = useId();
     return (
         <>
-            <Box as="dt" css={styles.factLabel}>{label}</Box>
-            <Box as="dd" css={styles.factValue} data-fact={fact}>{value}</Box>
+            <Box as="dt" id={`${id}-label`} css={styles.factLabel}>{label}</Box>
+            <Box as="dd" id={`${id}-value`} css={styles.factValue} data-fact={fact}
+                {...(focusable ? { tabIndex: -1, "aria-labelledby": `${id}-label ${id}-value` } : {})}>{value}</Box>
         </>
     );
+}
+
+/**
+ * Gives the keyboard to a fact an issue gone to asks for, as the form gives it to a field it draws: at once where it
+ * shows, else once it does — the browser gives it to nothing hidden, and a change of an element around the fact (the
+ * pane unfolded) is when it may show — and brings it into view.
+ *
+ * @param fact - The fact's value
+ * @returns What stops the wait, while it waits; `undefined` once the fact has the keyboard
+ */
+function takeFactWhenShown(fact: HTMLElement): (() => void) | undefined {
+    const take = (): boolean => {
+        if (typeof fact.checkVisibility === "function" && !fact.checkVisibility()) return false;
+        fact.focus({ preventScroll: true });
+        fact.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+        return true;
+    };
+    if (take()) return undefined;
+    const observer = new MutationObserver((records) => {
+        if (records.some((record) => record.target.contains(fact)) && take()) observer.disconnect();
+    });
+    observer.observe(fact.ownerDocument.documentElement, { attributes: true, subtree: true });
+    return () => observer.disconnect();
+}
+
+/**
+ * The fact a field is drawn as among an event's facts, where a role reads it.
+ *
+ * @param roles - The fields its kind's roles read
+ * @param field - The field, by its form's key
+ * @returns Its fact; `undefined` for a field no role reads, which its form draws
+ */
+function roleFactOf(roles: PlanEventKindValue["roles"], field: string): "quantity" | "state" | "lane" | undefined {
+    const reads = (role: option<string>) => role.type === "some" && stringEqual(role.value, field);
+    return reads(roles.quantity) ? "quantity" : reads(roles.state) ? "state" : reads(roles.lane) ? "lane" : undefined;
 }
 
 /** One event: its head, its overlaps, its facts, its fields or its kind's own inspector, and its gestures. */
@@ -682,8 +726,8 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
         const roleFields = [roles.state, roles.quantity, roles.lane].flatMap((field) => (field.type === "some" ? [field.value] : []));
         return kind.fields.filter((spec) => !roleFields.some((field) => stringEqual(field, spec.path[0]!)));
     }, [kind.fields, roles]);
-    // The bound its quantity breaks, of those a hint gives its field in the kind's form (#1585): said under its line, as
-    // the form says one under a field.
+    // The bound its quantity breaks, of those a hint gives its field in the kind's form (#1585): said on a line of its own
+    // under it, as the form's help line says one.
     const quantityBreach = useMemo(() => {
         const field = getSomeorUndefined(roles.quantity);
         return field === undefined ? undefined : fieldBreaches(kind.fields.filter((spec) => samePath(spec.path, [field])), value)[0];
@@ -698,7 +742,22 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
     const refusals = scheduleRefusals(editing?.sessions ?? []).filter((r) => stringEqual(r.kind, kind.key) && stringEqual(r.issue.entry, item.key));
     const refused = refusals.length === 0 ? NO_REFUSED
         : new Set(refusals.flatMap((r) => (r.issue.field.type === "some" ? [r.issue.field.value] : [])));
+    // A bound its row breaks (#1585), said in the tone its Save stands in: a row as stored warns, holding no Save; a
+    // changed one's is refused, holding Save — an error.
+    const breaches = refusals.length > 0 ? "error" : "warn";
     const focus = useFieldAsk(kind.key, item.key);
+    // A field asked of it that a role reads takes the keyboard on its fact, which is its line in Details: the form leaves
+    // the field to the facts, and draws no control of it to take it.
+    const asked = focus === undefined ? undefined : roleFactOf(roles, focus);
+    const facts = useRef<HTMLDivElement | null>(null);
+    const taking = useRef<(() => void) | undefined>(undefined);
+    useEffect(() => {
+        if (asked === undefined) return;
+        taking.current?.();
+        const fact = facts.current?.querySelector<HTMLElement>(`[data-fact="${asked}"]`);
+        taking.current = fact === null || fact === undefined ? undefined : takeFactWhenShown(fact);
+    }, [asked]);
+    useEffect(() => () => taking.current?.(), []);
     // The form's draws: one more each time an edit records nothing, so its fields show what the row holds again.
     const [redraws, setRedraws] = useState(0);
     // A field edited (PB42): one transaction, written through the kind's own `write`, its value as bytes at the field's type.
@@ -747,7 +806,7 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
                     <BannerView status="warning" title={m.inspectorRefusals()} description={refusals.map((r) => refusalText(r.issue, kind.fields)).join("; ")} />
                 </Box>
             )}
-            <Box as="dl" css={styles.facts} data-inspector-facts="">
+            <Box as="dl" ref={facts} css={styles.facts} data-inspector-facts="">
                 <Fact styles={styles} fact="resource" label={m.inspectorFact({ fact: "resource" })} value={resourceText(item.resource, resourceRows, words)} />
                 {start !== undefined && end !== undefined && (kind.instant
                     ? <Fact styles={styles} fact="at" label={m.inspectorFact({ fact: "at" })} value={words.dateTime(start)} />
@@ -757,12 +816,13 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
                             <Fact styles={styles} fact="end" label={m.inspectorFact({ fact: "end" })} value={words.dateTime(end)} />
                         </>
                     ))}
-                {lane !== undefined && <Fact styles={styles} fact="lane" label={m.inspectorFact({ fact: "lane" })} value={lane} />}
-                {roles.state.type === "some" && <Fact styles={styles} fact="state" label={m.inspectorFact({ fact: "state" })} value={stateText(item.state, words)} />}
-                {quantity !== undefined && <Fact styles={styles} fact="quantity" label={m.inspectorFact({ fact: "quantity" })} value={<>
+                {lane !== undefined && <Fact styles={styles} fact="lane" label={m.inspectorFact({ fact: "lane" })} value={lane} focusable />}
+                {roles.state.type === "some" && <Fact styles={styles} fact="state" label={m.inspectorFact({ fact: "state" })} value={stateText(item.state, words)} focusable />}
+                {quantity !== undefined && <Fact styles={styles} fact="quantity" label={m.inspectorFact({ fact: "quantity" })} focusable value={<>
                     {quantityText(quantity, words)}
+                    {/* A line of its own, in the form's help line's style and the tone its Save stands in. */}
                     {quantityBreach !== undefined && (
-                        <Box css={fieldStyles.errorText} data-fact-breach="">{fieldBreachText(quantityBreach, { ...words, m: fieldFormMessages })}</Box>
+                        <Box css={fieldStyles.helperText} data-breach={breaches} data-fact-breach="">{fieldBreachText(quantityBreach, { ...words, m: fieldFormMessages })}</Box>
                     )}
                 </>} />}
             </Box>
@@ -775,7 +835,8 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
                     </Box>
                 ) : specs.length > 0 && (
                     <Box css={styles.fields} data-inspector-fields="form">
-                        <FieldForm key={redraws} specs={specs} value={value} baseline={held} issues={refused} focus={focus} onChange={editing !== undefined ? onField : NO_EDIT} />
+                        <FieldForm key={redraws} specs={specs} value={value} baseline={held} issues={refused} focus={focus} breaches={breaches}
+                            onChange={editing !== undefined ? onField : NO_EDIT} />
                     </Box>
                 )}
                 <Box css={styles.actions} data-inspector-actions="">

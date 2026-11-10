@@ -78,7 +78,12 @@ export const planInspectorSlotRecipe = defineSlotRecipe({
             margin: "0",
         },
         factLabel: { textStyle: "caption.eyebrow" },
-        factValue: { textStyle: "body.sm", color: "fg", margin: "0", minWidth: 0, overflowWrap: "anywhere" },
+        /* A value an issue gone to gives the keyboard — a field a role reads, which no control edits here — ringed as an
+         * overlap's line is. */
+        factValue: {
+            textStyle: "body.sm", color: "fg", margin: "0", minWidth: 0, overflowWrap: "anywhere",
+            _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "2px" },
+        },
         /* Several events: each its kind's icon, its title and when it runs. */
         list: { ...INSPECTOR_SECTION, gap: "{spacing.2}", margin: "0", listStyle: "none" },
         listItem: { display: "flex", alignItems: "flex-start", gap: "{spacing.2}", minWidth: 0, "& > svg": { marginTop: "3px", fontSize: "11px", color: "fg.muted" } },

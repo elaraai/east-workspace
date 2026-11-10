@@ -10,10 +10,12 @@
  * at −1,000 sheets. Stored, its bar wears the warn ring, the toolbar's issues
  * button warns of it, by its title, the field's label and the bound, and it
  * holds no Save — another job's change saves; the warning pressed, the job is
- * selected and Details shows it, the line under the field saying it and the
- * field taking the keyboard; its customer retyped, Save waits, the banner over
- * its form saying it by the field's label, in the hint's own words, the
- * warning now the issue holding Save, and the bar keeps its ring.
+ * selected and Details shows it, the field's help line saying it once, as a
+ * warning — the field never invalid — and the field taking the keyboard; its
+ * customer retyped, Save waits, the banner over its form saying it by the
+ * field's label, in the hint's own words, the help line now an error and the
+ * field invalid, the warning now the issue holding Save, and the bar keeps its
+ * ring.
  */
 
 import { expect, test } from "vitest";
@@ -85,18 +87,26 @@ test("a stored job's sheets under their least: its bar wears the warn ring, the 
     await retype("Driftwood Museum Trust");
     expect([save().disabled, issues().getAttribute("aria-label")]).toEqual([false, "1 warning"]);
     // The warning pressed goes to its job, as an issue does: selected, in Details, the field it names taking the
-    // keyboard, the line under it, and no banner.
+    // keyboard, its help line saying the bound once, as a warning, the field not invalid — and no banner.
     fireEvent.click(issues());
     await settle();
     expect([bar("J-1001").getAttribute("aria-pressed"), pane().querySelector("[data-inspector-title]")?.textContent]).toEqual(["true", "Spring catalogue"]);
-    const sheets = form().querySelector<HTMLElement>("[data-field='sheets']")!;
-    expect(document.activeElement).toBe(within(sheets).getByRole("spinbutton"));
-    expect(sheets.querySelector("[data-scope=field][data-part=error-text]")?.textContent).toBe("at least 0");
+    const sheets = () => form().querySelector<HTMLElement>("[data-field='sheets']")!;
+    /** The sheets' help line, the tone it says the bound in, its error line, and whether its box is invalid. */
+    const said = () => {
+        const toned = sheets().querySelector("[data-scope=field][data-part=helper-text] [data-breach]");
+        return [toned?.textContent, toned?.getAttribute("data-breach"), sheets().querySelector("[data-scope=field][data-part=error-text]"),
+            within(sheets()).getByRole("spinbutton").getAttribute("aria-invalid")];
+    };
+    expect(document.activeElement).toBe(within(sheets()).getByRole("spinbutton"));
+    expect(said()).toEqual(["at least 0", "warn", null, null]);
     expect(banner()).toBeNull();
-    // Its own customer retyped: Save waits, the banner says why, the warning is now the issue holding Save, and the ring stays.
+    // Its own customer retyped: Save waits, the banner says why, the help line is an error and the field invalid, the
+    // warning is now the issue holding Save, and the ring stays.
     await retype("Alder & Finch Ltd");
     expect(save().disabled).toBe(true);
     expect(banner()?.textContent).toBe("Not saved yet" + "Sheets: at least 0");
+    expect(said()).toEqual(["at least 0", "error", null, "true"]);
     expect(issues().getAttribute("aria-label")).toBe("1 issue");
     expect(bar("J-1001").hasAttribute("data-bounds")).toBe(true);
 });
