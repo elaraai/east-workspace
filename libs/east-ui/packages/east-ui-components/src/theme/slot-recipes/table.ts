@@ -10,7 +10,8 @@
  *     `border.strong` bottom rule.
  *   - Cell: body 13/normal, 1 px `border.subtle` bottom rule, 14/10
  *     padding. A column that prints numbers sets them in mono, aligned
- *     right, and its header's controls come before its label.
+ *     right, and its header's controls come before its label; one that
+ *     prints dates sets them in mono at their start.
  *   - Total row: 1 px `border.strong` top, `bg.panel` fill, weight 600.
  *   - Page band (`pagination`, under the rows): `Page 2 of 5 (120 total)` in
  *     mono 10.5 `fg.muted` — the phone pager's range voice — then its ‹ ›
@@ -26,7 +27,7 @@
  *     Phone Spec.md` QP8–QP12): the pager band, 44 tall, padded 0 4 0 16, its
  *     range mono 10.5 and its ‹ › 44 ghosts, listing the columns in place; a
  *     32 header on `--paper-2`; cells padded 8 12, the pinned column's 16 before
- *     it, the last in view's 16 after it; values wrapping, numbers mono 13/500,
+ *     it, the last in view's 16 after it; values wrapping, numbers and dates mono 13/500,
  *     an absent value `no data` in mono italic `--ink-4`.
  *
  * @packageDocumentation
@@ -232,9 +233,10 @@ export const tableSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
-            "&[data-numeric]": { fontFamily: "mono", fontSize: "12px", textAlign: "right" },
+            "&[data-numeric], &[data-date]": { fontFamily: "mono", fontSize: "12px" },
+            "&[data-numeric]": { textAlign: "right" },
             /* A phone's: whole, a value too wide for its column wrapping at its spaces. */
-            "[data-table-phone] &": { whiteSpace: "normal", overflow: "visible", overflowWrap: "anywhere", "&[data-numeric]": { fontSize: "13px", fontWeight: "500", fontVariantNumeric: "tabular-nums" } },
+            "[data-table-phone] &": { whiteSpace: "normal", overflow: "visible", overflowWrap: "anywhere", "&[data-numeric], &[data-date]": { fontSize: "13px", fontWeight: "500", fontVariantNumeric: "tabular-nums" } },
         },
         /* The page band under the rows: its words, then its ‹ ›. */
         pageBand: {

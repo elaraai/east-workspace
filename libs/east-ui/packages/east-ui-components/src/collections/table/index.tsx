@@ -228,6 +228,9 @@ declare module '@tanstack/react-table' {
         /** The column prints numbers: its cells sit right-aligned, and its
          *  header's controls come before its label. */
         numeric?: boolean;
+        /** The column prints dates: its cells are set in mono, as a number's
+         *  are, at their start. */
+        date?: boolean;
     }
     /* eslint-enable @typescript-eslint/no-unused-vars */
 }
@@ -662,6 +665,7 @@ const TableCore = function TableCore({
             const renderFn = getSomeorUndefined(col.render);
             const format = getSomeorUndefined(col.format);
             const numeric = col.valueType.type === "Integer" || col.valueType.type === "Float";
+            const date = col.valueType.type === "DateTime";
 
             return columnHelper.accessor(
                 (row) => subtotals.get(row.index)?.get(col.key) ?? row.cells.get(col.key),
@@ -692,6 +696,7 @@ const TableCore = function TableCore({
                         renderFn,
                         format,
                         numeric,
+                        date,
                     },
                 }
             );
@@ -932,7 +937,7 @@ const TableCore = function TableCore({
             const declared = getSomeorUndefined(col.render) === undefined ? 0 : parseSize(getSomeorUndefined(col.width), 150);
             const format = getSomeorUndefined(col.format);
             let widest = Math.max(declared, label);
-            const font = numeric ? `500 13px ${mono}` : `400 13px ${body}`;
+            const font = numeric || col.valueType.type === "DateTime" ? `500 13px ${mono}` : `400 13px ${body}`;
             for (const row of sample) {
                 const cell = subtotals.get(row.index)?.get(col.key) ?? row.cells.get(col.key);
                 if (cell !== undefined) widest = Math.max(widest, measureText(cell.type === "Null" ? "no data" : cellText(cell, format, words), font));
@@ -2042,7 +2047,7 @@ const TableCore = function TableCore({
                                             {lead}
                                             {phone && cellValue.type === "Null"
                                                 ? <Box as="span" css={tableCustomSlots.phoneAbsent}>no data</Box>
-                                                : <Text css={tableCustomSlots.cellText} data-numeric={meta?.numeric ? "" : undefined}>
+                                                : <Text css={tableCustomSlots.cellText} data-numeric={meta?.numeric ? "" : undefined} data-date={meta?.date ? "" : undefined}>
                                                 {isCount && cellValue.type === "Integer" ? words.number(cellValue.value) : cellText(cellValue, meta?.format, words)}
                                             </Text>}
                                         </ChakraTable.Cell>
