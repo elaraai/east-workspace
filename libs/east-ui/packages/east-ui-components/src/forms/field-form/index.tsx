@@ -17,7 +17,7 @@
  * | Editor | Input |
  * |---|---|
  * | `text` | `StringInput` |
- * | `number` | `IntegerInput` or `FloatInput`, by the field's type: moved by its step, clamped to its bounds, its unit and bounds in the help line; a value given it that they don't hold said under it, in their words (`fieldBreaches`, #1585) |
+ * | `number` | `IntegerInput` or `FloatInput`, by the field's type: moved by its step, clamped to its bounds, its unit and bounds in the help line; a value given it that they don't hold said once, in the tone its host says it in (`breaches`) — the help line, or where the field prints its value the bound in their words, on a line of its own in it (`fieldBreaches`, #1585) |
  * | `checkbox` | `Checkbox` |
  * | `datetime` | `DateTimeInput` |
  * | `select` | `RadioGroup` of the variant's cases while it has up to four, Not set first for an Option (#1473); `Select` past four; a case holding data, its fields in a block under the choice |
@@ -90,11 +90,13 @@
  * Each input's payload is East's `defaultValue` of its type with the field's
  * parts set; the `fieldForm` recipe lays the fields out and tints a changed
  * one; the form sets data attributes (`data-field`, `data-editor`,
- * `data-layout`, `data-dirty`, `data-issue`, `data-field-line`,
- * `data-field-side`, `data-field-block`, `data-field-help`,
- * `data-field-error`), a text's or a choice's title and geometry only; a
- * line's help takes the `field` recipe's help style, and why its choice was
- * refused the recipe's error style.
+ * `data-layout`, `data-dirty`, `data-issue`, `data-breach`,
+ * `data-field-line`, `data-field-side`, `data-field-block`,
+ * `data-field-help`, `data-field-error`, `data-field-breach`), a text's or a
+ * choice's title and geometry only; a line's help takes the `field` recipe's
+ * help style, and why its choice was refused the recipe's error style. A
+ * bound broken is said in the `field` recipe's help line, toned by its
+ * `data-breach`.
  *
  * @packageDocumentation
  */
@@ -204,6 +206,20 @@ export interface FieldFormProps {
     lines?: ReadonlyMap<string, readonly FieldLineChoice[]> | undefined;
     /** The fields an issue names, by key: each takes the warn wash around it. */
     issues?: ReadonlySet<string> | undefined;
+    /**
+     * How the form says a number its field's bounds don't hold (#1585), as the host's Save stands on what the form
+     * edits. Either way the field takes the warn wash, and says the bound once: in its help line, which names the
+     * field's bounds, or — where the field prints its value, its help line its host's own words or none — on a line of
+     * its own in it, under them.
+     *
+     * - `"warn"` — what the form edits stands as stored, so no Save waits on it: the help line, or the bound's line, in
+     *   the warn ink, and the box the warn's edge; the field is not invalid.
+     * - `"error"` — what the form edits is changed, so its Save waits on the bound: the help line, or the bound's line,
+     *   in the danger ink, and the field invalid, its box the danger's edge.
+     *
+     * An edit the host refuses is said on a line of its own, the field invalid, whichever it is. `"error"` by default.
+     */
+    breaches?: "warn" | "error" | undefined;
     /**
      * The field that takes the keyboard, by key, as it is named: the first control in it that takes it — or, where a
      * tab or a fold still hides the form, once it shows. A later name takes its place; naming none leaves it to take it.
@@ -582,6 +598,7 @@ function printOf(
  */
 export const FieldForm = memo(function FieldForm({
     specs, value, baseline, options = NO_OPTIONS, onChange, takesUnset = false, readOnly = false, words, renderControl, live = false, lines, issues, focus,
+    breaches = "error",
 }: FieldFormProps) {
     const styles = useSlotRecipe({ key: "fieldForm" })() as Styles;
     const formatters = useFormatters();
@@ -604,7 +621,7 @@ export const FieldForm = memo(function FieldForm({
             <FieldRow key={spec.path.join("\u001f")} spec={spec} under={under} current={valueAt(value, spec.path)}
                 base={baseline === undefined ? undefined : valueAt(baseline, spec.path)} hasBaseline={baseline !== undefined}
                 options={options} onChange={onChange} takesUnset={takesUnset} readOnly={readOnly} words={said} styles={styles} renderControl={renderControl} live={live}
-                choices={under === undefined ? lines?.get(key) : undefined} issue={issues?.has(key) === true} />
+                choices={under === undefined ? lines?.get(key) : undefined} issue={issues?.has(key) === true} breaches={breaches} />
         );
     };
     // A section's fields in order, each run of fields drawn on one line together, and under a variant's choice its
@@ -672,6 +689,8 @@ interface FieldRowProps {
     choices: readonly FieldLineChoice[] | undefined;
     /** An issue names it. */
     issue: boolean;
+    /** How it says a number its bounds don't hold: as a warning, or as an error. */
+    breaches: "warn" | "error";
 }
 
 /**
@@ -679,7 +698,7 @@ interface FieldRowProps {
  * checklist's items; or, drawn on one line, its label and its choices.
  */
 const FieldRow = memo(function FieldRow({
-    spec, under, current, base, hasBaseline, options, onChange, takesUnset, readOnly, words, styles, renderControl, live, choices, issue,
+    spec, under, current, base, hasBaseline, options, onChange, takesUnset, readOnly, words, styles, renderControl, live, choices, issue, breaches,
 }: FieldRowProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
@@ -1059,23 +1078,32 @@ const FieldRow = memo(function FieldRow({
         };
     })();
 
+    // A number's help names its bounds — never where it prints its value.
+    const bounds = editor.type === "number" && !printed ? numberLine(editor.value, words) : undefined;
     const help = [
         getSomeorUndefined(spec.help),
-        editor.type === "number" && !printed ? numberLine(editor.value, words) : undefined,
+        bounds,
         checklist !== undefined && !readOnly && held !== undefined ? m.checklistCount({ done: words.number(done), total: words.number(items.length) }) : undefined,
     ].filter((part): part is string => part !== undefined && part.length > 0);
-    // A number its bounds don't hold (#1585), given it from anywhere: the field takes the warn wash.
+    // A number its bounds don't hold (#1585), given it from anywhere: the field takes the warn wash, and says the bound
+    // once, in the tone the host says it in (`breaches`) — the help line, which names the bounds; where the field prints
+    // its value, the bound in its hint's own words on a line of its own in it, under any help the host gives the field.
     const breach = editor.type === "number" && held !== undefined ? breachOf(editor.value, held as bigint | number, isTypeEqual(inner, IntegerType)) : undefined;
-    // One line under the field: why it shows what it holds — never where it prints its value — else the bound its number
-    // breaks, in its hint's own words, printed or not.
-    const said = (printed ? undefined : refusal) ?? (breach === undefined ? undefined : fieldBreachText(breach, words));
+    const tone = breach === undefined ? undefined : breaches;
+    const helped = breach === undefined ? undefined : bounds !== undefined ? <Box as="span" data-breach={tone}>{help.join(" · ")}</Box> : <>
+        {help.length > 0 && `${help.join(" · ")} `}
+        <Box as="span" data-breach={tone} data-field-breach="">{fieldBreachText(breach, words)}</Box>
+    </>;
+    // Why it shows what it holds — never where it prints its value — a line of its own under it, the field invalid; as
+    // is a bound a changed row's Save waits on.
+    const said = printed ? undefined : refusal;
     const field: FieldValue = {
         ...FIELD,
         label: spec.label,
         control,
         helperText: help.length === 0 ? none : some(help.join(" · ")),
         errorText: said === undefined ? none : some(said),
-        invalid: said === undefined ? none : some(true),
+        invalid: said !== undefined || tone === "error" ? some(true) : none,
         readOnly: printed || readOnly ? some(true) : none,
         style: some(FIELD_STYLE),
     };
@@ -1110,8 +1138,8 @@ const FieldRow = memo(function FieldRow({
 
     return (
         <Box ref={rowRef} css={styles.field} data-field={key} data-editor={own !== undefined ? "custom" : printed ? "readonly" : editor.type} data-dirty={dirty ? "" : undefined}
-            data-issue={issue || breach !== undefined ? "" : undefined} onBlur={onBlur} onKeyDown={onKeyDown}>
-            <EastChakraField key={revision} value={field} storageKey={`fieldForm.${key}`} controlNode={line} />
+            data-issue={issue || breach !== undefined ? "" : undefined} data-breach={tone} onBlur={onBlur} onKeyDown={onKeyDown}>
+            <EastChakraField key={revision} value={field} storageKey={`fieldForm.${key}`} controlNode={line} helperNode={helped} />
             {checklist !== undefined && items.length > 0 && (
                 <Box css={styles.items} data-checklist-items="">
                     {/* Drawn afresh with the field, after a refusal: an item's checkbox keeps the toggle last made. */}

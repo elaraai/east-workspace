@@ -29,7 +29,12 @@
  * `Field`'s help line (#1561). Lines that follow
  * one another sit closer than fields do, rows of choices. A field an issue
  * names takes the warn wash a Record's empty required cell wears, spread as
- * the drafts' tint is — so a new row's empty lines read as one block.
+ * the drafts' tint is — so a new row's empty lines read as one block. A
+ * number its bounds don't hold takes the tone its host says it in (#1585): as
+ * stored (`data-breach=warn`), the warn's edge on its box and the warn ink on
+ * its help line; a changed row's (`error`), the field invalid — the danger's
+ * edge — and the danger ink. A printed number's bound sits in its help line on
+ * a line of its own, under the help its host gives it.
  *
  * A variant whose case holds data has a block under its choice (#1549): the
  * case's fields, a column of the form's rhythm, set in from the choice along
@@ -97,6 +102,13 @@ export const fieldFormSlotRecipe = defineSlotRecipe({
                 background: ISSUE_WASH,
                 boxShadow: `0 0 0 6px ${ISSUE_WASH}`,
             },
+            /* A number its bounds don't hold, as stored: its box the warn's edge, focused too, as an invalid box keeps the
+             * danger's — never over a box a refusal makes invalid. Its help line takes the warn ink (the `field` recipe). */
+            "&[data-breach=warn] :is([data-scope=number-input][data-part=root], [data-scope=field][data-part=input]):not([data-invalid])": {
+                borderColor: "status.warn",
+            },
+            /* The bound a printed number breaks, in its help line under the help its host gives it: a line of its own. */
+            "& [data-field-breach]": { display: "block" },
             /* Drawn on one line: its label at the start, its choices at the end, on the Input's line — its help
              * wrapping under it, as far from the line as a Field's help sits from its control. */
             "&[data-layout=line]": {
