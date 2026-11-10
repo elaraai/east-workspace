@@ -8,7 +8,7 @@
  *
  * App entry points (e.g. `main.tsx`) import this module for its side
  * effects to register `@font-face` declarations for DM Sans, Inter Tight,
- * and Geist Mono — upright, and Geist Mono italic for the muted "no data"
+ * and Chivo Mono — upright, and Chivo Mono italic for the muted "no data"
  * value — against the bundled .woff2 files shipped by the
  * `@fontsource-variable/*` packages.
  *
@@ -54,5 +54,5 @@
 
 import "@fontsource-variable/dm-sans/wght.css";
 import "@fontsource-variable/inter-tight/wght.css";
-import "@fontsource-variable/geist-mono/wght.css";
-import "@fontsource-variable/geist-mono/wght-italic.css";
+import "@fontsource-variable/chivo-mono/wght.css";
+import "@fontsource-variable/chivo-mono/wght-italic.css";

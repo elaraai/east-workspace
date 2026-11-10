@@ -393,7 +393,7 @@ for (const theme of LAYOUT_THEMES) {
             return { family: s.fontFamily, size: s.fontSize, weight: s.fontWeight, line: s.lineHeight, tracking: s.letterSpacing, casing: s.textTransform };
         });
         const caption = await typography(frame.locator('[data-calendar-header-caption]'));
-        expect(caption.size).toBe('10px'); expect(caption.family).toContain('Geist Mono');
+        expect(caption.size).toBe('10px'); expect(caption.family).toContain('Chivo Mono');
         expect(caption.weight).toBe('600'); expect(caption.casing).toBe('uppercase');
         for (const period of ['Day', 'Week', 'Month']) {
             await viewChoice(page, frame, period);

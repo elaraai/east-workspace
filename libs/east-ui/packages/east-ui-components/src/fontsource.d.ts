@@ -9,5 +9,5 @@
  * the `@font-face` rules. TS needs a module shim so those imports type-check. */
 declare module "@fontsource-variable/dm-sans/wght.css";
 declare module "@fontsource-variable/inter-tight/wght.css";
-declare module "@fontsource-variable/geist-mono/wght.css";
-declare module "@fontsource-variable/geist-mono/wght-italic.css";
+declare module "@fontsource-variable/chivo-mono/wght.css";
+declare module "@fontsource-variable/chivo-mono/wght-italic.css";

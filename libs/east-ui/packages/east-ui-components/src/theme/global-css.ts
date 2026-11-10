@@ -32,7 +32,7 @@
  *    ring on a cell, `none` inside a field's chrome) still wins: recipes
  *    sit in a later cascade layer than these global styles.
  *
- * Brand fonts (DM Sans, Inter Tight, Geist Mono) are self-hosted via
+ * Brand fonts (DM Sans, Inter Tight, Chivo Mono) are self-hosted via
  * the `@fontsource-variable/*` stylesheets that an app registers with one
  * import of `@elaraai/east-ui-components/fonts` (`src/fonts.ts`). No CDN
  * @import here — the VS Code extension webview's CSP

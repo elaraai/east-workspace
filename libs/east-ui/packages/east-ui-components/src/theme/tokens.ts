@@ -28,7 +28,7 @@ export const FONT_BRAND =
 export const FONT_BODY =
     '"Inter Tight Variable", "Inter Tight", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 export const FONT_MONO =
-    '"Geist Mono Variable", "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+    '"Chivo Mono Variable", "Chivo Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
 
 /* ─── Colour scales ────────────────────────────────────────────────────── */
 
