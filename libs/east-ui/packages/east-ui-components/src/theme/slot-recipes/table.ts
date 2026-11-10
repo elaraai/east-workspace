@@ -35,6 +35,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { fontAwesomeSize } from "../icon-size.js";
 
 export const tableSlotRecipe = defineSlotRecipe({
     className: "elara-table",
@@ -246,7 +247,7 @@ export const tableSlotRecipe = defineSlotRecipe({
         pageBandText: { fontFamily: "mono", fontSize: "label.md", fontVariantNumeric: "tabular-nums", color: "fg.muted", whiteSpace: "nowrap" },
         pageBandStep: {
             display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "4px 8px", border: "none", borderRadius: "4px", background: "transparent", cursor: "pointer",
-            "& svg": { width: "10px", height: "10px" },
+            "& svg": fontAwesomeSize("10px"),
             _disabled: { cursor: "not-allowed", opacity: "0.4" },
         },
         /* The pager: over the rows as they scroll under it. */
