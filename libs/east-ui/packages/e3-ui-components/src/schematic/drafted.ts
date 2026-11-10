@@ -35,17 +35,22 @@
  * it until the kind's reads are from after the commit (`landedDrafts`): a
  * window read before the Save landed holds each row as it stood, and drawn
  * from the window alone a moved rack showed where it was until the window was
- * read again. Over a window read at the revision a Save was drafted at — or
- * none, its read failed — each row the Save landed is laid under the drafts as
- * a draft is; over one read since, only a row the window holds none of. Details
- * reads the windows with the rows so (`landedWindows`), and a kind's are let go
- * once its window, and the Index's read of it, are from after them
- * (`landedRead`).
+ * read again. A window is from before a Save while it was read at another
+ * revision than the one its record reads at now — the rule every host that
+ * draws what a Save landed reads its rows by (east-ui-components'
+ * `readBeforeSave`), whichever revision the Save was drafted at: the same rack
+ * saved twice before its window is read again draws as the second Save left
+ * it. Over such a window — or none, its read failed — each row the Save
+ * landed is laid under the drafts as a draft is; over one read since, only a
+ * row the window holds none of. Details reads the windows with the rows so
+ * (`landedWindows`), and a kind's are let go once its window, and the Index's
+ * read of it, are from after them (`landedRead`).
  *
  * @packageDocumentation
  */
 
 import { StringType, equalFor } from "@elaraai/east";
+import { readBeforeSaves } from "@elaraai/east-ui-components/internal";
 import {
     EMPTY_DRAWN, drawnItem, drawnLink, drawnNet, drawnZone, entityId,
     type CardRoles, type DetailsRoles, type ItemRoles, type LinkRoles, type NetRoles, type SchematicDrawn, type SchematicRef, type ZoneRoles,
@@ -96,7 +101,7 @@ export interface LandedRow<R> {
     readonly drawn: DraftedRow<R> | undefined;
     /** Its bytes as the Save left it, as a window holds a row; `undefined` for one it deleted. */
     readonly row: Uint8Array | undefined;
-    /** The revision the Save's request was drafted at: a read there holds the row as it stood before. */
+    /** The revision the Save's request was drafted at: a record still read there holds the row as it stood before. */
     readonly from: string;
 }
 
@@ -310,16 +315,27 @@ export function waitingPoint(id: string, waiting: SchematicDrawn, drawn: Schemat
 }
 
 /**
- * Whether a read of a kind is from before what Saves landed of it: read at the revision one of their requests was
- * drafted at, so holding its rows as they stood. Two Saves landing before the kind is read again each name their own.
+ * The revision the Save of each landed row was drafted at.
+ *
+ * @param rows - A kind's landed rows
+ * @returns Their revisions, one a row
+ */
+function* draftedAt(rows: ReadonlyMap<string, LandedRow<unknown>>): Iterable<string> {
+    for (const row of rows.values()) yield row.from;
+}
+
+/**
+ * Whether a read of a kind is from before what Saves landed of it, so holding its rows as they stood: read at another
+ * revision than the one the kind's record reads at now, by the rule every host that draws what a Save landed reads its
+ * rows by (east-ui-components' `readBeforeSaves`).
  *
  * @param revision - The revision the read was read at
+ * @param now - The revision the kind's record reads at now; `undefined` while it names none
  * @param rows - The kind's landed rows
  * @returns Whether it is
  */
-function readBefore(revision: string, rows: ReadonlyMap<string, LandedRow<unknown>>): boolean {
-    for (const row of rows.values()) if (stringEqual(row.from, revision)) return true;
-    return false;
+function readBefore(revision: string, now: string | undefined, rows: ReadonlyMap<string, LandedRow<unknown>>): boolean {
+    return readBeforeSaves(revision, now, draftedAt(rows));
 }
 
 /**
@@ -328,13 +344,14 @@ function readBefore(revision: string, rows: ReadonlyMap<string, LandedRow<unknow
  * @param drafts - The sort's drafts
  * @param landed - What Saves landed of it
  * @param windows - Each kind read by area's window
+ * @param now - The revision each kind read by area's record reads at now
  * @returns The drafts; themselves while nothing is laid
  */
-function laidSort<R>(drafts: SortDrafts<R>, landed: SortLanded<R>, windows: SchematicWindowRows): SortDrafts<R> {
+function laidSort<R>(drafts: SortDrafts<R>, landed: SortLanded<R>, windows: SchematicWindowRows, now: ReadonlyMap<string, string>): SortDrafts<R> {
     let out: Map<string, ReadonlyMap<string, DraftedRow<R> | undefined>> | undefined;
     for (const [slot, rows] of landed) {
         const window = windows.get(slot);
-        const before = window === undefined || readBefore(window.revision, rows);
+        const before = window === undefined || readBefore(window.revision, now.get(slot), rows);
         const own = drafts.get(slot);
         let laid: Map<string, DraftedRow<R> | undefined> | undefined;
         for (const [key, row] of rows) {
@@ -351,18 +368,19 @@ function laidSort<R>(drafts: SortDrafts<R>, landed: SortLanded<R>, windows: Sche
 
 /**
  * The drafts with what confirmed Saves landed of the kinds read by area laid under them (see the module docs): over a
- * window read at the revision a Save was drafted at — or none, its read failed and what was drawn of it standing —
- * every row the Saves landed, as they left it, one they deleted drawing nowhere; over a window read since, only a row it
- * holds none of, which the Index, its read perhaps older, lists where the Save left it. A draft of a row made since
+ * window read before the revision its record reads at now — or none, its read failed and what was drawn of it standing
+ * — every row the Saves landed, as they left it, one they deleted drawing nowhere; over a window read at it, only a row
+ * it holds none of, which the Index, its read perhaps older, lists where the Save left it. A draft of a row made since
  * draws in its place.
  *
  * @param drafts - Every kind's drafts
  * @param landed - What Saves landed of the kinds read by area
  * @param windows - Each kind read by area's window, at the revision it was read at
+ * @param now - The revision each kind read by area's record reads at now, by its slot (`data.ts`' `revisions`)
  * @returns The drafts, each kind's landed rows after its own; the drafts themselves while nothing is laid
  */
-export function landedDrafts(drafts: SchematicDrafts, landed: SchematicLanded, windows: SchematicWindowRows): SchematicDrafts {
-    const items = laidSort(drafts.items, landed.items, windows), zones = laidSort(drafts.zones, landed.zones, windows);
+export function landedDrafts(drafts: SchematicDrafts, landed: SchematicLanded, windows: SchematicWindowRows, now: ReadonlyMap<string, string>): SchematicDrafts {
+    const items = laidSort(drafts.items, landed.items, windows, now), zones = laidSort(drafts.zones, landed.zones, windows, now);
     return Object.is(items, drafts.items) && Object.is(zones, drafts.zones) ? drafts : { ...drafts, items, zones };
 }
 
@@ -374,15 +392,16 @@ export function landedDrafts(drafts: SchematicDrafts, landed: SchematicLanded, w
  *
  * @param windows - Each kind read by area's window
  * @param landed - What Saves landed of the kinds read by area
+ * @param now - The revision each kind read by area's record reads at now, by its slot
  * @returns The windows; themselves while none is from before a Save
  */
-export function landedWindows(windows: SchematicWindowRows, landed: SchematicLanded): SchematicWindowRows {
+export function landedWindows(windows: SchematicWindowRows, landed: SchematicLanded, now: ReadonlyMap<string, string>): SchematicWindowRows {
     let out: Map<string, SchematicWindowHeld> | undefined;
     const sorts: readonly SortLanded<unknown>[] = [landed.items, landed.zones];
     for (const sort of sorts) {
         for (const [slot, rows] of sort) {
             const window = windows.get(slot);
-            if (window === undefined || !readBefore(window.revision, rows)) continue;
+            if (window === undefined || !readBefore(window.revision, now.get(slot), rows)) continue;
             const held = new Map(window.rows);
             for (const [key, row] of rows) {
                 if (row.row === undefined) held.delete(key);
@@ -397,22 +416,23 @@ export function landedWindows(windows: SchematicWindowRows, landed: SchematicLan
 
 /**
  * What Saves landed that the reads draw now, which their sessions let go (`EditSession.shown`): every landed row of a
- * kind whose window is read since the revisions its Saves were drafted at — and the Index's read of it too, where the
- * Index reads the kind. Over a window from before them, or none, its read failed, they draw as landed still.
+ * kind whose window is read at the revision its record reads at now — and the Index's read of it too, where the Index
+ * reads the kind. Over a window from before them, or none, its read failed, they draw as landed still.
  *
  * @param landed - What Saves landed of the kinds read by area
  * @param windows - Each kind read by area's window
  * @param index - The revision the Index read each kind it lists at (`index-area.ts`); none for a kind it reads none of
+ * @param now - The revision each kind read by area's record reads at now, by its slot
  * @returns Each such kind's landed keys, by slot
  */
 export function landedRead(landed: SchematicLanded, windows: SchematicWindowRows,
-    index: ReadonlyMap<string, string>): ReadonlyMap<string, readonly string[]> {
+    index: ReadonlyMap<string, string>, now: ReadonlyMap<string, string>): ReadonlyMap<string, readonly string[]> {
     const out = new Map<string, readonly string[]>();
     const sorts: readonly SortLanded<unknown>[] = [landed.items, landed.zones];
     for (const sort of sorts) {
         for (const [slot, rows] of sort) {
-            const window = windows.get(slot), listed = index.get(slot);
-            if (window === undefined || readBefore(window.revision, rows) || (listed !== undefined && readBefore(listed, rows))) continue;
+            const window = windows.get(slot), listed = index.get(slot), at = now.get(slot);
+            if (window === undefined || readBefore(window.revision, at, rows) || (listed !== undefined && readBefore(listed, at, rows))) continue;
             out.set(slot, [...rows.keys()]);
         }
     }

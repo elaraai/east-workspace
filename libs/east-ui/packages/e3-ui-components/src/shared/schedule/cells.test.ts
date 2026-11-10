@@ -14,7 +14,9 @@
  * within the cap, and a window of the paged kind's resources — its keys, in
  * flight, or a read that failed, which only the paging runtime's
  * `PagedReadError` is. The runs a range wants are east-ui's (`levelRuns`,
- * `summaryRun`, #1433). The Plan's DOM tests carry the reader through e3
+ * `summaryRun`, #1433). And which kinds' cells stand from before what Saves
+ * landed of them: those read at another revision than the one their record
+ * reads at now. The Plan's DOM tests carry the reader through e3
  * (`plan/plan-series.dom.test.tsx`, `plan/plan-cap.dom.test.tsx`).
  */
 
@@ -23,9 +25,10 @@ import { none, some, type option } from "@elaraai/east";
 import { SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
 import { PagedReadError, isPagedReadError } from "../../platform/paged-read-error.js";
 import {
-    SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_MARGIN, SCHEDULE_CELL_OPENING, SCHEDULE_WINDOW_FAILED, dividingTiles, scheduleWindowKeys, scheduleWithinCap, shadesOf,
-    wantedBlocks, type ScheduleCellPaged,
+    SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_MARGIN, SCHEDULE_CELL_OPENING, SCHEDULE_WINDOW_FAILED, dividingTiles, landedBefore, scheduleWindowKeys, scheduleWithinCap,
+    shadesOf, wantedBlocks, type ScheduleCellPaged,
 } from "./cells.js";
+import type { ScheduleLanded } from "./editing.js";
 
 const day = (text: string) => new Date(`${text}T00:00:00Z`);
 const HOUR = 3_600_000;
@@ -147,5 +150,36 @@ describe("a window of a paged kind's resources, as the reader reads it (#1039)",
         expect(isPagedReadError(new Error("failed"))).toBe(false);
         expect(isPagedReadError("failed")).toBe(false);
         expect(isPagedReadError(undefined)).toBe(false);
+    });
+});
+
+describe("what Saves landed, over a kind's cells read before them", () => {
+    /** What Saves landed of the jobs: one event, their requests drafted at these revisions. */
+    const jobs = (...from: string[]): ScheduleLanded => new Map([["jobs", {
+        rows: new Map([["J-1041", { draft: new Uint8Array([1]), row: new Uint8Array([2]) }]]), from: new Set(from),
+    }]]);
+    /** The jobs at a revision: the one their standing cells were read at, or the one their record reads at now. */
+    const at = (revision: string): ReadonlyMap<string, string> => new Map([["jobs", revision]]);
+
+    test("cells read at another revision than the one their record reads at now stand from before the Saves, whichever revision each was drafted at: what they landed is laid", () => {
+        const landed = jobs("r0");
+        expect(landedBefore(landed, at("r0"), at("r1")).get("jobs")).toBe(landed.get("jobs"));
+        // Two revisions behind: another session's write, then a Save drafted over it, the cells still as read before both.
+        const behind = jobs("r1");
+        expect(landedBefore(behind, at("r0"), at("r2")).get("jobs")).toBe(behind.get("jobs"));
+    });
+
+    test("cells read at the revision their record reads at now hold the Saves, and nothing is laid — but while the record still reads at a revision one was drafted at, or names none", () => {
+        expect(landedBefore(jobs("r0"), at("r1"), at("r1")).size).toBe(0);
+        expect(landedBefore(jobs("r0", "r1"), at("r2"), at("r2")).size).toBe(0);
+        // Its move to the commit not heard yet.
+        expect(landedBefore(jobs("r0"), at("r0"), at("r0")).size).toBe(1);
+        expect(landedBefore(jobs("r0"), at("r0"), new Map()).size).toBe(1);
+    });
+
+    test("a kind none of whose cells is read is laid nothing, and nothing landed lays nothing", () => {
+        expect(landedBefore(jobs("r0"), new Map(), at("r1")).size).toBe(0);
+        expect(landedBefore(undefined, at("r0"), at("r1")).size).toBe(0);
+        expect(landedBefore(new Map(), at("r0"), at("r1")).size).toBe(0);
     });
 });

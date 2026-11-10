@@ -10,10 +10,13 @@
  * roles it was drawn from. What waits is made as its draft has it, for Issues
  * to check beside the drawing, and where it stands is what Go to issue flies
  * to (ruled 27 Oct 2026). What a Save landed of a kind read by area draws as
- * the Save left it over its window while the window is from before the Save,
- * its rows so for Details, and is let go once its window — and the Index's
- * read, where the Index reads it — is from after it. Fixtures are real East
- * values typed from the Schematic's East types, compared through East.
+ * the Save left it over its window while the window is from before the Save
+ * — read at another revision than the one its record reads at now — its rows
+ * so for Details, and is let go once its window — and the Index's read, where
+ * the Index reads it — is read at that revision: the same rack saved twice
+ * before its window is read again draws as the second Save left it. Fixtures
+ * are real East values typed from the Schematic's East types, compared
+ * through East.
  */
 
 import { describe, expect, test } from "vitest";
@@ -246,69 +249,103 @@ function racksWindow(revision: string, keys: readonly string[]): SchematicWindow
 /** The racks read by area. */
 const BY_AREA = new Set(["racks"]);
 
+/** The revision the racks' record reads at now. */
+const racksAt = (revision: string): ReadonlyMap<string, string> => new Map([["racks", revision]]);
+
+/** A01 saved twice: the first Save, drafted at r0, committed r1; the second, drafted at r1, moved it to 12, 3 and committed r2. */
+const SAVED_TWICE = rack(A01, { x: 12, y: 3 });
+
 describe("landedDrafts", () => {
     const landed = landedRacks(new Map([["A01", { roles: SAVED_A01, from: "r0" }]]));
 
-    test("over a window read at the revision the Save was drafted at, a row it landed draws as the Save left it — a draft of it since drawing instead", () => {
-        const drafts = landedDrafts(NO_DRAFTS, landed, racksWindow("r0", ["A01", "A02"]));
+    test("over a window read before the revision its record reads at now, a row a Save landed draws as the Save left it — a draft of it since drawing instead", () => {
+        const drafts = landedDrafts(NO_DRAFTS, landed, racksWindow("r0", ["A01", "A02"]), racksAt("r1"));
         expect(drafts.items.get("racks")?.get("A01")).toBe(landed.items.get("racks")!.get("A01")!.drawn);
         expect(draftedDrawing(STORED, HELD, drafts, new WeakMap(), BY_AREA).items.map((item) => [item.key, item.x, item.y]))
             .toEqual([[entityId(A01), 9, 5], [entityId(A02), 6, 3]]);
         // A draft made since the Save is drawn, not what the Save left.
         const again = { roles: rack(A01, { x: 12, y: 3 }), created: false };
-        expect(landedDrafts(rackDrafts(new Map([["A01", again]])), landed, racksWindow("r0", ["A01"])).items.get("racks")?.get("A01")).toBe(again);
+        expect(landedDrafts(rackDrafts(new Map([["A01", again]])), landed, racksWindow("r0", ["A01"]), racksAt("r1")).items.get("racks")?.get("A01")).toBe(again);
     });
 
-    test("a window read since — at the revision the Save committed, or any after — draws its own rows: what the Save landed is laid only where the window holds none of it", () => {
-        expect(landedDrafts(NO_DRAFTS, landed, racksWindow("r1", ["A01", "A02"]))).toBe(NO_DRAFTS);
+    test("while its record still reads at the revision the Save was drafted at — its move to the commit not heard yet — or names none, the window is from before the Save too", () => {
+        expect(landedDrafts(NO_DRAFTS, landed, racksWindow("r0", ["A01", "A02"]), racksAt("r0")).items.get("racks")?.get("A01")?.roles).toBe(SAVED_A01);
+        expect(landedDrafts(NO_DRAFTS, landed, racksWindow("r0", ["A01", "A02"]), new Map()).items.get("racks")?.get("A01")?.roles).toBe(SAVED_A01);
+    });
+
+    test("a window read at the revision its record reads at now — the one the Save committed, or any after — draws its own rows: what the Save landed is laid only where the window holds none of it", () => {
+        expect(landedDrafts(NO_DRAFTS, landed, racksWindow("r1", ["A01", "A02"]), racksAt("r1"))).toBe(NO_DRAFTS);
+        expect(landedDrafts(NO_DRAFTS, landed, racksWindow("r2", ["A01", "A02"]), racksAt("r2"))).toBe(NO_DRAFTS);
         // Moved off the window read since, it draws where the Save left it: where the Index lists it from.
-        expect(landedDrafts(NO_DRAFTS, landed, racksWindow("r1", ["A02"])).items.get("racks")?.get("A01")?.roles).toBe(SAVED_A01);
+        expect(landedDrafts(NO_DRAFTS, landed, racksWindow("r1", ["A02"]), racksAt("r1")).items.get("racks")?.get("A01")?.roles).toBe(SAVED_A01);
     });
 
     test("over a window read before it, a row the Save deleted draws nowhere, and one it made draws though the window holds none", () => {
         const drafts = landedDrafts(NO_DRAFTS, landedRacks(new Map([
             ["A01", { roles: undefined, from: "r0" }], ["new-1", { roles: rack(NEW, { x: 12, y: 3 }), from: "r0", created: true }],
-        ])), racksWindow("r0", ["A01", "A02"]));
+        ])), racksWindow("r0", ["A01", "A02"]), racksAt("r1"));
         expect(draftedDrawing(STORED, HELD, drafts, new WeakMap(), BY_AREA).items.map((item) => item.key)).toEqual([entityId(A02), entityId(NEW)]);
     });
 
     test("a kind with no window read — its read failed, what was drawn of it standing — draws what the Save landed; with nothing landed, the drafts are themselves", () => {
-        expect(landedDrafts(NO_DRAFTS, landed, new Map()).items.get("racks")?.get("A01")?.roles).toBe(SAVED_A01);
+        expect(landedDrafts(NO_DRAFTS, landed, new Map(), racksAt("r1")).items.get("racks")?.get("A01")?.roles).toBe(SAVED_A01);
         const drafts = rackDrafts(new Map([["A02", { roles: rack(A02, { x: 9, y: 5 }), created: false }]]));
-        expect(landedDrafts(drafts, NO_LANDED, racksWindow("r0", ["A01", "A02"]))).toBe(drafts);
+        expect(landedDrafts(drafts, NO_LANDED, racksWindow("r0", ["A01", "A02"]), racksAt("r1"))).toBe(drafts);
     });
 
-    test("two Saves before the window is read again: what each landed draws over a window read at either's revision, and neither's over one read after both", () => {
+    test("two Saves before the window is read again: what each landed draws over a window read before either, or between them, and neither's over one read after both", () => {
         const both = landedRacks(new Map([["A01", { roles: SAVED_A01, from: "r0" }], ["A02", { roles: rack(A02, { x: 14, y: 3 }), from: "r1" }]]));
-        expect([...landedDrafts(NO_DRAFTS, both, racksWindow("r0", ["A01", "A02"])).items.get("racks")!.keys()]).toEqual(["A01", "A02"]);
-        expect([...landedDrafts(NO_DRAFTS, both, racksWindow("r1", ["A01", "A02"])).items.get("racks")!.keys()]).toEqual(["A01", "A02"]);
-        expect(landedDrafts(NO_DRAFTS, both, racksWindow("r2", ["A01", "A02"]))).toBe(NO_DRAFTS);
+        expect([...landedDrafts(NO_DRAFTS, both, racksWindow("r0", ["A01", "A02"]), racksAt("r2")).items.get("racks")!.keys()]).toEqual(["A01", "A02"]);
+        expect([...landedDrafts(NO_DRAFTS, both, racksWindow("r1", ["A01", "A02"]), racksAt("r2")).items.get("racks")!.keys()]).toEqual(["A01", "A02"]);
+        expect(landedDrafts(NO_DRAFTS, both, racksWindow("r2", ["A01", "A02"]), racksAt("r2"))).toBe(NO_DRAFTS);
+    });
+
+    test("the same rack saved twice before its window is read again draws as the second Save left it: the window is from before both, whichever revision the Save that landed it last was drafted at", () => {
+        // What the second Save landed of A01 took the first's place: it names r1, and the window stands as read at r0.
+        const twice = landedRacks(new Map([["A01", { roles: SAVED_TWICE, from: "r1" }]]));
+        const drafts = landedDrafts(NO_DRAFTS, twice, racksWindow("r0", ["A01", "A02"]), racksAt("r2"));
+        expect(draftedDrawing(STORED, HELD, drafts, new WeakMap(), BY_AREA).items.map((item) => [item.key, item.x, item.y]))
+            .toEqual([[entityId(A01), 12, 3], [entityId(A02), 6, 3]]);
+        // Read since both, the window draws its own.
+        expect(landedDrafts(NO_DRAFTS, twice, racksWindow("r2", ["A01", "A02"]), racksAt("r2"))).toBe(NO_DRAFTS);
     });
 });
 
 describe("landedWindows", () => {
-    test("a window read before the Save holds each row as the Save left it, and none of one it deleted: what Details reads; one read since holds its own", () => {
+    test("a window read before the revision its record reads at now holds each row as the Save left it, and none of one it deleted: what Details reads; one read at it holds its own", () => {
         const landed = landedRacks(new Map([["A01", { roles: SAVED_A01, from: "r0" }], ["A02", { roles: undefined, from: "r0" }]]));
         const before = racksWindow("r0", ["A01", "A02", "A06"]);
-        const read = landedWindows(before, landed).get("racks")!;
+        const read = landedWindows(before, landed, racksAt("r1")).get("racks")!;
         expect([...read.rows.keys()]).toEqual(["A01", "A06"]);
         expect(read.rows.get("A01")!.row).toBe(SAVED_BYTES);
         expect(read.rows.get("A06")).toBe(before.get("racks")!.rows.get("A06"));
         const since = racksWindow("r1", ["A01", "A06"]);
-        expect(landedWindows(since, landed)).toBe(since);
+        expect(landedWindows(since, landed, racksAt("r1"))).toBe(since);
+    });
+
+    test("the same rack saved twice before its window is read again reads as the second Save left it, never as the window holds it from before both", () => {
+        const twice = landedRacks(new Map([["A01", { roles: SAVED_TWICE, from: "r1" }]]));
+        expect(landedWindows(racksWindow("r0", ["A01", "A02"]), twice, racksAt("r2")).get("racks")!.rows.get("A01")!.row).toBe(SAVED_BYTES);
     });
 });
 
 describe("landedRead", () => {
     const landed = landedRacks(new Map([["A01", { roles: SAVED_A01, from: "r0" }]]));
 
-    test("what a Save landed is let go once its kind's window is read since — and the Index's read of the kind, where it reads one — never over a read from before it", () => {
-        expect(landedRead(landed, racksWindow("r0", ["A01"]), new Map()).size).toBe(0);
+    test("what a Save landed is let go once its kind's window is read at the revision its record reads at now — and the Index's read of the kind, where it reads one — never over a read from before it", () => {
+        expect(landedRead(landed, racksWindow("r0", ["A01"]), new Map(), racksAt("r1")).size).toBe(0);
         // No window read: what was drawn stands, what the Save landed over it.
-        expect(landedRead(landed, new Map(), new Map()).size).toBe(0);
-        expect([...landedRead(landed, racksWindow("r1", ["A01"]), new Map())]).toEqual([["racks", ["A01"]]]);
+        expect(landedRead(landed, new Map(), new Map(), racksAt("r1")).size).toBe(0);
+        expect([...landedRead(landed, racksWindow("r1", ["A01"]), new Map(), racksAt("r1"))]).toEqual([["racks", ["A01"]]]);
         // The Index lists the kind from a read before the Save: held until it reads it again.
-        expect(landedRead(landed, racksWindow("r1", ["A01"]), new Map([["racks", "r0"]])).size).toBe(0);
-        expect([...landedRead(landed, racksWindow("r1", ["A01"]), new Map([["racks", "r1"]]))]).toEqual([["racks", ["A01"]]]);
+        expect(landedRead(landed, racksWindow("r1", ["A01"]), new Map([["racks", "r0"]]), racksAt("r1")).size).toBe(0);
+        expect([...landedRead(landed, racksWindow("r1", ["A01"]), new Map([["racks", "r1"]]), racksAt("r1"))]).toEqual([["racks", ["A01"]]]);
+    });
+
+    test("the same rack saved twice is kept until its window is read since both: never let go over the window read before the first, nor one read between them", () => {
+        const twice = landedRacks(new Map([["A01", { roles: SAVED_TWICE, from: "r1" }]]));
+        expect(landedRead(twice, racksWindow("r0", ["A01"]), new Map(), racksAt("r2")).size).toBe(0);
+        expect(landedRead(twice, racksWindow("r1", ["A01"]), new Map(), racksAt("r2")).size).toBe(0);
+        expect([...landedRead(twice, racksWindow("r2", ["A01"]), new Map(), racksAt("r2"))]).toEqual([["racks", ["A01"]]]);
     });
 });

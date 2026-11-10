@@ -582,6 +582,24 @@ component, nothing in east-ui.
   write's change of what no draft changed stands beside the drafts and Save
   sends only the drafts' changes. One that does not apply leaves the session
   stale; a rebase starts the history over at the drafts.
+- **What a Save landed, until its rows are read again** (`EditSession.landed`,
+  `src/editing/landed.ts`). A Save's confirmation reads its entries by their
+  keys. A host whose rows are read apart from it — a paged source's pages, a
+  window, a kind's cells — holds them as they stood until they are read again
+  at the commit, a round trip a deployed server makes long. Such a host binds
+  with `drawsLanded`, draws each landed entry as the Save left it over rows
+  read before the Save, and lets it go (`shown`) in the commit that draws rows
+  read since, so no frame draws the entry as it stood. Which rows are from
+  before a Save is one rule, `readBeforeSave` (`./internal`): read at another
+  revision than the one their source reads at now, or their source still at
+  the revision the Save was drafted at. A host keeps no rule of its own: a
+  revision names content and has no order, and a rule keyed on the revision a
+  Save was drafted at lost a rack saved twice before its window was read
+  again, drawing it where it stood before either Save. e3-ui-components'
+  Schematic windows (`schematic/drafted.ts`) and schedule cells
+  (`shared/schedule/cells.ts`) read by it; its Sheet reads its rows by the
+  same test, said over its own row positions (`sheet/use-editing.ts`'
+  `awaiting`).
 - **The data set editing belongs to** (`EditingScope`, `src/editing/scope.ts`).
   A host whose sources are one data set's names it — e3-ui-components'
   `E3Provider` names the server, repository and workspace — and each

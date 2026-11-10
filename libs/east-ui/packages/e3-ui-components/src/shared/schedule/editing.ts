@@ -173,9 +173,9 @@ export interface ScheduleLandedRow {
 
 /**
  * What confirmed Saves landed of a kind whose events its builder reads apart from a Save's confirmation — a kind a reader
- * reads by its cells (#1424) — as its session keeps them (`EditSession.landed`), each event encoded once; and every
- * revision a Save of it was drafted at since what Saves landed of it was last let go, one a later Save of the same event
- * replaced among them: a read of the kind at one of them holds its events as they stood before.
+ * reads by its cells (#1424) — as its session keeps them (`EditSession.landed`), each event encoded once; and the
+ * revision each of their Saves was drafted at, which tells a read of the kind from before them from one that holds them
+ * (east-ui-components' `readBeforeSaves`).
  */
 export interface ScheduleLandedRows {
     /** Each event a Save landed, by its key's text. */
@@ -399,8 +399,6 @@ const NO_RECORDS: readonly ScheduleEditingRecord[] = [];
 const NO_FIELDS: readonly FieldSpecValue[] = [];
 /** Nothing a Save landed is held. */
 const NO_LANDED: ScheduleLanded = new Map();
-/** No revision a Save was drafted at. */
-const NO_FROM: ReadonlySet<string> = new Set();
 
 const compareString = compareFor(StringType);
 const compareInteger = compareFor(IntegerType);
@@ -592,7 +590,7 @@ export function useScheduleEditing<I extends Item = Item>({
 
     // ── What Saves landed, as a reader of a kind's cells draws it ─────────────
     // Each kind given `drawsLanded`: its session's landed events, each encoded once — a session keeps a landed entry the
-    // same object until it lets it go — and every revision a Save of it was drafted at since what it landed was last let go.
+    // same object until it lets it go — and the revision each one's Save was drafted at.
     const heldLanded = useRef<{ landed: ScheduleLanded; readonly encoded: WeakMap<LandedEntry<ScheduleEntryRef>, ScheduleLandedRow> }>(
         { landed: NO_LANDED, encoded: new WeakMap() });
     const landed = useMemo((): ScheduleLanded => {
@@ -606,7 +604,7 @@ export function useScheduleEditing<I extends Item = Item>({
             const codec = codecs[i]!;
             const before = was.landed.get(part.key);
             const rows = new Map<string, ScheduleLandedRow>();
-            let from = before?.from ?? NO_FROM;
+            const from = new Set<string>();
             let same = before !== undefined && before.rows.size === entries.size;
             for (const [id, entry] of entries) {
                 let row = was.encoded.get(entry);
@@ -618,9 +616,10 @@ export function useScheduleEditing<I extends Item = Item>({
                 }
                 if (before?.rows.get(id) !== row) same = false;
                 rows.set(id, row);
-                if (!from.has(entry.from)) from = new Set([...from, entry.from]);
+                from.add(entry.from);
             }
-            if (same && before !== undefined && from === before.from) { out.set(part.key, before); return; }
+            // The same events, each the same entry's: drafted at the same revisions, an entry keeping its own.
+            if (same && before !== undefined) { out.set(part.key, before); return; }
             out.set(part.key, { rows, from });
             moved = true;
         });

@@ -15,8 +15,9 @@
  * "Checked in view, said so"). What a Save moved, unplaced or wrote draws as
  * the Save left it — on the canvas, in the Index and in Details — while the
  * reads of its window and of the Index's zone are still from before it, never
- * where it stood, and as its record holds it once they are read again. Each
- * test fails on the code under review.
+ * where it stood, and as its record holds it once they are read again — a rack
+ * saved twice before its window is read again as the second Save left it,
+ * never as it stood before either. Each test fails on the code under review.
  *
  * jsdom lays nothing out: the canvas is given the box a page would give it,
  * 1080 × 540 px at the client origin, and each card the tests press answers at
@@ -649,6 +650,38 @@ test("Details shows a rack's field as Save wrote it while its window is read aga
     expect(value()).toBe(typed);
     expect(field().hasAttribute("data-dirty")).toBe(false);
     await release(held);
+    expect(value()).toBe(typed);
+    expect(field().hasAttribute("data-dirty")).toBe(false);
+});
+
+test("a rack saved twice before its window is read again draws where the second Save left it, Details showing it as that Save wrote it — never as it stood before either Save", async () => {
+    const { container } = await open();
+    await tap(canvasOf(container), CAM, 2.4, 2.9);
+    await waitFor(() => expect(detailsHead(container)).toEqual(["item", "A01"]));
+    const stood = card(container, "racks", "A01")!.style.transform;
+    const field = () => inspector(container).querySelector<HTMLElement>('[data-inspector-fields="position"] [data-field="x"]')!;
+    const value = () => within(field()).getByRole<HTMLInputElement>("spinbutton").value;
+    // Moved in Details and saved, the window's read again held.
+    await retypeNumber(container, "position", "x", "4");
+    const first = card(container, "racks", "A01")!.style.transform;
+    expect(first).not.toBe(stood);
+    const held = await saveHeld(container);
+    expect(card(container, "racks", "A01")!.style.transform).toBe(first);
+    // Moved again and saved again, the window still as it was read before the first Save.
+    await retypeNumber(container, "position", "x", "6");
+    expect(unsaved(container)).toBe(true);
+    const typed = value();
+    const second = card(container, "racks", "A01")!.style.transform;
+    expect(second).not.toBe(first);
+    await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("button", { name: editingMessages.apply() })); });
+    await waitFor(() => expect(unsaved(container)).toBe(false), { timeout: 5_000 });
+    await settle();
+    expect(card(container, "racks", "A01")!.style.transform).toBe(second);
+    expect(value()).toBe(typed);
+    expect(field().hasAttribute("data-dirty")).toBe(false);
+    // The window read again: A01 where its record holds it now — the same place.
+    await release(held);
+    expect(card(container, "racks", "A01")!.style.transform).toBe(second);
     expect(value()).toBe(typed);
     expect(field().hasAttribute("data-dirty")).toBe(false);
 });

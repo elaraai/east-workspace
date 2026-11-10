@@ -71,6 +71,7 @@ import { StringType, compareFor, equalFor, printFor, type ValueTypeOf } from "@e
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { Schematic, schematicAreaIndexes, type SchematicAreaIndexes } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { recordSliceRevision } from "@elaraai/east-ui-components/internal";
 import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import {
@@ -154,6 +155,12 @@ export interface SchematicData {
      * gesture's original, a Save's confirmation and the inspector find a row in before reading it by key (#1393).
      */
     readonly windows: SchematicWindowRows;
+    /**
+     * Each kind read by area, by its slot: the revision its record reads at now, whatever of its window is in flight —
+     * none for one whose record names none yet. A window read at another revision is from before it: what tells a window
+     * read before a Save from one read since (`drafted.ts`).
+     */
+    readonly revisions: ReadonlyMap<string, string>;
     /** Each kind read by area drawing its density in place of items, by its slot (D25). */
     readonly density: ReadonlyMap<string, SchematicDensity>;
     /** Each kind read by area's whole drawing's density, by its slot: what the minimap draws of it (#1393). */
@@ -230,6 +237,9 @@ const NO_UNPLACED: SchematicUnplacedRows = new Map();
 /** No kind read by area. */
 const NO_WINDOWS: SchematicWindowRows = new Map();
 
+/** No kind read by area whose record names a revision. */
+const NO_REVISIONS: ReadonlyMap<string, string> = new Map();
+
 /** No kind drawing its density, and none's overview read. */
 const NO_DENSITY: ReadonlyMap<string, SchematicDensity> = new Map();
 
@@ -248,7 +258,7 @@ const NO_FITS: ReadonlyMap<string, SchematicFit> = new Map();
 /** The frame's data before its reader first reports: nothing drawn, a read in flight. */
 export const INITIAL_SCHEMATIC_DATA: SchematicData = {
     drawn: EMPTY_DRAWN, loading: true, reading: undefined, filtering: false, ready: false, error: undefined, failures: NO_FAILURES, rows: NO_ROWS, held: NO_HELD,
-    unplaced: NO_UNPLACED, windows: NO_WINDOWS, density: NO_DENSITY, overview: NO_DENSITY, matched: NO_MATCHED, unread: NO_BOXES,
+    unplaced: NO_UNPLACED, windows: NO_WINDOWS, revisions: NO_REVISIONS, density: NO_DENSITY, overview: NO_DENSITY, matched: NO_MATCHED, unread: NO_BOXES,
     failedAreas: NO_FAILED_AREAS, fits: NO_FITS, fitting: false,
 };
 
@@ -424,6 +434,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         const reaches = new Map<string, WorldBox>();
         const failures = new Map<string, string>();
         const windows = new Map<string, SchematicWindowHeld>();
+        const revisions = new Map<string, string>();
         const density = new Map<string, SchematicDensity>();
         const overview = new Map<string, SchematicDensity>();
         const matched = new Map<string, ReadonlySet<string>>();
@@ -536,6 +547,9 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
             const where = `Schematic.${sort}: "${kind.name}"`;
             const areas = part === undefined ? undefined : schematicAreaIndexes(part.config.indexes, kind.box, sort, where);
             if (part === undefined || areas === undefined) return undefined;
+            // The revision its record reads at now, whatever of its window is in flight: a window read at another is from before it.
+            const revision = recordSliceRevision(part);
+            if (revision.type === "some") revisions.set(kind.key, revision.value);
             // Nothing is read before the canvas says where its viewport rests.
             if (viewport === undefined) return READING;
             const got = areaReader.window(kind, part, areas, viewport, dim, extent);
@@ -751,7 +765,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
             if (where !== undefined) narrowings.set(kind.key, where);
         }
         return {
-            held: { value, kinds, inputs, wheres, reaches, drawn } satisfies Held, loading, reading, narrowings, failures, windows, density, overview,
+            held: { value, kinds, inputs, wheres, reaches, drawn } satisfies Held, loading, reading, narrowings, failures, windows, revisions, density, overview,
             matched, unmade: areaReader.unmade, unread, failedAreas, drawable, fits, fitting,
         };
     }, [value, attempt, viewport, areaReader, makes]);
@@ -829,14 +843,20 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
     const fits = sameFits(fitsNow, fitsRef.current) ? fitsRef.current : fitsNow;
     fitsRef.current = fits;
     const fitting = result.ok && result.value.fitting;
+    // The revision each kind read by area's record reads at now — the latest read's, never the settled one's, which a
+    // window read before it stands in: the same object while it says the same.
+    const revisionsRef = useRef<ReadonlyMap<string, string>>(NO_REVISIONS);
+    const revisionsNow = result.ok ? result.value.revisions : NO_REVISIONS;
+    const revisions = signatureOf(revisionsNow) === signatureOf(revisionsRef.current) ? revisionsRef.current : revisionsNow;
+    revisionsRef.current = revisions;
     return useMemo((): SchematicData => (last === undefined
-        ? { ...INITIAL_SCHEMATIC_DATA, loading, reading, error, unread, fits, fitting }
+        ? { ...INITIAL_SCHEMATIC_DATA, loading, reading, error, revisions, unread, fits, fitting }
         : {
             drawn: last.drawn, loading, reading, filtering, ready: true, error, failures: last.failures, rows: last.rows, held: last.held,
-            unplaced: last.unplaced, windows: last.windows, density: last.density, overview: last.overview, matched: last.matched,
+            unplaced: last.unplaced, windows: last.windows, revisions, density: last.density, overview: last.overview, matched: last.matched,
             unread, failedAreas: last.failedAreas, fits, fitting,
         }),
-    [last, loading, reading, filtering, error, unread, fits, fitting]);
+    [last, loading, reading, filtering, error, revisions, unread, fits, fitting]);
 }
 
 /**

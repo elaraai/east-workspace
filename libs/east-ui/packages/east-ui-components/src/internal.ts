@@ -72,6 +72,9 @@ export {
 } from "./editing/draft.js";
 export { DRAFT_ISSUE_TEXT, SESSION_TEXT, type EditHistoryWord } from "./editing/messages.js";
 export { type EditSource } from "./editing/use-edit-session.js";
+// When a host that draws what a Save landed lets it go (`EditSession.landed`): the one rule that tells rows read before a
+// Save from rows read since — the Schematic's windows and a schedule's cells read by it.
+export { readBeforeSave, readBeforeSaves } from "./editing/landed.js";
 // The Slice: its bound range, the brush, the rail's toolbar items, and density.
 export { boundRangeDomain, boundRangeHistogram } from "./platform/slice/index.js";
 export { BrushStrip, type BrushBucket, type BrushStripProps, type BrushWords } from "./slice/brush-strip.js";

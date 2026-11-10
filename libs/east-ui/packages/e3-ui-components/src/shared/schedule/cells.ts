@@ -106,17 +106,21 @@
  * stand at the revision they were read at until the commit's are read again —
  * a round trip a deployed server makes long. A host that draws what Saves
  * landed hands the reader them as its editing keeps them
- * ({@link ScheduleCellsArgs.landed}): over a kind's cells read at a revision a
- * Save of it was drafted at, every event it landed draws as the Save left it,
+ * ({@link ScheduleCellsArgs.landed}): over a kind's cells read before them —
+ * at another revision than the one its record reads at now, the rule every
+ * host that draws what a Save landed reads its rows by (east-ui-components'
+ * `readBeforeSaves`) — every event they landed draws as the Save left it,
  * laid under the drafts — a draft made since draws in its place, and one the
  * narrowing did not hold draws nowhere, as before the Save — and its row is
  * held as the Save left it, where a gesture and an inspector read it; one it
  * deleted draws nowhere, and is read by its key. Once a kind's cells are read
- * since — or none of its cells is read, the kind counted, past the cap or
- * hidden — what landed of it is let go ({@link ScheduleCellsArgs.shown}), so
- * no frame draws both. A read at a revision any Save of it since was drafted
- * at is from before them all: two Saves before the cells are read again each
- * keep their events.
+ * at the revision its record reads at now — or none of its cells is read, the
+ * kind counted, past the cap or hidden — what landed of it is let go
+ * ({@link ScheduleCellsArgs.shown}), so no frame draws both. Whichever
+ * revision a Save was drafted at, cells read before the record's revision now
+ * are from before it: two Saves before the cells are read again each keep
+ * their events, and so does a Save drafted over another session's write the
+ * cells have still to read.
  *
  * @packageDocumentation
  */
@@ -136,7 +140,7 @@ import {
 import { SCHEDULE_EVENT_CAP, ScheduleDraftsType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import {
-    recordSliceCellEntries, recordSliceCellRuns, recordSliceRevision, recordSliceRows, recordSliceWithin,
+    readBeforeSaves, recordSliceCellEntries, recordSliceCellRuns, recordSliceRevision, recordSliceRows, recordSliceWithin,
 } from "@elaraai/east-ui-components/internal";
 import { isPagedReadError } from "../../platform/paged-read-error.js";
 import type { TimeResolution } from "../time/scale.js";
@@ -670,10 +674,20 @@ class CellsReader {
     private readonly encoded = new Map<string, { from: readonly unknown[]; bytes: Uint8Array; held: HeldRows }>();
     /** The paged kind's resources whose blocks the latest read wants — landed or in flight — the same set while they hold. */
     private wantedKeys: ReadonlySet<string> = NO_RESOURCES;
+    /** The revision each kind read by its cells reads at now, as the latest read found it, by its slot — the same map while it says the same. */
+    private nowAt: ReadonlyMap<string, string> = NO_REVISIONS;
 
     /** The paged kind's resources whose blocks the latest read wants (#1398): while it is in flight, the rows it reads again. */
     wanted(): ReadonlySet<string> {
         return this.wantedKeys;
+    }
+
+    /**
+     * The revision each kind read by its cells reads at now, by its slot, whatever of the latest read is in flight — none
+     * for a kind whose record names none yet: cells standing from a read at another revision are from before it.
+     */
+    current(): ReadonlyMap<string, string> {
+        return this.nowAt;
     }
 
     /** A kind's codec, made once per kind's cells' type. */
@@ -868,6 +882,15 @@ class CellsReader {
      */
     read(args: Omit<ScheduleCellsArgs, "host">): Read | typeof READING {
         const { kinds, resources, paged, range, buckets, resolution, drafts, span } = args;
+        // The revision each kind read by its cells reads at now, before anything of the read is in flight: what cells
+        // standing from an earlier read are told from, as from before a Save or holding it.
+        const now = new Map<string, string>();
+        for (const kind of kinds) {
+            if (!readByCells(kind, paged) || kind.hidden) continue;
+            const revision = recordSliceRevision(kind.part!);
+            if (revision.type === "some") now.set(kind.key, revision.value);
+        }
+        if (!sameRevisions(now, this.nowAt)) this.nowAt = now.size === 0 ? NO_REVISIONS : now;
         if (range === undefined || buckets === undefined) return READING;
         const reads: [string, Uint8Array][] = [];
         const held = new Map<string, HeldRows>();
@@ -1274,19 +1297,23 @@ function sameRevisions(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, st
 }
 
 /**
- * What Saves landed of the kinds whose cells stand from before them (see the module docs): those read at a revision a
- * Save of the kind was drafted at.
+ * What Saves landed of the kinds whose cells stand from before them (see the module docs): those read at another
+ * revision than the one the kind's record reads at now, as east-ui-components' `readBeforeSaves` tells it. A kind none
+ * of whose cells is read is laid nothing.
  *
  * @param landed - What Saves landed of the kinds read by their cells
  * @param revisions - The revision each kind's standing cells were read at
+ * @param now - The revision each kind's record reads at now
  * @returns Those kinds' landed events, by their slots; the one empty map while none stands from before
  */
-function landedBefore(landed: ScheduleLanded | undefined, revisions: ReadonlyMap<string, string>): ReadonlyMap<string, ScheduleLandedRows> {
+export function landedBefore(
+    landed: ScheduleLanded | undefined, revisions: ReadonlyMap<string, string>, now: ReadonlyMap<string, string>,
+): ReadonlyMap<string, ScheduleLandedRows> {
     if (landed === undefined || landed.size === 0) return NOTHING_LAID;
     let out: Map<string, ScheduleLandedRows> | undefined;
     for (const [kind, rows] of landed) {
         const at = revisions.get(kind);
-        if (at !== undefined && rows.from.has(at)) (out ??= new Map()).set(kind, rows);
+        if (at !== undefined && readBeforeSaves(at, now.get(kind), rows.from)) (out ??= new Map()).set(kind, rows);
     }
     return out ?? NOTHING_LAID;
 }
@@ -1408,6 +1435,8 @@ export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
     }), [reader, kinds, resources, paged, buckets, resolution, from, to, drafts, span]);
     const { result } = useTrackedEvaluation(read);
     const last = useRef<Read | undefined>(undefined);
+    // The revision each kind's record reads at now, as the read just made found it — in flight or not.
+    const now = reader.current();
     // The revision each kind's standing cells were read at: the last read landed's — a read the same as the one standing
     // stands for it, its cells holding the same rows at its revision.
     const revisions = useRef<ReadonlyMap<string, string>>(NO_REVISIONS);
@@ -1454,7 +1483,7 @@ export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
         // In flight, or thrown, over another range than the one standing was read over: its cells there never landed.
         const moved = covered !== undefined && inFlight && standing.range !== undefined && from !== undefined && to !== undefined && !sameRange(standing.range, { from, to });
         // What Saves landed of the kinds whose cells stand from before them: drawn as the Saves left it.
-        const laid = landedBefore(landed, revisions.current);
+        const laid = landedBefore(landed, revisions.current, now);
         const was = handed.current;
         if (was !== undefined && was.standing === standing && was.reading === reading && was.moved === moved && sameLanded(was.laid, laid)
             && (!inFlight || (Object.is(was.drafts, drafts) && was.wanted === wanted))) return was.read;
@@ -1474,15 +1503,15 @@ export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
         };
         handed.current = { standing, drafts, reading, wanted, moved, laid, read };
         return read;
-    }, [host, result, opening, drafts, reader, from, to, landed]);
-    // What Saves landed of a kind whose cells are read since them — or none of whose cells is read: counted, past the cap
-    // or hidden — is let go, in the commit that draws its cells without it, so no frame draws both.
+    }, [host, result, opening, drafts, reader, from, to, landed, now]);
+    // What Saves landed of a kind whose cells are read at the revision its record reads at now — or none of whose cells is
+    // read: counted, past the cap or hidden — is let go, in the commit that draws its cells without it, so no frame draws both.
     useLayoutEffect(() => {
         if (landed === undefined || shown === undefined) return;
         for (const [kind, rows] of landed) {
             const at = revisions.current.get(kind);
-            if (at === undefined || !rows.from.has(at)) shown(kind, [...rows.rows.keys()]);
+            if (at === undefined || !readBeforeSaves(at, now.get(kind), rows.from)) shown(kind, [...rows.rows.keys()]);
         }
-    }, [landed, shown, handedOn]);
+    }, [landed, shown, handedOn, now]);
     return handedOn;
 }

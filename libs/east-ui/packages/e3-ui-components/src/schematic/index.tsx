@@ -455,10 +455,12 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const drafted = useCallback((ref: SchematicRef) => draftHeld(draftsNarrowing, ref), [draftsNarrowing]);
     const leftOut = useCallback((ref: SchematicRef) => !dim && drafted(ref) === false, [dim, drafted]);
     // A kind read by area draws from its window, which a Save's confirmation doesn't read again: what the Save landed draws
-    // as the Save left it over a window read before the commit, until the window is read again — drawn from the window
-    // alone, a moved rack showed where it was meanwhile. Details reads the windows so; the drafts unsaved stay the drafts.
-    const canvasDrafts = useMemo(() => landedDrafts(editing.drafts, editing.landed, data.windows), [editing.drafts, editing.landed, data.windows]);
-    const inspectedWindows = useMemo(() => landedWindows(data.windows, editing.landed), [data.windows, editing.landed]);
+    // as the Save left it over a window read before the commit — at another revision than the one its record reads at now
+    // — until the window is read again: drawn from the window alone, a moved rack showed where it was meanwhile. Details
+    // reads the windows so; the drafts unsaved stay the drafts.
+    const canvasDrafts = useMemo(() => landedDrafts(editing.drafts, editing.landed, data.windows, data.revisions),
+        [editing.drafts, editing.landed, data.windows, data.revisions]);
+    const inspectedWindows = useMemo(() => landedWindows(data.windows, editing.landed, data.revisions), [data.windows, editing.landed, data.revisions]);
     const drawing = useMemo(() => draftedDrawing(data.drawn, data.held, canvasDrafts, draftedCache.current, areas, leftOut),
         [data.drawn, data.held, canvasDrafts, areas, leftOut]);
     // The drafted rows the drawing leaves out — each waiting in its session, the narrowing leaving out the row it drafts —
@@ -850,12 +852,12 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const indexArea = useMemo(() => (!listsIndex || areaItemKinds.length === 0 ? undefined
         : { kinds: areaItemKinds, reader: indexReader, hiddenLayers, drafted: areaDrafts.drafted, created: areaDrafts.created, onRead: onIndexRead }),
     [listsIndex, areaItemKinds, indexReader, hiddenLayers, areaDrafts, onIndexRead]);
-    // What a Save landed is let go once its kind's window, and the Index's read of it, are from after it: before paint, so
-    // the frame never draws both.
+    // What a Save landed is let go once its kind's window, and the Index's read of it, are read at the revision its record
+    // reads at now: before paint, so the frame never draws both.
     const landed = editing.landed, shownLanded = editing.shown;
     useLayoutEffect(() => {
-        for (const [slot, keys] of landedRead(landed, data.windows, indexRevisions)) shownLanded(slot, keys);
-    }, [landed, data.windows, indexRevisions, shownLanded]);
+        for (const [slot, keys] of landedRead(landed, data.windows, indexRevisions, data.revisions)) shownLanded(slot, keys);
+    }, [landed, data.windows, indexRevisions, data.revisions, shownLanded]);
 
     // ── What a selection keeps of a row of a kind read by area its window no longer holds (#1393, §4.5) ──
     // Each selected entity of such a kind, read by its key once its window lets it go: it stays selected and Details shows
