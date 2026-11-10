@@ -718,7 +718,13 @@ whatever the narrowing or a remount. A draft the narrowing hides waits in its
 session — Issues lists it, naming the choices that hide it — and Save writes it
 with the rest, each record's changes through its patch door as a request of its
 own; a refusal keeps that record's drafts and leaves the others' commits
-standing.
+standing. A kind read by key is confirmed as its rows land, while the reader
+hands the frame what it read only once every kind has — a link's far end, read
+by its key after them, among them: what its Save landed stands as the Save
+left it over stored rows read before it, by east-ui-components' one rule
+(`readBeforeSave`, `drafted.ts`' `landedDrafts`), until they are read since
+(`landedRead`) — drawn from the stored rows alone, a renamed state showed its
+old name between the two.
 
 A kind's details (#1507–#1510) are read as the kind is (`details.ts`): whole
 beside a kind read whole, or by the drawn rows' keys, every key in one
@@ -1040,6 +1046,17 @@ that refuses, goes into the e3-ui example module it belongs to.
   Confirm that a paged example does not read the complete event record.
 - Test meaningful editing paths, failed/refused writes, unknown outcomes,
   read-only behavior and Save/remount persistence through the existing harnesses.
+- Run the shared check of a Save whose reads come back late
+  (`shared/save-held.test-utils.ts`' `savedThroughReload`) in the builder's
+  own tests: its reads of the record it saves held at the harness's fetch and
+  let go one at a time, what it draws of the edit read at every change of the
+  page — from the press of Save until every read has landed, never as it stood
+  before. Every builder runs it: the Roster, the Allocation, the Flowchart and
+  the Sheet in a `save-held.dom.test.tsx` of their own, the Schematic, the
+  Calendar and the Plan beside their other held-reload tests. A host whose rows
+  are read apart from a Save's confirmation keeps what the Save landed on
+  screen by east-ui-components' one rule (`readBeforeSave`), never one of its
+  own.
 - Use responsive browser checks at 1440/1024/768/390/360, the light theme (dark too where a check holds a colour),
   narrow parent containers and state-preserving resize. Exercise explicit
   narrow actions, folded toolbar access and real drag previews. Verify computed

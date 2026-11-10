@@ -53,6 +53,12 @@
  * - **Its drafts.** Each draft is decoded once: its roles read through its
  *   kind's `read`, kept while its session keeps the entry's version — what the
  *   frame draws over the stored rows (`drafted.ts`).
+ * - **What a Save landed.** A kind read by key is confirmed as its rows land,
+ *   while the frame is handed what was read only once every kind has: its
+ *   session keeps what each Save landed (`drawsLanded`, `EditSession.landed`),
+ *   each row decoded once, which the frame lays under the drafts over stored
+ *   rows read before the Save (`drafted.ts`' `landedDrafts`) and lets go once
+ *   they are read since (`shown`).
  * - **What stands in.** While what the canvas draws stands in for a new
  *   narrowing, it is retained: no record takes an edit — every route asks
  *   `available`, and `record` records nothing — until it lands. The history's
@@ -67,7 +73,7 @@
 import { useCallback, useMemo, useRef } from "react";
 import { StringType, equalFor, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import type { EditingReadinessType, RecordSliceBindType } from "@elaraai/east-ui/internal";
-import { getSomeorUndefined, type EditHistory, type EntryVersion, type Origin } from "@elaraai/east-ui-components";
+import { getSomeorUndefined, type EditHistory, type EntryVersion, type LandedEntry, type Origin } from "@elaraai/east-ui-components";
 import { recordSliceRows } from "@elaraai/east-ui-components/internal";
 import {
     useScheduleEditing,
@@ -77,7 +83,7 @@ import {
 import { kindKeys } from "../shared/schedule/kind-keys.js";
 import { draftedRow, heldInWindow, keptAtRevision, madeFromValues, mintKey, rowCodec } from "../shared/schedule/records.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
-import type { DraftedRow, FlowchartDrafts, KindDrafts } from "./drafted.js";
+import { NONE_LANDED, NO_LANDED, type DraftedRow, type FlowchartDrafts, type FlowchartLanded, type KindDrafts, type KindLanded, type LandedRow } from "./drafted.js";
 import type {
     FlowchartDecisionRoles, FlowchartLaneRoles, FlowchartStateRoles, FlowchartTransitionRoles, FlowchartValue,
 } from "./model.js";
@@ -171,8 +177,21 @@ export interface FlowchartEditing {
     readonly edits: boolean;
     /** Every kind's drafts, each decoded once. */
     readonly drafts: FlowchartDrafts;
+    /**
+     * What each confirmed Save landed of the kinds read by key, as their sessions keep it (`EditSession.landed`), each row
+     * decoded once: laid under the drafts over stored rows read before the Save (`drafted.ts`' `landedDrafts`).
+     */
+    readonly landed: FlowchartLanded;
     /** The history's version: it moves with every change of it or of its sessions. */
     readonly version: number;
+    /**
+     * Lets go of what Saves landed of a kind's rows, once the stored rows hold them as the record does now (`drafted.ts`'
+     * `landedRead`).
+     *
+     * @param sort - The kind
+     * @param keys - The rows' keys
+     */
+    shown(sort: FlowchartSort, keys: readonly string[]): void;
     /**
      * Whether the decisions queue states by their keys: a queue is given them — a state's Del takes its key out, and a
      * state moved to a new key takes it there.
@@ -395,7 +414,8 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
                 if (rest.length > 0) keyedReady(rest.map(({ entry }) => entry)).forEach((verdict, n) => { out[rest[n]!.i] = verdict; });
                 return out;
             });
-            out.push({ key: sort, name: kind.name, editing: kind.editing.value, entries: kind.entries, ready, fields: kind.fields });
+            // A kind read by key keeps what each Save landed: the frame's stored rows are read apart from its confirmation.
+            out.push({ key: sort, name: kind.name, editing: kind.editing.value, entries: kind.entries, ready, fields: kind.fields, drawsLanded: kind.entries.type === "some" });
         }
         return out;
     }, [value]);
@@ -457,9 +477,48 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [draftsNow, value]);
 
+    // What each Save landed of a kind read by key, each row decoded once: a session keeps a landed entry the same object
+    // until it lets it go.
+    const landedDecoded = useRef(new WeakMap<LandedEntry<ScheduleEntryRef>, LandedRow<unknown>>());
+    const version = schedule.version;
+    const landed = useMemo((): FlowchartLanded => {
+        const of = <R,>(sort: FlowchartSort): KindLanded<R> => {
+            const kind = kindOf(value, sort);
+            const entries = kind === undefined ? undefined : schedule.sessions.find((part) => stringEqual(part.kind, sort))?.session.landed;
+            if (kind === undefined || entries === undefined || entries.size === 0) return NONE_LANDED;
+            const codec = rowCodec(kind.rowType);
+            const keys = kindKeys(kind.keyType);
+            const read = kind.read as (bytes: Uint8Array, key: string) => R;
+            const rows = new Map<string, LandedRow<R>>();
+            for (const [id, entry] of entries) {
+                let row = landedDecoded.current.get(entry) as LandedRow<R> | undefined;
+                if (row === undefined) {
+                    // A row the Save deleted is none; one it added, a row its session found none of before.
+                    const after = draftedRow(entry.after);
+                    row = {
+                        drawn: after === undefined ? undefined : { roles: read(codec.encode(after.row), keys.readKey(id)), created: draftedRow(entry.before) === undefined },
+                        from: entry.from,
+                    };
+                    landedDecoded.current.set(entry, row);
+                }
+                rows.set(id, row);
+            }
+            return rows;
+        };
+        const states = of<FlowchartStateRoles>("states"), transitions = of<FlowchartTransitionRoles>("transitions");
+        const lanes = of<FlowchartLaneRoles>("lanes"), decisions = of<FlowchartDecisionRoles>("decisions");
+        // Nothing landed is the one object, so what reads it holds still while gestures move the history.
+        return states.size + transitions.size + lanes.size + decisions.size === 0 ? NO_LANDED : { states, transitions, lanes, decisions };
+        // What the sessions keep moves with the history's version.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [version, schedule.sessions, value]);
+
     // Stable to the canvas: each calls the latest render's.
     const latest = useRef({ value, schedule, held, retained });
     latest.current = { value, schedule, held, retained };
+    const shown = useCallback((sort: FlowchartSort, keys: readonly string[]): void => {
+        latest.current.schedule.sessions.find((part) => stringEqual(part.kind, sort))?.session.shown(keys);
+    }, []);
     const editedSorts = useMemo(() => new Set(records.map((record) => record.key)), [records]);
     const editable = useCallback((sort: FlowchartSort): boolean => editedSorts.has(sort), [editedSorts]);
     // Retained, no record takes an edit: every route asks it, and `record` refuses one.
@@ -691,7 +750,7 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
     }, [value]);
 
     return useMemo(() => ({
-        schedule, history: schedule.history, edits: records.length > 0, drafts, version: schedule.version, unqueues, wholeLaneOrders,
-        editable, available, record, taken, stands, mintTransition, newKey, moves, builds, untyped,
-    }), [schedule, records.length, drafts, unqueues, wholeLaneOrders, editable, available, record, taken, stands, mintTransition, newKey, moves, builds, untyped]);
+        schedule, history: schedule.history, edits: records.length > 0, drafts, landed, version: schedule.version, unqueues, wholeLaneOrders,
+        shown, editable, available, record, taken, stands, mintTransition, newKey, moves, builds, untyped,
+    }), [schedule, records.length, drafts, landed, unqueues, wholeLaneOrders, shown, editable, available, record, taken, stands, mintTransition, newKey, moves, builds, untyped]);
 }

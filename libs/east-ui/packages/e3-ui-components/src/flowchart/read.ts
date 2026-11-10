@@ -31,7 +31,10 @@
  * It reads the stored rows alone: the frame draws the editing session's drafts
  * over them (`drafted.ts`). A kind's rows read again as they were — the same
  * keys, each row's bytes the same — are the same object, so the frame is handed
- * what it reads only when that moves.
+ * what it reads only when that moves. Beside them it says the revision each
+ * kind read by key was read at (`revisions`) and the one its record reads at
+ * now, whatever is in flight (`now`): rows read at another are from before it,
+ * which tells stored rows read before a Save from rows read since.
  *
  * @packageDocumentation
  */
@@ -106,6 +109,13 @@ export interface FlowchartData {
      * never drawn, and never an issue — yet held, so a state's Del deletes them with it (R10).
      */
     readonly hiddenWith: ReadonlySet<string>;
+    /** The revision each kind's held rows were read at, for a kind its record is read by key of (its `entries`); none for one read whole. */
+    readonly revisions: ReadonlyMap<FlowchartSort, string>;
+    /**
+     * The revision each such kind's record reads at now, whatever of the read is in flight: held rows read at another
+     * are from before it (`drafted.ts`' `landedDrafts`).
+     */
+    readonly now: ReadonlyMap<FlowchartSort, string>;
 }
 
 const compareString = compareFor(StringType);
@@ -125,12 +135,16 @@ const NO_KEYS: ReadonlySet<string> = new SortedSet<string>([], compareString);
 /** No kind failed. */
 const NO_FAILURES: ReadonlyMap<FlowchartSort, string> = new Map<FlowchartSort, string>();
 
+/** No kind whose record names a revision. */
+const NO_REVISIONS: ReadonlyMap<FlowchartSort, string> = new Map<FlowchartSort, string>();
+
 /** Nothing held: a frame before its first read settles. */
 const NOTHING_HELD: FlowchartHeld = { states: NO_ROWS, transitions: undefined, lanes: undefined, decisions: undefined };
 
 /** The frame's data before its reader first reports: nothing drawn, a read in flight. */
 export const INITIAL_FLOWCHART_DATA: FlowchartData = {
     ready: false, loading: true, reading: undefined, filtering: false, error: undefined, failures: NO_FAILURES, held: NOTHING_HELD, hiddenWith: NO_KEYS,
+    revisions: NO_REVISIONS, now: NO_REVISIONS,
 };
 
 /** Why a read failed, as the box says it. */
@@ -171,9 +185,20 @@ function sameFailures(a: ReadonlyMap<FlowchartSort, string>, b: ReadonlyMap<Flow
     return true;
 }
 
-/** A kind as its read takes it: its stored rows, `none` while in flight. */
+/** A kind as its read takes it: its stored rows, `none` while in flight, and its record read by key, whose revision they are read at. */
 interface RowsReader {
     readonly rows: () => option<FlowchartStored<unknown>>;
+    readonly entries: option<{ readonly revision: () => option<string> }>;
+}
+
+/** Two maps of revisions saying the same. */
+function sameRevisions(a: ReadonlyMap<FlowchartSort, string>, b: ReadonlyMap<FlowchartSort, string>): boolean {
+    if (a.size !== b.size) return false;
+    for (const [sort, revision] of a) {
+        const other = b.get(sort);
+        if (other === undefined || !sameString(other, revision)) return false;
+    }
+    return true;
 }
 
 /** What one read of every kind gave: each kind's rows where they landed, why one failed, what is in flight, the far ends' verdict and the narrowings read under. */
@@ -183,6 +208,8 @@ interface Read {
     readonly inFlight: ReadonlySet<FlowchartSort>;
     readonly hiddenWith: ReadonlySet<string>;
     readonly wheres: ReadonlyMap<FlowchartSort, Where>;
+    /** The revision each kind read by key reads at now: what the rows this read holds of it were read at. */
+    readonly now: ReadonlyMap<FlowchartSort, string>;
 }
 
 /**
@@ -200,9 +227,13 @@ export function useFlowchartData(value: FlowchartValue, attempt = 0): FlowchartD
         const rows: Read["rows"] = {};
         const failures = new Map<FlowchartSort, string>();
         const inFlight = new Set<FlowchartSort>();
+        const now = new Map<FlowchartSort, string>();
         const take = (sort: FlowchartSort, kind: RowsReader | undefined) => {
             if (kind === undefined) return;
             try {
+                // The revision its record reads at now, whatever of its rows is in flight: what they are read at.
+                const at = kind.entries.type === "some" ? kind.entries.value.revision() : undefined;
+                if (at?.type === "some") now.set(sort, at.value);
                 const got = kind.rows();
                 if (got.type === "some") rows[sort] = got.value;
                 else inFlight.add(sort);
@@ -260,14 +291,14 @@ export function useFlowchartData(value: FlowchartValue, attempt = 0): FlowchartD
             const source = sourcePart(chrome, sort);
             if (source !== undefined) wheres.set(sort, source.read().where);
         }
-        return { rows, failures, inFlight, hiddenWith, wheres };
+        return { rows, failures, inFlight, hiddenWith, wheres, now };
     }, [value, attempt]);
     const { result } = useTrackedEvaluation(read);
 
     // The last settled read, kept while a newer one is in flight: a kind whose read failed keeps what it held.
     const settled = useRef<{
         readonly held: FlowchartHeld; readonly hiddenWith: ReadonlySet<string>; readonly failures: ReadonlyMap<FlowchartSort, string>;
-        readonly wheres: ReadonlyMap<FlowchartSort, Where>;
+        readonly wheres: ReadonlyMap<FlowchartSort, Where>; readonly revisions: ReadonlyMap<FlowchartSort, string>;
     } | undefined>(undefined);
     if (result.ok && result.value.inFlight.size === 0) {
         const got = result.value;
@@ -293,6 +324,8 @@ export function useFlowchartData(value: FlowchartValue, attempt = 0): FlowchartD
             hiddenWith: was !== undefined && sameKeys(was.hiddenWith, got.hiddenWith) ? was.hiddenWith : got.hiddenWith,
             failures: was !== undefined && sameFailures(was.failures, got.failures) ? was.failures : got.failures.size === 0 ? NO_FAILURES : got.failures,
             wheres: got.wheres,
+            // What every kind's rows were read at: the revisions this read found, each kind's rows landed at its own.
+            revisions: was !== undefined && sameRevisions(was.revisions, got.now) ? was.revisions : got.now.size === 0 ? NO_REVISIONS : got.now,
         };
     }
     const last = settled.current;
@@ -320,10 +353,16 @@ export function useFlowchartData(value: FlowchartValue, attempt = 0): FlowchartD
     const held = last?.held;
     const hiddenWith = last?.hiddenWith;
     const failures = last?.failures;
+    const revisions = last?.revisions ?? NO_REVISIONS;
+    // The revision each record reads at now — the latest read's, never the settled one's: the same object while it says the same.
+    const nowRef = useRef<ReadonlyMap<FlowchartSort, string>>(NO_REVISIONS);
+    const nowRead = result.ok ? result.value.now : NO_REVISIONS;
+    const now = sameRevisions(nowRead, nowRef.current) ? nowRef.current : nowRead;
+    nowRef.current = now;
     return useMemo((): FlowchartData => (held === undefined || hiddenWith === undefined || failures === undefined
-        ? { ...INITIAL_FLOWCHART_DATA, loading: error === undefined, reading, error }
-        : { ready: true, loading, reading, filtering, error, failures, held, hiddenWith }),
-    [held, hiddenWith, failures, loading, reading, filtering, error]);
+        ? { ...INITIAL_FLOWCHART_DATA, loading: error === undefined, reading, error, now }
+        : { ready: true, loading, reading, filtering, error, failures, held, hiddenWith, revisions, now }),
+    [held, hiddenWith, failures, revisions, now, loading, reading, filtering, error]);
 }
 
 /**

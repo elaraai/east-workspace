@@ -89,7 +89,7 @@ import { kindPlural } from "../shared/schedule/words.js";
 import type { ZoomRange } from "../shared/schedule/zoom.js";
 import { FlowchartCanvasView, type FlowchartCanvasEdit, type FlowchartCanvasFailure, type FlowchartCanvasHandle, type FlowchartReveal } from "./canvas.js";
 import { FlowchartDetailsReader, NO_DETAILS, askDetailsAgain, detailsKindsOf, flowchartDetailsModel, useDrawnKeys, type FlowchartDetailsData } from "./details.js";
-import { draftedRows, type FlowchartDimmed } from "./drafted.js";
+import { draftedRows, landedDrafts, landedRead, type FlowchartDimmed } from "./drafted.js";
 import type { FlowchartDropContext } from "./drop.js";
 import { kindOf, useFlowchartEditing, type FlowchartKeyCheckWords } from "./editing.js";
 import {
@@ -357,8 +357,17 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         };
         return { states: of("states"), transitions: of("transitions") };
     }, [value.narrowed, followed]);
-    const drafted = useMemo(() => draftedRows(data.held, data.hiddenWith, editing.drafts, rowKeys, dimmed),
-        [data.held, data.hiddenWith, editing.drafts, rowKeys, dimmed]);
+    // A kind read by key is confirmed as its rows land, while the reader hands the frame what it read only once every
+    // kind has: what a Save landed stands as the Save left it over stored rows read before it — at another revision than
+    // the one their record reads at now — and is let go once they are read at it, before paint, so no frame draws both.
+    const laidDrafts = useMemo(() => landedDrafts(editing.drafts, editing.landed, data.held, data.hiddenWith, data.revisions, data.now),
+        [editing.drafts, editing.landed, data.held, data.hiddenWith, data.revisions, data.now]);
+    const landed = editing.landed, shownLanded = editing.shown;
+    useLayoutEffect(() => {
+        for (const [sort, keys] of landedRead(landed, data.revisions, data.now)) shownLanded(sort, keys);
+    }, [landed, data.revisions, data.now, shownLanded]);
+    const drafted = useMemo(() => draftedRows(data.held, data.hiddenWith, laidDrafts, rowKeys, dimmed),
+        [data.held, data.hiddenWith, laidDrafts, rowKeys, dimmed]);
     const model = useMemo(() => buildModel(drafted.rows, words), [drafted.rows, words]);
 
     // ── The details: read by the rows drawn, in a reader of their own, and counted into the flowchart's bins ──
