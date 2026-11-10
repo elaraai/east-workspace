@@ -1317,7 +1317,7 @@ function Agenda({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
     const days = props.view.layout === "people" || props.view.period === "week" ? Array.from({ length: 7 }, (_, d) => d) : [props.day];
     return <Box css={props.styles.scroll} data-roster-agenda=""><Box css={props.styles.agenda}>
         {props.view.period === "day" && props.view.layout === "shifts" && <Seg fullWidth label="Day of week" scope="roster" name="agenda-days" active={String(props.day)} items={Array.from({ length: 7 }, (_, day) => ({ key: String(day), label: props.format.weekday(new Date(props.start.getTime() + day * DAY)) }))} onPick={day => props.setView({ ...props.view, date: props.start.getTime() + Number(day) * DAY })} />}
-        {days.map(day => <Box key={day} css={props.styles.agendaGroup}><Box css={props.styles.groupLabel}>{props.format.weekdayDate(new Date(props.start.getTime() + day * DAY))}</Box>
+        {days.map(day => <Box key={day} css={props.styles.agendaGroup}><Box css={props.styles.agendaHead} data-roster-agenda-heading="">{props.format.weekdayDate(new Date(props.start.getTime() + day * DAY))}</Box>
             {props.value.groups.flatMap(group => props.value.shifts.map(shift => { const slot = { day: BigInt(day), group: group.key, shift: shift.key }; if (props.read.state !== "held") {
                 // A week not read, or whose read failed (#1398): each slot's card and title at once, a placeholder where its
                 // figures and duties go; the failure said once, in the first card.

@@ -22,7 +22,7 @@ import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { planElementConflict, planElementDrafted, planElementFocus, planElementSelected, planRowFocus } from "./plan/focus.js";
 import { INSPECTOR_SECTION, INSPECTOR_STATUS } from "./inspector.js";
 import { heldToolbarSlot, retainedColumn, retainedRow } from "./loading.js";
-import { scheduleAgenda, scheduleAgendaGroup, scheduleCard, scheduleCardActions, scheduleCardHead, scheduleCardTitle } from "./schedule-agenda.js";
+import { scheduleAgenda, scheduleAgendaGroup, scheduleAgendaHead, scheduleCard, scheduleCardActions, scheduleCardHead, scheduleCardTitle } from "./schedule-agenda.js";
 import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
 import { schedulePaneBase, schedulePaneSlots } from "./schedule-pane.js";
 import { timeHeaderText } from "./time/axis.js";
@@ -33,7 +33,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
     slots: [...moveGhostSlots, "root", "main", "scroll", "grid", "row", "gutter", "headerGutter", "head", "shiftHead", "shiftHeading", "shiftLabel", "shiftMeta", "time", ...scheduleGroupSlots,
         "rowHead", "eyebrow", "title", "detail", "requirement", "coverageHead", "metric", "coverageBar", "coverageSegment", "coverageTick", "coverageLine", "coverageName", "coverageFigures", "skillLine", "skillCode",
         "cell", "cellHead", "chips", "assignment", "assignmentName", "badge", "flag", "activity", "fit", "grip", "chipAction", "dropStrip", "landing", "openPosition", "proposal", "proposalMark", "proposalName", "proposalReason", "proposalAction",
-        "weekCell", "weekValue", "weekFill", "weekFillValue", "issueDot", "delta", "peopleHead", "peopleCell", "agenda", "agendaGroup", "card", "cardHead", "cardTitle", "actions", ...schedulePaneSlots, "section", "status",
+        "weekCell", "weekValue", "weekFill", "weekFillValue", "issueDot", "delta", "peopleHead", "peopleCell", "agenda", "agendaGroup", "agendaHead", "card", "cardHead", "cardTitle", "actions", ...schedulePaneSlots, "section", "status",
         "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", "pickerDot", "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions",
         "readLine", "heldSlot", "unreadValue",
         "peopleRow", "peopleName", "nameLine", "personName", "agencyBadge", "hoursCell", "hoursText", "meter", "meterFill", "dayCell", "tile", "tileLabel", "tileMeta", "tileWarn", "tileMore",
@@ -75,7 +75,8 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         // the cell's whole width, breaking at its spaces, and its figures keep together on the line under it, at its end.
         coverageLine: { display: "flex", flexWrap: "wrap", alignItems: "baseline", justifyContent: "space-between", columnGap: "8px", minWidth: 0, textStyle: "body.sm", "&[data-tone=warning]": { color: "fg.warning" }, "&[data-tone=success]": { color: "fg.success" } },
         coverageName: { minWidth: 0, overflowWrap: "break-word", "& > :first-of-type": { marginRight: "6px" } },
-        coverageFigures: { display: "inline-flex", alignItems: "baseline", gap: "6px", marginLeft: "auto", flexShrink: 0, whiteSpace: "nowrap" },
+        // Its hours, in the design system's mono face, as the skill's code beside them is.
+        coverageFigures: { display: "inline-flex", alignItems: "baseline", gap: "6px", marginLeft: "auto", flexShrink: 0, whiteSpace: "nowrap", fontFamily: "mono", fontVariantNumeric: "tabular-nums" },
         skillLine: { display: "grid", gridTemplateColumns: "22px minmax(0, 1fr) auto auto", alignItems: "baseline", gap: "6px", textStyle: "body.sm", "&[data-tone=warning]": { color: "fg.warning" }, "&[data-tone=success]": { color: "fg.success" } },
         skillCode: { textStyle: "mono.xs", color: "fg.subtle" },
         cell: { position: "relative", minWidth: 0, padding: "8px 8px 10px", borderLeftWidth: "1px", borderColor: "border.subtle", display: "flex", flexDirection: "column", gap: "4px", "& [data-roster-landing]": { display: "none" }, "&[data-drop-active]": { background: "brand.subtle", "& [data-roster-landing]": { display: "flex" } }, "&[data-drop-active][data-roster-landing-tone=warning]": { background: "bg.warning.subtle", outlineColor: "fg.warning" }, "&[data-drop-invalid] [data-roster-landing]": { display: "flex" },
@@ -120,8 +121,8 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         peopleCell: { display: "flex", flexDirection: "column", justifyContent: "center", gap: "3px", padding: "6px", borderLeftWidth: "1px", borderColor: "border.subtle", minWidth: 0, "&[data-selected]": { background: "bg.panel" }, "&[data-drop-active]": { background: "brand.subtle" },
             // Retained while a narrowing is read (#1398, CL5): the shared retained column, as a shifts cell is.
             "[data-roster-stale] &": retainedColumn },
-        // The phone's cards: the shared part the Calendar and the Allocation take too.
-        agenda: scheduleAgenda, agendaGroup: scheduleAgendaGroup, cardHead: scheduleCardHead, cardTitle: scheduleCardTitle, actions: scheduleCardActions,
+        // The phone's cards: the shared part the Calendar and the Allocation take too, a day's heading the Calendar's.
+        agenda: scheduleAgenda, agendaGroup: scheduleAgendaGroup, agendaHead: scheduleAgendaHead, cardHead: scheduleCardHead, cardTitle: scheduleCardTitle, actions: scheduleCardActions,
         // Retained while a narrowing is read (#1398, CL5): a card's words in the third ink, its own edge kept.
         card: { ...scheduleCard, "[data-roster-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
         section: { ...INSPECTOR_SECTION, gap: "12px" },
@@ -219,7 +220,9 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         // Its label never cuts (the hand retest, R3): the header's fit (`data-week-label` on the header's row) shows its
         // dates, else their days alone — the month name dropped — else none; the other form of its dates is laid out
         // unseen, out of the flow and clipped by the label, so the fit measures it whole.
+        // Its week number in the design system's mono face, as its dates are.
         weekNumber: { position: "relative", display: "flex", alignItems: "baseline", gap: "8px", height: "24px", padding: "0 8px", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textStyle: "body.sm", fontWeight: "semibold",
+            fontFamily: "mono", fontVariantNumeric: "tabular-nums",
             "& > [data-roster-week-dates]": { position: "absolute", left: 0, top: 0, visibility: "hidden" },
             "[data-week-label=full] &": { "& > [data-roster-week-dates=full]": { position: "static", visibility: "visible" } },
             "[data-week-label=days] &": { "& > [data-roster-week-dates=days]": { position: "static", visibility: "visible" } } },
