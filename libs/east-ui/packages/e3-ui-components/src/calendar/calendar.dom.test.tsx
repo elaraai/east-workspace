@@ -206,15 +206,41 @@ describe("the board keeps the keyboard (retest C4 and C5, 27 Oct 2026)", () => {
         expect(heard).toEqual([]);
     });
 
-    test("a pick of Search Records, the Inspector folded, opens it on the event, which takes the keyboard — the frame taking none of it (#1585)", async () => {
+    test("a pick of Search Records, the Inspector folded, opens it on the event, which takes the keyboard and keeps it through every frame after — the frame taking none of it; a second pick at once takes it to its own event, and a pick of an event drawn nowhere leaves it in the box, which lists only the rows what is typed finds (#1585)", async () => {
         const { container } = await h.mount(ex.calendarOperations);
         await press(within(slot(container, "end")).getByRole("button", { name: "Collapse Inspector" }));
         const input = slot(container, "toolbar").querySelector<HTMLInputElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search'] input")!;
-        await act(async () => { input.focus(); fireEvent.input(input, { target: { value: "job1" } }); }); await settle();
-        await waitFor(() => expect(document.getElementById(input.getAttribute("aria-controls") ?? "")?.querySelector('[role="option"]')).not.toBeNull(), { timeout: 10_000 });
-        await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); }); await settle();
-        await waitFor(() => expect(document.activeElement).toBe(event(container, "job", "job1")));
-        expect([slot(container, "end").hasAttribute("data-collapsed"), slot(container, "end").textContent?.includes("Mounting brackets")]).toEqual([false, true]);
+        // Every line the box lists while the test runs, by its key.
+        const listed = new Set<string>();
+        const lines = new MutationObserver(() => { for (const key of document.querySelectorAll('[role="option"] [data-item-key]')) listed.add(key.textContent ?? ""); });
+        lines.observe(document.body, { childList: true, subtree: true, characterData: true });
+        /** Types a key into the box and presses Enter as soon as a line shows, as a quick hand does. */
+        const pick = async (text: string) => {
+            await act(async () => { input.focus(); fireEvent.input(input, { target: { value: text } }); }); await settle();
+            await waitFor(() => expect(document.getElementById(input.getAttribute("aria-controls") ?? "")?.querySelector('[role="option"]')).not.toBeNull(), { timeout: 10_000 });
+            await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); }); await settle();
+        };
+        /** Runs every frame, and every turn after one, that the combobox could give the focus back to its input in. */
+        const frames = () => act(async () => { for (let i = 0; i < 4; i++) await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0))); });
+        try {
+            await pick("job1");
+            await waitFor(() => expect(document.activeElement).toBe(event(container, "job", "job1")));
+            await frames();
+            expect(document.activeElement).toBe(event(container, "job", "job1"));
+            expect([slot(container, "end").hasAttribute("data-collapsed"), slot(container, "end").textContent?.includes("Mounting brackets")]).toEqual([false, true]);
+            await pick("service1");
+            await waitFor(() => expect(document.activeElement).toBe(event(container, "service", "service1")));
+            await frames();
+            expect(document.activeElement).toBe(event(container, "service", "service1"));
+            // One waiting in the backlog: the keyboard stays in the box, the event's key shown there.
+            await pick("backlog1");
+            await frames();
+            expect([document.activeElement, input.value]).toEqual([input, "backlog1"]);
+        } finally {
+            lines.disconnect();
+        }
+        // Never the rows an empty box browses, under what is typed: Enter would pick the first of them.
+        expect([...listed].filter(key => !["job1", "service1", "backlog1"].some(typed => key.startsWith(typed)))).toEqual([]);
     });
 });
 
