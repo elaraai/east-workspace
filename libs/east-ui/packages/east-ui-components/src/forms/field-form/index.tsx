@@ -28,9 +28,12 @@
  *
  * What is typed — a text, a number, a date — is one edit when the focus
  * leaves the field, or on Enter, as typing in a cell is; Esc puts it back. A
- * choice is an edit at once. An Option's text is emptied to none, and its
- * select or reference set to none by choosing Not set or Unassigned; any other
- * Option has a Clear beside it, and a Set while it holds none. A field with
+ * choice is an edit at once. An Option's text or number is emptied to none,
+ * and its select or reference set to none by choosing Not set or Unassigned;
+ * any other Option has a Clear beside it, and a Set while it holds none. Any
+ * other number's box emptied leaves its field no value: a host that takes one
+ * (`takesUnset`) is told it as `undefined`, and the form refuses it for any
+ * other, saying the field can't be left empty. A field with
  * no value yet — a draft's field not given, whatever its type — shows Not
  * set: a text empty, a select or a reference with nothing chosen, any other
  * with a Set beside it (#1188). Set gives the box it makes the keyboard, its
@@ -164,6 +167,13 @@ export interface FieldFormProps {
      * the host refuses it, where it does: the field shows what it holds again, and says so under it.
      */
     onChange: (path: readonly string[], value: unknown) => string | void;
+    /**
+     * Whether the host takes a field left with no value, as a draft's field not given holds none (a Sheet's): a number's
+     * box emptied, which no number reads from, is told it as `undefined`, for the host to leave unset or refuse. Absent,
+     * the form refuses it, the field showing what it holds and saying it can't be left empty. An Option's emptied box is
+     * none either way.
+     */
+    takesUnset?: boolean | undefined;
     /** Prints every value, and takes no edit. */
     readOnly?: boolean | undefined;
     /** The form's words: the host's, else English in the app's locale. */
@@ -570,7 +580,7 @@ function printOf(
  * ```
  */
 export const FieldForm = memo(function FieldForm({
-    specs, value, baseline, options = NO_OPTIONS, onChange, readOnly = false, words, renderControl, live = false, lines, issues, focus,
+    specs, value, baseline, options = NO_OPTIONS, onChange, takesUnset = false, readOnly = false, words, renderControl, live = false, lines, issues, focus,
 }: FieldFormProps) {
     const styles = useSlotRecipe({ key: "fieldForm" })() as Styles;
     const formatters = useFormatters();
@@ -592,7 +602,7 @@ export const FieldForm = memo(function FieldForm({
         return (
             <FieldRow key={spec.path.join("\u001f")} spec={spec} under={under} current={valueAt(value, spec.path)}
                 base={baseline === undefined ? undefined : valueAt(baseline, spec.path)} hasBaseline={baseline !== undefined}
-                options={options} onChange={onChange} readOnly={readOnly} words={said} styles={styles} renderControl={renderControl} live={live}
+                options={options} onChange={onChange} takesUnset={takesUnset} readOnly={readOnly} words={said} styles={styles} renderControl={renderControl} live={live}
                 choices={under === undefined ? lines?.get(key) : undefined} issue={issues?.has(key) === true} />
         );
     };
@@ -651,6 +661,7 @@ interface FieldRowProps {
     hasBaseline: boolean;
     options: Readonly<Record<string, readonly FieldOption[]>>;
     onChange: FieldFormProps["onChange"];
+    takesUnset: boolean;
     readOnly: boolean;
     words: FieldFormWords;
     styles: Styles;
@@ -667,7 +678,7 @@ interface FieldRowProps {
  * checklist's items; or, drawn on one line, its label and its choices.
  */
 const FieldRow = memo(function FieldRow({
-    spec, under, current, base, hasBaseline, options, onChange, readOnly, words, styles, renderControl, live, choices, issue,
+    spec, under, current, base, hasBaseline, options, onChange, takesUnset, readOnly, words, styles, renderControl, live, choices, issue,
 }: FieldRowProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
@@ -760,12 +771,30 @@ const FieldRow = memo(function FieldRow({
     }, [spec.optional, spec.path, same, current, onChange, refuse]);
     // Live, each typed edit is told at once (`FieldFormProps.live`).
     const hold = useCallback((next: unknown) => { if (live) emit(next, "typing"); else pending.current = { value: next }; }, [live, emit]);
+    // A number's box emptied: its input tells nothing as it is typed — no number reads from it — so its text is read as
+    // the edit commits. A live form's host reads the box itself.
+    const emptied = useCallback((): boolean => {
+        if (live || editor.type !== "number" || held === undefined) return false;
+        const box = fieldRef.current?.querySelector<HTMLInputElement>("input[role=spinbutton]");
+        return box !== null && box !== undefined && box.value.trim().length === 0;
+    }, [live, editor.type, held]);
     const commit = useCallback(() => {
+        // Emptied, the number typed before it is no edit: an Option's box is none, any other field's no value — the
+        // host's, where it takes a field unset; else refused, the keyboard kept where the edit left it in the field.
+        if (emptied()) {
+            pending.current = undefined;
+            if (spec.optional || takesUnset) emit(undefined, "typed");
+            else {
+                const row = rowRef.current;
+                refuse(m.noEmpty({ label: spec.label }), row !== null && row.contains(row.ownerDocument.activeElement));
+            }
+            return;
+        }
         const edit = pending.current;
         if (edit === undefined) return;
         pending.current = undefined;
         emit(edit.value, "typed");
-    }, [emit]);
+    }, [emit, emptied, spec.optional, spec.label, takesUnset, refuse, m]);
     // A control the host draws itself, in the field: an edit it hands the field is a choice of the field's own.
     const own = renderControl?.(spec, emit);
 
@@ -858,8 +887,8 @@ const FieldRow = memo(function FieldRow({
                 }
                 return;
             }
-            if (pending.current !== undefined) queueMicrotask(commit);
-        } else if (e.key === "Escape" && pending.current !== undefined) {
+            if (pending.current !== undefined || emptied()) queueMicrotask(commit);
+        } else if (e.key === "Escape" && (pending.current !== undefined || emptied())) {
             pending.current = undefined;
             setRevision((r) => r + 1);
         }

@@ -6,7 +6,8 @@
 /**
  * The field form's own words (#1147) — what it adds around the shared inputs:
  * an Option's Set and Clear, a reference's Unassigned and why a choice of it
- * changed nothing, a number's help line, a checklist's count. A builder's
+ * changed nothing, a number's help line and why its box emptied changed
+ * nothing, a checklist's count. A builder's
  * message table carries them (as the Sheet's carries the editing session's),
  * so a host translates the form where it translates the builder, and hands
  * the form its words.
@@ -44,6 +45,8 @@ export interface FieldFormMessages {
     yesNo: (p: { value: boolean }) => string;
     /** A number's help line — `1–20 people · step 1`. */
     numberHelp: (p: { min: string | undefined; max: string | undefined; unit: string | undefined; step: string | undefined }) => string;
+    /** Why a number's box, emptied, shows what its field holds again, under the field: the field takes no emptying — `Crew can't be left empty`. */
+    noEmpty: (p: { label: string }) => string;
     /** What the tags' box shows while empty. */
     tagPlaceholder: () => string;
     /** A checklist's items done of all — `2 / 5 done`. */
@@ -71,6 +74,7 @@ export const fieldFormMessages: FieldFormMessages = {
         const counted = range === undefined ? (unit === undefined ? undefined : `in ${unit}`) : unit === undefined ? range : `${range} ${unit}`;
         return [counted, step === undefined ? undefined : `step ${step}`].filter((part) => part !== undefined).join(" · ");
     },
+    noEmpty: ({ label }) => `${label} can't be left empty`,
     tagPlaceholder: () => "Add a tag",
     checklistCount: ({ done, total }) => `${done} / ${total} done`,
     addItem: () => "Add item ⏎",
