@@ -12,18 +12,20 @@
  * a marker whose status is unread and the words of what stands in while a new
  * narrowing is read (#1398), the links' look (#1403), and every dot's paper
  * under every dot's colour, their colours by severity, a zone's eyebrow over
- * them (ruled 26 Oct 2026, "Legible dots"), and every text drawn and measured
- * with its letters unjoined are asserted over a 2D context that records what
- * each stroke and fill draws — its style, width, dash and alpha, and its path's
- * arcs — and each text, and how each text is shaped; the links' routes, each end
- * on an item's edge where it draws at the zoom, over the routes themselves.
+ * them (ruled 26 Oct 2026, "Legible dots"), a shaped zone's eyebrow on the
+ * outline it draws (#1546), and every text drawn and measured with its letters
+ * unjoined are asserted over a 2D context that records what each stroke and
+ * fill draws — its style, width, dash and alpha, and its path's arcs and
+ * segments — and each text, and how each text is shaped; the links' routes,
+ * each end on an item's edge where it draws at the zoom, over the routes
+ * themselves.
  */
 
 import { describe, it, expect } from "vitest";
-import { defaultValue, none, some, variant } from "@elaraai/east";
+import { defaultValue, none, some, variant, type option, type ValueTypeOf } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
 import type { SchematicDensity } from "../area.js";
-import { drawnItem, drawnLink, drawnNet, drawnZone, type DrawnItem, type SchematicDrawn } from "./drawn";
+import { drawnItem, drawnLink, drawnNet, drawnZone, type DrawnItem, type DrawnZone, type SchematicDrawn } from "./drawn";
 import { PIN_LEAD_PX, SCHEMATIC_CARD_MAX_PX } from "./model";
 import { MARKER_DOT_HIT_RADIUS, MARKER_DOT_RADIUS, markerHit, markerHitbox } from "./markers";
 import {
@@ -542,6 +544,93 @@ describe("a zone's eyebrow over the dots (ruled 26 Oct 2026, \"Legible dots\")",
     });
 });
 
+describe("a shaped zone's eyebrow on its outline (#1546)", () => {
+    const T = Schematic.Types;
+    type Geometry = ValueTypeOf<typeof T.Geometry>;
+    /** The palette's third ink (`fgMuted`), and a zone's own tint (`borderStrong`): its outline's. */
+    const MUTED = "rgb(5,5,5)", OUTLINE = "rgb(11,11,11)";
+    /** Where each zone's box's top-left is drawn: the camera puts it there at every zoom. */
+    const CORNER: Pt = { x: 20, y: 20 };
+    /** The zooms, in px a unit: a floor's overview, a hall's, and close in on its corner. */
+    const ZOOMS = [1.5, 6, 20];
+    const vertex = (x: number, y: number, bulge = 0) => ({ x, y, bulge });
+    const polygon = (...vertices: ReturnType<typeof vertex>[]): Geometry => variant("polygon", { vertices });
+    const polyline = (width: option<number>, ...vertices: ReturnType<typeof vertex>[]): Geometry => variant("polyline", { vertices, width });
+    /** A zone, outlined: its box, its label and its shape, about the box's centre. */
+    const zoneOf = (label: string, box: { x: number; y: number; width: number; height: number }, geometry: option<Geometry>) =>
+        drawnZone({ kind: "halls", key: label }, {
+            ...defaultValue<typeof T.Zone>(T.Zone), ...box, label, pattern: variant("outline", { tone: none }), geometry,
+        });
+
+    /** What a frame paints of a zone alone at a zoom, its box's top-left at {@link CORNER}. */
+    function paint(zone: DrawnZone, ppu: number) {
+        const { ctx, drawn, texts } = recorder();
+        const cam = { ppu, tx: CORNER.x - zone.x * ppu, ty: CORNER.y - zone.y * ppu };
+        paintSchematic({
+            ctx, value: { items: [], zones: [zone], links: [], nets: [] }, cam, width: 4000, height: 4000,
+            visibleItems: [], tiers: new Map(), selected: new Set(), selectedZones: new Set(), centers: new Map(), palette: PALETTE, tints: new Map(),
+        });
+        return { cam, drawn, texts };
+    }
+
+    // Each shape about its box's centre, the box its bounds, as a record gives them.
+    const SHAPED: readonly (readonly [string, DrawnZone])[] = [
+        // The issue's hall, 80 m by 50 m turned 20°: its outline's point nearest its box's corner 16.1 m from it.
+        ["a polygon turned 20°", zoneOf("Hall A", { x: 10, y: 10, width: 92.3, height: 74.3 },
+            some(polygon(vertex(-29.0, -37.2), vertex(46.1, -9.8), vertex(29.0, 37.2), vertex(-46.1, 9.8))))],
+        // The same hall turned the other way: its top corner its right end, the point on its top-left edge.
+        ["a polygon turned -20°", zoneOf("Hall B", { x: 10, y: 10, width: 92.3, height: 74.3 },
+            some(polygon(vertex(29.0, -37.2), vertex(46.1, 9.8), vertex(-29.0, 37.2), vertex(-46.1, -9.8))))],
+        // A yard whose closing edge — its last vertex's bulge — rounds its top-left corner by a quarter circle: the point on the arc.
+        ["a polygon's closing edge bulged", zoneOf("Yard", { x: 0, y: 0, width: 40, height: 30 },
+            some(polygon(vertex(-10, -15), vertex(20, -15), vertex(20, 15), vertex(-20, 15), vertex(-20, -5, Math.tan(Math.PI / 8)))))],
+        // A pond its box holds exactly: the point toward the corner, 0.41 of its radius in from it.
+        ["a circle", zoneOf("Pond", { x: 10, y: 10, width: 60, height: 60 }, some(variant("circle", { radius: 30 })))],
+        // A duct bank's run, a band bowed between its bends: the point on its first straight.
+        ["a polyline", zoneOf("Duct bank", { x: 4, y: 36.4, width: 95.2, height: 13.6 }, some(polyline(some(5.6),
+            vertex(-46.8, 4), vertex(-25.2, -3.2, 0.45), vertex(-0.4, 3.2, -0.45), vertex(22.8, -4, 0.35), vertex(46, 0.8))))],
+        // A run that turns its back on its box's corner: the point its open end, never on a line closing it.
+        ["a polyline open toward its corner", zoneOf("Ell", { x: 0, y: 0, width: 40, height: 30 },
+            some(polyline(none, vertex(-20, 15), vertex(20, 15), vertex(20, -15))))],
+    ];
+
+    for (const [what, zone] of SHAPED) {
+        it(`${what}: its eyebrow stands on the outline it draws, at the outline's point nearest its box's top-left, at three zooms`, () => {
+            for (const ppu of ZOOMS) {
+                const { drawn, texts } = paint(zone, ppu);
+                expect(texts.map((t) => [t.text, t.style]), `${ppu} px a unit`).toEqual([[zone.label.toUpperCase(), MUTED]]);
+                // Its words run 9px to the right of where it stands, their middle on it.
+                const anchor = { x: texts[0]!.x - 9, y: texts[0]!.y };
+                const outline = drawn.filter((d) => d.op === "stroke" && d.style === OUTLINE);
+                expect(outline.length, `${ppu} px a unit: its outline, stroked once`).toBe(1);
+                const points = along(outline[0]!.path);
+                const nearest = (to: Pt) => points.reduce((best, p) => (dist(p, to) < dist(best, to) ? p : best));
+                expect(dist(anchor, nearest(anchor)), `${ppu} px a unit: on the outline`).toBeLessThanOrEqual(1);
+                expect(dist(anchor, nearest(CORNER)), `${ppu} px a unit: at its point nearest the box's top-left`).toBeLessThanOrEqual(1);
+            }
+        });
+    }
+
+    it("the issue's hall: HALL A stands at (25.1, 15.5) on the floor, wherever the view is zoomed", () => {
+        for (const ppu of ZOOMS) {
+            const { cam, texts } = paint(SHAPED[0]![1], ppu);
+            const at = [(texts[0]!.x - 9 - cam.tx) / ppu, (texts[0]!.y - cam.ty) / ppu];
+            expect(at.map((n) => Math.round(n * 10) / 10), `${ppu} px a unit`).toEqual([25.1, 15.5]);
+        }
+    });
+
+    it("a zone with no shape, or its box as its shape, keeps its eyebrow at its box's top-left, exactly as before", () => {
+        const box = { x: 10, y: 10, width: 92.3, height: 74.3 };
+        for (const zone of [zoneOf("Hall C", box, none), zoneOf("Hall D", box, some(variant("rect", null)))]) {
+            for (const ppu of ZOOMS) {
+                const { cam, texts } = paint(zone, ppu);
+                expect(texts.map((t) => [t.text, t.x, t.y]), `${zone.label} at ${ppu} px a unit`)
+                    .toEqual([[zone.label.toUpperCase(), zone.x * cam.ppu + cam.tx + 9, zone.y * cam.ppu + cam.ty]]);
+            }
+        }
+    });
+});
+
 describe("a marker whose status is unread (#1398)", () => {
     const T = Schematic.Types;
     /** Its details, which give its status, read: the card roles they give. */
@@ -747,7 +836,16 @@ describe("netGeometry (bus-bar nets)", () => {
 // A drop's marks (#1390)
 // ============================================================================
 
-/** One stroke or fill as a context drew it: its style, its width, its dash, its alpha, and the arcs its path holds. */
+/** A segment of a path as a context traced it: a move, a line, an arc with its sweep, or a close. */
+type Segment =
+    | { readonly op: "moveTo" | "lineTo"; readonly x: number; readonly y: number }
+    | { readonly op: "arc"; readonly x: number; readonly y: number; readonly r: number; readonly start: number; readonly end: number; readonly anticlockwise: boolean }
+    | { readonly op: "closePath" };
+
+/**
+ * One stroke or fill as a context drew it: its style, its width, its dash, its alpha, the arcs its path holds, and its
+ * path's segments — a rect drawn straight, `fillRect` or `strokeRect`, holding none.
+ */
 interface Drawn {
     readonly op: "stroke" | "fill";
     readonly style: string;
@@ -755,6 +853,7 @@ interface Drawn {
     readonly dash: readonly number[];
     readonly alpha: number;
     readonly arcs: readonly { readonly x: number; readonly y: number; readonly r: number }[];
+    readonly path: readonly Segment[];
 }
 
 /** A text as a context drew it: its words, where, and its style. */
@@ -785,9 +884,11 @@ function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[]; texts: Tex
     let state = { strokeStyle: "", fillStyle: "", lineWidth: 1, globalAlpha: 1, dash: [] as number[], textRendering: "auto" };
     const saved: (typeof state)[] = [];
     let arcs: { x: number; y: number; r: number }[] = [];
-    // A rect drawn straight — `fillRect`, `strokeRect` — draws no arc of the path.
-    const record = (op: "stroke" | "fill", of: readonly { x: number; y: number; r: number }[] = arcs) => drawn.push({
-        op, style: op === "stroke" ? state.strokeStyle : state.fillStyle, width: state.lineWidth, dash: [...state.dash], alpha: state.globalAlpha, arcs: [...of],
+    let path: Segment[] = [];
+    // A rect drawn straight — `fillRect`, `strokeRect` — draws nothing of the path.
+    const record = (op: "stroke" | "fill", traced = true) => drawn.push({
+        op, style: op === "stroke" ? state.strokeStyle : state.fillStyle, width: state.lineWidth, dash: [...state.dash], alpha: state.globalAlpha,
+        arcs: traced ? [...arcs] : [], path: traced ? [...path] : [],
     });
     const ctx = {
         canvas: { width: 300, height: 200 },
@@ -800,14 +901,20 @@ function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[]; texts: Tex
         save() { saved.push({ ...state, dash: [...state.dash] }); },
         restore() { state = saved.pop() ?? state; },
         setLineDash(dash: number[]) { state.dash = [...dash]; },
-        setTransform() {}, clearRect() {}, clip() {}, closePath() {},
-        beginPath() { arcs = []; },
-        moveTo() {}, lineTo() {}, arcTo() {}, quadraticCurveTo() {}, rect() {}, roundRect() {},
-        arc(x: number, y: number, r: number) { arcs.push({ x, y, r }); },
+        setTransform() {}, clearRect() {}, clip() {},
+        beginPath() { arcs = []; path = []; },
+        moveTo(x: number, y: number) { path.push({ op: "moveTo", x, y }); },
+        lineTo(x: number, y: number) { path.push({ op: "lineTo", x, y }); },
+        closePath() { path.push({ op: "closePath" }); },
+        arcTo() {}, quadraticCurveTo() {}, rect() {}, roundRect() {},
+        arc(x: number, y: number, r: number, start: number, end: number, anticlockwise = false) {
+            arcs.push({ x, y, r });
+            path.push({ op: "arc", x, y, r, start, end, anticlockwise });
+        },
         stroke() { record("stroke"); },
         fill() { record("fill"); },
-        strokeRect() { record("stroke", []); },
-        fillRect() { record("fill", []); },
+        strokeRect() { record("stroke", false); },
+        fillRect() { record("fill", false); },
         fillText(text: string, x: number, y: number) {
             texts.push({ text, x, y, style: state.fillStyle });
             textsAt.push(drawn.length);
@@ -819,6 +926,47 @@ function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[]; texts: Tex
         },
     };
     return { ctx: ctx as unknown as CanvasRenderingContext2D, drawn, texts, textsAt, shaped };
+}
+
+/**
+ * Points along a path as a context strokes it, at most `step` px apart: its lines; each arc as `arc` sweeps it — the
+ * whole circle where its angles span 2π, else from its start the way it turns to its end — after a line from where the
+ * path stood to its start; and a closed subpath's line back to where it began.
+ *
+ * @param path - The path's segments, as the recorder kept them
+ * @param step - The most px between two points
+ * @returns The points, in the order the path runs
+ */
+function along(path: readonly Segment[], step = 0.25): Pt[] {
+    const TAU = Math.PI * 2;
+    const norm = (t: number) => ((t % TAU) + TAU) % TAU;
+    const points: Pt[] = [];
+    let at: Pt | undefined, began: Pt | undefined;
+    const line = (from: Pt, to: Pt) => {
+        const n = Math.max(1, Math.ceil(dist(from, to) / step));
+        for (let i = 1; i <= n; i++) points.push({ x: from.x + (to.x - from.x) * i / n, y: from.y + (to.y - from.y) * i / n });
+    };
+    for (const s of path) {
+        if (s.op === "moveTo" || s.op === "lineTo") {
+            const to = { x: s.x, y: s.y };
+            if (s.op === "lineTo" && at !== undefined) line(at, to);
+            else { began = to; points.push(to); }
+            at = to;
+        } else if (s.op === "arc") {
+            const whole = s.anticlockwise ? s.start - s.end >= TAU : s.end - s.start >= TAU;
+            const sweep = whole ? (s.anticlockwise ? -TAU : TAU) : s.anticlockwise ? -norm(s.start - s.end) : norm(s.end - s.start);
+            const on = (t: number): Pt => ({ x: s.x + s.r * Math.cos(t), y: s.y + s.r * Math.sin(t) });
+            if (at !== undefined) line(at, on(s.start));
+            else { began = on(s.start); points.push(began); }
+            const n = Math.max(1, Math.ceil(Math.abs(sweep) * s.r / step));
+            for (let i = 1; i <= n; i++) points.push(on(s.start + sweep * i / n));
+            at = on(s.start + sweep);
+        } else if (at !== undefined && began !== undefined) {
+            line(at, began);
+            at = began;
+        }
+    }
+    return points;
 }
 
 /** The links' look, each part a colour of its own (#1403). */

@@ -445,7 +445,7 @@ export type SchematicItemType = typeof SchematicItemType;
  * @property y - Its box's top
  * @property width - Its box's width
  * @property height - Its box's height
- * @property label - The eyebrow on its boundary
+ * @property label - Its eyebrow: at its box's top-left, or on the outline its `geometry` draws, at the point nearest that corner
  * @property pattern - Outline, or hatch
  * @property geometry - Its drawn shape, about its box's centre; its box stays its bounds
  * @property layer - The layer it is on

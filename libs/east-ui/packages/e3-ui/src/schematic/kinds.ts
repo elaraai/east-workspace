@@ -816,7 +816,10 @@ export interface SchematicZonesConfig<R extends StructType, K extends EastType =
     width: SchematicFloatField<R>;
     /** The Float field its box's height is. */
     height: SchematicFloatField<R>;
-    /** The String field, or an accessor, the eyebrow on its boundary is. */
+    /**
+     * The String field, or an accessor, its eyebrow is: at its box's top-left, or for a zone its `geometry` draws, at
+     * its outline's point nearest that corner, its words running right from there.
+     */
     label: SchematicStringField<R> | Accessor<R, StringType, K>;
     /** Outline (the default) or hatch: a hatched zone is an annotation, holding no items and taking no tap. */
     pattern?: Accessor<R, typeof SchematicZonePatternType, K>;
