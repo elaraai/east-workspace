@@ -962,29 +962,38 @@ describe("planRowDrop's data session, its record read a window at a time (#1199)
             await keyOn({ key: " " });
             expect(carrySaid(container)).toMatch(/^Dropped RUN · J-4642 on H1-P03/);
             expect(pending(container)).toBe("1 pending");
-            // Another write moves the same run two weeks on, just as Save goes: the Save's write reaches e3 after it.
-            await h.race(ops, () => {
-                fireEvent.mouseDown(historyButton(container, SAVE), { button: 0 });
-                fireEvent.click(historyButton(container, SAVE));
-            }, (now) => {
-                const p03 = now.get("p03")!;
-                const [id, job] = [...p03.jobs][0]!;
-                const next = new Map(now);
-                next.set("p03", { ...p03, jobs: new Map([[id, { ...job, start: new Date(job.start.getTime() + 14 * 86_400_000), end: new Date(job.end.getTime() + 14 * 86_400_000) }]]) });
-                return next;
-            });
-            await carriedOver(container, ["conflicts"]);
-            // The draft stands where both moved the run — its start and its end — and Save waits for them to be chosen.
-            const cards = await conflictCards(container);
-            expect(cards.map((card) => card.item?.split(" / ")[0])).toEqual(["H1-P03", "H1-P03"]);
-            expect(cards.every((card) => card.theirs?.includes("last changed by another session") === true)).toBe(true);
-            // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
-            expect(historyButton(container, SAVE).getAttribute("aria-disabled")).toBe("true");
-            expect(pending(container)).toBe("1 pending");
-            // Read by its key at the record's new revision, in a read of rows, and never searched for alone (#1596).
-            expect(h.requests("rows", opsPath).flatMap(rowKeysOf)).toContain('"p03"');
-            expect(h.requests("find", opsPath).filter((request) => request.query.get("key") === '"p03"')).toEqual([]);
-            expect(h.requests("read", opsPath)).toEqual([]);
+            // The Plan's own windows of the presses are held on the wire from here. Read again at the record's new revision,
+            // a window that has landed answers for the row it holds with no read by key (#1596), and which of the two lands
+            // first is the network's to say: held, the row is read by its key, every time.
+            const windows = h.e3.hold((request) => request.kind === "page" && request.dataset === opsPath);
+            try {
+                // Another write moves the same run two weeks on, just as Save goes: the Save's write reaches e3 after it.
+                await h.race(ops, () => {
+                    fireEvent.mouseDown(historyButton(container, SAVE), { button: 0 });
+                    fireEvent.click(historyButton(container, SAVE));
+                }, (now) => {
+                    const p03 = now.get("p03")!;
+                    const [id, job] = [...p03.jobs][0]!;
+                    const next = new Map(now);
+                    next.set("p03", { ...p03, jobs: new Map([[id, { ...job, start: new Date(job.start.getTime() + 14 * 86_400_000), end: new Date(job.end.getTime() + 14 * 86_400_000) }]]) });
+                    return next;
+                });
+                await carriedOver(container, ["conflicts"]);
+                // The draft stands where both moved the run — its start and its end — and Save waits for them to be chosen.
+                const cards = await conflictCards(container);
+                expect(cards.map((card) => card.item?.split(" / ")[0])).toEqual(["H1-P03", "H1-P03"]);
+                expect(cards.every((card) => card.theirs?.includes("last changed by another session") === true)).toBe(true);
+                // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+                expect(historyButton(container, SAVE).getAttribute("aria-disabled")).toBe("true");
+                expect(pending(container)).toBe("1 pending");
+                // Read by its key at the record's new revision, in a read of rows, and never searched for alone (#1596).
+                expect(h.requests("rows", opsPath).flatMap(rowKeysOf)).toContain('"p03"');
+                expect(h.requests("find", opsPath).filter((request) => request.query.get("key") === '"p03"')).toEqual([]);
+                expect(h.requests("read", opsPath)).toEqual([]);
+            } finally {
+                await act(async () => { windows.release(); });
+                await settle();
+            }
         } finally {
             restore();
         }

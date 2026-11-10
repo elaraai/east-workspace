@@ -419,7 +419,10 @@ describe("Plan narrow paged demand (#812)", () => {
         expect(tailShown).toBe(false);
         // Window by window, each asked once — it followed the list.
         expect(asked.filter((w) => w === 9)).toHaveLength(1);
-    });
+        // A scale test's deadline, as the Sheet's and the record cache's have: two thousand cards revealed a few at a
+        // time take 28 s on a hosted runner at its usual speed, 41 s on a slower one, and ran past the package's 60 s on
+        // one at half speed (10 Nov 2026) with nothing wrong in what it drew.
+    }, 120_000);
 
     test("with no IntersectionObserver the list's tail still asks for the next window once every row is shown — placeholder cards, saying nothing, busy while it is read", async () => {
         phoneWidth();
