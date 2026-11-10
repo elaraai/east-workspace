@@ -205,6 +205,17 @@ describe("the board keeps the keyboard (retest C4 and C5, 27 Oct 2026)", () => {
         expect(slot(container, "end").textContent).toContain("Mounting brackets");
         expect(heard).toEqual([]);
     });
+
+    test("a pick of Search Records, the Inspector folded, opens it on the event, which takes the keyboard — the frame taking none of it (#1585)", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        await press(within(slot(container, "end")).getByRole("button", { name: "Collapse Inspector" }));
+        const input = slot(container, "toolbar").querySelector<HTMLInputElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search'] input")!;
+        await act(async () => { input.focus(); fireEvent.input(input, { target: { value: "job1" } }); }); await settle();
+        await waitFor(() => expect(document.getElementById(input.getAttribute("aria-controls") ?? "")?.querySelector('[role="option"]')).not.toBeNull(), { timeout: 10_000 });
+        await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); }); await settle();
+        await waitFor(() => expect(document.activeElement).toBe(event(container, "job", "job1")));
+        expect([slot(container, "end").hasAttribute("data-collapsed"), slot(container, "end").textContent?.includes("Mounting brackets")]).toEqual([false, true]);
+    });
 });
 
 describe("Calendar explicit action forms", () => {

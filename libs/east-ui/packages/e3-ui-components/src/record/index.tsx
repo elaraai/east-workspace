@@ -71,7 +71,7 @@ import { equivalentFor, fromEastTypeValue, type ValueTypeOf } from "@elaraai/eas
 import { RecordComponent, RecordPayloadType, type sheetKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, NARROW_FRAME, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, useContainerWidth,
-    usePersistedState, type EditIssue, type HistoryAction,
+    usePersistedState, type BuilderFramePanes, type EditIssue, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, keptRead, useDensity, useSlotStyles, type SlotStyles } from "@elaraai/east-ui-components/internal";
 import {
@@ -85,7 +85,6 @@ import { sheetCellEditor, useSheetInspector, type SheetInspectorHost } from "../
 import { indexColumns, indexRegisters } from "../sheet/model.js";
 import type { SheetTransactions } from "../sheet/transactions.js";
 import { issueText, useSheetWords } from "../sheet/words.js";
-import { openFramePane } from "../shared/schedule/open-pane.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { RecordClock, useRecordNow } from "./clock.js";
 import { RecordFooter, legendOf, staleNoteOf } from "./footer.js";
@@ -164,18 +163,19 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
     const readOnly = (getSomeorUndefined(value.sheet.readOnly) ?? false) || value.sheet.editing.onApply.type === "none";
     const [ticks] = useState(createRecordTicks);
     const [status] = useState(createRecordStatus);
-    // A title opens where it edits (P4): the inspector, on Details — its open tab kept per viewer.
-    const frameRef = useRef<HTMLDivElement | null>(null);
     // The grid is a phone's as its frame is, 560 wide or less — never as main is, which an overlaid inspector's rail
     // leaves narrower than the frame. Until the frame is laid out, the grid's own width decides.
+    const frameRef = useRef<HTMLDivElement | null>(null);
     const frameWidth = useContainerWidth(frameRef);
     const phone = frameWidth > 0 ? frameWidth <= NARROW_FRAME : undefined;
+    // A title opens where it edits (P4): the inspector, on Details — its open tab kept per viewer — opened through the
+    // frame's panes, as the Record's own code opens them.
     const { state: pane, setState: setPane } = usePersistedState<{ tab: string }>(`${keys.frame}.inspector.tab`, { tab: "details" }, readTab);
-    const inspectorPane = words.m.inspectorPane();
+    const panes = useRef<BuilderFramePanes>(null);
     const openDetails = useCallback(() => {
         setPane({ tab: "details" });
-        openFramePane(frameRef.current, inspectorPane, "end");
-    }, [setPane, inspectorPane]);
+        panes.current?.open("end");
+    }, [setPane]);
     // …with the keyboard in the title's field (AD1), as a copy's (IN7) and an issue's once it is gone to (IN9): asked of
     // the row's Details, which answer once their form has given it.
     const [focus, setFocus] = useState<RecordFocus | undefined>(undefined);
@@ -248,7 +248,7 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
                 <RecordGridProvider value={grid}>
                     <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>
                         <RecordInspectorProvider value={inspection}>
-                            <RecordFrame value={value} keys={keys} styles={styles} frameRef={frameRef} tab={pane.tab} onTab={onTab} onOpen={onOpen}
+                            <RecordFrame value={value} keys={keys} styles={styles} frameRef={frameRef} panesRef={panes} tab={pane.tab} onTab={onTab} onOpen={onOpen}
                                 openDetails={openDetails} ticks={ticks} status={status} readOnly={readOnly} />
                         </RecordInspectorProvider>
                     </SheetProvider>
@@ -264,8 +264,10 @@ interface RecordFrameProps {
     keys: RecordKeys;
     /** The record recipe's slot styles. */
     styles: SlotStyles;
-    /** The frame's root: where a title's press opens the inspector. */
+    /** The frame's root, whose width says whether the grid is a phone's. */
     frameRef: RefObject<HTMLDivElement | null>;
+    /** The frame's panes: where a title's press opens the inspector. */
+    panesRef: RefObject<BuilderFramePanes | null>;
     /** The inspector's open tab. */
     tab: string;
     /** Opens an inspector tab. */
@@ -283,7 +285,7 @@ interface RecordFrameProps {
 }
 
 /** The frame, its regions holding the Sheet's parts and the Record's grid. */
-function RecordFrame({ value, keys, styles, frameRef, tab, onTab, onOpen, openDetails, ticks, status, readOnly }: RecordFrameProps) {
+function RecordFrame({ value, keys, styles, frameRef, panesRef, tab, onTab, onOpen, openDetails, ticks, status, readOnly }: RecordFrameProps) {
     const words = useSheetWords();
     const { m } = words;
     const parts = useSheetToolbarParts();
@@ -394,6 +396,7 @@ function RecordFrame({ value, keys, styles, frameRef, tab, onTab, onOpen, openDe
         <LoadingReveal waiting={waiting}>
             <BuilderFrame
                 ref={frameRef}
+                panesRef={panesRef}
                 storageKey={keys.frame}
                 toolbar={toolbar}
                 toolbarRef={toolbarRef}

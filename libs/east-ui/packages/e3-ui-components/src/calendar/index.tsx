@@ -86,7 +86,7 @@ import { CalendarComponent } from "@elaraai/e3-ui/internal";
 import type { RecordTile } from "@elaraai/east-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, fieldBreachIssue, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow,
-    useFormatters, usePersistedState, useLanding, useLandingStyles, useTrackedEvaluation, type Formatters,
+    useFormatters, usePersistedState, useLanding, useLandingStyles, useTrackedEvaluation, type BuilderFramePanes, type Formatters,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, PAGED_LIBRARY_PAGE } from "@elaraai/east-ui-components/internal";
 import { isBounded, rowBreaches } from "../shared/bounds.js";
@@ -98,7 +98,6 @@ import { scheduleIssueName, useScheduleEditing, type ScheduleEditing, type Sched
 import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
-import { openFramePane } from "../shared/schedule/open-pane.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { refusalText, scheduleRefusals } from "../shared/schedule/refusals.js";
 import { lowerWord } from "../shared/schedule/words.js";
@@ -424,6 +423,8 @@ function CalendarFrame(props: HostProps) {
     const format = useFormatters(); const words = useMemo((): CalendarWords => ({ ...format, m: calendarMessages, backlog: lowerWord(value.vocabulary.backlog) }), [format, value.vocabulary.backlog]);
     const root = useRef<HTMLDivElement>(null);
     const main = useRef<HTMLDivElement>(null);
+    // The frame's panes, as the Calendar's own code opens them: the Inspector an event shown as asked reveals, Enter's Details.
+    const panes = useRef<BuilderFramePanes>(null);
     const narrow = useContainerBelow(main, NARROW_WIDTH);
     // The timeline's days, date and count are read from its store by what says them; every other layout's are its window's.
     const timeline = !narrow && view.layout === "timeline";
@@ -472,14 +473,14 @@ function CalendarFrame(props: HostProps) {
     // timeline has not drawn — a row out of its view, a time out of its span — tells the frame once it brings it in.
     const revealed = useCallback((element: HTMLElement) => {
         element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-        element.closest("[data-builder-frame]")?.querySelector<HTMLButtonElement>('button[aria-label="Expand Inspector"]')?.click();
+        panes.current?.reveal("end");
         setReveal(undefined);
         // The Inspector just opened may float over main, for lack of room: once it is laid out, the event is brought out from
         // under it (the hand retest, 27 Oct 2026).
         requestAnimationFrame(() => clearOfPanes(element));
     }, []);
     // Enter on an event opens its Details, as the Schematic's Enter does (retest C5): the Inspector, folded, opened on it.
-    const openDetails = useCallback(() => { openFramePane(root.current, "Inspector", "end"); }, []);
+    const openDetails = useCallback(() => { panes.current?.open("end"); }, []);
     useEffect(() => {
         if (reveal === undefined || main.current === null) return;
         const key = CSS.escape(eventKey(reveal));
@@ -798,7 +799,7 @@ function CalendarFrame(props: HostProps) {
         <LoadingReveal waiting={line?.kind === "loading"}>
         <CalendarChooserContext.Provider value={chooser}>
         <BuilderFrame storageKey={`${storageKey}.frame`} label="Calendar" loading={(!data.ready && data.loading && data.error === undefined) || cold} loadingPitch={pitch}
-            busy={reading || resourcesBusy || pages?.reading === true || cellsReading} liveFooter phonePanel toolbar={toolbar} start={start} end={end}
+            busy={reading || resourcesBusy || pages?.reading === true || cellsReading} liveFooter phonePanel toolbar={toolbar} start={start} end={end} panesRef={panes}
             onKeyDown={event => {
                 // The keys, never while typing; each the Calendar acts on goes no further than the Calendar (#1398), so a
                 // shortcut of the page around it on the same key — the showcase's `[`, which folds its sidebar — never hears

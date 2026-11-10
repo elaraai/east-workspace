@@ -157,7 +157,7 @@ import { Schematic, schematicAreaIndexes, schematicKeys } from "@elaraai/e3-ui/i
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
     implementUIComponent, takeKey, typedInto, useContainerBelow, useDataStable, useFormatters, usePersistedState, useSlicesReactivity,
-    type EditIssue, type EditingWords, type HistoryAction, type Origin,
+    type BuilderFramePanes, type EditIssue, type EditingWords, type HistoryAction, type Origin,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, loadingLineText, schematicColorTokens, type LoadingLineText, type LoadingLineValue, keptRead } from "@elaraai/east-ui-components/internal";
 import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
@@ -165,7 +165,6 @@ import { FollowSources, type FollowedSources } from "../shared/schedule/follow-s
 import type { SourceHiding } from "../shared/schedule/hidden.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
 import { kindKeys as keysOfType } from "../shared/schedule/kind-keys.js";
-import { openFramePane } from "../shared/schedule/open-pane.js";
 import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords, type SourcesChrome } from "../shared/schedule/visibility.js";
 import { kindPlural } from "../shared/schedule/words.js";
@@ -1115,12 +1114,12 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // Its open tab, kept per viewer; Enter, or a double-click on an entity, opens Details — the pane too, collapsed.
     const { state: inspectorTab, setState: setInspectorTab } = usePersistedState<{ tab: string }>(`${keys.frame}.inspector.tab`, { tab: "details" }, keptRead.record({ tab: keptRead.string }));
     const onInspectorTab = useCallback((tab: string) => setInspectorTab({ tab }), [setInspectorTab]);
-    const frameRef = useRef<HTMLDivElement>(null);
-    const inspectorName = words.m.inspectorPane();
+    // The frame's panes, as the Schematic's own code opens them: Enter's Details.
+    const panes = useRef<BuilderFramePanes>(null);
     const openDetails = useCallback(() => {
         setInspectorTab({ tab: "details" });
-        openFramePane(frameRef.current, inspectorName, "end");
-    }, [setInspectorTab, inspectorName]);
+        panes.current?.open("end");
+    }, [setInspectorTab]);
     // What Details and Issues name, selected through the canvas — and flown to.
     const revealEntity = useCallback((id: string | undefined, at?: NetLeg) => canvasRef.current?.reveal(id, at), []);
     const zoneAt = useCallback((x: number, y: number) => zoneHolding(hosts, x, y)?.label, [hosts]);
@@ -1198,7 +1197,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                 read in flight after 150 ms, held 300 ms once shown. */}
             <LoadingReveal waiting={line?.kind === "loading" || inspectorReading}>
                 <BuilderFrame
-                    ref={frameRef}
+                    panesRef={panes}
                     storageKey={keys.frame}
                     label={words.m.frameLabel()}
                     loading={!data.ready && data.error === undefined}

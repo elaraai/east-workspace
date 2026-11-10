@@ -30,7 +30,7 @@ import { ArrayType, StringType, equalFor, isVariant, none, some, variant, type o
 import { RosterComponent, RosterContextType, RosterIssueType } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, fieldBreachIssue, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useDataStable,
-    useFormatters, useLanding, useLandingStyles, usePersistedState, useTrackedEvaluation, type EditIssue, type HistoryAction,
+    useFormatters, useLanding, useLandingStyles, usePersistedState, useTrackedEvaluation, type BuilderFramePanes, type EditIssue, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
 import { rowBreaches } from "../shared/bounds.js";
@@ -41,7 +41,6 @@ import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js"
 import { useSourceHidden } from "../shared/schedule/hidden.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { useGroupCollapse } from "../shared/schedule/group-heading.js";
-import { openFramePane } from "../shared/schedule/open-pane.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import { refusalText, scheduleRefusals } from "../shared/schedule/refusals.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
@@ -175,17 +174,18 @@ function RosterFrame(props: FrameProps) {
     const [find, setFind] = useState<RosterFind>();
     const [error, setError] = useState<string>();
     const root = useRef<HTMLDivElement>(null), main = useRef<HTMLDivElement>(null);
+    // The frame's panes, as the Roster's own controls open them: a selection's Details, the issues chip's Issues, a Find fix's People.
+    const panes = useRef<BuilderFramePanes>(null);
     const narrow = useContainerBelow(main, NARROW_WIDTH);
     const { onNarrow } = props;
     useLayoutEffect(() => { onNarrow(narrow); }, [narrow, onNarrow]);
-    const revealPane = (label: string) => root.current?.querySelector<HTMLButtonElement>(`button[aria-label="Expand ${label}"]`)?.click();
     // The week a selection was made in (#1406, P12, P24): a span that still holds it — Week opened from the month's
     // cell, column or Details — keeps the selection; another clears it, as another week does.
     const startRef = useRef(start); startRef.current = start;
     const selectedIn = useRef<Date>(start);
     const select = useCallback((next: Selection | undefined) => {
         selectedIn.current = next?.type === "personWeek" ? new Date(next.start) : startRef.current;
-        setSelection(next); setTab("details"); if (next !== undefined) revealPane("Inspector");
+        setSelection(next); setTab("details"); if (next !== undefined) panes.current?.reveal("end");
     }, []);
     const spanKey = `${span.start.getTime()}:${span.weeks.length}`;
     const lastSpan = useRef(spanKey);
@@ -247,7 +247,7 @@ function RosterFrame(props: FrameProps) {
     const fit = useRosterFit(value, start, week, context, coverage, find);
     const { error: fitError, retry: retryFit, pending: finding } = fit;
     const findFix = useCallback((next: RosterFind) => {
-        setFind(next); setLibraryTab("people"); openFramePane(root.current, "Library", "start");
+        setFind(next); setLibraryTab("people"); panes.current?.open("start");
         // Pressed again after the fit failed, a find is asked again.
         if (fitError !== undefined) retryFit();
     }, [fitError, retryFit]);
@@ -381,7 +381,7 @@ function RosterFrame(props: FrameProps) {
     const search = useMemo(() => (found === undefined ? undefined : pick.search(found)), [found, pick]);
     const library = useRosterLibrary({ ...viewProps, storageKey: key, tab: libraryTab, onTab: setLibraryTab,
         find: find === undefined ? undefined : { need: find.need, shown: fit.shown, busy: finding }, onClearFind: () => setFind(undefined), shown: props.shown });
-    const onIssues = () => { setTab("issues"); openFramePane(root.current, "Inspector", "end"); };
+    const onIssues = () => { setTab("issues"); panes.current?.open("end"); };
     const history = editing?.history;
     const { acted } = optimiseParts;
     // The history's acts: a field typed into lets go first, committing what it holds — the history's buttons take no
@@ -538,7 +538,8 @@ function RosterFrame(props: FrameProps) {
     return <FieldAskProvider value={fieldAsks.asks}><Box ref={root} css={[styles.root, landingStyles.main]} data-roster-frame="" data-roster-readonly={readOnly ? "" : undefined} {...landing.attributes}>
         <RosterDataReader value={source} span={span} pickerDates={pickerDates} holds={holds} onData={setData} />
         <LoadingReveal waiting={line?.kind === "loading"}>
-        <BuilderFrame storageKey={`${key}.frame`} label="Roster" loading={cold} loadingPitch={loadingPitch} busy={busy} liveFooter phonePanel start={library} end={inspector} toolbar={toolbar} onKeyDown={event => {
+        <BuilderFrame storageKey={`${key}.frame`} label="Roster" loading={cold} loadingPitch={loadingPitch} busy={busy} liveFooter phonePanel start={library} end={inspector} toolbar={toolbar}
+            panesRef={panes} onKeyDown={event => {
             // Each key the frame acts on goes no further than the Roster (#1398); Esc with nothing to let go of goes on.
             if (event.defaultPrevented || typedInto(event.target)) return;
             const action = historyShortcut(event);

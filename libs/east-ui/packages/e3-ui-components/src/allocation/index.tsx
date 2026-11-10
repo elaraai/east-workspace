@@ -35,8 +35,8 @@ import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { AllocationComponent, AllocationIssueType } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, fieldBreachIssue, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow,
-    useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState, useSliceReactivity, useTrackedEvaluation, type EditIssue, type FieldBreach,
-    type HistoryAction,
+    useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState, useSliceReactivity, useTrackedEvaluation, type BuilderFramePanes, type EditIssue,
+    type FieldBreach, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, formatDatePattern, keptRead } from "@elaraai/east-ui-components/internal";
 import { rowBreaches } from "../shared/bounds.js";
@@ -46,7 +46,6 @@ import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../sh
 import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { madeFromValues, publishPeriod } from "../shared/schedule/records.js";
-import { openFramePane } from "../shared/schedule/open-pane.js";
 import { refusalText, scheduleRefusals } from "../shared/schedule/refusals.js";
 import { readRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
 import { useSourceShown } from "../shared/schedule/source-tab.js";
@@ -202,8 +201,9 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const narrowingLoading = narrowing.some(n => n.loading), narrowingFailed = narrowing.some(n => n.error !== undefined);
     const clearFilters = value.slice.type === "some" ? value.slice.value.slice.clearAll : undefined;
     const root = useRef<HTMLDivElement>(null), main = useRef<HTMLDivElement>(null);
+    // The frame's panes, as the board's own controls open them: a bin's Chooser, the issues chip's Issues, Find a fit's Resources.
+    const panes = useRef<BuilderFramePanes>(null);
     const narrow = useContainerBelow(main, NARROW_WIDTH);
-    const revealPane = (label: string) => root.current?.querySelector<HTMLButtonElement>(`button[aria-label="Expand ${label}"]`)?.click();
     // Another day: its own selection, pick and refusal, and no find — a find is its bin's, on the day it was asked of.
     const dayEpoch = day.getTime();
     useEffect(() => {
@@ -452,7 +452,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     // Find a fit opens the Library's Resources tab, where its result is: with no such tab, nothing offers it.
     const findable = value.library.some(tab => tab.type === "resources");
     const onFind = (bin: string) => {
-        setFind(bin); setLibraryTab({ tab: "resources" }); openFramePane(root.current, "Library", "start");
+        setFind(bin); setLibraryTab({ tab: "resources" }); panes.current?.open("start");
         // Pressed again after the fit failed, a find is asked again.
         if (fit.error !== undefined) fit.retry();
     };
@@ -491,7 +491,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         if (asked !== undefined) askFit(asked.ask);
     }, [selectedBin, plan, askFit]);
     // The issues chip opens Inspector › Issues (A64).
-    const onIssues = () => { setInspectorTab({ tab: "issues" }); openFramePane(root.current, "Inspector", "end"); };
+    const onIssues = () => { setInspectorTab({ tab: "issues" }); panes.current?.open("end"); };
     const history = editing?.history;
     const { acted } = optimiseParts;
     // The history's acts: a field typed into lets go first, committing what it holds — the history's buttons take no
@@ -663,7 +663,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         <AllocationDataReader value={value} day={day} pickerDays={picker} choices={binChoices} onData={setData} />
         <LoadingReveal waiting={line?.kind === "loading"}>
         <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={cold} loadingPitch={ROW_H} busy={busy} liveFooter phonePanel toolbar={toolbar}
-            start={start} end={end} onKeyDown={event => {
+            start={start} end={end} panesRef={panes} onKeyDown={event => {
             // The keys, never while typing (A6); each it acts on goes no further than the board (#1398).
             if (event.defaultPrevented || typedInto(event.target)) return;
             const action = historyShortcut(event);
@@ -716,7 +716,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
                         held={held} sameBin={domain.sameBin} conflicted={conflicted} bounded={bounded} loads={loads} slots={slots} issues={issues} visible={resourcesShown.keys} visibleLanes={lanesShown.keys}
                         visibleArrivals={arrivalsShown.keys} read={read} empty={empty} optimised={optimised} lit={landing.lit}
                         clearFilters={clearFilters} selection={selection} focus={focus} highlight={highlight} picked={pickGrip !== undefined} book={bookPicked}
-                        editable={commands.canEdit()} select={inspect} choose={id => { inspect({ type: "bin", id }); setChooser(id); revealPane("Inspector"); }} follow={follow}
+                        editable={commands.canEdit()} select={inspect} choose={id => { inspect({ type: "bin", id }); setChooser(id); panes.current?.reveal("end"); }} follow={follow}
                         link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} drag={drag} candidates={domain.candidates} />
                     : <AllocationTable value={value} domain={domain} context={context} styles={styles} format={format} day={day} plan={plan} held={held}
                         sameBin={domain.sameBin} conflicted={conflicted} bounded={bounded} loads={loads} slots={slots} selection={selection} editable={commands.canEdit()} select={inspect} follow={follow}

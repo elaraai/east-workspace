@@ -80,6 +80,15 @@ describe("Roster shared drag layer", () => {
         expect(within(c).getByRole("button", { name: "Collapse Inspector" })).not.toBeNull();
         expect(slot(c, "end").textContent).toContain("C. Clover");
     });
+    test("the issues chip opens the collapsed inspector on Issues, the keyboard left on the chip (#1585)", async () => {
+        const { container: c } = await h.mount(ex.rosterWarehouse);
+        await press(within(c).getByRole("button", { name: "Collapse Inspector" }));
+        const chip = slot(c, "toolbar").querySelector<HTMLElement>("button[data-roster-issues]")!;
+        await act(async () => { chip.focus(); });
+        await press(chip);
+        expect([within(c).queryByRole("button", { name: "Expand Inspector" }), within(slot(c, "end")).getByRole("tab", { name: /^Issues/ }).getAttribute("aria-selected"),
+            document.activeElement]).toEqual([null, "true", chip]);
+    });
     test("a person's library card accepts their proposal, moves their duty and restores their original identity", async () => {
         const { container: c } = await h.mount(ex.rosterWarehouse);
         await drop(await libraryCard(c, "N. Ochre"), cell(c, 4, "inbound", "night"));
