@@ -134,7 +134,7 @@ import {
     type PlanEventLead, type PlanEventRows, type PlanEventShownValue,
 } from "./root/events.js";
 import { cellKinds, createCellSpanStore, shownCellSpan } from "./root/cells.js";
-import { NO_BOUNDED, PlanBoundsReader } from "./root/bounds.js";
+import { NO_BREACHES, PlanBoundsReader, type PlanBreaches } from "./root/bounds.js";
 import { PlanNestedReader, createNestedViewStore, usePlanNestedRoot, usePlanWholeRows, type PlanNestedLead, type PlanNestedSpanRead, type SPAN_READING } from "./root/nested.js";
 import { NONE_HIDDEN, hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
@@ -1355,13 +1355,26 @@ export function usePlanCanvas({
         const held = key === undefined ? undefined : naming.sessions.find((s) => stringEqual(s.key, key));
         return (held?.where ?? naming.where)(issue);
     }, [history]);
+    // The events whose rows break their kind's bounds (#1585), by their elements' keys: each element of one wears the warn
+    // ring, stored or changed, and a stored one's breach is a warning beside the history's issues, holding no Save, gone
+    // to as an issue of its session is. Read by a component of its own (`PlanBoundsReader`, in `provide`), which hands
+    // them over only as they move.
+    const [breaches, setBreaches] = useState<PlanBreaches>(NO_BREACHES);
+    const boundsWarnings = breaches.warnings;
+    const warnings = useMemo(() => boundsWarnings.map(({ kind, issue, text }) => ({
+        text,
+        go: () => {
+            askField(kind, issue.entry, issue.field);
+            selectEvents([printEventRef({ kind, key: issue.entry })]);
+        },
+    })), [boundsWarnings, askField, selectEvents]);
     // The history item's props, made again only as the history moves — its version moves with every change of it or
-    // of its sessions — or as its words and actions do, never as a window lands: the frame's toolbar is handed the
-    // same history item, and draws and measures nothing again for it (#1398, CL9).
+    // of its sessions — or as its words, actions and warnings do, never as a window lands: the frame's toolbar is handed
+    // the same history item, and draws and measures nothing again for it (#1398, CL9).
     const historyProps = useMemo(
-        () => (edits ? { session: history, words, editing: false, onAction: onHistory, onIssue, conflictItem, where: historyWhere, locked } : undefined),
+        () => (edits ? { session: history, words, editing: false, onAction: onHistory, onIssue, conflictItem, where: historyWhere, locked, warnings } : undefined),
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the history is mutable: its version says it moved
-        [edits, history, historyVersion, words, onHistory, onIssue, conflictItem, historyWhere, locked]);
+        [edits, history, historyVersion, words, onHistory, onIssue, conflictItem, historyWhere, locked, warnings]);
 
     // ── The treegrid (#819) ───────────────────────────────────────────────
     // Every item's place in the grid — the pinned rows first, a run not read
@@ -1760,10 +1773,6 @@ export function usePlanCanvas({
         return out;
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the session is mutable: the history's version says it moved
     }, [dataSession, index, historyVersion]);
-    // The events whose rows break their kind's bounds (#1585), by their elements' keys: each element of one wears the warn
-    // ring, stored or changed. Read by a component of its own (`PlanBoundsReader`, in `provide`), which hands them over
-    // only as they move.
-    const [bounded, setBounded] = useState<ReadonlySet<string>>(NO_BOUNDED);
     // The canvas's contexts and its declared density wrap everything the
     // frame draws — main, and the toolbar's items, the banners and the
     // footer — so each speaks as the canvas does.
@@ -1794,7 +1803,7 @@ export function usePlanCanvas({
         ? <PlanOptimiseReader kinds={kinds} editing={eventEditing} window={planWindow} range={eventRange} cells={cellsRead} onReady={setOptimiseReady} />
         : null;
     const boundsReader = kinds.length > 0 && eventRange !== undefined
-        ? <PlanBoundsReader kinds={kinds} editing={eventEditing} range={eventRange} cells={cellsRead} hidden={hidden ?? NONE_HIDDEN} onBounded={setBounded} />
+        ? <PlanBoundsReader kinds={kinds} editing={eventEditing} range={eventRange} cells={cellsRead} hidden={hidden ?? NONE_HIDDEN} onBreaches={setBreaches} />
         : null;
     const provide = (children: ReactNode): ReactNode => {
         const provided = (
@@ -1806,7 +1815,7 @@ export function usePlanCanvas({
             <PlanCursorContext.Provider value={cursor}>
             <PlanResolversContext.Provider value={resolvers}>
             <PlanSelectableContext.Provider value={selectable}>
-            <PlanDraftedContext.Provider value={drafted}><PlanConflictedContext.Provider value={conflicted}><PlanBoundedContext.Provider value={bounded}><PlanConflictCellsContext.Provider value={conflictCells}>
+            <PlanDraftedContext.Provider value={drafted}><PlanConflictedContext.Provider value={conflicted}><PlanBoundedContext.Provider value={breaches.bounded}><PlanConflictCellsContext.Provider value={conflictCells}>
             <PlanOptimisedContext.Provider value={optimisedMarks}>
             <PlanGridContext.Provider value={gridCtx}>
             <PlanEditContext.Provider value={editCtx}>
