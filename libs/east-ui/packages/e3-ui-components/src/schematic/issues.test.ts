@@ -10,8 +10,9 @@
  * an entity's or a layer's; a link's end or a net's member no kind holds, and
  * none asked of a kind read through its source; and each record's session's —
  * the app's check refusing a row, and a Save's conflict or refusal — which
- * block and name the row's entity, and a field by its form's label. Fixtures
- * are real East values typed from the Schematic's East types.
+ * block and name the row's entity, and a field by its form's label, and the
+ * row and the field by its key, which a click asks of the row's Details.
+ * Fixtures are real East values typed from the Schematic's East types.
  */
 
 import { describe, expect, test } from "vitest";
@@ -168,10 +169,19 @@ describe("sessionIssues", () => {
             session("feeds", variant("ready", null), "idle", [issue("feed-a", "stale")]),
         ], NAMES, (id) => labels.get(id));
         expect(issues).toEqual([
-            { at: entityId(ref("racks", "A03")), blocking: true, where: { kind: "Rack", name: "A03" }, word: { issue: "ready", field: "Rack owner", message: "an owner is needed" } },
-            { at: entityId(ref("racks", "A01")), blocking: true, where: { kind: "Rack", name: "A01" }, word: { issue: "ready", field: undefined, message: "capacity is below the load" } },
+            {
+                at: entityId(ref("racks", "A03")), blocking: true, where: { kind: "Rack", name: "A03" }, word: { issue: "ready", field: "Rack owner", message: "an owner is needed" },
+                row: { record: "racks", entry: "A03", field: "owner" },
+            },
+            {
+                at: entityId(ref("racks", "A01")), blocking: true, where: { kind: "Rack", name: "A01" }, word: { issue: "ready", field: undefined, message: "capacity is below the load" },
+                row: { record: detailsKey("racks"), entry: "A01", field: undefined },
+            },
             { at: undefined, blocking: true, where: { kind: "Fibre run", name: "Fibre run" }, word: { issue: "save", field: undefined, message: "the fibre runs are frozen" } },
-            { at: entityId(ref("fibre", "u3")), blocking: true, where: { kind: "Fibre run", name: "u3" }, word: { issue: "save", field: "Run length", message: "u3 changed" } },
+            {
+                at: entityId(ref("fibre", "u3")), blocking: true, where: { kind: "Fibre run", name: "u3" }, word: { issue: "save", field: "Run length", message: "u3 changed" },
+                row: { record: "fibre", entry: "u3", field: "runLength" },
+            },
         ]);
     });
 });

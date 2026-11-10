@@ -77,9 +77,9 @@
  *   Go to issue clears them, then flies to where its draft stands and selects
  *   it once it draws — the frame's one hidden pick, Find's too. Enter, or a
  *   double-click on an entity, opens Details, its open tab kept per viewer.
- *   The toolbar's issue gone to asks its row's Details for the field it
- *   names, which takes the keyboard there, the inspector opened at Details
- *   where it is collapsed or at Issues (#1585).
+ *   An issue gone to, from the toolbar or from its line in Issues, asks its
+ *   row's Details for the field it names, which takes the keyboard there, the
+ *   inspector opened at Details where it is collapsed or at Issues.
  *   A selected row of a kind read by area its window no longer holds stays
  *   selected, and Details shows it as its stored row reads, by its key
  *   (`selected-rows.ts`, §4.5): a pan or a zoom lets go of nothing, and only a
@@ -670,8 +670,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     }, [history]);
     // An issue a Save raised: the canvas flies to the item it names, and selects it — a conflict's Go to, beside the
     // conflicts popover open over the canvas, which stays open and says where it lies. The field it names, asked of its
-    // row's Details, takes the keyboard there, the inspector opened where it is collapsed (`../shared/schedule/field-ask.tsx`,
-    // #1585) — a conflict's Go to, which names its path, asks none.
+    // row's Details as an issue's line in Issues asks it, takes the keyboard there, the inspector opened where it is
+    // collapsed (`../shared/schedule/field-ask.tsx`) — a conflict's Go to, which names its path, asks none.
     const sessions = editing.schedule.sessions;
     const { asks: fieldAsks, request: askField } = useFieldAsks();
     const onIssue = useCallback((issue: EditIssue, at?: PatchPath, popover?: DOMRectReadOnly) => {
@@ -1176,7 +1176,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const selectEntity = useCallback((entity: string) => canvasRef.current?.select(entity), []);
     const end = schematicInspectorPane({
         value, inspected, rows: inspectedRows, drawn: inspectorDrawn, names, listed, editing: inspectorEditing, counts, records, issues, unchecked,
-        waiting: waitingRefs, picks, goToWaiting, zoneAt, reveal: revealEntity, refuse: setRefusal, keyRefused, select: selectEntity,
+        waiting: waitingRefs, picks, goToWaiting, ask: askField, zoneAt, reveal: revealEntity, refuse: setRefusal, keyRefused, select: selectEntity,
         tab: inspectorTab.tab, onTab: onInspectorTab, storageKey: keys.frame, words,
         narrow, veto, linkKind: connectKind, onLinkKind: pickConnectKind, connectValues, place,
     });

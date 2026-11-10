@@ -13,7 +13,8 @@
  * Issues saying it among what blocks, by the field's label and the bound in
  * its hint's own words, and the ring stays. The toolbar's issue pressed puts
  * the keyboard in A04's load — the Inspector, collapsed at Issues, opened at
- * Details first.
+ * Details first; another rack selected, once A04's rows are read — and so does
+ * its line pressed in Issues, the warning's and the refusal's alike.
  */
 
 import { expect, test } from "vitest";
@@ -154,4 +155,56 @@ test("the Inspector collapsed at Issues, the toolbar's issue pressed opens it at
     const open = slot(c, "end").querySelector("[role='tab'][aria-selected='true']")?.textContent;
     const load = slot(c, "end").querySelector("[role='tabpanel']:not([hidden]) [data-inspector-fields='details'] [data-field='kw']");
     expect([slot(c, "end").hasAttribute("data-collapsed"), open, load?.contains(document.activeElement) === true]).toEqual([false, "Details", true]);
+});
+
+test("the issue's line pressed in Issues opens Details with A04's load taking the keyboard, as the toolbar's issue does: the stored load's warning, then — its capacity changed — its refusal", async () => {
+    const { container: c } = await h.mount(bounded);
+    await settle();
+    await waitFor(() => expect(card(c, "racks", "A01")).not.toBeNull());
+    const found = CENTRES.flatMap(([key, x, y]) => {
+        const el = card(c, "racks", key);
+        return el === null ? [] : [[el, x, y] as const];
+    });
+    canvasLayout.hits((px, py) => found.find(([, x, y]) => near(CAM, px, py, x, y))?.[0] ?? (px >= 0 && px < 1080 && py >= 0 && py < 540 ? canvasOf(c) : null));
+    fireEvent.pointerEnter(canvasOf(c));
+    await waitFor(() => expect(ringed(c, "A04")).toBe(true));
+    // The line pressed: how it is said, the tab left open, and whether A04's load holds the keyboard.
+    const goTo = async () => {
+        await openTab(c, "Issues");
+        const line = panel(c).querySelector<HTMLButtonElement>("[data-inspector-issue]")!;
+        const kind = line.querySelector("[data-kind]")?.getAttribute("data-kind");
+        await act(async () => { fireEvent.click(line); });
+        await settle();
+        const open = slot(c, "end").querySelector("[role='tab'][aria-selected='true']")?.textContent;
+        return [kind, open, panel(c).querySelector("[data-inspector-fields='details'] [data-field='kw']")?.contains(document.activeElement) === true];
+    };
+    // Nothing selected: the stored load's warning.
+    expect(await goTo()).toEqual(["warning", "Details", true]);
+    // Its capacity changed, its refusal, which holds Save — its Details drawn already.
+    await retypeNumber(c, "capacity", "14");
+    expect(saveOff(c)).toBe(true);
+    expect(await goTo()).toEqual(["invalid", "Details", true]);
+});
+
+test("the toolbar's issue pressed while another rack is selected: A04's Details is drawn anew, and its load takes the keyboard once A04's rows are read", async () => {
+    const { container: c } = await h.mount(bounded);
+    await settle();
+    await waitFor(() => expect(card(c, "racks", "A01")).not.toBeNull());
+    const found = CENTRES.flatMap(([key, x, y]) => {
+        const el = card(c, "racks", key);
+        return el === null ? [] : [[el, x, y] as const];
+    });
+    canvasLayout.hits((px, py) => found.find(([, x, y]) => near(CAM, px, py, x, y))?.[0] ?? (px >= 0 && px < 1080 && py >= 0 && py < 540 ? canvasOf(c) : null));
+    fireEvent.pointerEnter(canvasOf(c));
+    await tap(canvasOf(c), CAM, 13.2, 2.9);
+    await settle();
+    await retypeNumber(c, "capacity", "14");
+    expect(saveOff(c)).toBe(true);
+    await tap(canvasOf(c), CAM, 9.6, 2.9);
+    await settle();
+    await act(async () => { fireEvent.click(slot(c, "toolbar").querySelector<HTMLButtonElement>('[data-slot="historyIssues"] button')!); });
+    await settle();
+    const load = panel(c).querySelector("[data-inspector-fields='details'] [data-field='kw']");
+    expect([panel(c).querySelector("[data-schematic-inspector]")?.getAttribute("data-schematic-inspector"), load?.contains(document.activeElement) === true])
+        .toEqual(["item", true]);
 });

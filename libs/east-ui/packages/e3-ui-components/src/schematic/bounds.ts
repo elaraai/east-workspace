@@ -85,8 +85,8 @@ function sameBreaches(a: SchematicBreaches, b: SchematicBreaches): boolean {
         const [other, said] = theirs[i]!;
         return stringEqual(id, other) && found.length === said.length && found.every((breach, j) => {
             const them = said[j]!;
-            return stringEqual(breach.record, them.record) && stringEqual(breach.field, them.field) && stringEqual(breach.message, them.message)
-                && breach.changed === them.changed;
+            return stringEqual(breach.record, them.record) && stringEqual(breach.key, them.key) && stringEqual(breach.field, them.field)
+                && stringEqual(breach.fieldKey, them.fieldKey) && stringEqual(breach.message, them.message) && breach.changed === them.changed;
         });
     });
 }
@@ -191,7 +191,11 @@ export function SchematicBoundsReader({ value, areas, windows, drawing, schedule
                     out.set(entity.key, said);
                 }
                 // In the words its session's readiness says a changed row's in.
-                for (const breach of found) said.push({ record, field: fieldLabelOf(fields, breach.key), message: fieldBreachIssue(breach, { entry: key }).message, changed });
+                for (const breach of found) {
+                    said.push({
+                        record, key, field: fieldLabelOf(fields, breach.key), fieldKey: breach.key, message: fieldBreachIssue(breach, { entry: key }).message, changed,
+                    });
+                }
             }
         }
         return out;

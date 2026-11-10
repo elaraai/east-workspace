@@ -82,9 +82,10 @@
  * narrowing is read (#1398, CL8) — its controls are off. A number a row holds
  * outside its field's bounds is said in the tone the row's Save stands in
  * (#1585): a warning as stored, an error once its record's session refuses the
- * row's change, holding Save. The toolbar's issue gone to puts the keyboard in
- * the field it names — an item's centre's, in its position — the inspector
- * opened at Details where it is collapsed or at Issues.
+ * row's change, holding Save. An issue gone to, from the toolbar or from its
+ * line in Issues, puts the keyboard in the field it names — an item's
+ * centre's, in its position — the inspector opened at Details where it is
+ * collapsed or at Issues.
  *
  * Details keeps the keyboard (#1398): a control that goes with the view it was
  * pressed in — Delete and Unplace, which leave nothing selected, a leg's
@@ -101,11 +102,14 @@
  * has not read, and the form its own height when the row lands.
  *
  * Issues (SC16) lists the drawing's issues (`issues.ts`), each a control that
- * selects what it names and flies to it. A kind read by area is checked in the
- * rows read around the view, with every unsaved change, never by a read of its
- * other rows: while one is, a line over the list names it and says its rows out
- * of view are checked only as the view reaches them, as the drawing's counts
- * say what they don't count (ruled 27 Oct 2026, "Checked in view, said so").
+ * selects what it names and flies to it, the field it names taking the
+ * keyboard in its Details, as the toolbar's issue gone to puts it there: the
+ * viewer lands where the issue is fixed, not left on Issues. A kind read by
+ * area is checked in the rows read around the view, with every unsaved
+ * change, never by a read of its other rows: while one is, a line over the
+ * list names it and says its rows out of view are checked only as the view
+ * reaches them, as the drawing's counts say what they don't count (ruled 27
+ * Oct 2026, "Checked in view, said so").
  * An unsaved change the drawing leaves out — a draft waiting in its session,
  * the rail's filters leaving out the row it drafts — is checked as its draft
  * has it, and its issue says on a line of its own which choices hide it, each
@@ -251,6 +255,15 @@ export interface SchematicInspectorProps {
      * @param hidden - What hides the row it drafts, as far as e3 has said; `undefined` where nothing does
      */
     readonly goToWaiting: (id: string, hidden: readonly SourceHiding[] | undefined) => void;
+    /**
+     * Asks a row's Details for a field, which takes the keyboard there, the inspector opened at Details: what an issue's
+     * line in Issues asks, as the toolbar's issue gone to does. Asked for none, any ask standing is dropped.
+     *
+     * @param record - The row's record, by its key in the history: its kind's slot, or its details record's
+     * @param entry - The row's key
+     * @param field - The field the issue names, by its form's key; none for an issue naming none
+     */
+    readonly ask: (record: string, entry: string, field: option<string>) => void;
     /** The zone holding a point, by its name, as the Index files an item. */
     readonly zoneAt: (x: number, y: number) => string | undefined;
     /** Selects an entity, by its id — a net's leg with it — flying to it; `undefined` selects nothing. */
@@ -654,8 +667,12 @@ function useSide(props: ViewProps, ref: SchematicRef, name: string, side: Record
     const readiness = editing.schedule.sessions.find((part) => stringEqual(part.kind, record))?.session.readiness;
     const breaches: "warn" | "error" = readiness !== undefined && readiness.type !== "ready" && readiness.value.some((issue) => stringEqual(issue.entry, ref.key))
         ? "error" : "warn";
-    // The field the toolbar's issue gone to names (#1585): it takes the keyboard, the inspector opened where it is collapsed.
-    const focus = useFieldAsk(record, ref.key);
+    // The field an issue gone to names, from the toolbar or from Issues: it takes the keyboard, the inspector opened at
+    // Details. A freshly selected entity's forms are placeholders until its rows are read — a drafted row's drawn at once —
+    // so the ask waits for both its row and its details row: neither form lets go of an ask that is the other's.
+    const placeholder = (read: SchematicRowRead | undefined, of: string) => read?.state === "reading" && !editing.schedule.draftsOf(of).has(ref.key);
+    const drawn = !placeholder(its.row, ref.kind) && !placeholder(its.details, detailsKey(ref.kind));
+    const focus = useFieldAsk(record, ref.key, drawn);
     return { side, writes, available, state, onField, own, refused, breaches, focus };
 }
 
@@ -1231,12 +1248,13 @@ function DrawingView({ styles, words, counts, records }: ViewProps) {
 
 /**
  * The Issues tab: every issue of the drawing and of its unsaved changes, each a control that selects what it names and
- * flies to it — under a line, while a kind is read by area, saying its rows out of view are checked only as the view
- * reaches them (ruled 27 Oct 2026). An issue of an unsaved change the drawing leaves out says on a line of its own which
- * of the rail's choices hide the row it drafts, asked of e3 through its kind's hidden pick, and Go to issue on it is the
- * frame's hidden pick (`goToWaiting`): those choices cleared, then flown to and selected once it draws.
+ * flies to it, the field it names taking the keyboard in its Details — under a line, while a kind is read by area, saying
+ * its rows out of view are checked only as the view reaches them (ruled 27 Oct 2026). An issue of an unsaved change the
+ * drawing leaves out says on a line of its own which of the rail's choices hide the row it drafts, asked of e3 through
+ * its kind's hidden pick, and Go to issue on it is the frame's hidden pick (`goToWaiting`): those choices cleared, then
+ * flown to and selected once it draws.
  */
-const SchematicInspectorIssues = memo(function SchematicInspectorIssues({ issues, unchecked, reveal, words, waiting, picks, goToWaiting }: SchematicInspectorProps) {
+const SchematicInspectorIssues = memo(function SchematicInspectorIssues({ issues, unchecked, reveal, words, waiting, picks, goToWaiting, ask }: SchematicInspectorProps) {
     const styles = useSlotRecipe({ key: "schematicInspector" })() as Styles;
     const m = words.m;
     // Each issue's unsaved change the drawing leaves out: its kind's hidden pick, and the row it drafts.
@@ -1258,8 +1276,12 @@ const SchematicInspectorIssues = memo(function SchematicInspectorIssues({ issues
         return hiding === undefined ? undefined : hiddenOf([hiding]);
     };
     // Go to issue: what it names selected and flown to — an unsaved change the drawing leaves out through the frame's hidden
-    // pick, the choices hiding it cleared first.
+    // pick, the choices hiding it cleared first. Its row's Details is asked for the field it names, as the toolbar's issue
+    // gone to asks, so Details opens where it is fixed; an issue of a row naming no field drops an earlier ask, which
+    // would otherwise take the keyboard when that row's Details is next drawn.
     const goTo = (issue: SchematicIssue) => {
+        const row = issue.row;
+        if (row !== undefined) ask(row.record, row.entry, row.field === undefined ? none : some(row.field));
         if (issue.at !== undefined && waiting.has(issue.at)) goToWaiting(issue.at, hiddenOfIssue(issue));
         else reveal(issue.at);
     };

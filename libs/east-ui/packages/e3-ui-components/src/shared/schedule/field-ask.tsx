@@ -15,7 +15,10 @@
  * at the tab it is drawn in, as its tab opens it, so the field shows (#1585) —
  * in a phone's drawer without taking the keyboard, the field left to a tap, so
  * no keyboard rises over the drawer unasked. An entry's form drawn anew while
- * another's ask stands drops it: the viewer moved on before it was drawn.
+ * another's ask stands drops it: the viewer moved on before it was drawn. A
+ * form whose row is still read, its fields placeholders the keyboard can't
+ * land in, opens its pane and tab at once and answers the ask as its row
+ * lands, the field taking the keyboard then.
  *
  * @packageDocumentation
  */
@@ -75,9 +78,11 @@ export function useFieldAsks(): { readonly asks: FieldAsks; readonly request: (k
  *
  * @param kind - The entry's kind: its slot, or its record's key
  * @param entry - The entry's key
- * @returns The field, by its form's key, while its ask stands — never in a phone's drawer
+ * @param drawn - Whether the form is drawn with its row: `false` while the row is read, its fields placeholders — the
+ *   ask waits for it, and so does dropping another entry's
+ * @returns The field, by its form's key, while its ask stands and the form is drawn — never in a phone's drawer
  */
-export function useFieldAsk(kind: string, entry: string): string | undefined {
+export function useFieldAsk(kind: string, entry: string, drawn = true): string | undefined {
     const { ask, answered } = useContext(FieldAskContext);
     const phone = useContext(FrameDrawer);
     const pane = useContext(FramePane);
@@ -85,16 +90,21 @@ export function useFieldAsk(kind: string, entry: string): string | undefined {
     const mine = ask !== undefined && stringEqual(ask.kind, kind) && stringEqual(ask.entry, entry) ? ask : undefined;
     // Drawn anew while another entry's ask stands: the viewer moved on before that entry was drawn.
     const fresh = useRef(true);
+    // The ask whose pane and tab it opened: once, so the row landing after never pulls the viewer back to it.
+    const opened = useRef<number | undefined>(undefined);
     useEffect(() => {
         if (mine !== undefined) {
-            answered(mine.seq);
             // Collapsed, or behind another tab, the pane would leave the issue gone to nowhere: it opens as its rail opens
-            // it, at the form's tab, and the field shows.
-            pane?.open();
-            tab?.open();
+            // it, at the form's tab, and the field shows — at once, though its row is still read.
+            if (opened.current !== mine.seq) {
+                opened.current = mine.seq;
+                pane?.open();
+                tab?.open();
+            }
+            if (drawn) answered(mine.seq);
         }
-        else if (fresh.current && ask !== undefined) answered(ask.seq);
-        fresh.current = false;
-    }, [ask, mine, answered, pane, tab]);
-    return phone || mine === undefined ? undefined : mine.field;
+        else if (fresh.current && drawn && ask !== undefined) answered(ask.seq);
+        if (drawn) fresh.current = false;
+    }, [ask, mine, answered, pane, tab, drawn]);
+    return phone || mine === undefined || !drawn ? undefined : mine.field;
 }
