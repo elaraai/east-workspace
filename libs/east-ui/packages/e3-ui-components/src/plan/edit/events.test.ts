@@ -41,6 +41,8 @@ function windowed(last: option<option<string>>): PlanEventEditingArgs["kinds"] {
             onApply: some(variant("sync", () => variant("applied", { revision: some("r2") }))),
         },
         ready: none,
+        // Its form, as every kind's payload carries one: no field of it held to a bound.
+        fields: [],
         entries: some({ revision: () => some("r1"), refresh: () => null, entry: () => some(none), last: () => last }),
         planEvent: () => none,
         write: () => [],
