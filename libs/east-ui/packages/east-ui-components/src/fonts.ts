@@ -8,8 +8,8 @@
  *
  * App entry points (e.g. `main.tsx`) import this module for its side
  * effects to register `@font-face` declarations for DM Sans, Inter Tight,
- * and JetBrains Mono — upright, and JetBrains Mono italic for the muted
- * "no data" value — against the bundled .woff2 files shipped by the
+ * and Geist Mono — upright, and Geist Mono italic for the muted "no data"
+ * value — against the bundled .woff2 files shipped by the
  * `@fontsource-variable/*` packages.
  *
  * @example
@@ -54,5 +54,5 @@
 
 import "@fontsource-variable/dm-sans/wght.css";
 import "@fontsource-variable/inter-tight/wght.css";
-import "@fontsource-variable/jetbrains-mono/wght.css";
-import "@fontsource-variable/jetbrains-mono/wght-italic.css";
+import "@fontsource-variable/geist-mono/wght.css";
+import "@fontsource-variable/geist-mono/wght-italic.css";

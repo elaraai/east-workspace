@@ -413,7 +413,7 @@ test.describe("Foundations — type", () => {
         // `--paper-2`, 1px `--rule-strong`, `--r-sm`.
         const kbd = read.kbd!;
         check("kbd height", Math.abs(kbd.height - 20) < 0.05, `${kbd.height}px, want 20px`);
-        check("kbd family", firstFamily(kbd.family) === "JetBrains Mono", kbd.family);
+        check("kbd family", firstFamily(kbd.family) === "Geist Mono", kbd.family);
         check("kbd size", Math.abs(kbd.size - Number.parseFloat(TYPE.get("--fs-label-lg")!)) < 0.05, `${kbd.size}px, want --fs-label-lg`);
         check("kbd weight", kbd.weight === TYPE.get("--fw-medium"), `${kbd.weight}, want --fw-medium`);
         check("kbd ink", sameColour(kbd.color, await painted(page, dsColour("--ink-2", "light"))), `rgba(${kbd.color.join(", ")})`);
