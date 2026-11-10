@@ -16,7 +16,8 @@
  *   (#1525), as the Calendar's inspector has it, each field one names ringed
  *   in its form — the one the warning button's issue names taking the keyboard
  *   as the form draws it; its resource, its start and end or its instant, its lane, its state and its
- *   quantity; its kind's fields through `FieldForm`, the fields its roles
+ *   quantity — the bound a hint gives its field that it breaks said under it,
+ *   as the form says one under a field (#1585); its kind's fields through `FieldForm`, the fields its roles
  *   read left to their own lines — or, when the kind has its own inspector,
  *   what that returns for the event in place of the form (PB60); then
  *   Duplicate and Delete;
@@ -98,7 +99,8 @@ import { EventStateType } from "@elaraai/east-ui";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import { PlanEventItemType, ScheduleEventRefType, ScheduleResourceRefType, planHideId, type PlanEventDraftsType, type planKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, EastChakraComponent, FieldForm, getSomeorUndefined, useDataStable, useTrackedEvaluation, type BuilderFrameDock, type FieldOption,
+    BannerView, EastChakraComponent, FieldForm, fieldBreachText, fieldBreaches, fieldFormMessages, getSomeorUndefined, useDataStable, useTrackedEvaluation,
+    type BuilderFrameDock, type FieldOption,
 } from "@elaraai/east-ui-components";
 import { FrameDrawer, PlaceholderShape } from "@elaraai/east-ui-components/internal";
 import { heldRowOf } from "../../shared/schedule/editing.js";
@@ -680,6 +682,13 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
         const roleFields = [roles.state, roles.quantity, roles.lane].flatMap((field) => (field.type === "some" ? [field.value] : []));
         return kind.fields.filter((spec) => !roleFields.some((field) => stringEqual(field, spec.path[0]!)));
     }, [kind.fields, roles]);
+    // The bound its quantity breaks, of those a hint gives its field in the kind's form (#1585): said under its line, as
+    // the form says one under a field.
+    const quantityBreach = useMemo(() => {
+        const field = getSomeorUndefined(roles.quantity);
+        return field === undefined ? undefined : fieldBreaches(kind.fields.filter((spec) => samePath(spec.path, [field])), value)[0];
+    }, [kind.fields, roles.quantity, value]);
+    const fieldStyles = useSlotRecipe({ key: "field" })() as Styles;
     // What its record holds (PB42): what a drafted field is tinted against — a new event's every field, against
     // nothing. An event its drafts do not hold stands as its record holds it (#1199: a kind read a window at a time
     // holds no snapshot to read it from).
@@ -750,7 +759,12 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
                     ))}
                 {lane !== undefined && <Fact styles={styles} fact="lane" label={m.inspectorFact({ fact: "lane" })} value={lane} />}
                 {roles.state.type === "some" && <Fact styles={styles} fact="state" label={m.inspectorFact({ fact: "state" })} value={stateText(item.state, words)} />}
-                {quantity !== undefined && <Fact styles={styles} fact="quantity" label={m.inspectorFact({ fact: "quantity" })} value={quantityText(quantity, words)} />}
+                {quantity !== undefined && <Fact styles={styles} fact="quantity" label={m.inspectorFact({ fact: "quantity" })} value={<>
+                    {quantityText(quantity, words)}
+                    {quantityBreach !== undefined && (
+                        <Box css={fieldStyles.errorText} data-fact-breach="">{fieldBreachText(quantityBreach, { ...words, m: fieldFormMessages })}</Box>
+                    )}
+                </>} />}
             </Box>
             <chakra.fieldset css={styles.edits} disabled={!writable} data-inspector-edits="">
                 {own !== undefined ? (
