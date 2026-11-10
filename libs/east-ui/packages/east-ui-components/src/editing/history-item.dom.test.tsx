@@ -12,7 +12,7 @@
  */
 
 import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { IntegerType, StringType, StructType, none, variant } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
@@ -136,4 +136,21 @@ test("a host that shows the session's error in its banners takes the line from u
     const before = item(false).version;
     session.error = "Another refusal";
     expect(item(false).version).toBe(before);
+});
+
+test("an entry beside the issues that holds no Save is counted as a warning, its words saying so, and a press goes to it (#1585)", () => {
+    row.px = 510;
+    const session = editSession();
+    const gone: string[] = [];
+    const warnings = [{ text: "J-1001 · Sheets: at least 0", go: () => { gone.push("J-1001"); } }];
+    const item = historyToolbarItem({ session, words: WORDS, editing: false, onAction: noop, onIssue: noop, warnings });
+    const { container } = render(<ChakraProvider value={system}><Toolbar items={[item]} /></ChakraProvider>);
+    const issues = container.querySelector<HTMLElement>('[data-slot="historyIssues"]')!;
+    expect([issues.hasAttribute("data-empty"), issues.hasAttribute("data-warnings")]).toEqual([false, true]);
+    const button = issues.querySelector<HTMLButtonElement>("button")!;
+    expect([button.getAttribute("aria-label"), button.disabled]).toEqual(["1 warning", false]);
+    fireEvent.click(button);
+    expect(gone).toEqual(["J-1001"]);
+    // Its width moves with the warnings: with none, it is measured again.
+    expect(historyToolbarItem({ session, words: WORDS, editing: false, onAction: noop, onIssue: noop }).version).not.toBe(item.version);
 });

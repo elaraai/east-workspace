@@ -12,7 +12,11 @@
  * (`conflicts.tsx`). While a Save is out, and until the page reads back what it
  * saved, Save shows it: the live dot in its place, `aria-busy`, at full strength
  * (#1573). Retry refresh takes its place once that read back failed, or has not
- * moved for ten seconds, to ask again.
+ * moved for ten seconds, to ask again. Beside the issues that hold Save, the
+ * issues button counts the warnings a collection hands it — an entry that
+ * holds no Save but asks a look, a stored value outside its field's bounds
+ * (#1585) — its words saying which are warnings; a press goes to the first
+ * issue, else the first warning.
  *
  * In a phone's frame it is the toolbar's second row (`phone`, `Mobile Builder
  * Frame Spec.md` FR6, FR8): the drafts' count at its start, then the issues —
@@ -148,6 +152,30 @@ export interface HistoryBarProps<W> {
      * (`Studio Mobile Spec.md` ST7). The button then counts the conflicts, and there is no conflicts button.
      */
     onOpenIssues?: (() => void) | undefined;
+    /**
+     * The entries beside the issues that hold no Save but ask a look (#1585) — a stored value outside its field's
+     * bounds: each its words, `J-1001 · Sheets: at least 0`, and what going to it does, as an issue's Go to does. The
+     * issues button counts them, its words saying which are warnings, and goes to the first once no issue is before
+     * it. None by default.
+     */
+    warnings?: readonly { readonly text: string; readonly go: () => void }[] | undefined;
+}
+
+/** No warning beside the issues. */
+const NO_WARNINGS: NonNullable<HistoryBarProps<unknown>["warnings"]> = [];
+
+/**
+ * What the issues button says (#1585): the issues holding Save, then the warnings beside them, which hold none —
+ * `2 issues`, `1 warning`, `2 issues · 1 warning` — and its tooltip, what a press goes to.
+ */
+function issuesWords(words: EditingWords, n: number, warnings: NonNullable<HistoryBarProps<unknown>["warnings"]>): { label: string; tip: string } {
+    const { m } = words;
+    const issues = m.issues({ n, count: words.number(n) });
+    const w = warnings.length;
+    if (w === 0) return { label: issues, tip: m.issuesTip({ n, count: words.number(n) }) };
+    const said = m.warnings({ n: w, count: words.number(w) });
+    if (n === 0) return { label: said, tip: m.warningsTip({ n: w, count: words.number(w), first: warnings[0]!.text }) };
+    return { label: m.issuesAndWarnings({ issues, warnings: said }), tip: m.issuesAndWarningsTip({ issues, warnings: said }) };
 }
 
 /** Keep an accessible name and a hover/focus tooltip when the control has no text. */
@@ -237,7 +265,10 @@ function DiscardAsk({ head, title, body, cancel, confirm, styles, confirmCss, ca
  * @param props - The session, the collection's words, and its callbacks
  * @returns The bar
  */
-export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onConflict, conflictItem, conflictValue, where, issueText, buttonsOnly = false, showError = true, locked = false, phone = false, onOpenIssues }: HistoryBarProps<W>) {
+export function HistoryBar<W>({
+    session, words, editing, onAction, onIssue, onConflict, conflictItem, conflictValue, where, issueText, buttonsOnly = false, showError = true, locked = false, phone = false,
+    onOpenIssues, warnings = NO_WARNINGS,
+}: HistoryBarProps<W>) {
     const buttonRecipe = useRecipe({ key: "button" });
     // A phone's Discard asks first (FR8), in the band under the row.
     const [asking, setAsking] = useState(false);
@@ -292,9 +323,11 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onCo
                 {/* The issues there whatever their number, off at none (FR6.3). */}
                 {(() => {
                     const shown = onOpenIssues === undefined ? n : n + unsettled;
-                    return <HistoryButton styles={styles} label={m.issues({ n: shown, count: words.number(shown) })} tip={m.issuesTip({ n: shown, count: words.number(shown) })} locked={false}
-                        icon={faTriangleExclamation} disabled={shown === 0} onClick={() => { if (onOpenIssues !== undefined) onOpenIssues(); else if (issues[0]) onIssue(issues[0]); }}
-                        content={shown === 0 ? undefined : <Box as="span" css={styles.issuesCount} data-history-issues=""><FontAwesomeIcon icon={faTriangleExclamation} /><span>{words.number(shown)}</span></Box>} />;
+                    const said = issuesWords(words, shown, warnings);
+                    const all = shown + warnings.length;
+                    return <HistoryButton styles={styles} label={said.label} tip={said.tip} locked={false} icon={faTriangleExclamation} disabled={all === 0}
+                        onClick={() => { if (onOpenIssues !== undefined) onOpenIssues(); else if (issues[0]) onIssue(issues[0]); else warnings[0]?.go(); }}
+                        content={all === 0 ? undefined : <Box as="span" css={styles.issuesCount} data-history-issues=""><FontAwesomeIcon icon={faTriangleExclamation} /><span>{words.number(all)}</span></Box>} />;
                 })()}
                 <HistoryButton styles={styles} label={m.undo()} tip={m.undoTip()} icon={faArrowRotateLeft} disabled={!session.canUndo && !commitEditor} locked={locked} onClick={() => onAction("undo")} />
                 <HistoryButton styles={styles} label={m.redo()} tip={m.redoTip()} icon={faArrowRotateRight} disabled={!session.canRedo} locked={locked} onClick={() => onAction("redo")} />
@@ -310,15 +343,16 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onCo
             {ask !== false && (band !== null ? createPortal(ask, band) : ask)}
         </Box>;
     }
+    const said = issuesWords(words, n, warnings);
+    const counted = n + warnings.length;
     return <Box data-slot="history" data-history-form={buttonsOnly ? "buttons" : "full"} data-history-locked={locked ? "" : undefined} css={styles.root}>
         <Box css={styles.actions}>
             {!buttonsOnly && message !== undefined && <Text role="status" aria-live="polite" css={styles.status}>{message}</Text>}
             {/* The conflicts button first, before Issues: it is what turns Save back on. */}
             <ConflictsControl session={session} words={words} onIssue={onConflict ?? onIssue} where={where} item={conflictItem} value={conflictValue} issueText={issueText} locked={locked} />
-            {!buttonsOnly && <Box data-slot="historyIssues" data-empty={n === 0 ? "" : undefined} css={styles.issues}>
-                <HistoryButton styles={styles} label={m.issues({ n, count: words.number(n) })}
-                    tip={m.issuesTip({ n, count: words.number(n) })} locked={false}
-                    icon={faTriangleExclamation} disabled={n === 0} onClick={() => { if (issues[0]) onIssue(issues[0]); }} />
+            {!buttonsOnly && <Box data-slot="historyIssues" data-empty={counted === 0 ? "" : undefined} data-warnings={warnings.length > 0 ? "" : undefined} css={styles.issues}>
+                <HistoryButton styles={styles} label={said.label} tip={said.tip} locked={false}
+                    icon={faTriangleExclamation} disabled={counted === 0} onClick={() => { if (issues[0]) onIssue(issues[0]); else warnings[0]?.go(); }} />
             </Box>}
             <HistoryButton styles={styles} label={m.undo()} tip={m.undoTip()} icon={faArrowRotateLeft} disabled={!session.canUndo && !commitEditor} locked={locked} onClick={() => onAction("undo")} />
             <HistoryButton styles={styles} label={m.redo()} tip={m.redoTip()} icon={faArrowRotateRight} disabled={!session.canRedo} locked={locked} onClick={() => onAction("redo")} />

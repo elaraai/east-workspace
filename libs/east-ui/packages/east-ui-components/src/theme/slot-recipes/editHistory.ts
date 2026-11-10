@@ -8,7 +8,8 @@
  * Apply bar (#879), shared by every editable collection. It sits in its
  * host's toolbar, beside the search, not in a row of its own: a status line
  * (mono 11px `fg.muted`), the issues button (hidden, keeping its place, while
- * there are none), the history buttons (the `iconButton` recipe: on a coarse
+ * there are none; its icon in the warn tone while warnings stand beside the
+ * issues, #1585), the history buttons (the `iconButton` recipe: on a coarse
  * pointer they keep their size and take a 44px touch target from its halo,
  * #346, so a phone's toolbar row holds them beside the rest — the user's
  * ruling, #1193), and under them the latest error in `fg.danger`. While a
@@ -89,6 +90,8 @@ export const editHistorySlotRecipe = defineSlotRecipe({
             flexShrink: "0",
             // With none, hidden in its slot, which is held (#1398, CL1): the bar keeps its width as issues come and go.
             "&[data-empty]": { visibility: "hidden" },
+            // Beside the issues, the warnings, which hold no Save (#1585): the icon in the warn tone.
+            "&[data-warnings] svg": { color: "status.warn" },
         },
         conflicts: {
             width: "auto",

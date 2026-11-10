@@ -44,6 +44,14 @@ export interface EditingMessages {
     issues: (p: { n: number; count: string }) => string;
     /** Its tooltip. */
     issuesTip: (p: { n: number; count: string }) => string;
+    /** The issues button's words for the entries beside the issues that hold no Save (#1585) — `1 warning`. */
+    warnings: (p: { n: number; count: string }) => string;
+    /** Its tooltip with warnings alone: how many, that Save still works, and the first's words, which a press goes to. */
+    warningsTip: (p: { n: number; count: string; first: string }) => string;
+    /** The issues button with both — `2 issues · 1 warning`. */
+    issuesAndWarnings: (p: { issues: string; warnings: string }) => string;
+    /** Its tooltip: a press goes to the first issue. */
+    issuesAndWarningsTip: (p: { issues: string; warnings: string }) => string;
     /** Undo. */
     undo: () => string;
     /** Undo's tooltip. */
@@ -209,6 +217,10 @@ export const editingMessages: EditingMessages = {
     },
     issues: ({ n, count }) => `${count} ${plural(n, "issue", "issues")}`,
     issuesTip: ({ n, count }) => `${count} ${plural(n, "issue", "issues")} · Go to first issue`,
+    warnings: ({ n, count }) => `${count} ${plural(n, "warning", "warnings")}`,
+    warningsTip: ({ n, count, first }) => `${count} ${plural(n, "warning", "warnings")} · Save still works · Go to ${first}`,
+    issuesAndWarnings: ({ issues, warnings }) => `${issues} · ${warnings}`,
+    issuesAndWarningsTip: ({ issues, warnings }) => `${issues} · ${warnings} · Go to first issue`,
     undo: () => "Undo",
     undoTip: () => "Undo · Ctrl+Z / ⌘Z",
     redo: () => "Redo",
