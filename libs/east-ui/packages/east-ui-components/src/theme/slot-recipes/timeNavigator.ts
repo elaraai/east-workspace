@@ -15,10 +15,11 @@ export const timeNavigatorSlotRecipe = defineSlotRecipe({
         root: { display: "inline-flex", alignItems: "center", gap: "4px", flexShrink: 0, whiteSpace: "nowrap" },
         /* On a coarse pointer at least 44 wide: its icon alone, a phone's View, is a 44 target, the row's height its halo's. */
         trigger: { gap: "6px", "& svg": fontAwesomeSize("10px"), _coarse: { minWidth: "44px" } },
-        label: { whiteSpace: "nowrap" },
+        /* The trigger's date and the picker's month: dates, in the design system's mono face, as its weeks and days are. */
+        label: { whiteSpace: "nowrap", fontFamily: "mono", fontVariantNumeric: "tabular-nums" },
         body: { display: "flex", flexDirection: "column", gap: "12px", minWidth: 0 },
         header: { display: "flex", alignItems: "center", gap: "4px" },
-        heading: { flex: 1, minWidth: 0 },
+        heading: { flex: 1, minWidth: 0, fontFamily: "mono", fontVariantNumeric: "tabular-nums" },
         weeks: { display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 },
         week: { display: "flex", alignItems: "center", gap: "10px", padding: "8px", minHeight: "36px", textAlign: "left", textStyle: "mono.sm", borderRadius: "sm", cursor: "pointer",
             "&:hover:not([data-selected])": { background: "bg.subtle" }, "&[data-selected]": { background: "brand.subtle" }, ...planRowFocus, _coarse: { minHeight: "44px" } },
