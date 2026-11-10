@@ -95,7 +95,8 @@ export {
     type DockPaneProps,
     type DockRailMark,
     // The one frame of a builder-style component (#1125): the toolbar, the
-    // banners, the panes either side of main, and the footer
+    // banners, the panes either side of main, and the footer — and its panes
+    // as the host's code opens them (#1585)
     BuilderFrame,
     placePanes,
     paneWidths,
@@ -105,6 +106,7 @@ export {
     type BuilderFrameProps,
     type BuilderFramePane,
     type BuilderFrameDock,
+    type BuilderFramePanes,
     type PaneMode,
     type PanePlacement,
     type PanePlacements,

@@ -71,6 +71,7 @@ export {
     type BuilderFrameProps,
     type BuilderFramePane,
     type BuilderFrameDock,
+    type BuilderFramePanes,
     type PaneMode,
     type PanePlacement,
     type PanePlacements,

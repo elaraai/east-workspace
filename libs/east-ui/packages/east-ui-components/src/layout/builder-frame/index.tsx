@@ -23,14 +23,15 @@
  *   {@link paneWidths}). Opened by a press on its rail, it takes the focus —
  *   its open tab, or its first control, unless what it holds took the focus
  *   as it opened — and closed by its own collapse or by Esc, it returns the
- *   focus to its rail; opened or closed by its host's code with the focus
- *   elsewhere — the Inspector a selection in main opens — it leaves the focus
- *   where it is; opened by what it holds ({@link FramePane}) — a form an issue
- *   gone to asks a field of, while the pane is collapsed — it opens as its rail
- *   opens it, the viewer's doing, and the field takes the focus as it shows
- *   (#1585). Esc closes it — but a layer open in it that takes Esc itself,
- *   marked `data-escape-layer` (a Chooser laid in a pane), closes first — and
- *   one overlay pane is open at a time;
+ *   focus to its rail. Opened from code — by its host
+ *   ({@link BuilderFramePanes}): the Inspector a selection in main reveals, the
+ *   Issues the issues chip asks for; or by what it holds ({@link FramePane}): a
+ *   form an issue gone to asks a field of — it opens as its rail opens it, the
+ *   viewer's doing, and leaves the focus where it is, the field asked for
+ *   taking it as it shows (#1585); no host presses a pane's own control. Esc
+ *   closes it — but a layer open in it that takes Esc itself, marked
+ *   `data-escape-layer` (a Chooser laid in a pane), closes first — and one
+ *   overlay pane is open at a time;
  * - **auto** (the default) — pinned while main keeps `minMain` beside the
  *   pinned panes, the start pane placed first; overlaid otherwise, and at
  *   560px and narrower always ({@link placePanes}). The width is the frame's
@@ -85,7 +86,8 @@
  *   the right as the Filters view does (ruled 3 Nov 2026, in place of FR5's
  *   drawer up from the strip), its tabs at its head and its collapse there
  *   (FR4), which closes it, as Esc does. One is open at a time, and the focus moves into it as it opens
- *   and back to its tab as it closes. Each keeps its open tab and its bodies
+ *   — from its tab, or from code, a selection's reveal leaving it closed — and
+ *   back to its tab as it closes. Each keeps its open tab and its bodies
  *   mounted across the width, as the pane does; what it holds is told it is
  *   in a phone's drawer ({@link FrameDrawer}), for its phone form;
  * - in a frame given `phonePanel`, what main's popovers and an open pane's open
@@ -101,7 +103,7 @@
  */
 
 import {
-    Fragment, useCallback, useLayoutEffect, useMemo, useRef, useState,
+    Fragment, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState,
     type CSSProperties, type KeyboardEvent, type MutableRefObject, type ReactNode, type Ref,
 } from "react";
 import { flushSync } from "react-dom";
@@ -113,7 +115,7 @@ import { FrameSessionBand } from "./session-row.js";
 import { useViewEscape } from "./view-escape.js";
 import { FrameOverlaySlot } from "./overlay-slot.js";
 import { FrameDrawer } from "./drawer-context.js";
-import { FramePane, type FramePaneOpen } from "./pane-context.js";
+import { FramePane, type FramePaneHandle } from "./pane-context.js";
 import { FrameBottomPanel } from "./bottom-panel.js";
 import { FramePhoneLayer } from "./frame-layer.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
@@ -131,7 +133,7 @@ export { FrameSessionBand } from "./session-row.js";
 const PHONE_FORM = "phone";
 export { FrameOverlaySlot } from "./overlay-slot.js";
 export { FrameDrawer } from "./drawer-context.js";
-export { FramePane, type FramePaneOpen } from "./pane-context.js";
+export { FramePane, type FramePaneHandle } from "./pane-context.js";
 export { FrameBottomPanel } from "./bottom-panel.js";
 
 export {
@@ -232,8 +234,36 @@ export interface BuilderFrameProps {
     rootProps?: Readonly<Record<string, string | undefined>> | undefined;
     /** The toolbar's element: where a host finds its own items' controls — the search box a key puts the focus on, say. */
     toolbarRef?: Ref<HTMLDivElement> | undefined;
+    /**
+     * The panes as the host's code opens them (#1585): a selection in main revealing the Inspector, a control of the
+     * builder's asking for what a pane holds — never by pressing a pane's own control.
+     */
+    panesRef?: Ref<BuilderFramePanes> | undefined;
     /** Keys pressed anywhere in the frame, its panes included: the host's shortcuts. */
     onKeyDown?: ((event: KeyboardEvent<HTMLDivElement>) => void) | undefined;
+}
+
+/**
+ * The panes as the host's code opens them ({@link BuilderFrameProps.panesRef}, #1585): each as its rail opens it, the
+ * viewer's doing, kept where the pane persists, and the focus left where the viewer has it.
+ */
+export interface BuilderFramePanes {
+    /**
+     * Opens a pane where it is collapsed: what a control of the builder's asked for — the issues chip's Issues, a Find
+     * fix's Library, Enter's Details. On a phone's frame its view opens over the builder, as its strip tab's press opens
+     * it, and the focus moves into it.
+     *
+     * @param side - The pane's side
+     */
+    open(side: "start" | "end"): void;
+    /**
+     * Shows a pane where it is collapsed, as a selection in main shows its Details: on a wider frame as
+     * {@link BuilderFramePanes.open} opens it; on a phone's frame, whose view would cover main, the pane stays closed —
+     * its strip tab says what is selected, and main stays in view.
+     *
+     * @param side - The pane's side
+     */
+    reveal(side: "start" | "end"): void;
 }
 
 /** A pane: one the frame draws, or one its content draws, placed as it is and pinned at its side. */
@@ -414,7 +444,7 @@ function unmeasured(start: BuilderFramePane | undefined, end: BuilderFramePane |
  * @returns The frame
  */
 export function BuilderFrame(props: BuilderFrameProps) {
-    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, rootCss, rootProps, toolbarRef, onKeyDown, loading, busy, liveFooter, phonePanel, phoneViews } = props;
+    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, rootCss, rootProps, toolbarRef, panesRef, onKeyDown, loading, busy, liveFooter, phonePanel, phoneViews } = props;
     const formatters = useFormatters();
     const minMain = props.minMain ?? MIN_MAIN;
     const loadingPitch = props.loadingPitch ?? DEFAULT_LOADING_PITCH;
@@ -443,15 +473,6 @@ export function BuilderFrame(props: BuilderFrameProps) {
         if (!collapsed) lastOpened.current = side;
         collapseOf(side).set(collapsed, "viewer");
     };
-    // What each pane holds opens it by its rail's way (#1585): a form an issue gone to asks a field of, collapsed, opening
-    // the pane it is drawn in. The focus stays where it is: the field asked for takes it as it shows.
-    const openPane = useRef<(side: Side) => void>(() => undefined);
-    openPane.current = (side) => { if (dockOf(side) !== undefined && collapseOf(side).collapsed) toggled(side, false); };
-    const paneOpen = useMemo((): Record<Side, FramePaneOpen> => ({
-        start: { open: () => openPane.current("start") },
-        end: { open: () => openPane.current("end") },
-    }), []);
-
     // ── What the frame measures of itself ───────────────────────────────
     const rootRef = useRef<HTMLDivElement | null>(null);
     const [initialReady, setInitialReady] = useState(false);
@@ -684,6 +705,34 @@ export function BuilderFrame(props: BuilderFrameProps) {
         if (drawer === null || drawer.contains(drawer.ownerDocument.activeElement)) return;
         (drawer.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? drawer.querySelector<HTMLElement>("button, [href], input, [tabindex]"))?.focus({ preventScroll: true });
     });
+    // A pane opened or closed from code (#1585) — by its host (`panesRef`), or by what it holds (`FramePane`) — as its rail
+    // and its collapse do, the viewer's doing. Opened, it leaves the focus where the viewer has it, the field asked for
+    // taking it as it shows; on a phone, whose view covers main, the focus moves in, as the strip tab's press moves it, and
+    // a pane only revealed stays closed. Closed by what it holds, the focus in it goes back to its rail, or its strip tab.
+    const fromCode = useRef<{ open: (side: Side, reveal: boolean) => void; close: (side: Side) => void }>({ open: () => undefined, close: () => undefined });
+    fromCode.current = {
+        open: (side, reveal) => {
+            if (dockOf(side) === undefined || !collapseOf(side).collapsed) return;
+            if (drawn(side)) {
+                if (reveal) return;
+                drawerFocus.current = side;
+            }
+            toggled(side, false);
+        },
+        close: (side) => {
+            if (dockOf(side) === undefined || collapseOf(side).collapsed) return;
+            if (slotRefs[side].current?.contains(rootRef.current?.ownerDocument.activeElement ?? null) === true) railFocus.current = side;
+            toggled(side, true);
+        },
+    };
+    useImperativeHandle(panesRef, (): BuilderFramePanes => ({
+        open: (side) => fromCode.current.open(side, false),
+        reveal: (side) => fromCode.current.open(side, true),
+    }), []);
+    const paneHandles = useMemo((): Record<Side, FramePaneHandle> => ({
+        start: { open: () => fromCode.current.open("start", false), close: () => fromCode.current.close("start") },
+        end: { open: () => fromCode.current.open("end", false), close: () => fromCode.current.close("end") },
+    }), []);
     // The pane the viewer pressed — its rail, its collapse — read as the click starts, before the control it pressed goes
     // with the change: a click the browser dispatched for a press, which need focus nothing (the rail's tile, a button in
     // Safari), or one begun with the focus in the pane. A host that opens or closes a pane from code, clicking its control
@@ -759,7 +808,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                     pressedIn.current = event.isTrusted || slotRefs[side].current?.contains(rootRef.current?.ownerDocument.activeElement ?? null) === true ? side : undefined;
                 }}>
                 <Box css={styles.sheet} style={floating ? { width: sheetWidth === undefined ? size : `${sheetWidth}px`, transform: aside } : undefined}>
-                    <FramePane.Provider value={paneOpen[side]}>
+                    <FramePane.Provider value={paneHandles[side]}>
                     <DockPane
                         storageKey={`${storageKey}.${side}`}
                         side={side}
@@ -809,7 +858,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                 <FrameDrawer.Provider value={true}>
                 <FrameOverlaySlot.Provider value={phoneViews === true && !covered ? overlaySlot : null}>
                 <FrameBottomPanel.Provider value={panelOf(side === "start" ? startPanel : endPanel)}>
-                <FramePane.Provider value={paneOpen[side]}>
+                <FramePane.Provider value={paneHandles[side]}>
                 <DockPane
                     storageKey={`${storageKey}.${side}`}
                     orientation="vertical"

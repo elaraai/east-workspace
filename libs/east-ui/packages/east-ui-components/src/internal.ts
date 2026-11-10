@@ -163,8 +163,8 @@ export { FOOTER_UNFIT, fitFooter, type FooterFit, type FooterFitInput, type Load
 // Whether a pane's body is drawn in a phone's drawer: a builder's inspector draws its phone form there (SH12).
 export { FrameDrawer } from "./layout/builder-frame/drawer-context.js";
 // The pane a part of a builder is drawn in, and the tab of it, as the part opens them: a form an issue gone to asks a
-// field of (#1585).
-export { FramePane, type FramePaneOpen } from "./layout/builder-frame/pane-context.js";
+// field of (#1585); and the pane as the part closes it: a phone's list that sends the viewer to main.
+export { FramePane, type FramePaneHandle } from "./layout/builder-frame/pane-context.js";
 export { DockTab, type DockTabOpen } from "./layout/dock/tab-context.js";
 // What a menu or a Select's list draws in: floating, or a view over the builder in a phone's frame (ruled 4 Nov 2026).
 export { FrameMenuLayer, FramePhoneLayer, FrameSelectLayer, type FrameMenuLayerProps, type FrameSelectLayerProps } from "./layout/builder-frame/frame-layer.js";

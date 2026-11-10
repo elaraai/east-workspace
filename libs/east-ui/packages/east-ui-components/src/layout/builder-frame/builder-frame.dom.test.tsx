@@ -8,7 +8,8 @@
  * main always; a described pane drawn as a `DockPane` — its tabs and its rail,
  * its collapsed state and open tab the host's or its own — and an element
  * pane placed as it is; an overlay pane closed by Esc, the focus back on its
- * rail, and one open at a time, never so wide that less than 48px of main
+ * rail; a pane opened from code — by its host, or by what it holds — and
+ * closed by what it holds; one overlay open at a time, never so wide that less than 48px of main
  * shows beside it; the scrim exactly when the rule says, and a tap on it
  * closing the pane; an overlay pane on a wide frame over a live main; and an
  * open overlay pane stepping aside while a drag is under way.
@@ -20,12 +21,12 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { useState, type ReactNode } from "react";
+import { createRef, useContext, useEffect, useState, type ReactNode } from "react";
 import { system } from "../../theme/index.js";
 import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
 import { pointAt } from "../../testing/drag-layer.js";
 import type { ToolbarItem } from "../../toolbar/index.js";
-import { BuilderFrame, type BuilderFrameDock, type BuilderFrameProps } from "./index.js";
+import { BuilderFrame, FramePane, type BuilderFrameDock, type BuilderFramePanes, type BuilderFrameProps, type FramePaneHandle } from "./index.js";
 import { LoadingLine, type LoadingLineValue } from "./loading-line.js";
 import { keptName } from "../../platform/kept.js";
 
@@ -407,6 +408,24 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
         expect([paneOf("end"), document.activeElement]).toEqual([["overlay", true], inMain]);
     });
 
+    test("a pane its host opens from code (`panesRef`) — the Inspector a selection in main reveals, the Issues the issues chip asks for — opens as its rail opens it, kept where it persists, and leaves the focus where the viewer has it (#1584, #1585)", async () => {
+        const panes = createRef<BuilderFramePanes>();
+        mount({
+            start: library({ defaultCollapsed: true }), end: properties({ mode: "overlay", defaultCollapsed: true, persist: "local" }),
+            panesRef: panes, children: <button type="button">IN MAIN</button>,
+        });
+        frameAt(1200);
+        const inMain = screen.getByRole("button", { name: "IN MAIN" });
+        act(() => { inMain.focus(); });
+        await act(async () => { panes.current!.reveal("end"); });
+        await told();
+        expect([paneOf("end"), document.activeElement, localStorage.getItem(keptName("frame-test.end.dock.collapsed"))]).toEqual([["overlay", false], inMain, "false"]);
+        // A pinned pane, asked for.
+        await act(async () => { panes.current!.open("start"); });
+        await told();
+        expect([paneOf("start"), document.activeElement]).toEqual([["pinned", false], inMain]);
+    });
+
     test("an overlay pane whose body takes the focus as it opens keeps it there — a field an issue gone to names: the pane takes it only where nothing in it has (#1585)", async () => {
         mount({ start: library(), end: properties({ mode: "overlay", defaultCollapsed: true, body: <input aria-label="COST CENTRE" /> }) });
         frameAt(700);
@@ -579,6 +598,13 @@ describe("BuilderFrame — a drag (#1125 F1)", () => {
     });
 });
 
+/** What a pane holds that opens and closes it from inside (`FramePane`): its handle, handed out, and a press sending the viewer to main. */
+function PaneParts({ onHandle }: { onHandle: (pane: FramePaneHandle | undefined) => void }) {
+    const pane = useContext(FramePane);
+    useEffect(() => { onHandle(pane); }, [onHandle, pane]);
+    return <button type="button" onClick={() => pane?.close()}>TO MAIN</button>;
+}
+
 // ── A phone's frame (Mobile Builder Frame Spec.md, ruled 3 Nov 2026) ──────────
 
 /** A pane's drawer on a phone. */
@@ -676,6 +702,45 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
         await act(async () => { fireEvent.click(collapse); });
         await told();
         expect([drawersOpen(), document.activeElement]).toEqual([[false, false], stripTab("start")]);
+    });
+
+    test("a pane its host opens from code (`panesRef`) opens its view as its strip tab does, the focus moved in; one only revealed — the Inspector a selection in main reveals — stays closed, main in view (#1585)", async () => {
+        const panes = createRef<BuilderFramePanes>();
+        mount({ start: library(), end: properties(), panesRef: panes, children: <button type="button">IN MAIN</button> });
+        frameAt(390);
+        const inMain = screen.getByRole("button", { name: "IN MAIN" });
+        act(() => { inMain.focus(); });
+        await act(async () => { panes.current!.reveal("end"); });
+        await told();
+        expect([drawersOpen(), document.activeElement]).toEqual([[false, false], inMain]);
+        await act(async () => { panes.current!.open("start"); });
+        await told();
+        expect([drawersOpen(), stripTab("start").getAttribute("aria-selected"), document.activeElement]).toEqual([[true, false], "true", screen.getByRole("tab", { name: "Cards" })]);
+    });
+
+    test("what a pane holds opens it from inside (`FramePane`) — a form an issue gone to asks a field of — as its strip tab does, the focus moved in, and closes it — a list sending the viewer to main — the focus back on its tab; on a wider frame, back on its rail (#1585)", async () => {
+        let handle: FramePaneHandle | undefined;
+        mount({ start: library({ tabs: [{ key: "cards", label: "Cards", body: <PaneParts onHandle={(pane) => { handle = pane; }} /> }] }), children: <button type="button">IN MAIN</button> });
+        frameAt(390);
+        const inMain = screen.getByRole("button", { name: "IN MAIN" });
+        act(() => { inMain.focus(); });
+        await act(async () => { handle!.open(); });
+        await told();
+        expect([drawerOf("start").hasAttribute("data-open"), document.activeElement]).toEqual([true, screen.getByRole("tab", { name: "Cards" })]);
+        const toMain = () => screen.getByRole("button", { name: "TO MAIN" });
+        await act(async () => { toMain().focus(); fireEvent.click(toMain()); });
+        await told();
+        expect([drawerOf("start").hasAttribute("data-open"), document.activeElement]).toEqual([false, stripTab("start")]);
+        // On a wider frame the pane is pinned: opened from inside, the focus stays where the viewer has it; closed from
+        // inside, it goes back to its rail.
+        frameAt(1440);
+        act(() => { inMain.focus(); });
+        await act(async () => { handle!.open(); });
+        await told();
+        expect([paneOf("start"), document.activeElement]).toEqual([["pinned", false], inMain]);
+        await act(async () => { toMain().focus(); fireEvent.click(toMain()); });
+        await told();
+        expect([paneOf("start"), document.activeElement]).toEqual([["pinned", true], screen.getByRole("button", { name: "Expand Library" })]);
     });
 
     test("a drawer keeps the pane's open tab across the width, under the same storage key", async () => {
