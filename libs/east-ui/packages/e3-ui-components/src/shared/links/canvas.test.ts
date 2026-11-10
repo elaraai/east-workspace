@@ -15,7 +15,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { arrive, paintLinks, traceRoute, type CanvasLink, type CanvasLinkLook, type CanvasPoint } from "./canvas.js";
+import { arrive, paintLinks, traceRoute, unjoined, type CanvasLink, type CanvasLinkLook, type CanvasPoint } from "./canvas.js";
 
 /** One path op as the context took it. */
 type Op = readonly [string, ...number[]];
@@ -140,6 +140,13 @@ describe("traceRoute", () => {
     });
 });
 
+describe("unjoined", () => {
+    test("puts a zero-width non-joiner after each f that meets an f, an i or an l, and leaves every other text as it was", () => {
+        expect(unjoined("office staff fill flow")).toBe("of\u200Cf\u200Cice staf\u200Cf f\u200Cill f\u200Clow");
+        expect(unjoined("fjord · OFFICE · RACK-07")).toBe("fjord · OFFICE · RACK-07");
+    });
+});
+
 describe("paintLinks", () => {
     test("every link's casing lies under every link's ink: the paper a px either side of each run, and round each head", () => {
         const { ctx, drawn } = recorder();
@@ -175,11 +182,12 @@ describe("paintLinks", () => {
         expect(selected.drawn.filter((d) => d.style === "outline").map((d) => [d.op, d.width, d.path])).toEqual([["stroke", 1, [["rect", 17, 13.5, 86, 12]]]]);
     });
 
-    test("a caption is measured for its knockout and drawn with the font's joins off, as the page draws the SVG layer's: a canvas's text need not take the page's CSS", () => {
+    test("a caption is measured for its knockout and drawn with its letters unjoined — the font's joins off, and a non-joiner in each pair it would join for a canvas with no `textRendering` — as the page draws the SVG layer's: a canvas's text need not take the page's CSS", () => {
         const { ctx, drawn, measured } = recorder();
         paintLinks(ctx, [link("a", ROUTE, { caption: { text: "office staff", x: 60, y: 23 } })], LOOK);
-        expect(measured).toEqual([{ text: "office staff", rendering: "optimizeSpeed" }]);
-        expect(drawn.filter((d) => d.op === "text").map((d) => [d.text, d.rendering])).toEqual([["office staff", "optimizeSpeed"]]);
+        // Measured as it is drawn, so its knockout is as wide as what it draws.
+        expect(measured).toEqual([{ text: "of\u200Cf\u200Cice staf\u200Cf", rendering: "optimizeSpeed" }]);
+        expect(drawn.filter((d) => d.op === "text").map((d) => [d.text, d.rendering])).toEqual([["of\u200Cf\u200Cice staf\u200Cf", "optimizeSpeed"]]);
         // Turned off for the caption alone: the context is as it was after.
         expect(ctx.textRendering).toBe("auto");
     });

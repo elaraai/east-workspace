@@ -19,13 +19,15 @@
  * resolve theirs (D14). Its labels draw in the font the bridge read from the
  * recipe: the design system's mono face, each letter in a cell of its own —
  * the page turns the face's joins off, which a canvas's text need not take, so
- * every text it draws or measures turns them off itself (`textRendering`). A
- * marker whose colour is its status's while its status is unread — its details
- * row read — draws in the placeholders' fill once the builder's reveal says
- * so, and is unseen before (#1398): never a status it has not read. While what
- * it draws stands in for a new narrowing, its words — a labelled pin's and a
- * link's caption — draw in the third ink, as a zone's eyebrow always does;
- * every mark and edge is as it was (the loading design's retained card).
+ * every text it draws or measures turns them off itself: `textRendering`, and a
+ * non-joiner in each pair the face would join (`unjoined`) for Safari, whose
+ * canvas has no `textRendering`. A marker whose colour is its status's while
+ * its status is unread — its details row read — draws in the placeholders'
+ * fill once the builder's reveal says so, and is unseen before (#1398): never a
+ * status it has not read. While what it draws stands in for a new narrowing,
+ * its words — a labelled pin's and a link's caption — draw in the third ink, as
+ * a zone's eyebrow always does; every mark and edge is as it was (the loading
+ * design's retained card).
  *
  * Its links and nets draw in the shared links look (#1403), through the shared
  * Canvas2D painter (`shared/links/canvas.ts`) the Plan's and the Allocation's
@@ -47,7 +49,7 @@
 
 import { match, type option, type ValueTypeOf } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
-import { arrive, paintLinks, traceHead, traceRoute, type CanvasLink, type CanvasLinkLook } from "../../shared/links/canvas.js";
+import { arrive, paintLinks, traceHead, traceRoute, unjoined, type CanvasLink, type CanvasLinkLook } from "../../shared/links/canvas.js";
 import { placeCaptions, type RibbonCaption } from "../../shared/links/captions.js";
 import { LINK_CAPTION_DROP, LINK_CORNER } from "../../shared/links/look.js";
 import type { SchematicDensity } from "../area.js";
@@ -993,7 +995,7 @@ export function paintSchematic(input: PaintInput): void {
         ctx.save();
         ctx.font = p.labelFont;
         ctx.textRendering = "optimizeSpeed";
-        const w = ctx.measureText(text).width;
+        const w = ctx.measureText(unjoined(text)).width;
         ctx.restore();
         return w;
     };
@@ -1240,7 +1242,7 @@ export function paintSchematic(input: PaintInput): void {
             if (tier === "dot") {
                 ctx.arc(wx(item.x), wy(item.y), dotDrawnRadius(item) + 0.5, 0, Math.PI * 2);
             } else {
-                const box = markerHitbox(item, "label", cam, (t) => ctx.measureText(t).width);
+                const box = markerHitbox(item, "label", cam, (t) => ctx.measureText(unjoined(t)).width);
                 if (box.kind !== "rect") continue;
                 if (ctx.roundRect) ctx.roundRect(box.left - 1, box.top - 1, box.w + 2, box.h + 2, box.h / 2 + 1);
                 else ctx.rect(box.left - 1, box.top - 1, box.w + 2, box.h + 2);
@@ -1338,12 +1340,13 @@ export function paintSchematic(input: PaintInput): void {
         ctx.globalAlpha = brow.alpha;
         ctx.font = p.eyebrowFont;
         ctx.textRendering = "optimizeSpeed";
-        const tw = ctx.measureText(brow.label).width;
+        const label = unjoined(brow.label);
+        const tw = ctx.measureText(label).width;
         ctx.fillStyle = css(p.bgCanvas);
         ctx.fillRect(brow.x + 6, brow.y - 7, tw + 6, 12);
         ctx.fillStyle = muted;
         ctx.textBaseline = "middle";
-        ctx.fillText(brow.label, brow.x + 9, brow.y);
+        ctx.fillText(label, brow.x + 9, brow.y);
         ctx.restore();
     }
     for (const item of plan.alone) {
@@ -1381,7 +1384,7 @@ export function paintSchematic(input: PaintInput): void {
             // label cut before an ellipsis (#1393).
             ctx.font = p.labelFont;
             ctx.textRendering = "optimizeSpeed";
-            const box = markerHitbox(item, "label", cam, t => ctx.measureText(t).width);
+            const box = markerHitbox(item, "label", cam, t => ctx.measureText(unjoined(t)).width);
             if (box.kind === "rect") {
                 const { left, top, w, h, text } = box;
                 ctx.beginPath();
@@ -1407,7 +1410,7 @@ export function paintSchematic(input: PaintInput): void {
                 }
                 ctx.fillStyle = wordsInk;
                 ctx.textBaseline = "middle";
-                ctx.fillText(text, left + PIN_PAD_X + PIN_DOT_W + PIN_GAP, y);
+                ctx.fillText(unjoined(text), left + PIN_PAD_X + PIN_DOT_W + PIN_GAP, y);
             }
         }
         ctx.restore();

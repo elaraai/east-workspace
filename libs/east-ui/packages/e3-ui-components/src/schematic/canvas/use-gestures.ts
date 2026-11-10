@@ -30,6 +30,7 @@ import { StringType, equalFor, type option } from "@elaraai/east";
 import { SCHEMATIC_WINDOW_ROWS } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, takeKey, typedInto, type Origin } from "@elaraai/east-ui-components";
 import { keepsSpace, keyFromPage, keyInFrame } from "../../shared/frame-keys.js";
+import { unjoined } from "../../shared/links/canvas.js";
 import { densityInView } from "../area.js";
 import type { SchematicValue } from "../data.js";
 import type { SchematicMove } from "../editing.js";
@@ -474,7 +475,7 @@ export function useGestures({
     // the items it joins where they draw at the zoom — a card's side as the page lays it out, a pin's edge, a dot's rim
     // — its heads, and a link's handles. What a tap, a hover, a drop and a selected link's handles meet: hit-testing is
     // the drawing (invariant 9). A pin's label is measured in the painter's font, its letters unjoined as the painter
-    // draws them (`textRendering`), else reckoned at 6px a letter.
+    // draws them (`textRendering`, `unjoined`), else reckoned at 6px a letter.
     const routesAt = useCallback((cam: { ppu: number; tx: number; ty: number }) => {
         const snap = renderSnapRef.current;
         const ctx = drawRef.current?.getContext("2d") ?? null;
@@ -484,7 +485,7 @@ export function useGestures({
             ctx.save();
             ctx.font = labelFont;
             ctx.textRendering = "optimizeSpeed";
-            const w = ctx.measureText(text).width;
+            const w = ctx.measureText(unjoined(text)).width;
             ctx.restore();
             return w;
         };
@@ -763,7 +764,7 @@ export function useGestures({
             if (accept !== undefined && !accept(it.key)) continue;
             const tier = tiers.get(it.key) ?? lod;
             if (tier === "card") continue;
-            const box = markerHitbox(it, tier, camScreen, t => measuring ? ctx.measureText(t).width : t.length * 6);
+            const box = markerHitbox(it, tier, camScreen, t => measuring ? ctx.measureText(unjoined(t)).width : t.length * 6);
             if (!markerHit(box, sx, sy)) continue;
             const d = Math.hypot(it.x * ppuLive + cam.tx - sx, it.y * ppuLive + cam.ty - sy);
             if (d < bestD) { best = it; bestD = d; }

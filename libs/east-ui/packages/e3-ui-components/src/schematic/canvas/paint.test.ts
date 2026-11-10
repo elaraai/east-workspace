@@ -293,7 +293,7 @@ describe("its text, its letters unjoined", () => {
         ...defaultValue<typeof T.Zone>(T.Zone), x: 0, y: 4, width: 14, height: 4, label: "Offices", pattern: variant("outline", { tone: none }),
     });
 
-    it("draws and measures every text — a pin's label, a link's caption, a zone's eyebrow, a conflict's ring — with the face's joins off, as the page draws its own: a canvas's text need not take the page's CSS", () => {
+    it("draws and measures every text — a pin's label, a link's caption, a zone's eyebrow, a conflict's ring — with the face's joins off and a non-joiner in each pair it would join, as the page draws its own: a canvas's text need not take the page's CSS, and Safari's has no `textRendering`", () => {
         const { ctx, texts, shaped } = recorder();
         paintSchematic({
             ctx, value: { items: [office, staff], zones: [hall], links: [run], nets: [] }, cam: { ppu: 20, tx: 0, ty: 0 }, width: 300, height: 200,
@@ -301,9 +301,11 @@ describe("its text, its letters unjoined", () => {
             centers: new Map([[office.key, { x: 2, y: 2 }], [staff.key, { x: 12, y: 2 }]]), palette: PALETTE, tints: new Map(),
             conflicted: new Set([office.key]),
         });
-        expect(texts.map((text) => text.text).sort()).toEqual(["OFFICES", "fill · flow", "office", "staff"]);
-        // Each drawn, and measured — for its knockout, its pill, its ring, and the ends of the run between the pins.
+        expect(texts.map((text) => text.text).sort()).toEqual(["OFFICES", "f\u200Cill · f\u200Clow", "of\u200Cf\u200Cice", "staf\u200Cf"]);
+        // Each drawn, and measured — for its knockout, its pill, its ring, and the ends of the run between the pins —
+        // as the same text, so what a hitbox measures is what is drawn.
         expect(shaped.filter((s) => s.op === "measure").length).toBeGreaterThan(texts.length);
+        expect(texts.filter((text) => !shaped.some((s) => s.op === "measure" && s.text === text.text))).toEqual([]);
         expect(shaped.filter((s) => s.rendering !== "optimizeSpeed")).toEqual([]);
     });
 });
