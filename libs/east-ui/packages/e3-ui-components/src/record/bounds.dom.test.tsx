@@ -130,3 +130,23 @@ test("a stored number outside its bounds is washed and said once, as a warning, 
     await settle();
     expect(await coatsSaid(container)).toEqual(["1–4", "error"]);
 });
+
+test("the Inspector collapsed at Issues, the toolbar's issue pressed opens it at Details, and the hall door's Coats takes the keyboard (#1585)", async () => {
+    const pieces = await h.read(ex.recordPieces);
+    pieces.set("J-101", { ...pieces.get("J-101")!, finish: variant("paint", { colour: "Teal", coats: 0n, gloss: variant("matt", null) }) });
+    await h.patch(ex.recordPieces, pieces);
+    const { container } = await h.mount({ fn: piecesBounded }, { storageKey: "record-bounds-go-to" });
+    await typeInto(container, "J-101", "room", "Hall, east");
+    expect(saveWaits(container)).toBe(true);
+    // The Inspector left at Issues, and collapsed.
+    await act(async () => { fireEvent.click(issuesTab(container)); });
+    await settle();
+    await act(async () => { fireEvent.click(within(pane(container)).getByRole("button", { name: "Collapse Inspector" })); });
+    await settle();
+    expect(pane(container).hasAttribute("data-collapsed")).toBe(true);
+    await act(async () => { fireEvent.click(slot(container, "toolbar")!.querySelector<HTMLButtonElement>('[data-slot="historyIssues"] button')!); });
+    await settle();
+    const open = pane(container).querySelector("[role='tab'][aria-selected='true']")?.textContent;
+    const coats = pane(container).querySelector("[role='tabpanel']:not([hidden]) [data-field='finish.paint.coats']");
+    expect([pane(container).hasAttribute("data-collapsed"), open, coats?.contains(document.activeElement) === true]).toEqual([false, "Details", true]);
+});
