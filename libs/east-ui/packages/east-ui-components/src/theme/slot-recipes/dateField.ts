@@ -9,7 +9,10 @@
  * time fields (#1220): the shared input chrome, filling its field, each size
  * one line of `fieldHeights` with the segments centred in it, in the type a
  * text of its size takes — the time's segments take it from the shell — and
- * the 44px touch height, its type 16px, on a coarse pointer.
+ * the 44px touch height, its type 16px, on a coarse pointer. A date's and a
+ * time's segments are set in the design system's mono face with tabular
+ * figures, as every numeral is: the `input` sets the date's, wherever a date
+ * field is drawn, and a shell the time's.
  *
  * @packageDocumentation
  */
@@ -19,6 +22,8 @@ import { fieldChrome, fieldFocusRing, fieldInRingedControl, fieldHeights, TOUCH_
 /** A ringed date/time wrapper, also used by the two range fields. */
 const segmentedFieldChrome = {
     ...fieldChrome,
+    fontFamily: "mono",
+    fontVariantNumeric: "tabular-nums",
     display: "inline-flex",
     alignItems: "center",
     gap: "{spacing.2}",
@@ -39,6 +44,7 @@ export const dateFieldSlotRecipe = defineSlotRecipe({
         input: {
             display: "inline-flex", border: "none", padding: "0", alignItems: "center", gap: "0",
             background: "transparent", cursor: "text", whiteSpace: "nowrap", flexWrap: "nowrap",
+            fontFamily: "mono", fontVariantNumeric: "tabular-nums",
             _focus: { outline: "none" },
             "&[data-readonly]": { opacity: "0.8", cursor: "not-allowed" },
         },
