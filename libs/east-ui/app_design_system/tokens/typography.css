@@ -13,6 +13,10 @@
   --font-brand: 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-body:  'Inter Tight', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono:  'Chivo Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  /* No letters joined, as in the app: a mono letter takes one cell, and Chivo
+     Mono's joins draw ff, fi, fl, ffi and ffl each in one, which breaks its
+     columns. Inherited by every element of the page. */
+  font-variant-ligatures: no-common-ligatures;
 
   /* sizes — only the sizes the guidelines use.
      labels (mono): 9.5 annotation lines, section eyebrows · 10 eyebrows, table
