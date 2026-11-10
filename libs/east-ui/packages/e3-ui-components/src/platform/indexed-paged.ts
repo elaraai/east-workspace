@@ -170,7 +170,9 @@ export function indexedBindingOf(id: string): IndexedBindingRead | undefined {
  * the binding's own, or the binding's with what the source shows of it after —
  * its unfiltered view ({@link INDEXED_ROWS_SUFFIX}), or a record Slice's
  * narrowing of it ({@link RECORD_SLICE_DATA_MARK} and the Slice's key), the
- * marks the sources' builders add.
+ * marks the sources' builders add. A Slice's key is its author's, and may end
+ * as the unfiltered view's id does: an id that is no binding's unfiltered view
+ * is still read as a Slice's.
  *
  * @param id - The source's id, as its handle carries it
  * @returns The binding read; `undefined` for a source of no binding built here
@@ -178,7 +180,10 @@ export function indexedBindingOf(id: string): IndexedBindingRead | undefined {
 export function indexedBindingOfSource(id: string): IndexedBindingRead | undefined {
     const own = bindingsById.get(id);
     if (own !== undefined) return own;
-    if (id.endsWith(INDEXED_ROWS_SUFFIX)) return bindingsById.get(id.slice(0, id.length - INDEXED_ROWS_SUFFIX.length));
+    if (id.endsWith(INDEXED_ROWS_SUFFIX)) {
+        const unfiltered = bindingsById.get(id.slice(0, id.length - INDEXED_ROWS_SUFFIX.length));
+        if (unfiltered !== undefined) return unfiltered;
+    }
     // A binding's id holds no Slice's mark; the Slice's key after it may.
     const narrowed = id.indexOf(RECORD_SLICE_DATA_MARK);
     return narrowed < 0 ? undefined : bindingsById.get(id.slice(0, narrowed));

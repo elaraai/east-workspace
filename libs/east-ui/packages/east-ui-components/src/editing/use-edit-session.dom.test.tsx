@@ -160,6 +160,67 @@ test("a keyed paged source's conflicting Save carries its drafts over to the rev
     expect([...session().conflicts.keys()]).toEqual(["b"]);
 });
 
+test("a positional source's entries are read back from the windows its rows are read in, at most eight still to land at a time: an entry of a window the pass has read is judged from it, and a window it has not read waits for a later pass (#1596)", async () => {
+    initializeStore(new UIStore());
+    // Twenty runs in windows of two. A Save changes two runs of the first window and one of each other; read back, the
+    // first window lands at once and the others only once the test says so.
+    const stored = Array.from({ length: 20 }, (_, i) => ({ id: `r${String(i).padStart(2, "0")}`, end: BigInt(i) }));
+    const edited = ["r00", "r02", "r04", "r06", "r08", "r10", "r12", "r14", "r16", "r01", "r18"];
+    const held = { revision: "r1", runs: stored, landed: (start: number): boolean => start === 0 };
+    const asked: number[] = [];
+    const sourceAt = (): EditSource<Bar> => ({
+        pageSize: 2,
+        page: (offset, count) => {
+            const start = Number(offset);
+            asked.push(start);
+            return held.landed(start) ? some(held.runs.slice(start, start + Number(count)).map((run) => ({ key: run.id, end: run.end }))) : none;
+        },
+        revision: () => some(held.revision),
+        refresh: () => null,
+        seek: none,
+    });
+    const editing: EditingValue = {
+        ...editingOf(false), sourceId: "bars-windows", snapshot: none,
+        readEntry: (id, offset) => {
+            const run = held.runs[Number(offset)];
+            return run?.id === id ? some(encodeRun(run)) : none;
+        },
+        onApply: some(variant("sync", () => {
+            held.runs = stored.map((run) => (edited.includes(run.id) ? { id: run.id, end: run.end + 100n } : run));
+            held.revision = "r2";
+            return variant("applied", { revision: some("r2") });
+        })),
+    };
+    const bars = stored.map((run) => ({ key: run.id, end: run.end }));
+    const positions = stored.map((_, i) => i);
+    const hook = renderHook(({ source }) => useEditSession<Bar>(editing, source, bars, positions, "bars-windows", { idOf }), { initialProps: { source: sourceAt() } });
+    act(() => {
+        const { session, original } = hook.result.current;
+        session.record(edited.map((id) => {
+            const before = original(id);
+            const run = stored.find((one) => one.id === id)!;
+            return { id, before, after: { ...before, draft: { id: variant("value", id), end: variant("value", run.end + 100n) } } };
+        }), "typed", "Edit runs");
+    });
+    asked.length = 0;
+    await act(async () => { await hook.result.current.session.apply(); });
+    hook.rerender({ source: sourceAt() });
+    await act(async () => { await Promise.resolve(); });
+    const session = () => hook.result.current.session;
+    expect(session().status).toBe("reconciling");
+    // The first window landed: both its entries are judged from it, the second after eight other windows were asked for.
+    expect(session().unresolvedIdsAt("r2")).toEqual(["r02", "r04", "r06", "r08", "r10", "r12", "r14", "r16", "r18"]);
+    // Eight windows are in flight, and the tenth, which no pass has read, waits for one of them.
+    expect([...new Set(asked)].sort((a, b) => a - b)).toEqual([0, 2, 4, 6, 8, 10, 12, 14, 16]);
+    // They land: the tenth is read, and every entry is confirmed.
+    held.landed = () => true;
+    hook.rerender({ source: sourceAt() });
+    await act(async () => { await Promise.resolve(); });
+    hook.rerender({ source: sourceAt() });
+    await act(async () => { await Promise.resolve(); });
+    expect(asked).toContain(18);
+    expect([session().status, session().pending]).toEqual(["idle", 0]);
+});
 
 test("hidden and paged-out drafts retain history and Save confirms them by primary identity", async () => {
     initializeStore(new UIStore());

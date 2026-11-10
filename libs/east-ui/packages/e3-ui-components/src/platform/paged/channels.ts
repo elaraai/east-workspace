@@ -76,8 +76,22 @@ export const MAX_RETAINED_WINDOWS = 24;
  * row at a time — a sheet's row checks, its cells from data — leaves the
  * windows those rows came from where they are. A cut of more rows is a window
  * of the cap's, as one fetched is: at most this many rows are held by cuts.
+ * Past it the runtime keeps the cuts its readers hold, as it keeps their
+ * windows, and at most {@link CUTS_BETWEEN_LOOKS} that none does.
  */
-const MAX_RETAINED_CUTS = 4096;
+export const MAX_RETAINED_CUTS = 4096;
+
+/**
+ * How many one-row cuts are kept, past {@link MAX_RETAINED_CUTS}, between two
+ * looks at them all (#1596). A look that leaves more than the cap leaves only
+ * cuts a reader holds, each held until its reader lets it go: another look
+ * would ask of every one of them whether a reader holds it, to let none go —
+ * and a read past the cap is what looks, so a reader of 5,000 rows a row at a
+ * time asked 25 million times a run. The cuts are looked at again once a
+ * reader lets one go, or once this many more have been kept, which are the
+ * only ones that can go.
+ */
+export const CUTS_BETWEEN_LOOKS = MAX_RETAINED_CUTS / 4;
 
 /**
  * The channels of every dataset's snapshot, and their fetches: the paging runtime's first layer.
@@ -92,6 +106,12 @@ export class PagedChannels extends TrackedChannelStore<PageEntry> {
 
     /** The one-row windows cut from a landed one, least-recently-READ order (#1596): apart from {@link loadedWindows}, whose cap they never press on. */
     protected readonly cutWindows = new Map<string, true>();
+
+    /**
+     * How many cuts have been kept since {@link trimCuts} last looked at them all and left more than the cap, every
+     * one left a reader's; `undefined` while the next read past the cap is to look ({@link CUTS_BETWEEN_LOOKS}).
+     */
+    private cutsSinceLook: number | undefined;
 
     /** Each dataset's snapshot, by workspace and path. */
     protected readonly snapshots = new Map<string, Snapshot>();
@@ -129,6 +149,7 @@ export class PagedChannels extends TrackedChannelStore<PageEntry> {
         this.clearChannels();
         this.loadedWindows.clear();
         this.cutWindows.clear();
+        this.cutsSinceLook = undefined;
         this.bursts.clear();
         this.cancelLanding();
         this.landed.clear();
@@ -466,7 +487,11 @@ export class PagedChannels extends TrackedChannelStore<PageEntry> {
             return;
         }
         if (this.loadedWindows.has(key)) this.trimWindows();
-        else if (this.cutWindows.has(key)) this.trimCuts();
+        else if (this.cutWindows.has(key)) {
+            // A reader let a cut go, one the last look may have left for its sake: the cuts are looked at again.
+            this.cutsSinceLook = undefined;
+            this.trimCuts();
+        }
     }
 
     /** Whether a channel is due a fetch: never fetched, evicted, or failed
@@ -665,6 +690,18 @@ export class PagedChannels extends TrackedChannelStore<PageEntry> {
     }
 
     /**
+     * Keep a one-row window cut from a landed one, or from the row a read by
+     * key holds, apart from the windows (#1596): the most recently read of the
+     * cuts, and one more kept since they were last looked at ({@link trimCuts}).
+     *
+     * @param key - The cut's channel
+     */
+    protected keepCut(key: string): void {
+        this.cutWindows.set(key, true);
+        if (this.cutsSinceLook !== undefined) this.cutsSinceLook += 1;
+    }
+
+    /**
      * Note a one-row cut as most-recently-read (#1596), and let the coldest no
      * reader holds go past {@link MAX_RETAINED_CUTS} ({@link trimCuts}). Read
      * again, one is cut again from what it came from, for nothing.
@@ -681,14 +718,28 @@ export class PagedChannels extends TrackedChannelStore<PageEntry> {
      * Past {@link MAX_RETAINED_CUTS} one-row cuts, let the least recently read
      * that no reader holds go, coldest first, as {@link trimWindows} lets
      * windows go (#1596).
+     *
+     * A look that leaves more than the cap leaves only cuts a reader holds —
+     * one it subscribes to, or one the read in hand has read, which it
+     * subscribes to as it ends — and each stays held until its reader lets it
+     * go. Looking again meanwhile asks of every one whether a reader holds it,
+     * to let none go, and every read of a cut past the cap is what looks: a
+     * reader of more rows a row at a time than the cap would ask as many times
+     * as its rows, squared, a run. So the cuts are not looked at again until
+     * one may go: a reader lets a cut go ({@link letGo}), or
+     * {@link CUTS_BETWEEN_LOOKS} more have been kept ({@link keepCut}), which
+     * are the only cuts no reader may hold. Until then at most that many cuts
+     * no reader holds stand past the cap.
      */
     protected trimCuts(): void {
         if (this.cutWindows.size <= MAX_RETAINED_CUTS) return;
+        if (this.cutsSinceLook !== undefined && this.cutsSinceLook < CUTS_BETWEEN_LOOKS) return;
         for (const candidate of [...this.cutWindows.keys()]) {
             if (this.cutWindows.size <= MAX_RETAINED_CUTS) break;
             if (this.isTracked(candidate) || this.isSubscribed(candidate)) continue;
             this.dropChannel(candidate);
         }
+        this.cutsSinceLook = this.cutWindows.size > MAX_RETAINED_CUTS ? 0 : undefined;
     }
 
     /**

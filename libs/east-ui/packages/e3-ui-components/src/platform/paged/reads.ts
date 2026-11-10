@@ -167,7 +167,7 @@ export class PagedReads extends PagedChannels {
             delete into.failedAtMs;
             delete into.permanent;
             // A one-row cut is kept apart from the windows it is cut from (#1596); one of more rows is a window of the cap's.
-            if (limit === 1) this.cutWindows.set(key, true);
+            if (limit === 1) this.keepCut(key);
             // The covering window was read, through its cut.
             this.touchWindow(landed);
             return;

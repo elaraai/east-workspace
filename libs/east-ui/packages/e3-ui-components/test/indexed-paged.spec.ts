@@ -748,7 +748,12 @@ test("a Save's rows are read back by key as the binding's windows hold them: the
     assert.deepEqual(viaRows.get("missing"), none, "a key the record does not hold");
     const viaSlice = await h.ready(() => readBack(`${peopleBinding.id}${RECORD_SLICE_DATA_MARK}test.people`, Person)(["p2", "missing"])!);
     assert.ok(rowEqual(viaSlice.get("p2") as option<ValueTypeOf<typeof Person>>, some({ name: "Abe", skills: new Set<string>() })), "the same, through a Slice's narrowing");
-    assert.equal(h.requests("rows", `records.${people.name}`).length, 1, "one read of rows, which the second answers from");
+    // A Slice's key may end as the unfiltered view's id does: its source is still the Slice's narrowing of the binding.
+    const viaKeyed = readBack(`${peopleBinding.id}${RECORD_SLICE_DATA_MARK}test.people${INDEXED_ROWS_SUFFIX}`, Person)(["p2", "missing"]);
+    assert.ok(viaKeyed?.type === "some", "a Slice whose key ends in the unfiltered view's suffix is read through its binding, in one read");
+    assert.ok(rowEqual(viaKeyed.value.get("p2") as option<ValueTypeOf<typeof Person>>, some({ name: "Abe", skills: new Set<string>() })), "the same again");
+    assert.deepEqual(viaKeyed.value.get("missing"), none);
+    assert.equal(h.requests("rows", `records.${people.name}`).length, 1, "one read of rows, which the others answer from");
     assert.equal(readBack(`${machinesHandle.id}${INDEXED_ROWS_SUFFIX}`, nx.NestedMachine)(["M-007"]), undefined,
         "beside a nested series index the binding's windows hold lean rows: none is read whole by its key, and the Save reads them as its windows do");
     assert.equal(h.requests("rows", `records.${machines.name}`).length, 0);

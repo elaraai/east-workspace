@@ -144,7 +144,7 @@ export {
 } from "./paged/api.js";
 export { pagedRevisionKey, pagedWindowKey, pagedTotalKey, pagedSeekKey, pagedBatchKey } from "./paged/keys.js";
 export { MAX_WITHIN_KEYS, MAX_HELD_PLACEMENTS } from "./paged/state.js";
-export { type PagedLandingFrame, MAX_RETAINED_WINDOWS } from "./paged/channels.js";
+export { type PagedLandingFrame, MAX_RETAINED_WINDOWS, MAX_RETAINED_CUTS, CUTS_BETWEEN_LOOKS } from "./paged/channels.js";
 export { type PagedRuntimeProbe, setPagedRuntimeProbe } from "./paged/reads.js";
 
 /** The decoded descriptor arguments as a selector. */
@@ -308,7 +308,7 @@ export class PagedRuntime extends PagedBatches {
                             own.window = new SortedMap([[held.key, held.row.value]], compareFor(keyType));
                             own.span = { family, offset, count: 1 };
                             delete own.error;
-                            this.cutWindows.set(key, true);
+                            this.keepCut(key);
                         }
                     }
                     // A window one in flight covers waits on it, asking nothing of its own (#1596): its rows are cut from

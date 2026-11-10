@@ -49,7 +49,9 @@ import { RecordLevelType, datasetRowsType, indexWindowType, type TreePath } from
 import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
 import type { E3Request } from "../src/e3-web.test-utils.js";
 import {
+    CUTS_BETWEEN_LOOKS,
     MAX_HELD_PLACEMENTS,
+    MAX_RETAINED_CUTS,
     MAX_RETAINED_WINDOWS,
     MAX_WITHIN_KEYS,
     PagedRuntime,
@@ -2077,6 +2079,60 @@ describe("PagedRuntime — a window a reader holds is never evicted under it", (
         for (let row = 0; row < length; row++) assert.equal(callPage(runtime, BigInt(row), 1n).type, "some");
         assert.equal(callPage(runtime, 0n, BigInt(length)).type, "some", "the window they are cut from stays");
         assert.equal(windows().length, 1, "every cut from the window that landed, nothing asked again");
+    });
+
+    test("a reader of more rows a row at a time than the one-row cuts the runtime keeps has them looked at once as it cuts them: its cuts stay, and reading them again looks at none to let one go; cuts no reader holds go once a look's worth more are kept, and the cuts are back within the cap once the reader lets its own go (#1596)", async () => {
+        /** A runtime that counts how often it asks whether a reader holds a channel: what a look at the cuts asks of each. */
+        class LookingRuntime extends HoldingRuntime {
+            looks = 0;
+            protected override isTracked(key: string): boolean { this.looks += 1; return super.isTracked(key); }
+            protected override isSubscribed(key: string): boolean { this.looks += 1; return super.isSubscribed(key); }
+        }
+        // More rows than the cuts the runtime keeps, as a sheet's row checks read over its resident windows, and twice
+        // as many more as are kept between two looks, which no reader will hold.
+        const held = MAX_RETAINED_CUTS + 904;
+        const length = held + 2 * CUTS_BETWEEN_LOOKS;
+        await h.write(rows, Array.from({ length }, (_, i) => BigInt(i)));
+        const { runtime } = await known(new LookingRuntime());
+        const page = handleOf(runtime, rowsTypeValue, rowsPath).page;
+        const source = runtime.sourceOf(handleOf(runtime, rowsTypeValue, rowsPath).id);
+        assert.ok(source !== undefined, "the runtime serves the handle it built");
+        // A reader of every row in one window, and of its first rows a row at a time: each a one-row cut of that window.
+        const reader = readerOf(runtime, () => {
+            if (page(0n, BigInt(length)).type === "none") return false;
+            for (let row = 0; row < held; row++) assert.equal(page(BigInt(row), 1n).type, "some", `row ${row}`);
+            return true;
+        });
+        assert.equal(reader.run(), false, "the window is asked for");
+        await h.settle();
+
+        // Its first run cuts them all: past the cap every cut is its own, and they are looked at once, not once a cut.
+        runtime.looks = 0;
+        assert.equal(reader.run(), true);
+        assert.ok(runtime.looks <= 2 * held, `cutting ${held} rows asked ${runtime.looks} times whether a reader holds a channel`);
+        await h.settle();
+        assert.equal(runtime.held(source).channels, held + 2, "every cut it holds stays, beside the window and the total");
+
+        // Read again, every cut is one it holds: nothing is looked at to let one go.
+        runtime.looks = 0;
+        assert.equal(reader.run(), true);
+        assert.ok(runtime.looks <= 2 * held, `reading ${held} held cuts again asked ${runtime.looks} times whether a reader holds a channel`);
+        await h.settle();
+        assert.equal(runtime.held(source).channels, held + 2, "and every cut it holds stays");
+
+        // Rows no reader holds, a row at a time: their cuts go as a look's worth have been kept, never piling up.
+        for (let row = held; row < length; row++) assert.equal(page(BigInt(row), 1n).type, "some", `row ${row}`);
+        const { channels } = runtime.held(source);
+        assert.ok(channels <= held + CUTS_BETWEEN_LOOKS + 2,
+            `after ${length - held} cuts no reader holds the runtime holds ${channels} channels: the reader's ${held} cuts, at most ${CUTS_BETWEEN_LOOKS} more, the window and the total`);
+        assert.equal(reader.run(), true, "the reader's cuts were let go under none of them");
+        assert.equal(windows().length, 1, "and nothing was asked again");
+
+        // It lets them go: the cuts are back within the cap.
+        reader.leave();
+        await h.settle();
+        assert.ok(runtime.held(source).channels <= MAX_RETAINED_CUTS + 2,
+            `once its reader lets them go the runtime holds ${runtime.held(source).channels} channels, past the ${MAX_RETAINED_CUTS} cuts it keeps, the window and the total`);
     });
 
     test("a reader of more rows by key than the windows the runtime keeps — each its key sought, then a one-row page at the row found — settles, each key sought once and each row read once; once it lets them go, the windows no reader holds are back within the cap", async () => {

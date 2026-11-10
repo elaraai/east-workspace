@@ -4,7 +4,7 @@
  */
 
 /** Bounded windows over disjoint index ranges; never examines a record row. */
-import { ArrayType, IntegerType, compareFor, none, printFor, some, type option, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, IntegerType, StringType, compareFor, equalFor, none, printFor, some, type option, type ValueTypeOf } from "@elaraai/east";
 import { SeekQueryType, type SeekRangeType } from "../contracts/source.js";
 import type { RecordSlicePlan } from "../platform/slice/record-plan.js";
 
@@ -180,6 +180,7 @@ export interface RecordSliceRuns {
 const printQueries = printFor(ArrayType(SeekQueryType));
 const printQuery = printFor(SeekQueryType);
 const rowOrder = compareFor(IntegerType);
+const sameRevision = equalFor(StringType);
 const MAX_CACHED_RUNS = 128;
 /** Cells whose runs are kept per revision (#1039): a reader wanting more than a batch of searches reads a summary. */
 const MAX_CACHED_CELLS = 1024;
@@ -281,7 +282,7 @@ export class RecordSliceSource<T> {
     private current(): string | undefined {
         const revision = this.reader.revision();
         if (revision.type !== "some") return undefined;
-        if (revision.value !== this.revision) {
+        if (this.revision === undefined || !sameRevision(revision.value, this.revision)) {
             this.resolved.clear();
             this.landed.clear();
             this.cells.clear();
@@ -292,6 +293,19 @@ export class RecordSliceSource<T> {
             this.revision = revision.value;
         }
         return revision.value;
+    }
+
+    /**
+     * Whether the record is no longer at a revision: moved on, or its revision
+     * not known for the moment. What is kept is let go as it moves, as
+     * {@link RecordSliceSource.current} does.
+     *
+     * @param revision - The revision a read began at
+     * @returns Whether what that read made is no longer the record's
+     */
+    private movedFrom(revision: string): boolean {
+        const now = this.current();
+        return now === undefined || !sameRevision(now, revision);
     }
 
     /**
@@ -357,7 +371,7 @@ export class RecordSliceSource<T> {
             if (found.type === "none") pending = true;
             else ranges.push(...found.value);
         }
-        if (this.current() !== revision || pending) return none;
+        if (this.movedFrom(revision) || pending) return none;
         ranges.sort((a, b) => a.row < b.row ? -1 : a.row > b.row ? 1 : 0);
         const runs: Range[] = [];
         let total = 0n;
@@ -433,7 +447,7 @@ export class RecordSliceSource<T> {
         let pending = false;
         for (const batch of batches) {
             const ranges = this.searchAll(index, batch.queries);
-            if (this.current() !== revision) return none;
+            if (this.movedFrom(revision)) return none;
             if (ranges.type === "none") { pending = true; continue; }
             // Landed: every cell it asks is found, and kept for the revision.
             const at = this.askedCells.indexOf(batch);
@@ -474,7 +488,7 @@ export class RecordSliceSource<T> {
         const revision = this.current();
         if (revision === undefined) return none;
         const found = this.searchAll(index, queries);
-        if (this.current() !== revision || found.type === "none") return none;
+        if (this.movedFrom(revision) || found.type === "none") return none;
         for (const range of found.value) {
             if (range.row < 0n || range.count < 0n || range.found !== (range.count > 0n)) throw new Error("The source returned invalid search bounds");
         }
@@ -636,7 +650,7 @@ export class RecordSliceSource<T> {
         let pending = false;
         for (const asked of reads) {
             const parts = read(asked.runs);
-            if (this.current() !== revision) return undefined;
+            if (this.movedFrom(revision)) return undefined;
             if (parts.type === "none") { pending = true; continue; }
             const at = this.askedRuns.indexOf(asked);
             if (at >= 0) this.askedRuns.splice(at, 1);
@@ -750,7 +764,7 @@ export class RecordSliceSource<T> {
             while (available > 0n && remaining > 0n) {
                 const wanted = available < remaining ? available : remaining;
                 const page = this.reader.page(result.index, position, wanted);
-                if (this.current() !== result.revision || page.type === "none") return none;
+                if (this.movedFrom(result.revision) || page.type === "none") return none;
                 const count = BigInt(page.value.length);
                 if (count === 0n || count > wanted) throw new Error("The source page disagrees with its search bounds; refresh the view and retry");
                 rows.push(...page.value);
@@ -771,7 +785,7 @@ export class RecordSliceSource<T> {
     private pageByRuns(result: RecordSliceRuns, window: { rows: T[]; complete: boolean }, runs: readonly Range[]): option<T[]> {
         const expected = runs.reduce((sum, run) => sum + run.count, 0n);
         const rows = this.reader.runsAll!(result.index, runs);
-        if (this.current() !== result.revision || rows.type === "none") return none;
+        if (this.movedFrom(result.revision) || rows.type === "none") return none;
         if (BigInt(rows.value.length) !== expected) throw new Error("The source page disagrees with its search bounds; refresh the view and retry");
         window.rows = rows.value;
         window.complete = true;
@@ -791,7 +805,7 @@ export class RecordSliceSource<T> {
         const resolved = this.resolve(plan);
         if (resolved.type === "none") return none;
         const placement = this.reader.placeAll(resolved.value.index, resolved.value.runs);
-        if (this.current() !== resolved.value.revision || placement.type === "none") return none;
+        if (this.movedFrom(resolved.value.revision) || placement.type === "none") return none;
         if (placement.value.total !== resolved.value.total) throw new Error("The record's placement disagrees with its search bounds; refresh the view and retry");
         return placement;
     }
@@ -819,7 +833,7 @@ export class RecordSliceSource<T> {
             // Entries that fit one read are handed on as they are, the same array whenever they are asked again, so a
             // reader keeping what it made of them by the array finds it.
             const answers = this.reader.withinAll(resolved.value.index, resolved.value.runs, entries);
-            return this.current() !== resolved.value.revision ? none : answers;
+            return this.movedFrom(resolved.value.revision) ? none : answers;
         }
         let held = this.withinParts.get(entries);
         if (held === undefined) {
@@ -840,7 +854,7 @@ export class RecordSliceSource<T> {
             if (answer.type === "none") pending = true;
             else held.answers[i] = answer.value;
         }
-        if (this.current() !== resolved.value.revision || pending) return none;
+        if (this.movedFrom(resolved.value.revision) || pending) return none;
         return some(held.answers.flatMap((answer) => [...answer!]));
     }
 
@@ -856,7 +870,7 @@ export class RecordSliceSource<T> {
         if (resolved.type === "none") return none;
         const result = resolved.value;
         const searched = this.search(result.index, query);
-        if (this.current() !== result.revision || searched.type === "none") return none;
+        if (this.movedFrom(result.revision) || searched.type === "none") return none;
         const queryStart = searched.value.row;
         const queryEnd = queryStart + searched.value.count;
         let row = 0n;

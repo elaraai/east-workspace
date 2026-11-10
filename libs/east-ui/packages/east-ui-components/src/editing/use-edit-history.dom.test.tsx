@@ -6,7 +6,8 @@
  * A history's confirmation of a commit over a source read a window at a time:
  * the entries the collection's own reads hold at the revision
  * committed are judged in one pass, with no request; only the rest are read by
- * their keys, a bounded batch at a time.
+ * their keys, a bounded batch at a time — or, where the source reads several
+ * at once, in one read, asked again as it was until it lands.
  */
 
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -91,4 +92,70 @@ test("only the entries the collection's reads do not hold are read by their keys
     expect(byKey.filter((id) => !unheld.has(id))).toEqual([]);
     expect(new Set(byKey)).toEqual(unheld);
     expect(byKey).toHaveLength(unheld.size);
+});
+
+test("a read of several entries by their keys in flight is asked again as it was until it lands, whatever the collection's reads come to hold or let go meanwhile; an entry it did not ask is asked once it has (#1596)", async () => {
+    const VIEW_KEY = "jobs.view";
+    // The collection's reads hold all but the last eleven: J29 they are still reading, and J30 to J39 they do not hold.
+    const view = { reading: "J29", unheld: new Set(ids.slice(30)), landed: false };
+    let revision = "r1";
+    let rows = new Map<string, JobValue>(ids.map(id => [id, { task: id, qty: 1n }]));
+    const rowOf = (id: string): option<unknown> => { const row = rows.get(id); return row === undefined ? none : some(row); };
+    // Each read of several entries by their keys, as asked: a pass with none left to read asks for none.
+    const asked: string[] = [];
+    const paged: EditHistoryPaged = {
+        revision: () => { trackKey(REVISION_KEY); return some(revision); },
+        refresh: (next) => {
+            if (next.type === "some") revision = next.value;
+            getStore().write(REVISION_KEY, encodeBeast2For(StringType)(revision));
+            return null;
+        },
+        entry: () => { throw new Error("a source that reads several entries at once reads none by its key alone"); },
+        entriesAll: (asking) => {
+            trackKey(VIEW_KEY);
+            if (asking.length > 0) asked.push(asking.join());
+            return view.landed ? some(new Map(asking.map(id => [id, rowOf(id)] as const))) : none;
+        },
+        held: (id) => {
+            trackKey(VIEW_KEY);
+            if (view.unheld.has(id)) return undefined;
+            return id === view.reading ? none : some(rowOf(id));
+        },
+    };
+    const editing: EditingValue = {
+        sourceId: "jobs-in-flight", entryType: toEastTypeValue(Job), draftType: toEastTypeValue(JobDraft),
+        idField: none, children: none, keyType: some(toEastTypeValue(StringType)), snapshot: none, onPatch: none,
+        readEntry: () => none,
+        onApply: some(variant("sync", () => {
+            rows = new Map<string, JobValue>([...rows].map(([id, row]) => [id, { ...row, qty: 5n }]));
+            return variant("applied", { revision: some("r2") });
+        })),
+    };
+    const sources: readonly EditHistorySource<null>[] = [{ editing, paged }];
+    /** The collection's view moves: what its reads hold is read again. */
+    const move = async (change: () => void) => {
+        await act(async () => { change(); getStore().write(VIEW_KEY, encodeBeast2For(IntegerType)(BigInt(asked.length))); });
+    };
+    const hook = renderHook(() => useEditHistory(sources, "in-flight"));
+    const session = hook.result.current.history.session(hook.result.current.keys[0]!)!;
+    await waitFor(() => expect(hook.result.current.available(hook.result.current.keys[0]!)).toBe(true));
+    act(() => { session.record(ids.map(id => ({ id, before: job({ task: id, qty: 1n }), after: job({ task: id, qty: 5n }) })), "typed", "Set quantities"); });
+    asked.length = 0;
+    await act(async () => { await session.apply(); });
+    // The ten entries the collection's reads do not hold are asked for in one read, which is in flight.
+    const unheld = ids.slice(30).join();
+    await waitFor(() => expect(asked.length).toBeGreaterThan(0));
+    expect(asked[0]).toBe(unheld);
+    // The view moves: a window that holds J39 starts loading, and the one that was reading J29 is let go.
+    await move(() => { view.reading = "J39"; view.unheld = new Set([...ids.slice(30, 39), "J29"]); });
+    await move(() => {});
+    // The read in flight is asked again as it was, every pass: never another in its place.
+    expect(asked.length).toBeGreaterThan(1);
+    expect(asked.filter((batch) => batch !== unheld)).toEqual([]);
+    expect(session.status).toBe("reconciling");
+    // It lands: its entries are judged, and J29, which it did not ask, is asked for then.
+    await move(() => { view.landed = true; });
+    await waitFor(() => expect(session.status).toBe("idle"));
+    expect(session.pending).toBe(0);
+    expect(asked.filter((batch, i) => batch !== asked[i - 1])).toEqual([unheld, "J29"]);
 });

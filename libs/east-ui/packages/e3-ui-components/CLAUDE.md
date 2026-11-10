@@ -617,7 +617,12 @@ window no reader holds goes whole, and none a reader holds — what its last run
 read, or the read in hand — is evicted under it, so past the cap it keeps
 theirs alone, each reader bounding them by its own demand, and a reader of
 more windows than the cap, rows read a key at a time among them, settles, each
-read once (#1409, R24); the bounds of at most 1,024 searches a revision apart
+read once (#1409, R24); apart from those, at most 4,096 one-row windows cut
+from a landed one (`MAX_RETAINED_CUTS`, #1596), which cost no request and push
+no window out — past it its readers' cuts alone, and at most 1,024 no reader
+holds until the cuts are next looked at (`CUTS_BETWEEN_LOOKS`: a reader lets
+one go, or as many more are cut), never a look at every cut for each read;
+the bounds of at most 1,024 searches a revision apart
 from a channel (`MAX_LANDED_SEARCHES`, as record Slice keeps its own: what
 batches answered, and a search's own answer once no reader holds its channel);
 at most 40,000 membership answers over every narrowing of a revision, the least

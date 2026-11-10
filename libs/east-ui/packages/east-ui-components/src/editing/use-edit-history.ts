@@ -20,7 +20,7 @@
  * @packageDocumentation
  */
 import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
-import { DictType, decodeBeast2For, fromEastTypeValue, none, some, variant, type EastType, type option } from "@elaraai/east";
+import { DictType, StringType, decodeBeast2For, equalFor, fromEastTypeValue, none, some, variant, type EastType, type option } from "@elaraai/east";
 import { getStore } from "../platform/state-runtime.js";
 import { useTrackedEvaluation } from "../reactive/index.js";
 import { liftDraft } from "./draft.js";
@@ -162,6 +162,61 @@ const KEY_ORDER = some(variant("keyOrder", null));
 const NO_JOINED: readonly EditHistoryJoined<unknown>[] = [];
 /** Each snapshot decoded once, by its bytes: a new snapshot is new bytes. */
 const decodedSnapshots = new WeakMap<Uint8Array, unknown>();
+const sameRevision = equalFor(StringType);
+
+/** A read of several of a source's entries by their keys, in flight: the revision it reads at, and the entries it asks. */
+interface ReadingByKeys {
+    readonly revision: string;
+    readonly ids: readonly string[];
+}
+
+/** Each session's read of several entries by their keys in flight, until it lands ({@link readByKeys}). */
+const readingByKeys = new WeakMap<object, ReadingByKeys>();
+
+/**
+ * Several of a source's entries by their keys, one read at a time (#1596). A
+ * read in flight is asked again as it was until it lands, whichever of its
+ * entries the collection's own reads have come to hold since, and whichever
+ * others they have let go: a read is named by the entries it asks, so asked
+ * for the entries left now it would be let go for another — its request
+ * aborted, and one more sent — at each move of the collection's view while a
+ * Save is confirmed. An entry it does not ask is asked once it has landed.
+ *
+ * @param session - The source's session, which its read in flight is kept by
+ * @param revision - The source's revision
+ * @param ids - The entries left to read by their keys now
+ * @param entriesAll - The source's read of several entries at once
+ * @returns The entries read, by id, none of them while a read is in flight;
+ *   `undefined` for a source that cannot read several at once
+ */
+function readByKeys(
+    session: object, revision: string, ids: readonly string[], entriesAll: NonNullable<EditHistoryPaged["entriesAll"]>,
+): ReadonlyMap<string, option<unknown>> | undefined {
+    const got = new Map<string, option<unknown>>();
+    let left = ids;
+    const flying = readingByKeys.get(session);
+    if (flying !== undefined) {
+        readingByKeys.delete(session);
+        const wanted = new Set(ids);
+        // A read at this revision that an entry left waits on: asked again, as it was.
+        if (sameRevision(flying.revision, revision) && flying.ids.some((id) => wanted.has(id))) {
+            const landed = entriesAll(flying.ids);
+            if (landed === undefined) return undefined;
+            if (landed.type === "none") {
+                readingByKeys.set(session, flying);
+                return got;
+            }
+            for (const [id, entry] of landed.value) got.set(id, entry);
+            left = ids.filter((id) => !landed.value.has(id));
+            if (left.length === 0) return got;
+        }
+    }
+    const read = entriesAll(left);
+    if (read === undefined) return undefined;
+    if (read.type === "some") for (const [id, entry] of read.value) got.set(id, entry);
+    else if (left.length > 0) readingByKeys.set(session, { revision, ids: left });
+    return got;
+}
 
 /**
  * Keep a session per source and one history over them — see the module docs.
@@ -246,9 +301,9 @@ export function useEditHistory<W>(
                     else if (entry.type === "some") got.set(id, entry.value);
                 }
                 // The rest by their keys: in one read where the source reads several at once (#1596), else a bounded batch at a time.
-                const all = part.paged.entriesAll?.(byKey);
+                const all = part.paged.entriesAll === undefined ? undefined : readByKeys(session, revision.value, byKey, part.paged.entriesAll);
                 if (all !== undefined) {
-                    if (all.type === "some") for (const [id, entry] of all.value) got.set(id, entry);
+                    for (const [id, entry] of all) got.set(id, entry);
                 } else {
                     const unheld = held === undefined ? undefined : new Set(byKey);
                     for (const id of session.readIdsAt(revision.value)) {

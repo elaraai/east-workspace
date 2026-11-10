@@ -100,7 +100,13 @@ export interface EditSessionOptions<W> {
 }
 
 const entryOffsets = new WeakMap<object, Map<string, number>>();
-/** How many windows a positional source's entries are read back from at a time, past those landed (#1596). */
+/**
+ * How many windows still to land a positional source's entries are read back
+ * from at a time (#1596). Once a pass has that many in flight, a window it has
+ * not read yet waits for a later pass, landed already or not: reading a window
+ * is what asks for it, so a pass cannot tell one from the other without
+ * asking. An entry of a window the pass has read is judged from it.
+ */
 const WINDOWS_READ_AT_ONCE = 8;
 const stringEqual = equalFor(StringType);
 const printString = printFor(StringType);
@@ -207,11 +213,12 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
             }
             if (at === undefined) continue;
             const start = size === undefined ? at : at - (at % size);
-            if (reading.size === WINDOWS_READ_AT_ONCE && !reading.has(start)) continue;
             // A loaded page distinguishes confirmed absence from an
             // entry whose page has not arrived. Keep this read tracked.
             let page = pages.get(start);
             if (page === undefined) {
+                // With enough windows in flight, one this pass has not read is left for a later pass.
+                if (reading.size === WINDOWS_READ_AT_ONCE) continue;
                 page = source.page(BigInt(start), BigInt(size ?? 1));
                 pages.set(start, page);
             }
