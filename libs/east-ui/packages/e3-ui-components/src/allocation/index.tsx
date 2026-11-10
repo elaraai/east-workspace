@@ -57,7 +57,7 @@ import { BinFocusContext, type BinFocus } from "./bin-focus.js";
 import { AllocationCards } from "./cards.js";
 import { AllocationDataReader, binChoicesOf, initialAllocationData, type AllocationData } from "./data.js";
 import { bookOnto, placeAsk, useAllocationDrag, type DropScene, type LibraryGrip, type Refusal, type Target, type Verdict } from "./drag.js";
-import { PERIODS, useAllocationEditing, type AllocationEditing } from "./editing.js";
+import { PERIODS, binBounds, useAllocationEditing, type AllocationEditing } from "./editing.js";
 import { useAllocationFind, type FoundBin } from "./find.js";
 import { useAllocationFit } from "./fit.js";
 import { AllocationFooter } from "./footer.js";
@@ -266,11 +266,12 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const builtIn = useMemo(() => domain.check(day, plan, context), [domain, day, plan, context]);
     const slots = useMemo(() => domain.slots(day, plan, context), [domain, day, plan, context]);
     const focus = focusOf(selection, plan);
-    // Each bin's row checked against its form's bounds (#1585), once a row's bytes — a draft's as it holds it, else the
-    // stored row: a bin breaking one wears the warn ring, stored or changed, and a stored bin's breach is a warning among
-    // the day's issues, holding no Save — a changed bin's is the refusal its session's readiness raises, which holds Save.
+    // Each bin's row checked against its form's bounds (#1585) — those its Save holds it to, a reservation's quantity none
+    // of them (`binBounds`) — once a row's bytes, a draft's as it holds it, else the stored row: a bin breaking one wears the
+    // warn ring, stored or changed, and a stored bin's breach is a warning among the day's issues, holding no Save — a
+    // changed bin's is the refusal its session's readiness raises, which holds Save.
     const binKind = value.bin.kind.key, binFields = value.bin.kind.fields;
-    const breachesOf = useMemo(() => rowBreaches(binFields, domain.rowType), [binFields, domain]);
+    const breachesOf = useMemo(() => rowBreaches(binFields, domain.rowType, binBounds(value.bin)), [binFields, domain, value.bin]);
     const draftedBins = editing?.bins;
     const binBreaches = useMemo(() => {
         const out = new Map<string, readonly FieldBreach[]>();

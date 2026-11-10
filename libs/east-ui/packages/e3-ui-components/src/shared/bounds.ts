@@ -63,14 +63,16 @@ export function breachOf(issue: EditIssue): FieldBreach | undefined {
 const NO_BREACHES: readonly FieldBreach[] = [];
 
 /**
- * A form's check over its rows as bytes: each row decoded once and checked against the form's bounded fields, kept while
- * its bytes are the same object. A form holding no bounded field decodes nothing.
+ * A form's check over its rows as bytes: each row decoded once and checked against the form's bounded fields — those its
+ * builder holds the row to, where it says, as its Save does — kept while its bytes are the same object. A form holding no
+ * bounded field decodes nothing.
  *
  * @param specs - The row's form, as `Fields.specs` resolved it
  * @param rowType - The row's type
+ * @param heldTo - The bounded fields a row is held to, from the row: every one unless given
  * @returns Each row's breaches, by its bytes
  */
-export function rowBreaches(specs: readonly FieldSpecValue[], rowType: EastType): (bytes: Uint8Array) => readonly FieldBreach[] {
+export function rowBreaches(specs: readonly FieldSpecValue[], rowType: EastType, heldTo?: (row: unknown) => readonly FieldSpecValue[]): (bytes: Uint8Array) => readonly FieldBreach[] {
     const bounded = specs.filter(isBounded);
     if (bounded.length === 0) return () => NO_BREACHES;
     const decode = decodeBeast2For(rowType) as (bytes: Uint8Array) => unknown;
@@ -78,7 +80,8 @@ export function rowBreaches(specs: readonly FieldSpecValue[], rowType: EastType)
     return (bytes) => {
         let found = kept.get(bytes);
         if (found === undefined) {
-            found = fieldBreaches(bounded, decode(bytes));
+            const row = decode(bytes);
+            found = fieldBreaches(heldTo?.(row) ?? bounded, row);
             kept.set(bytes, found);
         }
         return found;

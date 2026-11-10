@@ -34,7 +34,7 @@ const keyEqual = equalFor(StringType);
 /**
  * The fields of the bin kind's form a bin's numbers are held to the bounds of (#1585), from its row: every bounded one,
  * but a reservation's quantity — it holds none until an arrival is booked into it, and is checked once that makes it a
- * bin.
+ * bin. One rule for what holds Save, what wears the warn ring and what Issues lists out of range.
  *
  * @param bin - The bin kind
  * @returns A row's bounded fields
