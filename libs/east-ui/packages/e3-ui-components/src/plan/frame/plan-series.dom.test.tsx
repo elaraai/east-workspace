@@ -59,6 +59,7 @@ import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
 import { act, el, elementKey, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { savedThroughReload } from "../../shared/save-held.test-utils.js";
 import { keptName } from "@elaraai/east-ui-components/internal";
 
 const h = planHarness({ "plan/plan-windows": ex });
@@ -574,6 +575,24 @@ describe("a Save of the jobs read a cell at a time: what it landed, as it left i
         expect(named(guide(c))).toMatch(/^Museum guide, Oct 7, 2026, 06:00 – Oct 7, 2026, 12:00/);
         expect(guide(c)!.hasAttribute("data-draft")).toBe(false);
         expect(drawn(c)).toEqual(await drawnWhole());
+    });
+
+    test("the check every builder runs: a job a Save moved draws where the Save left it at every change of the page, from the press of Save until the cells are read again", async () => {
+        const { container: c } = await h.mount(seriesPlan);
+        await settle();
+        await select(bar(c, "W-0001", "P-1001")!);
+        await select(guide(c)!, true);
+        await press(action(c, "shift:1day"));
+        expect(pending(c)).toBe("2 pending");
+        await savedThroughReload({
+            e3: h.e3,
+            container: c,
+            reads: through(SERIES),
+            // When the guide's bar says it starts.
+            look: () => named(guide(c))?.split(" – ")[0] ?? null,
+            save: () => { fireEvent.click(save(c)); },
+            unsaved: () => pending(c) !== "0 pending",
+        });
     });
 
     test("Details shows a job's field as Save wrote it while the cells are read again, never its old value, nor marked a change", async () => {

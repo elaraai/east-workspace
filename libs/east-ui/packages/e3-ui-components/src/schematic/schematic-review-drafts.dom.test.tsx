@@ -34,6 +34,7 @@ import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import type { E3Hold, E3Request } from "../e3-web.test-utils.js";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import { savedThroughReload } from "../shared/save-held.test-utils.js";
 import { entityId } from "./canvas/drawn.js";
 import { at, cameraOf, card, fitted, layOutCanvas, near, tap, unsaved, zoomInto } from "./schematic.test-utils.js";
 import "./index.js";
@@ -595,6 +596,30 @@ test("a rack Save moved draws where the Save left it while its window is read ag
     const racks = await h.read(ex.schematicRacks);
     await h.patch(ex.schematicRacks, new Map([...racks].filter(([key]) => !stringEqual(key, "A01"))));
     await waitFor(() => expect(card(container, "racks", "A01")).toBeNull(), { timeout: 5_000 });
+});
+
+test("the check every builder runs: a rack Save moved stands where the Save left it at every change of the page, from the press of Save until its window is read again", async () => {
+    const { container } = await open();
+    await moveA01(container, 2.4, 5.0);
+    await savedThroughReload({
+        e3: h.e3,
+        container,
+        reads: areaRead,
+        // Where each rack's card stands.
+        look: () => CENTRES.map(([key]) => [key, card(container, "racks", key)?.style.transform ?? null]),
+    });
+});
+
+test("the check every builder runs, over racks read whole: a rack Save moved stands where the Save left it at every change of the page, until its record is read again", async () => {
+    const { container } = await open(runsFloor);
+    await moveA01(container, 2.4, 5.0);
+    await savedThroughReload({
+        e3: h.e3,
+        container,
+        // Every read of the racks: the drawing's own, which its Save's confirmation reads through too.
+        reads: (request) => request.dataset === RACKS_DATASET,
+        look: () => CENTRES.map(([key]) => [key, card(container, "racks", key)?.style.transform ?? null]),
+    });
 });
 
 test("a rack Save unplaced draws nowhere while its window is read again, the Backlog listing it, and so once read", async () => {

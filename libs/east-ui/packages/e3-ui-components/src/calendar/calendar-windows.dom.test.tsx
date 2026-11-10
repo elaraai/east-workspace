@@ -61,6 +61,7 @@ import * as pe from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
 import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
+import { savedThroughReload } from "../shared/save-held.test-utils.js";
 import { eventKey, parseResourceKey, resourceKey, DAY } from "./model.js";
 import { TIMELINE_GUTTER, timelinePixels } from "./timeline.js";
 import type { CalendarCommands } from "./actions.js";
@@ -1110,6 +1111,20 @@ describe("a Save over the paged presses: what it landed, as it left it, while th
         expect(jobEvent(c, "W-0001")).toBeNull();
         await release(held);
         expect(jobEvent(c, "W-0001")).toBeNull();
+    });
+
+    test("the check every builder runs: a job Save returned to the backlog draws on no press's row at any change of the page, from the press of Save until the cells are read again", async () => {
+        const c = await selectBrochure("windows-save-check");
+        await act(async () => { fireEvent.click(within(slot(c, "end")).getByRole("button", { name: "Return to backlog" })); });
+        await settle();
+        expect(jobEvent(c, "W-0001")).toBeNull();
+        await savedThroughReload({
+            e3: h.e3,
+            container: c,
+            reads: jobCells,
+            // The events the timeline draws a block of, by their keys.
+            look: () => [...c.querySelectorAll("[data-calendar-event]")].map((el) => el.getAttribute("data-calendar-event")),
+        });
     });
 
     test("Details shows a job's field as Save wrote it while the cells are read again, never its old value, nor marked a change", async () => {
