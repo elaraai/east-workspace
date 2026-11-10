@@ -13,7 +13,10 @@
  * editors are bounded to the value column, and numeric editors right-align
  * with tabular numerals. Controls stay visible at reduced opacity — no
  * hover-only affordances, so touch and keyboard users see the same
- * surface. Expanded collections end in an "Add …" ghost row.
+ * surface. Expanded collections end in an "Add …" ghost row. Values, a
+ * branch's preview, and the label of an array's element or a dict's entry
+ * (its index, title or key) are set in the design system's mono face; a
+ * field's name in the body's.
  *
  * At 560 px of its own width or narrower (`data-tree-phone`, `Query Builder
  * Phone Spec.md` QP13): a branch's row 44, its chevron 14, its label 13/500, its
@@ -93,6 +96,8 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             maxWidth: "45%",
             "[data-tree-phone] [data-part=row]:not([data-branch]) > &": { flex: "0 0 96px", maxWidth: "96px", whiteSpace: "normal", overflowWrap: "anywhere", fontWeight: "400", color: "fg.muted", lineHeight: "20px" },
             "[data-tree-phone] [data-branch] > &": { flex: "0 0 auto", maxWidth: "none", minWidth: "0", whiteSpace: "normal", lineHeight: "20px" },
+            /* An array's element or a dict's entry: its index, title or key, in the data voice. */
+            "&[data-element]": { fontFamily: "mono", fontVariantNumeric: "tabular-nums" },
         },
         /* The value column — editors bound to it, numerics right-aligned.
          * Overflow clips (segmented editors like DateTime have intrinsic
@@ -130,9 +135,11 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
         },
         /* A phone's preview: as many whole ` · ` parts as fit, mono 10.5 `--ink-4`. */
         phoneSummary: { ...wholeOrNone("20px"), flex: "1 1 auto", minWidth: "0", columnGap: "4px", justifyContent: "flex-end", textAlign: "right", fontFamily: "mono", fontSize: "label.md", color: "fg.subtle", whiteSpace: "nowrap" },
-        /* Branch preview / count — "Press · 2.5 · Running", "3 items". */
+        /* Branch preview / count — "Press · 2.5 · Running", "3 items" — mono, as the phone's preview is. */
         summary: {
+            fontFamily: "mono",
             fontSize: "{fontSizes.body.sm}",
+            fontVariantNumeric: "tabular-nums",
             color: "fg.subtle",
             whiteSpace: "nowrap",
             overflow: "hidden",
