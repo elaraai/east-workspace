@@ -93,13 +93,18 @@ export function allocationHarness(): AllocationHarness {
  * test needs: the yard's own, or its locked bins or its locked days, whose
  * door refuses every change. Given `ready`, the yard's check on a draft holds
  * Save while a bin's measured grade is empty (#1525); given `failingValues`,
- * the yard's values for a reservation fail as they run (#1526).
+ * the yard's values for a reservation fail as they run (#1526); given `most`,
+ * a hint holds a bin's m³, its quantity, to at most that many (#1585).
  *
- * @param options - Which of its records is locked, if either, whether the yard checks a draft, and whether its values fail
+ * @param options - Which of its records is locked, if either, whether the yard checks a draft, whether its values fail, and the most a bin holds
  * @returns The example
  */
-export function kilnYard(options: { readonly locked?: "bins" | "days"; readonly ready?: boolean; readonly failingValues?: boolean } = {}): Example {
+export function kilnYard(options: {
+    readonly locked?: "bins" | "days"; readonly ready?: boolean; readonly failingValues?: boolean; readonly most?: number;
+} = {}): Example {
     const lockedBins = options.locked === "bins", lockedDays = options.locked === "days";
+    // The yard's hint on a bin's quantity: at most `most` m³.
+    const bounded = options.most === undefined ? {} : { fields: { m3: Schedule.field.number({ label: "Volume", max: options.most }) } };
     // The yard's check on a draft: a bin's measured grade, which Save waits for.
     const check = options.ready !== true ? {} : {
         ready: (bin: ExprType<KilnBinType>) => East.equal(bin.gradeMeasured, "").ifElse(
@@ -134,6 +139,7 @@ export function kilnYard(options: { readonly locked?: "bins" | "days"; readonly 
                 quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
                 ...check,
                 ...failing,
+                ...bounded,
             }) },
             resources: {
                 bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),

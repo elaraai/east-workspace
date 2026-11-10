@@ -744,7 +744,7 @@ export type ScheduleAllocationEntryType = typeof ScheduleAllocationEntryType;
  * One event kind as the Allocation takes it (#1367): the Calendar's closed
  * kind, with its rows, and its roles read from a row and written into one.
  *
- * @property kind - The Calendar's closed kind: its `editing`, `entries`, `history`, `ready`, `fields` and `inspector`
+ * @property kind - The Calendar's closed kind: its `editing`, `entries`, `history`, `ready`, `fields` — its quantity's among them, as Plan's are, which the board draws in its Bin section (#1585) — and `inspector`
  * @property rows - Its stored bins of `[from, to)`, by key, each its roles and its row; `none` while a read is in flight
  * @property read - A drafted row's roles, from its bytes: what `rows` gives a stored one
  * @property write - The row with every mapped field written from the roles and every other field as it was

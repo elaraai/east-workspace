@@ -82,8 +82,10 @@
  * and `buildRoster(slot, part)` the Roster's ({@link ScheduleRosterKindType})
  * and `buildAllocation(slot, part)` the Allocation's
  * ({@link ScheduleAllocationKindType}): the Calendar's kind, its form over the
- * fields none of the builder's roles writes, with the stored rows of a
- * period, and the builder's roles read from a row and written into one —
+ * fields none of the builder's roles writes — the Allocation's over its
+ * quantity too, as Plan's is, a hint holding it to its bounds (#1585) — with
+ * the stored rows of a period, and the builder's roles read from a row and
+ * written into one —
  * every other field of the row as it was (B1), a new row's the kind's
  * `values` of what the builder decided of it (#1526), or its type's default.
  *
@@ -330,7 +332,10 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
     resource?: { field: F; of: ScheduleResourceOf<R["fields"][F]> };
     /** A variant field shown as the event's status, a Status per case. On a Plan, a warning tone rings the element. */
     status?: ScheduleStatusConfig<R, SF>;
-    /** Hints for the inspector's form over the other fields (`Schedule.field`, east-ui's `Fields`). */
+    /**
+     * Hints for the inspector's form over the other fields (`Schedule.field`, east-ui's `Fields`). A number hint on the
+     * `quantity` field holds the quantity to its bounds, on a Plan and an Allocation, as it holds a form field (#1585).
+     */
     fields?: FieldHints<R["fields"]>;
     /** The app's check on a drafted event: a refusal holds Save, naming the event and the field. */
     ready?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<typeof EditingReadinessType>;
@@ -575,7 +580,9 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
     /**
      * The kind on the wire as the Allocation takes it, under its slot (#1367):
      * the Calendar's kind, its form over the fields none of the Allocation's
-     * roles writes, with the stored rows of a period, a bin's roles read from
+     * roles writes and over its quantity, as Plan's is — the board draws the
+     * quantity in its Bin section, a hint holding it to its bounds as a form
+     * field's does (#1585) — with the stored rows of a period, a bin's roles read from
      * its row and written into it, and a new bin from its roles and an
      * arrival's values — a reservation's, the kind's `values` of it (#1526).
      *
@@ -1928,7 +1935,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 // The fields no role maps (`allocationValues`): what an arrival's values give a booked bin, and the kind's `values` a reservation.
                 const mapped = allocationMapped;
                 const ValuesType = allocationValues;
-                const parts = kindParts(once, slot, part, formOver([...mapped]));
+                // Its form over them, and over its quantity, as Plan's is: the board draws the quantity in its Bin section, and a
+                // hint on it holds it to its bounds as a form field's does (#1585).
+                const parts = kindParts(once, slot, part, formOver([...mapped].filter((name) => name !== quantity)));
                 const Roles = ScheduleAllocationRolesType;
                 // A row with the Allocation's roles written from `roles`, and every other field from `source`: the row as it
                 // was, or a booked bin's values. A kind with no `kind` writes none.

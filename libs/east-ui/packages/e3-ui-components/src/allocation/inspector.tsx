@@ -16,7 +16,9 @@
  * another resource (`split.tsx`, #1362), and Find a fit.
  * The bin's own fields — those no role maps — are the bin kind's: its form
  * over its `fields` (`FieldForm`), or its own `inspector` over the row, in
- * place of the quantity and the rows (#1372). A bin's key is printed first
+ * place of the quantity and the rows (#1372). The kind's form holds its
+ * quantity too, which the Bin section draws: to the bounds a hint gives it,
+ * a quantity they don't hold said under the field (#1585). A bin's key is printed first
  * among its facts, and a reservation's in a section of its own: what Search
  * Records finds them by (#1398). Every edit is one of the
  * board's commands, a draft of the bins' session until Save; every fit is the
@@ -55,7 +57,7 @@ import {
 import { DateTimeType, FloatType, OptionType, StringType, StructType, equalFor, none, some, variant, type SortedMap, type option } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui";
 import {
-    BannerView, EastChakraComponent, FieldForm, fieldFormMessages, useDropCell, useFormatters, useTrackedEvaluation, type BuilderFrameDock,
+    BannerView, EastChakraComponent, FieldForm, fieldFormMessages, getSomeorUndefined, useDropCell, useFormatters, useTrackedEvaluation, type BuilderFrameDock,
     type EditIssue, type FieldFormWords,
 } from "@elaraai/east-ui-components";
 import { Chooser, formatDatePattern } from "@elaraai/east-ui-components/internal";
@@ -424,6 +426,16 @@ function BinSection({ id, bin, committed, refused, ...part }: Part & { id: strin
     const parts = partsOf(bin);
     const whole = parts.length === 1 && compareFloat(parts[0]!.quantity, bin.quantity) === 0;
     const min = whole ? 0 : parts.reduce((n, p) => n + p.quantity, 0);
+    // What the bin kind's form holds its quantity to (#1585): the least and the most a hint gives its field — the least the
+    // parts take where that is the higher, never past the most — so a quantity they don't hold is said under the field.
+    const bounds = useMemo(() => {
+        const field = getSomeorUndefined(value.bin.kind.schedule.quantity);
+        const spec = field === undefined ? undefined : value.bin.kind.fields.find(s => s.path.length === 1 && keyEqual(s.path[0]!, field));
+        return spec?.editor.type === "number" ? { least: getSomeorUndefined(spec.editor.value.min), most: getSomeorUndefined(spec.editor.value.max) } : {};
+    }, [value.bin.kind]);
+    const most = bounds.most;
+    const higher = bounds.least !== undefined && compareFloat(bounds.least, min) > 0 ? bounds.least : min;
+    const least = most !== undefined && compareFloat(higher, most) > 0 ? most : higher;
     // The stepper's help says how it steps: a day that takes no edit has no stepper, and says nothing of it.
     const help = editable ? stepHelp(own, bin.lane, value.every, day, words) : undefined;
     const quantityLabel = nouns.quantity;
@@ -432,8 +444,9 @@ function BinSection({ id, bin, committed, refused, ...part }: Part & { id: strin
         key: Fields.readonly({ label: keyLabel }),
         lane: Fields.reference({ label: nouns.lane.one, of: "lanes" }),
         at: Fields.readonly({ label: `${nouns.bin.one} time`, ...(help === undefined ? {} : { help }) }),
-        quantity: Fields.number({ label: quantityLabel, min, step: 1, ...(context.unit === "" ? {} : { unit: context.unit }) }),
-    }, form !== undefined ? ["quantity"] : []), [keyLabel, nouns.lane.one, nouns.bin.one, help, quantityLabel, min, context.unit, form]);
+        quantity: Fields.number({ label: quantityLabel, min: least, ...(most === undefined ? {} : { max: most }), step: 1,
+            ...(context.unit === "" ? {} : { unit: context.unit }) }),
+    }, form !== undefined ? ["quantity"] : []), [keyLabel, nouns.lane.one, nouns.bin.one, help, quantityLabel, least, most, context.unit, form]);
     // Every lane by its name: what a lane the form prints says.
     const laneNames = useMemo(() => ({ lanes: value.lanes.map(l => ({ key: l.key, label: l.label })) }), [value.lanes]);
     const stepper = useSlotRecipe({ key: "stepper" })({ tone: "neutral", size: "md" }) as unknown as Styles;
@@ -475,17 +488,21 @@ function BinSection({ id, bin, committed, refused, ...part }: Part & { id: strin
 }
 
 /**
- * The row's own fields (`Builder Interfaces Spec.md` §1, rule 2): the bin kind's form over its `fields`, each edit one
- * command, a draft until Save, and each field a refusal names ringed (#1525) — the one a refusal gone to names taking
- * the keyboard as the form draws it.
+ * The row's own fields (`Builder Interfaces Spec.md` §1, rule 2): the bin kind's form over its `fields` but its quantity,
+ * the Bin section's (#1585), each edit one command, a draft until Save, and each field a refusal names ringed (#1525) —
+ * the one a refusal gone to names taking the keyboard as the form draws it.
  */
 function RowFields({ args, id, bin, committed, refused }: Part & { id: string; bin: Bin; committed: Bin | undefined; refused: ReadonlySet<string> }) {
     const { value, commands } = args;
     const { field } = commands;
     const onChange = useCallback((path: readonly string[], next: unknown) => { field(id, path, next); }, [field, id]);
     const focus = useFieldAsk(value.bin.kind.key, id);
-    if (value.bin.kind.fields.length === 0) return null;
-    return <FieldForm specs={value.bin.kind.fields} value={bin.row} baseline={committed?.row ?? {}} onChange={onChange} readOnly={!commands.canEdit()} issues={refused} focus={focus} />;
+    const specs = useMemo(() => {
+        const quantity = getSomeorUndefined(value.bin.kind.schedule.quantity);
+        return value.bin.kind.fields.filter(spec => quantity === undefined || !keyEqual(spec.path[0]!, quantity));
+    }, [value.bin.kind]);
+    if (specs.length === 0) return null;
+    return <FieldForm specs={specs} value={bin.row} baseline={committed?.row ?? {}} onChange={onChange} readOnly={!commands.canEdit()} issues={refused} focus={focus} />;
 }
 
 /** The app's columns as rows (A57): each column's text, in warn-text 600 when its tone warns; read through the app's callbacks over the bin's row. */
