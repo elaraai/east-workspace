@@ -150,8 +150,8 @@ export const calendarShiftTemplates = e3.record("calendar_shift_templates", Dict
 
 export const calendarOperations = example({
     inputs: [],
-    description: "A metal fabrication calendar over three event records and bound machines, people and templates: Calendar, Resources and Timeline share one frame, one Slice.bindRecords rail — a source per event kind, resource kind and template record — and Save history. Its library schedules the event record's backlog and assigns technicians; overlapping production and maintenance warn without blocking Save.",
-    keywords: ["Calendar", "Record.bind", "Data.bind", "Calendar.templates", "Schedule", "Slice", "Slice.bindRecords", "Data.bindPaged", "indexes", "interval", "BuilderFrame", "library", "backlog", "inspector", "overlaps", "Save"],
+    description: "A metal fabrication calendar over three event records and bound machines, people and templates: Calendar, Resources and Timeline share one frame, one Slice.bindRecords rail — a source per event kind, resource kind and template record — and Save history. Its library schedules the event record's backlog and assigns technicians; overlapping production and maintenance warn without blocking Save, and a stored job booked past the four hours a run takes is a warning beside the toolbar's issues, holding no Save.",
+    keywords: ["Calendar", "Record.bind", "Data.bind", "Calendar.templates", "Schedule", "Slice", "Slice.bindRecords", "Data.bindPaged", "indexes", "interval", "BuilderFrame", "library", "backlog", "inspector", "overlaps", "Save", "Calendar.field", "max", "bounds", "warning", "out of range"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         // What the Calendar reads whole binds with Data.bind, which keeps it loaded beside its pages; the event records
         // it writes bind with Record.bind, and it reads their events through their pages alone.
@@ -206,6 +206,9 @@ export const calendarOperations = example({
                     entries: jobEntries,
                     status: { field: "status", cases: { planned: { label: "Planned", tone: variant("neutral", null), ring: true }, active: { label: "Active", tone: variant("info", null), ring: false }, done: { label: "Done", tone: variant("success", null), ring: false } } },
                     backlog: { duration: row => variant("hours", row.hours), due: row => row.due },
+                    // The shop books a machine for at most four hours at a time, half a shift, so a longer job is split
+                    // into runs: the pump housings' five hours are booked as one.
+                    fields: { hours: Calendar.field.number({ label: "Hours", max: 4.0 }) },
                     ready: row => row.hours.lessEqual(0).ifElse(() => variant("incomplete", [{ field: "hours", message: "Duration must be positive" }]), () => variant("ready", null)),
                     templates: Calendar.templates(jobTemplates.read(), { name: row => row.name, group: row => some(row.group), duration: row => variant("hours", row.hours), values: row => row.values, source: "jobTemplates" }),
                 }),

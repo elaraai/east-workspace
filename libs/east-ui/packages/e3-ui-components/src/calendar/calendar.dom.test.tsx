@@ -303,7 +303,8 @@ describe("Calendar explicit action forms", () => {
         expect(inspector.querySelector(":scope > [data-calendar-inspector-refusals] > [data-banner-tone]")?.textContent).toContain("Hours: Duration must be positive");
         expect(inspector.querySelector(":scope > [data-banner-tone]")).toBeNull();
         await act(async () => { fireEvent.keyDown(event(container, "job", "job1"), { key: "Escape" }); }); await settle();
-        await press(history(container, editingMessages.issues({ n: 1, count: "1" })));
+        // The issue goes before the warning beside it, the pump housings' stored hours over a run's most.
+        await press(history(container, editingMessages.issuesAndWarnings({ issues: editingMessages.issues({ n: 1, count: "1" }), warnings: editingMessages.warnings({ n: 1, count: "1" }) })));
         expect(event(container, "job", "job1").hasAttribute("data-selected")).toBe(true);
         expect((await jobs()).get("job1")!.hours).toBeGreaterThan(0);
     });
