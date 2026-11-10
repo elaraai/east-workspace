@@ -251,7 +251,8 @@ describe("FieldForm — each field the shared Field around the shared input its 
         const user = userEvent.setup();
         const crew = within(field("crew")).getByRole("spinbutton");
         await user.clear(crew);
-        await user.type(crew, "25");
+        // A key at a time: typed past its bound, the number is no longer clamped, so a "52" the caret made would show.
+        await typeKeys(user, crew, "25");
         await leave(crew);
         expectEdit(edits, "crew", equalFor(IntegerType), 25n);
 
