@@ -290,7 +290,10 @@ export function CalendarDataReader({ value, range, editing, view, resources, buc
     const standing = useRef<ScheduleCellSpan | undefined>(undefined);
     const span = calendarCellSpan(places, pages, standing.current);
     standing.current = span;
-    const cells = useCalendarCells({ kinds: value.events, parts, resources, range, bucket, drafts: editing?.drafts ?? NO_DRAFTS, paged, span: paged === undefined ? undefined : span });
+    // What a Save landed of a kind read by its cells draws as the Save left it until they are read again (the shared
+    // reader's `landed`): its confirmation reads the saved events by their keys, never the cells.
+    const cells = useCalendarCells({ kinds: value.events, parts, resources, range, bucket, drafts: editing?.drafts ?? NO_DRAFTS, paged, span: paged === undefined ? undefined : span,
+        editing });
     const data = useCalendarData(value, range, editing, view, cells);
     const reported = useRef<CalendarDataState | undefined>(undefined);
     useLayoutEffect(() => {

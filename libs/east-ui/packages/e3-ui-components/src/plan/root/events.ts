@@ -399,6 +399,8 @@ export interface PlanEventsReaderProps {
     links: PlanCellsArgs["links"];
     /** The paged kind's rows in view, as the canvas reports them. */
     spans: PlanCellSpanStore;
+    /** What confirmed Saves landed of the kinds read by their cells, and how it is let go: drawn until the cells are read again. */
+    editing: PlanCellsArgs["editing"];
     /** Where the rows go: called only when they move. */
     onLead: (lead: PlanEventLead) => void;
 }
@@ -411,17 +413,19 @@ export interface PlanEventsReaderProps {
  * render the whole canvas. A kind read by its cells (#1039) is read here too,
  * every cell it wants in one request a read, and every other kind counted
  * before one of its events is read; the rows the canvas reports in view are
- * read here alone.
+ * read here alone. What a Save landed of a kind read by its cells draws as the
+ * Save left it until they are read again: its confirmation reads its events by
+ * their keys, never the cells.
  *
  * @param props - What the rows are read over, and where they go
  * @returns Nothing: it reads
  */
-export function PlanEventsReader({ events, scale, hidden, drafts, shown, kinds, resources, parts, links, spans, onLead }: PlanEventsReaderProps): null {
+export function PlanEventsReader({ events, scale, hidden, drafts, shown, kinds, resources, parts, links, spans, editing, onLead }: PlanEventsReaderProps): null {
     const span = useSyncExternalStore(spans.subscribe, spans.get);
     const range = eventReadRange(scale);
     // The reader decides every kind (#1039): one it reads by its cells, and every other, counted before one of its events is read.
     const cells = usePlanCells({
-        kinds, resources, parts, paged: events?.paged, scale, range, drafts, hidden: hidden ?? NONE_HIDDEN, span, links,
+        kinds, resources, parts, paged: events?.paged, scale, range, drafts, hidden: hidden ?? NONE_HIDDEN, span, links, editing,
     });
     const lead = usePlanEventBlocks(events, scale, hidden, drafts, shown, cells, kinds);
     // What the canvas holds: its stand-in rows until the first read lands.

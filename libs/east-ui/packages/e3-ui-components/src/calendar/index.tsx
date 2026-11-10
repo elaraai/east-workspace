@@ -101,7 +101,7 @@ import { sourcePart } from "../shared/schedule/visibility.js";
 import { useNow } from "../shared/time/now-line.js";
 import { calendarCommands } from "./actions.js";
 import { BacklogServed, CalendarBacklogPages, type BacklogPageCount } from "./backlog-pages.js";
-import type { CalendarBucket } from "./cells.js";
+import { calendarCellKinds, type CalendarBucket } from "./cells.js";
 import { CalendarDataReader, initialCalendarData, resourceRows, windowedBacklogKinds, type CalendarDataState } from "./data.js";
 import { CalendarChooserContext, type CalendarChooser } from "./chooser.js";
 import { useCalendarDrag } from "./drag.js";
@@ -363,8 +363,12 @@ function EditableCalendar(props: Omit<HostProps, "editing" | "onHeld" | "onBackl
         }
         return out;
     }, [value]);
+    // The kinds a view may read by their cells (#1424): what each Save lands of them draws as the Save left it over cells
+    // read before the commit, until they are read again.
+    const pagedSlot = value.paged.type === "some" ? value.paged.value.kind : undefined;
+    const drawsLanded = useMemo(() => calendarCellKinds(pagedSlot, props.dates.eventParts), [pagedSlot, props.dates.eventParts]);
     const editing = useScheduleEditing({ kinds: value.events, storageKey: props.storageKey, joined: NO_JOINED, range: props.dates.range,
-        recordSlices, held, reads });
+        recordSlices, held, reads, drawsLanded });
     return <CalendarFrame {...props} editing={editing} onHeld={onHeld} onBacklog={onBacklog} />;
 }
 /**

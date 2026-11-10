@@ -1067,3 +1067,86 @@ describe("a template carried over the timeline of 2,000 paged presses (#1594)", 
         }
     });
 });
+
+// ============================================================================
+// A Save: what it landed, as it left it, while the jobs' cells are read again
+// ============================================================================
+
+describe("a Save over the paged presses: what it landed, as it left it, while the jobs' cells are read again", () => {
+    /** The jobs' cells — the searches of their series index and its runs' entries — which a Save's own confirmation, a key's search and its row, is none of. */
+    const jobCells = (request: E3Request) => request.dataset === JOBS && (request.query.get("index") ?? undefined) === SERIES.name;
+    /** Saves through the history's Save with the jobs' cells held: its commit confirmed and its drafts gone, the cells not read again yet. */
+    async function saveHeld(c: HTMLElement) {
+        const held = h.e3.hold(jobCells);
+        await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("button", { name: editingMessages.apply() })); });
+        await held.holding;
+        await settle();
+        expect(within(slot(c, "toolbar")).getByRole<HTMLButtonElement>("button", { name: editingMessages.discard() }).disabled).toBe(true);
+        expect(slot(c, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "reconciling" }));
+        return held;
+    }
+    /** Lets the held reads go, and waits for them to land. */
+    async function release(held: { release(): void }) {
+        await act(async () => { held.release(); });
+        await settle();
+    }
+    /** The brochure run, on Press 1001, selected on the timeline. */
+    async function selectBrochure(storageKey: string) {
+        const { container: c } = await h.mount(cw.calendarWindows, { storageKey });
+        await settle();
+        await act(async () => { fireEvent.click(jobEvent(c, "W-0001")!); });
+        await settle();
+        return c;
+    }
+
+    test("a job Save returned to the backlog draws on no press's row while the cells are read again, and so once read", async () => {
+        const c = await selectBrochure("windows-save-backlog");
+        await act(async () => { fireEvent.click(within(slot(c, "end")).getByRole("button", { name: "Return to backlog" })); });
+        await settle();
+        expect(jobEvent(c, "W-0001")).toBeNull();
+        // Saved, the cells' read again held: the brochure run has no block back on Press 1001's row.
+        const held = await saveHeld(c);
+        expect((await readJobs()).get("W-0001")!.start.type).toBe("none");
+        expect(jobEvent(c, "W-0001")).toBeNull();
+        await release(held);
+        expect(jobEvent(c, "W-0001")).toBeNull();
+    });
+
+    test("Details shows a job's field as Save wrote it while the cells are read again, never its old value, nor marked a change", async () => {
+        const c = await selectBrochure("windows-save-details");
+        const field = () => slot(c, "end").querySelector<HTMLElement>('[data-field="customer"]')!;
+        const value = () => field().querySelector<HTMLInputElement>("input")!.value;
+        const user = userEvent.setup();
+        await user.clear(field().querySelector("input")!); await user.type(field().querySelector("input")!, "Harbour Arts{Enter}"); await settle();
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Harbour Arts", true]);
+        // Saved, the cells' read again held: the customer as typed, no change of the stored row.
+        const held = await saveHeld(c);
+        expect((await readJobs()).get("W-0001")!.customer).toBe("Harbour Arts");
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Harbour Arts", false]);
+        await release(held);
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Harbour Arts", false]);
+    });
+
+    test("two Saves of a job before its cells are read again: Details shows what the second wrote, never the first's value nor the stored one, and so once read", async () => {
+        const c = await selectBrochure("windows-save-twice");
+        const field = () => slot(c, "end").querySelector<HTMLElement>('[data-field="customer"]')!;
+        const value = () => field().querySelector<HTMLInputElement>("input")!.value;
+        const user = userEvent.setup();
+        const type = async (text: string) => {
+            await user.clear(field().querySelector("input")!); await user.type(field().querySelector("input")!, `${text}{Enter}`); await settle();
+        };
+        await type("Harbour Arts");
+        const held = await saveHeld(c);
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Harbour Arts", false]);
+        // Typed again and saved again, the cells' read again still held: the customer as the second Save wrote it.
+        await type("Kestrel Print");
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Kestrel Print", true]);
+        await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("button", { name: editingMessages.apply() })); });
+        await settle();
+        expect(within(slot(c, "toolbar")).getByRole<HTMLButtonElement>("button", { name: editingMessages.discard() }).disabled).toBe(true);
+        expect((await readJobs()).get("W-0001")!.customer).toBe("Kestrel Print");
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Kestrel Print", false]);
+        await release(held);
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Kestrel Print", false]);
+    });
+});

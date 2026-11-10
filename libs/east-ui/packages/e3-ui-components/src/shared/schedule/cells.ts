@@ -100,10 +100,28 @@
  * the narrowing does not hold draws nowhere, and a backlog event a gesture
  * scheduled draws where it is placed.
  *
+ * # What a Save landed
+ *
+ * A Save's confirmation reads its events by their keys, never the cells, which
+ * stand at the revision they were read at until the commit's are read again —
+ * a round trip a deployed server makes long. A host that draws what Saves
+ * landed hands the reader them as its editing keeps them
+ * ({@link ScheduleCellsArgs.landed}): over a kind's cells read at a revision a
+ * Save of it was drafted at, every event it landed draws as the Save left it,
+ * laid under the drafts — a draft made since draws in its place, and one the
+ * narrowing did not hold draws nowhere, as before the Save — and its row is
+ * held as the Save left it, where a gesture and an inspector read it; one it
+ * deleted draws nowhere, and is read by its key. Once a kind's cells are read
+ * since — or none of its cells is read, the kind counted, past the cap or
+ * hidden — what landed of it is let go ({@link ScheduleCellsArgs.shown}), so
+ * no frame draws both. A read at a revision any Save of it since was drafted
+ * at is from before them all: two Saves before the cells are read again each
+ * keep their events.
+ *
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
     ArrayType, BlobType, DateTimeType, DictType, FloatType, OptionType, SortedMap, StringType, StructType,
     compareFor, encodeBeast2For, equalFor, fromEastTypeValue, none, parseFor, printFor, some,
@@ -122,7 +140,7 @@ import {
 } from "@elaraai/east-ui-components/internal";
 import { isPagedReadError } from "../../platform/paged-read-error.js";
 import type { TimeResolution } from "../time/scale.js";
-import type { ScheduleEventDraftsValue } from "./editing.js";
+import type { ScheduleEventDraftsValue, ScheduleLanded, ScheduleLandedRows } from "./editing.js";
 
 /** How many of a paged resource kind's resources a cell holds: a block of them, in the kind's order. */
 export const SCHEDULE_CELL_BLOCK = 50;
@@ -290,6 +308,17 @@ export interface ScheduleCellsArgs {
     readonly drafts: ScheduleEventDraftsValue;
     /** The paged kind's rows in view, as the host last reported them; `undefined` before it has. */
     readonly span: ScheduleCellSpan | undefined;
+    /**
+     * What confirmed Saves landed of the kinds read by their cells, as the host's editing hands them on (its `landed`):
+     * drawn over a kind's cells read before the commit until they are read again (see the module docs); `undefined` for
+     * a host that draws none.
+     */
+    readonly landed?: ScheduleLanded | undefined;
+    /**
+     * Lets go of what Saves landed of a kind once its cells are read since them, or none of them is read (its editing's
+     * `shown`).
+     */
+    readonly shown?: ((kind: string, ids: Iterable<string>) => void) | undefined;
 }
 
 // ============================================================================
@@ -323,12 +352,14 @@ export interface ScheduleCellsRead {
     readonly shading: ScheduleCellShading;
     /**
      * Every kind's drafts as the seams take them: a kind read by its cells, or by its host over the window's rows alone
-     * ({@link ScheduleCellKind.windowField}), those of events its narrowing does not hold left out.
+     * ({@link ScheduleCellKind.windowField}), those of events its narrowing does not hold left out; over a kind's cells
+     * read before a Save of it, what the Save landed laid under them (see the module docs).
      */
     readonly drafts: ScheduleEventDraftsValue;
     /**
      * Each kind it gives cells, by its slot: the rows they hold, by the event's key's text — where a gesture finds an
-     * event's row, one it does not hold read by its key; none for a kind given none, whose range is never read.
+     * event's row, one it does not hold read by its key; none for a kind given none, whose range is never read. Over
+     * cells read before a Save of the kind, each event it landed as the Save left it, one it deleted read by its key.
      */
     readonly held: ReadonlyMap<string, HeldRows>;
     /** The kinds giving the notice in place of their events. */
@@ -504,13 +535,14 @@ type Totals = Map<string, { booked: boolean; byKey: Map<string, Map<number, Sche
 
 /**
  * One read of every kind, the drafts each kind read by its cells leaves out, by the kind's slot, the paged kind's
- * resources whose cells it holds — `undefined` where no kind reads its cells over a paged kind — and the range it was
- * made over, `undefined` before the first.
+ * resources whose cells it holds — `undefined` where no kind reads its cells over a paged kind — the range it was made
+ * over, `undefined` before the first, and the revision each kind read by its cells was read at, by its slot.
  */
 type Read = Omit<ScheduleCellsRead, "reading" | "drawn"> & {
     readonly dropped: ReadonlyMap<string, ReadonlySet<string>>;
     readonly covered: ReadonlySet<string> | undefined;
     readonly range: ScheduleCellRange | undefined;
+    readonly revisions: ReadonlyMap<string, string>;
 };
 
 /** No resource: what a reader that has read no block of the paged kind's wants. */
@@ -521,6 +553,10 @@ const NONE_CAPPED: ReadonlySet<string> = new Set();
 const NO_ROWS: HeldRows = new Map();
 /** No drafted event left out. */
 const NO_IDS: ReadonlySet<string> = new Set();
+/** No kind read by its cells: no revision any was read at. */
+const NO_REVISIONS: ReadonlyMap<string, string> = new Map();
+/** No kind whose cells stand from before a Save of it: nothing laid. */
+const NOTHING_LAID: ReadonlyMap<string, ScheduleLandedRows> = new Map();
 
 /** Whether two sets of resource keys hold the same keys. */
 function sameKeys(a: ReadonlySet<string> | undefined, b: ReadonlySet<string> | undefined): boolean {
@@ -534,9 +570,9 @@ function sameRange(a: ScheduleCellRange | undefined, b: ScheduleCellRange | unde
     return a.from === b.from && a.to === b.to;
 }
 
-/** One kind's read. */
+/** One kind's read: by its cells, at the revision they were read at. */
 type KindRead =
-    | { readonly mode: "cells"; readonly cells: Uint8Array; readonly held: HeldRows; readonly dropped: ReadonlySet<string> }
+    | { readonly mode: "cells"; readonly cells: Uint8Array; readonly held: HeldRows; readonly dropped: ReadonlySet<string>; readonly revision: string }
     | { readonly mode: "shade"; readonly cells: Uint8Array; readonly notice: ScheduleCellNotice | undefined; readonly paged: boolean }
     | { readonly mode: "window" };
 
@@ -601,8 +637,11 @@ interface Span {
     readonly entries: readonly RecordSliceEntry[];
 }
 
-/** A series read's outcome (#1433): each group's entries a level, or how many its runs hold, past the cap. */
-type SeriesEntries = { readonly entries: readonly (readonly RecordSliceEntry[])[] } | { readonly count: number };
+/**
+ * A series read's outcome (#1433): each group's entries a level, at the revision they were read at, or how many its runs
+ * hold, past the cap.
+ */
+type SeriesEntries = { readonly entries: readonly (readonly RecordSliceEntry[])[]; readonly revision: string } | { readonly count: number };
 
 const printChoice = printFor(RecordSliceChoiceType);
 
@@ -818,7 +857,7 @@ class CellsReader {
         });
         // The spans this read wants, and no other.
         this.spans.set(at, { revision: revision.value, spans });
-        return { entries };
+        return { entries, revision: revision.value };
     }
 
     /**
@@ -833,6 +872,7 @@ class CellsReader {
         const reads: [string, Uint8Array][] = [];
         const held = new Map<string, HeldRows>();
         const dropped = new Map<string, ReadonlySet<string>>();
+        const revisions = new Map<string, string>();
         const notices: ScheduleCellNotice[] = [];
         const capped = new Set<string>();
         const over: ScheduleCellRange = { from: range.from.getTime(), to: range.to.getTime() };
@@ -896,6 +936,7 @@ class CellsReader {
                     reads.push([kind.key, read.cells]);
                     held.set(kind.key, read.held);
                     if (read.dropped.size > 0) dropped.set(kind.key, read.dropped);
+                    revisions.set(kind.key, read.revision);
                     byCells = true;
                     break;
                 case "shade":
@@ -920,6 +961,7 @@ class CellsReader {
             // The resources whose cells this read holds: its blocks', where a kind drew its cells or its shading on them.
             covered: byCells ? this.wantedKeys : undefined,
             range: over,
+            revisions: revisions.size === 0 ? NO_REVISIONS : revisions,
         };
     }
 
@@ -1104,7 +1146,7 @@ class CellsReader {
         }
         // Drafts of events whose rows are still in flight show as drafted until they land.
         const made = this.encode(kind.key, codec, [...read.entries, ...storedRows.map((s) => s.row), ...within], rows);
-        return { mode: "cells", cells: made.bytes, held: made.held, dropped };
+        return { mode: "cells", cells: made.bytes, held: made.held, dropped, revision: read.revision };
     }
 
     /**
@@ -1223,6 +1265,75 @@ function shadingOf(totals: Totals, buckets: readonly ScheduleCellBucket[]): Sche
     compareString);
 }
 
+/** Whether two reads' revisions are one: each kind read by its cells at the same revision. */
+function sameRevisions(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>): boolean {
+    return a.size === b.size && [...a].every(([kind, revision]) => {
+        const other = b.get(kind);
+        return other !== undefined && stringEqual(other, revision);
+    });
+}
+
+/**
+ * What Saves landed of the kinds whose cells stand from before them (see the module docs): those read at a revision a
+ * Save of the kind was drafted at.
+ *
+ * @param landed - What Saves landed of the kinds read by their cells
+ * @param revisions - The revision each kind's standing cells were read at
+ * @returns Those kinds' landed events, by their slots; the one empty map while none stands from before
+ */
+function landedBefore(landed: ScheduleLanded | undefined, revisions: ReadonlyMap<string, string>): ReadonlyMap<string, ScheduleLandedRows> {
+    if (landed === undefined || landed.size === 0) return NOTHING_LAID;
+    let out: Map<string, ScheduleLandedRows> | undefined;
+    for (const [kind, rows] of landed) {
+        const at = revisions.get(kind);
+        if (at !== undefined && rows.from.has(at)) (out ??= new Map()).set(kind, rows);
+    }
+    return out ?? NOTHING_LAID;
+}
+
+/** Whether two sets of kinds' landed events are one: the same kinds, each the same events. */
+function sameLanded(a: ReadonlyMap<string, ScheduleLandedRows>, b: ReadonlyMap<string, ScheduleLandedRows>): boolean {
+    return a.size === b.size && [...a].every(([kind, rows]) => Object.is(b.get(kind), rows));
+}
+
+/**
+ * The drafts and the rows held, with what Saves landed of each kind whose cells stand from before them laid in (see the
+ * module docs): each event under its kind's drafts as the Save left it — but one a draft made since holds, which draws
+ * in its place, and one its narrowing did not hold, which drew nowhere before the Save — and each row held as the Save
+ * left it, one it deleted gone, read by its key.
+ *
+ * @param drafts - Every kind's drafts as the seams take them
+ * @param held - The rows each kind's cells hold
+ * @param dropped - The drafted events each kind's narrowing does not hold, by its slot
+ * @param laid - What Saves landed of the kinds whose cells stand from before them
+ * @param own - Every kind's drafts as the host's sessions hold them
+ * @returns The drafts and the rows held; themselves while nothing is laid
+ */
+function laidLanded(
+    drafts: ScheduleEventDraftsValue, held: ReadonlyMap<string, HeldRows>, dropped: ReadonlyMap<string, ReadonlySet<string>>,
+    laid: ReadonlyMap<string, ScheduleLandedRows>, own: ScheduleEventDraftsValue,
+): { readonly drafts: ScheduleEventDraftsValue; readonly held: ReadonlyMap<string, HeldRows> } {
+    if (laid.size === 0) return { drafts, held };
+    let outDrafts: SortedMap<string, ValueTypeOf<typeof ScheduleDraftsType>> | undefined;
+    let outHeld: Map<string, HeldRows> | undefined;
+    for (const [kind, landed] of laid) {
+        const drafted = own.get(kind);
+        const gone = dropped.get(kind);
+        const rows = new Map(held.get(kind) ?? NO_ROWS);
+        let kindDrafts: SortedMap<string, Uint8Array> | undefined;
+        for (const [id, row] of landed.rows) {
+            if (row.row === undefined) rows.delete(id);
+            else rows.set(id, { row: row.row });
+            if (drafted?.has(id) === true || gone?.has(id) === true) continue;
+            kindDrafts ??= new SortedMap(drafts.get(kind) ?? [], compareString);
+            kindDrafts.set(id, row.draft);
+        }
+        (outHeld ??= new Map(held)).set(kind, rows);
+        if (kindDrafts !== undefined) (outDrafts ??= new SortedMap(drafts, compareString)).set(kind, kindDrafts);
+    }
+    return { drafts: outDrafts ?? drafts, held: outHeld ?? held };
+}
+
 /** Every kind's drafts, those a kind read by its cells leaves out dropped: the same object when it drops none. */
 function narrowedDrafts(drafts: ScheduleEventDraftsValue, dropped: ReadonlyMap<string, ReadonlySet<string>>): ScheduleEventDraftsValue {
     if (dropped.size === 0) return drafts;
@@ -1279,14 +1390,16 @@ export function scheduleCellKinds(kinds: readonly ScheduleCellKind[], paged: Sch
  * narrowing's, leaves the rows drawn as they were, their cells standing in.
  * It hands on the same object while what it hands on holds: where no kind is
  * read by its cells over a paged kind, a pan that leaves every kind within the
- * cap, or past it as it was, hands nothing on.
+ * cap, or past it as it was, hands nothing on. Over a kind's cells read before
+ * a Save of it, what the Save landed draws as the Save left it, and is let go
+ * once they are read since (see the module docs).
  *
  * @param args - What it reads over
  * @returns What it read
  */
 export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
     const [reader] = useState(() => new CellsReader());
-    const { host, kinds, resources, paged, range, buckets, resolution, drafts, span } = args;
+    const { host, kinds, resources, paged, range, buckets, resolution, drafts, span, landed, shown } = args;
     const from = range?.from.getTime();
     const to = range?.to.getTime();
     const read = useCallback(() => reader.read({
@@ -1295,6 +1408,9 @@ export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
     }), [reader, kinds, resources, paged, buckets, resolution, from, to, drafts, span]);
     const { result } = useTrackedEvaluation(read);
     const last = useRef<Read | undefined>(undefined);
+    // The revision each kind's standing cells were read at: the last read landed's — a read the same as the one standing
+    // stands for it, its cells holding the same rows at its revision.
+    const revisions = useRef<ReadonlyMap<string, string>>(NO_REVISIONS);
     // Before the first read: every kind read by its cells draws nothing yet — and over a paged kind, no resource's row
     // drawn.
     const opening = useMemo((): Read => {
@@ -1310,17 +1426,22 @@ export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
             dropped: new Map(),
             covered: paged !== undefined && slots.length > 0 ? NO_RESOURCES : undefined,
             range: undefined,
+            revisions: NO_REVISIONS,
         };
     }, [reader, kinds, drafts, paged]);
     // What it hands on: the same object while the read, whether one its rows wait on is in flight, what it reads again
-    // and over which range hold.
-    const handed = useRef<{ standing: Read; drafts: ScheduleEventDraftsValue; reading: boolean; wanted: ReadonlySet<string>; moved: boolean; read: ScheduleCellsRead } | undefined>(undefined);
-    return useMemo((): ScheduleCellsRead => {
+    // and over which range, and what Saves landed over cells read before them hold.
+    const handed = useRef<{
+        standing: Read; drafts: ScheduleEventDraftsValue; reading: boolean; wanted: ReadonlySet<string>; moved: boolean;
+        laid: ReadonlyMap<string, ScheduleLandedRows>; read: ScheduleCellsRead;
+    } | undefined>(undefined);
+    const handedOn = useMemo((): ScheduleCellsRead => {
         if (!result.ok) console.error(`[${host}] the event kinds' cells could not be read:`, result.error);
         const inFlight = !result.ok || result.value === READING;
         if (!inFlight) {
             const next = result.value as Read;
             if (last.current === undefined || !sameRead(last.current, next)) last.current = next;
+            if (!sameRevisions(revisions.current, next.revisions)) revisions.current = next.revisions;
         }
         // While a read is in flight, the last stands in — the drafts as they are now, less those it found the narrowing does not hold.
         const standing = last.current ?? opening;
@@ -1332,23 +1453,36 @@ export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
         const reading = covered !== undefined && result.ok && result.value === READING;
         // In flight, or thrown, over another range than the one standing was read over: its cells there never landed.
         const moved = covered !== undefined && inFlight && standing.range !== undefined && from !== undefined && to !== undefined && !sameRange(standing.range, { from, to });
+        // What Saves landed of the kinds whose cells stand from before them: drawn as the Saves left it.
+        const laid = landedBefore(landed, revisions.current);
         const was = handed.current;
-        if (was !== undefined && was.standing === standing && was.reading === reading && was.moved === moved
+        if (was !== undefined && was.standing === standing && was.reading === reading && was.moved === moved && sameLanded(was.laid, laid)
             && (!inFlight || (Object.is(was.drafts, drafts) && was.wanted === wanted))) return was.read;
         // The rows that draw what is known of them: the resources whose cells it holds — over another range, less those it
         // reads again; over the same range, a commit's or another narrowing's read, every one, its cells standing in.
         const drawn = covered === undefined || !moved ? covered : new Set([...covered].filter((key) => !wanted.has(key)));
-        const handedOn: ScheduleCellsRead = {
+        const seams = laidLanded(inFlight ? narrowedDrafts(drafts, standing.dropped) : standing.drafts, standing.held, standing.dropped, laid, drafts);
+        const read: ScheduleCellsRead = {
             reads: standing.reads,
             shading: standing.shading,
-            drafts: inFlight ? narrowedDrafts(drafts, standing.dropped) : standing.drafts,
-            held: standing.held,
+            drafts: seams.drafts,
+            held: seams.held,
             notices: standing.notices,
             capped: standing.capped,
             reading,
             drawn,
         };
-        handed.current = { standing, drafts, reading, wanted, moved, read: handedOn };
-        return handedOn;
-    }, [host, result, opening, drafts, reader, from, to]);
+        handed.current = { standing, drafts, reading, wanted, moved, laid, read };
+        return read;
+    }, [host, result, opening, drafts, reader, from, to, landed]);
+    // What Saves landed of a kind whose cells are read since them — or none of whose cells is read: counted, past the cap
+    // or hidden — is let go, in the commit that draws its cells without it, so no frame draws both.
+    useLayoutEffect(() => {
+        if (landed === undefined || shown === undefined) return;
+        for (const [kind, rows] of landed) {
+            const at = revisions.current.get(kind);
+            if (at === undefined || !rows.from.has(at)) shown(kind, [...rows.rows.keys()]);
+        }
+    }, [landed, shown, handedOn]);
+    return handedOn;
 }

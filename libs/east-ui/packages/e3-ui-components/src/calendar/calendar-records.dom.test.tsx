@@ -846,3 +846,71 @@ describe("the Backlog's drafts, paged through the source (#1424)", () => {
         expect(event(container, "backlog")?.hasAttribute("data-drafted")).toBe(true);
     });
 });
+
+describe("a Save: what it landed, as it left it, while the window is read again", () => {
+    const job = (key: string) => eventKey({ kind: "job", key });
+    /** The window's reads of the record — its batches of key searches, the rows of its runs and what the narrowing holds — which a Save's own confirmation, a key's search and its row, is none of. */
+    const windowRead = (request: E3Request) => request.dataset === EVENTS
+        && ((request.kind === "find" && request.query.get("findKeys") !== null) || request.kind === "runs" || request.kind === "within");
+    /** Saves through the history's Save with the window's reads held: its commit confirmed and its drafts gone, those reads not answered yet. */
+    async function saveHeld(container: HTMLElement) {
+        const held = h.e3.hold(windowRead);
+        await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("button", { name: "Save" })); });
+        await held.holding;
+        await settle();
+        expect(h.requests("mutate", "indexed_calendar_events").map(request => request.name)).toEqual(["patch"]);
+        // Its drafts gone, read back by key: the window's read again is still in flight, the frame busy.
+        expect(within(slot(container, "toolbar")).getByRole<HTMLButtonElement>("button", { name: editingMessages.discard() }).disabled).toBe(true);
+        expect(slot(container, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "reconciling" }));
+        expect(slot(container, "main").getAttribute("aria-busy")).toBe("true");
+        return held;
+    }
+    /** Lets the held reads go, and waits for them to land. */
+    async function release(held: { release(): void }) {
+        await act(async () => { held.release(); });
+        await settle();
+    }
+    /** The brochures' event, selected on the day. */
+    async function selectJob(storageKey: string) {
+        StateRuntime.initializeStore(new UIStore());
+        const { container } = await h.mount(ex.calendarRecordIndexes, { storageKey });
+        await waitFor(() => expect(event(container, "job")).not.toBeNull());
+        await settle();
+        await act(async () => { fireEvent.click(event(container, "job")!); });
+        await settle();
+        return container;
+    }
+
+    test("an event Save returned to the backlog draws nowhere on the day while the window is read again, the Backlog listing it, and so once read", async () => {
+        const container = await selectJob("save-landed-backlog");
+        await act(async () => { fireEvent.click(within(slot(container, "end")).getByRole("button", { name: "Return to backlog" })); });
+        await settle();
+        expect(event(container, "job")).toBeNull();
+        expect(backlogShown(container).cards).toEqual([job("job"), job("backlog")]);
+        // Saved, the window's read again held: the brochures have no block back on the day, and the Backlog lists them still.
+        const held = await saveHeld(container);
+        expect((await h.read(ex.indexedCalendarEvents)).get("job")!.start.type).toBe("none");
+        expect(event(container, "job")).toBeNull();
+        expect(backlogShown(container).cards).toEqual([job("job"), job("backlog")]);
+        // The window read again: no block still, and the Backlog lists both in the record's order, as its pages read it now.
+        await release(held);
+        expect(slot(container, "main").getAttribute("aria-busy")).toBe("false");
+        expect(event(container, "job")).toBeNull();
+        await waitFor(() => expect(backlogShown(container).cards).toEqual([job("backlog"), job("job")]));
+    });
+
+    test("Details shows a field as Save wrote it while the window is read again, never its old value, nor marked a change", async () => {
+        const container = await selectJob("save-landed-details");
+        const field = () => slot(container, "end").querySelector<HTMLElement>('[data-field="customer"]')!;
+        const value = () => field().querySelector<HTMLInputElement>("input")!.value;
+        const user = userEvent.setup();
+        await user.clear(field().querySelector("input")!); await user.type(field().querySelector("input")!, "Harbour Arts{Enter}"); await settle();
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Harbour Arts", true]);
+        // Saved, the window's read again held: the customer as typed, no change of the stored row.
+        const held = await saveHeld(container);
+        expect((await h.read(ex.indexedCalendarEvents)).get("job")!.customer).toBe("Harbour Arts");
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Harbour Arts", false]);
+        await release(held);
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Harbour Arts", false]);
+    });
+});

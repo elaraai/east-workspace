@@ -44,6 +44,7 @@
 
 import { describe, test, expect, beforeEach, afterEach, onTestFinished, vi, type MockInstance } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { East, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
@@ -529,6 +530,71 @@ describe("the jobs read a cell at a time (#1039)", () => {
         expect(named(bar(c, "W-0003", "P-1002"))).toMatch(/^Museum guide, Oct 7, 2026, 06:00 – Oct 7, 2026, 12:00/);
         expect((await readJobs()).get("W-0003")!.start).toEqual(some(new Date("2026-10-07T06:00:00Z")));
         expect(drawn(c)).toEqual(await drawnWhole());
+    });
+});
+
+// ============================================================================
+// A Save: what it landed, as it left it, while the jobs' cells are read again
+// ============================================================================
+
+describe("a Save of the jobs read a cell at a time: what it landed, as it left it, while their cells are read again", () => {
+    /** Saves through the history's Save with the jobs' cells held: its commit confirmed and its drafts gone, the cells not read again yet. */
+    async function saveHeld(c: HTMLElement) {
+        const held = h.e3.hold(through(SERIES));
+        await act(async () => { fireEvent.click(save(c)); });
+        await held.holding;
+        await settle();
+        await waitFor(() => expect(pending(c)).toBe("0 pending"));
+        return held;
+    }
+    /** Lets the held reads go, and waits for them to land. */
+    async function release(held: { release(): void }) {
+        await act(async () => { held.release(); });
+        await settle();
+    }
+    /** The museum guide's bar, on Press 1002. */
+    const guide = (c: HTMLElement) => bar(c, "W-0003", "P-1002");
+
+    test("a job a Save moved draws where the Save left it while the cells are read again — never back where it stood, nor as a draft — and so once read", async () => {
+        const { container: c } = await h.mount(seriesPlan);
+        await settle();
+        // The brochure run on Press 1001 and the museum guide, from Tuesday 6 October 06:00 on Press 1002, a day on.
+        await select(bar(c, "W-0001", "P-1001")!);
+        await select(guide(c)!, true);
+        await press(action(c, "shift:1day"));
+        expect(pending(c)).toBe("2 pending");
+        expect(named(guide(c))).toMatch(/^Museum guide, Oct 7, 2026, 06:00 – Oct 7, 2026, 12:00/);
+        expect(guide(c)!.hasAttribute("data-draft")).toBe(true);
+        // Saved, the cells' read again held: the guide where the Save left it, in no draft's look.
+        const held = await saveHeld(c);
+        expect((await readJobs()).get("W-0003")!.start).toEqual(some(new Date("2026-10-07T06:00:00Z")));
+        expect(named(guide(c))).toMatch(/^Museum guide, Oct 7, 2026, 06:00 – Oct 7, 2026, 12:00/);
+        expect(guide(c)!.hasAttribute("data-draft")).toBe(false);
+        await release(held);
+        expect(named(guide(c))).toMatch(/^Museum guide, Oct 7, 2026, 06:00 – Oct 7, 2026, 12:00/);
+        expect(guide(c)!.hasAttribute("data-draft")).toBe(false);
+        expect(drawn(c)).toEqual(await drawnWhole());
+    });
+
+    test("Details shows a job's field as Save wrote it while the cells are read again, never its old value, nor marked a change", async () => {
+        const { container: c } = await h.mount(seriesPlan);
+        await settle();
+        await select(guide(c)!);
+        const field = () => pane(c).querySelector<HTMLElement>("[data-inspector-fields='form'] [data-field='customer']")!;
+        const input = () => within(field()).getByRole("textbox") as HTMLInputElement;
+        const shows = () => [input().value, field().hasAttribute("data-dirty")];
+        expect(shows()).toEqual(["Driftwood Museum", false]);
+        const user = userEvent.setup();
+        await user.clear(input());
+        await user.type(input(), "Harbour Arts{Enter}");
+        await settle();
+        expect(shows()).toEqual(["Harbour Arts", true]);
+        // Saved, the cells' read again held: the customer as typed, no change of the stored row.
+        const held = await saveHeld(c);
+        expect((await readJobs()).get("W-0003")!.customer).toBe("Harbour Arts");
+        expect(shows()).toEqual(["Harbour Arts", false]);
+        await release(held);
+        expect(shows()).toEqual(["Harbour Arts", false]);
     });
 });
 

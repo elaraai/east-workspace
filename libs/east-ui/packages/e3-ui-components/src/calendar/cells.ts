@@ -37,7 +37,11 @@
  * among them ({@link calendarCellSpan}), the span standing while the view shows
  * only places not read yet. A view that lays no resource out — a time grid, the
  * month, the agenda — reads such a kind as it reads any other: counted over the
- * window first.
+ * window first. A Save's confirmation reads its events by their keys, never the
+ * cells: what it landed of such a kind draws as the Save left it over cells read
+ * before the commit, until they are read again — the editing keeps it for the
+ * kinds {@link calendarCellKinds} names (the shared reader's "What a Save
+ * landed").
  *
  * A kind with a backlog narrowed through its source reads its window's rows
  * alone (#1424): the Backlog tab pages its backlog through the source itself
@@ -58,7 +62,7 @@ import {
     useScheduleCells, type ScheduleCellBucket, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellResources, type ScheduleCellSpan,
     type ScheduleCellsRead,
 } from "../shared/schedule/cells.js";
-import type { ScheduleEventDraftsValue } from "../shared/schedule/editing.js";
+import type { ScheduleEditing, ScheduleEventDraftsValue } from "../shared/schedule/editing.js";
 import type { CalendarKind, CalendarRange } from "./model.js";
 import { CALENDAR_PAGE_SIZE, pagedRowAt, type CalendarPagedValue, type CalendarPagedView, type CalendarPages } from "./pages.js";
 import type { CalendarEventPart } from "./window.js";
@@ -164,6 +168,27 @@ export interface CalendarCellsArgs {
     readonly paged: ScheduleCellPaged | undefined;
     /** The paged kind's rows the view shows ({@link calendarCellSpan}); `undefined` before any is held in view. */
     readonly span: ScheduleCellSpan | undefined;
+    /**
+     * The editing's say of what confirmed Saves landed of the kinds it names ({@link calendarCellKinds}), and how it is
+     * let go: drawn over a kind's cells read before the commit until they are read again; `undefined` for a Calendar
+     * read only.
+     */
+    readonly editing?: Pick<ScheduleEditing, "landed" | "shown"> | undefined;
+}
+
+/**
+ * The kinds the Calendar may read by their cells (see the module docs): placed on the paged resource kind, their sources
+ * listing a series index of their records — whose cells stand at the revision they were read at, so the editing keeps
+ * what each Save lands of them for the reader to draw until they are read again.
+ *
+ * @param paged - The paged resource kind's slot; `undefined` where none pages
+ * @param parts - Each event kind narrowed through its source of the slice
+ * @returns Their slots
+ */
+export function calendarCellKinds(paged: string | undefined, parts: readonly CalendarEventPart[]): ReadonlySet<string> {
+    if (paged === undefined) return new Set();
+    return new Set(parts.filter(({ kind, part }) => kind.takes.some((slot) => stringEqual(slot, paged))
+        && part.config.indexes.some((index) => index.series.type === "some")).map(({ kind }) => kind.key));
 }
 
 /**
@@ -177,7 +202,7 @@ export interface CalendarCellsArgs {
  * @returns What the shared reader read
  */
 export function useCalendarCells(args: CalendarCellsArgs): ScheduleCellsRead {
-    const { kinds, parts, resources, range, bucket, drafts, paged, span } = args;
+    const { kinds, parts, resources, range, bucket, drafts, paged, span, editing } = args;
     const cellKinds = useMemo((): ScheduleCellKind[] => kinds.map((kind) => ({
         key: kind.key,
         name: kind.name,
@@ -204,5 +229,6 @@ export function useCalendarCells(args: CalendarCellsArgs): ScheduleCellsRead {
     const buckets = useMemo(() => (bucket === undefined ? [] : calendarBuckets(over, bucket)), [over, bucket]);
     return useScheduleCells({
         host: "Calendar", kinds: cellKinds, resources, paged, range: over, buckets, resolution: bucket, drafts, span,
+        landed: editing?.landed, shown: editing?.shown,
     });
 }

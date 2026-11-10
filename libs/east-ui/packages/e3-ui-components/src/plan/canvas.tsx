@@ -424,8 +424,11 @@ export function usePlanCanvas({
     // A kind read by its cells (#1039) finds a gesture's event in the rows its cells hold, as the gesture runs.
     const heldCells = useRef(lead.cells?.held);
     heldCells.current = lead.cells?.held;
+    // Their cells stand at the revision they were read at (#1039): what each Save lands of such a kind draws as the Save
+    // left it, over cells read before the commit, until they are read again.
+    const drawsLanded = useMemo(() => new Set(cellKinds(eventParts)), [eventParts]);
     const eventEditing = usePlanEventEditing({
-        kinds, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: heldCells,
+        kinds, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: heldCells, drawsLanded,
     });
     const history = eventEditing.history;
     historyRef.current = history;
@@ -1784,7 +1787,8 @@ export function usePlanCanvas({
     const eventsReader = events !== undefined
         ? (
             <PlanEventsReader events={events} scale={scale} hidden={hidden} drafts={eventEditing.drafts} shown={shownResources}
-                kinds={kinds} resources={resources} parts={eventParts} links={editing.data.links} spans={cellSpans} onLead={setLead} />
+                kinds={kinds} resources={resources} parts={eventParts} links={editing.data.links} spans={cellSpans} editing={eventEditing}
+                onLead={setLead} />
         )
         : null;
     // The rows' nested series (#1438), read by a component of its own around the rows laid out — or, while the Plan is

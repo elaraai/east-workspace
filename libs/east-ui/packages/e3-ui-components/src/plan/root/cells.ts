@@ -27,6 +27,12 @@
  * ({@link shownCellSpan}); the rows' ids name a resource by the last step of
  * their path.
  *
+ * A Save's confirmation reads its events by their keys, never the cells: what
+ * it landed of a kind read by its cells draws as the Save left it over cells
+ * read before the commit, until they are read again — the editing keeps it for
+ * the kinds {@link cellKinds} names ({@link PlanCellsArgs.editing}, the shared
+ * reader's "What a Save landed").
+ *
  * @packageDocumentation
  */
 
@@ -37,7 +43,7 @@ import {
     useScheduleCells, type ScheduleCellBucket, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellResources, type ScheduleCellSpan,
     type ScheduleCellsRead,
 } from "../../shared/schedule/cells.js";
-import type { ScheduleEventDraftsValue } from "../../shared/schedule/editing.js";
+import type { ScheduleEditing, ScheduleEventDraftsValue } from "../../shared/schedule/editing.js";
 import { hides } from "../frame/hidden.js";
 import { timeInstant } from "../instant.js";
 import type { PlanRootValue } from "../model.js";
@@ -102,6 +108,11 @@ export interface PlanCellsArgs {
     readonly span: ScheduleCellSpan | undefined;
     /** The canvas's links: an event end the cells do not hold is read by its key. */
     readonly links: Links;
+    /**
+     * The editing's say of what confirmed Saves landed of the kinds read by their cells ({@link cellKinds}), and how it is
+     * let go: drawn over a kind's cells read before the commit until they are read again; `undefined` for none.
+     */
+    readonly editing?: Pick<ScheduleEditing, "landed" | "shown"> | undefined;
 }
 
 /** Whether a kind's rows draw bars or chips, which shade as the share of each bucket booked. */
@@ -130,7 +141,7 @@ function linkEnds(links: Links, slot: string): string[] {
  * @returns What the shared reader read
  */
 export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
-    const { kinds, resources, parts, paged, scale, range, drafts, hidden, span, links } = args;
+    const { kinds, resources, parts, paged, scale, range, drafts, hidden, span, links, editing } = args;
     const cellKindsOf = useMemo((): ScheduleCellKind[] => kinds.map((kind) => ({
         key: kind.key,
         name: kind.name,
@@ -162,6 +173,7 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
     const buckets = useMemo(() => (scale === undefined || over === undefined ? undefined : bucketsOver(scale, over.from, over.to)), [scale, over]);
     return useScheduleCells({
         host: "Plan", kinds: cellKindsOf, resources: whole, paged: pagedKind, range: over, buckets, resolution: scale?.resolution, drafts, span,
+        landed: editing?.landed, shown: editing?.shown,
     });
 }
 
