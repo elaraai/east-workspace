@@ -31,8 +31,13 @@ export const statSlotRecipe = defineSlotRecipe({
         label: {
             textStyle: "caption.eyebrow",
         },
+        // Chakra's own stat sets its tracking and proportional figures outright, and a text style's own
+        // yield to those: they are the large number's again here.
         valueText: {
             textStyle: "num-lg",
+            letterSpacing: "normal",
+            fontVariantNumeric: "tabular-nums",
+            fontFeatureSettings: '"tnum"',
             color: "fg",
         },
         valueUnit: {
@@ -55,10 +60,11 @@ export const statSlotRecipe = defineSlotRecipe({
         },
     },
     variants: {
+        // Each size restates the large number: Chakra's own stat sets a text style of its own in each.
         size: {
-            sm: { valueText: { fontSize: "{fontSizes.title.lg}" } },   // 20px
-            md: { valueText: { fontSize: "{fontSizes.num}" } },        // 26px — the large number
-            lg: { valueText: { fontSize: "{fontSizes.num}" } },        // 26px — no larger number exists
+            sm: { valueText: { textStyle: "num-lg", fontSize: "{fontSizes.title.lg}" } },   // 20px
+            md: { valueText: { textStyle: "num-lg", fontSize: "{fontSizes.num}" } },        // 26px — the large number
+            lg: { valueText: { textStyle: "num-lg", fontSize: "{fontSizes.num}" } },        // 26px — no larger number exists
         },
         // Density cascade — value/label/help text tighten with the
         // chipRail/trace rhythm so a stat block shares a surface with chips
