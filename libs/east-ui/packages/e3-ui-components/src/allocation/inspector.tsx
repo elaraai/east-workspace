@@ -461,7 +461,8 @@ function BinSection({ id, bin, committed, refused, ...part }: Part & { id: strin
                 active={bin.lane} onPick={lane => { if (lane !== bin.lane) toSlot(lane, Math.max(0, index)); }} />;
         }
         if (spec.path[0] === "at") {
-            return <Box css={stepper.root} data-allocation-stepper="">
+            // Its fieldset turns its buttons off while main is retained (CL8); marked, the strip looks off as the fields beside it do.
+            return <Box css={stepper.root} data-allocation-stepper="" data-disabled={args.retained ? "" : undefined}>
                 <chakra.button type="button" css={stepper.button} aria-label={earlier} title={earlier} disabled={!editable || index <= 0}
                     onClick={() => toSlot(bin.lane, index - 1)}><FontAwesomeIcon icon={faMinus} /></chakra.button>
                 <Box as="span" css={stepper.value} data-allocation-time="">{timeText(bin.at)}</Box>
@@ -470,7 +471,7 @@ function BinSection({ id, bin, committed, refused, ...part }: Part & { id: strin
             </Box>;
         }
         return undefined;
-    }, [nouns.lane.one, lanes, editable, bin.lane, bin.at, toSlot, index, own.length, stepper, earlier, later]);
+    }, [nouns.lane.one, lanes, editable, bin.lane, bin.at, toSlot, index, own.length, stepper, earlier, later, args.retained]);
     const { setQuantity } = commands;
     const onChange = useCallback((path: readonly string[], next: unknown) => { if (path[0] === "quantity") setQuantity(id, next as number); }, [setQuantity, id]);
     const shownValue = useMemo(() => ({ key: id, lane: bin.lane, at: bin.at, quantity: bin.quantity }), [id, bin.lane, bin.at, bin.quantity]);
@@ -605,8 +606,10 @@ function AssignedTo({ id, bin, current, at, ...part }: Part & { id: string; bin:
     });
     const close = () => { refocus.current = true; setChooser(undefined); };
     const name = current === undefined ? undefined : context.resources.get(current)?.label ?? current;
+    // Off on a published day too, where it prints the resource; switched off while main is retained, it is marked, so it
+    // looks off as the fields beside it do.
     const field = <chakra.button ref={fieldRef} type="button" css={styles.resourceField} data-unlinked={current === undefined ? "" : undefined} data-allocation-resource-field=""
-        disabled={!editable || args.retained} aria-haspopup="listbox" aria-expanded={open} title={`Choose the ${one(nouns.resource)} · the same list as the Table’s chevron`}
+        data-disabled={editable && args.retained ? "" : undefined} disabled={!editable || args.retained} aria-haspopup="listbox" aria-expanded={open} title={`Choose the ${one(nouns.resource)} · the same list as the Table’s chevron`}
         onClick={() => setChooser(open ? undefined : id)}>
         <span>{name ?? `+ Choose ${a(nouns.resource)}`}</span>
         {editable && <FontAwesomeIcon icon={open ? faChevronUp : faChevronDown} />}
