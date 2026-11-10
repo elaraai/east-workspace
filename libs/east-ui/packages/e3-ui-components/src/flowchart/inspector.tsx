@@ -67,7 +67,9 @@
  * row a draft deletes is free (#1581). A number a row holds outside its
  * field's bounds is said in the tone the row's Save stands in (#1585): a
  * warning as stored, an error once its record's session refuses the row's
- * change, holding Save.
+ * change, holding Save. The toolbar's issue gone to puts the keyboard in the
+ * field it names, the inspector opened at Details where it is collapsed or at
+ * Issues.
  *
  * Details keeps the keyboard (#1398): a control that goes with the view it
  * belongs to — Delete, which leaves nothing selected; Duplicate and a
@@ -101,6 +103,7 @@ import {
 } from "@elaraai/east-ui-components";
 import { FrameDrawer } from "@elaraai/east-ui-components/internal";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
+import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { askHiding, hiddenLine, hiddenOf, type RowHidden, type RowHiding, type SourceHiding } from "../shared/schedule/hidden.js";
 import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
@@ -508,8 +511,8 @@ function useRowState(editing: FlowchartEditing, sort: FlowchartSort, kind: AnyKi
  * @param sort - The row's kind
  * @param key - Its key
  * @param what - What it is, for the console
- * @returns The kind, whether it writes and takes an edit now, the row's state, the form's edit, the own Details, and the
- *   tone a bound its row breaks is said in
+ * @returns The kind, whether it writes and takes an edit now, the row's state, the form's edit, the own Details, the
+ *   tone a bound its row breaks is said in, and the field an issue gone to asks of it
  */
 function useSide(props: ViewProps, sort: FlowchartSort, key: string, what: string) {
     const { value, editing, held, act, edit } = props;
@@ -539,7 +542,9 @@ function useSide(props: ViewProps, sort: FlowchartSort, key: string, what: strin
     const readiness = editing.schedule.sessions.find((part) => stringEqual(part.kind, sort))?.session.readiness;
     const breaches: "warn" | "error" = readiness !== undefined && readiness.type !== "ready" && readiness.value.some((issue) => stringEqual(issue.entry, key))
         ? "error" : "warn";
-    return { kind, writes, available, state, onField, own, refused, bump, breaches };
+    // The field the toolbar's issue gone to names (#1585): it takes the keyboard, the inspector opened where it is collapsed.
+    const focus = useFieldAsk(sort, key);
+    return { kind, writes, available, state, onField, own, refused, bump, breaches, focus };
 }
 
 /**
@@ -549,7 +554,7 @@ function useSide(props: ViewProps, sort: FlowchartSort, key: string, what: strin
 function RowFields({ styles, roles, side, storageKey }: {
     styles: Styles; roles: ReactNode; side: ReturnType<typeof useSide>; storageKey: string;
 }) {
-    const { kind, writes, state, onField, own, refused, breaches } = side;
+    const { kind, writes, state, onField, own, refused, breaches, focus } = side;
     const specs = kind?.fields ?? [];
     return (
         <>
@@ -558,7 +563,7 @@ function RowFields({ styles, roles, side, storageKey }: {
                 {own === undefined && specs.length > 0 && (
                     <Box data-inspector-form="fields">
                         <FieldForm key={refused} specs={specs} value={state.row} baseline={state.baseline} onChange={writes ? onField : NO_EDIT} readOnly={!writes}
-                            breaches={breaches} />
+                            breaches={breaches} focus={focus} />
                     </Box>
                 )}
             </Box>

@@ -48,7 +48,9 @@
  *   (`use-drop.ts`);
  * - **the inspector** (`inspector.tsx`), the end pane: what is selected, and
  *   the flowchart's issues — each one selecting what it names, an unsaved
- *   change the rail hides by the same hidden pick;
+ *   change the rail hides by the same hidden pick. The toolbar's issue gone to
+ *   asks its row's Details for the field it names, which takes the keyboard
+ *   there, the inspector opened where it is collapsed (#1585);
  * - **the footer** (`footer.tsx`): the counts, the changes waiting on Save,
  *   the last save, each Save's notice, a refused gesture's words, and the
  *   loading line — `Loading states…`, `Updating states…`, or a failed read
@@ -64,7 +66,7 @@
 
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { ArrayType, StringType, equalFor, equivalentFor, type PatchPath } from "@elaraai/east";
+import { ArrayType, StringType, equalFor, equivalentFor, none, type PatchPath } from "@elaraai/east";
 import { EditingBatchReadinessType } from "@elaraai/east-ui/internal";
 import { Flowchart, flowchartKeys } from "@elaraai/e3-ui/internal";
 import {
@@ -75,6 +77,7 @@ import {
 import { LoadingReveal, loadingLineText, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import { isBounded } from "../shared/bounds.js";
 import { pagedLoadingLine } from "../shared/loading.js";
+import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import type { SourceHiding } from "../shared/schedule/hidden.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
@@ -550,10 +553,15 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         const key = history.sourceOf(issue);
         return key === undefined ? undefined : sessions.find((part) => stringEqual(part.key, key));
     }, [history, sessions]);
-    const onIssue = useCallback((issue: EditIssue) => {
+    // The field an issue gone to names, asked of its row's Details: it takes the keyboard there, the inspector opened where
+    // it is collapsed (`../shared/schedule/field-ask.tsx`, #1585) — a conflict's Go to, which names its path, asks none.
+    const { asks: fieldAsks, request: askField } = useFieldAsks();
+    const onIssue = useCallback((issue: EditIssue, at?: PatchPath) => {
         const sort = sortOf(partOf(issue)?.kind ?? "");
-        if (sort !== undefined) revealSelection(selectionOf(sort, issue.entry));
-    }, [partOf, revealSelection]);
+        if (sort === undefined) return;
+        askField(sort, issue.entry, at === undefined ? issue.field : none);
+        revealSelection(selectionOf(sort, issue.entry));
+    }, [partOf, revealSelection, askField]);
     const where = useCallback((issue: EditIssue) => {
         const part = partOf(issue);
         return part === undefined ? issue.entry : rowName(part.kind, issue.entry);
@@ -746,7 +754,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         (line?.kind === "failed" ? { message: loadingLineText(line.text), retry: line.onRetry } : undefined), [line]);
 
     return (
-        <Box css={styles.root} data-flowchart-root="" data-flowchart-layout={narrow ? "narrow" : "wide"}>
+        <FieldAskProvider value={fieldAsks}><Box css={styles.root} data-flowchart-root="" data-flowchart-layout={narrow ? "narrow" : "wide"}>
             <FlowchartDetailsReader kinds={detailsKinds} drawn={drawn} attempt={attempt} onDetails={setDetails} />
             {/* The frame's one reveal clock: the footer's line shows a read in flight after 150 ms, held 300 ms once shown. */}
             <LoadingReveal waiting={line?.kind === "loading"}>
@@ -769,7 +777,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
                         onElement={onCanvasElement} failure={failure} onZoomRange={setZoomRange} />
                 </BuilderFrame>
             </LoadingReveal>
-        </Box>
+        </Box></FieldAskProvider>
     );
 }
 

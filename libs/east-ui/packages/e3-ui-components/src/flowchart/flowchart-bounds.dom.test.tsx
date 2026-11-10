@@ -10,11 +10,13 @@
  * ring, Details says it once, in the field's help line, as a warning, and
  * Issues warns of it — `Slices: at least 1` — and Save holds for no such row:
  * Mix renamed saves. Cool renamed holds Save, the help line an error, Issues
- * saying it among what blocks, and keeps its ring.
+ * saying it among what blocks, and keeps its ring. The toolbar's issue pressed
+ * puts the keyboard in Slices — the Inspector, collapsed at Issues, opened at
+ * Details first.
  */
 
 import { expect, test } from "vitest";
-import { fireEvent, waitFor } from "@testing-library/react";
+import { fireEvent, waitFor, within } from "@testing-library/react";
 import { IntegerType, SortedMap, StringType, compareFor, equalFor, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
@@ -101,4 +103,24 @@ test("a stored step sliced under its Slices' least: its card wears the warn ring
     await openTab(c, "Issues");
     expect(issues(c)).toEqual([[where, issue, "invalid"]]);
     expect(node(c, "40")!.hasAttribute("data-bounds")).toBe(true);
+});
+
+test("the Inspector collapsed at Issues, the toolbar's issue pressed opens it at Details, as its rail and its tab do, and Slices takes the keyboard (#1585)", async () => {
+    const steps = new SortedMap(await h.read(ex.bakerySteps), compareFor(IntegerType));
+    const cool = [...steps].find(([key]) => integerEqual(key, 40n))![1];
+    steps.set(40n, { ...cool, portion: variant("sliced", 0n) });
+    await h.patch(ex.bakerySteps, steps);
+    const { container: c } = await h.mountExample(ex.flowchartBakery);
+    await waitFor(() => expect(node(c, "40")).not.toBeNull());
+    await settle();
+    await renameStep(c, "40", "Cooling");
+    expect(enabled(SAVE)).toBe(false);
+    // The Inspector left at Issues, and collapsed.
+    await openTab(c, "Issues");
+    await gesture(() => { fireEvent.click(within(slot(c, "end")).getByRole("button", { name: "Collapse Inspector" })); });
+    expect(slot(c, "end").hasAttribute("data-collapsed")).toBe(true);
+    await gesture(() => { fireEvent.click(slot(c, "toolbar").querySelector<HTMLButtonElement>('[data-slot="historyIssues"] button')!); });
+    const open = slot(c, "end").querySelector("[role='tab'][aria-selected='true']")?.textContent;
+    const slices = slot(c, "end").querySelector("[role='tabpanel']:not([hidden]) [data-field='portion.sliced']");
+    expect([slot(c, "end").hasAttribute("data-collapsed"), open, slices?.contains(document.activeElement) === true]).toEqual([false, "Details", true]);
 });
