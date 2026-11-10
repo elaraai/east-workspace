@@ -18,6 +18,7 @@ import { kept, keptFlag, keptRead } from "../../platform/kept.js";
 import { fitTabs, type TabRowMeasure } from "./fold.js";
 import { useFormatters } from "../../format/index.js";
 import { FrameMenuLayer } from "../builder-frame/frame-layer.js";
+import { DockTab, type DockTabOpen } from "./tab-context.js";
 
 /** The open tab, as storage keeps it. */
 const readDockTab = keptRead.record<{ key: string | undefined }>({ key: keptRead.optional(keptRead.string) });
@@ -170,9 +171,11 @@ export interface DockPaneProps {
  * key). A pane that is not `collapsible` is always expanded, with no collapse
  * control. The open tab follows it too: seeded from `tab` and synced when `tab`
  * drives it, else kept by the storage key; either way a tab opened from the
- * pane is reported through `onTabChange`. Every body is kept mounted (hidden)
- * while the pane is collapsed, and every tab's while another is open, so a
- * child's scroll / drag / search state survives; `lazy` defers first mount.
+ * pane is reported through `onTabChange` — and what a tab holds opens it so
+ * ({@link DockTab}): a form an issue gone to asks a field of, behind another
+ * tab (#1585). Every body is kept mounted (hidden) while the pane is collapsed,
+ * and every tab's while another is open, so a child's scroll / drag / search
+ * state survives; `lazy` defers first mount.
  *
  * @param props - The pane's tabs or body, and its options ({@link DockPaneProps})
  * @returns The pane
@@ -251,6 +254,19 @@ export function DockPane(props: DockPaneProps) {
         else setTabState({ key });
         if (onTabChangeFn) queueMicrotask(() => onTabChangeFn(key));
     }, [tabProp, setTabState, onTabChangeFn]);
+    // What a tab holds opens the tab it is in, as its tab on the row does ({@link DockTab}, #1585): one opener a tab, so
+    // what reads it draws again for nothing else.
+    const opensTab = useRef<(key: string) => void>(() => undefined);
+    opensTab.current = (key) => { if (key !== openTab?.key) openTabKey(key); };
+    const tabOpens = useRef(new Map<string, DockTabOpen>());
+    const tabOpen = (key: string): DockTabOpen => {
+        let one = tabOpens.current.get(key);
+        if (one === undefined) {
+            one = { open: () => opensTab.current(key) };
+            tabOpens.current.set(key, one);
+        }
+        return one;
+    };
     const ids = useId();
     const tabRefs = useRef(new Map<string, HTMLButtonElement>());
 
@@ -391,7 +407,7 @@ export function DockPane(props: DockPaneProps) {
                 aria-labelledby={`${ids}-tab-${index}`}
                 hidden={collapsed || tab.key !== openTab?.key}
             >
-                {tab.body}
+                <DockTab.Provider value={tabOpen(tab.key)}>{tab.body}</DockTab.Provider>
             </ChakraBox>
         ))
         : (

@@ -43,3 +43,17 @@ test("a stored duty's break under its least wears the warn ring and is a warning
     expect(history(c, editingMessages.apply())).toHaveProperty("disabled", true);
     expect(assignment(c, "s37").hasAttribute("data-bounds")).toBe(true);
 });
+
+test("the Inspector collapsed, the toolbar's issue pressed opens it, as its rail does, and the duty's break takes the keyboard (#1585)", async () => {
+    const duties = await h.read(ex.rosterDuties);
+    duties.set("s37", { ...duties.get("s37")!, unpaidBreak: -15 });
+    await h.patch(ex.rosterDuties, duties);
+    const { container: c } = await h.mount(warehouseRoster());
+    await drop(assignment(c, "s37"), cell(c, 4, "picking", "late"));
+    expect(history(c, editingMessages.apply())).toHaveProperty("disabled", true);
+    await press(within(slot(c, "end")).getByRole("button", { name: "Collapse Inspector" }));
+    expect(slot(c, "end").hasAttribute("data-collapsed")).toBe(true);
+    await press(c.querySelector('[data-frame-slot="toolbar"] [data-slot="historyIssues"] button'));
+    const field = slot(c, "end").querySelector('[data-field="unpaidBreak"]');
+    expect([slot(c, "end").hasAttribute("data-collapsed"), field?.contains(document.activeElement) === true]).toEqual([false, true]);
+});

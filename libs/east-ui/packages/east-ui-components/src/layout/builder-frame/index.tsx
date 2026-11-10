@@ -25,7 +25,10 @@
  *   as it opened — and closed by its own collapse or by Esc, it returns the
  *   focus to its rail; opened or closed by its host's code with the focus
  *   elsewhere — the Inspector a selection in main opens — it leaves the focus
- *   where it is. Esc closes it — but a layer open in it that takes Esc itself,
+ *   where it is; opened by what it holds ({@link FramePane}) — a form an issue
+ *   gone to asks a field of, while the pane is collapsed — it opens as its rail
+ *   opens it, the viewer's doing, and the field takes the focus as it shows
+ *   (#1585). Esc closes it — but a layer open in it that takes Esc itself,
  *   marked `data-escape-layer` (a Chooser laid in a pane), closes first — and
  *   one overlay pane is open at a time;
  * - **auto** (the default) — pinned while main keeps `minMain` beside the
@@ -110,6 +113,7 @@ import { FrameSessionBand } from "./session-row.js";
 import { useViewEscape } from "./view-escape.js";
 import { FrameOverlaySlot } from "./overlay-slot.js";
 import { FrameDrawer } from "./drawer-context.js";
+import { FramePane, type FramePaneOpen } from "./pane-context.js";
 import { FrameBottomPanel } from "./bottom-panel.js";
 import { FramePhoneLayer } from "./frame-layer.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
@@ -127,6 +131,7 @@ export { FrameSessionBand } from "./session-row.js";
 const PHONE_FORM = "phone";
 export { FrameOverlaySlot } from "./overlay-slot.js";
 export { FrameDrawer } from "./drawer-context.js";
+export { FramePane, type FramePaneOpen } from "./pane-context.js";
 export { FrameBottomPanel } from "./bottom-panel.js";
 
 export {
@@ -438,6 +443,14 @@ export function BuilderFrame(props: BuilderFrameProps) {
         if (!collapsed) lastOpened.current = side;
         collapseOf(side).set(collapsed, "viewer");
     };
+    // What each pane holds opens it by its rail's way (#1585): a form an issue gone to asks a field of, collapsed, opening
+    // the pane it is drawn in. The focus stays where it is: the field asked for takes it as it shows.
+    const openPane = useRef<(side: Side) => void>(() => undefined);
+    openPane.current = (side) => { if (dockOf(side) !== undefined && collapseOf(side).collapsed) toggled(side, false); };
+    const paneOpen = useMemo((): Record<Side, FramePaneOpen> => ({
+        start: { open: () => openPane.current("start") },
+        end: { open: () => openPane.current("end") },
+    }), []);
 
     // ── What the frame measures of itself ───────────────────────────────
     const rootRef = useRef<HTMLDivElement | null>(null);
@@ -746,6 +759,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                     pressedIn.current = event.isTrusted || slotRefs[side].current?.contains(rootRef.current?.ownerDocument.activeElement ?? null) === true ? side : undefined;
                 }}>
                 <Box css={styles.sheet} style={floating ? { width: sheetWidth === undefined ? size : `${sheetWidth}px`, transform: aside } : undefined}>
+                    <FramePane.Provider value={paneOpen[side]}>
                     <DockPane
                         storageKey={`${storageKey}.${side}`}
                         side={side}
@@ -776,6 +790,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                             toggled(side, next);
                         }}
                     />
+                    </FramePane.Provider>
                 </Box>
                 {pxOf(size) === undefined && <Box ref={probeRefs[side]} css={styles.probe} style={{ width: size }} aria-hidden />}
             </Box>
@@ -794,6 +809,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                 <FrameDrawer.Provider value={true}>
                 <FrameOverlaySlot.Provider value={phoneViews === true && !covered ? overlaySlot : null}>
                 <FrameBottomPanel.Provider value={panelOf(side === "start" ? startPanel : endPanel)}>
+                <FramePane.Provider value={paneOpen[side]}>
                 <DockPane
                     storageKey={`${storageKey}.${side}`}
                     orientation="vertical"
@@ -810,6 +826,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                     collapsed={!open}
                     onCollapsedChange={(next) => { if (next) { railFocus.current = side; toggled(side, true); } }}
                 />
+                </FramePane.Provider>
                 </FrameBottomPanel.Provider>
                 </FrameOverlaySlot.Provider>
                 </FrameDrawer.Provider>

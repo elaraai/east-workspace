@@ -13,7 +13,7 @@
  * change saves; its customer retyped, Save waits, the banner over its form
  * saying it by the hint's label, and the line is an error. The toolbar's
  * warning pressed goes to the job, and the keyboard to its quantity's line in
- * Details, which no control draws.
+ * Details, which no control draws — the Inspector collapsed, it opens first.
  */
 
 import { expect, test } from "vitest";
@@ -116,4 +116,15 @@ test("the warning pressed goes to its job, and the keyboard to its quantity's li
     expect([document.activeElement === quantity(), quantity()?.getAttribute("tabindex")]).toEqual([true, "-1"]);
     const named = (quantity()?.getAttribute("aria-labelledby") ?? "").split(" ").map((id) => document.getElementById(id)?.textContent);
     expect(named[0]).toBe("Quantity");
+});
+
+test("the Inspector collapsed, the warning pressed opens it, as its rail does, and its quantity's line takes the keyboard (#1585)", async () => {
+    const { container, quantity, issues } = await mounted();
+    const end = () => slot(container, "end")!;
+    fireEvent.click(within(end()).getByRole("button", { name: "Collapse Inspector" }));
+    await settle();
+    expect(end().hasAttribute("data-collapsed")).toBe(true);
+    fireEvent.click(issues());
+    await settle();
+    expect([end().hasAttribute("data-collapsed"), document.activeElement === quantity()]).toEqual([false, true]);
 });

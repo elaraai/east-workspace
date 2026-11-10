@@ -11,6 +11,8 @@
  * to does. A builder holds its asks ({@link useFieldAsks}) and provides them
  * ({@link FieldAskProvider}); an entry's form reads the field asked of it
  * ({@link useFieldAsk}) for its `FieldForm`'s `focus`, and answers the ask —
+ * the pane it is drawn in opening where it is collapsed, as its rail opens it,
+ * at the tab it is drawn in, as its tab opens it, so the field shows (#1585) —
  * in a phone's drawer without taking the keyboard, the field left to a tap, so
  * no keyboard rises over the drawer unasked. An entry's form drawn anew while
  * another's ask stands drops it: the viewer moved on before it was drawn.
@@ -20,7 +22,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { StringType, equalFor, type option } from "@elaraai/east";
-import { FrameDrawer } from "@elaraai/east-ui-components/internal";
+import { DockTab, FrameDrawer, FramePane } from "@elaraai/east-ui-components/internal";
 
 /** An ask for the keyboard in one field of an entry's form. */
 export interface FieldAsk {
@@ -78,13 +80,21 @@ export function useFieldAsks(): { readonly asks: FieldAsks; readonly request: (k
 export function useFieldAsk(kind: string, entry: string): string | undefined {
     const { ask, answered } = useContext(FieldAskContext);
     const phone = useContext(FrameDrawer);
+    const pane = useContext(FramePane);
+    const tab = useContext(DockTab);
     const mine = ask !== undefined && stringEqual(ask.kind, kind) && stringEqual(ask.entry, entry) ? ask : undefined;
     // Drawn anew while another entry's ask stands: the viewer moved on before that entry was drawn.
     const fresh = useRef(true);
     useEffect(() => {
-        if (mine !== undefined) answered(mine.seq);
+        if (mine !== undefined) {
+            answered(mine.seq);
+            // Collapsed, or behind another tab, the pane would leave the issue gone to nowhere: it opens as its rail opens
+            // it, at the form's tab, and the field shows.
+            pane?.open();
+            tab?.open();
+        }
         else if (fresh.current && ask !== undefined) answered(ask.seq);
         fresh.current = false;
-    }, [ask, mine, answered]);
+    }, [ask, mine, answered, pane, tab]);
     return phone || mine === undefined ? undefined : mine.field;
 }
