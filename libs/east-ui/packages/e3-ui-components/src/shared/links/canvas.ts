@@ -25,7 +25,10 @@
  *   every link, outlined while its link is selected.
  *
  * Its measures are the layer's own (`look.ts`); its colours and its font are
- * the part's, never its own. Pure over the context: no React, no DOM.
+ * the part's, never its own. A caption's letters each keep a cell of their
+ * own: the page turns the font's joins off for the SVG layer's, which a
+ * canvas's text need not take, so it turns them off itself (`textRendering`).
+ * Pure over the context: no React, no DOM.
  *
  * @packageDocumentation
  */
@@ -310,6 +313,7 @@ function paintCaption(ctx: CanvasRenderingContext2D, link: CanvasLink, look: Can
     ctx.save();
     ctx.globalAlpha = link.alpha;
     ctx.font = look.captionFont;
+    ctx.textRendering = "optimizeSpeed";
     const half = ctx.measureText(caption.text).width / 2 + LINK_KNOCKOUT_PAD;
     ctx.beginPath();
     ctx.rect(caption.x - half, caption.y - LINK_KNOCKOUT_RISE, 2 * half, LINK_KNOCKOUT_H);

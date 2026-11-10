@@ -17,13 +17,15 @@
  * (`theme.tsx`, #1387): its own marks' roles, and each entity's colour by its
  * id — its colour token, its tone, or its status's, resolved as the cards
  * resolve theirs (D14). Its labels draw in the font the bridge read from the
- * recipe: the design system's mono face. A marker whose colour is its status's
- * while its status is unread — its details row read — draws in the
- * placeholders' fill once the builder's reveal says so, and is unseen before
- * (#1398): never a status it has not read. While what it draws stands in for a
- * new narrowing, its words — a labelled pin's and a link's caption — draw in
- * the third ink, as a zone's eyebrow always does; every mark and edge is as it
- * was (the loading design's retained card).
+ * recipe: the design system's mono face, each letter in a cell of its own —
+ * the page turns the face's joins off, which a canvas's text need not take, so
+ * every text it draws or measures turns them off itself (`textRendering`). A
+ * marker whose colour is its status's while its status is unread — its details
+ * row read — draws in the placeholders' fill once the builder's reveal says
+ * so, and is unseen before (#1398): never a status it has not read. While what
+ * it draws stands in for a new narrowing, its words — a labelled pin's and a
+ * link's caption — draw in the third ink, as a zone's eyebrow always does;
+ * every mark and edge is as it was (the loading design's retained card).
  *
  * Its links and nets draw in the shared links look (#1403), through the shared
  * Canvas2D painter (`shared/links/canvas.ts`) the Plan's and the Allocation's
@@ -990,6 +992,7 @@ export function paintSchematic(input: PaintInput): void {
     const measure = (text: string): number => {
         ctx.save();
         ctx.font = p.labelFont;
+        ctx.textRendering = "optimizeSpeed";
         const w = ctx.measureText(text).width;
         ctx.restore();
         return w;
@@ -1224,6 +1227,7 @@ export function paintSchematic(input: PaintInput): void {
     if (conflicted !== undefined && conflicted.size > 0) {
         ctx.save();
         ctx.font = p.labelFont;
+        ctx.textRendering = "optimizeSpeed";
         ctx.lineWidth = 1;
         ctx.strokeStyle = css(p.statusWarn);
         ctx.shadowColor = css(p.statusWarn, 0.45);
@@ -1333,6 +1337,7 @@ export function paintSchematic(input: PaintInput): void {
         ctx.save();
         ctx.globalAlpha = brow.alpha;
         ctx.font = p.eyebrowFont;
+        ctx.textRendering = "optimizeSpeed";
         const tw = ctx.measureText(brow.label).width;
         ctx.fillStyle = css(p.bgCanvas);
         ctx.fillRect(brow.x + 6, brow.y - 7, tw + 6, 12);
@@ -1375,6 +1380,7 @@ export function paintSchematic(input: PaintInput): void {
             // drawn pill and the click target are identical (issue #57, P11), a long
             // label cut before an ellipsis (#1393).
             ctx.font = p.labelFont;
+            ctx.textRendering = "optimizeSpeed";
             const box = markerHitbox(item, "label", cam, t => ctx.measureText(t).width);
             if (box.kind === "rect") {
                 const { left, top, w, h, text } = box;

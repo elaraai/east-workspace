@@ -12,11 +12,11 @@
  * a marker whose status is unread and the words of what stands in while a new
  * narrowing is read (#1398), the links' look (#1403), and every dot's paper
  * under every dot's colour, their colours by severity, a zone's eyebrow over
- * them (ruled 26 Oct 2026, "Legible dots") are
- * asserted over a 2D context that records what
+ * them (ruled 26 Oct 2026, "Legible dots"), and every text drawn and measured
+ * with its letters unjoined are asserted over a 2D context that records what
  * each stroke and fill draws — its style, width, dash and alpha, and its path's
- * arcs — and each text; the links' routes, each end on an item's edge where it
- * draws at the zoom, over the routes themselves.
+ * arcs — and each text, and how each text is shaped; the links' routes, each end
+ * on an item's edge where it draws at the zoom, over the routes themselves.
  */
 
 import { describe, it, expect } from "vitest";
@@ -276,6 +276,35 @@ describe("a labelled pin (#1393)", () => {
         // Its dot about the rack's point (20, 20); its words after the pad, the dot and the gap, from 9.5 before the point.
         expect(drawn.filter((d) => d.op === "fill" && d.arcs.length > 0).map((d) => d.arcs)).toEqual([[{ x: 20, y: 20, r: 3.5 }]]);
         expect(texts.map((text) => text.x)).toEqual([20 - PIN_LEAD_PX + 6 + 7 + 4]);
+    });
+});
+
+describe("its text, its letters unjoined", () => {
+    const T = Schematic.Types;
+    const at = (key: string, label: string, x: number) => drawnItem({ kind: "racks", key }, {
+        ...defaultValue<typeof T.Item>(T.Item), position: some({ x, y: 2 }), label,
+    }, undefined)!;
+    const office = at("O", "office", 2), staff = at("S", "staff", 12);
+    const run = drawnLink({ kind: "fibre", key: "u1" }, {
+        ...defaultValue<typeof T.Link>(T.Link), from: { kind: "racks", key: "O" }, to: { kind: "racks", key: "S" },
+        route: variant("direct", null), style: variant("solid", { tone: none, weight: none }), label: some("fill"), metric: some("flow"),
+    });
+    const hall = drawnZone({ kind: "halls", key: "h" }, {
+        ...defaultValue<typeof T.Zone>(T.Zone), x: 0, y: 4, width: 14, height: 4, label: "Offices", pattern: variant("outline", { tone: none }),
+    });
+
+    it("draws and measures every text — a pin's label, a link's caption, a zone's eyebrow, a conflict's ring — with the face's joins off, as the page draws its own: a canvas's text need not take the page's CSS", () => {
+        const { ctx, texts, shaped } = recorder();
+        paintSchematic({
+            ctx, value: { items: [office, staff], zones: [hall], links: [run], nets: [] }, cam: { ppu: 20, tx: 0, ty: 0 }, width: 300, height: 200,
+            visibleItems: [office, staff], tiers: new Map([[office.key, "label"], [staff.key, "label"]]), selected: new Set(), selectedZones: new Set(),
+            centers: new Map([[office.key, { x: 2, y: 2 }], [staff.key, { x: 12, y: 2 }]]), palette: PALETTE, tints: new Map(),
+            conflicted: new Set([office.key]),
+        });
+        expect(texts.map((text) => text.text).sort()).toEqual(["OFFICES", "fill · flow", "office", "staff"]);
+        // Each drawn, and measured — for its knockout, its pill, its ring, and the ends of the run between the pins.
+        expect(shaped.filter((s) => s.op === "measure").length).toBeGreaterThan(texts.length);
+        expect(shaped.filter((s) => s.rendering !== "optimizeSpeed")).toEqual([]);
     });
 });
 
@@ -734,15 +763,24 @@ interface Text {
     readonly style: string;
 }
 
+/** A text as a context shaped it — drawn or measured — and the `textRendering` it was shaped in. */
+interface Shaped {
+    readonly op: "fill" | "measure";
+    readonly text: string;
+    readonly rendering: string;
+}
+
 /**
  * A Canvas2D context that records each stroke and fill, and each text: what the paint layer drew, without pixels — and,
- * for each text, how many strokes and fills were drawn before it (`textsAt`).
+ * for each text, how many strokes and fills were drawn before it (`textsAt`), and each text drawn or measured with the
+ * `textRendering` it was shaped in (`shaped`).
  */
-function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[]; texts: Text[]; textsAt: number[] } {
+function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[]; texts: Text[]; textsAt: number[]; shaped: Shaped[] } {
     const drawn: Drawn[] = [];
     const texts: Text[] = [];
     const textsAt: number[] = [];
-    let state = { strokeStyle: "", fillStyle: "", lineWidth: 1, globalAlpha: 1, dash: [] as number[] };
+    const shaped: Shaped[] = [];
+    let state = { strokeStyle: "", fillStyle: "", lineWidth: 1, globalAlpha: 1, dash: [] as number[], textRendering: "auto" };
     const saved: (typeof state)[] = [];
     let arcs: { x: number; y: number; r: number }[] = [];
     // A rect drawn straight — `fillRect`, `strokeRect` — draws no arc of the path.
@@ -755,6 +793,7 @@ function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[]; texts: Tex
         get fillStyle() { return state.fillStyle; }, set fillStyle(v: string) { state.fillStyle = v; },
         get lineWidth() { return state.lineWidth; }, set lineWidth(v: number) { state.lineWidth = v; },
         get globalAlpha() { return state.globalAlpha; }, set globalAlpha(v: number) { state.globalAlpha = v; },
+        get textRendering() { return state.textRendering; }, set textRendering(v: string) { state.textRendering = v; },
         lineJoin: "miter", lineCap: "butt", font: "", textAlign: "start", textBaseline: "alphabetic", lineDashOffset: 0,
         save() { saved.push({ ...state, dash: [...state.dash] }); },
         restore() { state = saved.pop() ?? state; },
@@ -770,10 +809,14 @@ function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[]; texts: Tex
         fillText(text: string, x: number, y: number) {
             texts.push({ text, x, y, style: state.fillStyle });
             textsAt.push(drawn.length);
+            shaped.push({ op: "fill", text, rendering: state.textRendering });
         },
-        measureText(text: string) { return { width: text.length * 6 }; },
+        measureText(text: string) {
+            shaped.push({ op: "measure", text, rendering: state.textRendering });
+            return { width: text.length * 6 };
+        },
     };
-    return { ctx: ctx as unknown as CanvasRenderingContext2D, drawn, texts, textsAt };
+    return { ctx: ctx as unknown as CanvasRenderingContext2D, drawn, texts, textsAt, shaped };
 }
 
 /** The links' look, each part a colour of its own (#1403). */

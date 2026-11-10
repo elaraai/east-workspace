@@ -473,7 +473,8 @@ export function useGestures({
     // A link's or a net's drawing as the painter draws it, worked out over a camera (#1403): its runs from the edges of
     // the items it joins where they draw at the zoom — a card's side as the page lays it out, a pin's edge, a dot's rim
     // — its heads, and a link's handles. What a tap, a hover, a drop and a selected link's handles meet: hit-testing is
-    // the drawing (invariant 9). A pin's label is measured in the painter's font, else reckoned at 6px a letter.
+    // the drawing (invariant 9). A pin's label is measured in the painter's font, its letters unjoined as the painter
+    // draws them (`textRendering`), else reckoned at 6px a letter.
     const routesAt = useCallback((cam: { ppu: number; tx: number; ty: number }) => {
         const snap = renderSnapRef.current;
         const ctx = drawRef.current?.getContext("2d") ?? null;
@@ -482,6 +483,7 @@ export function useGestures({
             if (ctx === null || labelFont === undefined) return text.length * 6;
             ctx.save();
             ctx.font = labelFont;
+            ctx.textRendering = "optimizeSpeed";
             const w = ctx.measureText(text).width;
             ctx.restore();
             return w;
@@ -748,10 +750,11 @@ export function useGestures({
         // rendered extent, its touch slop among it (P11).
         const ctx = drawRef.current?.getContext("2d") ?? null;
         const labelFont = renderSnapRef.current.palette?.labelFont;
-        // Measure label widths with the painter's font so the hitbox matches the
-        // drawn pill; save/restore so the pick never leaks font state.
+        // Measure label widths with the painter's font, its letters unjoined as the
+        // painter draws them, so the hitbox matches the drawn pill; save/restore so
+        // the pick never leaks font state.
         const measuring = ctx !== null && labelFont !== undefined;
-        if (measuring) { ctx.save(); ctx.font = labelFont; }
+        if (measuring) { ctx.save(); ctx.font = labelFont; ctx.textRendering = "optimizeSpeed"; }
         const camScreen = { ppu: ppuLive, tx: cam.tx, ty: cam.ty };
         let best: DrawnItem | null = null, bestD = Infinity;
         const drawnUnder = new Set<string>();

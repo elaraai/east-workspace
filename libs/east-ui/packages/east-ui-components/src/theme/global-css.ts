@@ -8,7 +8,7 @@
  * element styles (`app_design_system/_ds_bundle.css`).
  *
  *  - Sets the html/body baseline (Inter Tight, `--ink`, `--paper-2`, tabular
- *    figures).
+ *    figures, no letters joined).
  *  - Makes brand the default colour palette; text selection stays neutral.
  *  - `h1` … `h6` take the design system's title styles (24 / 20 / 18 / 16 /
  *    15, then Inter Tight 14), keeping the text colour of their surface; a
@@ -97,6 +97,13 @@ export const globalCss = defineGlobalStyles({
         textRendering: "optimizeLegibility",
         /* Every numeral tabular (component-rules §2). */
         fontFeatureSettings: '"tnum" 1',
+        /* No letters joined: a mono face's letters each take one cell, and a
+         * join — Chivo Mono's ff, fi, fl, ffi and ffl — draws two or three in
+         * one, which breaks its columns. Inherited, so a field, an SVG's text
+         * and a portaled layer take it too; a canvas's text need not — one off
+         * the page never does — so a canvas that draws text sets its own
+         * `textRendering`. */
+        fontVariantLigatures: "no-common-ligatures",
         /* Mobile hygiene (#346): keep the browser from inflating text on
          * orientation change, and drop the grey tap flash — components give
          * their own pressed/selected feedback. */

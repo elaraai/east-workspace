@@ -8,9 +8,10 @@
  * that records each stroke, fill and text it draws — its style, its width, its
  * dash, its alpha and its path's ops — so what the painter draws is read
  * without pixels: every casing under every ink, each head at its route's far
- * end, the captions on their knockouts, the selected link and the lit one drawn
- * last with the rings round their ends, a tone recolouring a link's ink, and
- * each corner a circle's, clamped to half of each run beside it.
+ * end, the captions on their knockouts, their letters unjoined, the selected
+ * link and the lit one drawn last with the rings round their ends, a tone
+ * recolouring a link's ink, and each corner a circle's, clamped to half of each
+ * run beside it.
  */
 
 import { describe, expect, test } from "vitest";
@@ -19,7 +20,7 @@ import { arrive, paintLinks, traceRoute, type CanvasLink, type CanvasLinkLook, t
 /** One path op as the context took it. */
 type Op = readonly [string, ...number[]];
 
-/** One stroke, fill or text as the context drew it: its style, its width, its dash, its alpha and its path's ops. */
+/** One stroke, fill or text as the context drew it: its style, its width, its dash, its alpha and its path's ops — a text's `textRendering` too. */
 interface Drawn {
     readonly op: "stroke" | "fill" | "text";
     readonly style: string;
@@ -29,12 +30,14 @@ interface Drawn {
     readonly path: readonly Op[];
     readonly text?: string;
     readonly at?: CanvasPoint;
+    readonly rendering?: string;
 }
 
-/** A context that records what is drawn on it; each letter of its text is 6px wide. */
-function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[] } {
+/** A context that records what is drawn on it, and each text it measures with its `textRendering`; each letter of its text is 6px wide. */
+function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[]; measured: { text: string; rendering: string }[] } {
     const drawn: Drawn[] = [];
-    let state = { strokeStyle: "", fillStyle: "", lineWidth: 1, globalAlpha: 1, dash: [] as number[], font: "" };
+    const measured: { text: string; rendering: string }[] = [];
+    let state = { strokeStyle: "", fillStyle: "", lineWidth: 1, globalAlpha: 1, dash: [] as number[], font: "", textRendering: "auto" };
     const saved: (typeof state)[] = [];
     let path: Op[] = [];
     const record = (op: "stroke" | "fill") => drawn.push({
@@ -46,6 +49,7 @@ function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[] } {
         get lineWidth() { return state.lineWidth; }, set lineWidth(v: number) { state.lineWidth = v; },
         get globalAlpha() { return state.globalAlpha; }, set globalAlpha(v: number) { state.globalAlpha = v; },
         get font() { return state.font; }, set font(v: string) { state.font = v; },
+        get textRendering() { return state.textRendering; }, set textRendering(v: string) { state.textRendering = v; },
         lineJoin: "miter", lineCap: "butt", textAlign: "start", textBaseline: "alphabetic",
         save() { saved.push({ ...state, dash: [...state.dash] }); },
         restore() { state = saved.pop() ?? state; },
@@ -61,11 +65,14 @@ function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[] } {
         stroke() { record("stroke"); },
         fill() { record("fill"); },
         fillText(text: string, x: number, y: number) {
-            drawn.push({ op: "text", style: state.fillStyle, width: 0, dash: [], alpha: state.globalAlpha, path: [], text, at: { x, y } });
+            drawn.push({ op: "text", style: state.fillStyle, width: 0, dash: [], alpha: state.globalAlpha, path: [], text, at: { x, y }, rendering: state.textRendering });
         },
-        measureText(text: string) { return { width: text.length * 6 }; },
+        measureText(text: string) {
+            measured.push({ text, rendering: state.textRendering });
+            return { width: text.length * 6 };
+        },
     };
-    return { ctx: ctx as unknown as CanvasRenderingContext2D, drawn };
+    return { ctx: ctx as unknown as CanvasRenderingContext2D, drawn, measured };
 }
 
 /** The look, each part a colour of its own. */
@@ -166,6 +173,15 @@ describe("paintLinks", () => {
         const selected = recorder();
         paintLinks(selected.ctx, [link("a", ROUTE, { caption, selected: true })], LOOK);
         expect(selected.drawn.filter((d) => d.style === "outline").map((d) => [d.op, d.width, d.path])).toEqual([["stroke", 1, [["rect", 17, 13.5, 86, 12]]]]);
+    });
+
+    test("a caption is measured for its knockout and drawn with the font's joins off, as the page draws the SVG layer's: a canvas's text need not take the page's CSS", () => {
+        const { ctx, drawn, measured } = recorder();
+        paintLinks(ctx, [link("a", ROUTE, { caption: { text: "office staff", x: 60, y: 23 } })], LOOK);
+        expect(measured).toEqual([{ text: "office staff", rendering: "optimizeSpeed" }]);
+        expect(drawn.filter((d) => d.op === "text").map((d) => [d.text, d.rendering])).toEqual([["office staff", "optimizeSpeed"]]);
+        // Turned off for the caption alone: the context is as it was after.
+        expect(ctx.textRendering).toBe("auto");
     });
 
     test("the lit link is drawn last, over the selected one, in the strong ink, the ends it joins ringed 1px four outside them", () => {
