@@ -1520,11 +1520,11 @@ export const sheetSlotRecipe = defineSlotRecipe({
             minHeight: "28px", cursor: "text", overflow: "visible",
             '&:has([data-slot=editorInput])': { width: "240px", flex: "0 0 240px" },
         },
+        // The title: body 13/600 in ink, as the band's spec has it.
         groupTitleText: {
-            fontFamily: "heading",
-            fontSize: "14px",
+            fontFamily: "body",
+            fontSize: "13px",
             fontWeight: "600",
-            letterSpacing: "-0.01em",
             color: "fg",
             whiteSpace: "nowrap",
             overflow: "hidden",
