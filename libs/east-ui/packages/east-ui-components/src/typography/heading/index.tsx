@@ -4,11 +4,12 @@
  */
 
 import { memo, useMemo } from "react";
-import { Heading as ChakraHeading, type HeadingProps } from "@chakra-ui/react";
+import { Heading as ChakraHeading, useChakraContext, type HeadingProps, type SystemContext } from "@chakra-ui/react";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Heading } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
+import { themeFontFamily } from "../../style/font-family.js";
 
 // Pre-define the equality function at module level
 const headingEqual = equivalentFor(Heading.Types.Heading);
@@ -20,10 +21,13 @@ export type HeadingValue = ValueTypeOf<typeof Heading.Types.Heading>;
  * Converts an East UI Heading value to Chakra UI Heading props.
  * Pure function — reads `as` from the main struct and all visual fields from
  * the nested `style` sub-struct. Chakra v3's `textStyle` prop consumes the
- * semantic type-scale token.
+ * semantic type-scale token. Given the Chakra system, a font family takes
+ * the theme's face; without one it passes as its case name, which only `mono`
+ * names a token of.
  */
-export function toChakraHeading(value: HeadingValue): HeadingProps {
+export function toChakraHeading(value: HeadingValue, system?: SystemContext): HeadingProps {
     const style = getSomeorUndefined(value.style);
+    const fontFamilyTag = style ? getSomeorUndefined(style.fontFamily)?.type : undefined;
     const padding = style ? getSomeorUndefined(style.padding) : undefined;
     const margin = style ? getSomeorUndefined(style.margin) : undefined;
 
@@ -32,7 +36,7 @@ export function toChakraHeading(value: HeadingValue): HeadingProps {
         textStyle: style ? getSomeorUndefined(style.textStyle)?.type : undefined,
         fontWeight: style ? getSomeorUndefined(style.fontWeight)?.type : undefined,
         fontStyle: style ? getSomeorUndefined(style.fontStyle)?.type : undefined,
-        fontFamily: style ? getSomeorUndefined(style.fontFamily)?.type : undefined,
+        fontFamily: fontFamilyTag !== undefined && system !== undefined ? themeFontFamily(system, fontFamilyTag) : fontFamilyTag,
         color: style ? getSomeorUndefined(style.color) : undefined,
         background: style ? getSomeorUndefined(style.background) : undefined,
         textAlign: style ? getSomeorUndefined(style.textAlign)?.type : undefined,
@@ -68,7 +72,8 @@ export interface EastChakraHeadingProps {
  * Renders an East UI Heading value using Chakra UI Heading component.
  */
 export const EastChakraHeading = memo(function EastChakraHeading({ value }: EastChakraHeadingProps) {
-    const props = useMemo(() => toChakraHeading(value), [value]);
+    const system = useChakraContext();
+    const props = useMemo(() => toChakraHeading(value, system), [value, system]);
 
     return <ChakraHeading {...props}>{value.value}</ChakraHeading>;
 }, (prev, next) => headingEqual(prev.value, next.value));

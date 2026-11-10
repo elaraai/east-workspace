@@ -10,6 +10,7 @@ import { DateTimeType, FloatType, match, equivalentFor, none, parseFor, printFor
 import { Chart, Slice as SliceInternal, SliceChromeType } from "@elaraai/east-ui/internal";
 import { formatters, formatPattern, parsePattern, tickFormatOf, useFormatters } from "../../format/index.js";
 import { SliceRailCluster, rangeOfWindow } from "../../slice/rail";
+import { themeFontFamily } from "../../style/font-family.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { EastChakraSliceLegend } from "../../slice/legend";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
@@ -824,14 +825,8 @@ function Frame({ node, brush, onBrushEnd, brushKey }: { node: Spec; brush?: bool
             const k = t.replace(/[{}]/g, "");
             return system.token(k.startsWith("colors.") ? k : `colors.${k}`, t);
         },
-        // `sans` prefers an explicit `fonts.sans` token, else the theme body
-        // stack (this theme names its sans `body`); `serif` likewise, else the
-        // CSS generic — so a host theme owns the concrete stacks (#315).
-        fontFor: (tag: string) => {
-            if (tag === "mono") return system.token("fonts.mono", "monospace");
-            if (tag === "serif") return system.token("fonts.serif", "serif");
-            return system.token("fonts.sans", system.token("fonts.body", "sans-serif"));
-        },
+        // The theme's face for a family, as Box, Text and Heading take it (#315).
+        fontFor: (tag: string) => themeFontFamily(system, tag),
     }), [system]);
     return <Plot node={node} style={style} brush={brush} onBrushEnd={onBrushEnd} brushKey={brushKey} />;
 }

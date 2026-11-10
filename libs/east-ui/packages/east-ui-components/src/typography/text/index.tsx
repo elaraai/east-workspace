@@ -4,11 +4,12 @@
  */
 
 import { memo, useMemo } from "react";
-import { Text as ChakraText, type TextProps } from "@chakra-ui/react";
+import { Text as ChakraText, useChakraContext, type SystemContext, type TextProps } from "@chakra-ui/react";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Text } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
+import { themeFontFamily } from "../../style/font-family.js";
 
 // Pre-define the equality function at module level
 const textEqual = equivalentFor(Text.Types.Text);
@@ -23,10 +24,13 @@ export type TextValue = ValueTypeOf<typeof Text.Types.Text>;
  * heading-* / body-* / code-* / mono-kpi) through the host theme.
  *
  * @param value - The East Text value
+ * @param system - The Chakra system whose faces a font family takes; without
+ *   one the family passes as its case name, which only `mono` names a token of
  * @returns Chakra Text props
  */
-export function toChakraText(value: TextValue): TextProps {
+export function toChakraText(value: TextValue, system?: SystemContext): TextProps {
     const style = getSomeorUndefined(value.style);
+    const fontFamilyTag = style ? getSomeorUndefined(style.fontFamily)?.type : undefined;
     const padding = style ? getSomeorUndefined(style.padding) : undefined;
     const margin = style ? getSomeorUndefined(style.margin) : undefined;
 
@@ -37,7 +41,7 @@ export function toChakraText(value: TextValue): TextProps {
         background: style ? getSomeorUndefined(style.background) : undefined,
         fontWeight: style ? getSomeorUndefined(style.fontWeight)?.type : undefined,
         fontStyle: style ? getSomeorUndefined(style.fontStyle)?.type : undefined,
-        fontFamily: style ? getSomeorUndefined(style.fontFamily)?.type : undefined,
+        fontFamily: fontFamilyTag !== undefined && system !== undefined ? themeFontFamily(system, fontFamilyTag) : fontFamilyTag,
         fontVariantNumeric: style ? getSomeorUndefined(style.fontVariantNumeric)?.type : undefined,
         textTransform: style ? getSomeorUndefined(style.textTransform)?.type : undefined,
         textAlign: style ? getSomeorUndefined(style.textAlign)?.type : undefined,
@@ -78,7 +82,8 @@ export interface EastChakraTextProps {
  * Renders an East UI Text value using Chakra UI Text component.
  */
 export const EastChakraText = memo(function EastChakraText({ value }: EastChakraTextProps) {
-    const props = useMemo(() => toChakraText(value), [value]);
+    const system = useChakraContext();
+    const props = useMemo(() => toChakraText(value, system), [value, system]);
 
     return (
         <ChakraText {...props}>

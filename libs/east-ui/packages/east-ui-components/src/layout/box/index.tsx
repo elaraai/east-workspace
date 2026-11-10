@@ -9,7 +9,7 @@
 
 import { memo, useMemo } from "react";
 import { parseCssSize } from "../../style/parse-size.js";
-import { Box as ChakraBox, type BoxProps } from "@chakra-ui/react";
+import { Box as ChakraBox, useChakraContext, type BoxProps, type SystemContext } from "@chakra-ui/react";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Box } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -17,6 +17,7 @@ import { EastChakraComponent } from "../../component";
 import { resolveSizingShorthands } from "../sizing.js";
 import { toTransition, type TransitionToken, type MotionDurationToken, type MotionEasingToken } from "../../style/motion.js";
 import { toAnimationProps, type AnimationPresetToken } from "../../style/animation.js";
+import { themeFontFamily } from "../../style/font-family.js";
 import { usePrefersReducedMotion } from "../../contracts/reduced-motion.js";
 import { DensityProvider } from "../../contracts/density.js";
 
@@ -34,9 +35,11 @@ export type BoxValue = ValueTypeOf<typeof Box.Types.Box>;
  * this function covers the static + tokenised subset only.
  *
  * @param value - The East Box value
+ * @param system - The Chakra system whose faces a font family takes; without
+ *   one the family passes as its case name, which only `mono` names a token of
  * @returns Chakra Box props
  */
-export function toChakraBox(value: BoxValue): BoxProps {
+export function toChakraBox(value: BoxValue, system?: SystemContext): BoxProps {
     const style = getSomeorUndefined(value.style);
     const padding = style ? getSomeorUndefined(style.padding) : undefined;
     const margin = style ? getSomeorUndefined(style.margin) : undefined;
@@ -129,7 +132,7 @@ export function toChakraBox(value: BoxValue): BoxProps {
         transition,
         cursor: cursorTag,
         opacity: style ? getSomeorUndefined(style.opacity) : undefined,
-        fontFamily: fontFamilyTag,
+        fontFamily: fontFamilyTag !== undefined && system !== undefined ? themeFontFamily(system, fontFamilyTag) : fontFamilyTag,
         fontVariantNumeric: fontVariantNumericTag,
         ...sizing,
     };
@@ -148,7 +151,8 @@ export interface EastChakraBoxProps {
  * into reduced motion, the animation is skipped entirely per §0.2.
  */
 export const EastChakraBox = memo(function EastChakraBox({ value, storageKey }: EastChakraBoxProps) {
-    const props = useMemo(() => toChakraBox(value), [value]);
+    const system = useChakraContext();
+    const props = useMemo(() => toChakraBox(value, system), [value, system]);
     const reducedMotion = usePrefersReducedMotion();
     const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
 
