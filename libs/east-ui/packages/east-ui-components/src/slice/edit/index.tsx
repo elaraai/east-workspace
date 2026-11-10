@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { cloneElement, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type MouseEvent, type ReactElement, type ReactNode, type RefObject } from "react";
+import { cloneElement, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type MouseEvent, type ReactElement, type ReactNode, type Ref, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Popover as ChakraPopover, Portal, Box, chakra, usePopoverContext } from "@chakra-ui/react";
 import { useSliceDensity } from "../density";
@@ -92,6 +92,14 @@ export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
      * trigger.
      */
     hangFrom?: (() => DOMRectInit | null) | undefined;
+    /**
+     * The popover's box as it floats open: what its host reads where it lies —
+     * the conflicts popover's, which a Go to tells the collection, so the item
+     * it shows lands beside the popover rather than under it. A phone's view
+     * and the sectioned editor's disclosure float over nothing: they give it
+     * no box.
+     */
+    contentRef?: Ref<HTMLDivElement> | undefined;
     /** It appears and goes at once, with no fade or scale. */
     still?: boolean | undefined;
     /** The editor body. */
@@ -141,7 +149,7 @@ function Rehang({ from }: { from: unknown }) {
  * giving way to it ({@link FramePanelView}).
  */
 export function SliceEditPopover({
-    open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, initialFocusEl, keepOnFocusOut = false, hangFrom, still = false, children,
+    open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, initialFocusEl, keepOnFocusOut = false, hangFrom, contentRef: hostContent, still = false, children,
 }: SliceEditPopoverProps) {
     // Its styles made once for the theme and its variants (#1398, CL9): its trigger draws again with what it shows — a
     // timeline's date navigator's with each day its view crosses — and its recipe would work every slot out again.
@@ -155,6 +163,12 @@ export function SliceEditPopover({
     const anchorRef = useRef<HTMLDivElement | null>(null);
     const triggerRef = useRef<HTMLButtonElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
+    // The box its bounds read, and its host's ref given it too.
+    const setContent = useCallback((el: HTMLDivElement | null) => {
+        contentRef.current = el;
+        if (typeof hostContent === "function") hostContent(el);
+        else if (hostContent !== null && hostContent !== undefined) hostContent.current = el;
+    }, [hostContent]);
     // Below its trigger, kept across the page to the builder's frame it opens in — its trigger's or its anchor's — while
     // it fits there, read at every placement; below the rect it hangs from in their place, where it is given one. Its
     // bounds are made as it is placed: Zag copies the positioning it is given as the popover draws, which would keep what
@@ -257,7 +271,7 @@ export function SliceEditPopover({
             <Rehang from={hangFrom} />
             <Portal>
                 <ChakraPopover.Positioner>
-                    <ChakraPopover.Content ref={contentRef} css={styles.content} data-still={still ? "" : undefined}>
+                    <ChakraPopover.Content ref={setContent} css={styles.content} data-still={still ? "" : undefined}>
                         {hangFrom === undefined && (
                             <ChakraPopover.Arrow>
                                 <ChakraPopover.ArrowTip />

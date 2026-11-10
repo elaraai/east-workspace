@@ -28,10 +28,12 @@
  *   Issues the issues chip asks for; or by what it holds ({@link FramePane}): a
  *   form an issue gone to asks a field of — it opens as its rail opens it, the
  *   viewer's doing, and leaves the focus where it is, the field asked for
- *   taking it as it shows (#1585); no host presses a pane's own control. Esc
- *   closes it — but a layer open in it that takes Esc itself, marked
- *   `data-escape-layer` (a Chooser laid in a pane), closes first — and one
- *   overlay pane is open at a time;
+ *   taking it as it shows (#1585); no host presses a pane's own control. What
+ *   of main it leaves in view, its host asks the frame
+ *   ({@link BuilderFramePanes.mainShown}), never the page: a picked event the
+ *   Calendar brings out from under it. Esc closes it — but a layer open in it
+ *   that takes Esc itself, marked `data-escape-layer` (a Chooser laid in a
+ *   pane), closes first — and one overlay pane is open at a time;
  * - **auto** (the default) — pinned while main keeps `minMain` beside the
  *   pinned panes, the start pane placed first; overlaid otherwise, and at
  *   560px and narrower always ({@link placePanes}). The width is the frame's
@@ -236,7 +238,8 @@ export interface BuilderFrameProps {
     toolbarRef?: Ref<HTMLDivElement> | undefined;
     /**
      * The panes as the host's code opens them (#1585): a selection in main revealing the Inspector, a control of the
-     * builder's asking for what a pane holds — never by pressing a pane's own control.
+     * builder's asking for what a pane holds — never by pressing a pane's own control; and what of main they leave in
+     * view, never read from the page.
      */
     panesRef?: Ref<BuilderFramePanes> | undefined;
     /** Keys pressed anywhere in the frame, its panes included: the host's shortcuts. */
@@ -245,7 +248,8 @@ export interface BuilderFrameProps {
 
 /**
  * The panes as the host's code opens them ({@link BuilderFrameProps.panesRef}, #1585): each as its rail opens it, the
- * viewer's doing, kept where the pane persists, and the focus left where the viewer has it.
+ * viewer's doing, kept where the pane persists, and the focus left where the viewer has it; and what of main they leave
+ * in view.
  */
 export interface BuilderFramePanes {
     /**
@@ -264,6 +268,15 @@ export interface BuilderFramePanes {
      * @param side - The pane's side
      */
     reveal(side: "start" | "end"): void;
+    /**
+     * What of main shows beside the panes: main's box, less what an overlay pane open over it covers as it is drawn
+     * now — what the host keeps an item it shows clear of, as the Calendar brings a picked event out from under the
+     * Inspector the pick opened. A pinned pane sits beside main, and a phone's pane is a view over the whole builder,
+     * not beside main: neither takes from it.
+     *
+     * @returns The box, in viewport px; `undefined` while main is not in the page
+     */
+    mainShown(): Pick<DOMRectReadOnly, "left" | "top" | "right" | "bottom"> | undefined;
 }
 
 /** A pane: one the frame draws, or one its content draws, placed as it is and pinned at its side. */
@@ -495,6 +508,10 @@ export function BuilderFrame(props: BuilderFrameProps) {
     }, [footerLive]);
     const slotRefs: Record<Side, MutableRefObject<HTMLDivElement | null>> = { start: useRef(null), end: useRef(null) };
     const probeRefs: Record<Side, MutableRefObject<HTMLDivElement | null>> = { start: useRef(null), end: useRef(null) };
+    // Main, and each pane's sheet — what floats over main from its edge while the pane is open as an overlay: what of
+    // main the panes leave in view.
+    const mainRef = useRef<HTMLDivElement | null>(null);
+    const sheetRefs: Record<Side, MutableRefObject<HTMLDivElement | null>> = { start: useRef(null), end: useRef(null) };
     const [measured, setMeasured] = useState<Measured | undefined>(undefined);
     const measuredRef = useRef(measured);
     measuredRef.current = measured;
@@ -709,7 +726,11 @@ export function BuilderFrame(props: BuilderFrameProps) {
     // and its collapse do, the viewer's doing. Opened, it leaves the focus where the viewer has it, the field asked for
     // taking it as it shows; on a phone, whose view covers main, the focus moves in, as the strip tab's press moves it, and
     // a pane only revealed stays closed. Closed by what it holds, the focus in it goes back to its rail, or its strip tab.
-    const fromCode = useRef<{ open: (side: Side, reveal: boolean) => void; close: (side: Side) => void }>({ open: () => undefined, close: () => undefined });
+    // What of main they leave in view, asked from code, is main's box less each overlay pane's sheet open over it, as it is
+    // drawn — off main while a drag is under way; a phone's pane, a view over the whole builder, is no pane beside main.
+    const fromCode = useRef<{ open: (side: Side, reveal: boolean) => void; close: (side: Side) => void; shown: BuilderFramePanes["mainShown"] }>({
+        open: () => undefined, close: () => undefined, shown: () => undefined,
+    });
     fromCode.current = {
         open: (side, reveal) => {
             if (dockOf(side) === undefined || !collapseOf(side).collapsed) return;
@@ -724,10 +745,18 @@ export function BuilderFrame(props: BuilderFrameProps) {
             if (slotRefs[side].current?.contains(rootRef.current?.ownerDocument.activeElement ?? null) === true) railFocus.current = side;
             toggled(side, true);
         },
+        shown: () => {
+            const main = mainRef.current?.getBoundingClientRect();
+            if (main === undefined) return undefined;
+            const over = (side: Side) => dockOf(side) !== undefined && !drawn(side) && placement[side] === "overlay" && !collapseOf(side).collapsed
+                ? sheetRefs[side].current?.getBoundingClientRect() : undefined;
+            return { left: Math.max(main.left, over("start")?.right ?? main.left), top: main.top, right: Math.min(main.right, over("end")?.left ?? main.right), bottom: main.bottom };
+        },
     };
     useImperativeHandle(panesRef, (): BuilderFramePanes => ({
         open: (side) => fromCode.current.open(side, false),
         reveal: (side) => fromCode.current.open(side, true),
+        mainShown: () => fromCode.current.shown(),
     }), []);
     const paneHandles = useMemo((): Record<Side, FramePaneHandle> => ({
         start: { open: () => fromCode.current.open("start", false), close: () => fromCode.current.close("start") },
@@ -799,7 +828,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
             <Box ref={slotRefs[side]} css={styles.pane} data-frame-slot={side} data-pane-mode={placedAt}
                 data-collapsed={collapsed ? "" : undefined}
                 style={{ width: placedAt === "overlay" || collapsed ? `${RAIL}px` : size }}>
-                <Box css={styles.sheet} style={floating ? { width: sheetWidth === undefined ? size : `${sheetWidth}px`, transform: aside } : undefined}>
+                <Box ref={sheetRefs[side]} css={styles.sheet} style={floating ? { width: sheetWidth === undefined ? size : `${sheetWidth}px`, transform: aside } : undefined}>
                     <FramePane.Provider value={paneHandles[side]}>
                     <DockPane
                         storageKey={`${storageKey}.${side}`}
@@ -937,7 +966,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
             <Box css={styles.body} data-frame-slot="body" inert={covered} aria-hidden={covered ? true : undefined}>
                 {start !== undefined && !drawn("start") && pane("start", start)}
                 {/* The region a read after cold load is in flight for (#1398, CL12): nothing covered, main busy. */}
-                <Box css={styles.main} data-frame-slot="main" aria-busy={busy === undefined ? undefined : busy && !covered}
+                <Box ref={mainRef} css={styles.main} data-frame-slot="main" aria-busy={busy === undefined ? undefined : busy && !covered}
                     style={footInset > 0 ? { "--builder-foot-inset": `${footInset}px` } as CSSProperties : undefined}>
                     <FrameOverlaySlot.Provider value={phoneViews === true && !covered ? overlaySlot : null}>
                         <FrameBottomPanel.Provider value={panelOf(mainPanel)}>{children}</FrameBottomPanel.Provider>

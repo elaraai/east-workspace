@@ -89,9 +89,12 @@ export interface HistoryBarProps<W> {
     /**
      * Go to a conflict's item — a conflict's Go to: what shows the item and
      * selects it, where the collection's issue click opens a list of its
-     * issues instead. `onIssue` by default.
+     * issues instead. Handed where the conflict is in its entry, and the
+     * conflicts popover's box as it stays open over the page, for the item to
+     * land beside it rather than under it — `undefined` where a phone's view,
+     * which is no popover, holds the conflicts. `onIssue` by default.
      */
-    onConflict?: ((issue: EditIssue, at: PatchPath) => void) | undefined;
+    onConflict?: ((issue: EditIssue, at: PatchPath, popover: DOMRectReadOnly | undefined) => void) | undefined;
     /**
      * A conflict's item in the collection's words, its steps included — a
      * step's own name (`Scanned`), where the steps in words would name it by

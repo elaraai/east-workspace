@@ -9,7 +9,7 @@
  * names its issues, with each side's value and what both began from; a choice
  * applies at once as one step Undo takes back; Keep all mine and Use all
  * theirs choose every one in one step; Go to goes to the item as an issue's
- * click does; a banner's Choose opens it; and once every one is chosen it
+ * click does, told where the popover lies; a banner's Choose opens it; and once every one is chosen it
  * says so, and the button leaves as it closes.
  */
 
@@ -208,6 +208,17 @@ test("Go to goes to a conflict's item as an issue's click does: a history finds 
     expect([history.unsettled, history.session("shifts")!.unsettled, history.canUndo]).toEqual([1, 0, true]);
     act(() => history.undo());
     expect(history.unsettled).toBe(2);
+});
+
+test("Go to tells the collection's `onConflict` where the popover lies as it stays open, for the item to land beside it rather than under it", async () => {
+    const onConflict = vi.fn<(issue: EditIssue, at: PatchPath, popover: DOMRectReadOnly | undefined) => void>();
+    const ui = mount(conflicted(["a"]), { onConflict });
+    await opened(1);
+    const box = { left: 800, top: 50, width: 380, height: 350, right: 1180, bottom: 400, x: 800, y: 50 } as DOMRect;
+    vi.spyOn(document.querySelector("[data-conflicts-body]")!.closest<HTMLElement>('[data-part="content"]')!, "getBoundingClientRect").mockReturnValue(box);
+    fireEvent.click(cards()[0]!.querySelector("[data-conflict-go]")!);
+    const [issue, at, popover] = onConflict.mock.calls[0]!;
+    expect([issue.entry, at, popover, ui.onIssue.mock.calls.length]).toEqual(["a", [{ kind: "field", name: "end" }, { kind: "variant", tag: "value" }], box, 0]);
 });
 
 test("a collection that names a conflict's part names its card by it; one it does not name, by its entry and the steps in words", async () => {

@@ -9,7 +9,8 @@
  * its collapsed state and open tab the host's or its own — and an element
  * pane placed as it is; an overlay pane closed by Esc, the focus back on its
  * rail; a pane opened from code — by its host, or by what it holds — and
- * closed by what it holds; one overlay open at a time, never so wide that less than 48px of main
+ * closed by what it holds, and what of main the panes leave in view, as the
+ * host asks; one overlay open at a time, never so wide that less than 48px of main
  * shows beside it; the scrim exactly when the rule says, and a tap on it
  * closing the pane; an overlay pane on a wide frame over a live main; and an
  * open overlay pane stepping aside while a drag is under way.
@@ -422,6 +423,26 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
         expect([paneOf("start"), document.activeElement]).toEqual([["pinned", false], inMain]);
     });
 
+    test("what of main the panes leave in view, as their host asks (`panesRef`): main's box, less the overlay pane open over it at either side — a closed one takes nothing (#1585)", async () => {
+        const panes = createRef<BuilderFramePanes>();
+        mount({ start: library({ mode: "overlay", defaultCollapsed: true }), end: properties({ mode: "overlay", defaultCollapsed: true }), panesRef: panes });
+        frameAt(1200);
+        /** A box laid out across the page from `left` to `right`, the frame's height. */
+        const span = (left: number, right: number) => ({ ...rect(right - left), x: left, left, right }) as DOMRect;
+        // Main between the two rails; each pane's sheet over main from its edge — what the sheet covers once it is open.
+        vi.spyOn(slot("main"), "getBoundingClientRect").mockReturnValue(span(44, 1156));
+        vi.spyOn(sheet("start"), "getBoundingClientRect").mockReturnValue(span(44, 308));
+        vi.spyOn(sheet("end"), "getBoundingClientRect").mockReturnValue(span(856, 1156));
+        expect(panes.current!.mainShown()).toEqual({ left: 44, top: 0, right: 1156, bottom: 600 });
+        await act(async () => { panes.current!.open("start"); });
+        await told();
+        expect([paneOf("start"), panes.current!.mainShown()]).toEqual([["overlay", false], { left: 308, top: 0, right: 1156, bottom: 600 }]);
+        // The other opened, the first closes — one overlay pane is open at a time — and main shows up to the other's edge.
+        await act(async () => { panes.current!.reveal("end"); });
+        await told();
+        expect([paneOf("start"), paneOf("end"), panes.current!.mainShown()]).toEqual([["overlay", true], ["overlay", false], { left: 44, top: 0, right: 856, bottom: 600 }]);
+    });
+
     test("an overlay pane whose body takes the focus as it opens keeps it there — a field an issue gone to names: the pane takes it only where nothing in it has (#1585)", async () => {
         mount({ start: library(), end: properties({ mode: "overlay", defaultCollapsed: true, body: <input aria-label="COST CENTRE" /> }) });
         frameAt(700);
@@ -712,6 +733,17 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
         await act(async () => { panes.current!.open("start"); });
         await told();
         expect([drawersOpen(), stripTab("start").getAttribute("aria-selected"), document.activeElement]).toEqual([[true, false], "true", screen.getByRole("tab", { name: "Cards" })]);
+    });
+
+    test("a phone's pane open — a view over the whole builder, not a pane beside main — takes nothing of what of main its host asks after (`panesRef`) (#1585)", async () => {
+        const panes = createRef<BuilderFramePanes>();
+        mount({ start: library(), end: properties(), panesRef: panes });
+        frameAt(390);
+        vi.spyOn(slot("main"), "getBoundingClientRect").mockReturnValue(rect(390));
+        await act(async () => { panes.current!.open("end"); });
+        await told();
+        vi.spyOn(drawerOf("end"), "getBoundingClientRect").mockReturnValue(rect(390));
+        expect([drawersOpen(), panes.current!.mainShown()]).toEqual([[false, true], { left: 0, top: 0, right: 390, bottom: 600 }]);
     });
 
     test("what a pane holds opens it from inside (`FramePane`) — a form an issue gone to asks a field of — as its strip tab does, the focus moved in, and closes it — a list sending the viewer to main — the focus back on its tab; on a wider frame, back on its rail (#1585)", async () => {

@@ -12,9 +12,10 @@
  * the warn tone. It never opens by itself. Its popover holds a card for each
  * conflict: the item, named as the collection names its issues, with Go to,
  * which shows the item and selects it (the history bar's `onConflict`, else
- * its issue click) — the popover staying open, and hanging by its frame's
- * other side where it would cover the item; where neither side clears the
- * item, and in a narrow frame, it closes; the part's label; Yours and
+ * its issue click), told where the popover lies so the item lands beside it
+ * — the popover staying open, and hanging by its frame's other side where it
+ * would cover the item; where neither side clears the item, and in a narrow
+ * frame, it closes; the part's label; Yours and
  * Theirs, a radio group whose choice applies at once as one step of the
  * history, which Undo takes back; and what both began from. A conflict at an
  * item's start or end (the session's `ranges`) shows on its range's one card,
@@ -292,8 +293,12 @@ export interface ConflictsControlProps<W> {
     session: EditSession<W> | EditHistory<W>;
     /** The collection's words. */
     words: EditingWords;
-    /** Go to a conflict — the collection shows where it is: its issue, and where it is in its entry. */
-    onIssue: (issue: EditIssue, at: PatchPath) => void;
+    /**
+     * Go to a conflict — the collection shows where it is: its issue, where it is in its entry, and the popover's box
+     * as it stays open over the page, for the item to land beside it rather than under it — `undefined` where a
+     * phone's view, which is no popover, holds the conflicts.
+     */
+    onIssue: (issue: EditIssue, at: PatchPath, popover: DOMRectReadOnly | undefined) => void;
     /** Where an issue is, in the collection's words — a conflict's item; its entry's key in words by default. */
     where?: ((issue: EditIssue) => string) | undefined;
     /**
@@ -334,6 +339,8 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
     const [open, setOpen] = useState(false);
     const [opener] = useState(() => () => setOpen(true));
     const anchor = useRef<HTMLButtonElement | null>(null);
+    // The popover's box as it floats open: where a Go to tells the collection it lies.
+    const popover = useRef<HTMLDivElement | null>(null);
     const bodyId = useId();
 
     // A banner's Choose opens this bar's popover, for each session it holds.
@@ -483,7 +490,7 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
         else seen(frame.querySelector(SHOWN), "selection");
     };
     const goTo = (card: ConflictCard) => {
-        onIssue(card.issue, card.at);
+        onIssue(card.issue, card.at, popover.current?.getBoundingClientRect());
         // In a narrow frame the popover would cover the item: it closes, and the button stays. A frame not laid out has no width.
         const toolbar = anchor.current?.closest<HTMLElement>("[data-toolbar]") ?? anchor.current?.parentElement;
         const width = toolbar?.getBoundingClientRect().width ?? 0;
@@ -572,6 +579,7 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
                     // Go to moves the focus to the item: the popover stays open beside it, but in a narrow frame.
                     keepOnFocusOut
                     hangFrom={hangFrom}
+                    contentRef={popover}
                     initialFocusEl={() => {
                         // The first conflict still waiting, else the first card.
                         const at = document.getElementById(bodyId);
