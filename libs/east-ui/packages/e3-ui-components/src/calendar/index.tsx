@@ -81,7 +81,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { SortedMap, StringType, compareFor, equalFor, none, some } from "@elaraai/east";
+import { SortedMap, StringType, compareFor, equalFor, fromEastTypeValue, none, some, type EastType } from "@elaraai/east";
 import { CalendarComponent } from "@elaraai/e3-ui/internal";
 import type { RecordTile } from "@elaraai/east-ui/internal";
 import {
@@ -89,6 +89,7 @@ import {
     usePersistedState, useLanding, useLandingStyles, useTrackedEvaluation, type Formatters,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, PAGED_LIBRARY_PAGE } from "@elaraai/east-ui-components/internal";
+import { isBounded, rowBreaches } from "../shared/bounds.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { pagedLoadingLine, pagedLoadingMessages, periodLoading, periodLoadingLine, periodRead, retryPeriod, type PagedLoading } from "../shared/loading.js";
@@ -270,6 +271,44 @@ function CalendarBacklogCountReader({ pages, onCount }: { pages: CalendarBacklog
         if (count === undefined || sameCount(reported.current, count)) return;
         reported.current = count;
         onCount(count);
+    });
+    return null;
+}
+
+/** No event whose row breaks its kind's bounds. */
+const NO_BOUNDED: ReadonlySet<string> = new Set();
+
+/**
+ * The events drawn whose rows break their kind's bounds (#1585), read in a component of its own — each event read as the
+ * inspector reads it, its drafts in place, each read landing re-running it alone — handed to the frame only as they move:
+ * each wears the warn ring, stored or changed. A kind whose form holds no number to bounds is read for nothing.
+ *
+ * @param props - The event kinds, the events drawn, the editing, and where the events go
+ * @returns Nothing: it reads
+ */
+function CalendarBoundsReader({ kinds, items, editing, onBounded }: {
+    kinds: CalendarValue["events"]; items: readonly CalendarItem[]; editing: ScheduleEditing; onBounded: (bounded: ReadonlySet<string>) => void;
+}): null {
+    const checks = useMemo(() => new Map(kinds.flatMap(kind => kind.fields.some(isBounded)
+        ? [[kind.key, rowBreaches(kind.fields, fromEastTypeValue(kind.editing.entryType) as EastType)] as const] : [])), [kinds]);
+    const read = useCallback(() => {
+        const out = new Set<string>();
+        for (const item of items) {
+            const breachesOf = checks.get(item.kind);
+            if (breachesOf === undefined) continue;
+            const event = editing.read(item.kind, item.key);
+            if (event !== undefined && breachesOf(event.row).length > 0) out.add(eventKey(item));
+        }
+        return out;
+    }, [checks, items, editing]);
+    const { result } = useTrackedEvaluation(read);
+    const now = result.ok ? result.value : undefined;
+    const reported = useRef(NO_BOUNDED);
+    useLayoutEffect(() => {
+        const was = reported.current;
+        if (now === undefined || (was.size === now.size && [...now].every(key => was.has(key)))) return;
+        reported.current = now;
+        onBounded(now);
     });
     return null;
 }
@@ -458,6 +497,8 @@ function CalendarFrame(props: HostProps) {
             && !data.items.some(held => stringEqual(eventKey(held), eventKey(item))));
         return picked.length === 0 ? data.items : chronological([...data.items, ...picked]);
     }, [covered, selectedItems, data.capped, data.items]);
+    // The events drawn whose rows break their kind's bounds (#1585): each wears the warn ring, stored or changed.
+    const [bounded, setBounded] = useState<ReadonlySet<string>>(NO_BOUNDED);
     // The Backlog (#1424): every kind narrowed through its source a page at a time (`backlog-pages.ts`), through the source
     // with its start Unset — its choices but its window, so no step of the dates reads it again, and it never blinks — after
     // the events in hand: every other kind's, read apart once, whatever the dates.
@@ -711,6 +752,7 @@ function CalendarFrame(props: HostProps) {
         {pagedValue !== undefined && pagedKind !== undefined
             && <CalendarPagesReader paged={pagedValue} name={pagedKind.name} icon={pagedKind.icon} demand={demand} onPages={setPages} />}
         {backlogPages !== undefined && <CalendarBacklogCountReader pages={backlogPages} onCount={setBacklogCount} />}
+        {editing !== undefined && <CalendarBoundsReader kinds={value.events} items={items} editing={editing} onBounded={setBounded} />}
         <CalendarDataReader value={value} range={range} editing={editing} view={view} travel={timeline ? travel : undefined}
             resources={cellResources} bucket={bucket} pages={pages} demand={pagedValue === undefined ? undefined : demand} onData={setData} />
         {/* The selection is read where its events are drawn: the held read, while a continuation's window is read. */}
@@ -761,7 +803,7 @@ function CalendarFrame(props: HostProps) {
                     uncounted={uncounted} shading={data.cells?.shading} bucket={bucket} pages={pages} demand={demand} drawnRows={data.cells?.drawn}
                     selected={selected} select={pick} clear={clear} overlaps={overlaps} commands={gestures} drag={drag}
                     nowRevision={nowAsked} anchor={anchor} onAnchor={onAnchor} reveal={reveal === undefined ? undefined : eventKey(reveal)} onRevealed={revealed}
-                    onOpen={value.inspector ? openDetails : undefined} optimised={optimised} lit={landing.lit} editing={editing} grips={grips} />
+                    onOpen={value.inspector ? openDetails : undefined} optimised={optimised} lit={landing.lit} editing={editing} bounded={bounded} grips={grips} />
             </Box>
         </BuilderFrame>
         </CalendarChooserContext.Provider>

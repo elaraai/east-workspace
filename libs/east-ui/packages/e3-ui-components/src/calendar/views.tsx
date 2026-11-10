@@ -174,6 +174,11 @@ export interface CalendarViewsProps {
      */
     editing?: ScheduleEditing | undefined;
     /**
+     * The events whose rows break their kind's bounds (#1585), by their element keys: each wears the warn ring, stored or
+     * changed, as one holding a conflict does.
+     */
+    bounded?: ReadonlySet<string> | undefined;
+    /**
      * Whether the events carry their drag handles and edges (#1398, CL9): wherever the board takes edits — an editing, no
      * run of the optimiser out, its read not failed — through a read in flight too. Retained content refuses the gesture
      * itself — the shared drag sensors pick nothing up inside the `aria-disabled` main (CL8) — and its `commands` are
@@ -511,7 +516,7 @@ function ShadeMarks({ shades, bucket, from, to, along, styles, format }: {
  * CL9) — so a scroll, or a day crossed, draws none of them again.
  */
 type EventView = Pick<CalendarViewsProps, "styles" | "drag" | "selected" | "overlaps" | "commands" | "range" | "view" | "value" | "format" | "rows" | "select" | "clear"
-    | "reveal" | "onRevealed" | "onOpen" | "optimised" | "lit" | "editing" | "grips">;
+    | "reveal" | "onRevealed" | "onOpen" | "optimised" | "lit" | "editing" | "bounded" | "grips">;
 
 /**
  * Test-only render probe — lets "a re-centre, or a move of the timeline's mounted span, draws no event again" be asserted
@@ -585,6 +590,8 @@ interface EventFacts {
     readonly drafted: boolean;
     /** Whether it holds a conflict not yet chosen: the warn ring. */
     readonly conflict: boolean;
+    /** Whether its row breaks its kind's bounds (#1585): the warn ring too. */
+    readonly bounds: boolean;
     /** What a run of the optimiser did to it while it is the run's draft (#1409, R7, R17): its mark, and its provenance on hover. */
     readonly op: "add" | "chg" | undefined;
     readonly provenance: string | undefined;
@@ -626,7 +633,7 @@ function eventFacts(view: EventView, item: CalendarItem, window: { readonly from
         layout: view.view.layout, period: view.view.period, resource: resourceLabel(item, view.rows),
         surface: view.drag.surface, draggable: view.grips === true && view.editing?.available(item.kind) === true,
         selected: view.selected.has(id), overlap: view.overlaps.peers.has(id), drafted, op: marked,
-        conflict: view.editing?.conflicted(item.kind, item.key) === true,
+        conflict: view.editing?.conflicted(item.kind, item.key) === true, bounds: view.bounded?.has(id) === true,
         provenance: marked === "add" ? optimiseMessages.entryAdded({ run })
             : marked === "chg" && was !== undefined ? optimiseMessages.entryChanged({ previous: previousWords(was, view), run }) : undefined,
         revealing: view.reveal !== undefined && view.reveal === id, onRevealed: view.onRevealed,
@@ -820,7 +827,7 @@ const EventBlock = memo(function EventBlock({ item, facts, geometry, size, along
     return <div {...handle} ref={attachEvent} className={slot(styles.event)} style={geometry} data-along={along} data-chip={chip ? "" : undefined} data-compact={fits.compact ? "" : undefined}
         tabIndex={0} role="button" aria-label={provenance === undefined ? label : `${label}. ${provenance}`} title={provenance === undefined ? label : `${provenance} · ${label}`} aria-pressed={selected}
         data-calendar-event={id} data-selected={selected ? "" : undefined} data-overlap={facts.overlap ? "" : undefined} data-op={facts.op}
-        data-draft={drafted ? "" : undefined} data-drafted={drafted ? "" : undefined} data-conflict={facts.conflict ? "" : undefined} data-draggable={enabled ? "" : undefined}
+        data-draft={drafted ? "" : undefined} data-drafted={drafted ? "" : undefined} data-conflict={facts.conflict ? "" : undefined} data-bounds={facts.bounds ? "" : undefined} data-draggable={enabled ? "" : undefined}
         onPointerDown={event => {
             const cell = event.currentTarget.closest<HTMLElement>("[data-calendar-cell]");
             if (cell !== null) {
@@ -1569,10 +1576,10 @@ function Timeline(props: CalendarViewsProps) {
     const shades = useMemo(() => shadeBands({ min: range.from, max: range.to }, { hours: view.period === "day" ? { from: Number(props.value.settings.hours.from), to: Number(props.value.settings.hours.to) } : undefined }),
         [range.from, range.to, view.period, props.value.settings.hours]);
     // What an event and a cell read, held while it holds.
-    const { drag, selected, overlaps, commands, value, format, rows, select, clear, reveal, onRevealed, onOpen, optimised, lit, editing, grips } = props;
+    const { drag, selected, overlaps, commands, value, format, rows, select, clear, reveal, onRevealed, onOpen, optimised, lit, editing, bounded, grips } = props;
     const eventView = useMemo((): EventView => ({ styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed, onOpen,
-        optimised, lit, editing, grips }),
-    [styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed, onOpen, optimised, lit, editing, grips]);
+        optimised, lit, editing, bounded, grips }),
+    [styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed, onOpen, optimised, lit, editing, bounded, grips]);
     // Each event's facts, made once while what they read holds: a move of the mounted span makes none again (CL9).
     const facts = useMemo(() => timelineFacts(eventView), [eventView]);
     // Where the events are placed from (CL9): an instant a re-centre never moves — the window first shown at the period —
@@ -1855,7 +1862,7 @@ function AgendaCard({ props, item, day }: { props: CalendarViewsProps; item: Cal
     const provenance = marked === "add" ? optimiseMessages.entryAdded({ run }) : marked === "chg" && was !== undefined ? optimiseMessages.entryChanged({ previous: previousWords(was, props), run }) : undefined;
     return <Box css={props.styles.card} data-calendar-card={id} data-selected={props.selected.has(id) ? "" : undefined} data-op={marked} title={provenance}
         data-draft={drafted ? "" : undefined} data-drafted={drafted ? "" : undefined} data-overlap={props.overlaps.peers.has(id) ? "" : undefined}
-        data-conflict={props.editing?.conflicted(item.kind, item.key) === true ? "" : undefined}>
+        data-conflict={props.editing?.conflicted(item.kind, item.key) === true ? "" : undefined} data-bounds={props.bounded?.has(id) === true ? "" : undefined}>
         <chakra.button ref={head} type="button" css={props.styles.cardHead} onClick={event => props.select(item, event.shiftKey || event.metaKey || event.ctrlKey)} aria-pressed={props.selected.has(id)}>
             <Box css={props.styles.cardTitle}>{item.title}</Box>
             <Box css={props.styles.detail}>{item.start.type === "some" && props.format.time(item.start.value)}–{item.end.type === "some" && props.format.time(item.end.value)} · {resourceLabel(item, props.rows)}</Box>

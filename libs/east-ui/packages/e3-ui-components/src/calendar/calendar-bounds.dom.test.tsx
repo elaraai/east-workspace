@@ -7,9 +7,10 @@
  * An event's number outside its field's bounds (#1585), over the operations'
  * jobs on e3 itself, in a test's own Calendar whose job form holds the hours
  * to at least 1: the prototype plates' job is stored at half an hour. Stored,
- * Details says it under the field and it holds no Save — another job's change
- * saves; its customer retyped, Save waits, the banner over its form saying it
- * by the field's label, in the hint's own words.
+ * its block wears the warn ring, Details says it under the field and it holds
+ * no Save — another job's change saves; its customer retyped, Save waits, the
+ * banner over its form saying it by the field's label, in the hint's own
+ * words, and the block keeps its ring.
  */
 
 import { expect, test } from "vitest";
@@ -33,7 +34,7 @@ const bounded = { fn: East.function([], UIComponentType, _$ => Reactive.Root(Eas
     });
 }))) };
 
-test("a stored job's hours under their least: Details says it under the field and it holds no Save — another job's change saves; its own customer retyped, Save waits and the banner says it (#1585)", async () => {
+test("a stored job's hours under their least: its block wears the warn ring, Details says it under the field and it holds no Save — another job's change saves; its own customer retyped, Save waits, the banner says it and the ring stays (#1585)", async () => {
     const { container } = await h.mount(bounded);
     const pane = () => slot(container, "end");
     const save = () => within(slot(container, "toolbar")).getByRole<HTMLButtonElement>("button", { name: editingMessages.apply() });
@@ -50,6 +51,8 @@ test("a stored job's hours under their least: Details says it under the field an
         await user.type(customer, `${text}{Enter}`);
         await settle();
     };
+    // Stored, the block under its least wears the warn ring; another job's does not.
+    expect([event(container, "job", "job3").hasAttribute("data-bounds"), event(container, "job", "job2").hasAttribute("data-bounds")]).toEqual([true, false]);
     // Another job's change saves: the stored breach holds nothing.
     await select("job2");
     await retype("Birch Engineering Ltd");
@@ -62,4 +65,5 @@ test("a stored job's hours under their least: Details says it under the field an
     await retype("Cedar Fabrication Ltd");
     expect(save().disabled).toBe(true);
     expect(banner()?.textContent).toContain("Hours: at least 1");
+    expect(event(container, "job", "job3").hasAttribute("data-bounds")).toBe(true);
 });
