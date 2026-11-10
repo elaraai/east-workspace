@@ -15,11 +15,24 @@
  *   the zone and selects it, and opens it — or, open, closes it. Its count is
  *   the items it holds, its nested zones' among them.
  * - **It follows the view** — the zone the viewport is in is marked, opened
- *   and scrolled into view as the canvas pans and zooms; a zone closed while
- *   the view is in it stays closed until the view moves to another.
- * - **An item's row** — its dot in its colour, its label and its figure; a
- *   click flies to the item and selects it. An entity on a locked layer is
- *   flown to and never selected (SC27): the canvas decides.
+ *   and scrolled to the tree's top once the camera rests, never during a fly
+ *   (#1570): a zone's row clicked keeps its zone open as the camera flies
+ *   there, the zone the view left marked until it lands. A zone closed while
+ *   the view is in it stays closed until the view moves on — to another zone,
+ *   or to Fit — and at Fit, no zone in view, the zone the view opened closes.
+ * - **The open zone's row sticks** at the tree's top while its items and the
+ *   zones it holds scroll under it, until the next row past them pushes it out
+ *   (`indexSections` over the shared rows' `sections`); a click on it closes
+ *   it. Every row anchors the list, so rows landing or folding above the view
+ *   never move what it shows (#1570).
+ * - **It never opens empty** — a zone opened whose items of a kind read by
+ *   area are not read yet leaves the tree as it was, busy, until they land,
+ *   then opens with them in one commit; a read that fails holds it no longer
+ *   (#1570).
+ * - **An item's row** — its dot in its colour, its status's where it has one
+ *   (for a kind read by area, from its details, read beside it), its label and
+ *   its figure; a click flies to the item and selects it. An entity on a
+ *   locked layer is flown to and never selected (SC27): the canvas decides.
  * - **The search** keeps the items whose label, key or kind's name holds it,
  *   under their zones, opened: the tab's own, never the rail's.
  * - **A kind read by area** (#1393, D52) holds only its window, so the tab
@@ -49,7 +62,7 @@
  * @packageDocumentation
  */
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 import { Box, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faAngleRight } from "@fortawesome/free-solid-svg-icons";
@@ -62,7 +75,7 @@ import type { DrawnItem, DrawnZone } from "./canvas/drawn.js";
 import { buildNavTree } from "./canvas/model.js";
 import { itemTint, tintAttributes } from "./canvas/tints.js";
 import { NO_INDEX_AREA, type IndexAreaKind, type IndexAreaRead, type SchematicIndexArea } from "./index-area.js";
-import { indexRows, indexSearchHolds, type IndexRow } from "./index-tree.js";
+import { indexRows, indexSearchHolds, indexSections, type IndexRow } from "./index-tree.js";
 import type { SchematicWords } from "./messages.js";
 
 /** The recipe's slots, as the shared virtual rows take their root's: the Roster's and the Allocation's are typed so too. */
@@ -81,6 +94,22 @@ const ROW_ESTIMATE = 36;
 
 /** A chevron's press keeps the focus where it is: on the tree, which points at its rows. */
 const keepFocus = (e: MouseEvent) => e.preventDefault();
+
+/** Every row anchors the list: rows landing or folding above the view never move what it shows (#1570). */
+const ANCHOR_EVERY_ROW = () => true;
+
+/**
+ * A zone and every zone it is in, by key.
+ *
+ * @param tree - The zones nested by containment: each zone's parent, by key
+ * @param zone - The zone, by key; `undefined` for none
+ * @returns The path, the zone first; empty for none
+ */
+function pathOf(tree: { readonly parentOf: ReadonlyMap<string, string> }, zone: string | undefined): ReadonlySet<string> {
+    const path = new Set<string>();
+    for (let at = zone; at !== undefined; at = tree.parentOf.get(at)) path.add(at);
+    return path;
+}
 
 /** The item kinds read by area, as the Index reads them (#1393, D52). */
 export interface SchematicIndexAreaProps {
@@ -125,11 +154,12 @@ export interface SchematicIndexTabProps {
  * and it hands the tab what it read only as that moves — its last standing
  * while a read is in flight.
  *
- * @param props - The kinds, the zones open, the search as it reads, and where what it read goes
+ * @param props - The kinds, the zones open, the search as it reads, where what it read goes, and whom a failed read is told
  * @returns Nothing: it reads
  */
-function IndexAreaReader({ area, open, query, onRead }: {
+function IndexAreaReader({ area, open, query, onRead, onFailed }: {
     readonly area: SchematicIndexAreaProps; readonly open: readonly DrawnZone[]; readonly query: string; readonly onRead: (read: IndexAreaRead) => void;
+    readonly onFailed: () => void;
 }): null {
     const parts = useMemo(() => area.kinds.map((kind) => kind.part.key), [area.kinds]);
     useSlicesReactivity(parts);
@@ -137,6 +167,9 @@ function IndexAreaReader({ area, open, query, onRead }: {
     const { result } = useTrackedEvaluation(read);
     const got = result.ok && result.value !== READING ? result.value : undefined;
     useEffect(() => { if (got !== undefined) onRead(got); }, [got, onRead]);
+    // A read that fails holds the tree no longer: the zone opened shows what is read of it (#1570).
+    const failed = !result.ok;
+    useEffect(() => { if (failed) onFailed(); }, [failed, onFailed]);
     return null;
 }
 
@@ -153,14 +186,25 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
     const treeId = useId();
     // The one zone open, every zone it is in open with it: a chain, never two.
     const [openZone, setOpenZone] = useState<string | undefined>(undefined);
-    // A zone the viewer closed: the view opens it again only once it has been in another.
+    // The zone the tree shows open while the one opened is read — the last it showed (#1570) — and the zone opened whose
+    // read failed, which the tree shows as it is read.
+    const [heldZone, setHeldZone] = useState<string | undefined>(undefined);
+    const [failedZone, setFailedZone] = useState<string | undefined>(undefined);
+    // A zone the viewer closed: the view opens it again only once it has moved on — to another zone, or to Fit.
     const closedRef = useRef<string | undefined>(undefined);
+    // The zone the view opened: Fit, no zone in view, closes it (#1570).
+    const viewOpenedRef = useRef<string | undefined>(undefined);
     const [query, setQuery] = useState("");
     const searchRef = useRef<HTMLInputElement | null>(null);
     // The kinds read by area (#1393, D52): read by the tab — the open zones' items, or the search's, a pause after its
     // last keystroke — in place of their window's.
     const areaSlots = useMemo(() => new Set(area?.kinds.map((kind) => kind.kind.key) ?? []), [area]);
     const [areaRead, setAreaRead] = useState<IndexAreaRead>(NO_INDEX_AREA);
+    const onAreaRead = useCallback((read: IndexAreaRead) => {
+        setAreaRead(read);
+        setFailedZone(undefined);
+    }, []);
+    const onAreaFailed = useCallback(() => setFailedZone(openZone), [openZone]);
     const [areaQuery, setAreaQuery] = useState("");
     useEffect(() => {
         const text = query.trim();
@@ -188,12 +232,18 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
         // A kind read by area's items in no zone are the search's and the Backlog's alone (D52).
         return area === undefined || searching ? built : { ...built, floor: built.floor.filter((item) => !areaSlots.has(item.ref.kind)) };
     }, [zones, listed, area, searching, areaSlots]);
-    // The open zone and every zone it is in.
-    const open = useMemo(() => {
-        const path = new Set<string>();
-        for (let at = openZone; at !== undefined; at = tree.parentOf.get(at)) path.add(at);
-        return path;
-    }, [openZone, tree]);
+    // The zone opened and every zone it is in: what the tab reads of the kinds read by area.
+    const wanted = useMemo(() => pathOf(tree, openZone), [tree, openZone]);
+    const wantedZones = useMemo(() => zones.filter((zone) => wanted.has(zone.key)), [zones, wanted]);
+    // The tree opens it once what it lists of those kinds is read — each zone of its path read, or too full to list them —
+    // so it never opens empty: until then it shows the zone it showed, busy (#1570).
+    const settled = area === undefined || searching || openZone === undefined
+        || (failedZone !== undefined && stringEqual(failedZone, openZone))
+        || [...wanted].every((key) => areaRead.read.has(key) || areaRead.crowded.has(key));
+    const displayed = settled ? openZone : heldZone;
+    useLayoutEffect(() => { if (settled) setHeldZone(openZone); }, [settled, openZone]);
+    // The zone shown open and every zone it is in.
+    const open = useMemo(() => pathOf(tree, displayed), [tree, displayed]);
     const openZones = useMemo(() => zones.filter((zone) => open.has(zone.key)), [zones, open]);
     // A zone holding items of a kind read by area counts them once its box — or an enclosing zone's — is read.
     const whole = useMemo(() => (area === undefined ? undefined : (key: string) => {
@@ -202,6 +252,9 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
     }), [area, tree, areaRead]);
     const rows = useMemo(() => indexRows(tree, open, query, kindName, words.locale, { searched: areaSlots, whole }),
         [tree, open, query, kindName, words.locale, areaSlots, whole]);
+    // The open zone's row heads the rows under it, sticking at the tree's top while they scroll (#1570); none while
+    // searching, which opens every zone it keeps.
+    const sections = useMemo(() => indexSections(rows, searching ? undefined : displayed), [rows, searching, displayed]);
     // What the tree can't hold: the open zones too full to list a kind read by area's items, and the matches past those listed.
     const notes = useMemo(() => {
         const out: string[] = [];
@@ -218,8 +271,8 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
     const [active, setActive] = useState<string | undefined>(undefined);
     const found = active === undefined ? -1 : rows.findIndex((row) => stringEqual(rowKey(row), active));
     const activeIndex = found >= 0 ? found : rows.length > 0 ? 0 : undefined;
-    // A key's move brings its row into view: a request for each move.
-    const [shown, setShown] = useState<{ index: number; nonce: number } | undefined>(undefined);
+    // A key's move brings its row into view, the least distance; the view's zone, to the tree's top: a request for each.
+    const [shown, setShown] = useState<{ index: number; nonce: number; align: "auto" | "start" } | undefined>(undefined);
     const rowId = useCallback((index: number) => `${treeId}-row-${index}`, [treeId]);
 
     // Opening a zone closes the one open before, but for the zones it is in; closing one leaves the zone it is in open.
@@ -232,14 +285,23 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
         closedRef.current = key;
         setOpenZone(tree.parentOf.get(key));
     }, [tree]);
-    // The view's zone: opened and brought into view, unless the viewer closed it while the view was in it.
+    // The view's zone, told once the camera rests (#1570): opened and brought to the tree's top, unless the viewer closed it
+    // while the view was in it. With none in view — at Fit — the zone the view opened closes, and one the viewer closed
+    // opens again once the view comes back to it.
     const [followed, setFollowed] = useState<{ key: string; nonce: number } | undefined>(undefined);
     useEffect(() => {
-        if (inView === undefined) return;
+        if (inView === undefined) {
+            closedRef.current = undefined;
+            const opened = viewOpenedRef.current;
+            viewOpenedRef.current = undefined;
+            if (opened !== undefined) setOpenZone((was) => (was !== undefined && stringEqual(was, opened) ? undefined : was));
+            return;
+        }
         if (closedRef.current !== undefined) {
             if (stringEqual(closedRef.current, inView)) return;
             closedRef.current = undefined;
         }
+        viewOpenedRef.current = inView;
         setOpenZone(inView);
         setFollowed((was) => ({ key: inView, nonce: (was?.nonce ?? 0) + 1 }));
     }, [inView]);
@@ -253,7 +315,7 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
         const row = rows[index];
         if (row === undefined) return;
         setActive(rowKey(row));
-        setShown((was) => ({ index, nonce: (was?.nonce ?? 0) + 1 }));
+        setShown((was) => ({ index, nonce: (was?.nonce ?? 0) + 1, align: "auto" }));
     }, [rows]);
     // Each key the tree acts on goes no further than the Schematic (#1398).
     const onKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
@@ -285,16 +347,18 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
         }
     }, [rows, activeIndex, moveTo, setZone, activate, query]);
     const getItemKey = useCallback((index: number) => rowKey(rows[index]!), [rows]);
-    // The view's zone brought into the tree's view once its row is listed — once each time the view comes to it, so the
-    // rows moving after never pull the list back from where the viewer scrolled it.
+    // The view's zone brought to the tree's top once the tree shows it open — its items read — in the commit that opens it,
+    // so no frame paints it opened where the list stood (#1570); once each time the view comes to it, so the rows moving
+    // after never pull the list back from where the viewer scrolled it.
     const scrolledRef = useRef(0);
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (followed === undefined || scrolledRef.current === followed.nonce) return;
+        if (displayed === undefined || !stringEqual(displayed, followed.key)) return;
         const index = rows.findIndex((row) => row.kind === "zone" && stringEqual(row.zone.key, followed.key));
         if (index < 0) return;
         scrolledRef.current = followed.nonce;
-        setShown((was) => ({ index, nonce: (was?.nonce ?? 0) + 1 }));
-    }, [followed, rows]);
+        setShown((was) => ({ index, nonce: (was?.nonce ?? 0) + 1, align: "start" }));
+    }, [followed, rows, displayed]);
 
     const renderRow = (index: number) => {
         const row = rows[index]!;
@@ -335,14 +399,14 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
         return (
             <Box css={styles.indexRow} {...common} data-index-item="">
                 <Box as="span" css={styles.indexChevron} data-leaf="" aria-hidden="true" />
-                <Box as="span" css={styles.indexDot} {...tintAttributes(itemTint(row.item))} {...(status?.ring === true ? { "data-ring": "" } : {})} aria-hidden="true" />
+                <Box as="span" css={styles.indexDot} data-index-dot="" {...tintAttributes(itemTint(row.item))} {...(status?.ring === true ? { "data-ring": "" } : {})} aria-hidden="true" />
                 <Box as="span" css={styles.indexName} data-index-name="">{row.item.label}</Box>
-                {metric !== undefined && <Box as="span" css={styles.indexMetric}>{metric}</Box>}
+                {metric !== undefined && <Box as="span" css={styles.indexMetric} data-index-metric="">{metric}</Box>}
             </Box>
         );
     };
 
-    const reader = area === undefined ? null : <IndexAreaReader area={area} open={openZones} query={areaQuery} onRead={setAreaRead} />;
+    const reader = area === undefined ? null : <IndexAreaReader area={area} open={wantedZones} query={areaQuery} onRead={onAreaRead} onFailed={onAreaFailed} />;
     if (zones.length === 0 && items.length === 0 && area === undefined) {
         return <Box css={styles.indexEmpty}><LibraryEmptyState said={{ title: m.libraryEmpty({ tab: "index", name: "" }), description: m.libraryEmptyHint({ tab: "index", name: "" }) }} onClear={undefined} /></Box>;
     }
@@ -358,10 +422,10 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
                 // The tree takes the focus around its rows' scroll box, never inside it: a focus — the keyboard's, or one a
                 // menu hands back — scrolls nothing of the rows.
                 <Box css={styles.indexTree} role="tree" aria-label={m.libraryTab({ tab: "index" })} tabIndex={0} onKeyDown={onKeyDown}
-                    {...(activeIndex === undefined ? {} : { "aria-activedescendant": rowId(activeIndex) })}>
+                    {...(activeIndex === undefined ? {} : { "aria-activedescendant": rowId(activeIndex) })} {...(settled ? {} : { "aria-busy": true })}>
                     <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.indexRows}
-                        count={rows.length} getItemKey={getItemKey} estimateSize={() => ROW_ESTIMATE}
-                        scrollToIndex={shown?.index} scrollNonce={shown?.nonce} scrollAlign="auto" renderRow={renderRow} />
+                        count={rows.length} getItemKey={getItemKey} estimateSize={() => ROW_ESTIMATE} anchorable={ANCHOR_EVERY_ROW} sections={sections}
+                        scrollToIndex={shown?.index} scrollNonce={shown?.nonce} scrollAlign={shown?.align ?? "auto"} renderRow={renderRow} />
                 </Box>
             )}
             {notes.length > 0 && (

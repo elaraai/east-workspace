@@ -22,6 +22,9 @@
  * - **A zone's count** is whole only where every item it holds is in hand: a
  *   zone holding items of a kind read by area counts them only once its box
  *   is read (D52), and says no count until then.
+ * - **The open zone's row** heads the rows listed under it — its items and the
+ *   zones it holds — which scroll under it while it sticks at the tree's top,
+ *   until the next row past them pushes it out (#1570).
  * - **The zone in view** is the one covering most of the viewport — of two
  *   covering as much, the smaller, so a view inside a cage is in the cage and
  *   a view of the whole hall in the hall — kept until it clearly loses, so a
@@ -32,10 +35,14 @@
  */
 
 import { StringType, equalFor } from "@elaraai/east";
+import type { StickySection } from "@elaraai/east-ui-components/internal";
 import type { DrawnItem, DrawnZone } from "./canvas/drawn.js";
 import { byLabel, type NavZone } from "./canvas/model.js";
 
 const stringEqual = equalFor(StringType);
+
+/** No section: no zone open, or one open listing nothing under it. */
+const NO_SECTIONS: readonly StickySection[] = [];
 
 /** Where a row stands among the rows listed beside it, under one zone or at the top: what a reader hears while the rest scroll out. */
 export interface IndexPlace {
@@ -139,6 +146,25 @@ export function indexRows(tree: { readonly roots: readonly NavZone[]; readonly f
     // The top: the zones in none, then the items in no zone.
     level([...zonesOf(tree.roots), ...itemsOf(tree.floor)], 0);
     return rows;
+}
+
+/**
+ * The open zone's section of the Index's rows (#1570): its row, heading the rows listed under it — its items and the
+ * zones it holds — to the next row past them, so it sticks at the tree's top while they scroll under it (the shared
+ * rows' `sections`, #1568).
+ *
+ * @param rows - The Index's rows ({@link indexRows})
+ * @param open - The open zone, by key: the deepest of the zones open; `undefined` for none
+ * @returns Its section; none while no zone is open, the open zone is not listed, or it lists nothing under it
+ */
+export function indexSections(rows: readonly IndexRow[], open: string | undefined): readonly StickySection[] {
+    if (open === undefined) return NO_SECTIONS;
+    const start = rows.findIndex((row) => row.kind === "zone" && stringEqual(row.zone.key, open));
+    if (start < 0) return NO_SECTIONS;
+    const depth = rows[start]!.depth;
+    let end = start + 1;
+    while (end < rows.length && rows[end]!.depth > depth) end++;
+    return end - start > 1 ? [{ start, end, head: 1 }] : NO_SECTIONS;
 }
 
 /** A box in world units. */

@@ -16,8 +16,11 @@
  * Save writes it, the Backlog then listing it no more.
  *
  * The Index (D52) reads the racks itself: an open zone's by its box through
- * the area index, counted once read, and its search's through the racks'
- * source's `search` fields, each under the zone it is in.
+ * the area index, counted once read, their loads by the runs of its cells, so
+ * each row's dot carries its alarm as the canvas draws it, and its search's
+ * through the racks' source's `search` fields, each under the zone it is in. A
+ * zone opened never shows empty: the tree shows what it showed until the
+ * zone's racks are read, and then opens it in one change (#1570).
  *
  * jsdom lays nothing out: the canvas is given the box a page would give it,
  * 1080 × 540 px at the client origin.
@@ -25,7 +28,7 @@
 
 import { expect, test } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
-import { East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
+import { East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime, editingMessages } from "@elaraai/east-ui-components";
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
@@ -52,13 +55,18 @@ const RACKS = `${FLOOR}.racks`;
 /** The racks' record, as its dataset's requests name it. */
 const RACKS_DATASET = `records.${ex.schematicRacks.name}`;
 
+/** The racks' loads' record, as its dataset's requests name it. */
+const LOADS_DATASET = `records.${ex.schematicRackLoads.name}`;
+
 /**
  * The data centre's racks read by area — their source lists their area index and the one led by owner, beside the one by
- * name — editable through their patch door; the floor's areas, read whole; and a library of the Backlog.
+ * name — editable through their patch door, their loads as details read beside them; the floor's areas, read whole; and
+ * a library of the Backlog and the Index.
  */
 const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
+    const loads = $.let(Data.bindPaged(ex.schematicRackLoads));
     const areas = $.let(Data.bind(ex.schematicAreas));
     const slice = $.let(Slice.bindRecords(FLOOR, {
         racks: {
@@ -74,6 +82,14 @@ const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
         items: {
             racks: Schematic.items(racks, {
                 name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name", entries: rackEntries, sublabel: (r) => r.model,
+                details: Schematic.details(loads, {
+                    metric: (l) => some(East.str`${East.Float.printFixed(l.kw, 1n)} kW`),
+                    status: { field: "alarm", cases: {
+                        ok: { label: "OK", tone: variant("success", null), ring: false },
+                        warm: { label: "Warm", tone: variant("warning", null), ring: false },
+                        hot: { label: "Hot", tone: variant("danger", null), ring: false },
+                    } },
+                }),
             }),
         },
         zones: { areas: Schematic.zones(areas, { name: "Area", icon: "vector-square", x: "x", y: "y", width: "w", height: "h", label: "name" }) },
@@ -198,6 +214,13 @@ const indexRow = (container: HTMLElement, name: string) => [...panel(container).
 /** The area index the racks' window reads through, as a request names it. */
 const byArea = (request: { readonly query: URLSearchParams }) => request.query.get("index") === "schematic_racks_by_area";
 
+/** The Index's item rows: each its name, its dot's status and its figure, as the row draws them. */
+const indexItems = (container: HTMLElement) => [...panel(container).querySelectorAll<HTMLElement>("[role='treeitem'][data-index-item]")].map((row) => [
+    row.querySelector("[data-index-name]")!.textContent,
+    row.querySelector("[data-index-dot]")!.getAttribute("data-status"),
+    row.querySelector("[data-index-metric]")?.textContent ?? null,
+]);
+
 test("an open zone lists the racks its box holds, read through the area index — no read of the record whole — counted once read (#1393, D52)", async () => {
     const { container } = await open();
     await openTab(container, "Index");
@@ -213,6 +236,40 @@ test("an open zone lists the racks its box holds, read through the area index �
     // A zone whose box holds no rack, opened, says so: no count, nothing to open.
     await act(async () => { fireEvent.click(indexRow(container, "Meet-me room").querySelector("button")!); });
     await waitFor(() => expect(indexRows(container)).toContain("Meet-me room"));
+});
+
+test("an open zone's racks carry their details as the canvas draws them — each row's dot its alarm's tint, its figure its load — read by the runs of the zone's cells, never the loads whole (#1570, D45)", async () => {
+    const { container } = await open();
+    await openTab(container, "Index");
+    await act(async () => { fireEvent.click(indexRow(container, "Cage A").querySelector("button")!); });
+    await waitFor(() => expect(indexItems(container)).toEqual([
+        ["A01", "success", "5.2 kW"], ["A02", "warning", "7.4 kW"], ["A03", "success", "3.9 kW"], ["A04", "danger", "11.6 kW"], ["A05", "success", "0.0 kW"],
+    ]));
+    expect(h.requests("read", LOADS_DATASET)).toEqual([]);
+});
+
+test("a zone opened never shows empty: the tree shows what it showed until the zone's racks are read, then opens it in one change (#1570)", async () => {
+    const { container } = await open();
+    await openTab(container, "Index");
+    await act(async () => { fireEvent.click(indexRow(container, "Cage A").querySelector("button")!); });
+    await waitFor(() => expect(indexRows(container)[0]).toBe("Cage A ▾ 5"));
+    await settle();
+    const before = indexRows(container).join(" | ");
+    // Every tree the panel shows, as each change to it lands.
+    const trees = new Set<string>();
+    const watch = new MutationObserver(() => { trees.add(indexRows(container).join(" | ")); });
+    watch.observe(panel(container), { subtree: true, childList: true, attributes: true, characterData: true });
+    try {
+        await act(async () => { fireEvent.click(indexRow(container, "Meet-me room").querySelector("button")!); });
+        await waitFor(() => expect(indexRows(container)).toContain("Meet-me room"));
+        await settle();
+    } finally {
+        watch.disconnect();
+    }
+    const after = indexRows(container).join(" | ");
+    expect(after).toBe(["Cage A ▸", "Cold aisle A · 1.2 m ▸", "Hot aisle A · 1.0 m ▸", "Meet-me room", "Network room ▸"].join(" | "));
+    // Never the meet-me room open while its box is read, nor Cage A closed before it lands: the tree before, then the tree after.
+    expect([...trees].filter((tree) => tree !== before && tree !== after)).toEqual([]);
 });
 
 test("the Index's search finds the racks through their source's search fields, each under the zone it is in; one with no position is the Backlog's (#1393, D52)", async () => {

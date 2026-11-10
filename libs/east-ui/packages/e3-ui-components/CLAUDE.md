@@ -73,10 +73,14 @@ as Libraries — beside a kind read by area one paged list (`backlog-pages.ts`,
 D51), each such kind's rows paged through its area index's unplaced clause, a
 row its page read the original a drop rewrites; the zones' Index (`index-tab.tsx` over `index-tree.ts`), one
 focusable tree around the shared virtual rows, one zone open at a time with
-the zones it is in, following the zone the viewport is in — opened, marked and
-scrolled to as the canvas pans and zooms, a zone the viewer closed there staying
-closed until the view moves on — a kind read by area's items read by the tab itself (`index-area.ts`,
-D52), an open zone's by its box and the search's through the kind's source; the Layers (`layers-tab.tsx`), the viewer's choices an East value in
+the zones it is in, following the zone the viewport is in once the camera rests,
+never during a fly (#1570) — opened once its items are read, never empty, the
+tree standing as it was until they land, marked and brought to the tree's top,
+its row stuck there while its items scroll under it, a zone the viewer closed
+there staying closed until the view moves on, and the zone the view opened
+closed at Fit — a kind read by area's items read by the tab itself
+(`index-area.ts`, D52), an open zone's by its box, their details by its cells,
+so each dot carries its status, and the search's through the kind's source; the Layers (`layers-tab.tsx`), the viewer's choices an East value in
 the UI store under the `id` (`layers-view.ts`), which the canvas obeys — a
 locked layer's entities select by no path; and an author's tabs, each
 following its source. Its cards drop on the canvas (#1390): `drop.ts` plans

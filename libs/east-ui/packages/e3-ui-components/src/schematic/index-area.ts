@@ -16,6 +16,13 @@
  *   The rows whose centre the zone holds are its items, nested as every item
  *   is. A zone whose box holds more than a window reads lists none of them,
  *   and says so.
+ * - **Their details** are read beside them by the same cells, as the canvas
+ *   reads a window's (D45): the details' rows of each cell's entries, every
+ *   cell not held in one request of the details' record — the server reading
+ *   each entry's key from the area index, none sent — kept at the kind's
+ *   revision and the details' while an open zone wants it. So each item's dot
+ *   carries its status, and its row its figure, as the canvas draws them
+ *   (#1570); a zone's items are listed only once both have landed.
  * - **Its search** reads each such kind through its source's `search` fields
  *   (ruling 11), as a paged tab's search does (`pagedSearchWhere`): a prefix of
  *   the first field that combines with the rail's choices, its first
@@ -29,17 +36,19 @@
 
 import { StringType, equalFor, none, printFor, type ValueTypeOf } from "@elaraai/east";
 import { SeekQueryType } from "@elaraai/east-ui";
-import { areaCells, type RecordSliceBindType, type RecordSliceCell, type RecordSliceEntry } from "@elaraai/east-ui/internal";
+import { areaCells, type RecordSliceBindType, type RecordSliceCell, type RecordSliceEntry, type RecordSliceJoined } from "@elaraai/east-ui/internal";
 import { SCHEMATIC_WINDOW_READ_ROWS, schematicWindowPlan, type SchematicAreaIndexes } from "@elaraai/e3-ui/internal";
 import {
-    pagedSearchTarget, pagedSearchWhere, recordSliceCellEntries, recordSliceCellRuns, recordSliceOnPrinter, recordSlicePage, recordSliceRevision,
-    recordSliceWithin,
+    pagedSearchTarget, pagedSearchWhere, recordSliceCellEntries, recordSliceCellJoins, recordSliceCellRuns, recordSliceOnPrinter, recordSlicePage,
+    recordSliceRevision, recordSliceWithin,
 } from "@elaraai/east-ui-components/internal";
+import { defaultPagedRuntime, pagedSourceOf } from "../platform/paged-runtime.js";
 import { READING, type Reading } from "./area.js";
-import { drawnItem, type DrawnItem, type DrawnZone, type ItemRoles } from "./canvas/drawn.js";
+import { drawnItem, type DetailsRoles, type DrawnItem, type DrawnZone, type ItemRoles } from "./canvas/drawn.js";
 import type { SchematicValue } from "./data.js";
-import { kindKeys } from "../shared/schedule/kind-keys.js";
+import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
 import { entryRow, type KindRows } from "./kind-rows.js";
+import { RowMaking, type StoredRows } from "./made-rows.js";
 
 /** A kind's source of the slice. */
 type Part = ValueTypeOf<RecordSliceBindType>;
@@ -48,6 +57,31 @@ type ItemKind = SchematicValue["items"][number];
 
 const stringEqual = equalFor(StringType);
 const printQuery = printFor(SeekQueryType);
+
+/** A cell's details of none: no entry of it has a details row. */
+const NO_JOINED: readonly RecordSliceJoined[] = [];
+
+/** A kind's details' rows read by the cells an open zone's items were read by (D45), at the kind's revision and the details'. */
+interface Joined {
+    /** The `id` of the details' paged read. */
+    readonly dict: string;
+    /** The kind's revision the cells were read at. */
+    readonly revision: string;
+    /** The details' revision their rows were read at. */
+    readonly details: string;
+    /** Each cell's rows of the details, by its name, while an open zone wants it. */
+    readonly cells: Map<string, readonly RecordSliceJoined[]>;
+}
+
+/** Lets go of the cells no open zone wants of one kind's, through every index: an index it reads none through, whole. */
+function forgetCells<C>(byIndex: Map<string, { readonly cells: Map<string, C> }> | undefined, wanted: ReadonlyMap<string, ReadonlySet<string>>): void {
+    if (byIndex === undefined) return;
+    for (const [index, kept] of [...byIndex]) {
+        const ids = wanted.get(index);
+        if (ids === undefined) { byIndex.delete(index); continue; }
+        for (const id of [...kept.cells.keys()]) if (!ids.has(id)) kept.cells.delete(id);
+    }
+}
 
 /** The most matches of a search the Index reads a kind: past them, it says how many more there are. */
 export const INDEX_MATCHES = 50;
@@ -91,6 +125,10 @@ function sameFrom(a: readonly unknown[], b: readonly unknown[]): boolean {
 export class SchematicIndexArea {
     /** Each kind's cells' entries, by its slot, then by the index they were read through, at a revision: those an open zone wants. */
     private readonly kept = new Map<string, Map<string, { readonly revision: string; readonly cells: Map<string, RecordSliceEntry[]> }>>();
+    /** Each kind's cells' details, by its slot, then by the index they were read through (D45): those an open zone wants. */
+    private readonly joined = new Map<string, Map<string, Joined>>();
+    /** What the details' `rowsOf` has made of their rows: all a read asks for, at once, since the Index draws them in one pass. */
+    private readonly making = new RowMaking();
     /** The last result, and what it was read from. */
     private last: { readonly from: readonly unknown[]; readonly result: IndexAreaRead } | undefined;
 
@@ -152,8 +190,10 @@ export class SchematicIndexArea {
             let total = 0n;
             for (const cell of cells) total += runs.value.get(cell.id)?.total ?? 0n;
             if (total > BigInt(SCHEMATIC_WINDOW_READ_ROWS)) { crowded.add(zone.key); continue; }
+            // The entries and their details asked together: neither waits on the other's answer.
             const entries = this.entriesOf(kind, index, revision, cells);
-            if (entries === READING) return READING;
+            const details = this.detailsOf(kind, index, revision, cells, keys);
+            if (entries === READING || details === READING) return READING;
             let ids = wanted.get(index);
             if (ids === undefined) { ids = new Set(); wanted.set(index, ids); }
             for (const cell of cells) ids.add(cell.id);
@@ -169,11 +209,13 @@ export class SchematicIndexArea {
                 held = answer.value;
             }
             // The answers as one text: the same while they are.
-            from.push(zone.key, ...entries, held === undefined ? "" : held.map((inside) => (inside ? "1" : "0")).join(""));
+            from.push(zone.key, ...entries, ...(details?.joined ?? []), held === undefined ? "" : held.map((inside) => (inside ? "1" : "0")).join(""));
             const made = this.rows.rowsOf(kind.kind, revision, listed);
             listed.forEach(({ key }, i) => {
                 if (held !== undefined && held[i] !== true) return;
-                const item = drawnItem({ kind: kind.kind.key, key }, made.get(key)!.roles, undefined);
+                // Its details' roles, as the canvas draws them beside its own: a row of no details row draws its own alone.
+                const own = details?.rows.get(key)?.roles as DetailsRoles | undefined;
+                const item = drawnItem({ kind: kind.kind.key, key }, made.get(key)!.roles, own);
                 // The zone's items: those whose centre it holds.
                 if (item !== undefined && item.x >= box.minX && item.x <= box.maxX && item.y >= box.minY && item.y <= box.maxY) items.push(item);
             });
@@ -229,14 +271,54 @@ export class SchematicIndexArea {
         return cells.map((cell) => held.get(cell.id)!);
     }
 
-    /** Lets go of the cells of a kind no open zone wants, through every index. */
-    private forget(slot: string, wanted: ReadonlyMap<string, ReadonlySet<string>>): void {
-        const byIndex = this.kept.get(slot);
-        if (byIndex === undefined) return;
-        for (const [index, kept] of [...byIndex]) {
-            const ids = wanted.get(index);
-            if (ids === undefined) { byIndex.delete(index); continue; }
-            for (const id of [...kept.cells.keys()]) if (!ids.has(id)) kept.cells.delete(id);
+    /**
+     * Some cells' details' rows (D45), as the canvas reads a window's (`area.ts`' `detailsOf`): the details' rows of the
+     * cells' entries through an index — those not held read in one request of the details' record, the server reading
+     * each entry's key from the index, none sent — kept at the kind's revision and the details', made their stored rows.
+     *
+     * @param kind - The kind
+     * @param index - The area index the cells are of
+     * @param revision - The kind's revision the cells' entries were read at
+     * @param cells - The cells
+     * @param keys - The kind's keys, which its details are keyed as: each details row by its key's text (#1549)
+     * @returns The cells' rows of the details, in order, and the rows made of them, by key; `undefined` for a kind with
+     *   no details, or details read by no paged read; {@link READING} while the details' revision or a cell's rows are read
+     * @throws {Error} When the details' paged read is bound on no page this runtime serves
+     */
+    private detailsOf(kind: IndexAreaKind, index: string, revision: string, cells: readonly RecordSliceCell[], keys: KindKeys):
+        { readonly joined: readonly (readonly RecordSliceJoined[])[]; readonly rows: StoredRows } | Reading | undefined {
+        const details = kind.kind.details;
+        if (details.type !== "some" || details.value.paged.type !== "some") return undefined;
+        const dict = details.value.paged.value;
+        const source = pagedSourceOf(dict);
+        if (source === undefined) throw new Error(`The details' paged read '${dict}' is bound on no page this runtime serves`);
+        const at = defaultPagedRuntime.revisionOf(source);
+        if (at.type !== "some") return READING;
+        let byIndex = this.joined.get(kind.kind.key);
+        if (byIndex === undefined) { byIndex = new Map(); this.joined.set(kind.kind.key, byIndex); }
+        let kept = byIndex.get(index);
+        if (kept === undefined || !stringEqual(kept.dict, dict) || !stringEqual(kept.revision, revision) || !stringEqual(kept.details, at.value)) {
+            kept = { dict, revision, details: at.value, cells: new Map() };
+            byIndex.set(index, kept);
         }
+        const held = kept.cells;
+        const missing = cells.filter((cell) => !held.has(cell.id));
+        if (missing.length > 0) {
+            const got = recordSliceCellJoins(kind.part, index, missing, dict);
+            if (got.type !== "some") return READING;
+            for (const cell of missing) held.set(cell.id, got.value.get(cell.id) ?? NO_JOINED);
+        }
+        const joined = cells.map((cell) => held.get(cell.id)!);
+        const present = new Map<string, unknown>();
+        for (const cell of joined) for (const entry of cell) if (entry.row.type === "some") present.set(keys.textOf(entry.key), entry.row.value);
+        // No budget is begun, so every row is made in this read.
+        const rows = this.making.make(details.value, present);
+        return rows === undefined ? READING : { joined, rows };
+    }
+
+    /** Lets go of the cells of a kind no open zone wants, its entries' and its details', through every index. */
+    private forget(slot: string, wanted: ReadonlyMap<string, ReadonlySet<string>>): void {
+        forgetCells(this.kept.get(slot), wanted);
+        forgetCells(this.joined.get(slot), wanted);
     }
 }

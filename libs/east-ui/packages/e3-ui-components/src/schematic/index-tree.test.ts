@@ -7,10 +7,11 @@
  * nested zones' among them; an open zone listing its items, then its nested
  * zones; the items in no zone last; a hatched zone holding none; the search
  * keeping the items whose label, key or kind's name holds the query, under
- * their zones, opened; and the zone the viewport is in — the one covering most
- * of it, the smaller of two covering as much, kept until it clearly loses,
- * none at the fit. Fixtures are real East values, made what the canvas draws
- * by `drawn.ts`.
+ * their zones, opened; the open zone's row heading the rows under it, which
+ * stick under it as they scroll (#1570); and the zone the viewport is in — the
+ * one covering most of it, the smaller of two covering as much, kept until it
+ * clearly loses, none at the fit. Fixtures are real East values, made what the
+ * canvas draws by `drawn.ts`.
  */
 
 import { describe, expect, test } from "vitest";
@@ -18,7 +19,7 @@ import { defaultValue, none, some, variant } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
 import { drawnItem, drawnZone, type DrawnItem, type DrawnZone } from "./canvas/drawn.js";
 import { buildNavTree } from "./canvas/model.js";
-import { indexRows, zoneInView, type IndexRow } from "./index-tree.js";
+import { indexRows, indexSections, zoneInView, type IndexRow } from "./index-tree.js";
 
 const T = Schematic.Types;
 
@@ -109,6 +110,25 @@ describe("indexRows", () => {
         const rowOf = (counted: boolean) => indexRows(tree, new Set(), "", (slot) => slot, "en", { whole: () => counted }).find((r) => r.kind === "zone" && r.zone.key === empty.key);
         expect(rowOf(false)).toMatchObject({ branch: true, count: undefined });
         expect(rowOf(true)).toMatchObject({ branch: false, count: 0 });
+    });
+});
+
+describe("indexSections", () => {
+    const listed = (open: readonly string[]) => indexRows(TREE, new Set(open), "", (slot) => KIND_NAMES[slot] ?? slot, "en");
+
+    test("the open zone's row heads the rows under it — its items and the zones it holds — to the next row past them (#1570)", () => {
+        // The hall open: its row, then H1, the aisle, Cage 2 and Cage 10, up to Z1.
+        expect(indexSections(listed([HALL.key]), HALL.key)).toEqual([{ start: 1, end: 6, head: 1 }]);
+        // Cage 2 open in the hall: the deepest open zone's row heads its racks, to Cage 10.
+        expect(indexSections(listed([HALL.key, CAGE_2.key]), CAGE_2.key)).toEqual([{ start: 4, end: 7, head: 1 }]);
+    });
+
+    test("none while no zone is open, one open lists nothing under it, or the open zone is not listed", () => {
+        expect(indexSections(listed([]), undefined)).toEqual([]);
+        const empty = zone("empty", "Empty room", 30, 0, 4, 4);
+        const rows = indexRows(buildNavTree([...ZONES, empty], ITEMS), new Set([empty.key]), "", (slot) => slot, "en");
+        expect(indexSections(rows, empty.key)).toEqual([]);
+        expect(indexSections(listed([]), "gone")).toEqual([]);
     });
 });
 

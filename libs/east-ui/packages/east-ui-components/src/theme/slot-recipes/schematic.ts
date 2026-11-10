@@ -592,9 +592,12 @@ export const schematicSlotRecipe = defineSlotRecipe({
             outline: "none",
             "&:focus-visible [data-active]": { boxShadow: "focusInset" },
         },
-        /* Its rows' scroll box: the shared virtual rows', which the rows' offsets are measured from. */
+        /* Its rows' scroll box: the shared virtual rows', which the rows' offsets are measured from. The open zone's row,
+         * stuck at its top while the rows under it scroll (#1570), stands on the pane's paper, so no row shows through
+         * it; its own hover, selection and the zone in view draw over that. */
         indexRows: {
             position: "relative",
+            "& [data-virtual-stuck] > [data-index]": { background: "bg.surface" },
         },
         /* A row of the Index (the design system's tree row): 36px, no rule — the indent carries the structure,
          * 24px a level (`--index-depth`, its geometry); a zone's name 500, an item's 400 with its dot; hover the
