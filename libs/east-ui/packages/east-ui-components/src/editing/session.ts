@@ -457,12 +457,21 @@ interface Submission<W> {
     otherwise: Map<string, option<unknown>>;
     base: Base;
     revision: string | undefined;
+    /**
+     * The source has read at the revision the request committed: any other revision it reads at from then on is a
+     * later one, so an entry read there as its edit began was put back by another write since, never read before the
+     * request landed ({@link EditSession.reconcile}).
+     */
+    reached?: boolean | undefined;
     /** A positional snapshot's whole collection as the request leaves it — its target, order included. */
     expected: Uint8Array | undefined;
     /** Each entry the request places, and where: what a positional snapshot holds once the request lands. */
     placed: readonly Pick<Change, "id" | "place">[];
     release: (() => void) | undefined;
 }
+
+/** The source's own apply over an inline snapshot: the collection, a batch and the revision it makes, to the collection applied or its conflict. */
+type Transform = (collection: unknown, batch: Batch, revision: ValueTypeOf<OptionType<StringType>>) => Applied;
 
 const placementEqual = equalFor(OptionType(EditingPlacementType));
 /**
@@ -476,6 +485,46 @@ const blobEqual = equalFor(BlobType);
 const schemaEqual = equalFor(EastTypeType);
 /** An entry the session holds no version of: absent, nowhere — one value for every projection. */
 const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: none };
+/** Where a keyed source's entry stands: in its key's order, wherever it is. */
+const KEY_ORDER: Placement = some(variant("keyOrder", null));
+
+/** A snapshot apply compiled, with what it applies over: its entry type, and a keyed source's key type or an Array source's identity field. */
+interface KeptTransform {
+    readonly entry: ValueTypeOf<typeof EastTypeType>;
+    readonly key: ValueTypeOf<typeof EastTypeType> | undefined;
+    readonly idField: string | undefined;
+    readonly transform: Transform;
+}
+
+/** How many compiled snapshot applies are kept: past it the oldest goes, and is compiled again where it is next asked for. */
+const TRANSFORMS_KEPT = 64;
+/**
+ * The snapshot applies compiled so far, oldest first. A page makes a session a source and a view — many of them over
+ * one entry type — and compiling an apply takes a millisecond and a half, so each is compiled once and found again
+ * by East's own equality of the types it applies over.
+ */
+const keptTransforms: KeptTransform[] = [];
+
+/**
+ * The source's own apply over an inline snapshot (`Editing.apply`), compiled once for the types it applies over.
+ *
+ * @param entry - The source's entry type
+ * @param keyType - A keyed source's key type
+ * @param idField - An Array source's identity field
+ * @returns The compiled apply
+ */
+function transformOver(entry: Opaque, keyType: EastType | undefined, idField: string | undefined): Transform {
+    const [of, by] = [toEastTypeValue(entry), keyType === undefined ? undefined : toEastTypeValue(keyType)];
+    /** Whether two of them are both absent, or both there and equal. */
+    const alike = <T>(a: T | undefined, b: T | undefined, equal: (x: T, y: T) => boolean): boolean =>
+        (a === undefined || b === undefined ? a === undefined && b === undefined : equal(a, b));
+    const kept = keptTransforms.find((held) => schemaEqual(held.entry, of) && alike(held.key, by, schemaEqual) && alike(held.idField, idField, stringEqual));
+    if (kept !== undefined) return kept.transform;
+    const transform = (keyType !== undefined ? East.compile(applyEditing(DictType(keyType, entry)), []) : East.compile(applyEditing(entry, idField!), [])) as unknown as Transform;
+    keptTransforms.push({ entry: of, key: by, idField, transform });
+    if (keptTransforms.length > TRANSFORMS_KEPT) keptTransforms.shift();
+    return transform;
+}
 
 /** A version's draft, as the merge reads it: `none` for an entry absent. */
 function draftOf(version: EntryVersion<unknown> | undefined): option<unknown> {
@@ -591,7 +640,9 @@ export class EditSession<W> {
     private readonly encodeBatch: (value: unknown) => Uint8Array;
     private readonly encodeEvent: (value: unknown) => Uint8Array;
     private readonly cloneDraft: (value: unknown) => unknown;
-    private readonly transform: ((collection: unknown, batch: Batch, revision: ValueTypeOf<OptionType<StringType>>) => Applied) | undefined;
+    /** Compiles the source's own apply over an inline snapshot; `undefined` for an Array source with no identity field. */
+    private readonly compileTransform: (() => Transform) | undefined;
+    private compiledTransform: Transform | undefined;
     private readonly cloneBase: (value: Base) => Base;
     private readonly baseEqual: (a: Base, b: Base) => boolean;
     /** The source's whole collection, encoded — what an inline request's target is compared by. */
@@ -673,10 +724,11 @@ export class EditSession<W> {
         const entry = binding.entryType as Opaque;
         const draft = binding.draftType as Opaque;
         const keyType = binding.keyType;
-        // A keyed source is applied by key (#880); an Array source by its identity field.
-        this.transform = keyType !== undefined
-            ? East.compile(applyEditing(DictType(keyType, entry)), []) as unknown as EditSession<W>["transform"]
-            : binding.idField === undefined ? undefined : East.compile(applyEditing(entry, binding.idField), []) as unknown as EditSession<W>["transform"];
+        // A keyed source is applied by key (#880); an Array source by its identity field. Compiled when a snapshot is
+        // first applied: a session over a source at a revision, as every record's is, applies none.
+        const idField = binding.idField;
+        this.compileTransform = keyType !== undefined ? () => transformOver(entry, keyType, undefined)
+            : idField === undefined ? undefined : () => transformOver(entry, undefined, idField);
         this.draftEqual = equalFor(toEastTypeValue(OptionType(draft)));
         this.domainEqual = equalFor(toEastTypeValue(OptionType(entry)));
         this.draftDiff = diffFor(toEastTypeValue(OptionType(draft)));
@@ -712,6 +764,14 @@ export class EditSession<W> {
             : schemaEqual(toEastTypeValue(binding.keyType), toEastTypeValue(this.binding.keyType));
         if (!stringEqual(binding.sourceId, this.binding.sourceId) || !schemaEqual(toEastTypeValue(binding.entryType), toEastTypeValue(this.binding.entryType)) || !schemaEqual(toEastTypeValue(binding.draftType), toEastTypeValue(this.binding.draftType)) || !keysEqual) throw new Error("An editing session cannot change its source or schema");
         this.binding = binding;
+    }
+    /**
+     * The source's own apply over an inline snapshot (`Editing.apply`): what a snapshot's Save is checked by, and what
+     * draws its drafts ({@link EditSession.applied}). `undefined` for an Array source with no identity field.
+     */
+    private get transform(): Transform | undefined {
+        if (this.compileTransform === undefined) return undefined;
+        return this.compiledTransform ??= this.compileTransform();
     }
     /** Subscribe to every change (`useSyncExternalStore`). */
     subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
@@ -1098,9 +1158,15 @@ export class EditSession<W> {
      */
     get keptEntries(): readonly KeptEntry<W>[] {
         const out: KeptEntry<W>[] = [];
+        // A request the source has acknowledged is saved, whatever of it is still to be read back: what it left is what
+        // each entry it held began from. One unchanged since is no draft to keep, and one changed since — put back by
+        // Undo among them — is kept as a change from it. Kept from its original, a saved entry another write then
+        // changed would be restored as a conflict over a change already saved, and one put back would not be kept.
+        const saved = this.submission !== undefined && this.status === "reconciling" ? this.submission.after : undefined;
         for (const [id, version] of this.current) {
-            const original = this.baseline.get(id) ?? ABSENT;
-            const was = this.ancestors.get(id) ?? draftOf(original);
+            const left = saved?.get(id);
+            const original = left ?? this.baseline.get(id) ?? ABSENT;
+            const was = left === undefined ? this.beganOf(id, version, original) : draftOf(left);
             const draft = draftOf(version);
             if (Object.is(version, original) || (this.draftEqual(draft, was) && placementEqual(version.place, original.place))) continue;
             out.push({ id, was, draft, wire: version.wire, beforeWire: original.wire, place: version.place, beforePlace: original.place });
@@ -1265,6 +1331,9 @@ export class EditSession<W> {
             this.base = this.cloneBase(base);
             this.baseline.clear(); this.current.clear(); this.ancestors.clear(); this.forgetConflicts(); this.history = []; this.cursor = 0;
             this.moving = undefined; this.stale = false; this.accepted = 0; this.unaccepted = false; this.drafted = 0;
+            // What the last request left to say — a refusal, its issues — was of drafts taken back since, while they were
+            // being carried over: with none left to carry, no merge ends it, and it would stand over no draft.
+            this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined; this.again = false;
             this.draftsChanged();
             this.changed();
             return;
@@ -1340,7 +1409,7 @@ export class EditSession<W> {
                 continue;
             }
             const source: option<unknown> = now.type === "some" ? some(liftDraft(this.binding.draftType, now.value)) : none;
-            const merged = this.merger.merge(this.ancestors.get(id) ?? draftOf(original), draftOf(mine), source, this.joined);
+            const merged = this.merger.merge(this.beganOf(id, mine, original), draftOf(mine), source, this.joined);
             // A draft the source's value holds whole is a draft no more.
             if (this.merger.equal(merged.draft, source)) continue;
             baseline.set(id, this.versionOf(id, source, original));
@@ -1426,7 +1495,10 @@ export class EditSession<W> {
         const targets = new Map<string, string[]>();
         const add = (id: string, path: string) => { const paths = targets.get(id); if (paths === undefined) targets.set(id, [path]); else paths.push(path); };
         for (const [id, entry] of this.conflicts) for (const point of entry.points) add(id, point.path);
-        for (const settled of this.settledPoints.values()) if (settled.choice !== choice) add(settled.id, settled.point.path);
+        // One that reads again is among the open ones already.
+        for (const settled of this.settledPoints.values()) {
+            if (settled.choice !== choice && targets.get(settled.id)?.some((path) => stringEqual(path, settled.point.path)) !== true) add(settled.id, settled.point.path);
+        }
         return this.settleEach(targets, choice);
     }
 
@@ -1452,11 +1524,24 @@ export class EditSession<W> {
                 // The conflict's place, and those that go with it: a range's, settled with its times.
                 const at = pathFromString(path);
                 const places = [at, ...this.joined(at)];
-                if (prior !== undefined) {
+                const point = open.get(id)?.points.find((candidate) => stringEqual(candidate.path, path));
+                // Settled before, and still so. One that reads again — the other side taken, then the part changed again
+                // by a gesture — is chosen as an open one is, over the draft as it stands: put back as it stood before
+                // its first choice, the draft would lose the change made since.
+                if (prior !== undefined && point === undefined) {
                     // Settled the other way before: settled this way now.
                     if (prior.choice === choice) continue;
-                    if (choice === "source") draft = this.merger.takeSourceAt(draft, source, places);
-                    else {
+                    if (choice === "source") {
+                        // A part of an entry removed since its choice is no part to take: the other side's value
+                        // there would bring the whole entry back, its person's removal undone.
+                        if (draft.type === "none" && prior.point.at.length > 0) continue;
+                        draft = this.merger.takeSourceAt(draft, source, places);
+                    } else {
+                        // Only while the draft holds the other side there, as its choice left it. Changed since by a
+                        // gesture that leaves no conflict — the entry removed, as the other side has it or not — the
+                        // draft is its person's as it stands: put back as it stood before the choice, a row removed
+                        // since would be back.
+                        if (!this.merger.equal(this.merger.takeSourceAt(draft, source, places), draft)) continue;
                         draft = this.merger.takeSourceAt(draft, prior.draft, places);
                         if (next !== undefined) next = this.merger.keepDraftAt(next, source, places);
                     }
@@ -1464,9 +1549,8 @@ export class EditSession<W> {
                     settledAfter.set(key, { ...prior, choice });
                     continue;
                 }
-                const point = open.get(id)?.points.find((candidate) => stringEqual(candidate.path, path));
                 if (point === undefined || was === undefined || next === undefined) continue;
-                settledBefore.set(key, undefined);
+                settledBefore.set(key, prior);
                 settledAfter.set(key, { id, key: this.keyOf?.(id), point, choice, draft: draftOf(mine), source, was, said: this.said.get(id) });
                 if (choice === "source") draft = this.merger.takeSourceAt(draft, source, places);
                 else next = this.merger.keepDraftAt(next, source, places);
@@ -1506,6 +1590,17 @@ export class EditSession<W> {
         return true;
     }
 
+    /**
+     * What an entry's draft and its original — the source's value, as the session holds it — both began from, as they
+     * read now: the original, or, where a carry-over left a conflict, the original put back to what both began from at
+     * each conflict the draft still reads ({@link EntryMerger.began}). What a carry-over kept of a conflict the draft
+     * has since left by a gesture — its part changed by hand to the source's value — is no longer what both began from.
+     */
+    private beganOf(id: string, mine: EntryVersion<W>, original: EntryVersion<W>): option<unknown> {
+        const kept = this.ancestors.get(id);
+        return kept === undefined ? draftOf(original) : this.merger.began(kept, draftOf(mine), draftOf(original), this.joined);
+    }
+
     /** The conflicts settled, what the source said of them, and their issues, forgotten: the drafts are carried over afresh, or gone. */
     private forgetConflicts(): void { this.settledPoints.clear(); this.said = new Map(); this.conflictIssues.clear(); }
 
@@ -1525,11 +1620,16 @@ export class EditSession<W> {
         }
     }
 
-    /** An entry's version holding a draft the session made: the collection's projection of it, else the one it had. */
+    /**
+     * An entry's version holding a draft the session made: the collection's projection of it, else the one it had. A
+     * keyed source's entry stands in its key's order, whatever the version it is made from: one made from an entry
+     * that was absent — the source's, where both sides added it; the draft's, where the other side of its removal is
+     * taken — would stand nowhere, and count as a change of its place still to save.
+     */
     private versionOf(id: string, draft: option<unknown>, as: EntryVersion<W>): EntryVersion<W> {
         if (draft.type === "none") return ABSENT;
         const wire = this.binding.wireOf === undefined ? as.wire : this.binding.wireOf(id, draft.value, as.wire);
-        return { draft: draft.value, wire, place: as.place };
+        return { draft: draft.value, wire, place: this.keyOf === undefined ? as.place : KEY_ORDER };
     }
 
     /** An entry of an inline snapshot, by its id: `none` while the collection does not hold it. */
@@ -1660,9 +1760,14 @@ export class EditSession<W> {
     discard(): void {
         if (!this.canDiscard) return;
         const before = this.current;
+        // Drafts being carried over began from another base than the one they are carried to: kept drafts restored as
+        // a page loads began from the page before. Put back as they began they would be no rows of this base's, held as
+        // the session's own with nothing left to read them again — a row saved since shown as it stood before.
+        const carried = this.moving !== undefined;
         this.current = new Map(this.baseline);
         this.draftsChanged();
         this.emit(before, this.current, "discard", "Discard changes");
+        if (carried) { this.baseline.clear(); this.current.clear(); this.draftsChanged(); }
         this.ancestors.clear(); this.forgetConflicts(); this.moving = undefined; this.again = false;
         this.history = []; this.cursor = 0; this.stale = false; this.accepted = 0; this.unaccepted = false; this.automatic = false;
         this.drafted = 0;
@@ -1814,7 +1919,12 @@ export class EditSession<W> {
             this.status = "unknown"; this.error = error instanceof Error ? error.message : String(error); this.changed(); return false;
         }
         if (result.type !== "applied") {
-            this.submission = undefined; request.release?.(); this.status = result.type; this.issues = result.value;
+            this.submission = undefined; request.release?.();
+            // Refused, with nothing of it left to save — every draft taken back while the request was out: the session
+            // has nothing to say of it, and nothing to carry over. Its refusal said, it would stand over no draft, Save
+            // off, until the person's next gesture.
+            if (this.pending === 0) { this.status = "idle"; this.issues = []; this.changed(); return false; }
+            this.status = result.type; this.issues = result.value;
             // At a revision base the source names no entry it would have to
             // read itself whole for (#1199): the session reads them at the
             // revision the source moves to (`nameConflicts`), and says the
@@ -1924,7 +2034,10 @@ export class EditSession<W> {
      * left it: an inline positional source's whole collection, its order
      * included — or, where another write landed beside the request first, its
      * own entries, each where it placed them; an inline keyed source's own
-     * entries, whatever another write did to the others (#1185); a source that
+     * entries, whatever another write did to the others (#1185) — either one
+     * once any entry of the request's shows the request landed, an entry
+     * another write changed again since acknowledged with its newer value
+     * ({@link EditSession.landedIn}); a source that
      * names its revisions, the request's entries read at the revision it
      * committed or a later one — an entry another write changed since,
      * acknowledged with its newer value, and one still as its edit began, read
@@ -1958,9 +2071,10 @@ export class EditSession<W> {
         let exact = true;
         if (request.expected !== undefined) {
             // Another write may land beside the request before the session reads it back (two Saves at once): then
-            // the collection is not the request's, but holds the request's entries as it left them.
+            // the collection is not the request's, but holds the request's entries as it left them — or, where another
+            // write changed one of them again since, shows by its entries that the request landed.
             if (!blobEqual(this.encodeCollection(base.value), request.expected)) {
-                if (!this.leftIn(base, request)) return false;
+                if (!this.leftIn(base, request) && !this.landedIn(request, (id) => this.inSnapshot(base.value, id))) return false;
                 exact = false;
                 // Each of its entries the collection holds otherwise than the request left it, as it holds it.
                 request.otherwise.clear();
@@ -1970,16 +2084,20 @@ export class EditSession<W> {
                 }
             }
         } else if (base.type === "snapshot") {
+            const held = (id: string): option<unknown> => this.heldIn(base.value, id);
+            if (!this.landedIn(request, held)) return false;
             // Read whole at each pass: what an earlier pass read otherwise is read again here.
             request.otherwise.clear();
             for (const [id, target] of request.targets) {
-                const now = this.heldIn(base.value, id);
-                if (!this.leftAs(now, target)) return false;
+                const now = held(id);
                 if (this.domainEqual(now, target.after)) continue;
                 exact = false;
                 request.otherwise.set(id, now);
             }
         } else {
+            // At the revision the request committed, the source holds it: every revision it reads at from here is a later one.
+            const committed = stringEqual(base.value, request.revision!);
+            if (committed) request.reached = true;
             const before = request.checked.size;
             for (const [id, target] of request.targets) {
                 if (request.checked.has(id)) continue;
@@ -1991,8 +2109,10 @@ export class EditSession<W> {
                     if (!exact) request.otherwise.set(id, now);
                 }
                 // Another write changed it since the request landed: acknowledged, the newer value the source's. One the
-                // change still applies to was read before the request landed: a later read judges it.
-                else if (!this.applies(now, target)) {
+                // change still applies to was read before the request landed, and a later read judges it — unless the
+                // source has read at the revision the request committed and moved on: then another write put the entry
+                // back as it was, and no later read would ever tell it from one the request has yet to reach.
+                else if (!this.applies(now, target) || (request.reached === true && !committed)) {
                     request.checked.set(id, false);
                     request.otherwise.set(id, now);
                 }
@@ -2021,8 +2141,22 @@ export class EditSession<W> {
         this.conflicted = undefined;
         // What the request left is the original of each entry it held; one first drafted since it was sent keeps its own.
         // The drafts stand, so what was drafted since is what is left to save.
-        if (exact) for (const [id, version] of request.after) this.baseline.set(id, version);
-        else this.behind(request);
+        if (exact) {
+            for (const [id, version] of request.after) this.baseline.set(id, version);
+            // A choice the Save has taken is no conflict to bring back: a step that settled one keeps the versions it
+            // moved, and Undo of it puts back nothing of the conflict — what both began from, put back, would read
+            // against what the Save left, and ask again at the source's next change of a part no draft changes.
+            for (const step of this.history) { step.ancestors = undefined; step.settled = undefined; }
+        } else this.behind(request);
+        // Read whole, the collection the request is acknowledged at may hold an entry otherwise than a draft made since
+        // the request was sent began from: drafted from rows read before another write's, the base moving on under the
+        // request unseen. Those drafts are carried over to the collection, as to any the source moves to — a part both
+        // changed a conflict to choose. Left as they began, their Save would be refused over the session's own base,
+        // with nothing newer for the source to move to and nothing to choose.
+        if (base.type === "snapshot" && this.draftedBehind(base.value)) {
+            this.moving = { base: this.cloneBase(base), read: new Map() };
+            this.merge(base, (id) => this.inSnapshot(base.value, id));
+        }
         this.changed();
         if (request.confirmed !== undefined) {
             const confirmed = request.base.type === "revision" && base.type === "revision"
@@ -2030,6 +2164,14 @@ export class EditSession<W> {
             queueMicrotask(() => request.confirmed!(confirmed));
         }
         return true;
+    }
+
+    /** Whether a collection read whole holds some drafted entry otherwise than its draft began from. */
+    private draftedBehind(collection: unknown): boolean {
+        for (const id of this.current.keys()) {
+            if (!this.domainEqual(this.optionOf(id, this.baseline.get(id)), this.inSnapshot(collection, id))) return true;
+        }
+        return false;
     }
 
     /**
@@ -2228,6 +2370,37 @@ export class EditSession<W> {
         }
         const again = this.transform(collection, { requestId: "", base, label: "", changes }, none);
         return again.type === "applied" && blobEqual(this.encodeCollection(again.value), this.encodeCollection(collection));
+    }
+
+    /**
+     * Whether a collection read whole was read after a request landed, by the
+     * request's own entries. One commit lands whole, so one entry says it for
+     * them all: an entry that reads as the request left it
+     * ({@link EditSession.leftAs}), or as neither side of its change — the
+     * part the request set, changed again by another write since, or the
+     * entry removed. An entry still as its edit began beside one of those was
+     * put back by another write, and is the source's.
+     *
+     * `false` while every entry reads as its edit began: the collection was
+     * read before the request landed, and a later one judges it. Waited on,
+     * a collection read after another write changed the same part would never
+     * read as the request left it, and the Save would wait for good. (Every
+     * entry put back exactly as it began, before the source was read again,
+     * reads the same as a collection from before the request: nothing a
+     * collection holds tells the two apart.)
+     *
+     * @param request - The request
+     * @param held - An entry as the collection holds it: `none` for one it does not hold
+     * @returns Whether an entry of the request's shows the request landed
+     */
+    private landedIn(request: Submission<W>, held: (id: string) => option<unknown>): boolean {
+        for (const [id, target] of request.targets) {
+            // A change of an entry's place alone says nothing of when the collection was read.
+            if (this.domainEqual(target.before, target.after)) continue;
+            const now = held(id);
+            if (this.leftAs(now, target) || !this.applies(now, target)) return true;
+        }
+        return false;
     }
 
     /**

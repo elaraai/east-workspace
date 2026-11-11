@@ -21,6 +21,9 @@
  * - Taking the source's value at a conflict writes it into the draft; keeping
  *   the draft's moves what both began from to the source's value there.
  *   Either way that conflict reads no more.
+ * - A conflict the draft comes to read no more by a gesture — the part changed
+ *   by hand to the source's value — began from the source's value too, once
+ *   the draft is carried over again (`began`).
  *
  * @packageDocumentation
  */
@@ -143,6 +146,26 @@ export class EntryMerger {
             ancestor: this.apply(source, back),
             points: found.map((conflict, i) => pointOf(conflict.path, at[i]!, was, draft, source)),
         };
+    }
+
+    /**
+     * What both began from, as the three values read now: the source's value, put back to what both began from at each
+     * conflict they still read, and at each place that goes with one. A conflict the draft reads no more — changed by
+     * hand to the source's value there, with no choice made — began from the source's value: carried over again, a
+     * later change of the source's to that part is the source's to make, and no conflict.
+     *
+     * @param was - What both began from, as a carry-over kept it
+     * @param draft - The draft
+     * @param source - The value its source holds
+     * @param joined - The places that go with a conflict's, by its place
+     * @returns What both began from
+     */
+    began(was: option<unknown>, draft: option<unknown>, source: option<unknown>, joined?: (at: PatchPath) => readonly PatchPath[]): option<unknown> {
+        const found = this.detect(this.diff(was, draft), this.diff(was, source));
+        if (found.length === 0) return source;
+        const at = found.map((conflict) => pathFromString(conflict.path));
+        const along = joined === undefined ? [] : at.flatMap((place) => joined(place));
+        return this.apply(source, this.prune(this.diff(source, was) as never, (leaf) => [...at, ...along].some((place) => related(leaf, place))));
     }
 
     /**

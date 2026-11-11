@@ -254,6 +254,81 @@ test("two Saves at once over a positional snapshot: beside another write's — a
     expect([entry.status, entry.pending, entry.entries.size]).toEqual(["idle", 0, 0]);
 });
 
+test("a keyed snapshot whose commit another write overtook — the same part changed again, or the entry removed, before the record was read — confirms with the newer value, never waiting for good (#1599)", async () => {
+    const saved = async () => {
+        const session = keyed();
+        session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+        await session.apply();
+        expect(session.status).toBe("reconciling");
+        return session;
+    };
+    // Another write set the same quantity after the commit landed: neither as the edit began nor as the commit left it.
+    const again = await saved();
+    expect(again.reconcile(variant("snapshot", jobs([["J1", { ...cut, qty: 9n }], ["J2", band], ["J3", route]])), () => undefined)).toBe(true);
+    expect([again.status, again.locked, again.pending, again.entries.size]).toEqual(["idle", false, 0, 0]);
+    // Another write removed the entry after the commit landed.
+    const gone = await saved();
+    expect(gone.reconcile(variant("snapshot", jobs([["J2", band], ["J3", route]])), () => undefined)).toBe(true);
+    expect([gone.status, gone.locked, gone.pending]).toEqual(["idle", false, 0]);
+    // Still as the edit began — another write's task beside it, landed first: nothing of the commit in it yet.
+    const early = await saved();
+    expect(early.reconcile(variant("snapshot", jobs([["J1", { ...cut, task: "Panel cutting, maple" }], ["J2", band], ["J3", route]])), () => undefined)).toBe(false);
+    expect(early.status).toBe("reconciling");
+});
+
+test("one commit lands whole: an entry that reads as the commit left it says the rest landed too, so one another write has since put back as it was is the record's — never waited on (#1599)", async () => {
+    const session = keyed();
+    session.record([
+        { id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) },
+        { id: "J2", before: job(band), after: job({ ...band, qty: 8n }) },
+    ], "typed", "Set quantities");
+    await session.apply();
+    // J1 as the commit left it; J2 back at 4, as its edit began: put back by another write since.
+    expect(session.reconcile(variant("snapshot", jobs([["J1", { ...cut, qty: 5n }], ["J2", band], ["J3", route]])), () => undefined)).toBe(true);
+    expect([session.status, session.locked, session.pending, session.entries.size]).toEqual(["idle", false, 0, 0]);
+});
+
+test("a draft first made while a Save was read back, from a row another write has since changed, is carried over to the collection the Save is confirmed at: a conflict to choose, never a Save refused with nothing newer to move to (#1599)", async () => {
+    const batches: ValueTypeOf<typeof JobBatch>[] = [];
+    const session = new EditSession<Bar>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, patch: undefined, refresh: undefined,
+        apply: (bytes) => { batches.push(decodeBeast2For(JobBatch)(bytes)); return variant("applied", { revision: some("r2") }); },
+    });
+    session.observeBase(variant("snapshot", jobs([["J1", cut], ["J2", band], ["J3", route]])));
+    session.record([{ id: "J4", before: absentJob, after: job(spray) }], "typed", "Add a job");
+    await session.apply();
+    // While it is read back: J1's quantity set here, from the row as the page showed it.
+    session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    // The commit, and another write's quantity for J1 beside it: the draft of J1 began from a row the record no longer holds.
+    const now = variant("snapshot", jobs([["J1", { ...cut, qty: 9n }], ["J2", band], ["J3", route], ["J4", spray]]));
+    expect(session.reconcile(now, () => undefined)).toBe(true);
+    expect([session.status, session.pending, session.unsettled]).toEqual(["idle", 1, 1]);
+    // Kept as drafted, it is the next Save's: a change of the record's 9, which the record takes.
+    const [conflict] = [...session.conflicts.values()];
+    expect(session.settle("J1", conflict!.points[0]!.path, "draft")).toBe(true);
+    expect(session.canApply).toBe(true);
+    await session.apply();
+    expect(batches).toHaveLength(2);
+    expect(session.status).toBe("reconciling");
+    expect(session.reconcile(variant("snapshot", jobs([["J1", { ...cut, qty: 5n }], ["J2", band], ["J3", route], ["J4", spray]])), () => undefined)).toBe(true);
+    expect([session.status, session.pending]).toEqual(["idle", 0]);
+});
+
+test("a positional snapshot whose commit another write overtook — the same part changed again, or the entry removed — confirms with the newer value, never waiting for good (#1599)", async () => {
+    const saved = async () => {
+        const session = create();
+        session.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");
+        await session.apply();
+        return session;
+    };
+    const again = await saved();
+    expect(again.reconcile(variant("snapshot", [{ ...a, end: 9n }]), () => undefined)).toBe(true);
+    expect([again.status, again.locked, again.pending, again.entries.size]).toEqual(["idle", false, 0, 0]);
+    const gone = await saved();
+    expect(gone.reconcile(variant("snapshot", []), () => undefined)).toBe(true);
+    expect([gone.status, gone.locked, gone.pending]).toEqual(["idle", false, 0]);
+});
+
 test("a move alone over a positional snapshot confirms once its entry stands where the commit placed it, beside another write's entry; as the edit began, it waits", async () => {
     const b: RunValue = { id: "b", start: 4n, end: 6n };
     const c: RunValue = { id: "c", start: 7n, end: 8n };

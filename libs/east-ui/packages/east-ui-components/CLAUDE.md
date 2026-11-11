@@ -575,16 +575,39 @@ component, nothing in east-ui.
   a gesture, an Undo, a Redo, a Discard or a confirmed Save replaces one; a
   draft not yet complete is none of them. e3-ui-components' record drafts
   (`shared/records/drafts.ts`) preview each one's Save from it.
-- **Drafts carried over a source that moved** (`EditSession.rebase`, #1438).
-  A session never moves its drafts by itself: a source moving under pending
-  drafts makes it stale, Save off. A builder that can read each drafted
-  entry whole at the new base — the Plan over rows read beside their nested
-  series index — hands them to `rebase`, which carries each entry's change
-  over to the entry as it now stands where the change still applies (the
-  session's keyed apply, a `ConflictError` where it does not), so another
-  write's change of what no draft changed stands beside the drafts and Save
-  sends only the drafts' changes. One that does not apply leaves the session
-  stale; a rebase starts the history over at the drafts.
+- **Drafts carried over a source that moved** (`EditSession.merge`,
+  `src/editing/merge.ts`). A source moving under pending drafts carries them
+  over to its new base, once each drafted entry is read there (`readIdsAt`, a
+  bounded batch a pass): each merged three ways — what both began from, the
+  draft, and the source's value now — by East's own patch merge
+  (`EntryMerger`). A change of the source's to another part stands beside the
+  draft's, and Save sends only what the drafts changed; a part both changed is
+  a conflict, the draft's value standing there until a person chooses
+  (`settle`), Save waiting; a draft the source now holds whole is a draft no
+  more. A conflict the draft leaves by a gesture — its part put at the
+  source's value by hand, or the row removed as the source removed it, no
+  choice made — began from the source's value once the drafts are carried
+  over again (`EntryMerger.began`): the source's next change there is the
+  source's to make, never a conflict over a change the person no longer has.
+  A choice a Save has taken is no conflict to bring back: Undo past it puts
+  back the versions its step moved, nothing of the conflict. A session bound
+  `carryOver: false` goes out of date instead (`stale`, Save off). The
+  carry-over starts the history over at the drafts. A keyed source's entry
+  stands in its key's order whatever version the session makes of it, so the
+  other side taken of a row both sessions added is no change of its place
+  still to save. A conflict chosen before that reads again — the other side
+  taken at one part of an entry that still holds another conflict, then the
+  part changed again by a gesture — is chosen as an open one is, over the
+  draft as it stands (`settleEach`): put back as it stood before its first
+  choice, the draft would lose the change made since. Every conflict chosen
+  one way (`settleAll`) turns the earlier choices too, and never brings back
+  a row its person removed since: the draft is put back at a part only while
+  it still holds the other side there, as its choice left it, and the other
+  side is taken at a part of an entry only while the entry is there. Discard
+  while the drafts are being carried over — kept drafts restored as a page
+  loads, not yet read at the page's revision — leaves the session holding no
+  row: put back as they began, they would be the rows of the page before,
+  held as the session's own, and a row saved since would show as it stood.
 - **What a Save landed, until its rows are read again** (`EditSession.landed`,
   `src/editing/landed.ts`). A Save's confirmation reads its entries by their
   keys. A host whose rows are read apart from it — a paged source's pages, a
@@ -619,7 +642,80 @@ component, nothing in east-ui.
   source refuses the next Save with nothing newer to move to. The session reads a refused Save's entries at its own
   revision too, once (`nameConflicts`), and where a change no longer applies there carries its drafts over at that
   revision, as to one the source moves to — the part both changed a conflict to choose — rather than wait for a
-  revision that never comes.
+  revision that never comes. A Save refused once its every draft was taken back — Undo while the request was out, or
+  while its drafts were carried over — says nothing: no draft is left for a refusal to stand over. A Save the source
+  acknowledged is read back at the revision it committed or a later one; once the source has read at that revision,
+  an entry it then holds as its edit began was put back by another write — a row the Save added, removed since — and
+  is acknowledged so, never waited on for a read that would not come (`Submission.reached`). A session takes its
+  snapshot apply (`Editing.apply`) when a snapshot is first applied — one over a source at a revision, as every
+  paged record's is, takes none — and an apply is compiled once for the types it applies over, East's own equality
+  telling two alike, and kept for every session over them (`transformOver`). What the tab keeps of the drafts through a reload (`keptEntries`, `keep.ts`) counts a
+  Save the source has acknowledged as saved, whatever of it is still to be read back: an entry it held began from
+  what it left, so one unchanged since is no draft to keep, and one changed since — put back by Undo among them — is
+  kept as a change from it. Kept from its original, a saved entry another write then changed came back as a conflict
+  over a change already saved, and an Undo made meanwhile was not kept at all. A record slice's Save is prepared
+  before it is sent (`prepare`): the request is made as Save is pressed and sent once the preparation is done, so
+  nothing done meanwhile goes with it, and one that fails sends nothing and keeps every draft. Over a source read
+  whole — its base the collection, with no revision to read at — a Save is read back once any entry of its shows the
+  collection was read after it landed (`landedIn`): one commit lands whole, so an entry as the request left it, or as
+  neither side of its change — the same part changed again by another write, or the entry removed — says it for
+  them all, each acknowledged as the collection holds it. Waited on until every entry read as the request left it, a
+  Save another write overtook on the same part before the source was read again waited for good, Save and Discard
+  off. And a draft made while that Save was read back, from a row the collection it is acknowledged at no longer
+  holds so, is carried over to that collection there and then (`draftedBehind`) — a part both changed a conflict to
+  choose — where left as it began its Save was refused over the session's own base, nothing newer to move to and
+  nothing to choose. Still open: every part a Save wrote put back exactly as it was by another write, before the
+  source is read again, reads as a collection from before the Save, and waits until the page is reloaded — the
+  source must say which state it read (as a source at a revision does), which a collection alone cannot.
+- **The editing core's proof harness** (`src/editing/model/`, in the unit suite). It runs the code itself through
+  what can happen to it, never examples (`explore.test-utils.ts`):
+  - **Every ordering to a depth** (`everyOrdering`): each from a fresh model, two operations whose order is no matter
+    in one order only, and seeded random runs past the depth — each checked after every operation and again once
+    brought to rest (`session-model.test.ts`, `history-model.test.ts`).
+  - **Every state** (`everyState`, `states-model.test.ts`): a model whose people are budgeted — so many gestures and
+    choices, so many requests, so many of another session's writes — can be in finitely many states. Each is told by
+    its print (`fingerprint`): every field the record, the sessions, the history and their people's steps hold,
+    private ones too, each object once and what is shared read as shared, ids drawn at random named by their order.
+    Every operation is run from every state until none is new, so what the harness holds then holds of every state
+    the code can reach under those budgets, however many operations away. A field added to `EditSession` or
+    `EditHistory` is in the print unless it is named as no state (`SESSION_NO_STATE`): a cache, or a counter that
+    only counts.
+  - **One session** (`world.test-utils.ts`, run by `session-model.test.ts`). `record.test-utils.ts` is a small record
+    that checks a Save's batch as `Record.onApply` does — East's patch apply a row, a revision a commit, a request id
+    answered once — and the world is sessions over it, each with a screen of its own, driven as `useEditSession`
+    drives one, with every operation that can meet in one: gestures, an optimiser's result, Undo, Redo, Discard, a
+    conflict's choice — one at a time, or every one — a Save prepared before it is sent, its preparation failing, its
+    answer, an answer lost and asked again, an automatic Save, the page reloaded with its drafts kept, another
+    session's write, a revision heard of before its rows are read, reads landing a row at a time, a screen redrawn
+    late — over a source read a revision at a time, or read whole (`inline`), its base the collection itself. It
+    holds, of every ordering: a gesture is taken and changes what it names alone; a Save writes what its
+    person's screen showed as it was pressed, and changes a field only from a value they had been shown; an automatic
+    Save writes the screen as it stood before an optimiser's result no person's Save has taken, and nothing from
+    where Undo or Redo left the steps, and is there exactly while it has something it may send; no change is lost,
+    and none is sent twice; a conflict is asked only of a
+    change still to save, and never again once chosen; Undo then Redo is where it was; and answered, read and
+    chosen, every session is idle with its screen the record.
+  - **One history over a session a record** (`desk.test-utils.ts`, run by `history-model.test.ts`): one person over
+    two records, as the Roster's duties and weeks are — a gesture in one record or across both, an optimiser's
+    result in either, Undo, Redo, Discard (the history's, or one record's banner's), Save, an automatic Save, each
+    record's request answered, unanswered or lost and asked again, and each record's reads landing late. No one else
+    writes there, so what the person should see is known exactly. It holds: one step a gesture, taken back and
+    replayed whole, and each session's own steps the history's steps' parts in it; the screen the person's steps,
+    through every Save; each record's request what its person saw; an automatic Save stopping at the first result
+    that waits in any record, in the order the gestures were made, and there exactly while it has something it may
+    send; one request a record at a time; and at rest each record holding what its screen shows.
+  - **What it only counts**, and holds nothing of yet: the orderings in which a session's steps went under its
+    person as the source moved, those in which a screen went back to an older value, those in which a reload lost a
+    change made while a Save's outcome was unknown, or asked of one already saved, and those in which a Save over a
+    source read whole waited for good, every part it wrote put back exactly. Each is a fault still to close, never
+    a behaviour to keep.
+  - **What it does not model yet:** a source that is an ordered list (an Array with an identity field, its entries
+    placed before and after one another), ranges settled together, and an entry given a new key.
+  - **Using it.** A change to `session.ts`, `history.ts` or `merge.ts` runs it deeper before it lands
+    (`EDITING_MODEL_DEPTH=1 EDITING_MODEL_RUNS=20`, some ten minutes, and `EDITING_MODEL_STATES=1`, each family's
+    larger budgets, some tens of minutes; `--silent=false --reporter=verbose` shows what each exploration covered). A fault it finds is added to its replays, by name, each proved to fail over the code
+    as it stood. A check added to it is proved to bite: the code broken by hand where the check should catch it, the
+    harness run, the break put back.
 - **An automatic Save** (`src/editing/autosave.ts`, `use-autosave.ts`, `autosave-choice.ts`). Where a builder keeps a
   session or a history (`useEditSession`, `useEditHistory`), the history bar's Save is a split button: its chevron opens
   the choice — one switch, Autosave (ruled 11 Nov 2026: the theme's switch and its one word, never a pair of choices to

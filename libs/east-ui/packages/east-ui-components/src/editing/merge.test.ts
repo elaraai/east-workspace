@@ -116,4 +116,38 @@ describe("one entry's three-way merge", () => {
         expect(again.points.map((p) => conflictSteps(Draft, p.at))).toEqual([[{ kind: "field", name: "hours" }]]);
         expect(merger.equal(again.draft, draft(row({ hours: 500, name: "Works 10014", crew: crewOf([["a", 9], ["b", 2]]) })))).toBe(true);
     });
+
+    test("what both began from, read again, is what a carry-over kept while each of its conflicts still reads", () => {
+        const source = draft(row({ hours: 450, name: "Works 10013" }));
+        const mine = draft(row({ hours: 500, name: "Mine" }));
+        const merged = merger.merge(draft(row()), mine, source);
+        expect(merged.points.length).toBe(2);
+        expect(merger.equal(merger.began(merged.ancestor!, merged.draft, source), merged.ancestor!)).toBe(true);
+    });
+
+    test("a conflict the draft has left by hand — put at the source's value, no choice made — began from the source's value: a later change of the source's there is no conflict", () => {
+        const source = draft(row({ hours: 450, name: "Works 10013" }));
+        const merged = merger.merge(draft(row()), draft(row({ hours: 500, name: "Mine" })), source);
+        // The hours typed to the source's own: the name's conflict still reads, the hours' no more.
+        const byHand = draft(row({ hours: 450, name: "Mine" }));
+        const began = merger.began(merged.ancestor!, byHand, source);
+        expect(merger.equal(began, draft(row({ hours: 450, name: "Works 10012" })))).toBe(true);
+        // Carried over again from there, the source's next change of the hours is the source's to make.
+        const later = draft(row({ hours: 460, name: "Works 10013" }));
+        const again = merger.merge(began, byHand, later);
+        expect(again.points.map((p) => conflictSteps(Draft, p.at))).toEqual([[{ kind: "field", name: "name" }]]);
+        expect(merger.equal(again.draft, draft(row({ hours: 460, name: "Mine" })))).toBe(true);
+        // From what the carry-over kept — the hours put back to 442 — the same change would ask again, of no change of the draft's.
+        expect(merger.merge(merged.ancestor!, byHand, later).points.map((p) => conflictSteps(Draft, p.at)))
+            .toEqual([[{ kind: "field", name: "name" }], [{ kind: "field", name: "hours" }]]);
+    });
+
+    test("a draft removed by hand, as its source removed it, began from no entry: the source's new one is no conflict", () => {
+        const merged = merger.merge(draft(row()), draft(row({ hours: 500 })), none);
+        expect(merged.points.map((p) => p.kind)).toEqual(["removed-by-source"]);
+        const began = merger.began(merged.ancestor!, none, none);
+        expect(began.type).toBe("none");
+        const added = draft(row({ hours: 7 }));
+        expect(merger.merge(began, none, added).points).toEqual([]);
+    });
 });
