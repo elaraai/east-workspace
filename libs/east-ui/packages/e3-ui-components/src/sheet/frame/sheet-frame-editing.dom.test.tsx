@@ -279,6 +279,37 @@ test("sheetConflicts: Go to from a conflict's card notes it in the footer, its c
     expect(note()).toBe("");
 });
 
+test("sheetConflicts: a Qty typed here, then Someone else removes Panel cutting, is a conflict of the whole job — it stands as drafted, ringed whole, the card reading what was typed against Removed — and their removal taken, the job leaves with nothing left to save", async () => {
+    const { container } = await h.mount(ex.sheetConflicts);
+    await typeInto(cells(container, "qty")[0]!, "70");
+    await press(within(container).getByRole("button", { name: "Someone else removes Panel cutting" }));
+    const [conflict, ...more] = await conflictCards(container);
+    expect(more).toEqual([]);
+    expect([conflict!.item, conflict!.yours, conflict!.theirs]).toEqual(["Panel cutting", "Yours, Qty: 70", "Theirs, Removed, Changed since you started editing · was Qty: 48"]);
+    // The job stands as drafted, its row ringed whole, until a person chooses.
+    const row = cells(container, "qty")[0]!.closest('[data-slot="row"]')!;
+    expect([tasks(container)[0], cells(container, "qty")[0]!.textContent, row.hasAttribute("data-conflict")]).toEqual(["Panel cutting", "70", true]);
+    expect(toolbar(container).getByRole("button", { name: "Save" }).getAttribute("aria-disabled")).toBe("true");
+    await press(conflict!.radio("source"));
+    await waitFor(() => expect(tasks(container)).toEqual(["Edge banding", "CNC routing", "Spray finish"]));
+    expect(drafted(container)).toBe(0);
+    expect((await h.read(ex.sheetConflictJobs)).has("J-0001")).toBe(false);
+});
+
+test("sheetConflicts: a job typed here on the blank row takes the key Someone else adds a job under; theirs heard, it goes on under the next key, the footer saying so — nothing to choose, and Save keeps both", async () => {
+    const { container } = await h.mount(ex.sheetConflicts);
+    await typeInto(slot(container, "main")!.querySelector('[data-slot="row"][data-blank] [data-key="task"]')!, "Sanding");
+    await press(within(container).getByRole("button", { name: "Someone else adds a job" }));
+    const note = () => container.querySelector('[data-slot="footerMessage"]')?.textContent ?? "";
+    await waitFor(() => expect(note()).toBe("J-0005 was taken by another save — the new row is J-0006"));
+    expect(container.querySelector("[data-conflicts]")).toBeNull();
+    expect(tasks(container)).toEqual(["Panel cutting", "Edge banding", "CNC routing", "Spray finish", "Assembly", "Sanding"]);
+    await press(toolbar(container).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(drafted(container)).toBe(0));
+    const jobs = await h.read(ex.sheetConflictJobs);
+    expect([jobs.get("J-0005")!.task, jobs.get("J-0006")!.task]).toEqual(["Assembly", "Sanding"]);
+});
+
 test("a refusal keeps every draft, with its banner and the reason; a revised draft may be saved again (SB28)", async () => {
     // The edge bander is booked that week: its jobs' patch door refuses a job that bands both edges.
     const { container } = await h.mount(bookedJobs);

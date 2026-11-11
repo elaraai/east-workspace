@@ -9,15 +9,17 @@
  * The Record (`Record - DX Proposal.md` §3): the table for a system of
  * records, and its columns from data (`Record Columns From Data - DX
  * Proposal.md` §2). Each example is the proposal's, whole: the record, its
- * binding, the Record. The last two page the Sheet's 50,000 work orders
- * (`sheet/sheet-records.examples.tsx`) through their indexes.
+ * binding, the Record. Two page the Sheet's 50,000 work orders
+ * (`sheet/sheet-records.examples.tsx`) through their indexes, and the last
+ * meets someone else's save — a change, a removal and an addition — in one
+ * window.
  */
 
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,
     example, none, some, variant,
 } from "@elaraai/east";
-import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from "@elaraai/east-ui";
+import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 import { IndexedWork, indexedWorkOrders } from "../sheet/sheet-records.examples.js";
@@ -1220,3 +1222,120 @@ export const recordIndexedWorkOrdersMobile = example({
     )),
     inputs: [],
 });
+
+// ============================================================================
+// Example 13 — your edits meeting someone else's save
+// ============================================================================
+
+/** The crew the conflicts example edits, in a record of their own, so no other example's edits meet them. */
+export const recordConflictCrew = e3.record("record_conflict_crew", DictType(StringType, Crew), {
+    initial: new Map([
+        ["C-001", { name: "A. Morgan", inducted: true, forklift: "2" }],
+        ["C-002", { name: "B. Ellis", inducted: false, forklift: "0" }],
+        ["C-003", { name: "C. Patel", inducted: true, forklift: "1" }],
+    ]),
+    mutations: (mutation) => ({
+        // The crew's patch door — every Save commits through it.
+        patch: mutation.patch(),
+        // Someone else's save: every member's forklift level a step down — Competent to Supervised, Supervised to Not
+        // trained, Not trained to Competent — their name and induction as they were.
+        elsewhere: mutation.reduce(East.function([DictType(StringType, Crew)], DictType(StringType, Crew), (_$, crew) =>
+            crew.map((_$2, member) => ({
+                name: member.name,
+                inducted: member.inducted,
+                forklift: member.forklift.equal("2").ifElse((_$3) => "1", (_$3) => member.forklift.equal("1").ifElse((_$4) => "0", (_$4) => "2")),
+            })))),
+        // Someone else's save: A. Morgan, C-001, removed — where the record still holds them.
+        removes: mutation.reduce(East.function([DictType(StringType, Crew)], DictType(StringType, Crew), ($, crew) => {
+            const next = $.let(crew.copy());
+            $(next.tryDelete("C-001"));
+            return next;
+        })),
+        // Someone else's save: a member added under the next key, C-004 — where the record holds none there.
+        adds: mutation.reduce(East.function([DictType(StringType, Crew)], DictType(StringType, Crew), ($, crew) => {
+            const next = $.let(crew.copy());
+            $.if(next.has("C-004").not(), ($2) => {
+                const joiner = $2.const({ name: "D. Reyes", inducted: false, forklift: "0" }, Crew);
+                $2(next.insert("C-004", joiner));
+            });
+            return next;
+        })),
+    }),
+});
+
+/**
+ * Your edits meeting someone else's save, in one window: edit, then press
+ * Someone else saves, which saves another person's change to the same crew —
+ * every forklift level a step down. A level you stepped too is a conflict,
+ * waiting for you to choose; an induction you toggled combines with theirs.
+ *
+ * Someone else removes A. Morgan saves their removal of that member. Changed
+ * by you, they are a conflict of the whole row, ringed on the grid: yours
+ * keeps the member and puts them back at Save, theirs lets them go. Deleted
+ * by you too, nothing is asked. And a member you deleted whom their save then
+ * changes is the same conflict the other way about.
+ *
+ * Someone else adds a member saves a new member under the next key, C-004.
+ * The Record keys a member you add the same way (`newKey`: the first C-00N no
+ * member holds), so one you added meanwhile was drafted under that very key:
+ * they take the key after it, the status line saying so, and both are kept.
+ * A member you add joins not yet inducted and not trained (`newRow`), so
+ * their name is all that is left to type before Save.
+ */
+export const recordConflicts = example({
+    keywords: ["Record", "conflict", "conflicts", "combine", "someone else", "carry over", "Choose", "removed", "added", "Delete", "Add", "key taken", "newKey", "newRow", "Record.patch", "renumbered", "Record.bind", "mutate", "Button", "patch"],
+    description: "Your edits meeting someone else's save, in one window — step a forklift level, then press Someone else saves, which saves another person's change to the same crew (every level a step down), so yours conflicts and waits to be chosen; an induction you toggle combines with theirs. Someone else removes A. Morgan removes that member — changed by you, a conflict of the whole row to choose, deleted by you too, nothing to choose — and Someone else adds a member adds one under the next key, which the Record's newKey gives a member of yours too: one you added meanwhile takes the key after it, and both are kept; a member you add joins not yet inducted and not trained (newRow), their name left to type",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const members = $.let(Record.bind(recordConflictCrew, ["patch"]));
+            const others = $.let(Record.bind(recordConflictCrew, ["elsewhere", "removes", "adds"]));
+            const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));
+            const theirRemoval = $.const(East.function([], NullType, ($) => { $(others.mutate.removes()); }));
+            const theirAddition = $.const(East.function([], NullType, ($) => { $(others.mutate.adds()); }));
+            const LevelType = StructType({ key: StringType, name: StringType });
+            const levels = $.let([
+                { key: "0", name: "Not trained" },
+                { key: "1", name: "Supervised" },
+                { key: "2", name: "Competent" },
+            ], ArrayType(LevelType));
+            // A new member's key in the crew's own scheme: given every key taken, the first C-00N none of them is.
+            const newKey = $.const(East.function([SetType(StringType)], StringType, ($, taken) => {
+                const n = $.let(taken.size().add(1n));
+                $.while(taken.has(East.str`C-00${n}`), ($2) => {
+                    $2.assign(n, n.add(1n));
+                });
+                return East.str`C-00${n}`;
+            }));
+            // A new member as they join: not yet inducted, not trained — their name left to type.
+            const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(Crew), (_$) => Record.patch(Crew, { inducted: false, forklift: "0" })));
+            return (
+                <VStack gap="3" align="stretch">
+                    <HStack gap="3" wrap="wrap">
+                        <Button variant="outline" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>
+                        <Button variant="outline" onClick={theirRemoval} loading={others.mutate.pending()}>Someone else removes A. Morgan</Button>
+                        <Button variant="outline" onClick={theirAddition} loading={others.mutate.pending()}>Someone else adds a member</Button>
+                    </HStack>
+                    <Text color="fg.muted">Someone else saves: every forklift level a step down. Their removal: C-001, A. Morgan. Their addition: C-004, D. Reyes.</Text>
+                    <Box height="360px">
+                        <Record
+                            record={members}
+                            title="Crew"
+                            noun={{ singular: "crew member", plural: "crew members" }}
+                            registers={{ levels: Record.register.members(levels, { kind: "level", key: l => l.key, label: l => l.key, meta: l => some(l.name) }) }}
+                            columns={{
+                                name:     Record.column.title(Crew, { header: "Name", width: "160px" }),
+                                inducted: Record.column.toggle(Crew, { header: "Inducted", width: "80px", on: "yes", off: "no" }),
+                                forklift: Record.column.cycle(Crew, "levels", { header: "Forklift", width: "72px", scale: true }),
+                            }}
+                            newKey={newKey}
+                            newRow={newRow}
+                            name="recordConflicts"
+                        />
+                    </Box>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+

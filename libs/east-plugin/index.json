@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1346,
+    "totalEntries": 1347,
     "totalFiles": 222,
     "packages": {
       "east": 587,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 308,
-      "e3-ui": 201,
+      "e3-ui": 202,
       "e3": 24,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -44441,7 +44441,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
@@ -44472,7 +44472,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
@@ -44501,7 +44501,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
@@ -44531,7 +44531,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
@@ -44557,7 +44557,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
@@ -44590,7 +44590,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
@@ -44623,7 +44623,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
@@ -44651,7 +44651,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
@@ -44681,7 +44681,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
@@ -44710,7 +44710,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
@@ -44748,7 +44748,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
@@ -44787,7 +44787,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
@@ -44824,7 +44824,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
@@ -44855,7 +44855,7 @@
       ],
       "imports": [
         "import {",
-        "import { Box, Configurator, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
@@ -44864,6 +44864,47 @@
         "tsx"
       ],
       "source": "// The same 50,000 indexed work orders as a Record in a phone-width frame: the reference pinned at the left as the pager steps through the other columns, the rail's filters on the toolbar's responsive ladder, a press on a job, a date or a quantity editing it below, and the status and the urgency stepping where they are pressed\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const orders = $.let(Record.bind(indexedWorkOrders));\n            // One rail over the work orders: its `rows` source narrows them through the record's indexes, and the Record pages the narrowing.\n            const slice = $.let(Slice.bindRecords(\"record.indexedWorkOrders.mobile\", {\n                rows: {\n                    source: Data.bindPaged(indexedWorkOrders, { indexes: [\"by_status_due\", \"by_due\", \"by_job\", \"by_quantity\", \"by_urgent\", \"by_tag\"] }),\n                    label: \"Work orders\",\n                    fields: { status: { label: \"Status\", hints: [\"Ready\", \"Scheduled\", \"Done\"] }, due: { label: \"Due\" }, job: { label: \"Job\" }, quantity: { label: \"Quantity\" }, urgent: { label: \"Urgent\" }, tags: { label: \"Tag\", hints: [\"Production\", \"Dispatch\"] } },\n                    range: \"due\", search: [\"job\"], initial: { status: [\"Ready\"] },\n                },\n            }, { presets: [{ id: \"ready\", name: \"Ready\", where: { rows: { status: [\"Ready\"] } } }, { id: \"urgent\", name: \"Urgent\", where: { rows: { urgent: [true] } } }] }));\n            const StatusType = StructType({ key: StringType, tone: StatusValueType });\n            const statuses = $.let([\n                { key: \"Ready\",     tone: variant(\"neutral\", null) },\n                { key: \"Scheduled\", tone: variant(\"info\", null) },\n                { key: \"Done\",      tone: variant(\"success\", null) },\n            ], ArrayType(StatusType));\n            return (\n                <Box width=\"390px\" maxWidth=\"100%\" height=\"760px\">\n                    <Record\n                        slice={{ slice }}\n                        title=\"Work orders\"\n                        noun={{ singular: \"work order\", plural: \"work orders\" }}\n                        // Work orders are raised where they are planned: this page edits them, and adds none.\n                        edits={{ insertRows: false }}\n                        registers={{ statuses: Record.register.members(statuses, { kind: \"status\", key: s => s.key, label: s => s.key, tone: s => some(s.tone) }) }}\n                        columns={{\n                            reference: Record.column.title(IndexedWork, { header: \"Reference\", width: \"136px\" }),\n                            job:       Record.column.text(IndexedWork, { header: \"Job\", width: \"180px\" }),\n                            status:    Record.column.cycle(IndexedWork, \"statuses\", { header: \"Status\", width: \"112px\" }),\n                            due:       Record.column.date(IndexedWork, { header: \"Due\", width: \"144px\" }),\n                            quantity:  Record.column.integer(IndexedWork, { header: \"Quantity\", width: \"112px\" }),\n                            urgent:    Record.column.toggle(IndexedWork, { header: \"Urgent\", width: \"88px\", on: \"yes\", off: \"no\" }),\n                        }}\n                        inspector\n                        onApply={Record.onApply(orders, { keyed: true })}\n                        name=\"indexedWorkOrdersMobile\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:record.examples.tsx:recordConflicts",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/record/record.examples.tsx",
+      "suite": "",
+      "test": "Your edits meeting someone else's save, in one window — step a forklift level, then press Someone else saves, which saves another person's change to the same crew (every level a step down), so yours conflicts and waits to be chosen; an induction you toggle combines with theirs. Someone else removes A. Morgan removes that member — changed by you, a conflict of the whole row to choose, deleted by you too, nothing to choose — and Someone else adds a member adds one under the next key, which the Record's newKey gives a member of yours too: one you added meanwhile takes the key after it, and both are kept; a member you add joins not yet inducted and not trained (newRow), their name left to type",
+      "keywords": [
+        "Record",
+        "conflict",
+        "conflicts",
+        "combine",
+        "someone else",
+        "carry over",
+        "Choose",
+        "removed",
+        "added",
+        "Delete",
+        "Add",
+        "key taken",
+        "newKey",
+        "newRow",
+        "Record.patch",
+        "renumbered",
+        "Record.bind",
+        "mutate",
+        "Button",
+        "patch"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Button, Configurator, HStack, Reactive, SegmentGroup, Slice, State, StatusValueType, Style, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Data, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";",
+        "import { IndexedWork, indexedWorkOrders } from \"../sheet/sheet-records.examples.js\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Your edits meeting someone else's save, in one window — step a forklift level, then press Someone else saves, which saves another person's change to the same crew (every level a step down), so yours conflicts and waits to be chosen; an induction you toggle combines with theirs. Someone else removes A. Morgan removes that member — changed by you, a conflict of the whole row to choose, deleted by you too, nothing to choose — and Someone else adds a member adds one under the next key, which the Record's newKey gives a member of yours too: one you added meanwhile takes the key after it, and both are kept; a member you add joins not yet inducted and not trained (newRow), their name left to type\n// inputs: []\nexport const Crew = StructType({ name: StringType, inducted: BooleanType, forklift: StringType });\n\n/** The crew the conflicts example edits, in a record of their own, so no other example's edits meet them. */\nexport const recordConflictCrew = e3.record(\"record_conflict_crew\", DictType(StringType, Crew), {\n    initial: new Map([\n        [\"C-001\", { name: \"A. Morgan\", inducted: true, forklift: \"2\" }],\n        [\"C-002\", { name: \"B. Ellis\", inducted: false, forklift: \"0\" }],\n        [\"C-003\", { name: \"C. Patel\", inducted: true, forklift: \"1\" }],\n    ]),\n    mutations: (mutation) => ({\n        // The crew's patch door — every Save commits through it.\n        patch: mutation.patch(),\n        // Someone else's save: every member's forklift level a step down — Competent to Supervised, Supervised to Not\n        // trained, Not trained to Competent — their name and induction as they were.\n        elsewhere: mutation.reduce(East.function([DictType(StringType, Crew)], DictType(StringType, Crew), (_$, crew) =>\n            crew.map((_$2, member) => ({\n                name: member.name,\n                inducted: member.inducted,\n                forklift: member.forklift.equal(\"2\").ifElse((_$3) => \"1\", (_$3) => member.forklift.equal(\"1\").ifElse((_$4) => \"0\", (_$4) => \"2\")),\n            })))),\n        // Someone else's save: A. Morgan, C-001, removed — where the record still holds them.\n        removes: mutation.reduce(East.function([DictType(StringType, Crew)], DictType(StringType, Crew), ($, crew) => {\n            const next = $.let(crew.copy());\n            $(next.tryDelete(\"C-001\"));\n            return next;\n        })),\n        // Someone else's save: a member added under the next key, C-004 — where the record holds none there.\n        adds: mutation.reduce(East.function([DictType(StringType, Crew)], DictType(StringType, Crew), ($, crew) => {\n            const next = $.let(crew.copy());\n            $.if(next.has(\"C-004\").not(), ($2) => {\n                const joiner = $2.const({ name: \"D. Reyes\", inducted: false, forklift: \"0\" }, Crew);\n                $2(next.insert(\"C-004\", joiner));\n            });\n            return next;\n        })),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const members = $.let(Record.bind(recordConflictCrew, [\"patch\"]));\n            const others = $.let(Record.bind(recordConflictCrew, [\"elsewhere\", \"removes\", \"adds\"]));\n            const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));\n            const theirRemoval = $.const(East.function([], NullType, ($) => { $(others.mutate.removes()); }));\n            const theirAddition = $.const(East.function([], NullType, ($) => { $(others.mutate.adds()); }));\n            const LevelType = StructType({ key: StringType, name: StringType });\n            const levels = $.let([\n                { key: \"0\", name: \"Not trained\" },\n                { key: \"1\", name: \"Supervised\" },\n                { key: \"2\", name: \"Competent\" },\n            ], ArrayType(LevelType));\n            // A new member's key in the crew's own scheme: given every key taken, the first C-00N none of them is.\n            const newKey = $.const(East.function([SetType(StringType)], StringType, ($, taken) => {\n                const n = $.let(taken.size().add(1n));\n                $.while(taken.has(East.str`C-00${n}`), ($2) => {\n                    $2.assign(n, n.add(1n));\n                });\n                return East.str`C-00${n}`;\n            }));\n            // A new member as they join: not yet inducted, not trained — their name left to type.\n            const newRow = $.const(East.function([Record.Types.NewRow], Record.Types.Patch(Crew), (_$) => Record.patch(Crew, { inducted: false, forklift: \"0\" })));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <HStack gap=\"3\" wrap=\"wrap\">\n                        <Button variant=\"outline\" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>\n                        <Button variant=\"outline\" onClick={theirRemoval} loading={others.mutate.pending()}>Someone else removes A. Morgan</Button>\n                        <Button variant=\"outline\" onClick={theirAddition} loading={others.mutate.pending()}>Someone else adds a member</Button>\n                    </HStack>\n                    <Text color=\"fg.muted\">Someone else saves: every forklift level a step down. Their removal: C-001, A. Morgan. Their addition: C-004, D. Reyes.</Text>\n                    <Box height=\"360px\">\n                        <Record\n                            record={members}\n                            title=\"Crew\"\n                            noun={{ singular: \"crew member\", plural: \"crew members\" }}\n                            registers={{ levels: Record.register.members(levels, { kind: \"level\", key: l => l.key, label: l => l.key, meta: l => some(l.name) }) }}\n                            columns={{\n                                name:     Record.column.title(Crew, { header: \"Name\", width: \"160px\" }),\n                                inducted: Record.column.toggle(Crew, { header: \"Inducted\", width: \"80px\", on: \"yes\", off: \"no\" }),\n                                forklift: Record.column.cycle(Crew, \"levels\", { header: \"Forklift\", width: \"72px\", scale: true }),\n                            }}\n                            newKey={newKey}\n                            newRow={newRow}\n                            name=\"recordConflicts\"\n                        />\n                    </Box>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:domain.examples.ts:rosterCoverage",
@@ -47121,7 +47162,7 @@
       "package": "e3-ui",
       "file": "east-ui/packages/e3-ui/test/sheet/sheet.examples.tsx",
       "suite": "",
-      "test": "Your edits meeting someone else's save, in one window — edit a Qty or a Start, then press Someone else saves, which saves another person's change to the same jobs (every Qty 12 more, every Start a day later), so yours conflict and wait to be chosen; a Task you change combines with theirs",
+      "test": "Your edits meeting someone else's save, in one window — edit a Qty or a Start, then press Someone else saves, which saves another person's change to the same jobs (every Qty 12 more, every Start a day later), so yours conflict and wait to be chosen; a Task you change combines with theirs. Someone else removes Panel cutting removes that job — changed by you, a conflict of the whole row to choose — and Someone else adds a job adds one under the next key, which the sheet's newKey gives a row of yours too: one you added meanwhile takes the key after it, and both are kept",
       "keywords": [
         "Sheet",
         "conflict",
@@ -47134,7 +47175,14 @@
         "Record.bind",
         "mutate",
         "Button",
-        "patch"
+        "patch",
+        "removed",
+        "added",
+        "delete",
+        "insert",
+        "key taken",
+        "newKey",
+        "renumbered"
       ],
       "imports": [
         "import {",
@@ -47145,7 +47193,7 @@
       "languages": [
         "tsx"
       ],
-      "source": "// Your edits meeting someone else's save, in one window — edit a Qty or a Start, then press Someone else saves, which saves another person's change to the same jobs (every Qty 12 more, every Start a day later), so yours conflict and wait to be chosen; a Task you change combines with theirs\n// inputs: []\n/** A job — what it is, when it starts and how many. */\nexport const SheetJob = StructType({ task: StringType, start: OptionType(DateTimeType), qty: OptionType(FloatType) });\n\n/** The jobs the conflicts example edits, in a record of their own, so no other example's edits meet them. */\nexport const sheetConflictJobs = e3.record(\"sheet_conflict_jobs\", DictType(StringType, SheetJob), {\n    initial: new Map([\n        [\"J-0001\", { task: \"Panel cutting\", start: some(new Date(\"2026-10-12T00:00:00Z\")), qty: some(48.0) }],\n        [\"J-0002\", { task: \"Edge banding\", start: some(new Date(\"2026-10-13T00:00:00Z\")), qty: some(120.0) }],\n        [\"J-0003\", { task: \"CNC routing\", start: some(new Date(\"2026-10-14T00:00:00Z\")), qty: some(48.0) }],\n        [\"J-0004\", { task: \"Spray finish\", start: some(new Date(\"2026-10-15T00:00:00Z\")), qty: some(36.0) }],\n    ]),\n    mutations: (mutation) => ({\n        // The jobs' patch door — every Save commits through it.\n        patch: mutation.patch(),\n        // Someone else's save: every job's quantity 12 more and its start a day later, its task as it was.\n        elsewhere: mutation.reduce(East.function([DictType(StringType, SheetJob)], DictType(StringType, SheetJob), (_$, jobs) =>\n            jobs.map((_$2, job) => ({\n                task: job.task,\n                start: job.start.match({\n                    some: (_$3, at) => East.value(some(at.addDays(1n)), OptionType(DateTimeType)),\n                    none: (_$3) => East.value(none, OptionType(DateTimeType)),\n                }),\n                qty: job.qty.match({\n                    some: (_$3, n) => East.value(some(n.add(12.0)), OptionType(FloatType)),\n                    none: (_$3) => East.value(none, OptionType(FloatType)),\n                }),\n            })))),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const jobs = $.let(Record.bind(sheetConflictJobs, [\"patch\"]));\n            const others = $.let(Record.bind(sheetConflictJobs, [\"elsewhere\"]));\n            const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <HStack gap=\"3\">\n                        <Button variant=\"outline\" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>\n                        <Text color=\"fg.muted\">Their change: every Qty 12 more, every Start a day later</Text>\n                    </HStack>\n                    <Box height=\"560px\">\n                        <Sheet\n                            name=\"conflicts\"\n                            record={jobs}\n                            columns={{\n                                task:  Sheet.column.text(SheetJob, { header: \"Task\", width: \"240px\" }),\n                                start: Sheet.column.date(SheetJob, { header: \"Start\", width: \"96px\" }),\n                                qty:   Sheet.column.quantity(SheetJob, { header: \"Qty\", width: \"96px\" }),\n                            }}\n                        />\n                    </Box>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+      "source": "// Your edits meeting someone else's save, in one window — edit a Qty or a Start, then press Someone else saves, which saves another person's change to the same jobs (every Qty 12 more, every Start a day later), so yours conflict and wait to be chosen; a Task you change combines with theirs. Someone else removes Panel cutting removes that job — changed by you, a conflict of the whole row to choose — and Someone else adds a job adds one under the next key, which the sheet's newKey gives a row of yours too: one you added meanwhile takes the key after it, and both are kept\n// inputs: []\n/** A job — what it is, when it starts and how many. */\nexport const SheetJob = StructType({ task: StringType, start: OptionType(DateTimeType), qty: OptionType(FloatType) });\n\n/** The jobs the conflicts example edits, in a record of their own, so no other example's edits meet them. */\nexport const sheetConflictJobs = e3.record(\"sheet_conflict_jobs\", DictType(StringType, SheetJob), {\n    initial: new Map([\n        [\"J-0001\", { task: \"Panel cutting\", start: some(new Date(\"2026-10-12T00:00:00Z\")), qty: some(48.0) }],\n        [\"J-0002\", { task: \"Edge banding\", start: some(new Date(\"2026-10-13T00:00:00Z\")), qty: some(120.0) }],\n        [\"J-0003\", { task: \"CNC routing\", start: some(new Date(\"2026-10-14T00:00:00Z\")), qty: some(48.0) }],\n        [\"J-0004\", { task: \"Spray finish\", start: some(new Date(\"2026-10-15T00:00:00Z\")), qty: some(36.0) }],\n    ]),\n    mutations: (mutation) => ({\n        // The jobs' patch door — every Save commits through it.\n        patch: mutation.patch(),\n        // Someone else's save: every job's quantity 12 more and its start a day later, its task as it was.\n        elsewhere: mutation.reduce(East.function([DictType(StringType, SheetJob)], DictType(StringType, SheetJob), (_$, jobs) =>\n            jobs.map((_$2, job) => ({\n                task: job.task,\n                start: job.start.match({\n                    some: (_$3, at) => East.value(some(at.addDays(1n)), OptionType(DateTimeType)),\n                    none: (_$3) => East.value(none, OptionType(DateTimeType)),\n                }),\n                qty: job.qty.match({\n                    some: (_$3, n) => East.value(some(n.add(12.0)), OptionType(FloatType)),\n                    none: (_$3) => East.value(none, OptionType(FloatType)),\n                }),\n            })))),\n        // Someone else's save: Panel cutting, J-0001, removed — where the record still holds it.\n        removes: mutation.reduce(East.function([DictType(StringType, SheetJob)], DictType(StringType, SheetJob), ($, jobs) => {\n            const next = $.let(jobs.copy());\n            $(next.tryDelete(\"J-0001\"));\n            return next;\n        })),\n        // Someone else's save: a job added under the next key, J-0005 — where the record holds none there.\n        adds: mutation.reduce(East.function([DictType(StringType, SheetJob)], DictType(StringType, SheetJob), ($, jobs) => {\n            const next = $.let(jobs.copy());\n            $.if(next.has(\"J-0005\").not(), ($2) => {\n                const assembly = $2.const({ task: \"Assembly\", start: some(new Date(\"2026-10-16T00:00:00Z\")), qty: some(6.0) }, SheetJob);\n                $2(next.insert(\"J-0005\", assembly));\n            });\n            return next;\n        })),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const jobs = $.let(Record.bind(sheetConflictJobs, [\"patch\"]));\n            const others = $.let(Record.bind(sheetConflictJobs, [\"elsewhere\", \"removes\", \"adds\"]));\n            const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));\n            const theirRemoval = $.const(East.function([], NullType, ($) => { $(others.mutate.removes()); }));\n            const theirAddition = $.const(East.function([], NullType, ($) => { $(others.mutate.adds()); }));\n            // A new job's key in the workshop's own scheme: given every key taken, the first J-000N none of them is.\n            const newKey = $.const(East.function([SetType(StringType)], StringType, ($, taken) => {\n                const n = $.let(taken.size().add(1n));\n                $.while(taken.has(East.str`J-000${n}`), ($2) => {\n                    $2.assign(n, n.add(1n));\n                });\n                return East.str`J-000${n}`;\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <HStack gap=\"3\" wrap=\"wrap\">\n                        <Button variant=\"outline\" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>\n                        <Button variant=\"outline\" onClick={theirRemoval} loading={others.mutate.pending()}>Someone else removes Panel cutting</Button>\n                        <Button variant=\"outline\" onClick={theirAddition} loading={others.mutate.pending()}>Someone else adds a job</Button>\n                    </HStack>\n                    <Text color=\"fg.muted\">Someone else saves: every Qty 12 more, every Start a day later. Their removal: J-0001, Panel cutting. Their addition: J-0005, Assembly.</Text>\n                    <Box height=\"560px\">\n                        <Sheet\n                            name=\"conflicts\"\n                            record={jobs}\n                            columns={{\n                                task:  Sheet.column.text(SheetJob, { header: \"Task\", width: \"240px\" }),\n                                start: Sheet.column.date(SheetJob, { header: \"Start\", width: \"96px\" }),\n                                qty:   Sheet.column.quantity(SheetJob, { header: \"Qty\", width: \"96px\" }),\n                            }}\n                            newKey={newKey}\n                        />\n                    </Box>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:component.examples.tsx:studioComponent",

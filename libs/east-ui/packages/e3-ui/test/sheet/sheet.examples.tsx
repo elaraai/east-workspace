@@ -37,7 +37,8 @@ import e3 from "@elaraai/e3";
 // - `sheetLoose`, loose rows between the groups (#846);
 // - `sheetPaged`, a record read a window at a time;
 // - `sheetUpkeep`, the inspector's every field kind (#1220);
-// - `sheetConflicts`, your edits meeting someone else's save, in one window.
+// - `sheetConflicts`, your edits meeting someone else's save — a change, a
+//   removal and an addition — in one window.
 //
 // Its panes are optional props, and the examples show each combination:
 // none (`sheetBasic`, `sheetVariants`, `sheetStress`, `sheetLoose`,
@@ -1702,6 +1703,21 @@ export const sheetConflictJobs = e3.record("sheet_conflict_jobs", DictType(Strin
                     none: (_$3) => East.value(none, OptionType(FloatType)),
                 }),
             })))),
+        // Someone else's save: Panel cutting, J-0001, removed — where the record still holds it.
+        removes: mutation.reduce(East.function([DictType(StringType, SheetJob)], DictType(StringType, SheetJob), ($, jobs) => {
+            const next = $.let(jobs.copy());
+            $(next.tryDelete("J-0001"));
+            return next;
+        })),
+        // Someone else's save: a job added under the next key, J-0005 — where the record holds none there.
+        adds: mutation.reduce(East.function([DictType(StringType, SheetJob)], DictType(StringType, SheetJob), ($, jobs) => {
+            const next = $.let(jobs.copy());
+            $.if(next.has("J-0005").not(), ($2) => {
+                const assembly = $2.const({ task: "Assembly", start: some(new Date("2026-10-16T00:00:00Z")), qty: some(6.0) }, SheetJob);
+                $2(next.insert("J-0005", assembly));
+            });
+            return next;
+        })),
     }),
 });
 
@@ -1711,21 +1727,44 @@ export const sheetConflictJobs = e3.record("sheet_conflict_jobs", DictType(Strin
  * every Qty 12 more and every Start a day later. A Qty or a Start you changed
  * too is a conflict, waiting for you to choose; a Task you changed combines
  * with theirs. Each press saves their change again.
+ *
+ * Someone else removes Panel cutting saves their removal of that job. Changed
+ * by you, it is a conflict of the whole row: yours keeps the row and puts it
+ * back at Save, theirs lets it go. Removed by you too, nothing is asked. And a
+ * job you removed that their save then changes is the same conflict the other
+ * way about.
+ *
+ * Someone else adds a job saves a new job under the next key, J-0005. The
+ * sheet keys a row you add the same way (`newKey`: the first J-000N no job
+ * holds), so one you added meanwhile was drafted under that very key: it
+ * takes the key after it, the footer saying so, and both are kept.
  */
 export const sheetConflicts = example({
-    keywords: ["Sheet", "conflict", "conflicts", "combine", "someone else", "carry over", "Choose", "record", "Record.bind", "mutate", "Button", "patch"],
-    description: "Your edits meeting someone else's save, in one window — edit a Qty or a Start, then press Someone else saves, which saves another person's change to the same jobs (every Qty 12 more, every Start a day later), so yours conflict and wait to be chosen; a Task you change combines with theirs",
+    keywords: ["Sheet", "conflict", "conflicts", "combine", "someone else", "carry over", "Choose", "record", "Record.bind", "mutate", "Button", "patch", "removed", "added", "delete", "insert", "key taken", "newKey", "renumbered"],
+    description: "Your edits meeting someone else's save, in one window — edit a Qty or a Start, then press Someone else saves, which saves another person's change to the same jobs (every Qty 12 more, every Start a day later), so yours conflict and wait to be chosen; a Task you change combines with theirs. Someone else removes Panel cutting removes that job — changed by you, a conflict of the whole row to choose — and Someone else adds a job adds one under the next key, which the sheet's newKey gives a row of yours too: one you added meanwhile takes the key after it, and both are kept",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const jobs = $.let(Record.bind(sheetConflictJobs, ["patch"]));
-            const others = $.let(Record.bind(sheetConflictJobs, ["elsewhere"]));
+            const others = $.let(Record.bind(sheetConflictJobs, ["elsewhere", "removes", "adds"]));
             const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));
+            const theirRemoval = $.const(East.function([], NullType, ($) => { $(others.mutate.removes()); }));
+            const theirAddition = $.const(East.function([], NullType, ($) => { $(others.mutate.adds()); }));
+            // A new job's key in the workshop's own scheme: given every key taken, the first J-000N none of them is.
+            const newKey = $.const(East.function([SetType(StringType)], StringType, ($, taken) => {
+                const n = $.let(taken.size().add(1n));
+                $.while(taken.has(East.str`J-000${n}`), ($2) => {
+                    $2.assign(n, n.add(1n));
+                });
+                return East.str`J-000${n}`;
+            }));
             return (
                 <VStack gap="3" align="stretch">
-                    <HStack gap="3">
+                    <HStack gap="3" wrap="wrap">
                         <Button variant="outline" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>
-                        <Text color="fg.muted">Their change: every Qty 12 more, every Start a day later</Text>
+                        <Button variant="outline" onClick={theirRemoval} loading={others.mutate.pending()}>Someone else removes Panel cutting</Button>
+                        <Button variant="outline" onClick={theirAddition} loading={others.mutate.pending()}>Someone else adds a job</Button>
                     </HStack>
+                    <Text color="fg.muted">Someone else saves: every Qty 12 more, every Start a day later. Their removal: J-0001, Panel cutting. Their addition: J-0005, Assembly.</Text>
                     <Box height="560px">
                         <Sheet
                             name="conflicts"
@@ -1735,6 +1774,7 @@ export const sheetConflicts = example({
                                 start: Sheet.column.date(SheetJob, { header: "Start", width: "96px" }),
                                 qty:   Sheet.column.quantity(SheetJob, { header: "Qty", width: "96px" }),
                             }}
+                            newKey={newKey}
                         />
                     </Box>
                 </VStack>
