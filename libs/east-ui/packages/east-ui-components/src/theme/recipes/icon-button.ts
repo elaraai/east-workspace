@@ -10,6 +10,13 @@
  * triggers. Sizes match the button recipe so a pair of label + icon
  * triggers can sit on the same row.
  *
+ * Each size's glyph is an even number of pixels tall in its even square — 14
+ * in 26 and 28 (the design system's small icon), 14 in 32, 16 in 40 — so its
+ * box starts on a whole pixel at the square's middle. An odd glyph in an even
+ * square starts on a half pixel, which the browser draws a pixel up or down by
+ * where the page puts the button: a 13px cross in a 28px square stood 9 rows
+ * from its top and 8 from its foot, or the other way about.
+ *
  * @packageDocumentation
  */
 
@@ -42,8 +49,8 @@ export const iconButtonRecipe = defineRecipe({
             subtle:  { background: "bg.subtle", color: "fg", _hover: { background: "bg.emphasized" } },
         },
         size: {
-            xs: { width: "26px", height: "26px", fontSize: "{fontSizes.body}" },
-            sm: { width: "28px", height: "28px", fontSize: "{fontSizes.body}" },
+            xs: { width: "26px", height: "26px", fontSize: "14px" },
+            sm: { width: "28px", height: "28px", fontSize: "14px" },
             md: { width: "32px", height: "32px", fontSize: "14px" },
             lg: { width: "40px", height: "40px", fontSize: "16px" },
         },

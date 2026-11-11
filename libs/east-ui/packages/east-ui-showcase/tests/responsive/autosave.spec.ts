@@ -43,6 +43,10 @@
  *   the switch and Discard changes in the bottom panel, the switch flicked off
  *   is kept, and Discard changes drops the drafts at its one press; in a row
  *   wide enough again the buttons themselves are back.
+ * - Each icon of the bar stands at its button's middle, on whole pixels: a
+ *   glyph an even number of pixels tall in its even square, the tick and the
+ *   chevron moved up by what Font Awesome draws them below their boxes'
+ *   middles.
  * - Under a touch pointer on a wide screen every square of the bar, and the
  *   chevron, is 44px tall by its halo and takes the taps over its own width:
  *   one just inside its edge lands on it, never on the halo of the one
@@ -105,6 +109,23 @@ async function typeJob(page: Page, frame: Locator, order: string, job: string): 
     await input.press("Enter");
     await expect(jobOf(frame, order)).toHaveText(job);
 }
+
+/**
+ * Where each icon of a toolbar's history bar stands in its button: the height of its glyph's box and of its button; how
+ * far the middle of its ink — the box its path draws — is from its button's middle; whether the bar moves it; and how far
+ * its own box starts from a whole pixel under its button's top.
+ */
+const iconPlaces = (frame: Locator) => frame.locator("[data-frame-slot=toolbar] [data-slot=history] button").evaluateAll((buttons) => buttons.flatMap((button) => {
+    const svg = button.querySelector("svg"), path = svg?.querySelector("path");
+    if (svg === null || svg === undefined || path === null || path === undefined) return [];
+    const box = button.getBoundingClientRect(), own = svg.getBoundingClientRect(), ink = path.getBoundingClientRect();
+    const round = (n: number) => Math.round(n * 1000) / 1000 || 0;
+    const top = own.top - box.top;
+    return [{
+        name: button.getAttribute("aria-label") ?? "", icon: svg.getAttribute("data-icon") ?? "", button: box.height, glyph: round(own.height),
+        off: round(ink.top + ink.height / 2 - (box.top + box.height / 2)), moved: getComputedStyle(svg).transform !== "none", fraction: round(top - Math.round(top)),
+    }];
+}));
 
 /** The choice's panel, wherever it opens: the popover's body, or a phone's bottom panel's. */
 const panelOf = (page: Page): Locator => page.locator("[data-history-autosave-panel]");
@@ -535,4 +556,19 @@ test("in a phone's row too short for Save's chevron, More stands in Discard's pl
     await wide();
     await expect(visit("Site survey")).toHaveCount(1);
     await expect(more).toHaveCount(0);
+});
+
+test("each icon of the bar stands at its button's middle: Undo, Redo, Discard, Save's tick and its chevron — a glyph an even number of pixels tall in its even square, its box on a whole pixel, never a half the browser draws a pixel up or down by where the page puts the bar — and the tick and the chevron, which Font Awesome draws below their boxes' middles, moved up by as much, the ink of each within a twentieth of a pixel of its button's middle @desktop", async ({ page }) => {
+    const frame = await open(page, AUTHORED, { width: 1440, height: 900 });
+    const named = ["arrow-rotate-left", "arrow-rotate-right", "xmark", "check", "chevron-down"];
+    const icons = (await iconPlaces(frame)).filter((icon) => named.includes(icon.icon));
+    expect(icons.map((icon) => icon.icon).sort()).toEqual([...named].sort());
+    for (const icon of icons) {
+        expect(icon.glyph % 2, `${icon.name}: a glyph ${icon.glyph}px tall in a ${icon.button}px button`).toBe(0);
+        expect(Math.abs(icon.off), `${icon.name}: its ink ${icon.off}px off its button's middle`).toBeLessThanOrEqual(0.05);
+        // One the bar moves stands where its move puts it; every other on a whole pixel.
+        if (!icon.moved) expect(icon.fraction, `${icon.name}: its glyph's box ${icon.fraction}px off a whole pixel`).toBe(0);
+    }
+    // The two Font Awesome draws off their boxes' middles are the two the bar moves.
+    expect(icons.filter((icon) => icon.moved).map((icon) => icon.icon).sort()).toEqual(["check", "chevron-down"]);
 });

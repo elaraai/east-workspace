@@ -15,7 +15,10 @@
  * ruling, #1193), and under them the latest error in `fg.danger`. While a
  * Save is out, and until its saved state is read back, Save holds the live dot
  * in place of its tick, at full strength in `fg` over its disabled look (#1573,
- * `aria-busy`). First among
+ * `aria-busy`). Each square's icon stands at its middle on whole pixels — the
+ * `iconButton` recipe's 14px glyph in its 28px square, Save's tick and its
+ * chevron moved up by what Font Awesome draws them below their boxes' middles.
+ * First among
  * the buttons, while a conflict waits, the conflicts button: the not-equal
  * icon in `--warn` and how many wait in mono 11/600 in its text step, at its
  * neighbours' height, on the third paper while its popover is open
@@ -208,6 +211,10 @@ export const editHistorySlotRecipe = defineSlotRecipe({
             /* Save beside its chevron in a phone's frame: the start of the pair's one box where the row holds the chevron (the
              * `save` slot's), a whole square where it is short of it. */
             ...whereRowIsShort("[data-history-save] > :first-child &", { borderTopRightRadius: "{radii.md}", borderBottomRightRadius: "{radii.md}", borderRightWidth: "1px" }),
+            /* Save's tick at its square's middle: Font Awesome draws it a thirty-second of its box below the box's middle —
+             * half a pixel at these sizes, which read as a tick a pixel low beside a cross drawn dead centre — so it stands
+             * that much higher. */
+            "& svg[data-icon=check]": { transform: "translateY(-0.03125em)" },
             // Locked while a run of the app's optimiser is out (#1409, R2): the disabled look, the control kept.
             "&[aria-disabled=true]": { color: "fg.muted", cursor: "not-allowed", opacity: 0.5 },
             // Save while a Save is out or its saved state is read back (#1573): the live dot at full strength over the
@@ -237,7 +244,10 @@ export const editHistorySlotRecipe = defineSlotRecipe({
             borderTopLeftRadius: "0",
             borderBottomLeftRadius: "0",
             color: "fg.muted",
-            "& svg": { fontSize: "9px" },
+            /* The design system's caret, 8: Font Awesome draws its chevron a sixteenth of its box below the box's middle, so
+             * it stands that much higher — at 8px the half pixel that puts its four pixels of ink on whole pixels at the
+             * square's middle; a phone's, at 12, its six. */
+            "& svg": { fontSize: "8px", transform: "translateY(-0.0625em)" },
             /* The bar its buttons alone has a gap fewer to give it. */
             "[data-history-form=buttons] &": { width: "12px", minWidth: "12px" },
             "&[data-on]": { color: "brandMark" },

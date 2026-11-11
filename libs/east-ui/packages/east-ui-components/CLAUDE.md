@@ -669,7 +669,9 @@ component, nothing in east-ui.
   Discard changes discards at its one press — the press of More came first, as the row's own Discard asks first in its
   band. Both forms are in the page and the recipe shows one (`whereRowIsShort`, the exact other side of the chevron's
   width); a bar no row asks its width — outside a frame, or in a page that lays nothing out — draws the buttons
-  themselves. The browser suite holds all of it on the page's e3 (`autosave.spec.ts`, `builder-frame-phone.spec.ts`).
+  themselves. Each square's icon stands at its middle on whole pixels: the `iconButton` recipe's glyph is an even 14px
+  in its 28px square, and Save's tick and its chevron stand higher by what Font Awesome draws them below their boxes'
+  middles. The browser suite holds all of it on the page's e3 (`autosave.spec.ts`, `builder-frame-phone.spec.ts`).
 - **The data set editing belongs to** (`EditingScope`, `src/editing/scope.ts`).
   A host whose sources are one data set's names it — e3-ui-components'
   `E3Provider` names the server, repository and workspace — and each
