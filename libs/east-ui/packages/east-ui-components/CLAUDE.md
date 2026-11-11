@@ -603,7 +603,14 @@ component, nothing in east-ui.
   one way (`settleAll`) turns the earlier choices too, and never brings back
   a row its person removed since: the draft is put back at a part only while
   it still holds the other side there, as its choice left it, and the other
-  side is taken at a part of an entry only while the entry is there. Discard
+  side is taken at a part of an entry only while the entry is there. A
+  conflict of a whole entry — one side removed it while the other changed it,
+  or both added it — reads on its card as what was changed
+  (`conflict-view.ts`): the side that holds the entry, each field it changed
+  (`Hours: 450`, the first three, then that there are more) against
+  `Removed`, with what those fields began as; both added, the fields the two
+  hold otherwise — never the entry's first fields, which may hold nothing of
+  the change. Discard
   while the drafts are being carried over — kept drafts restored as a page
   loads, not yet read at the page's revision — leaves the session holding no
   row: put back as they began, they would be the rows of the page before,

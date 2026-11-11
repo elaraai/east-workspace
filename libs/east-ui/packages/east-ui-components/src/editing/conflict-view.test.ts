@@ -16,7 +16,7 @@ import {
     ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, SortedMap, StringType, StructType, VariantType,
     compareFor, none, some, variant, type ValueTypeOf, type option,
 } from "@elaraai/east";
-import { EditingDraftTypeFor } from "@elaraai/east-ui/internal";
+import { Editing, EditingDraftTypeFor } from "@elaraai/east-ui/internal";
 import { formatters } from "../format/index.js";
 import { conflictViewOf, rangeViewOf } from "./conflict-view.js";
 import { sentenceOf } from "./messages.js";
@@ -124,10 +124,46 @@ describe("a conflict in words", () => {
         expect([view.label, view.yours, view.theirs, view.was]).toEqual([["Lines", "Item 3"], "7", "9", "3"]);
     });
 
-    test("an entry one side removed while the other changed it reads Removed on that side, with no label", () => {
+    test("an entry one side removed while the other changed it reads Removed on that side, with no label — and on the other what that side changed: each field it changed, and as each began", () => {
         const view = viewOf(draft(row()), none, draft(row({ hours: 450 })));
-        expect([view.label, view.yours, view.was]).toEqual([[], "Removed", "Name: Works 10012 · Hours: 442 · Note: On track · …"]);
-        expect(view.theirs).toBe("Name: Works 10012 · Hours: 450 · Note: On track · …");
+        expect(view).toEqual({ name: "Works 10012", path: [], label: [], yours: "Removed", theirs: "Hours: 450", yoursForm: "absent", theirsForm: "text", was: "Hours: 442" });
+        // Changed here and removed there: the same, the other way about — every field changed, in the entry's order.
+        const mine = viewOf(draft(row()), draft(row({ note: "Late", hours: 1500 })), none);
+        expect([mine.label, mine.yours, mine.theirs, mine.was]).toEqual([[], "Hours: 1,500 · Note: Late", "Removed", "Hours: 442 · Note: On track"]);
+        expect([mine.yoursForm, mine.theirsForm]).toEqual(["text", "absent"]);
+    });
+
+    test("an entry changed in more than three fields before the other side removed it reads its first three, then says there are more", () => {
+        const view = viewOf(draft(row()), draft(row({ hours: 1, note: "Late", done: true, due: some(week) })), none);
+        expect([view.yours, view.was]).toEqual(["Hours: 1 · Note: Late · Done: Yes · …", "Hours: 442 · Note: On track · Done: No · …"]);
+    });
+
+    test("a field changed to a value that reads as it began is written in full on every side, so the two read apart", () => {
+        const view = viewOf(draft(row({ hours: 1.2341 })), draft(row({ hours: 1.2342 })), none);
+        expect(WORDS.number(1.2341)).toBe(WORDS.number(1.2342));
+        expect([view.yours, view.was]).toEqual([`Hours: ${WORDS.float(1.2342)}`, `Hours: ${WORDS.float(1.2341)}`]);
+    });
+
+    test("an entry both sides added reads on each the fields the two hold otherwise, and nothing both began from", () => {
+        const view = viewOf(none, draft(row({ hours: 1500 })), draft(row({ hours: 450, note: "Theirs" })));
+        expect(view).toEqual({ name: "Works 10012", path: [], label: [], yours: "Hours: 1,500 · Note: On track", theirs: "Hours: 450 · Note: Theirs", yoursForm: "text", theirsForm: "text", was: undefined });
+    });
+
+    test("an entry drafted whole reads the same: its fields under its draft's own case", () => {
+        const Whole = Editing.Types.DraftField(Row);
+        const whole = (value: RowValue): option<unknown> => some(liftDraft(Whole, value));
+        const points = new EntryMerger(Whole).conflicts(whole(row()), whole(row({ hours: 1500 })), none);
+        expect(points).toHaveLength(1);
+        const view = conflictViewOf(Whole, { id: "Works 10012", key: "Works 10012", keyType: StringType, at: points[0]!.at, was: whole(row()), draft: whole(row({ hours: 1500 })), source: none }, WORDS);
+        expect([view.label, view.yours, view.theirs, view.was]).toEqual([[], "Hours: 1,500", "Removed", "Hours: 442"]);
+    });
+
+    test("a collection's own words for a value are asked for each field changed, at the field's place", () => {
+        const points = merger.conflicts(draft(row()), draft(row({ hours: 1500 })), none);
+        const asked: string[] = [];
+        const view = conflictViewOf(Draft, { id: "Works 10012", key: "Works 10012", keyType: StringType, at: points[0]!.at, was: draft(row()), draft: draft(row({ hours: 1500 })), source: none }, WORDS,
+            (at, value) => { asked.push(at.map((step) => (step.kind === "field" ? step.name : step.kind)).join("/")); return typeof value === "object" ? "a lot" : undefined; });
+        expect([view.yours, view.was, [...new Set(asked)]]).toEqual(["Hours: a lot", "Hours: a lot", ["hours"]]);
     });
 
     test("an entry of a source with no key is named by its id", () => {

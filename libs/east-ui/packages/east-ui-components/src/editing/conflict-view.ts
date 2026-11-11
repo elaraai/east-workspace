@@ -14,6 +14,12 @@
  * range written in full writes its date once where it falls in one day, and a
  * moment, its two ends the same, once.
  *
+ * A conflict of a whole entry — one side removed it while the other changed
+ * it, or both added it — reads as what was changed, never the entry's first
+ * fields: the side that holds the entry, each field it changed (`Hours: 450`,
+ * the first three, then that there are more) against `Removed`, with what
+ * those fields began as; both added, the fields the two hold otherwise.
+ *
  * @packageDocumentation
  */
 import { DateTimeType, StringType, equalFor, parseFor, printFor, toEastTypeValue, type EastType, type PatchPath, type option, type variant } from "@elaraai/east";
@@ -271,6 +277,77 @@ function splitSteps(steps: readonly Step[]): { path: string[]; label: string[] }
     };
 }
 
+/** How many of a whole entry's changed fields a side reads, before it says there are more. */
+const MOST_FIELDS = 3;
+
+/** An entry's fields as one side holds them: their types, their values, and the steps from the entry down to them. */
+interface EntryFields {
+    readonly at: PatchPath;
+    readonly types: Readonly<Record<string, EastType>>;
+    readonly held: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * An entry's fields, where a side holds the entry and its draft is a struct
+ * of them — under its draft's own case, where the entry is drafted whole.
+ *
+ * @param draftType - The entry's draft type
+ * @param value - The entry's draft on that side, present or absent
+ * @returns Its fields; `undefined` for a side that holds no entry, or whose draft is no struct of fields
+ */
+function entryFields(draftType: EastType, value: option<unknown>): EntryFields | undefined {
+    if (value.type !== "some") return undefined;
+    let type: EastType | undefined = draftType;
+    let held: unknown = value.value;
+    let at: PatchPath = [];
+    if (isDraftField(type)) {
+        const cell = held as variant<string, unknown>;
+        if (!textEqual(cell.type, "value")) return undefined;
+        at = [{ kind: "variant", tag: "value" }];
+        type = type.type === "Variant" ? (type.cases as Record<string, EastType>)["value"] : undefined;
+        held = cell.value;
+    }
+    return type?.type === "Struct" ? { at, types: type.fields as Record<string, EastType>, held: held as Record<string, unknown> } : undefined;
+}
+
+/**
+ * A whole entry's conflict as what its sides changed — see the module docs.
+ * The side that holds the entry is read against what both began from, where
+ * the other side removed it; each side against the other, where both added
+ * it. Two readings alike in short are both written in full.
+ *
+ * @param draftType - The entry's draft type
+ * @param conflict - Its three values
+ * @param words - The words
+ * @param valueWords - The collection's own words for a value, asked at each field's place
+ * @returns Each side as it reads; `undefined` for a conflict of another kind, sides that hold the same fields, or drafts
+ *   that are no struct of fields — read whole then, as any part is
+ */
+function entryView(draftType: EastType, conflict: ConflictValues, words: EditingWords, valueWords: ConflictValueWords | undefined): Pick<ConflictView, "yours" | "theirs" | "yoursForm" | "theirsForm" | "was"> | undefined {
+    const [began, mine, theirs] = [conflict.was.type === "some", conflict.draft.type === "some", conflict.source.type === "some"];
+    const removedThere = began && mine && !theirs, removedHere = began && !mine && theirs, addedByBoth = !began && mine && theirs;
+    const [a, b] = removedThere ? [entryFields(draftType, conflict.draft), entryFields(draftType, conflict.was)]
+        : removedHere ? [entryFields(draftType, conflict.source), entryFields(draftType, conflict.was)]
+            : addedByBoth ? [entryFields(draftType, conflict.draft), entryFields(draftType, conflict.source)] : [undefined, undefined];
+    if (a === undefined || b === undefined) return undefined;
+    const changed = Object.keys(a.types).filter((name) => !(name in b.types) || !equalFor(toEastTypeValue(a.types[name]!))(a.held[name], b.held[name]));
+    if (changed.length === 0) return undefined;
+    const list = (side: EntryFields, full: boolean): string => {
+        const read = changed.slice(0, MOST_FIELDS).map((name) => {
+            const type = side.types[name];
+            const said = valueWords?.([...side.at, { kind: "field", name }], side.held[name], type) ?? describe(type, { held: side.held[name] }, words, full);
+            return `${words.m.conflictField({ field: name })}: ${said}`;
+        });
+        return changed.length > MOST_FIELDS ? `${read.join(" · ")} · …` : read.join(" · ");
+    };
+    const full = textEqual(list(a, false), list(b, false));
+    const [first, second] = [list(a, full), list(b, full)];
+    const removed = words.m.conflictRemoved();
+    if (removedThere) return { yours: first, theirs: removed, yoursForm: "text", theirsForm: "absent", was: second };
+    if (removedHere) return { yours: removed, theirs: first, yoursForm: "absent", theirsForm: "text", was: second };
+    return { yours: first, theirs: second, yoursForm: "text", theirsForm: "text", was: undefined };
+}
+
 /**
  * A conflict in words — see the module docs.
  *
@@ -281,6 +358,14 @@ function splitSteps(steps: readonly Step[]): { path: string[]; label: string[] }
  * @returns The conflict as a person reads it
  */
 export function conflictViewOf(draftType: EastType, conflict: ConflictValues, words: EditingWords, valueWords?: ConflictValueWords): ConflictView {
+    // A whole entry's conflict reads as what its sides changed, where its drafts are fields to read.
+    if (conflict.at.length === 0) {
+        const whole = entryView(draftType, conflict, words, valueWords);
+        if (whole !== undefined) {
+            const named = conflict.keyType !== undefined && conflict.key !== undefined ? describe(conflict.keyType, { held: conflict.key }, words, false) : conflict.id;
+            return { name: named, path: [], label: [], ...whole };
+        }
+    }
     const yoursAt = walk(draftType, conflict.draft, conflict.at, words);
     const theirsAt = walk(draftType, conflict.source, conflict.at, words);
     const wasAt = walk(draftType, conflict.was, conflict.at, words);
