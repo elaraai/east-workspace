@@ -19,7 +19,7 @@ import { OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fro
 import { Sheet, SheetEditingType } from "@elaraai/e3-ui/internal";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { fieldBreachIssue, getSomeorUndefined, useEditSession } from "@elaraai/east-ui-components";
-import { boundedReadiness, editWindow, normalizeDraft, prepareRecordSliceSave, recordSliceReadEntries } from "@elaraai/east-ui-components/internal";
+import { boundedReadiness, editWindow, normalizeDraft, prepareRecordSliceSave, recordSliceReadEntries, standingBeforeSave } from "@elaraai/east-ui-components/internal";
 import { authorReadiness } from "./readiness.js";
 import { shownDrafts, type ShownDrafts } from "./shown-drafts.js";
 import { entryBreaches, type SheetBounds } from "./bounds.js";
@@ -259,16 +259,18 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         });
         return later;
     }, [currentRows, rowIndex]);
-    // What a Save landed is drawn over the rows as it left them until they read it (`EditSession.landed`): while their
-    // source still reads at the revision it was drafted at, the rows taken from another query or held by a key's jump,
-    // or a copy of its entry's row — any row, for one not drawn — read before the revision its source reads at now.
+    // What a Save landed is drawn over the rows as it left them until they read it (`EditSession.landed`), by the one
+    // rule every host asks (east-ui-components' `standingBeforeSave`): while the page its entry's row is on — any page,
+    // for one not drawn — stands from before the revision its source reads at now, or its source still reads at the
+    // revision it was drafted at. And while the rows are another query's, or held by a key's jump.
     const awaiting = useCallback((id: string, from: string): boolean => {
         if (rowsRead === undefined) return false;
-        if (replacing || retained || rowsRead.revision === undefined || stringEqual(rowsRead.revision, from)) return true;
+        if (replacing || retained) return true;
+        const before = (position: number | undefined): boolean => standingBeforeSave(rowsRead.before(position), rowsRead.revision, from);
         const at = rowIndex.get(id);
-        if (at === undefined) return rowsRead.before(undefined);
+        if (at === undefined) return before(undefined);
         // A copy read since the Save never lets the Save's version go while another copy was read before it (#1583).
-        return rowsRead.before(currentPositions[at]) || (copies.get(id)?.some((i) => rowsRead.before(currentPositions[i])) ?? false);
+        return before(currentPositions[at]) || (copies.get(id)?.some((i) => before(currentPositions[i])) ?? false);
     }, [rowsRead, replacing, retained, rowIndex, copies, currentPositions]);
     landedRef.current = () => {
         const waiting: (readonly [string, { readonly after: EntryVersion }])[] = [];

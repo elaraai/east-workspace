@@ -48,7 +48,7 @@ import {
     EntryRefType, historyKeyOf, useEditSession, useTrackedEvaluation, type EditHistory, type EditingValue, type EditSession, type EditSessionBinding, type EntryUpdate, type EntryVersion,
     type Origin, type HistoryAction, type DragEventValue,
 } from "@elaraai/east-ui-components";
-import { type EditSource, kindOfIssue, readBeforeSave, wholeEntryReadiness, windowedSourceOf, prepareRecordSliceSave, recordSliceReadEntries } from "@elaraai/east-ui-components/internal";
+import { type EditSource, kindOfIssue, standingBeforeSave, wholeEntryReadiness, windowedSourceOf, prepareRecordSliceSave, recordSliceReadEntries } from "@elaraai/east-ui-components/internal";
 import { fromPlanSlot } from "./slot.js";
 import type { PlanMoveRequest } from "./edit/use-carry.js";
 import { PLAN_PAGE_SIZE, windowedArm, type PlanPagedSourceValue } from "./use-plan-paging.js";
@@ -213,8 +213,6 @@ const NO_MARKS: ReadonlyMap<RowKey, PlanDraftMark> = new Map();
 const NO_ROWS: ReadonlySet<RowKey> = new Set();
 const NO_IDS: readonly string[] = [];
 const NO_DRAFTS: ReadonlyMap<string, Uint8Array> = new Map();
-/** A revision no source reads at: what a window standing in from before a Save is said to have been read at (`readBeforeSave`). */
-const BEFORE = "";
 
 /** The entry a row came from — the first segment of its id's path; none for a top-level section's header. */
 export function entryOf(id: PlanRowId): string | undefined {
@@ -474,7 +472,7 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
             const index = rowIndex.get(id);
             const at = index === undefined ? undefined : resident.positions[index];
             const landedNow = at === undefined || landedAt?.(at) === true;
-            if (!readBeforeSave(landedNow && now !== undefined ? now : BEFORE, now, saved.from)) read.push(id);
+            if (!standingBeforeSave(!landedNow, now, saved.from)) read.push(id);
         }
         if (read.length > 0) session.shown(read);
     });

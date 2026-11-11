@@ -1065,8 +1065,9 @@ that refuses, goes into the e3-ui example module it belongs to.
   Sheet and the Record in a `save-held.dom.test.tsx` of their own, the
   Schematic, the Calendar and the Plan beside their other held-reload tests. A host whose rows
   are read apart from a Save's confirmation keeps what the Save landed on
-  screen by east-ui-components' one rule (`readBeforeSave`), never one of its
-  own. Its second check, `editedThroughReload`, holds a Save to never stopping
+  screen by east-ui-components' one rule (`readBeforeSave`, or `standingBeforeSave`
+  where it knows of its rows only that they stand from before — the Sheet's
+  pages, the Plan's windows), never one of its own. Its second check, `editedThroughReload`, holds a Save to never stopping
   the editing: while those reads are held — the builder's rows standing in
   from before the Save — a gesture on a row the Save did not hold is taken and
   drawn at once, stays drawn as the reads land one at a time, and is the next
@@ -1260,7 +1261,7 @@ while it is read again is drawn as its source draws it now
 (`WindowReader.standIn`, the source's `redraft` over what the window carried —
 e3-ui's `deriveWindow`, which reads nothing): a change made meanwhile is drawn
 at once, and what a Save landed is laid over the windows read before it
-(`EditSession.landed`, let go as each window is read again, `readBeforeSave`).
+(`EditSession.landed`, let go as each window is read again, `standingBeforeSave`).
 Over rows read lean beside their nested series index (#1438) a window carries
 no entry — none of its rows is a row whole, and a gesture reads its row whole
 by key — and a row's numbers are its cells', which their reader holds at the

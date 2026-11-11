@@ -7,11 +7,13 @@
  * at — the same entry saved twice, a source another session wrote to first —
  * or their source still at the revision the Save was drafted at, or naming
  * none; and never rows read at the revision the source reads at now once it
- * has moved on from there.
+ * has moved on from there. A host that knows of its rows only whether they stand
+ * from before the revision their source reads at now asks the same rule by that
+ * (`standingBeforeSave`), and the two never disagree.
  */
 
 import { describe, expect, test } from "vitest";
-import { readBeforeSave, readBeforeSaves } from "./landed.js";
+import { readBeforeSave, readBeforeSaves, standingBeforeSave } from "./landed.js";
 
 describe("readBeforeSave", () => {
     test("rows read at another revision than the one their source reads at now are from before the Save: their read again is in flight", () => {
@@ -61,5 +63,29 @@ describe("readBeforeSaves", () => {
     test("of no Save, rows are from before none", () => {
         expect(readBeforeSaves("r0", "r1", [])).toBe(false);
         expect(readBeforeSaves("r0", undefined, new Set<string>())).toBe(false);
+    });
+});
+
+describe("standingBeforeSave", () => {
+    test("rows standing from before the revision their source reads at now are from before the Save, whichever revision it was drafted at", () => {
+        expect(standingBeforeSave(true, "r2", "r1")).toBe(true);
+        expect(standingBeforeSave(true, "r2", "r0")).toBe(true);
+    });
+
+    test("rows read at the revision the source reads at now hold the Save, once the source has moved on from the revision it was drafted at", () => {
+        expect(standingBeforeSave(false, "r2", "r1")).toBe(false);
+    });
+
+    test("a source still at the revision the Save was drafted at, or naming none, holds nothing of it", () => {
+        expect(standingBeforeSave(false, "r1", "r1")).toBe(true);
+        expect(standingBeforeSave(false, undefined, "r1")).toBe(true);
+    });
+
+    test("it is the rule a host that knows its rows' revision asks: the two agree over every case", () => {
+        const revisions = ["r0", "r1", "r2"];
+        for (const read of revisions) for (const now of [...revisions, undefined]) for (const from of revisions) {
+            const standing = now === undefined || read !== now;
+            expect(standingBeforeSave(standing, now, from), `read ${read}, now ${now}, from ${from}`).toBe(readBeforeSave(read, now, from));
+        }
     });
 });

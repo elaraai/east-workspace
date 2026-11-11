@@ -623,9 +623,12 @@ component, nothing in east-ui.
   Save was drafted at lost a rack saved twice before its window was read
   again, drawing it where it stood before either Save. e3-ui-components'
   Schematic windows (`schematic/drafted.ts`) and schedule cells
-  (`shared/schedule/cells.ts`) read by it; its Sheet reads its rows by the
-  same test, said over its own row positions (`sheet/use-editing.ts`'
-  `awaiting`).
+  (`shared/schedule/cells.ts`) read by it. A host that knows of its rows only
+  whether they stand from before the revision their source reads at now — the
+  Sheet's pages (`sheet/use-editing.ts`' `awaiting`), the Plan's windows
+  (`plan/use-plan-editing.ts`) — asks the same rule by that,
+  `standingBeforeSave`: `readBeforeSave` is it, over rows read at another
+  revision.
 - **Where a gesture begins** (`EditSession.startOf`, ruled 11 Nov 2026). An edit starts from the row its person is
   looking at, captured at the entry's first change: the session's own version of it; else what its last Save left of
   it, while its host has yet to show that Save (`landed`) — the host's rows are from before the commit then; else the

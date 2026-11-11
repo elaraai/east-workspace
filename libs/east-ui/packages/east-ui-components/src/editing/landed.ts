@@ -29,6 +29,12 @@
  * standing from before another session's write that the Save was drafted
  * over, are from before the Save by the same test.
  *
+ * A host that knows the revision its rows were read at asks
+ * {@link readBeforeSave}; one that knows of them only whether they stand from
+ * before the revision their source reads at now — a page still to be read
+ * again, a window standing in — asks {@link standingBeforeSave}. It is one
+ * rule: the first is the second, over rows read at another revision.
+ *
  * @packageDocumentation
  */
 
@@ -46,7 +52,21 @@ const stringEqual = equalFor(StringType);
  * @returns Whether the rows are from before the Save
  */
 export function readBeforeSave(read: string, now: string | undefined, from: string): boolean {
-    return now === undefined || !stringEqual(read, now) || stringEqual(now, from);
+    return standingBeforeSave(now === undefined || !stringEqual(read, now), now, from);
+}
+
+/**
+ * Whether rows a host draws were read before a Save landed, for a host that
+ * knows of them only whether they stand from before the revision their
+ * source reads at now (see the module docs).
+ *
+ * @param standing - Whether the rows were read at another revision than the one their source reads at now
+ * @param now - The revision their source reads at now; `undefined` while it names none
+ * @param from - The revision the Save's request was drafted at (a `LandedEntry`'s `from`)
+ * @returns Whether the rows are from before the Save
+ */
+export function standingBeforeSave(standing: boolean, now: string | undefined, from: string): boolean {
+    return now === undefined || standing || stringEqual(now, from);
 }
 
 /**

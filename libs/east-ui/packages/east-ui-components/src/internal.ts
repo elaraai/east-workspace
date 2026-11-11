@@ -74,8 +74,9 @@ export { DRAFT_ISSUE_TEXT, SESSION_TEXT, type EditHistoryWord } from "./editing/
 export { type EditSource, type EditWindow } from "./editing/use-edit-session.js";
 export { entryLookup, editWindow, type CarriedEntry, type EntryLookup } from "./editing/carried.js";
 // When a host that draws what a Save landed lets it go (`EditSession.landed`): the one rule that tells rows read before a
-// Save from rows read since — the Schematic's windows and a schedule's cells read by it.
-export { readBeforeSave, readBeforeSaves } from "./editing/landed.js";
+// Save from rows read since — the Schematic's windows and a schedule's cells read by it, the Sheet's pages and the Plan's
+// windows by whether they stand from before the revision their source reads at now.
+export { readBeforeSave, readBeforeSaves, standingBeforeSave } from "./editing/landed.js";
 // The Slice: its bound range, the brush, the rail's toolbar items, and density.
 export { boundRangeDomain, boundRangeHistogram } from "./platform/slice/index.js";
 export { BrushStrip, type BrushBucket, type BrushStripProps, type BrushWords } from "./slice/brush-strip.js";
