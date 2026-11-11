@@ -374,3 +374,33 @@ test("what a Save landed is held as it was saved while a newer draft of the same
     expect([drafts(landed.before, cut), drafts(landed.after, { ...cut, qty: 5n }), landed.from]).toEqual([true, true, "r1"]);
     expect(drafts(session.entries.get("J1"), { ...cut, qty: 6n })).toBe(true);
 });
+
+test("drafts carried over to a source that moved are handed on, each as the source now holds it, for a host to draw over its rows read before: a row removed here and there stays off them, and one whose draft stands is there for when the draft is taken back", () => {
+    const { session } = saving({ drawsLanded: true });
+    // J1 removed here, and J2's quantity set here.
+    expect(session.record([{ id: "J1", before: job(cut), after: { draft: undefined, wire: undefined, place: none } }], "remove", "Remove rows")).toBe(true);
+    setQty(session, "J2", band, 8n);
+    // Another write removes J1 too, and renames J2: the source moves to r2, and each drafted entry is read there.
+    session.observeBase(variant("revision", "r2"));
+    expect(session.merge(variant("revision", "r2"), (id) => (id === "J1" ? none : some({ ...band, task: "Edge banding, twice" })))).toBe("merged");
+    // J1 is a draft no more — the source holds it removed, as drafted — and is handed on as removed, over rows read at r1:
+    // left to them, it would be back on the grid until they are read again.
+    expect([session.entries.has("J1"), session.pending, session.unsettled]).toEqual([false, 1, 0]);
+    const gone = session.landed.get("J1")!;
+    expect([drafts(gone.before, cut), gone.after.draft, gone.from]).toEqual([true, undefined, "r1"]);
+    // J2's draft stands, the other write's name beside it; what the source holds of it is handed on too.
+    const renamed = session.landed.get("J2")!;
+    expect([drafts(renamed.before, band), drafts(renamed.after, { ...band, task: "Edge banding, twice" }), renamed.from]).toEqual([true, true, "r1"]);
+    // Let go as the rows read them again.
+    session.shown(["J1", "J2"]);
+    expect(session.landed.size).toBe(0);
+});
+
+test("a host that draws nothing a Save landed is handed nothing as its drafts are carried over", () => {
+    const { session } = saving();
+    setQty(session, "J2", band, 8n);
+    session.observeBase(variant("revision", "r2"));
+    expect(session.merge(variant("revision", "r2"), () => some({ ...band, task: "Edge banding, twice" }))).toBe("merged");
+    expect(session.landed.size).toBe(0);
+});
+

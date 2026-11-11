@@ -319,22 +319,31 @@ export interface HeldRows {
 }
 
 /**
- * An entry a confirmed Save changed, while the host's rows may still be read
- * from before it ({@link EditSession.landed}).
+ * An entry the session knows the source holds otherwise than its host's rows
+ * may, read from before: one a confirmed Save changed, or one drafted here
+ * that the session read at a revision the source moved to
+ * ({@link EditSession.landed}).
  *
  * @typeParam W - The collection's projection of an entry
  */
 export interface LandedEntry<W> {
-    /** The entry as the source held it before the Save: absent for one the Save added. */
+    /** The entry as the source held it before: absent for one the Save added, or another write did. */
     readonly before: EntryVersion<W>;
     /**
      * The entry as the source holds it now: the request's version — or, read
-     * back otherwise (another write beside it), the source's; absent for one
-     * the source no longer holds.
+     * back otherwise (another write beside it), the source's — or the
+     * source's as the drafts were carried over to it; absent for one the
+     * source no longer holds.
      */
     readonly after: EntryVersion<W>;
-    /** The revision the request was drafted at: rows read there hold nothing of it. */
-    readonly from: string;
+    /**
+     * The revision the request was drafted at, or the drafts were carried over
+     * from: rows read there hold nothing of it. `undefined` where the drafts
+     * were carried over at the revision the session was at already — a Save
+     * refused there, its entries read there: only rows read at another
+     * revision than the one their source reads at now are from before it.
+     */
+    readonly from: string | undefined;
 }
 
 /**
@@ -1116,6 +1125,14 @@ export class EditSession<W> {
      * commit, so a saved row never shows its old value meanwhile, and lets each
      * go once its rows read it again ({@link EditSession.shown}). Held only for
      * a host that draws them ({@link EditSessionBinding.drawsLanded}).
+     *
+     * And what the session read as it carried its drafts over to a revision
+     * the source moved to ({@link EditSession.merge}): each drafted entry as
+     * the source holds it there, from the revision they were carried from. A
+     * draft the source came to hold whole — a row removed here and by another
+     * write — is the session's no more, and one whose draft stands may be
+     * taken back: drawn from rows read before, either would show as it stood
+     * before the other write, a removed row back on the grid.
      */
     get landed(): ReadonlyMap<string, LandedEntry<W>> { return this.landedEntries; }
     /**
@@ -1414,6 +1431,11 @@ export class EditSession<W> {
         const current = new Map<string, EntryVersion<W>>();
         const ancestors = new Map<string, option<unknown>>();
         const renumbered = new Map<string, string>();
+        // For a host that draws what the session knows over rows read before ({@link EditSession.landed}): the revision the
+        // drafts are carried from, whose rows hold nothing of the write that moved the source on — or none, carried over
+        // at the revision the session is at already, where only rows read at another revision are from before.
+        const lands = this.binding.drawsLanded === true && this.base?.type === "revision" && base.type === "revision";
+        const from = lands && this.base?.type === "revision" && base.type === "revision" && !stringEqual(this.base.value, base.value) ? this.base.value : undefined;
         for (const [id, mine] of this.current) {
             const original = this.baseline.get(id) ?? ABSENT;
             const now = carrying.read.get(id)!;
@@ -1427,10 +1449,16 @@ export class EditSession<W> {
                 continue;
             }
             const source: option<unknown> = now.type === "some" ? some(liftDraft(this.binding.draftType, now.value)) : none;
+            const held = this.versionOf(id, source, original);
+            // The entry as the source holds it now, read here by its key, while its host's rows are from before: the host
+            // draws it over them until they are read again. Left to those rows, an entry the session lets go of here —
+            // its draft the source's now — would show as they last held it: a row removed on both sides, back on the
+            // grid; and so would one whose draft is taken back later.
+            if (lands) this.landedEntries.set(id, { before: original, after: held, from });
             const merged = this.merger.merge(this.beganOf(id, mine, original), draftOf(mine), source, this.joined);
             // A draft the source's value holds whole is a draft no more.
             if (this.merger.equal(merged.draft, source)) continue;
-            baseline.set(id, this.versionOf(id, source, original));
+            baseline.set(id, held);
             current.set(id, this.versionOf(id, merged.draft, mine));
             if (merged.ancestor !== undefined) ancestors.set(id, merged.ancestor);
         }

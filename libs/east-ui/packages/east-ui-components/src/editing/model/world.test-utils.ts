@@ -66,6 +66,10 @@
  * - **Undo then Redo is where it was.**
  * - **The counts are true.** Pending is how many rows are drafted away from
  *   what they began as.
+ * - **A screen never goes back.** A field never shows a value the record held
+ *   before the one the screen last showed there: what a session knows the
+ *   source holds — what its Save landed, what it read as its drafts were
+ *   carried over — is drawn until the screen's rows are read again.
  * - **It converges.** Answered, read, redrawn and chosen, each session is
  *   idle with nothing pending, and its screen is the record.
  *
@@ -79,8 +83,10 @@
  *
  * - how often a session's steps went under its person — Undo lost as the
  *   source moved ({@link ModelClient.stepsLost});
- * - how often a screen went back — a field shown at a value the record held
- *   before the one the screen last showed there ({@link ModelClient.wentBack});
+ * - how often a late answer stepped a screen back
+ *   ({@link ModelClient.lateAnswer}): a Save's answer that came after its
+ *   source had read at a newer revision put the source back at the revision
+ *   the Save committed, and its rows were drawn there;
  * - how often a reload lost a change made while a Save was unresolved
  *   ({@link ModelClient.reloadLost}), or made a change already saved a
  *   conflict to choose ({@link ModelClient.reloadAsked}): each where the page
@@ -206,8 +212,6 @@ export class ModelClient {
     readonly claims = new Map<string, Map<Field, Claim>>();
     /** How often its session's steps went under its person: Undo lost as the source moved. */
     stepsLost = 0;
-    /** How often its screen went back: a field shown at a value the record held before the one it last showed there. */
-    wentBack = 0;
     /** How often a reload lost a change: one made while a Save was unresolved that its session held as no draft, and so did not keep. */
     reloadLost = 0;
     /**
@@ -224,6 +228,20 @@ export class ModelClient {
     requests = 0;
     /** The last commit the record made of a Save of its. */
     private lastCommit: ModelCommit | undefined;
+    /** How many commits the record had made once it took this client's last Save: what the client knows of, whatever its source has heard. */
+    private wrote = 0;
+    /**
+     * The most commits the record had made at any revision this client's source has read at. A Save's answer that
+     * arrives late names the revision it committed, and the source reads there again though it has read at a newer one
+     * since: it reads at fewer then.
+     */
+    private heardMost = 0;
+    /**
+     * How often a late answer stepped its screen back: its source read at a newer revision — a poll heard of another
+     * session's write — before its Save's answer came, and the answer put it back at the revision the Save committed,
+     * where its rows were then drawn.
+     */
+    lateAnswer = 0;
     /** The rows whose drafts a reload kept while their Save's outcome was not known, though the record had taken it. */
     private readonly unsure = new Set<string>();
     /** Those of them a conflict has since asked of: asked again where its choice is taken back, until the drafts are discarded. */
@@ -331,6 +349,7 @@ export class ModelClient {
     private readAt(revision: string): void {
         if (textEqual(revision, this.known.revision)) return;
         this.known = { revision, asked: new Set(), landed: new Set() };
+        this.heardMost = Math.max(this.heardMost, this.record.commitsAt(revision));
     }
 
     /** A value no other write uses: this client's own. */
@@ -728,6 +747,7 @@ export class ModelClient {
         this.session = this.open();
         this.session.restore(entries, held, stepped);
         this.known = { revision: this.record.revision, asked: new Set(), landed: new Set() };
+        this.heardMost = Math.max(this.heardMost, this.record.commits.length);
         this.screen = { revision: this.record.revision, rows: this.record.now };
         this.steps = [];
         this.cursor = 0;
@@ -819,6 +839,7 @@ export class ModelClient {
         this.saves++;
         const commit = this.record.commits[this.record.commits.length - 1]!;
         this.lastCommit = commit;
+        this.wrote = this.record.commits.length;
         const sent = this.sent.get(batch.requestId);
         for (const { key, field, before, after } of commit.changed) {
             const meant = sent?.get(key)?.[field];
@@ -914,6 +935,11 @@ export class ModelClient {
                 }
             }
         }
+        // The newest of the record's writes a value its person is shown can be: one its source has read at, or its own Save's.
+        const heard = Math.max(this.heardMost, this.wrote);
+        // Whether its source reads at a revision older than one it had read at — a late answer's doing — and the screen's
+        // rows were drawn there.
+        const steppedBack = this.record.commitsAt(this.known.revision) < this.heardMost && textEqual(this.screen.revision, this.known.revision);
         // What its own Saves wrote that the session has read back is the session's to hold now.
         const commits = this.record.commitsAt(base);
         for (const fields of this.unread.values()) for (const [field, wrote] of fields) if (commits >= wrote.at) fields.delete(field);
@@ -929,17 +955,21 @@ export class ModelClient {
                 }
                 fields.delete(field);
                 // The record's value now, as their screen showed it: the write that put it there.
-                this.showsWrite(key, field, this.record.writtenAt(key, field, value));
+                this.showsWrite(key, field, this.record.writtenAt(key, field, value, heard));
             }
         }
         // What the record held there, as the screen shows it: never a write older than the one it last showed.
         for (const [key, row] of rows) {
             for (const field of FIELDS) {
                 if (this.claims.get(key)?.has(field) === true) continue;
-                const written = this.record.writtenAt(key, field, row?.[field]);
+                const written = this.record.writtenAt(key, field, row?.[field], heard);
                 if (written === undefined) continue;
                 const last = this.freshest.get(key)?.get(field);
-                if (last !== undefined && written < last) this.wentBack++;
+                if (last !== undefined && written < last) {
+                    // Counted, where a late answer stepped the source back and its rows were drawn there: still to close.
+                    if (!steppedBack) throw new ModelFault(`${this.name}'s screen went back: ${key}.${field} shows ${say(row?.[field])}, which the record held before the value the screen last showed there`);
+                    this.lateAnswer++;
+                }
                 this.showsWrite(key, field, written);
             }
         }
@@ -1032,7 +1062,7 @@ export interface WorldOptions {
 const SESSION_NO_STATE: ReadonlySet<string> = new Set([
     "binding", "listeners", "serial", "made", "conflictsCache", "draftsCache", "readinessCache", "draftedViews", "compiledTransform", "compileTransform", "merger",
 ]);
-const CLIENT_NO_STATE: ReadonlySet<string> = new Set(["stepsLost", "wentBack", "reloadLost", "reloadAsked", "waitedForGood"]);
+const CLIENT_NO_STATE: ReadonlySet<string> = new Set(["stepsLost", "reloadLost", "reloadAsked", "waitedForGood", "lateAnswer"]);
 const WORLD_PRINT: PrintRules = {
     skip: (owner, key) => (owner instanceof EditSession ? SESSION_NO_STATE.has(key) : owner instanceof ModelClient && CLIENT_NO_STATE.has(key)),
     // A request's bytes hold the id it drew at random: read as the batch they are, the id is named by its order.
@@ -1104,8 +1134,8 @@ export class ModelWorld {
     /** How often a session's steps went under its person, in this world. */
     get stepsLost(): number { return this.clients.reduce((n, client) => n + client.stepsLost, 0); }
 
-    /** How often a screen went back, in this world. */
-    get wentBack(): number { return this.clients.reduce((n, client) => n + client.wentBack, 0); }
+    /** How often a late answer stepped a screen back, in this world. */
+    get lateAnswer(): number { return this.clients.reduce((n, client) => n + client.lateAnswer, 0); }
 
     /** How often a reload lost a change made while a Save was unresolved, in this world. */
     get reloadLost(): number { return this.clients.reduce((n, client) => n + client.reloadLost, 0); }

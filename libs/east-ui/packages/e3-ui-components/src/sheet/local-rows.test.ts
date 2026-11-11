@@ -42,6 +42,12 @@ describe("layerCounts", () => {
         expect(layerCounts(layer, savedFrom, undefined)).toEqual({ added: 2, removed: 2 });
     });
 
+    test("a row held from no revision — read as the drafts were carried over where the session stood — is the count's own once the count names its revision, and counts with the drafts while it names none", () => {
+        const carried: ReadonlyMap<string, string | undefined> = new Map([["saved-new", undefined], ["saved-gone", undefined]]);
+        expect(layerCounts(layer, carried, "r0")).toEqual({ added: 1, removed: 1 });
+        expect(layerCounts(layer, carried, undefined)).toEqual({ added: 2, removed: 2 });
+    });
+
     test("a narrowing's count takes off only a removed row among the rows it is of", () => {
         const among = [row("kept"), row("saved-gone")];
         expect(layerCounts(layer, savedFrom, "r0", among)).toEqual({ added: 2, removed: 1 });

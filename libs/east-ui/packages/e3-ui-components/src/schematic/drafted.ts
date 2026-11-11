@@ -101,8 +101,11 @@ export interface LandedRow<R> {
     readonly drawn: DraftedRow<R> | undefined;
     /** Its bytes as the Save left it, as a window holds a row; `undefined` for one it deleted. */
     readonly row: Uint8Array | undefined;
-    /** The revision the Save's request was drafted at: a record still read there holds the row as it stood before. */
-    readonly from: string;
+    /**
+     * The revision the Save's request was drafted at: a record still read there holds the row as it stood before.
+     * `undefined` for a row held from none (`LandedEntry.from`).
+     */
+    readonly from: string | undefined;
 }
 
 /** One sort's landed rows: by each kind's slot, then by key. */
@@ -320,7 +323,7 @@ export function waitingPoint(id: string, waiting: SchematicDrawn, drawn: Schemat
  * @param rows - A kind's landed rows
  * @returns Their revisions, one a row
  */
-function* draftedAt(rows: ReadonlyMap<string, LandedRow<unknown>>): Iterable<string> {
+function* draftedAt(rows: ReadonlyMap<string, LandedRow<unknown>>): Iterable<string | undefined> {
     for (const row of rows.values()) yield row.from;
 }
 

@@ -77,8 +77,8 @@ export const NO_DRAFTS: FlowchartDrafts = { states: NONE, transitions: NONE, lan
 export interface LandedRow<R> {
     /** The row as the Save left it, as the model takes a drafted row; `undefined` for one it deleted. */
     readonly drawn: DraftedRow<R> | undefined;
-    /** The revision the Save's request was drafted at. */
-    readonly from: string;
+    /** The revision the Save's request was drafted at; `undefined` for a row held from none (`LandedEntry.from`). */
+    readonly from: string | undefined;
 }
 
 /** One kind's landed rows, by key. */
@@ -211,7 +211,7 @@ export function draftedRows(held: FlowchartHeld, hiddenWith: ReadonlySet<string>
  * @param rows - A kind's landed rows
  * @returns Their revisions, one a row
  */
-function* draftedAt(rows: KindLanded<unknown>): Iterable<string> {
+function* draftedAt(rows: KindLanded<unknown>): Iterable<string | undefined> {
     for (const row of rows.values()) yield row.from;
 }
 

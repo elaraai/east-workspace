@@ -50,15 +50,17 @@ const stringEqual = equalFor(StringType);
  * a count read since holds it already.
  *
  * @param layer - The local layer
- * @param savedFrom - Each entry the layer draws as a Save sent it, by the revision it was drafted at
+ * @param savedFrom - Each entry the layer draws as a Save sent it, by the revision it was drafted at — `undefined` for one
+ *   held from no revision, which a count read at a revision holds already
  * @param at - The revision the count was read at; `undefined` where it is not known, which counts each
  * @param among - The rows a narrowing's count is of: only a removed one among them is taken off. None for the record's
  * @returns The rows the layer adds, and those it takes off
  */
-export function layerCounts(layer: LocalLayer, savedFrom: ReadonlyMap<string, string>, at: string | undefined, among?: readonly SheetRowValue[]): { added: number; removed: number } {
+export function layerCounts(layer: LocalLayer, savedFrom: ReadonlyMap<string, string | undefined>, at: string | undefined, among?: readonly SheetRowValue[]): { added: number; removed: number } {
     const counted = (id: string): boolean => {
+        if (!savedFrom.has(id) || at === undefined) return true;
         const from = savedFrom.get(id);
-        return from === undefined || at === undefined || stringEqual(from, at);
+        return from !== undefined && stringEqual(from, at);
     };
     let added = 0;
     for (const row of layer.appended) if (counted(row.id)) added += 1;

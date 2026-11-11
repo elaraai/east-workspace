@@ -89,3 +89,22 @@ describe("standingBeforeSave", () => {
         }
     });
 });
+
+describe("an entry held from no revision: read as its drafts were carried over at the revision its session was at already", () => {
+    test("only rows read at another revision than the one their source reads at now are from before it", () => {
+        expect(readBeforeSave("r1", "r2", undefined)).toBe(true);
+        expect(readBeforeSave("r2", "r2", undefined)).toBe(false);
+        expect([standingBeforeSave(true, "r2", undefined), standingBeforeSave(false, "r2", undefined)]).toEqual([true, false]);
+    });
+
+    test("a source naming no revision holds nothing of it, as of any", () => {
+        expect([readBeforeSave("r1", undefined, undefined), standingBeforeSave(false, undefined, undefined)]).toEqual([true, true]);
+    });
+
+    test("among several, it is from before rows read at another revision, and says nothing of rows read at the one now", () => {
+        expect(readBeforeSaves("r1", "r2", [undefined])).toBe(true);
+        expect(readBeforeSaves("r2", "r2", [undefined])).toBe(false);
+        expect(readBeforeSaves("r2", "r2", [undefined, "r2"])).toBe(true);
+    });
+});
+

@@ -250,11 +250,13 @@ export class ModelRecord {
      * @param key - The row's key
      * @param field - The field
      * @param value - The value
+     * @param by - How many commits the record had made where the value was read: no later write is the one read there.
+     *   Every commit by default
      * @returns How many commits the record had made by then, counting that one — 0 for the rows it began with; `undefined`
      *   for a value the record never held there
      */
-    writtenAt(key: string, field: Field, value: Value): number | undefined {
-        for (let i = this.commits.length - 1; i >= 0; i--) {
+    writtenAt(key: string, field: Field, value: Value, by = this.commits.length): number | undefined {
+        for (let i = Math.min(by, this.commits.length) - 1; i >= 0; i--) {
             if (this.commits[i]!.changed.some((change) => textEqual(change.key, key) && textEqual(change.field, field) && sameValue(change.after, value))) return i + 1;
         }
         return sameValue(this.at("r1").get(key)?.[field], value) ? 0 : undefined;

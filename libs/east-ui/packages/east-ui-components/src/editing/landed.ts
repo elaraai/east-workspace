@@ -29,6 +29,14 @@
  * standing from before another session's write that the Save was drafted
  * over, are from before the Save by the same test.
  *
+ * What a session read as it carried its drafts over to a source that moved
+ * is held the same way, from the revision they were carried from
+ * (`EditSession.merge`). Carried over at the revision the session was at
+ * already — a Save refused there, its entries read there — it is held from
+ * none (`undefined`): no revision's rows hold nothing of it by being read
+ * there, so only rows read at another revision than the one their source
+ * reads at now are from before it.
+ *
  * A host that knows the revision its rows were read at asks
  * {@link readBeforeSave}; one that knows of them only whether they stand from
  * before the revision their source reads at now — a page still to be read
@@ -48,10 +56,10 @@ const stringEqual = equalFor(StringType);
  *
  * @param read - The revision the rows were read at
  * @param now - The revision their source reads at now; `undefined` while it names none
- * @param from - The revision the Save's request was drafted at (a `LandedEntry`'s `from`)
+ * @param from - The revision the Save's request was drafted at (a `LandedEntry`'s `from`); `undefined` for an entry held from none
  * @returns Whether the rows are from before the Save
  */
-export function readBeforeSave(read: string, now: string | undefined, from: string): boolean {
+export function readBeforeSave(read: string, now: string | undefined, from: string | undefined): boolean {
     return standingBeforeSave(now === undefined || !stringEqual(read, now), now, from);
 }
 
@@ -62,11 +70,11 @@ export function readBeforeSave(read: string, now: string | undefined, from: stri
  *
  * @param standing - Whether the rows were read at another revision than the one their source reads at now
  * @param now - The revision their source reads at now; `undefined` while it names none
- * @param from - The revision the Save's request was drafted at (a `LandedEntry`'s `from`)
+ * @param from - The revision the Save's request was drafted at (a `LandedEntry`'s `from`); `undefined` for an entry held from none
  * @returns Whether the rows are from before the Save
  */
-export function standingBeforeSave(standing: boolean, now: string | undefined, from: string): boolean {
-    return now === undefined || standing || stringEqual(now, from);
+export function standingBeforeSave(standing: boolean, now: string | undefined, from: string | undefined): boolean {
+    return now === undefined || standing || (from !== undefined && stringEqual(now, from));
 }
 
 /**
@@ -75,10 +83,10 @@ export function standingBeforeSave(standing: boolean, now: string | undefined, f
  *
  * @param read - The revision the rows were read at
  * @param now - The revision their source reads at now; `undefined` while it names none
- * @param froms - The revision each Save's request was drafted at
+ * @param froms - The revision each Save's request was drafted at; `undefined` for an entry held from none
  * @returns Whether the rows are from before one of them; never, of no Save
  */
-export function readBeforeSaves(read: string, now: string | undefined, froms: Iterable<string>): boolean {
+export function readBeforeSaves(read: string, now: string | undefined, froms: Iterable<string | undefined>): boolean {
     for (const from of froms) if (readBeforeSave(read, now, from)) return true;
     return false;
 }

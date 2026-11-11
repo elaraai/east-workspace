@@ -91,9 +91,10 @@ export interface SheetEditingResult {
     layer: LocalLayer;
     /**
      * Each entry the layer draws as a Save sent it — committed and not yet read back, or landed — by the revision it was
-     * drafted at: a count read there holds nothing of it, and one read since holds it already (#1536).
+     * drafted at: a count read there holds nothing of it, and one read since holds it already (#1536). `undefined` for
+     * one held from no revision (`LandedEntry.from`): a count read at a revision is the source's own.
      */
-    savedFrom: ReadonlyMap<string, string>;
+    savedFrom: ReadonlyMap<string, string | undefined>;
     /**
      * Aggregate a gesture's wire edits, the draft edits beside them (by
      * entry), and the seeds its new entries take, into one transaction.
@@ -263,7 +264,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
     // rule every host asks (east-ui-components' `standingBeforeSave`): while the page its entry's row is on — any page,
     // for one not drawn — stands from before the revision its source reads at now, or its source still reads at the
     // revision it was drafted at. And while the rows are another query's, or held by a key's jump.
-    const awaiting = useCallback((id: string, from: string): boolean => {
+    const awaiting = useCallback((id: string, from: string | undefined): boolean => {
         if (rowsRead === undefined) return false;
         if (replacing || retained) return true;
         const before = (position: number | undefined): boolean => standingBeforeSave(rowsRead.before(position), rowsRead.revision, from);
@@ -339,7 +340,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         session.observeBase(observed.base);
         return session.record(updates, origin, label);
     }, [session, observed, replacing]);
-    const { layer, savedFrom } = useMemo((): { layer: LocalLayer; savedFrom: ReadonlyMap<string, string> } => {
+    const { layer, savedFrom } = useMemo((): { layer: LocalLayer; savedFrom: ReadonlyMap<string, string | undefined> } => {
         const edits = new Map<string, SheetRowValue>();
         const appended: SheetRowValue[] = [];
         const removed = new Set<string>();
@@ -350,7 +351,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         // A Save's entries, by the revision they were drafted at: while the source's commit is read back, each entry its
         // request changes — one drafted again since among them — at the base the session holds still. An entry first
         // drafted since the request was sent is a draft as any other.
-        const savedFrom = new Map<string, string>();
+        const savedFrom = new Map<string, string | undefined>();
         const committedFrom = session.status === "reconciling" ? session.drafts.revision : undefined;
         // Whether the rows draw an entry: while another query's rows stand in, theirs — which the session indexes none
         // of, and which may have read a Save's new entry already (#1583).

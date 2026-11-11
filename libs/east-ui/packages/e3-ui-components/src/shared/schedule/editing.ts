@@ -207,8 +207,8 @@ export interface ScheduleLandedRow {
 export interface ScheduleLandedRows {
     /** Each event a Save landed, by its key's text. */
     readonly rows: ReadonlyMap<string, ScheduleLandedRow>;
-    /** The revisions the Saves' requests were drafted at. */
-    readonly from: ReadonlySet<string>;
+    /** The revisions the Saves' requests were drafted at; `undefined` among them for an event held from none (`LandedEntry.from`). */
+    readonly from: ReadonlySet<string | undefined>;
 }
 
 /** What confirmed Saves landed of each kind that draws them, by the kind's slot. */
@@ -651,7 +651,7 @@ export function useScheduleEditing<I extends Item = Item>({
             const codec = codecs[i]!;
             const before = was.landed.get(part.key);
             const rows = new Map<string, ScheduleLandedRow>();
-            const from = new Set<string>();
+            const from = new Set<string | undefined>();
             let same = before !== undefined && before.rows.size === entries.size;
             for (const [id, entry] of entries) {
                 let row = was.encoded.get(entry);

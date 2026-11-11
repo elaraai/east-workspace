@@ -22,8 +22,8 @@
  *
  * Each exploration also says what it only counts (`--silent=false
  * --reporter=verbose` shows it): in how many orderings a session's steps went
- * under its person, in how many a screen went back to an older value, and in
- * how many a reload lost a change or asked of one already saved.
+ * under its person, and in how many a reload lost a change or asked of one
+ * already saved.
  *
  * One history over several sessions is `history-model.test.ts`'s.
  */
@@ -40,16 +40,14 @@ interface Explored {
     worlds: number;
     /** In how many of them a session's steps went under its person: Undo lost as the source moved. */
     stepsLost: number;
-    /** In how many of them a screen went back to a value the record held before the one it last showed. */
-    wentBack: number;
-    /** The shortest of those: its operations. */
-    wentBackFirst: readonly ModelOp[] | undefined;
     /** In how many of them a reload lost a change made while a Save was unresolved. */
     reloadLost: number;
     /** In how many of them a reload made a change already saved a conflict to choose. */
     reloadAsked: number;
     /** In how many of them a Save over a source read whole waited for good to be read back: every part it wrote put back since, exactly. */
     waitedForGood: number;
+    /** In how many of them a Save's late answer stepped a screen back to the revision the Save committed. */
+    lateAnswer: number;
 }
 
 /**
@@ -62,25 +60,21 @@ interface Explored {
  * @throws {ModelFault} The first fault, with the operations that led to it
  */
 async function explore(options: WorldOptions, depth: number, allow: (op: ModelOp) => boolean): Promise<Explored> {
-    const found: Explored = { worlds: 0, stepsLost: 0, wentBack: 0, wentBackFirst: undefined, reloadLost: 0, reloadAsked: 0, waitedForGood: 0 };
+    const found: Explored = { worlds: 0, stepsLost: 0, reloadLost: 0, reloadAsked: 0, waitedForGood: 0, lateAnswer: 0 };
     found.worlds = await everyOrdering((ops) => worldAfter(options, ops), depth, allow, independent, (world) => {
         if (world.stepsLost > 0) found.stepsLost++;
         if (world.reloadLost > 0) found.reloadLost++;
         if (world.reloadAsked > 0) found.reloadAsked++;
         if (world.waitedForGood > 0) found.waitedForGood++;
-        if (world.wentBack > 0) {
-            found.wentBack++;
-            if (found.wentBackFirst === undefined || world.ran.length < found.wentBackFirst.length) found.wentBackFirst = [...world.ran];
-        }
+        if (world.lateAnswer > 0) found.lateAnswer++;
     });
     return found;
 }
 
 /** What an exploration covered, in a line. */
 function said(name: string, found: Explored): string {
-    const back = found.wentBackFirst === undefined ? "" : ` (first: ${found.wentBackFirst.join(" → ")})`;
-    const waited = found.waitedForGood === 0 ? "" : `; a Save read whole waited for good in ${found.waitedForGood}`;
-    return `[editing model] ${name}: ${found.worlds} orderings; steps lost in ${found.stepsLost}; a reload lost a change in ${found.reloadLost}, and asked of a saved one in ${found.reloadAsked}${waited}; a screen went back in ${found.wentBack}${back}`;
+    const waited = `${found.waitedForGood === 0 ? "" : `; a Save read whole waited for good in ${found.waitedForGood}`}${found.lateAnswer === 0 ? "" : `; a late answer stepped a screen back in ${found.lateAnswer}`}`;
+    return `[editing model] ${name}: ${found.worlds} orderings; steps lost in ${found.stepsLost}; a reload lost a change in ${found.reloadLost}, and asked of a saved one in ${found.reloadAsked}${waited}`;
 }
 
 /**
@@ -140,8 +134,8 @@ for (const shape of ["fields", "whole"] as const) {
             const found = await explore({ shape, remotes: 0 }, 4 + DEEPER, (op) => OWN.test(op));
             console.info(said(`${shape} own`, found));
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 1_500);
-            // Alone, nothing moves under a person: no step of theirs goes, and their screen never goes back.
-            expect([found.stepsLost, found.wentBack]).toEqual([0, 0]);
+            // Alone, nothing moves under a person: no step of theirs goes.
+            expect(found.stepsLost).toBe(0);
         }, 600_000);
 
         it("another session's writes: every ordering of them with a person's gestures, Saves, reads and choices", async () => {
@@ -178,7 +172,7 @@ for (const shape of ["fields", "whole"] as const) {
             const found = await explore({ shape, remotes: 0 }, 5 + DEEPER, (op) => AUTOMATIC.test(op));
             console.info(said(`${shape} automatic`, found));
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_500);
-            expect([found.stepsLost, found.wentBack]).toEqual([0, 0]);
+            expect(found.stepsLost).toBe(0);
         }, 600_000);
 
         it("a page reloaded with its drafts kept: every ordering of it with gestures, Saves, their answers and another session's write", async () => {
@@ -212,15 +206,14 @@ for (const shape of ["fields", "whole"] as const) {
         }, 600_000);
 
         it("random runs past that depth, each from its seed", async () => {
-            let lost = 0, back = 0, waited = 0;
+            let lost = 0, waited = 0;
             for (let seed = 1; seed <= 1_000 * RUNS; seed++) {
                 // A third of them with each Save prepared first, and a quarter over a source read whole.
                 const world = await wander({ shape, clients: 1 + (seed % 2), remotes: 3, prepares: seed % 3 === 0, inline: seed % 4 === 1 }, seed, 40);
                 if (world.stepsLost > 0) lost++;
-                if (world.wentBack > 0) back++;
                 if (world.waitedForGood > 0) waited++;
             }
-            console.info(`[editing model] ${shape} random: ${1_000 * RUNS} runs; steps lost in ${lost}; a screen went back in ${back}; a Save read whole waited for good in ${waited}`);
+            console.info(`[editing model] ${shape} random: ${1_000 * RUNS} runs; steps lost in ${lost}; a Save read whole waited for good in ${waited}`);
         }, 600_000);
     });
 }

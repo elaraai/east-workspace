@@ -635,7 +635,18 @@ component, nothing in east-ui.
   Sheet's pages (`sheet/use-editing.ts`' `awaiting`), the Plan's windows
   (`plan/use-plan-editing.ts`) — asks the same rule by that,
   `standingBeforeSave`: `readBeforeSave` is it, over rows read at another
-  revision.
+  revision. What the session reads as it carries its drafts over to a source
+  that moved (`merge`) is held the same way, each drafted entry as the source
+  holds it there, from the revision they were carried from: a draft the
+  source came to hold whole — a row removed here and by another write — is
+  the session's no more, and one whose draft stands may be taken back, and
+  either, drawn from rows read before, would show as it stood before the
+  other write: a removed row back on the grid until its window was read
+  again. Carried over at the revision the session was at already — a Save
+  refused there — an entry is held from none (`from` `undefined`): only rows
+  read at another revision than the one their source reads at now are from
+  before it, and a count read at a revision holds it already
+  (`sheet/local-rows.ts`' `layerCounts`).
 - **Where a gesture begins** (`EditSession.startOf`, ruled 11 Nov 2026). An edit starts from the row its person is
   looking at, captured at the entry's first change: the session's own version of it; else what its last Save left of
   it, while its host has yet to show that Save (`landed`) — the host's rows are from before the commit then; else the
@@ -728,11 +739,15 @@ component, nothing in east-ui.
     through every Save; each record's request what its person saw; an automatic Save stopping at the first result
     that waits in any record, in the order the gestures were made, and there exactly while it has something it may
     send; one request a record at a time; and at rest each record holding what its screen shows.
+  - **A screen never goes back**, held of every ordering and state since 11 Nov 2026: a field never shows a value
+    the record held before the one the screen last showed there — which of the record's writes a shown value is,
+    read no later than the newest revision its source has read at, or its own Save.
   - **What it only counts**, and holds nothing of yet: the orderings in which a session's steps went under its
-    person as the source moved, those in which a screen went back to an older value, those in which a reload lost a
-    change made while a Save's outcome was unknown, or asked of one already saved, and those in which a Save over a
-    source read whole waited for good, every part it wrote put back exactly. Each is a fault still to close, never
-    a behaviour to keep.
+    person as the source moved, those in which a reload lost a
+    change made while a Save's outcome was unknown, or asked of one already saved, those in which a Save over a
+    source read whole waited for good, every part it wrote put back exactly, and those in which a Save's late answer
+    put its source back at the revision the Save committed, its rows drawn there. Each is a fault still to close,
+    never a behaviour to keep.
   - **What it does not model yet:** a source that is an ordered list (an Array with an identity field, its entries
     placed before and after one another), ranges settled together, and an entry given a new key.
   - **Using it.** A change to `session.ts`, `history.ts` or `merge.ts` runs it deeper before it lands
