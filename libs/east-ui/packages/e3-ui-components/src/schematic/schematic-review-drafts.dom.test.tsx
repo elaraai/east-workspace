@@ -34,7 +34,7 @@ import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import type { E3Hold, E3Request } from "../e3-web.test-utils.js";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
-import { savedThroughReload } from "../shared/save-held.test-utils.js";
+import { editedThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
 import { entityId } from "./canvas/drawn.js";
 import { at, cameraOf, card, fitted, layOutCanvas, near, tap, unsaved, zoomInto } from "./schematic.test-utils.js";
 import "./index.js";
@@ -619,6 +619,42 @@ test("the check every builder runs, over racks read whole: a rack Save moved sta
         // Every read of the racks: the drawing's own, which its Save's confirmation reads through too.
         reads: (request) => request.dataset === RACKS_DATASET,
         look: () => CENTRES.map(([key]) => [key, card(container, "racks", key)?.style.transform ?? null]),
+    });
+});
+
+/** Moves a rack with the Move tool, already chosen, from a point of the floor to another. */
+async function moveFrom(c: HTMLElement, from: readonly [number, number], to: readonly [number, number]) {
+    const canvas = canvasOf(c);
+    await act(async () => {
+        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, from[0], from[1]) });
+        fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, to[0], to[1]) });
+        fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 0, ...at(CAM, to[0], to[1]) });
+    });
+    await settle();
+}
+
+test("a Save never stops the editing: another rack moved while its window is read again after a Save is taken at once — from the card as it stands — stays where it was put as the reads land, and the next Save writes it", async () => {
+    const { container } = await open();
+    await moveA01(container, 2.4, 5.0);
+    await editedThroughReload({
+        e3: h.e3,
+        container,
+        reads: areaRead,
+        look: () => CENTRES.map(([key]) => [key, card(container, "racks", key)?.style.transform ?? null]),
+        // A02, which the Save did not hold: its original is the drawing's own row of it.
+        again: () => moveFrom(container, [6.0, 2.9], [6.0, 5.0]),
+    });
+});
+
+test("a Save never stops the editing, over racks read whole: another rack moved while its record is read again is taken at once, and the next Save writes it", async () => {
+    const { container } = await open(runsFloor);
+    await moveA01(container, 2.4, 5.0);
+    await editedThroughReload({
+        e3: h.e3,
+        container,
+        reads: (request) => request.dataset === RACKS_DATASET,
+        look: () => CENTRES.map(([key]) => [key, card(container, "racks", key)?.style.transform ?? null]),
+        again: () => moveFrom(container, [6.0, 2.9], [6.0, 5.0]),
     });
 });
 

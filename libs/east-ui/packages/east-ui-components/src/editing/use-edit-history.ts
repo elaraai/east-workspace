@@ -379,14 +379,16 @@ export function useEditHistory<W>(
     const original = useCallback((key: string, id: string): EntryVersion<W> | undefined => {
         const part = byKey.get(key);
         if (part === undefined) return ABSENT;
-        const existing = part.session.entries.get(id);
-        if (existing !== undefined) return existing;
-        // A paged source's entry is the collection's to read where it holds it (#1199).
-        if (part.paged !== undefined) return undefined;
-        const entries = snapshotOf(key);
-        const at = part.keyOf(id);
-        const entry = entries === undefined || at === undefined ? undefined : entries.get(at);
-        return entry === undefined ? ABSENT : { draft: liftDraft(part.draftType, entry), wire: undefined, place: KEY_ORDER };
+        // The session's own version, else what its last Save left while the collection has yet to show it, else the
+        // entry as the source shows it (`EditSession.startOf`).
+        return part.session.startOf(id, () => {
+            // A paged source's entry is the collection's to read where it holds it (#1199).
+            if (part.paged !== undefined) return undefined;
+            const entries = snapshotOf(key);
+            const at = part.keyOf(id);
+            const entry = entries === undefined || at === undefined ? undefined : entries.get(at);
+            return entry === undefined ? ABSENT : { draft: liftDraft(part.draftType, entry), wire: undefined, place: KEY_ORDER };
+        });
     }, [byKey, snapshotOf]);
     const available = useCallback((key: string): boolean =>
         observed?.bases.has(key) === true && byKey.get(key)?.session.writable === true, [observed, byKey]);

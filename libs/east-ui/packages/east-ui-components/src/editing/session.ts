@@ -1090,6 +1090,24 @@ export class EditSession<W> {
     /** The same entries as the source last acknowledged them. */
     get originals(): ReadonlyMap<string, EntryVersion<W>> { return this.baseline; }
     /**
+     * The version a gesture on an entry begins from (ruled 11 Nov 2026): the row its person is looking at, captured at
+     * the entry's first change. In order: the session's own version of it; else what its last Save left of it, while
+     * its host has yet to show that Save ({@link EditSession.landed}) — the host's rows are from before the commit
+     * then, and a gesture begun from them would change a row as it stood before the session's own Save; else the row
+     * its host shows. One rule, here: a host says only where its rows are.
+     *
+     * A start newer than the screen would let an edit overwrite a change its author never saw; begun from the row
+     * shown, another write's change of another part merges at Save, and of the same part is a conflict to choose.
+     *
+     * @param id - The entry
+     * @param shown - The entry as the host shows it now: its version, or `undefined` where the host shows none of it
+     * @returns The version; `undefined` where the session holds none and the host shows none
+     */
+    startOf(id: string, shown: () => EntryVersion<W> | undefined): EntryVersion<W> | undefined {
+        return this.current.get(id) ?? this.landedEntries.get(id)?.after ?? shown();
+    }
+
+    /**
      * What a Save landed that the host's rows may not show yet, by entry: each
      * entry the request changed, as the source held it before and holds it
      * now, and the revision the request was drafted at. A host whose rows are

@@ -314,6 +314,35 @@ test("a draft first made while a Save was read back, from a row another write ha
     expect([session.status, session.pending]).toEqual(["idle", 0]);
 });
 
+test("a gesture begins from the row its person is looking at: the session's own version, else what its last Save left while the host has yet to show it, else the row the host shows (#1599)", async () => {
+    const session = new EditSession<Bar>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, patch: undefined, drawsLanded: true,
+        apply: () => variant("applied", { revision: some("r2") }), refresh: () => undefined,
+    });
+    session.observeBase(variant("revision", "r1"));
+    /** Whether a version holds a job. */
+    const holds = (version: EntryVersion<Bar> | undefined, value: JobValue) =>
+        version !== undefined && (equalFor(OptionType(JobDraft)) as (a: unknown, b: unknown) => boolean)(some(version.draft), some(liftDraft(JobDraft, value)));
+    // Nothing of J1 held: the row the host shows — or none, where it shows none.
+    const shown = job(cut);
+    expect(session.startOf("J1", () => shown)).toBe(shown);
+    expect(session.startOf("J1", () => undefined)).toBeUndefined();
+    // Drafted: the session's own version, whatever the host shows.
+    session.record([{ id: "J1", before: shown, after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    expect(holds(session.startOf("J1", () => shown), { ...cut, qty: 5n })).toBe(true);
+    // Saved, and read back beside another write's task: the session holds no version of it any more, and the host's rows
+    // are still from before the commit — what the Save left, as the source holds it, never the row as it stood.
+    await session.apply();
+    const landed = { task: "Panel cutting, maple", qty: 5n };
+    expect(session.reconcile(variant("revision", "r2"), () => some(landed))).toBe(true);
+    expect(session.entries.has("J1")).toBe(false);
+    expect(holds(session.startOf("J1", () => shown), landed)).toBe(true);
+    // The host's rows read again, and said so: the row it shows.
+    session.shown(["J1"]);
+    const read = job(landed);
+    expect(session.startOf("J1", () => read)).toBe(read);
+});
+
 test("a positional snapshot whose commit another write overtook — the same part changed again, or the entry removed — confirms with the newer value, never waiting for good (#1599)", async () => {
     const saved = async () => {
         const session = create();

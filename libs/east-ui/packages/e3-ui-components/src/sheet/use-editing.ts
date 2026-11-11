@@ -216,7 +216,11 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         } : undefined;
     }, [source, recordSlice, entriesByKey]);
     const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
-    const { session, observed, draftType, codecs, rowIndex, original: asRead, drafts, available, version } =
+    // An entry's version before any gesture is the session's to say (`EditSession.startOf`, asked by the hook): its own;
+    // else, for one a Save landed that the rows have still to read, what the Save left (#1583) — never the rows read
+    // before it, nor nothing for one it added; else the row drawn. The session holds a landed entry exactly while its
+    // rows have still to read it: the effect below lets it go as they do.
+    const { session, observed, draftType, codecs, rowIndex, original, drafts, available, version } =
         useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare, wireOf, drawsLanded: true, wireType: Sheet.Types.Row, rekey, autosave });
     sessionRef.current = session;
     // Each row's copies past its first: a window read again at a new revision beside one still standing from before it
@@ -242,14 +246,6 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         // A copy read since the Save never lets the Save's version go while another copy was read before it (#1583).
         return rowsRead.before(currentPositions[at]) || (copies.get(id)?.some((i) => rowsRead.before(currentPositions[i])) ?? false);
     }, [rowsRead, replacing, retained, rowIndex, copies, currentPositions]);
-    // An entry a Save landed that the rows have still to read begins a gesture from what the Save left (#1583): never from
-    // the rows read before it, nor from nothing for one it added — the session holds no version of either once a write
-    // beside the Save had its confirmation read them back otherwise.
-    const original = useCallback((id: string): EntryVersion => {
-        const saved = session.entries.has(id) ? undefined : session.landed.get(id);
-        return saved !== undefined && awaiting(id, saved.from) ? saved.after : asRead(id);
-    }, [session, asRead, awaiting]);
-
     /** Aggregate the renderer's writes — the draft edits beside them, its new entries seeded as it says — into one transaction at the effect boundary. */
     const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds, named?: string, joins?: string, held?: ReadonlyMap<string, EntryVersion>): boolean => {
         if (replacing || retained || (!events.length && !draftEdits?.size) || !observed || !session.writable) return false;

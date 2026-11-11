@@ -79,6 +79,7 @@ import type { EditHistory, EntryVersion, LandedEntry, Origin } from "@elaraai/ea
 import {
     useScheduleEditing,
     type ScheduleChange, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead,
+    type ScheduleStandingRows,
 } from "../shared/schedule/editing.js";
 import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
 import { draftedRow, heldInWindow, keptAtRevision, madeFromValues, mintKey, rowCodec } from "../shared/schedule/records.js";
@@ -360,6 +361,8 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
     useLayoutEffect(() => { windowsNow.current = windows; }, [windows]);
     const pagedNow = useRef(paged);
     useLayoutEffect(() => { pagedNow.current = paged; }, [paged]);
+    // The rows each kind read through its source last held, whatever revision they were read at.
+    const lastRows = useRef(new Map<string, ReadonlyMap<string, { readonly row: Uint8Array }>>());
     // A kind read through its source: the rows its source's read holds, kept at the revision they were read at — a
     // gesture's original, and what a Save confirms its entries by. A kind read by area: the rows its window holds,
     // while they are at the record's revision; any other row is read by its key (#1393).
@@ -382,11 +385,30 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
                 continue;
             }
             const rows = keptAtRevision<ReadonlyMap<string, { readonly row: Uint8Array }>>(kind.entries, () => kind.rows());
-            out[kind.key] = (key) => heldInWindow(rows(), key);
+            out[kind.key] = (key) => {
+                const read = rows();
+                // The rows last read stand on the canvas while the record's revision now is read.
+                if (read.type === "some") lastRows.current.set(kind.key, read.value);
+                return heldInWindow(read, key);
+            };
         }
         return out;
     }, [kinds, areas]);
-    const schedule = useScheduleEditing({ kinds: NO_KINDS, records, reads, storageKey, joined: NO_JOINED, recordSlices, autosave: value.autosave });
+    // What the canvas draws of each kind's rows now, at whatever revision they were read (`ScheduleStandingRows`): a kind
+    // read by area, its window's rows and the Backlog's pages; one read through its source, the rows its read last held.
+    // A gesture begins from them — the row its person sees — so one made while a window is read again, after a Save or
+    // another session's write, is taken at once (a Save never stops the editing).
+    const standing = useMemo((): { current: ScheduleStandingRows } => {
+        const out: Record<string, (id: string) => Uint8Array | undefined> = {};
+        for (const kind of kinds) {
+            if (!kind.editable || kind.entries.type !== "some") continue;
+            out[kind.key] = areas.has(kind.key)
+                ? (id) => windowsNow.current.get(kind.key)?.rows.get(id)?.row ?? pagedNow.current?.(kind.key, id)?.row
+                : (id) => lastRows.current.get(kind.key)?.get(id)?.row;
+        }
+        return { current: out };
+    }, [kinds, areas]);
+    const schedule = useScheduleEditing({ kinds: NO_KINDS, records, reads, standing, storageKey, joined: NO_JOINED, recordSlices, autosave: value.autosave });
 
     // Each draft decoded once: a session keeps an entry's version the same object until a gesture replaces it.
     const decoded = useRef(new WeakMap<EntryVersion<ScheduleEntryRef>, DraftedRow<unknown>>());

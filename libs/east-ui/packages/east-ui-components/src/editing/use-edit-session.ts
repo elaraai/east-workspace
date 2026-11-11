@@ -292,9 +292,9 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         if (previous) return some(variant("ordered", variant("after", idOf(previous))));
         return some(variant("ordered", variant("start", null)));
     }, [keyType, rows, rowIndex, idOf]);
-    const original = useCallback((id: string): EntryVersion<W> => {
-        const existing = session.entries.get(id);
-        if (existing) return existing;
+    // Where a gesture on an entry begins (`EditSession.startOf`): the session's own version of it, else what its last Save
+    // left while the collection has yet to show that Save, else the row the collection draws.
+    const original = useCallback((id: string): EntryVersion<W> => session.startOf(id, () => {
         const index = rowIndex.get(id);
         if (index === undefined) return ABSENT;
         const at = positions[index]!;
@@ -302,7 +302,7 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         entryOffsets.get(session)?.set(id, at);
         if (raw.type !== "some") throw new Error("The source entry is not available at this revision; wait for its page before editing");
         return { draft: liftDraft(draftType, codecs.decodeEntry(raw.value)), wire: rows[index], place: placeOf(id) };
-    }, [session, rows, rowIndex, editing, positions, draftType, codecs, placeOf]);
+    })!, [session, rows, rowIndex, editing, positions, draftType, codecs, placeOf]);
     const drafts = useMemo(() => new Map([...session.entries].filter(([, entry]) => entry.draft !== undefined)
         .map(([id, entry]) => [id, codecs.encodeDraft(entry.draft)])),
     // Session entries are mutable; the external-store version records each gesture.

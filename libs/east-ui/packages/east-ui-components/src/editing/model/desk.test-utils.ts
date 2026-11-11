@@ -170,11 +170,8 @@ export class ModelDesk {
 
     /** The version a gesture on a record's row begins from: the row its person is looking at. */
     private startOf(side: Side): EntryVersion<undefined> {
-        const own = side.session.entries.get(KEY);
-        if (own !== undefined) return own;
-        const landed = side.session.landed.get(KEY);
-        if (landed !== undefined && readBeforeSave(side.screen.revision, side.known.revision, landed.from)) return landed.after;
-        return this.versionOf(side.screen.rows.get(KEY)!);
+        // The session's own rule (`EditSession.startOf`), given the screen's row: every host asks it so.
+        return side.session.startOf(KEY, () => this.versionOf(side.screen.rows.get(KEY)!))!;
     }
 
     /** The row its person sees of a record. */

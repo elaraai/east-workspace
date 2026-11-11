@@ -344,12 +344,11 @@ export class ModelClient {
      * last Save left of it, while the screen has yet to show that Save; else the screen's.
      */
     private startOf(key: string): EntryVersion<undefined> {
-        const own = this.session.entries.get(key);
-        if (own !== undefined) return own;
-        const landed = this.session.landed.get(key);
-        if (landed !== undefined && readBeforeSave(this.screen.revision, this.known.revision, landed.from)) return landed.after;
-        const shown = this.screen.rows.get(key);
-        return shown === undefined ? ABSENT : this.versionOf(shown);
+        // The session's own rule (`EditSession.startOf`), given the screen's row: every host asks it so.
+        return this.session.startOf(key, () => {
+            const shown = this.screen.rows.get(key);
+            return shown === undefined ? ABSENT : this.versionOf(shown);
+        })!;
     }
 
     /**
