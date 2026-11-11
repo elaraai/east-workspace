@@ -31,7 +31,7 @@ const decodeBatch = decodeBeast2For(SheetReadyBatchType);
 const READY = variant("ready", null);
 
 /** A wire row with nothing drawn — what the session and the checks see of a source row. */
-const WIRE = { owned: false, cells: new Map(), lines: [], band: none, subRows: [] };
+const WIRE = { owned: false, cells: new Map(), lines: [], band: none, subRows: [], entry: none };
 
 /**
  * `n` resident rows and `m` drafts whose every id read is counted: a read past

@@ -260,6 +260,12 @@ export function sheetRuleCell(rule: "level" | "actual" | "detail" | "summary" | 
  * @property lines - A group row's lines, in order (empty on a flat sheet, and for a loose row)
  * @property band - A group row's band (`none` on a flat sheet, and for a loose row)
  * @property subRows - A flat or loose row's sub rows (#844; empty for a group row, whose lines carry them)
+ * @property entry - The stored entry the row was made from, as `editing.readEntry` answers it — its bytes at the
+ *   editing session's entry type — on a sheet that writes over rows read a window at a time (#1599): the rows stand at
+ *   the revision they were read at while their pages are read again, after a Save or another session's write, and a
+ *   gesture on a row the sheet shows begins from the entry that arrived with the row, never from a read on its way.
+ *   `none` on a sheet whose rows are held whole, or that writes nothing; for a row the renderer made — a new row, a
+ *   pasted one — and for a draft's projection: no stored entry stands behind those
  */
 export const SheetRowType = StructType({
     id:      StringType,
@@ -268,6 +274,7 @@ export const SheetRowType = StructType({
     lines:   ArrayType(SheetLineType),
     band:    OptionType(SheetBandType),
     subRows: ArrayType(SheetSubRowType),
+    entry:   OptionType(BlobType),
 });
 /** Type alias for {@link SheetRowType}. */
 export type SheetRowType = typeof SheetRowType;

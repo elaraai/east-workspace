@@ -1061,9 +1061,9 @@ that refuses, goes into the e3-ui example module it belongs to.
   own tests: its reads of the record it saves held at the harness's fetch and
   let go one at a time, what it draws of the edit read at every change of the
   page — from the press of Save until every read has landed, never as it stood
-  before. Every builder runs it: the Roster, the Allocation, the Flowchart and
-  the Sheet in a `save-held.dom.test.tsx` of their own, the Schematic, the
-  Calendar and the Plan beside their other held-reload tests. A host whose rows
+  before. Every builder runs it: the Roster, the Allocation, the Flowchart, the
+  Sheet and the Record in a `save-held.dom.test.tsx` of their own, the
+  Schematic, the Calendar and the Plan beside their other held-reload tests. A host whose rows
   are read apart from a Save's confirmation keeps what the Save landed on
   screen by east-ui-components' one rule (`readBeforeSave`), never one of its
   own. Its second check, `editedThroughReload`, holds a Save to never stopping
@@ -1075,8 +1075,9 @@ that refuses, goes into the e3-ui example module it belongs to.
   act of its own, the page settling between them: what one act leaves the page
   to draw a moment later is drawn only once the act is over. The Roster, the
   Allocation, the Schematic — its racks read by area and read whole — the
-  Flowchart, and the Calendar and the Plan, each for events read by their
-  cells and for events read over the window, run it.
+  Flowchart, the Calendar and the Plan, each for events read by their cells
+  and for events read over the window, and the Sheet and the Record, each over
+  a record read a window at a time, run it.
 - Use responsive browser checks at 1440/1024/768/390/360, the light theme (dark too where a check holds a colour),
   narrow parent containers and state-preserving resize. Exercise explicit
   narrow actions, folded toolbar access and real drag previews. Verify computed
@@ -1228,6 +1229,14 @@ while its record, its narrowing and the range hold. Both builders draw such a
 kind from those rows, so a draft made meanwhile draws at once, a gesture and an
 inspector find its row among them (`held`), what a Save landed is laid over
 rows read before it (`readBeforeSaves`), and a draft's redraw asks e3 nothing.
+A sheet's rows — the Sheet's and the Record's — arrive with the stored entry
+each was made from where the sheet writes over rows read a window at a time
+(`Sheet.Types.Row`'s `entry`, ruled 11 Nov 2026: the rows carry them): a
+gesture on a row the grid shows begins from it (`useEditSession`'s `entryOf`),
+and a Save's entries are read back from it, never from an entry read on its
+own at the revision the source reads at now, which is on its way while the
+pages are read again; what the tab keeps of a draft through a reload leaves
+it out (`keptWire`).
 
 The period is assembled from the app's rows, never stored. A reader of its own
 (`RosterDataReader`, `AllocationDataReader`, as the Calendar's is, #1343) reads

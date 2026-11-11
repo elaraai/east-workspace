@@ -433,7 +433,7 @@ test.each([["exactly", false], ["beside another write", true]] as const)("a Save
     const cellsOf = (id: string, key: string) => applyLayer(drawn.rows, hook.result.current.layer).filter((row) => stringEqual(row.id, id)).map((row) => row.cells.get(key));
     act(() => hook.result.current.record([
         variant("commit", { rowId: "a", offset: 0n, key: "qty", row: { ...before[0]!, cells: new Map(before[0]!.cells).set("qty", variant("Integer", 7n)) }, source: variant("typed", null) }),
-        variant("insert", { afterRowId: some("b"), row: { id: "c", owned: false, cells: new Map<string, SheetCellValue>([["qty", variant("Integer", 3n)], ["note", variant("String", "third")]]), lines: [], band: none, subRows: [] }, source: variant("typed", null) }),
+        variant("insert", { afterRowId: some("b"), row: { id: "c", owned: false, cells: new Map<string, SheetCellValue>([["qty", variant("Integer", 3n)], ["note", variant("String", "third")]]), lines: [], band: none, subRows: [], entry: none }, source: variant("typed", null) }),
     ]));
     await act(async () => { await hook.result.current.session.apply(); });
     expect(domain).toEqual([{ id: "a", qty: 7n, note: "first" }, { id: "b", qty: 2n, note: "second" }, { id: "c", qty: 3n, note: "third" }]);
@@ -609,7 +609,7 @@ test("creation defaults survive a multi-event gesture, later clearing, and appli
     const getView = () => compile();
     const root = getView();
     const hook = renderHook(({ root }) => useEditing(root), { initialProps: { root } });
-    const inserted: SheetRowValue = { id: "new", owned: false, cells: new Map<string, SheetCellValue>([["qty", variant("Integer", 9n)], ["note", variant("Null", null)]]), lines: [], band: none, subRows: [] };
+    const inserted: SheetRowValue = { id: "new", owned: false, cells: new Map<string, SheetCellValue>([["qty", variant("Integer", 9n)], ["note", variant("Null", null)]]), lines: [], band: none, subRows: [], entry: none };
     act(() => hook.result.current.record([
         variant("insert", { afterRowId: none, row: inserted, source: variant("row", null) }),
         variant("commit", { rowId: "new", offset: 0n, key: "qty", row: { ...inserted, cells: new Map(inserted.cells).set("qty", variant("Integer", 12n)) }, source: variant("row", null) }),
@@ -650,7 +650,7 @@ test("group and child constructors keep hidden fields and receive the actual chi
     }).toIR().compile(StateImpl);
     const result = compile();
     const hook = renderHook(() => useEditing(result));
-    const row: SheetRowValue = { id: "g", owned: false, cells: new Map([["$title", variant("Null", null)]]), lines: [{ key: "new-child", cells: new Map([["qty", variant("Integer", 8n)]]), subRows: [] }], band: some({ sub: "", folded: false }), subRows: [] };
+    const row: SheetRowValue = { id: "g", owned: false, cells: new Map([["$title", variant("Null", null)]]), lines: [{ key: "new-child", cells: new Map([["qty", variant("Integer", 8n)]]), subRows: [] }], band: some({ sub: "", folded: false }), subRows: [], entry: none };
     act(() => hook.result.current.record([
         variant("insert", { afterRowId: none, row, source: variant("typed", null) }),
         variant("commit", { rowId: "g", offset: 0n, key: "$title", row: { ...row, cells: new Map([["$title", variant("String", "Named group")]]) }, source: variant("typed", null) }),

@@ -833,7 +833,7 @@ describe("columns from data at the day", () => {
     test("`decode` writes each cell a gesture changed through its column's `write`, over the field as drafted so far — a second column on the field chaining onto the first — and a cell left as it read, or holding text no column could read, writes nothing", () => {
         const cellsAt = cellsAtOf(STAFF_AT_DAY);
         const decode = (cells: ValueTypeOf<typeof Cells>, base: ValueTypeOf<typeof StaffDraft>) => decodeStaffDraft(STAFF_AT_DAY.editing.decode(
-            encodeRow({ id: "H-1", owned: false, cells, lines: [], band: none, subRows: [] }), some(encodeStaffDraft(base)), none, MONDAY));
+            encodeRow({ id: "H-1", owned: false, cells, lines: [], band: none, subRows: [], entry: none }), some(encodeStaffDraft(base)), none, MONDAY));
         const shown = cellsAt(MORGAN, MONDAY);
         const typed = new Map<string, CellValue>([...shown, ["hours:P-200", variant("Float", 9.0)], ["byClient:C-01", variant("Float", 1.5)], ["hours:P-101", variant("Invalid", "lots")]]);
         const written = decode(typed, MORGAN_DRAFT);
@@ -850,7 +850,7 @@ describe("columns from data at the day", () => {
     test("over a struct's fields, each changed one is set on the struct and the struct written once — a clear writing none where the field is an Option and nothing where it isn't — and a field not yet set starts from its type's default, written or not", () => {
         const cellsAt = cellsAtOf(WEEK_AT_DAY);
         const decode = (id: string, cells: ValueTypeOf<typeof Cells>, base: ValueTypeOf<typeof RosteredDraft> | undefined) => decodeRosteredDraft(WEEK_AT_DAY.editing.decode(
-            encodeRow({ id, owned: false, cells, lines: [], band: none, subRows: [] }), base === undefined ? none : some(encodeRosteredDraft(base)), none, MONDAY));
+            encodeRow({ id, owned: false, cells, lines: [], band: none, subRows: [], entry: none }), base === undefined ? none : some(encodeRosteredDraft(base)), none, MONDAY));
         const base: ValueTypeOf<typeof RosteredDraft> = { id: variant("value", "S-1"), week: variant("value", { mon: 4n, sat: some(2n), note: "" }) };
         const shown = cellsAt(variant("draft", encodeRosteredDraft(base)), MONDAY);
         assert.ok(equalFor(Cells)(shown, new Map<string, CellValue>([["week:mon", variant("Integer", 4n)], ["week:sat", variant("Integer", 2n)]])), printFor(Cells)(shown));

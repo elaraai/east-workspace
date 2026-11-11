@@ -11,7 +11,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { IntegerType, SortedMap, StringType, StructType, compareFor, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { BlobType, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
 import { clearKept, keptName, resetKept } from "../platform/kept.js";
 import { liftDraft } from "./draft.js";
@@ -103,6 +103,55 @@ describe("drafts kept through a reload", () => {
         after.observeBase(jobs({ ...cut, qty: 5n }));
         expect(after.pending).toBe(0);
         expect(stored()).toBeNull();
+    });
+
+    test("a projection is kept as its collection says: what a row carries beyond what a draft is restored with — the entry it was read with — is left out of what the tab keeps, and the draft is restored without it (#1599)", () => {
+        // A collection whose rows carry the entry they were read with: four kilobytes a row here, no two bytes alike
+        // for long, so nothing written of them is shorter than they are.
+        const Carrying = StructType({ id: StringType, entry: OptionType(BlobType) });
+        type CarryingValue = ValueTypeOf<typeof Carrying>;
+        let seed = 0x2545f491;
+        const read = Uint8Array.from({ length: 4096 }, () => {
+            // xorshift32: bytes no writer can shorten.
+            seed ^= seed << 13;
+            seed ^= seed >>> 17;
+            seed ^= seed << 5;
+            return seed & 0xff;
+        });
+        const row = (id: string): CarryingValue => ({ id, entry: some(read) });
+        const lean = (wire: CarryingValue): CarryingValue => (wire.entry.type === "some" ? { ...wire, entry: none } : wire);
+        const carrying = (kept?: (wire: CarryingValue) => CarryingValue): EditSession<CarryingValue> => {
+            const binding: EditSessionBinding<CarryingValue> = {
+                sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType,
+                apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+            };
+            const next = new EditSession<CarryingValue>(binding);
+            keepDrafts(next, KEY, Carrying, kept);
+            return next;
+        };
+        const draft = (s: EditSession<CarryingValue>): void => {
+            s.observeBase(jobs());
+            s.record([{
+                id: "J1",
+                before: { draft: liftDraft(JobDraft, cut), wire: row("J1"), place: keyOrder },
+                after: { draft: liftDraft(JobDraft, { ...cut, qty: 5n }), wire: row("J1"), place: keyOrder },
+            }], "typed", "Set quantity");
+        };
+        // Kept whole, the tab holds the rows' entry.
+        draft(carrying());
+        const whole = stored()!.length;
+        expect(whole).toBeGreaterThan(4096);
+        window.sessionStorage.clear();
+        reload();
+        // Kept lean, it holds none of it — and the draft comes back, its row without the entry.
+        draft(carrying(lean));
+        expect(stored()!.length).toBeLessThan(whole - 4096);
+        reload();
+        const after = carrying(lean);
+        after.observeBase(jobs());
+        expect(after.pending).toBe(1);
+        expect(sameDraft(after.entries.get("J1")!.draft as JobDraftValue, draftOf({ ...cut, qty: 5n }))).toBe(true);
+        expect(after.entries.get("J1")!.wire).toEqual({ id: "J1", entry: none });
     });
 
     test("drafts kept under another schema are not restored: the session says they were lost, and the tab keeps them no more", () => {

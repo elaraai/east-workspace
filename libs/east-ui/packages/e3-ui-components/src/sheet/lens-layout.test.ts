@@ -25,7 +25,7 @@ import {
 } from "./lens-layout.js";
 import type { SheetRowValue } from "./values.js";
 
-const row = (id: string): SheetRowValue => ({ id, owned: false, cells: new Map(), lines: [], band: none, subRows: [] });
+const row = (id: string): SheetRowValue => ({ id, owned: false, cells: new Map(), lines: [], band: none, subRows: [], entry: none });
 const G: LensGeometry = { entryPx: 30 };
 const WORDS = { changed: "the record changed while they were read" };
 

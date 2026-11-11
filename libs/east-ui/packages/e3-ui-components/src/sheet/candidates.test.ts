@@ -38,7 +38,7 @@ const lookupMeta: SheetColumnMeta = indexColumns([{
 } as never]).list[0]!;
 
 function row(id: string, activity: string): SheetRowValue {
-    return { id, owned: false, cells: new Map([["activity", variant("String", activity)]]), lines: [], band: none, subRows: [] };
+    return { id, owned: false, cells: new Map([["activity", variant("String", activity)]]), lines: [], band: none, subRows: [], entry: none };
 }
 
 describe("scoring", () => {

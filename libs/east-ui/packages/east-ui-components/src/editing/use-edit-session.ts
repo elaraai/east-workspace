@@ -113,6 +113,27 @@ export interface EditSessionOptions<W> {
      * over it. Nothing where every Save is a person's (`manualSave`).
      */
     autosave?: boolean | undefined;
+    /**
+     * The stored entry a row was read with — its bytes at the entry type —
+     * where the collection's rows carry theirs (#1599). A collection whose
+     * rows are read apart from the session's own reads holds them at the
+     * revision they were read at while they are read again, after a Save or
+     * another session's write: a gesture on a row it shows then begins from
+     * the entry read with that row (`EditSession.startOf`), never from a read
+     * at the revision now, which is on its way — a Save never stops the
+     * editing. A Save's entries are read back the same way: each from the
+     * entry the window that holds its row read with it, the one that read is
+     * of. `undefined` for a row that carries none, whose entry is read on its
+     * own, as the gesture or the read back runs.
+     */
+    entryOf?: ((row: W) => Uint8Array | undefined) | undefined;
+    /**
+     * What of a row is kept with a draft through a reload (`wireType`), where
+     * the collection's rows carry more than a draft is restored with — their
+     * stored entry, read again with the row (#1599): the row without it. A row
+     * is kept whole where none is given.
+     */
+    keptWire?: ((row: W) => W) | undefined;
 }
 
 const entryOffsets = new WeakMap<object, Map<string, number>>();
@@ -141,7 +162,7 @@ const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: 
  * @returns The session; the base it observed; its schemas' codecs; each resident row's index; an entry's placement and original version; the encoded drafts; whether editing is available; and the session's version
  */
 export function useEditSession<W>(editing: EditingValue, source: EditSource<W> | undefined, rows: readonly W[], positions: readonly number[], storageKey: string, options: EditSessionOptions<W>) {
-    const { idOf, ready, prepare, wireOf, carryOver, drawsLanded, wireType, rekey, manualSave } = options;
+    const { idOf, ready, prepare, wireOf, carryOver, drawsLanded, wireType, rekey, manualSave, entryOf, keptWire } = options;
     const autosave = options.autosave === true;
     const store = getStore();
     const entryType = useMemo(() => fromEastTypeValue(editing.entryType), [editing.entryType]);
@@ -166,7 +187,7 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
             beginAutosave(next, autosave);
         }
         // Its drafts kept through a reload: what the tab kept restored at its first base.
-        if (wireType !== undefined && carryOver !== false) keepDrafts(next, keptDraftsKey(scope, editing.sourceId, storageKey), wireType);
+        if (wireType !== undefined && carryOver !== false) keepDrafts(next, keptDraftsKey(scope, editing.sourceId, storageKey), wireType, keptWire);
         return next;
     }),
     // Binding callbacks change independently; the layout effect below
@@ -253,17 +274,20 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
             }
             // In a window, the row at the entry's own position; a one-row read holds no other.
             const rowsAt = size === undefined ? page.value : page.value.slice(at - start, at - start + 1);
-            if (!rowsAt.some(row => stringEqual(idOf(row), id))) {
+            const row = rowsAt.find(candidate => stringEqual(idOf(candidate), id));
+            if (row === undefined) {
                 reads.set(id, none);
                 continue;
             }
-            const raw = editing.readEntry(id, BigInt(at));
+            // The entry the page read with its row, where the collection's rows carry theirs: the one this read is of.
+            const kept = entryOf?.(row);
+            const raw = kept !== undefined ? some(kept) : editing.readEntry(id, BigInt(at));
             if (raw.type === "some") reads.set(id, some(codecs.decodeEntry(raw.value)));
         }
         return { base: variant("revision", revision.value), reads };
         // Session status and entries change under the external-store version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editing, keyType, source, rows, rowIndex, positions, codecs, session, version, binding, idOf]);
+    }, [editing, keyType, source, rows, rowIndex, positions, codecs, session, version, binding, idOf, entryOf]);
     const { result } = useTrackedEvaluation(read);
     const observed = result.ok ? result.value : undefined;
     useLayoutEffect(() => {
@@ -293,16 +317,19 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         return some(variant("ordered", variant("start", null)));
     }, [keyType, rows, rowIndex, idOf]);
     // Where a gesture on an entry begins (`EditSession.startOf`): the session's own version of it, else what its last Save
-    // left while the collection has yet to show that Save, else the row the collection draws.
+    // left while the collection has yet to show that Save, else the row the collection draws — its entry as the
+    // collection kept it with the row, where it keeps one (`entryOf`), so a row read before the revision the source reads
+    // at now is edited from what its person sees, with no read on its way; else read as the gesture runs.
     const original = useCallback((id: string): EntryVersion<W> => session.startOf(id, () => {
         const index = rowIndex.get(id);
         if (index === undefined) return ABSENT;
         const at = positions[index]!;
-        const raw = editing.readEntry(id, BigInt(at));
+        const kept = entryOf?.(rows[index]!);
+        const raw = kept !== undefined ? some(kept) : editing.readEntry(id, BigInt(at));
         entryOffsets.get(session)?.set(id, at);
         if (raw.type !== "some") throw new Error("The source entry is not available at this revision; wait for its page before editing");
         return { draft: liftDraft(draftType, codecs.decodeEntry(raw.value)), wire: rows[index], place: placeOf(id) };
-    })!, [session, rows, rowIndex, editing, positions, draftType, codecs, placeOf]);
+    })!, [session, rows, rowIndex, editing, positions, draftType, codecs, placeOf, entryOf]);
     const drafts = useMemo(() => new Map([...session.entries].filter(([, entry]) => entry.draft !== undefined)
         .map(([id, entry]) => [id, codecs.encodeDraft(entry.draft)])),
     // Session entries are mutable; the external-store version records each gesture.

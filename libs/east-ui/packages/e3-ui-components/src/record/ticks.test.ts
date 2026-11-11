@@ -11,7 +11,7 @@ import { createRecordTicks } from "./ticks.js";
 
 /** A row as the Sheet reads it, and what it holds of it. */
 function heldOf(id: string): SheetEntryHold {
-    const wire: SheetRowValue = { id, owned: false, cells: new Map(), lines: [], band: none, subRows: [] };
+    const wire: SheetRowValue = { id, owned: false, cells: new Map(), lines: [], band: none, subRows: [], entry: none };
     return { draft: { id }, wire, place: none };
 }
 

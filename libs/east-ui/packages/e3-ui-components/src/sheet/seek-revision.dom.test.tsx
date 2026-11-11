@@ -17,7 +17,7 @@ const hidden = (key: string) => `${key} · hidden`;
 
 /** The rows `r0`, `r1`, … at their places: a window of them, read through the source by position. */
 function rowsAt(offset: bigint, limit: bigint): SheetRowValue[] {
-    return Array.from({ length: Number(limit) }, (_x, i) => ({ id: `r${Number(offset) + i}`, owned: false, cells: new Map(), lines: [], band: none, subRows: [] }));
+    return Array.from({ length: Number(limit) }, (_x, i) => ({ id: `r${Number(offset) + i}`, owned: false, cells: new Map(), lines: [], band: none, subRows: [], entry: none }));
 }
 
 function source(revision: string, found: boolean): SheetPagedSourceValue {

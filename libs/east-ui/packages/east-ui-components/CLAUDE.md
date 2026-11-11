@@ -630,7 +630,9 @@ component, nothing in east-ui.
   looking at, captured at the entry's first change: the session's own version of it; else what its last Save left of
   it, while its host has yet to show that Save (`landed`) — the host's rows are from before the commit then; else the
   row its host shows. One rule, in the session: a host says only where its rows are (`useEditHistory`'s `original`,
-  e3-ui-components' `useScheduleEditing`'s `standing`). A start newer than the screen would let an edit overwrite a
+  e3-ui-components' `useScheduleEditing`'s `standing`; `useEditSession`'s `entryOf`, where a collection's rows arrive
+  with the stored entry each was made from, as a sheet's do — the entry a gesture begins from and a Save is read back
+  from, never one read on its own at the revision now, on its way while the rows are read again). A start newer than the screen would let an edit overwrite a
   change its author never saw; begun from the row shown, another write's change of another part merges at Save, and
   of the same part is a conflict to choose. The harness's sessions ask the same rule.
 - **A Save never stops the editing** (`EditSession`, `src/editing/session.ts`). A session takes gestures, Undo and

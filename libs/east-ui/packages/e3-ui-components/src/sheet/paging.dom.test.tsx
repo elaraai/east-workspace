@@ -42,7 +42,7 @@ function source(total: number, opts: { holdWindow?: number; faults?: Faults; inF
             if (opts.holdWindow === w || opts.inFlight?.has(w) === true) return none;
             const rows: SheetRowValue[] = [];
             for (let i = Number(offset); i < Math.min(total, Number(offset) + Number(limit)); i++) {
-                rows.push({ id: `r${String(i).padStart(5, "0")}`, owned: false, cells: new Map(), lines: [], band: none, subRows: [] });
+                rows.push({ id: `r${String(i).padStart(5, "0")}`, owned: false, cells: new Map(), lines: [], band: none, subRows: [], entry: none });
             }
             return some(rows);
         },
@@ -378,7 +378,7 @@ function revisioned(total: number) {
             if (!state.open.has(state.revision)) return none;
             const rows: SheetRowValue[] = [];
             for (let i = Number(offset); i < Math.min(size(), Number(offset) + Number(limit)); i++) {
-                rows.push({ id: `r${String(i).padStart(5, "0")}`, owned: false, cells: new Map([["rev", variant("String", state.revision)]]), lines: [], band: none, subRows: [] } as SheetRowValue);
+                rows.push({ id: `r${String(i).padStart(5, "0")}`, owned: false, cells: new Map([["rev", variant("String", state.revision)]]), lines: [], band: none, subRows: [], entry: none } as SheetRowValue);
             }
             return some(rows);
         },

@@ -647,7 +647,7 @@ describe("a sheet reads only what it shows (#1188)", () => {
         expect(held.state.asked.slice(read)).toEqual([]);
     });
 
-    test("a builder's inspector reads a row's entry once while the rows stand, however often it draws: back on a row it read, it reads nothing", async () => {
+    test("a builder's inspector reads no page for the entry of a row the sheet shows — a row of a sheet that writes arrives with its entry (#1599) — however often it draws, and back on a row it showed", async () => {
         const held = heldSheet(20);
         /** What the builder's Details does: the ring's row's target, read as it draws. */
         function Inspector() {
@@ -674,21 +674,23 @@ describe("a sheet reads only what it shows (#1188)", () => {
         fireEvent.mouseDown(cell("r003", "task"), { button: 0 });
         await flush();
         expect([inspected().getAttribute("data-inspected"), inspected().textContent]).toEqual(["r003", "Task 3"]);
-        // One read: the row's entry, at its place in window 0.
-        expect(held.state.asked.slice(read)).toEqual([0]);
+        // No read: the row's entry came with the row, in the window's own read. Read as the inspector drew it, a one-row
+        // page of the source, it was on its way whenever the window was read again — after a Save, after another session's
+        // write — and nothing of the row could be edited until it landed.
+        expect(held.state.asked.slice(read)).toEqual([]);
         // A hover and a key that moves nothing: drawn again, nothing read.
         fireEvent.mouseEnter(cell("r005", "qty"));
         fireEvent.keyDown(card, { key: "Escape" });
         await flush();
-        expect(held.state.asked.slice(read)).toEqual([0]);
-        // The next row: its entry is read. Back on the first: it is not read again.
+        expect(held.state.asked.slice(read)).toEqual([]);
+        // The next row, and back on the first: neither is read for.
         fireEvent.keyDown(card, { key: "ArrowDown" });
         await flush();
         expect([inspected().getAttribute("data-inspected"), inspected().textContent]).toEqual(["r004", "Task 4"]);
         fireEvent.keyDown(card, { key: "ArrowUp" });
         await flush();
         expect(inspected().getAttribute("data-inspected")).toBe("r003");
-        expect(held.state.asked.slice(read)).toEqual([0, 0]);
+        expect(held.state.asked.slice(read)).toEqual([]);
     });
 
     test("an issue's row that is not in is sought by its key: the window lands, and the ring is on the issue's cell (SB53)", async () => {
@@ -857,7 +859,6 @@ function heldSheet(n: number) {
         /** The source has not counted itself yet: `total()` answers none (#860). */
         uncounted: false,
         totalError: undefined as string | undefined,
-        entryError: undefined as string | undefined,
         failing: new Map<number, string>(),
         inFlight: new Set<number>(),
         broken: undefined as string | undefined,
@@ -880,7 +881,6 @@ function heldSheet(n: number) {
             read();
             const w = Math.floor(Number(offset) / SHEET_PAGE_SIZE);
             state.asked.push(w);
-            if (limit === 1n && state.entryError !== undefined) throw new Error(state.entryError);
             const failure = state.failing.get(w);
             if (failure !== undefined) throw new Error(failure);
             if (state.inFlight.has(w)) return none;
@@ -1322,9 +1322,10 @@ describe("failure is local (#853)", () => {
             type("Applied");
             editorKey("Enter");
             await flush();
-            // The source takes the write, but from then on reading an entry back fails — the
-            // readiness check's reads too, which it reports as an issue: the sheet stays up.
-            held.state.afterApply = () => { held.state.entryError = "read-back refused"; };
+            // The source takes the write, but from then on the window the row stands in cannot be read: the Save's
+            // entries are read back from the windows their rows are read in (#1596), each from the entry its window
+            // read with the row (#1599), so the read back fails with the window — and the sheet stays up.
+            held.state.afterApply = () => { held.state.failing.set(2, "read-back refused"); };
             const bar = container.querySelector('[data-slot="history"]') as HTMLElement;
             // The read-back's reason is the frame's banner, with its Retry; the history item says nothing under its buttons.
             const confirm = () => container.querySelector<HTMLElement>('[data-frame-slot="banners"] [data-session-banner="confirm"]');
@@ -1332,7 +1333,6 @@ describe("failure is local (#853)", () => {
             await waitFor(() => expect(confirm()?.textContent).toContain("read-back refused"));
             expect(within(bar).queryByRole("alert")).toBeNull();
             expect(within(bar).getByRole("status").textContent).toBe("Saved — reading it back…");
-            expect(within(bar).getByRole("button", { name: "1 issue" })).toBeTruthy();
             expect(held.state.refreshes).toBe(1);
             // Retry asks the source again — the bar's, and then the banner's; the read fails again each time, and the banner says so again.
             fireEvent.click(within(bar).getByRole("button", { name: "Retry refresh" }));
@@ -1344,13 +1344,16 @@ describe("failure is local (#853)", () => {
             expect(held.state.refreshes).toBe(3);
             expect(confirm()?.textContent).toContain("read-back refused");
             // The read gets through: the Save is confirmed, and the banner leaves.
-            held.state.entryError = undefined;
+            held.state.failing.delete(2);
             held.touch();
             await waitFor(() => expect(confirm()).toBeNull());
             expect(within(bar).queryByRole("status")).toBeNull();
             expect(within(bar).queryByRole("button", { name: "Retry refresh" })).toBeNull();
             expect(within(bar).getByRole("button", { name: "0 issues" })).toBeTruthy();
-            expect(task().textContent).toBe("Applied");
+            // The grid's own read of that window failed with it, and is said where its rows stand, with its own Retry
+            // (#853): asked again, it lands the row as saved.
+            fireEvent.click(container.querySelector('[data-band="failed"][data-failed="2"] [data-loading-retry]')!);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r401"] [data-key="task"]')?.textContent).toBe("Applied"));
         } finally {
             logged.mockRestore();
         }

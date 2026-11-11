@@ -58,6 +58,21 @@ test("an entry's place among the collection's rows, and its original version, ar
     expect(hook.result.current.available).toBe(true);
 });
 
+test("a gesture on a row the collection draws begins from the entry the collection kept with the row — never a read at the revision now, which is on its way while the row's page is read again (#1599)", () => {
+    initializeStore(new UIStore());
+    // The source's entries are on their way: a read as a gesture runs has none to give.
+    const reading: EditingValue = { ...editingOf(false), sourceId: "bars-kept", readEntry: () => none };
+    // The collection kept each bar's entry as the bar landed.
+    const kept = new Map(BARS.map((bar, i) => [bar, encodeRun(RUNS[i]!)]));
+    const hook = renderHook(() => useEditSession<Bar>(reading, undefined, BARS, POSITIONS, "bars-kept", { idOf, entryOf: (bar) => kept.get(bar) }));
+    const b = hook.result.current.original("b");
+    expect(b.wire).toEqual({ key: "b", end: 2n });
+    expect(b.draft).toEqual({ id: variant("value", "b"), end: variant("value", 2n) });
+    // A row it kept none for is read as the gesture runs — and, on its way, the gesture is refused, saying why.
+    kept.delete(BARS[2]!);
+    expect(() => hook.result.current.original("c")).toThrow("wait for its page before editing");
+});
+
 test("a session's builder keeps its choice of an automatic Save by its view — but a collection whose every Save is a person's keeps none, so no Save of it goes by itself", () => {
     initializeStore(new UIStore());
     const kept = renderHook(() => useEditSession<Bar>(editingOf(false), undefined, BARS, POSITIONS, "bars", { idOf }));
@@ -256,6 +271,53 @@ test("a positional source's entries are read back from the windows its rows are 
     await act(async () => { await Promise.resolve(); });
     expect(asked).toContain(18);
     expect([session().status, session().pending]).toEqual(["idle", 0]);
+});
+
+test("a Save's entries are read back from the entry each window's row was read with, where the collection's rows carry theirs — never an entry read on its own, which may be on its way though its window has landed (#1599)", async () => {
+    initializeStore(new UIStore());
+    const stored = [{ id: "a", end: 1n }, { id: "b", end: 2n }, { id: "c", end: 3n }, { id: "d", end: 4n }];
+    const held = { revision: "r1", runs: stored };
+    // Each bar a window reads carries the entry it was read with.
+    const carried = new WeakMap<Bar, Uint8Array>();
+    const barOf = (run: (typeof stored)[number]): Bar => {
+        const bar = { key: run.id, end: run.end };
+        carried.set(bar, encodeRun(run));
+        return bar;
+    };
+    const sourceAt = (): EditSource<Bar> => ({
+        pageSize: 2,
+        page: (offset, count) => some(held.runs.slice(Number(offset), Number(offset + count)).map(barOf)),
+        revision: () => some(held.revision),
+        refresh: () => null,
+        seek: none,
+    });
+    // An entry read on its own: asked, it has none to give.
+    const alone: string[] = [];
+    const editing: EditingValue = {
+        ...editingOf(false), sourceId: "bars-carried", snapshot: none,
+        readEntry: (id) => { alone.push(id); return none; },
+        onApply: some(variant("sync", () => {
+            held.runs = stored.map((run) => (run.id === "b" ? { id: "b", end: 20n } : run));
+            held.revision = "r2";
+            return variant("applied", { revision: some("r2") });
+        })),
+    };
+    const bars = stored.map(barOf);
+    const hook = renderHook(({ source }) => useEditSession<Bar>(editing, source, bars, [0, 1, 2, 3], "bars-carried", { idOf, entryOf: (bar) => carried.get(bar) }),
+        { initialProps: { source: sourceAt() } });
+    act(() => {
+        const { session, original } = hook.result.current;
+        const before = original("b");
+        session.record([{ id: "b", before, after: { ...before, draft: { id: variant("value", "b"), end: variant("value", 20n) } } }], "typed", "Edit b");
+    });
+    await act(async () => { await hook.result.current.session.apply(); });
+    hook.rerender({ source: sourceAt() });
+    await act(async () => { await Promise.resolve(); });
+    hook.rerender({ source: sourceAt() });
+    await act(async () => { await Promise.resolve(); });
+    // Read back from the window that holds b, as that window read it: confirmed, and nothing asked on its own.
+    expect([hook.result.current.session.status, hook.result.current.session.pending]).toEqual(["idle", 0]);
+    expect(alone).toEqual([]);
 });
 
 test("hidden and paged-out drafts retain history and Save confirms them by primary identity", async () => {

@@ -101,6 +101,6 @@ export function insertionGesture(request: InsertRequest, rows: readonly SheetRow
     if (rows.some(row => row.id === id)) throw new Error("The new row id already exists in this sheet");
     const side = kind === "group" && parent !== undefined ? groupInsertionSide(parent, anchor) : anchor.side;
     const placement: Placement = some(keyed ? variant("keyOrder", null) : variant("ordered", parent === undefined ? variant("end", null) : variant(side, parent.id)));
-    const row: SheetRowValue = { id, owned: false, cells: new Map(), lines: [], band: kind === "group" ? some({ sub: "", folded: false }) : none, subRows: [] };
+    const row: SheetRowValue = { id, owned: false, cells: new Map(), lines: [], band: kind === "group" ? some({ sub: "", folded: false }) : none, subRows: [], entry: none };
     return { id, placement, event: variant("insert", { afterRowId: none, row, source: variant("typed", null) }) };
 }

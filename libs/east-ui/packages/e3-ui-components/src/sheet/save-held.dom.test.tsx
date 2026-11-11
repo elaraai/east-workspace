@@ -4,11 +4,13 @@
  *
  * @vitest-environment jsdom
  *
- * The Sheet through a Save whose reads come back late — the check every
+ * The Sheet through a Save whose reads come back late — the checks every
  * builder runs (`shared/save-held.test-utils.ts`): over a record read a window
  * at a time, a row a paste added stays in the grid, as typed, from the press of
  * Save until its window is read again, never gone while the window's pages are
- * on their way.
+ * on their way; and a Save never stops the editing — another row's cell pasted
+ * over while the pages are read again is taken at once, from the row the grid
+ * shows, and is the next Save's to send.
  */
 
 import { expect, test } from "vitest";
@@ -16,7 +18,7 @@ import { fireEvent, waitFor } from "@testing-library/react";
 import { East } from "@elaraai/east";
 import { Data, Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import * as fx from "@elaraai/e3-ui/fixtures/sheet/sheet-keys";
-import { savedThroughReload } from "../shared/save-held.test-utils.js";
+import { editedThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
 import { act, settle, sheetHarness } from "./frame/harness.test-utils.js";
 
 const h = sheetHarness({ modules: { "sheet/sheet-keys.fixtures": fx }, frame: 2000 });
@@ -56,4 +58,28 @@ test("a row Save added stays in the grid, as typed, while its window is read aga
     });
     // Saved: the record holds job 11.
     expect((await h.read(fx.numberedJobs)).get(11n)).toEqual({ task: "Sanding", qty: 6n });
+});
+
+test("a Save never stops the editing: another row's task pasted over while the window is read again after a Save is taken at once — from the row the grid shows — stays as typed as the pages land, and the next Save writes it", async () => {
+    const { container: c } = await h.mountPayload(windowedJobs, { storageKey: "sheet-save-again" });
+    await waitFor(() => expect(rows(c).map(([id]) => id)).toEqual(["9", "10"]));
+    const card = () => c.querySelector("[data-sheet-card]")!;
+    const blank = c.querySelector<HTMLElement>('[data-slot="row"][data-blank] [data-key="task"]')!;
+    fireEvent.mouseDown(blank, { button: 0 });
+    await act(async () => { fireEvent.paste(card(), { clipboardData: { getData: () => "Sanding\t6" } }); });
+    await settle();
+    expect(rows(c).map(([id]) => id)).toEqual(["9", "10", "11"]);
+    await editedThroughReload({
+        e3: h.e3,
+        container: c,
+        reads: (request) => request.dataset === JOBS && request.kind === "page",
+        look: () => rows(c),
+        // Job 9, which the Save did not hold: its original is the grid's own row of it. Its task picked, then pasted over.
+        again: [
+            () => { fireEvent.mouseDown(c.querySelector<HTMLElement>('[data-slot="row"][data-row-id="9"] [data-key="task"]')!, { button: 0 }); },
+            () => { fireEvent.paste(card(), { clipboardData: { getData: () => "Varnishing" } }); },
+        ],
+    });
+    const jobs = await h.read(fx.numberedJobs);
+    expect([jobs.get(11n), jobs.get(9n)!.task]).toEqual([{ task: "Sanding", qty: 6n }, "Varnishing"]);
 });

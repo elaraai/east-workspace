@@ -697,7 +697,7 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
     const { styles, columns, registers, driverColumn, gridTemplate, rowPx, index, number, cells, meta, picked, linkCtx } = props;
     // The suggestion's words (#861).
     const { m } = useSheetWords();
-    const pseudo: SheetRowValue = { id: "", owned: false, cells: cells as Map<string, SheetCellValue>, lines: [], band: none, subRows: [] };
+    const pseudo: SheetRowValue = { id: "", owned: false, cells: cells as Map<string, SheetCellValue>, lines: [], band: none, subRows: [], entry: none };
     const driverKey = driverKeyOf(pseudo, driverColumn);
     const pick = (e: MouseEvent) => { if (e.button !== 0) return; e.preventDefault(); e.stopPropagation(); props.onPick(index); };
     return (

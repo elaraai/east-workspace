@@ -71,13 +71,13 @@ const LINE_1_SPRAYED = { key: "1", cells: new Map<string, unknown>([["start", va
 const LINE_NEW = { key: "new", cells: new Map<string, unknown>([["start", variant("Null", null)], ["task", variant("String", "Between")], ["qty", variant("Null", null)], ["note", variant("String", "")]]) as never, subRows: [] };
 const P1_CELLS = new Map<string, unknown>([["$title", variant("String", "Bay 2 week 8")], ["qty", variant("Float", 300.0)], ["note", variant("String", "PLANNED")]]) as never;
 const BAND = some({ sub: "", folded: false });
-const P1_ROW = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0, LINE_1], band: BAND, subRows: [] };
-const P1_SPRAYED = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0, LINE_1_SPRAYED], band: BAND, subRows: [] };
-const P1_INSERTED = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0, LINE_NEW, LINE_1], band: BAND, subRows: [] };
-const P1_REMOVED = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0], band: BAND, subRows: [] };
-const P1_RENAMED = { id: "p1", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Renamed")], ["qty", variant("Float", 999.0)], ["note", variant("String", "PLANNED")]]) as never, lines: [LINE_0, LINE_1], band: BAND, subRows: [] };
-const P2_ROW = { id: "p2", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Bay 3 week 8")]]) as never, lines: [], band: BAND, subRows: [] };
-const P3_ROW = { id: "p3", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "New plan")]]) as never, lines: [], band: BAND, subRows: [] };
+const P1_ROW = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0, LINE_1], band: BAND, subRows: [], entry: none };
+const P1_SPRAYED = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0, LINE_1_SPRAYED], band: BAND, subRows: [], entry: none };
+const P1_INSERTED = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0, LINE_NEW, LINE_1], band: BAND, subRows: [], entry: none };
+const P1_REMOVED = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0], band: BAND, subRows: [], entry: none };
+const P1_RENAMED = { id: "p1", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Renamed")], ["qty", variant("Float", 999.0)], ["note", variant("String", "PLANNED")]]) as never, lines: [LINE_0, LINE_1], band: BAND, subRows: [], entry: none };
+const P2_ROW = { id: "p2", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Bay 3 week 8")]]) as never, lines: [], band: BAND, subRows: [], entry: none };
+const P3_ROW = { id: "p3", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "New plan")]]) as never, lines: [], band: BAND, subRows: [], entry: none };
 const EDITING_CELLS = new Map<string, unknown>([["task", variant("String", "Spraying")]]) as never;
 // The day a decode writes columns from data at: these sheets have none, so every day decodes alike.
 const DAY = new Date("2026-01-05T00:00:00Z");
@@ -92,14 +92,15 @@ const ENTRIES = [
     variant("row", { id: "handover", task: "Hand over", note: "" }),
 ];
 // A loose row's wire row: the line columns' cells, no lines, no band.
-const LOOSE_NEW = { id: "new", owned: false, cells: new Map<string, unknown>([["task", variant("String", "Denib")]]) as never, lines: [], band: none, subRows: [] };
-const LOOSE_BRIEF = { id: "brief", owned: false, cells: new Map<string, unknown>([["task", variant("String", "Review again")]]) as never, lines: [], band: none, subRows: [] };
+const LOOSE_NEW = { id: "new", owned: false, cells: new Map<string, unknown>([["task", variant("String", "Denib")]]) as never, lines: [], band: none, subRows: [], entry: none };
+const LOOSE_BRIEF = { id: "brief", owned: false, cells: new Map<string, unknown>([["task", variant("String", "Review again")]]) as never, lines: [], band: none, subRows: [], entry: none };
 const PACKAGE_P1 = {
     id: "p1", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Nesting")]]) as never, band: BAND, subRows: [],
     lines: [
         { key: "0", cells: new Map<string, unknown>([["task", variant("String", "Cut")]]) as never, subRows: [] },
         { key: "1", cells: new Map<string, unknown>([["task", variant("String", "Inspect")]]) as never, subRows: [] },
     ],
+    entry: none,
 };
 
 // ── Sub rows and column rules (#844).
@@ -440,6 +441,7 @@ describeEast("Sheet", (test) => {
             id: "1", owned: false,
             cells: new Map([["machines", variant("Link", { from: [variant("identified", { key: "R2140" })], to: [variant("counted", { n: 4n, key: "CNC router" })] })]]),
             lines: [], band: none, subRows: [],
+            entry: none,
         }, Sheet.Types.Row);
         const bytes = $.const(East.Blob.encodeBeast(row, "v2"));
         const canonicalDraft = $.const(canonical.editing.decode(bytes, none, none, DAY).decodeBeast(Sheet.Types.Draft(PlanRowType), "v2"));
@@ -498,7 +500,7 @@ describeEast("Sheet", (test) => {
         const cells = $.const((new Map<string, unknown>([["task", variant("String", "Routing")], ["qty", variant("Null", null)]]) as never), DictType(StringType, Sheet.Types.Cell));
         const ctx = $.const({
             drafts: new Map(), rowIndex: 0n, rowId: "a", offset: 0n, line: none, row: cells,
-            rows: [{ id: "a", owned: false, cells, lines: [], band: none, subRows: [] }], rowsOffset: 0n, partial: false, driver: none, today: new Date("2026-01-05T00:00:00Z"),
+            rows: [{ id: "a", owned: false, cells, lines: [], band: none, subRows: [], entry: none }], rowsOffset: 0n, partial: false, driver: none, today: new Date("2026-01-05T00:00:00Z"),
         }, Sheet.Types.WireContext);
         const fill = $.let(wire(ctx).unwrap("some"));
         $(Assert.equal(fill.value.unwrap("Float"), 2000.0));
@@ -525,7 +527,7 @@ describeEast("Sheet", (test) => {
         const cells = $.const((new Map<string, unknown>([["task", variant("String", "Routing")], ["qty", variant("Float", 1.0)], ["count", variant("Integer", 2n)]]) as never), DictType(StringType, Sheet.Types.Cell));
         const ctx = $.const({
             drafts: new Map(), rowIndex: 0n, rowId: "a", offset: 0n, line: none, row: cells,
-            rows: [{ id: "a", owned: false, cells, lines: [], band: none, subRows: [] }], rowsOffset: 0n, partial: false, driver: none, today: new Date("2026-01-05T00:00:00Z"),
+            rows: [{ id: "a", owned: false, cells, lines: [], band: none, subRows: [], entry: none }], rowsOffset: 0n, partial: false, driver: none, today: new Date("2026-01-05T00:00:00Z"),
         }, Sheet.Types.WireContext);
         const proposals = $.let(wire(ctx));
         $(Assert.equal(proposals.size(), 1n));

@@ -56,20 +56,20 @@ describe("an entry's draft is a variant", () => {
     const { editing, draftType } = editingOf(true, false);
 
     test("a loose row — a wire row with no band — is seeded by newRow at its entry placement: the entry's row arm", () => {
-        const input: SheetRowValue = { id: "new", owned: false, cells: new Map([["task", variant("String", "Stage parts")]]), lines: [], band: none, subRows: [] };
+        const input: SheetRowValue = { id: "new", owned: false, cells: new Map([["task", variant("String", "Stage parts")]]), lines: [], band: none, subRows: [], entry: none };
         const prepared = prepareCreation(input, ABSENT, undefined, PLACE, editing, draftType, () => "unused");
         expect(prepared.draft).toEqual(variant("row", { id: variant("missing", null), task: variant("missing", null), note: variant("value", "entry") }));
         expect(prepared.row.cells.get("task")).toEqual(variant("String", "Stage parts"));
     });
 
     test("a group — a wire row with a band — is seeded by newGroup: the entry's group arm", () => {
-        const input: SheetRowValue = { id: "g", owned: false, cells: new Map(), lines: [], band: BAND, subRows: [] };
+        const input: SheetRowValue = { id: "g", owned: false, cells: new Map(), lines: [], band: BAND, subRows: [], entry: none };
         const prepared = prepareCreation(input, ABSENT, undefined, PLACE, editing, draftType, () => "unused");
         expect(prepared.draft).toEqual(variant("group", { id: variant("missing", null), name: variant("value", "New package"), tasks: [] }));
     });
 
     test("a new line takes newRow's child defaults and a minted id; the lines already there keep their drafts", () => {
-        const wire: SheetRowValue = { id: "p", owned: false, cells: new Map(), band: BAND, subRows: [], lines: [{ key: "0", cells: new Map([["task", variant("String", "Cut")]]), subRows: [] }] };
+        const wire: SheetRowValue = { id: "p", owned: false, cells: new Map(), band: BAND, subRows: [], lines: [{ key: "0", cells: new Map([["task", variant("String", "Cut")]]), subRows: [] }], entry: none };
         const current: EntryVersion = { draft: liftDraft(draftType, variant("group", { id: "p", name: "Pkg", tasks: [{ id: "t1", task: "Cut", note: "" }] })), wire, place: PLACE };
         const input: SheetRowValue = { ...wire, lines: [...wire.lines, { key: "+1", cells: new Map(), subRows: [] }] };
         let minted = 0;
@@ -86,7 +86,7 @@ describe("an entry's draft is a variant", () => {
 
     test("a line whose newRow supplies its id keeps it — nothing is minted", () => {
         const given = editingOf(true, true);
-        const wire: SheetRowValue = { id: "p", owned: false, cells: new Map(), band: BAND, subRows: [], lines: [] };
+        const wire: SheetRowValue = { id: "p", owned: false, cells: new Map(), band: BAND, subRows: [], lines: [], entry: none };
         const current: EntryVersion = { draft: liftDraft(given.draftType, variant("group", { id: "p", name: "Pkg", tasks: [] })), wire, place: PLACE };
         const input: SheetRowValue = { ...wire, lines: [{ key: "+1", cells: new Map(), subRows: [] }] };
         const prepared = prepareCreation(input, current, undefined, PLACE, given.editing, given.draftType, () => { throw new Error("minted"); });
@@ -96,7 +96,7 @@ describe("an entry's draft is a variant", () => {
 
 test("on a sheet of groups alone a new line's id is the author's to supply — never minted", () => {
     const { editing, draftType } = editingOf(false, false);
-    const wire: SheetRowValue = { id: "p", owned: false, cells: new Map(), band: BAND, subRows: [], lines: [] };
+    const wire: SheetRowValue = { id: "p", owned: false, cells: new Map(), band: BAND, subRows: [], lines: [], entry: none };
     const current: EntryVersion = { draft: liftDraft(draftType, { id: "p", name: "Pkg", tasks: [] }), wire, place: PLACE };
     const input: SheetRowValue = { ...wire, lines: [{ key: "+1", cells: new Map(), subRows: [] }] };
     const prepared = prepareCreation(input, current, undefined, PLACE, editing, draftType, () => "minted");

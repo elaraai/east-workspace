@@ -39,6 +39,14 @@ const decodeRow = decodeBeast2For(Sheet.Types.Row);
 const absent: EntryVersion = { draft: undefined, wire: undefined, place: none };
 /** A wire row's id — the entry it projects. */
 const sheetRowId = (row: SheetRowValue): string => row.id;
+/**
+ * The stored entry a row drawn was made from, where the sheet's rows carry theirs (#1599): what a gesture on the row
+ * begins from while its page is read again — after a Save, or another session's write — never a read at the revision
+ * the source reads at now, which is on its way.
+ */
+const sheetRowEntry = (row: SheetRowValue): Uint8Array | undefined => (row.entry.type === "some" ? row.entry.value : undefined);
+/** What the tab keeps of a row with a draft, through a reload: the row without its entry, which is read again with the row. */
+const sheetRowKept = (row: SheetRowValue): SheetRowValue => (row.entry.type === "some" ? { ...row, entry: none } : row);
 
 /** A projection of the transaction session over currently resident source rows. */
 export interface LocalLayer {
@@ -221,7 +229,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
     // before it, nor nothing for one it added; else the row drawn. The session holds a landed entry exactly while its
     // rows have still to read it: the effect below lets it go as they do.
     const { session, observed, draftType, codecs, rowIndex, original, drafts, available, version } =
-        useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare, wireOf, drawsLanded: true, wireType: Sheet.Types.Row, rekey, autosave });
+        useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare, wireOf, drawsLanded: true, wireType: Sheet.Types.Row, rekey, autosave, entryOf: sheetRowEntry, keptWire: sheetRowKept });
     sessionRef.current = session;
     // Each row's copies past its first: a window read again at a new revision beside one still standing from before it
     // holds a row twice where a change moved it from the one to the other.

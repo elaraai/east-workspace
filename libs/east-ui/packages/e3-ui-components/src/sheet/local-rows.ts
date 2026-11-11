@@ -80,7 +80,7 @@ export function withCell(row: SheetRowValue, key: string, cell: SheetCellValue):
 
 /** A fresh row — every declared cell blank; no lines and no band (a flat row, or a line as a pseudo row). */
 export function blankRow(id: string, columns: readonly SheetColumnMeta[]): SheetRowValue {
-    return { id, owned: false, cells: new Map(columns.map((c) => [c.key, NULL_CELL])), lines: [], band: none, subRows: [] };
+    return { id, owned: false, cells: new Map(columns.map((c) => [c.key, NULL_CELL])), lines: [], band: none, subRows: [], entry: none };
 }
 
 export let mintCounter = 0;
