@@ -448,10 +448,16 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     // Worst-case degrade: with no highlighted popup option, Enter behaves
     // as a plain search box and jumps to the first match — a pick, as a
     // highlighted option's Enter is. A highlighted option commits through
-    // the combobox itself.
+    // the combobox itself. The Enter is the input's alone — one on a button
+    // of the box, Next match or Clear search, is that button's — and the
+    // highlight read is its own list's, which the input names
+    // (`aria-activedescendant`): an option highlighted in another combobox on
+    // the page holds nothing of this one.
     const onKeyDownCapture = useCallback((e: React.KeyboardEvent) => {
         if (e.key !== 'Enter' || range === null || !range.found) return;
-        if (document.querySelector('[data-scope="combobox"][data-part="content"] [data-highlighted]') !== null) return;
+        const input = e.target;
+        if (!(input instanceof HTMLInputElement) || input.getAttribute('role') !== 'combobox') return;
+        if (input.getAttribute('aria-activedescendant')) return;
         commit(range.row + Math.max(0, activeIdx), 'pick');
     }, [range, activeIdx, commit]);
 
