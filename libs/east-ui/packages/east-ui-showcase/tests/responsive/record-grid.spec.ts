@@ -427,3 +427,26 @@ test("the rows scroll under the head, the group row and the header row held toge
     expect(scrolled.first - rest.first, "the rows scrolled").toBeCloseTo(-40, 0);
     expect(scrolled.first, "under the head").toBeLessThan(scrolled.headBottom);
 });
+
+test("a centred column at the row's end keeps what it holds at its cell's middle: the crew's Forklift, the row's last column — its cells and its header padded 4 at both sides, each chip and the header's label at its cell's middle, where its ring shows it, the label whole @desktop", async ({ page }) => {
+    const entry = await openRecord(page, "recordBasic", "light", 1440);
+    const read = await entry.locator(RECORD_ROOT).first().evaluate((frame) => {
+        const half = (n: number) => Math.round(n * 2) / 2 || 0;
+        // A cell's padding at each side, and how far the middle of what it holds is from its own.
+        const of = (cell: Element) => {
+            const box = cell.getBoundingClientRect(), css = getComputedStyle(cell), held = cell.firstElementChild!.getBoundingClientRect();
+            return { pad: [parseFloat(css.paddingLeft), parseFloat(css.paddingRight)], off: half(held.left + held.width / 2 - (box.left + box.width / 2)) };
+        };
+        const header = frame.querySelector('[data-slot="headerCell"][data-key="forklift"]')!;
+        const label = header.firstElementChild as HTMLElement;
+        return {
+            last: header.hasAttribute("data-last"), align: header.getAttribute("data-align"), header: of(header), cut: label.scrollWidth > label.clientWidth,
+            cells: [...frame.querySelectorAll('[data-slot="cell"][data-key="forklift"]')].map(of),
+        };
+    });
+    expect([read.last, read.align], "Forklift is the row's last column, and centred").toEqual([true, "center"]);
+    expect(read.header, "the header").toEqual({ pad: [4, 4], off: 0 });
+    expect(read.cut, "the header's label is whole").toBe(false);
+    expect(read.cells.length, "a row's Forklift").toBeGreaterThan(0);
+    for (const cell of read.cells) expect(cell, "a row's Forklift").toEqual({ pad: [4, 4], off: 0 });
+});

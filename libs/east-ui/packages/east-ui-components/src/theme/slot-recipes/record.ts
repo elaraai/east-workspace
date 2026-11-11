@@ -7,7 +7,9 @@
  * Record slot recipe — the e3-ui table for a system of records (`Record -
  * DX Proposal.md`), in the Table's anatomy: the design system's Row card,
  * its rows 36, 32 or 28 tall and their cells padded 0 12, the first and the
- * last 20, under a column-group row and a header row that stick together.
+ * last 20 — but a centred cell 4 at both sides wherever it stands, its content
+ * at its cell's middle — under a column-group row and a header row that stick
+ * together.
  *
  *   - Toolbar: the title, mono 10/600 at 0.14em in ink, and the count after
  *     it on `bg.subtle`, inset on a phone's row as its pager is; the status
@@ -103,13 +105,17 @@ const BOX = {
     "&[data-on]": { background: "brand.solid", borderColor: "brand.solid" },
 } as const;
 
-/** A cell's or a header cell's padding: 0 12, the first and the last 20, a centred cell's 4. */
+/**
+ * A cell's or a header cell's padding: 0 12, the first and the last 20, a centred cell's 4 — at both sides wherever it
+ * stands, the row's first and last too: its content is at its cell's middle, where the cell's ring and its wash show it,
+ * never 8 to one side of it for the frame's gutter.
+ */
 const CELL_PAD = {
     paddingInline: "12px",
     "&[data-align=center]": { justifyContent: "center", paddingInline: "4px" },
     "&[data-align=end]": { justifyContent: "flex-end" },
-    "&[data-first]": { paddingInlineStart: "20px" },
-    "&[data-last]": { paddingInlineEnd: "20px" },
+    "&[data-first]:not([data-align=center])": { paddingInlineStart: "20px" },
+    "&[data-last]:not([data-align=center])": { paddingInlineEnd: "20px" },
 } as const;
 
 /** A row that holds drafts, or is new: the warn wash at 8% over the paper. */
