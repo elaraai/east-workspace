@@ -43,6 +43,10 @@
  *   the switch and Discard changes in the bottom panel, the switch flicked off
  *   is kept, and Discard changes drops the drafts at its one press; in a row
  *   wide enough again the buttons themselves are back.
+ * - Save and its chevron draw in one ink (ruled 11 Nov 2026): the bar's ink
+ *   while Save would save and while a Save is out, and — nothing to save —
+ *   the tick's own quiet ink, the chevron at full strength, live still. On or
+ *   off, the chevron takes no colour of its own.
  * - Each icon of the bar stands at its button's middle, on whole pixels: a
  *   glyph an even number of pixels tall in its even square, the tick and the
  *   chevron moved up by what Font Awesome draws them below their boxes'
@@ -61,7 +65,7 @@
 
 import { expect, test, type Locator, type Page } from "playwright/test";
 import { leaveBuilder, visitBuilder } from "./builder-page";
-import { e3Requests, installE3Faults } from "./e3-faults";
+import { e3Requests, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { OPTIMISE_BUILDERS } from "./optimise-eye";
 import { settled } from "./settle";
 
@@ -262,6 +266,68 @@ test("Save and its chevron are one box of two parts, and Save alone answers to i
     await page.reload();
     const reloaded = (await visitBuilder(page, ORDERS.route, ROOT, undefined)).locator(ROOT).first();
     await expect(reloaded.locator("[data-history-autosave]")).toHaveAttribute("data-on", "");
+});
+
+/**
+ * The inks of the split Save, as the page resolves them: what Save shows — its tick, or the live dot in its place — and
+ * its chevron's glyph; the bar's ink and its quiet ink, from the theme's own tokens; and how strong the chevron stands —
+ * its button, and its glyph.
+ */
+const inksOf = (bar: Locator) => bar.locator("[data-history-save]").evaluate((box) => {
+    const save = box.querySelector("button")!;
+    const chevron = box.querySelector<HTMLElement>("[data-history-autosave]")!;
+    const glyph = chevron.querySelector("svg")!;
+    const token = (name: string) => {
+        const probe = document.createElement("span");
+        probe.style.color = `var(${name})`;
+        box.appendChild(probe);
+        const color = getComputedStyle(probe).color;
+        probe.remove();
+        return color;
+    };
+    return {
+        save: getComputedStyle(save.querySelector("svg") ?? save.querySelector("[data-history-live]") ?? save).color, chevron: getComputedStyle(glyph).color,
+        ink: token("--chakra-colors-fg"), quiet: token("--chakra-colors-fg-muted"),
+        strength: [getComputedStyle(chevron).opacity, getComputedStyle(glyph).opacity],
+    };
+});
+
+test("Save and its chevron draw in one ink (ruled 11 Nov 2026): the bar's ink while Save would save and while a Save is out, the tick's own quiet ink while there is nothing to save — the chevron at full strength, live still — and no colour of the chevron's own with Autosave on @desktop", async ({ page }) => {
+    const frame = await open(page, ORDERS.route, { width: 1440, height: 900 });
+    const bar = frame.locator("[data-frame-slot='toolbar'] [data-slot='history']");
+    const save = bar.getByRole("button", { name: "Save" });
+    const chevron = bar.locator("[data-history-autosave]");
+    /** Save's ink and its chevron's, once each has come to rest at the ink named: a colour takes a moment to turn. */
+    const both = async (which: "ink" | "quiet") => {
+        // The pointer off the bar: a hover draws nothing of its own.
+        await page.mouse.move(0, 0);
+        await expect.poll(async () => { const inks = await inksOf(bar); return [inks.save === inks[which], inks.chevron === inks[which]]; }, { message: `Save and its chevron in the bar's ${which === "ink" ? "ink" : "quiet ink"}` }).toEqual([true, true]);
+        return inksOf(bar);
+    };
+    // Nothing to save: Save off, its tick in the quiet ink — and the chevron in it, at full strength: it is live.
+    await expect(save).toBeDisabled();
+    const rest = await both("quiet");
+    expect(rest.ink).not.toBe(rest.quiet);
+    expect(rest.strength).toEqual(["1", "1"]);
+    // An edit: Save would save, its tick in the bar's ink — and the chevron with it.
+    await typeJob(page, frame, "WO-1001", "Cut side panels");
+    await expect(save).toBeEnabled();
+    await both("ink");
+    // Autosave on: the same ink still. Its being on is the switch's to say, never a second colour in the one button.
+    await turnOn(page, chevron);
+    await both("ink");
+    // The Save out, held on its way: the live dot in the bar's ink, and the chevron with it.
+    const held = await holdE3(page, { kinds: ["mutate"] });
+    await later(page, PAUSE_MS);
+    await expect(save).toHaveAttribute("aria-busy", "true", { timeout: 15_000 });
+    await expect(save.locator("[data-history-live]")).toHaveCount(1);
+    await both("ink");
+    await releaseE3(page, held);
+    // Saved: nothing to save again, and the chevron in the tick's quiet ink — on, as off.
+    await expect(save).not.toHaveAttribute("aria-busy", "true", { timeout: 15_000 });
+    await expect(save).toBeDisabled();
+    await expect(drafts(frame)).toHaveCount(0);
+    expect((await both("quiet")).strength).toEqual(["1", "1"]);
 });
 
 test("an optimiser's result is never saved by itself: what was changed before it is, then Save waits for a press, the split button wearing Elara's ring as one outline, the panel saying why — and a press sends the rest as one commit @desktop", async ({ page }) => {

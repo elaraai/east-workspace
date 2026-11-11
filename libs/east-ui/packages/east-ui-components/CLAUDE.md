@@ -746,7 +746,10 @@ component, nothing in east-ui.
   another write, a reload — every draft waits. An automatic Save shows on Save alone, its live dot: its words in the row
   would come and go every few seconds. A collection whose every Save is a person's keeps no choice
   (`useEditSession`'s `manualSave`): the query builder, whose Save asks a new query its name, which an automatic Save
-  would pass by — so a host whose Save asks the person something first opts out, never the bar. The chevron is named
+  would pass by — so a host whose Save asks the person something first opts out, never the bar. The chevron draws
+  in Save's own ink (ruled 11 Nov 2026: one button, one ink): the bar's while Save would save or shows a Save out,
+  the tick's quiet ink — at full strength, the chevron live still — while there is nothing to save, and no colour of
+  its own while Autosave is on, which the switch says. The chevron is named
   `Automatic saving`: beside Save, no second button holds `Save` in its name, so whoever asks the page for Save by a
   part of its name — a script's `getByRole("button", { name: "Save" })`, a voice — finds Save alone. The two parts
   stand edge to edge, the edge between them the chevron's, and the bar is no wider for the chevron: with the split

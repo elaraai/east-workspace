@@ -33,7 +33,10 @@
  * what it held. On a touch screen each square, and the chevron, takes its
  * target's height alone, as the segments of a strip do (#1221), so none takes
  * a tap meant for the one beside it; the
- * chevron in `--brand` while the choice is on and on the
+ * chevron in Save's own ink (ruled 11 Nov 2026: one button, one ink) — the
+ * bar's while Save would save or shows a Save out, and the tick's quiet ink,
+ * at full strength, while there is nothing to save: on or off it takes no
+ * colour of its own, the switch saying which — and on the
  * third paper while its panel is open. The panel's body (pad 12, gap 8) is one
  * row — the word Autosave and, at its end, the theme's switch; the row its
  * target, 32 tall, 44 under a touch pointer (ruled 11 Nov 2026: one switch,
@@ -56,7 +59,7 @@
  * 386) (ruled 11 Nov 2026: the buttons themselves wherever they fit). Short
  * of the six there is no room for a sixth square of any kind: the chevron is
  * not there, Save is a whole square, and More — the ellipsis, in `--brand`
- * while Autosave is on, as the chevron is — stands in Discard's place, the
+ * while Autosave is on — stands in Discard's place, the
  * row its five squares: it holds the two, the Autosave switch and Discard
  * changes, a 44 button the panel's width under the switch;
  * Discard's question in the band under the row (FR8, ruled 4 Nov
@@ -235,6 +238,10 @@ export const editHistorySlotRecipe = defineSlotRecipe({
             borderRadius: "sm",
             "[data-history-form=phone] &": { borderRadius: "md" },
             "&:has([data-held])": { boxShadow: ELARA_RING },
+            /* One button, one ink (ruled 11 Nov 2026): the chevron draws in Save's. While Save would save, or shows a Save
+             * out, the bar's ink; while there is nothing to save, its own quiet ink — the tick's, at full strength, the
+             * chevron live still. */
+            "&:has(> :first-child button:not(:disabled, [aria-disabled=true]), > :first-child button[aria-busy=true]) [data-history-autosave]": { color: "fg" },
         },
         saveMore: {
             flexShrink: "0",
@@ -250,7 +257,6 @@ export const editHistorySlotRecipe = defineSlotRecipe({
             "& svg": { fontSize: "8px", transform: "translateY(-0.0625em)" },
             /* The bar its buttons alone has a gap fewer to give it. */
             "[data-history-form=buttons] &": { width: "12px", minWidth: "12px" },
-            "&[data-on]": { color: "brandMark" },
             "&[data-state=open], &[aria-expanded=true]": { background: "bg.subtle" },
             "&:focus-visible": { position: "relative", zIndex: 2 },
             /* A phone's: a square of its row on Save's edge, the row's own rule and paper. */
@@ -258,13 +264,12 @@ export const editHistorySlotRecipe = defineSlotRecipe({
                 width: `${SQUARE}px`, minWidth: `${SQUARE}px`, height: `${SQUARE}px`,
                 borderTopLeftRadius: "0", borderBottomLeftRadius: "0", borderTopRightRadius: "md", borderBottomRightRadius: "md",
                 "& svg": { fontSize: "12px" },
-                "&[data-on]": { color: "brandMark" },
             },
             /* In a phone's frame, in the row where the row holds it whole; short of it, not there — More holds its switch. */
             ...whereRowIsShort("&", { display: "none" }),
         },
         /* A phone's More: a square of the row in Discard's place where the row is short of Discard and Save's chevron both,
-         * nowhere else; its ellipsis in the brand's mark while the automatic Save is on, as the chevron is. */
+         * nowhere else; its ellipsis in the brand's mark while the automatic Save is on. */
         more: {
             display: "none",
             ...whereRowIsShort("&", { display: "inline-flex" }),
