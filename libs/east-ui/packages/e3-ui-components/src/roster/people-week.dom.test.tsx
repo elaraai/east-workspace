@@ -122,6 +122,27 @@ describe("the People week grid (#1406)", () => {
         expect(day(c, person, Number(d)).querySelector("[data-roster-tile]")).toBeNull();
         expect(day(c, person, Number(d)).querySelector("[data-roster-assign]")).not.toBeNull();
     });
+    test("a removed duty alone in its day is the day's one box: crossed out, its restore its last part, and no `+ Assign` beside it sharing the cell — restored or undone, the duty as it was (ruled 11 Nov 2026)", async () => {
+        const { container: c } = await h.mount(ex.rosterPeople);
+        await showClover(c);
+        const thursday = () => day(c, "cclover", 4);
+        /** What the day draws: how many tiles, whether its one is removed, and whether `+ Assign` stands beside it. */
+        const drawn = () => [thursday().querySelectorAll("[data-roster-tile]").length, tile(c, "s37").hasAttribute("data-removed"), thursday().querySelector("[data-roster-assign]") !== null];
+        const action = () => tile(c, "s37").querySelector<HTMLElement>("[data-roster-chip-action]")!;
+        expect(drawn()).toEqual([1, false, false]);
+        // The action is the tile's last part, which its recipe sets at the box's end.
+        expect([action().getAttribute("aria-label")?.startsWith("Remove "), tile(c, "s37").lastElementChild === action()]).toEqual([true, true]);
+        await press(action());
+        expect(drawn()).toEqual([1, true, false]);
+        expect([action().getAttribute("aria-label")?.startsWith("Restore "), tile(c, "s37").lastElementChild === action()]).toEqual([true, true]);
+        await press(action());
+        expect(drawn()).toEqual([1, false, false]);
+        // Removed again, and undone: as it was.
+        await press(action());
+        expect(drawn()).toEqual([1, true, false]);
+        await press(history(c, editingMessages.undo()));
+        expect(drawn()).toEqual([1, false, false]);
+    });
     test("a click on a name selects the person-week: the row's cells outlined, the inspector's Details over that week; Esc clears it (D11, P5, P10)", async () => {
         const { container: c } = await h.mount(ex.rosterWarehouse);
         await showClover(c);

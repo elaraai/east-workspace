@@ -732,3 +732,117 @@ for (const theme of ["light", "dark"] as const) {
         expect(await library.locator('[data-library-item="e5m"] [data-roster-pattern-strip] > *').nth(0).evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(await resolve(page, "backgroundColor", "--chakra-colors-teal-300"));
     });
 }
+
+/**
+ * A People day's boxes against its cell: each tile's distance from the cell's own start and end — inside its rule and
+ * its padding — and its action's from the tile's end, inside the tile's rule and padding; and whether the off day's
+ * wash stands in the cell.
+ */
+const dayBoxes = (cell: Locator) => cell.evaluate((el) => {
+    const round = (n: number) => Math.round(n * 10) / 10 || 0;
+    const look = getComputedStyle(el), c = el.getBoundingClientRect();
+    const start = c.left + Number.parseFloat(look.borderLeftWidth) + Number.parseFloat(look.paddingLeft);
+    const end = c.right - Number.parseFloat(look.borderRightWidth) - Number.parseFloat(look.paddingRight);
+    return {
+        boxes: [...el.querySelectorAll<HTMLElement>("[data-roster-tile]")].map((tile) => {
+            const t = tile.getBoundingClientRect(), own = getComputedStyle(tile);
+            const action = tile.querySelector<HTMLElement>("[data-roster-chip-action]");
+            const inside = t.right - Number.parseFloat(own.borderRightWidth) - Number.parseFloat(own.paddingRight);
+            return {
+                removed: tile.hasAttribute("data-removed"), start: round(t.left - start), end: round(end - t.right),
+                action: action === null ? null : round(inside - action.getBoundingClientRect().right),
+            };
+        }),
+        wash: el.querySelector("[data-roster-assign]") !== null,
+    };
+});
+
+test("a People day's box fills its cell: a duty's tile from the cell's padding to its padding — a removed one too, alone in its day, no wash beside it — and its remove ×, a removed one's restore, at the box's right-hand end, never beside its words @desktop", async ({ page }) => {
+    await page.setViewportSize({ width: 2160, height: 1080 });
+    const entry = await open(page, "rosterPeople", "light"); await size(page, entry, 1200);
+    const frame = entry.locator("[data-roster-frame]").first();
+    await closeInspector(frame); await settled(page);
+    // A person's day holding one duty.
+    const cell = frame.locator("[data-roster-person-row]").filter({ has: page.locator("[data-roster-person-head]") })
+        .locator("[data-roster-person-day]").filter({ has: page.locator("[data-roster-tile]") }).first();
+    const tile = cell.locator("[data-roster-tile]");
+    await expect(tile).toHaveCount(1);
+    const whole = { start: 0, end: 0, action: 0 };
+    expect(await dayBoxes(cell)).toEqual({ boxes: [{ removed: false, ...whole }], wash: false });
+    // Removed: the same box crossed out, alone in its day — no wash beside it taking half the cell — its restore where its × stood.
+    await tile.hover();
+    await tile.locator("[data-roster-chip-action]").click();
+    await expect(tile).toHaveAttribute("data-removed", "");
+    await settled(page);
+    expect(await dayBoxes(cell)).toEqual({ boxes: [{ removed: true, ...whole }], wash: false });
+    // Restored: as it was, and nothing drafted.
+    await tile.locator("[data-roster-chip-action]").click();
+    await expect(tile).not.toHaveAttribute("data-removed", "");
+    await settled(page);
+    expect(await dayBoxes(cell)).toEqual({ boxes: [{ removed: false, ...whole }], wash: false });
+    await expect(frame.locator("[data-roster-tile][data-drafted]")).toHaveCount(0);
+});
+
+/**
+ * Where the words of a People day's boxes stand, in the first row drawing an off day beside a duty whose tile says its
+ * hours: each word's line — `+ Assign`, the duty's label, its hours — under its own box's top, and its baseline, the face's
+ * ascent under that; how far the middle of `+ Assign`'s capitals, the height of the face's `H`, stands from its box's
+ * centreline, and how many whole pixels those capitals are tall.
+ */
+const dayWords = (frame: Locator) => frame.locator("[data-roster-person-row]").evaluateAll((rows) => {
+    const ctx = document.createElement("canvas").getContext("2d")!;
+    const round = (n: number) => Math.round(n * 100) / 100 || 0;
+    const line = (holder: Element, el: Element) => {
+        const node = [...el.childNodes].find((child) => child.nodeType === Node.TEXT_NODE && (child.textContent ?? "").trim() !== "");
+        if (node === undefined) return undefined;
+        const look = getComputedStyle(el), range = document.createRange();
+        range.selectNodeContents(node);
+        const words = range.getBoundingClientRect(), box = holder.getBoundingClientRect();
+        ctx.font = `${look.fontStyle} ${look.fontWeight} ${look.fontSize} ${look.fontFamily}`;
+        const face = ctx.measureText("H");
+        const top = words.top + (words.height - (face.fontBoundingBoxAscent + face.fontBoundingBoxDescent)) / 2 - box.top;
+        return { top: round(top), baseline: round(top + face.fontBoundingBoxAscent), capitals: face.actualBoundingBoxAscent, middle: box.height / 2 };
+    };
+    for (const row of rows) {
+        const assign = row.querySelector("[data-roster-assign]");
+        const tile = row.querySelector("[data-roster-tile]:not([data-removed])");
+        const label = tile?.querySelector("[data-roster-assignment-name]");
+        // The tile's hours: the words after its label.
+        const hours = tile?.querySelector("[data-roster-assignment-name] + span:not([data-group]):not([data-roster-tile-group]):not([data-roster-tile-warn])");
+        if (assign === null || tile === null || tile === undefined || label === null || label === undefined || hours === null || hours === undefined) continue;
+        const its = line(assign, assign), duty = line(tile, label), times = line(tile, hours);
+        if (its === undefined || duty === undefined || times === undefined) continue;
+        return {
+            height: assign.getBoundingClientRect().height, tops: { "+ Assign": its.top, "a duty's label": duty.top, "a duty's hours": times.top },
+            off: round(its.baseline - its.capitals / 2 - its.middle), capitals: Math.round(its.capitals),
+        };
+    }
+    return undefined;
+});
+
+test("the words of a People day's boxes stand on whole pixels in both densities — `+ Assign`, a duty's label and its hours, none on a half pixel the painter rounds with the page's position — and `+ Assign`'s capitals at its box's centreline: an even number of pixels tall in its even box, as many rows over them as under @desktop", async ({ page }) => {
+    await page.setViewportSize({ width: 2160, height: 1080 });
+    // Its tiles say their hours (`tileTimes` as it begins, `always`).
+    const entry = await open(page, "rosterPeopleNoBands", "light"); await size(page, entry, 1200);
+    const frame = entry.locator("[data-roster-frame]").first();
+    await closeInspector(frame); await settled(page);
+    const read: Record<string, Awaited<ReturnType<typeof dayWords>>> = { comfortable: await dayWords(frame) };
+    await frame.getByRole("button", { name: "Display", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Compact spacing", exact: true }).click();
+    await settled(page);
+    read["compact"] = await dayWords(frame);
+    await frame.getByRole("button", { name: "Display", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Comfortable spacing", exact: true }).click();
+    await settled(page);
+    for (const [density, height] of [["comfortable", 24], ["compact", 20]] as const) {
+        const words = read[density];
+        expect(words?.height, `${density}: a row drawing an off day beside a duty that says its hours`).toBe(height);
+        // The theme's line of 1.5 is 15px for the mono words and 18.75px for the label: a box centres either on a half pixel
+        // or a fraction, which the painter rounds up or down with where the page puts the row.
+        for (const [name, top] of Object.entries(words!.tops)) expect(top, `${density}: ${name}'s line ${top}px under its box's top, no whole pixel`).toBe(Math.round(top));
+        // Capitals have no descender, so their height is what the eye centres: an odd number of pixels of them in a box of an
+        // even height stand half a pixel off its middle at best — seven left 8 rows over them and 9 under.
+        expect(words!.capitals % 2, `${density}: + Assign's capitals ${words!.capitals}px tall in a ${height}px box`).toBe(0);
+        expect(Math.abs(words!.off), `${density}: + Assign's capitals ${words!.off}px off its box's centreline`).toBeLessThanOrEqual(0.1);
+    }
+});

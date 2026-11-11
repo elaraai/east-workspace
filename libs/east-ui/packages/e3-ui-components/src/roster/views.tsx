@@ -958,7 +958,8 @@ function AssignMenu({ ctx, person, group, day }: { ctx: ViewContext; person: Per
     </ChakraMenu.Root>;
 }
 /**
- * A person's day in the People grid (#1406, P6–P11): a tile per duty and `+1` for a second, or `+ Assign` on a day off,
+ * A person's day in the People grid (#1406, P6–P11): a tile per duty and `+1` for a second, or `+ Assign` on a day off
+ * that draws no removed duty,
  * drawn again only as the day's duties, its person or what the views show changes (#1398, CL9). A drop on it resolves to
  * the dragged person's same or usual shift; a pattern dropped on it lands on the person's week (§11), and while one
  * hovers the row the day previews what the pattern leaves it (P19); another person's duty is refused (P11). The one
@@ -1047,7 +1048,10 @@ const PersonDayBody = memo(function PersonDayBody({ ctx, person, rowKey, group, 
     const { styles, commands } = ctx;
     peopleDrawProbe?.("day", `${rowKey}.${day}`);
     const { tiles, more } = dayTiles(duties);
-    const off = person !== undefined && !duties.some(duty => !duty.removed);
+    // `+ Assign`, or `Off`, stands in a day that draws no box. A removed duty's tile — crossed out until it is saved,
+    // restored or undone — is its day's one box, the cell's whole width as any duty's is, never half of it beside a wash
+    // (ruled 11 Nov 2026).
+    const off = person !== undefined && tiles.length === 0;
     return <>
         {preview !== undefined && <PreviewTile ctx={ctx} day={preview} />}
         {tiles.map(({ id, a, removed }) => <Tile key={id} ctx={ctx} id={id} assignment={a} removed={removed} person={person} home={group} />)}

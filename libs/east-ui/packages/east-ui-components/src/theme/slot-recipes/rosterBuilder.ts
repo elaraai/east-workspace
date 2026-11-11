@@ -31,6 +31,27 @@ import { schedulePickerBase, schedulePickerSlots } from "./schedule-picker.js";
 import { timeHeaderText } from "./time/axis.js";
 import { moveGhostSlots, moveGhostBase } from "./time/move-ghost.js";
 
+/**
+ * The line of each word in a duty's tile — its label and its hours — and a day's `+1` (ruled 11 Nov 2026). An even
+ * height: its leading splits in whole pixels and its box, of an even height itself, centres it on one. The theme's line of
+ * 1.5 is 15px for the mono words and 18.75px for the label, which a box centres on a half pixel or a fraction; the
+ * painter rounds such a line up or down with where the page puts the row, so a tile's hours stood up to a pixel and a
+ * half over their box's centreline, and a pixel apart from one row or page to the next. On whole pixels the mono words —
+ * one face at one size — stand on one line across a row's boxes.
+ */
+const DAY_WORDS_LINE = "18px";
+
+/**
+ * An off day's `+ Assign`, at its box's middle to the pixel (ruled 11 Nov 2026). Its words are capitals alone, which
+ * have no descender, so what the eye centres is their height. At the mono caption's 10px they are seven pixels tall, and
+ * seven in a box of an even height — 24, or 20 compact — leave 8 above and 9 below at best. At 11px they are eight: 8
+ * above and 8 below, 6 and 6 compact. Their line is an odd 19px, a pixel of padding over it: the face's ascent is seven
+ * pixels more than its descent, so an even line splits its leading on a half pixel, which the browser rounds away and
+ * the capitals stand a pixel high; and the button centres the line in what the padding leaves, on a whole pixel at
+ * either height.
+ */
+const ASSIGN_WORDS = { textStyle: "mono.sm", lineHeight: "19px", paddingTop: "1px", paddingBottom: "0" } as const;
+
 export const rosterBuilderSlotRecipe = defineSlotRecipe({
     className: "east-roster-builder",
     slots: [...moveGhostSlots, "root", "main", "scroll", "grid", "row", "gutter", "headerGutter", "head", "shiftHead", "shiftHeading", "shiftLabel", "shiftMeta", "time", ...scheduleGroupSlots,
@@ -196,8 +217,11 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             // While the pattern's day previews, the day's own tiles, `+1` and `+ Assign` stay mounted and hide (P19).
             "&[data-roster-previewing] > :not([data-preview])": { display: "none" },
             "[data-roster-stale] &": retainedColumn },
-        // A tile a duty: its fill the shift's token, its words in the ink the shade takes; neutral on the panel without one.
+        // A tile a duty: its fill the shift's token, its words in the ink the shade takes; neutral on the panel without one. It
+        // fills its day, a removed one too, and its action — remove, or a removed one's restore — stands at its end, never
+        // beside its words (ruled 11 Nov 2026).
         tile: { display: "flex", alignItems: "center", gap: "6px", flex: "1 1 0", minWidth: 0, height: "24px", padding: "0 6px", borderRadius: "3px", cursor: "pointer",
+            "& > [data-roster-chip-action]": { marginInlineStart: "auto" },
             borderWidth: "1px", borderStyle: "solid", borderColor: "border.subtle", background: "var(--roster-fill, {colors.bg.panel})", color: "var(--roster-ink, {colors.fg})",
             "[data-density=compact] &": { height: "20px", padding: "0 4px", gap: "4px" },
             "&[data-added], &[data-moved]": { borderStyle: "dashed", borderColor: "brand.solid" },
@@ -214,8 +238,8 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             "&[data-selected]:is([data-conflict], [data-bounds])": { outlineOffset: "1px" },
             "&:hover [data-roster-chip-action], &:focus-within [data-roster-chip-action]": { opacity: 1 },
             "[data-roster-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
-        tileLabel: { textStyle: "body.sm", fontWeight: "medium", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-        tileMeta: { textStyle: "mono.xs", whiteSpace: "nowrap", flexShrink: 0, opacity: 0.85, "&[data-own]": { fontWeight: "semibold", opacity: 1 },
+        tileLabel: { textStyle: "body.sm", lineHeight: DAY_WORDS_LINE, fontWeight: "medium", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+        tileMeta: { textStyle: "mono.xs", lineHeight: DAY_WORDS_LINE, whiteSpace: "nowrap", flexShrink: 0, opacity: 0.85, "&[data-own]": { fontWeight: "semibold", opacity: 1 },
             "&[data-group]": { fontSize: "label.xs", fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.06em" },
             // A duty in no group's badge (#1595): its words where they and the shift's whole name both fit, else its icon, each
             // form laid out always, unseen but the one shown, so the tile's fit reads both: the unseen one's box is nothing wide,
@@ -224,11 +248,11 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
                 "&[data-roster-tile-group=words] > [data-form=icon], &[data-roster-tile-group=icon] > [data-form=words]": { position: "absolute", visibility: "hidden", width: "0", overflow: "hidden" },
                 "& > [data-form=icon]": { display: "inline-flex", ...fontAwesomeSize("10px") } } },
         tileWarn: { display: "inline-flex", flexShrink: 0, color: "fg.warning", ...fontAwesomeSize("10px"), "&[data-tone=danger]": { color: "fg.danger" } },
-        tileMore: { textStyle: "mono.xs", fontWeight: "semibold", color: "fg.danger", flexShrink: 0, whiteSpace: "nowrap" },
+        tileMore: { textStyle: "mono.xs", lineHeight: DAY_WORDS_LINE, fontWeight: "semibold", color: "fg.danger", flexShrink: 0, whiteSpace: "nowrap" },
         // An off day's `+ Assign`: a wash across the cell, its words shown on hover, focus or selection; inert while a run of the
-        // optimiser holds the week (#1409, R2).
+        // optimiser holds the week (#1409, R2). Its capitals stand at its box's middle (`ASSIGN_WORDS`).
         assign: { flex: "1 1 0", minWidth: 0, height: "24px", borderRadius: "3px", background: "color-mix(in srgb, {colors.fg} 7%, transparent)", color: "transparent",
-            textStyle: "mono.xs", fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            ...ASSIGN_WORDS, fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
             "[data-density=compact] &": { height: "20px" }, "&:hover, &:focus-visible, &[data-state=open], [data-selected] > &": { color: "fg.muted" }, "&:disabled": { cursor: "not-allowed" }, ...planElementFocus },
         assignMenuHead: { textStyle: "mono.xs", fontSize: "label.xs", fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.08em", color: "fg.muted", padding: "4px 8px" },
         assignItem: { display: "flex", alignItems: "center", gap: "8px", minHeight: "28px", "& [data-roster-shift-times]": { textStyle: "mono.xs", color: "fg.subtle", marginLeft: "auto" } },
