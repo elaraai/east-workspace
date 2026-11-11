@@ -67,7 +67,7 @@ function fakeSource(byWindow: ReadonlyMap<number, PlanWireRow[]>, landed: Set<nu
             const w = Number(offset) / PAGE;
             reads.push(w);
             if (!landed.has(w)) return none;
-            return some([block(byWindow.get(w) ?? [])]);
+            return some({ rows: [block(byWindow.get(w) ?? [])], entries: [] });
         },
         total: () => some(BigInt(10 * PAGE)),
         seek: none,
@@ -150,7 +150,7 @@ describe("window reader — a failure belongs to its window (#811)", () => {
                 const w = Number(offset) / PAGE;
                 reads.push(w);
                 if (w === 1 && state.failing) throw new Error("fetch failed: 503");
-                return some([block([wire(`k${w}`)])]);
+                return some({ rows: [block([wire(`k${w}`)])], entries: [] });
             },
             total: () => some(2000n),
             seek: none,

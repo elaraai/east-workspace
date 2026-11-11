@@ -58,11 +58,11 @@ describeEast("Plan over the row-source contract (#567)", (test) => {
         const derived = $.let(plan.rows.unwrap("paged"));
         // One row per entry: a whole window is 20 rows, r00…r19 in key order —
         // the one series' block of it (#823: a window is the canvas's blocks).
-        const w0 = $.let(derived.page(0n, 20n).unwrap("some").get(0n).rows);
+        const w0 = $.let(derived.page(0n, 20n).unwrap("some").rows.get(0n).rows);
         $(Assert.equal(w0.size(), 20n));
         $(Assert.equal(w0.get(0n).id, Plan.ref("entries", "r00")));
         $(Assert.equal(w0.get(19n).id, Plan.ref("entries", "r19")));
-        const w2 = $.let(derived.page(40n, 20n).unwrap("some").get(0n).rows);
+        const w2 = $.let(derived.page(40n, 20n).unwrap("some").rows.get(0n).rows);
         $(Assert.equal(w2.size(), 10n));
     });
 }, { platformFns: TestImpl });

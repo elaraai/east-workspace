@@ -59,10 +59,12 @@ import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
 import { act, el, elementKey, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
-import { editedThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
+import { evaluatesAgain } from "../../e3-web-mount.test-utils.js";
+import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
 import { keptName } from "@elaraai/east-ui-components/internal";
 
 const h = planHarness({ "plan/plan-windows": ex });
+evaluatesAgain();
 
 type Job = ValueTypeOf<typeof PrintJob>;
 
@@ -595,7 +597,10 @@ describe("a Save of the jobs read a cell at a time: what it landed, as it left i
         });
     });
 
-    test("a Save never stops the editing: other jobs moved while the cells are read again after a Save are taken at once — from their bars as they stand — stay where they were put as the reads land, and the next Save writes them", async () => {
+    test.each([
+        ["a Save never stops the editing: other jobs moved while the cells are read again after a Save are taken at once — from their bars as they stand — stay where they were put as the reads land, and the next Save writes them", editedThroughReload],
+        ["the page evaluated again while the cells are read again after a Save moves no job's bar, and takes none off the canvas: other jobs moved meanwhile are taken at once, stay where they were put as the page is evaluated again and the reads land, and the next Save writes them", redrawnThroughReload],
+    ])("%s", async (_name, check) => {
         const { container: c } = await h.mount(seriesPlan);
         await settle();
         await select(bar(c, "W-0001", "P-1001")!);
@@ -607,7 +612,7 @@ describe("a Save of the jobs read a cell at a time: what it landed, as it left i
         const night = () => bar(c, "W-0002", "P-1001");
         const handbooks = () => bar(c, "W-0004", "P-1003");
         expect([night() !== null, handbooks() !== null], "both of their bars are drawn").toEqual([true, true]);
-        await editedThroughReload({
+        await check({
             e3: h.e3,
             container: c,
             reads: through(SERIES),

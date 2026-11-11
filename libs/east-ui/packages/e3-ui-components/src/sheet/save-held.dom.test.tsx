@@ -10,7 +10,9 @@
  * Save until its window is read again, never gone while the window's pages are
  * on their way; and a Save never stops the editing — another row's cell pasted
  * over while the pages are read again is taken at once, from the row the grid
- * shows, and is the next Save's to send.
+ * shows, and is the next Save's to send. The same with the sheet's payload
+ * built again at every step, as its page evaluated again builds it: no row
+ * leaves the grid for it.
  */
 
 import { expect, test } from "vitest";
@@ -18,10 +20,12 @@ import { fireEvent, waitFor } from "@testing-library/react";
 import { East } from "@elaraai/east";
 import { Data, Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import * as fx from "@elaraai/e3-ui/fixtures/sheet/sheet-keys";
-import { editedThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
+import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
+import { evaluatesAgain } from "../e3-web-mount.test-utils.js";
 import { act, settle, sheetHarness } from "./frame/harness.test-utils.js";
 
 const h = sheetHarness({ modules: { "sheet/sheet-keys.fixtures": fx }, frame: 2000 });
+evaluatesAgain();
 
 /** The jobs' record, as its dataset's requests name it. */
 const JOBS = `records.${fx.numberedJobs.name}`;
@@ -60,8 +64,11 @@ test("a row Save added stays in the grid, as typed, while its window is read aga
     expect((await h.read(fx.numberedJobs)).get(11n)).toEqual({ task: "Sanding", qty: 6n });
 });
 
-test("a Save never stops the editing: another row's task pasted over while the window is read again after a Save is taken at once — from the row the grid shows — stays as typed as the pages land, and the next Save writes it", async () => {
-    const { container: c } = await h.mountPayload(windowedJobs, { storageKey: "sheet-save-again" });
+test.each([
+    ["a Save never stops the editing: another row's task pasted over while the window is read again after a Save is taken at once — from the row the grid shows — stays as typed as the pages land, and the next Save writes it", editedThroughReload, "sheet-save-again"],
+    ["the sheet built again while its window is read again after a Save takes no row off the grid: another row's task pasted over meanwhile is taken at once, stays as typed as the sheet is built again and the pages land, and the next Save writes it", redrawnThroughReload, "sheet-save-redrawn"],
+])("%s", async (_name, through, storageKey) => {
+    const { container: c } = await h.mountPayload(windowedJobs, { storageKey });
     await waitFor(() => expect(rows(c).map(([id]) => id)).toEqual(["9", "10"]));
     const card = () => c.querySelector("[data-sheet-card]")!;
     const blank = c.querySelector<HTMLElement>('[data-slot="row"][data-blank] [data-key="task"]')!;
@@ -69,7 +76,7 @@ test("a Save never stops the editing: another row's task pasted over while the w
     await act(async () => { fireEvent.paste(card(), { clipboardData: { getData: () => "Sanding\t6" } }); });
     await settle();
     expect(rows(c).map(([id]) => id)).toEqual(["9", "10", "11"]);
-    await editedThroughReload({
+    await through({
         e3: h.e3,
         container: c,
         reads: (request) => request.dataset === JOBS && request.kind === "page",

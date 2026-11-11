@@ -62,6 +62,7 @@ export {
     useEditSession,
     type EditingValue,
     type EditSource,
+    type EditWindow,
     type EditSessionOptions,
 } from "./use-edit-session.js";
 export { HistoryBar, type HistoryAction, type HistoryBarProps } from "./HistoryBar.js";

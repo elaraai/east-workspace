@@ -59,9 +59,9 @@ import * as cw from "@elaraai/e3-ui/examples/calendar/calendar-windows";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
 import * as pe from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
-import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import { act, e3Harness, evaluatesAgain, settle, slot } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { editedThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
+import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
 import { eventKey, parseResourceKey, resourceKey, DAY } from "./model.js";
 import { TIMELINE_GUTTER, timelinePixels } from "./timeline.js";
 import type { CalendarCommands } from "./actions.js";
@@ -93,6 +93,7 @@ vi.mock("./actions", async (importOriginal) => {
 
 // The print works' module beside the windows': its job templates are what a job made on a paged press is made from.
 const h = e3Harness({ "calendar/calendar-windows": cw, "plan/plan-windows": ex, "plan/plan-events": pe }, { main: "data-calendar-main" });
+evaluatesAgain();
 
 type Job = ValueTypeOf<typeof pe.PrintJob>;
 
@@ -1127,12 +1128,15 @@ describe("a Save over the paged presses: what it landed, as it left it, while th
         });
     });
 
-    test("a Save never stops the editing: another job returned to the backlog while the cells are read again after a Save is taken at once — from its block as it stands — stays off its press's row as the reads land, and the next Save writes it", async () => {
-        const c = await selectBrochure("windows-save-again");
+    test.each([
+        ["a Save never stops the editing: another job returned to the backlog while the cells are read again after a Save is taken at once — from its block as it stands — stays off its press's row as the reads land, and the next Save writes it", editedThroughReload, "windows-save-again"],
+        ["the page evaluated again while the cells are read again after a Save takes no job off a press's row, and puts none back: another job returned to the backlog meanwhile is taken at once, stays off its row as the page is evaluated again and the reads land, and the next Save writes it", redrawnThroughReload, "windows-save-redrawn"],
+    ])("%s", async (_name, through, storageKey) => {
+        const c = await selectBrochure(storageKey);
         await act(async () => { fireEvent.click(within(slot(c, "end")).getByRole("button", { name: "Return to backlog" })); });
         await settle();
         expect(jobEvent(c, "W-0001")).toBeNull();
-        await editedThroughReload({
+        await through({
             e3: h.e3,
             container: c,
             reads: jobCells,

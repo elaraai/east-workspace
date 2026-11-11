@@ -19,7 +19,7 @@ import { OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fro
 import { Sheet, SheetEditingType } from "@elaraai/e3-ui/internal";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { fieldBreachIssue, getSomeorUndefined, useEditSession } from "@elaraai/east-ui-components";
-import { boundedReadiness, normalizeDraft, prepareRecordSliceSave, recordSliceReadEntries } from "@elaraai/east-ui-components/internal";
+import { boundedReadiness, editWindow, normalizeDraft, prepareRecordSliceSave, recordSliceReadEntries } from "@elaraai/east-ui-components/internal";
 import { authorReadiness } from "./readiness.js";
 import { entryBreaches, type SheetBounds } from "./bounds.js";
 import { sheetDayOf } from "./day.js";
@@ -39,14 +39,6 @@ const decodeRow = decodeBeast2For(Sheet.Types.Row);
 const absent: EntryVersion = { draft: undefined, wire: undefined, place: none };
 /** A wire row's id — the entry it projects. */
 const sheetRowId = (row: SheetRowValue): string => row.id;
-/**
- * The stored entry a row drawn was made from, where the sheet's rows carry theirs (#1599): what a gesture on the row
- * begins from while its page is read again — after a Save, or another session's write — never a read at the revision
- * the source reads at now, which is on its way.
- */
-const sheetRowEntry = (row: SheetRowValue): Uint8Array | undefined => (row.entry.type === "some" ? row.entry.value : undefined);
-/** What the tab keeps of a row with a draft, through a reload: the row without its entry, which is read again with the row. */
-const sheetRowKept = (row: SheetRowValue): SheetRowValue => (row.entry.type === "some" ? { ...row, entry: none } : row);
 
 /** A projection of the transaction session over currently resident source rows. */
 export interface LocalLayer {
@@ -167,9 +159,13 @@ export interface SheetEditingResult {
  * @param rowsId - The id of the windowed source that gives the rows, no narrowing printed into it: what a Save's entries
  *   are read back by key through where no record Slice gives them (#1596)
  * @param autosave - Whether the builder's Autosave begins on, as its author says; off unless given
+ * @param entryOf - The stored entry the window standing at a row's source position read with it (#1599), where the
+ *   sheet's windows carry theirs — the pages', or the lens's: what a gesture on a row the sheet shows begins from while
+ *   its window is read again, after a Save or another session's write, never a read at the revision the source reads
+ *   at now, which is on its way
  * @returns The session, its layer and gesture recorder, the drafts, and whether editing is available
  */
-export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string, recordSlice?: ValueTypeOf<RecordSliceBindType>, replacing = false, retained = false, noun?: string, day?: Date, rowsRead?: SheetRowsRead, renumber?: (id: string) => string | undefined, bounds?: SheetBounds, rowsId?: string, autosave?: boolean): SheetEditingResult {
+export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string, recordSlice?: ValueTypeOf<RecordSliceBindType>, replacing = false, retained = false, noun?: string, day?: Date, rowsRead?: SheetRowsRead, renumber?: (id: string) => string | undefined, bounds?: SheetBounds, rowsId?: string, autosave?: boolean, entryOf?: (id: string, at: number) => Uint8Array | undefined): SheetEditingResult {
     const currentRows = replacing ? NO_ROWS : rows;
     const currentPositions = replacing ? NO_POSITIONS : positions;
     const editing = useMemo(() => recordSlice === undefined ? declared : { ...declared, sourceId: recordSlice.sourceId }, [declared, recordSlice]);
@@ -220,16 +216,24 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         const { revision, refresh } = source;
         return revision !== undefined && refresh !== undefined ? {
             ...source, revision, refresh, readCurrent: recordSlice?.readEntry, pageSize: SHEET_PAGE_SIZE,
+            // A window read back is its rows and the entries it carried beside them: one read (#1599).
+            page: (offset: bigint, count: bigint) => {
+                const window = source.page(offset, count);
+                return window.type === "some" ? some(editWindow(window.value.rows, window.value.entries)) : none;
+            },
             readCurrentAll: recordSlice === undefined ? entriesByKey : (ids: readonly string[]) => recordSliceReadEntries(recordSlice, ids),
         } : undefined;
     }, [source, recordSlice, entriesByKey]);
     const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
+    // The entry of a row the sheet shows, by its place among the rows it shows: its own window's. None while the rows
+    // shown are another query's, which the session holds none of.
+    const shownEntry = useMemo(() => (entryOf === undefined || replacing ? undefined : entryOf), [entryOf, replacing]);
     // An entry's version before any gesture is the session's to say (`EditSession.startOf`, asked by the hook): its own;
     // else, for one a Save landed that the rows have still to read, what the Save left (#1583) — never the rows read
     // before it, nor nothing for one it added; else the row drawn. The session holds a landed entry exactly while its
     // rows have still to read it: the effect below lets it go as they do.
     const { session, observed, draftType, codecs, rowIndex, original, drafts, available, version } =
-        useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare, wireOf, drawsLanded: true, wireType: Sheet.Types.Row, rekey, autosave, entryOf: sheetRowEntry, keptWire: sheetRowKept });
+        useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare, wireOf, drawsLanded: true, wireType: Sheet.Types.Row, rekey, autosave, entryOf: shownEntry });
     sessionRef.current = session;
     // Each row's copies past its first: a window read again at a new revision beside one still standing from before it
     // holds a row twice where a change moved it from the one to the other.

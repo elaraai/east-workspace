@@ -9,15 +9,19 @@
  * again, never drawn again while its record's reads are on their way. And a
  * Save never stops the editing: another stored bin removed while the bins are
  * read again — the board's rows standing in from before the Save — is taken
- * and drawn at once, and the next Save writes it.
+ * and drawn at once, and the next Save writes it. The same with the page
+ * evaluated again at every step: no bin leaves the board for it, and none
+ * comes back.
  */
 import { expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { editedThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
+import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
+import { evaluatesAgain } from "../e3-web-mount.test-utils.js";
 import { act, allocationHarness, settle, slot } from "./harness.test-utils.js";
 
 const h = allocationHarness();
+evaluatesAgain();
 
 /** The bins' record, as its dataset's requests name it. */
 const BINS = `records.${ex.kilnBins.name}`;
@@ -45,14 +49,17 @@ test("a bin Save removed stays off the board while the day's bins are read again
     expect((await h.read(ex.kilnBins)).has("3101")).toBe(false);
 });
 
-test("a stored bin removed while the day's bins are read again after a Save is taken at once — from the board's rows as they stand — stays off the board as the reads land, and the next Save writes it", async () => {
+test.each([
+    ["a stored bin removed while the day's bins are read again after a Save is taken at once — from the board's rows as they stand — stays off the board as the reads land, and the next Save writes it", editedThroughReload],
+    ["the page evaluated again while the day's bins are read again after a Save takes no bin off the board, and puts none back: a stored bin removed meanwhile is taken at once, stays off as the page is evaluated again and the reads land, and the next Save writes it", redrawnThroughReload],
+])("%s", async (_name, through) => {
     const { container: c } = await h.mount(ex.allocationKilnYard);
     await act(async () => { fireEvent.click(c.querySelector<HTMLElement>('[data-allocation-card="3101"]')!); });
     await settle();
     await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: "Delete" }); });
     await settle();
     let removed: string | undefined;
-    await editedThroughReload({
+    await through({
         e3: h.e3,
         container: c,
         reads: (request) => request.dataset === BINS,

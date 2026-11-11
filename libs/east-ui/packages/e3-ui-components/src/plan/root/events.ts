@@ -91,7 +91,7 @@ import {
     PlanEventShownType, ScheduleEventRefType, planHideId,
 } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { snapshotOf, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { snapshotOf, windowedSourceOf, type WindowedSourceValue } from "@elaraai/east-ui-components/internal";
 import { OVERSCAN_BUCKETS } from "../../shared/time/scale.js";
 import { hides } from "../frame/hidden.js";
 import type { PlanLinkValue, PlanRootValue, PlanRowId, PlanWireBlock, PlanWireRow } from "../model.js";
@@ -178,6 +178,9 @@ const NONE_HIDDEN: readonly string[] = [];
 const blocksEqual = equalFor(Plan.Types.Blocks);
 const placedEqual = equalFor(PlanEventPlacedType);
 const shadingEqual = equalFor(PlanEventShadingType);
+/** A windowed source as the canvas composes over it: one that may say how it draws a window standing in (#1599). */
+const under = (source: WindowedSourceValue<PlanRootValue["rows"]> | undefined): PlanPagedSourceValue | undefined => source;
+
 /** Whether two paged sources derive the same rows — the paging driver's test (#809). */
 const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
 /** Whether two paged kinds' seams read the same rows: their functions by their IR and what they capture (#809). */
@@ -508,7 +511,8 @@ export function usePlanEventRoot(
                 const l = latest.current;
                 if (l.src === undefined || l.lead === undefined) return none;
                 const read = l.src.page(offset, limit);
-                return read.type === "some" ? some([...l.lead.blocks, ...read.value]) : read;
+                // The window's own entries stay beside its blocks: the event kinds' rows are none of its source's.
+                return read.type === "some" ? some({ rows: [...l.lead.blocks, ...read.value.rows], entries: read.value.entries }) : read;
             },
             total: () => latest.current.src?.total() ?? none,
             // New rows are a new revision: the driver reads its windows again,
@@ -518,6 +522,16 @@ export function usePlanEventRoot(
                 const r = l.src?.revision?.() ?? none;
                 return some(`${r.type === "some" ? r.value : ""}#events-${l.lead?.version ?? 0}`);
             },
+            // A window standing in is drawn as it is composed now: the event kinds' rows over the data's own (#1599) —
+            // where the source under this one, the canvas's editing's, says how it draws one.
+            ...(under(paged)?.redraft === undefined || under(paged)?.redrafted === undefined ? {} : {
+                redraft: (entries: Parameters<NonNullable<PlanPagedSourceValue["redraft"]>>[0]) => {
+                    const l = latest.current;
+                    const own = under(l.src)?.redraft?.(entries);
+                    return own === undefined || l.lead === undefined ? undefined : [...l.lead.blocks, ...own];
+                },
+                redrafted: () => `${under(latest.current.src)?.redrafted?.() ?? ""}#events-${latest.current.lead?.version ?? 0}`,
+            }),
             refresh: (revision) => latest.current.src?.refresh?.(revision) ?? null,
             seek: paged.seek.type === "some"
                 ? some((query) => {
@@ -568,9 +582,13 @@ export function usePlanEventRoot(
                 const lead = c.lead.blocks;
                 const at = lead.findIndex((block) => !block.fixed);
                 const own = c.data.rows.type === "inline" ? c.data.rows.value.map(fixedBlock) : [];
-                return some(at < 0
-                    ? [...read.value, ...lead, ...own]
-                    : [...lead.slice(0, at), ...read.value, ...lead.slice(at + 1), ...own]);
+                // A paged resource kind's rows: no entry of the canvas's own data stands behind them.
+                return some({
+                    rows: at < 0
+                        ? [...read.value, ...lead, ...own]
+                        : [...lead.slice(0, at), ...read.value, ...lead.slice(at + 1), ...own],
+                    entries: [],
+                });
             },
             total: () => current.current.pages?.total() ?? none,
             // New rows are a new revision: the driver reads its windows again,

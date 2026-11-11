@@ -16,9 +16,7 @@
  * set the host names (`EditingScope`), their source and their view, so another
  * data set's source of the same name never takes them. A session keeps its
  * drafts where its collection says how its projection is written
- * (`wireType`) — and, where a projection carries more than a draft is restored
- * with (a row's stored entry, read again with the row), what of it is kept
- * (`lean`); one whose drafts storage refuses, or whose kept drafts cannot
+ * (`wireType`); one whose drafts storage refuses, or whose kept drafts cannot
  * be restored, says so ({@link useDraftsKeeping}). The history is not kept:
  * it starts at the restored drafts, as after any carry-over. Whether an
  * optimiser's result among them waited for a person's Save is kept beside them,
@@ -159,13 +157,10 @@ function sameEntries<W>(a: readonly KeptEntry<W>[], b: readonly KeptEntry<W>[]):
  * again with the rest re-encodes nothing of its own.
  *
  * @param type - The values' type
- * @param lean - What of a value is encoded, where less than the whole is kept; the value itself where none is given
  * @returns The encoder
  */
-function cachedEncoder(type: EastType, lean?: (value: unknown) => unknown): (value: unknown) => Uint8Array {
-    const whole = encodeBeast2For(toEastTypeValue(type)) as (value: unknown) => Uint8Array;
-    const encode = lean === undefined ? whole : (value: unknown): Uint8Array => whole(lean(value));
-    // By the value given, never what is kept of it: a value written again is made lean, and encoded, once.
+function cachedEncoder(type: EastType): (value: unknown) => Uint8Array {
+    const encode = encodeBeast2For(toEastTypeValue(type)) as (value: unknown) => Uint8Array;
     const made = new WeakMap<object, Uint8Array>();
     return (value) => {
         if (typeof value !== "object" || value === null) return encode(value);
@@ -184,11 +179,8 @@ function cachedEncoder(type: EastType, lean?: (value: unknown) => unknown): (val
  * @param session - A session made now, before its first base
  * @param key - Its key among what the tab keeps ({@link keptDraftsKey})
  * @param wireType - The type of its collection's projection of an entry
- * @param lean - What of a projection is kept, where a collection's projections carry more than a draft is restored
- *   with — a row's stored entry, which is read again with the row (#1599): the projection without it. Each projection
- *   whole where none is given
  */
-export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: EastType, lean?: (wire: W) => W): void {
+export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: EastType): void {
     const handle = kept(key, keptBytes, { where: "tab" });
     // Beside the drafts, under a key of its own — their own bytes are read by every version that kept them: whether an
     // optimiser's result among them waited for a person's Save.
@@ -197,7 +189,7 @@ export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: Ea
     const stepped = kept(`${key}:stepped`, keptFlag, { where: "tab" });
     const types = { entryType: toEastTypeValue(session.entryType), draftType: toEastTypeValue(session.draftType), wireType: toEastTypeValue(wireType) };
     const encodeDraft = cachedEncoder(session.draftType);
-    const encodeWire = cachedEncoder(wireType, lean as ((value: unknown) => unknown) | undefined);
+    const encodeWire = cachedEncoder(wireType);
     const decodeDraft = decodeBeast2For(types.draftType) as (bytes: Uint8Array) => unknown;
     const decodeWire = decodeBeast2For(types.wireType) as (bytes: Uint8Array) => W;
     const optionOf = <T>(blob: option<Uint8Array>, decode: (bytes: Uint8Array) => T): option<T> => (blob.type === "some" ? some(decode(blob.value)) : none);

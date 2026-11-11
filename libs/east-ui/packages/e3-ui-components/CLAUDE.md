@@ -1229,14 +1229,57 @@ while its record, its narrowing and the range hold. Both builders draw such a
 kind from those rows, so a draft made meanwhile draws at once, a gesture and an
 inspector find its row among them (`held`), what a Save landed is laid over
 rows read before it (`readBeforeSaves`), and a draft's redraw asks e3 nothing.
-A sheet's rows — the Sheet's and the Record's — arrive with the stored entry
-each was made from where the sheet writes over rows read a window at a time
-(`Sheet.Types.Row`'s `entry`, ruled 11 Nov 2026: the rows carry them): a
-gesture on a row the grid shows begins from it (`useEditSession`'s `entryOf`),
-and a Save's entries are read back from it, never from an entry read on its
-own at the revision the source reads at now, which is on its way while the
-pages are read again; what the tab keeps of a draft through a reload leaves
-it out (`keptWire`).
+**A page of rows arrives with the entries its rows were made from** (ruled 11
+Nov 2026: the rows carry them — one shared piece, under the Sheet, the Record
+and the Plan's own rows). A builder that edits rows it reads a window at a
+time takes them through east-ui's `CarriedRowSourceType`: each window is its
+rows and the stored entries they were made from (`CarriedWindowType`), one
+read, so the two are of one revision. Its driver keeps each window with its
+entries in the shared store (`shared/windowed.ts`: a reader's `entries`,
+`WindowStore.entryOf` — the window landed at a position, else the one standing
+in for it), the Sheet's lens with each page it keeps, and hands the session
+the entry of the row it shows (`useEditSession`'s `entryOf`, by the row's id
+and position). A gesture on a row a builder shows then begins from that entry,
+and a Save's entries are read back from the window that read holds them in
+(`EditSource.page`'s `EditWindow`), never from an entry read on its own at
+the revision the source reads at now, which is on its way while the windows
+are read again. A row's stored type holds no entry: what the tab keeps of a
+draft through a reload is the row alone.
+
+The Plan draws its unsaved changes into its windows, so a window standing in
+while it is read again is drawn as its source draws it now
+(`WindowReader.standIn`, the source's `redraft` over what the window carried —
+e3-ui's `deriveWindow`, which reads nothing): a change made meanwhile is drawn
+at once, and what a Save landed is laid over the windows read before it
+(`EditSession.landed`, let go as each window is read again, `readBeforeSave`).
+Over rows read lean beside their nested series index (#1438) a window carries
+no entry — none of its rows is a row whole, and a gesture reads its row whole
+by key — and a row's numbers are its cells', which their reader holds at the
+record's revision: a change made while they are read again is taken at once
+and drawn once they land (still to close: the reader keeping its cells
+standing, with what a Save landed, so a new change draws over them at once).
+
+**A source read another way** — its id the same, its page no longer equivalent
+(#809): a value its author's block read moved, or the block was evaluated
+again over a handle bound as a variable — is one rule every driver asks
+(`shared/windowed.ts`' `sourceChange`): its rows are read again, and those
+held stand in meanwhile, retained. A builder's tag binds its author's handles
+once, as constants in its own block (e3-ui's `utils/held.ts`,
+`recordSources(…).bind($)`), so a page evaluated again over the same data
+reads nothing again.
+
+**The three checks every builder that saves runs**
+(`shared/save-held.test-utils.ts`): `savedThroughReload`, `editedThroughReload`
+and `redrawnThroughReload` — the second with every builder mounted handed its
+payload again at every step, decoded anew with nothing in it changed
+(`e3-web-mount.test-utils.tsx`' `evaluateAgain`, in a file that calls
+`evaluatesAgain()` beside its harness), as a page evaluated again hands it one
+whenever a value in it moves. The Allocation, the Roster, the Flowchart, the
+Sheet — over its pages and under its lens — the Record, the Calendar and the
+Plan — its events read over the window, read by their cells, and its own paged
+rows — and the Schematic, by area and whole, run all three. The Plan's rows
+read lean run the first, and hold a change made meanwhile to being taken and
+saved (`plan/frame/plan-nested-save-held.dom.test.tsx`).
 
 The period is assembled from the app's rows, never stored. A reader of its own
 (`RosterDataReader`, `AllocationDataReader`, as the Calendar's is, #1343) reads

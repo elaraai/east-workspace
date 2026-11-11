@@ -311,6 +311,13 @@ export interface PlanController {
      *  window and the source's own failed reads, at once (#1398: the footer
      *  line's Retry). */
     retry(w?: number): void;
+    /**
+     * The stored entry the window the canvas draws at a source position read with the entry of an id (#1599, the paging
+     * driver's `entryOf`): what a gesture on a row the canvas shows begins from while its window is read again.
+     */
+    entryOf(id: string, at: number): Uint8Array | undefined;
+    /** Whether the window the canvas draws at a source position has landed at the revision it reads at, never standing in from before (#1599, the paging driver's `landedAt`). */
+    landedAt(at: number): boolean;
     /** Where a paged row the body does not hold sits — its block's band, and
      *  how far down it (#823: a link into an evicted window). */
     placeOf(key: RowKey): PlanRowPlace | undefined;
@@ -1292,6 +1299,8 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         retry(w) {
             batch(() => paging.retry(w));
         },
+        entryOf: (id, at) => paging.entryOf(id, at),
+        landedAt: (at) => paging.landedAt(at),
         placeOf: (key) => paging.placeOf(key),
         search,
         goToRow(key, row, narrowing) {

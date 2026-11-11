@@ -78,6 +78,7 @@ import { buildForms, SheetFormsType } from "./fields.js";
 import { viewsOf } from "./views.js";
 import type { OrderedRowSource } from "../utils/ordered-source.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
+import { heldHandle } from "../utils/held.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { FuncBindingType } from "../bind/func.js";
 import type { OptimiseHandle } from "../utils/optimise.js";
@@ -509,6 +510,12 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
         const bound = sources.bind($);
         // The bridge's functions, each bound once here for every wire function the sheet builds to refer to.
         const hold = <T extends EastType>(value: ExprType<T>): ExprType<T> => $.const(value) as ExprType<T>;
+        // The author's handles, each bound once here too (`heldHandle`, #1599): every function the sheet builds over one
+        // — the page its rows are read through among them — captures this block's constant, never the author's own
+        // variable, so it is the same function from one evaluation of the author's block to the next.
+        const rowsData = heldHandle($, data);
+        const rowsRecord = heldHandle($, record);
+        const rowsWindow = heldHandle($, window);
         const narrowed = East.value(new Map(Object.entries(bound.keys)) as never, NarrowedType) as ExprType<typeof NarrowedType>;
         const parts = { templates: checked, library, sources: sources.names, narrowed, fields, groupFields, inspector, optimise, vocabulary: words, autosave, name, newRow: sheet.newRow, newGroup: sheet.newGroup };
         if (pagesRows) {
@@ -522,15 +529,15 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
                 missing: East.value(none, OptionType(StringType)),
             });
         }
-        if (record === undefined) {
-            const built = createSheetBuild(data, columns, { ...sheet, ...viewOptions }, { slice: sources.chrome, hold, ...recordKinds, ...forms });
+        if (rowsRecord === undefined) {
+            const built = createSheetBuild(rowsData, columns, { ...sheet, ...viewOptions }, { slice: sources.chrome, hold, ...recordKinds, ...forms });
             return payloadOf(built, {
                 ...parts, id: sheet.id as string | undefined,
                 history: East.value(none, OptionType(SheetHistoryType)),
                 missing: East.value(none, OptionType(StringType)),
             });
         }
-        const rows = recordRows(record, { entry, window });
+        const rows = recordRows(rowsRecord, { entry, window: rowsWindow });
         // Read only by the author's word, or while the record does not hold the entry. The author's `true` stays itself,
         // so the build knows the sheet adds no rows (#1536).
         const readOnly = rows.options.readOnly === undefined || sheet.readOnly === true ? sheet.readOnly
@@ -542,7 +549,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             ...viewOptions,
             ...(readOnly === undefined ? {} : { readOnly }),
         }, { ...rows.internal, slice: sources.chrome, hold, ...recordKinds, ...forms });
-        const history = (record as { history: ExprType<SheetHistoryType> }).history;
+        const history = (rowsRecord as { history: ExprType<SheetHistoryType> }).history;
         return payloadOf(built, {
             ...parts, id: rows.options.id,
             history: East.value(some(history), OptionType(SheetHistoryType)),

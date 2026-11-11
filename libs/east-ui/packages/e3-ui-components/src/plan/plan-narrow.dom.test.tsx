@@ -402,8 +402,8 @@ describe("Plan narrow layout (§10 / #570)", () => {
             ] },
         ];
         const source = {
-            // Window 0 lands; 400 more elements have not.
-            page: (offset: bigint) => (offset === 0n ? some(w0) : none),
+            // Window 0 lands; 400 more elements have not. A window is its blocks, and the entries it carries: none here.
+            page: (offset: bigint) => (offset === 0n ? some({ rows: w0, entries: [] }) : none),
             total: () => some(600n),
             id: "narrow-partial",
             seek: none,
@@ -451,8 +451,8 @@ describe("Plan narrow layout (§10 / #570)", () => {
             { fixed: false, parent: none, charts: some(0n), rows: entries.map((i) => planRow(`s${i}`, spanKind([]))) },
         ];
         const source = {
-            // Window 0 lands; the 250 entries past it never do.
-            page: (offset: bigint) => (offset === 0n ? some(w0) : none),
+            // Window 0 lands; the 250 entries past it never do. A window is its blocks, and the entries it carries: none here.
+            page: (offset: bigint) => (offset === 0n ? some({ rows: w0, entries: [] }) : none),
             total: () => some(450n),
             id,
             seek: none,

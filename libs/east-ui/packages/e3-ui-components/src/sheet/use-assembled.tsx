@@ -378,8 +378,9 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
                 data-row-numbers={rowNumbers ? "" : undefined}
                 style={{ "--sheet-gutter": `${gutterPx}px`, "--sheet-number": `${numberPx}px`, "--sheet-view": `${viewPx ?? 0}px`, "--sheet-pin": `${pinPx}px` } as CSSProperties}
                 role="grid"
-                // Rows that stand in — a narrowing's last, or those a key's far jump holds — are retained (#1398, CL8,
-                // CL10): readable and walked by the keys, the frame's main busy, and taking no edit, drag or drop.
+                // Rows that stand in — a narrowing's last, those a key's far jump holds, or the last reading's while their
+                // source reads them another way (#1599) — are retained (#1398, CL8, CL10): readable and walked by the
+                // keys, the frame's main busy, and taking no edit, drag or drop.
                 aria-disabled={standingIn || keyHeld ? true : undefined}
                 aria-rowcount={ariaRowCount}
                 aria-colcount={colCount + (hostGrid !== undefined && gutterPx === 0 ? 0 : 1)}

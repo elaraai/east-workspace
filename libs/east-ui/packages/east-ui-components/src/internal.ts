@@ -71,7 +71,8 @@ export {
     type DraftPresentation,
 } from "./editing/draft.js";
 export { DRAFT_ISSUE_TEXT, SESSION_TEXT, type EditHistoryWord } from "./editing/messages.js";
-export { type EditSource } from "./editing/use-edit-session.js";
+export { type EditSource, type EditWindow } from "./editing/use-edit-session.js";
+export { entryLookup, editWindow, type CarriedEntry, type EntryLookup } from "./editing/carried.js";
 // When a host that draws what a Save landed lets it go (`EditSession.landed`): the one rule that tells rows read before a
 // Save from rows read since — the Schematic's windows and a schedule's cells read by it.
 export { readBeforeSave, readBeforeSaves } from "./editing/landed.js";

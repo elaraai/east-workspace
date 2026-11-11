@@ -24,10 +24,10 @@
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ArrayType, East, IntegerType, StringType, decodeBeast2For, equalFor, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
-import { Data, Sheet } from "@elaraai/e3-ui/internal";
-import { RecordSlicesChromeType, RecordSliceWhereType, Reactive, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
-import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
+import { ArrayType, East, IntegerType, NullType, StringType, decodeBeast2For, equalFor, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
+import { Data, Record, Sheet } from "@elaraai/e3-ui/internal";
+import { RecordSlicesChromeType, RecordSliceWhereType, Reactive, Slice, State, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
+import { StateImpl, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { getStore, keptName } from "@elaraai/east-ui-components/internal";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-records";
 import type { E3Request } from "../e3-web.test-utils.js";
@@ -631,4 +631,78 @@ test("the view sent far over stretches the lens has not read waits for them from
     await waitFor(() => expect(footerLine().hasAttribute("data-idle")).toBe(true), { timeout: 10_000 });
     expect(ui.rows().length).toBeGreaterThan(0);
     expect(ui.main().getAttribute("aria-busy")).not.toBe("true");
+});
+
+/** Where the app keeps the word its Reference column's detail begins with. */
+const NOTE = "sheet-lens-note";
+
+/**
+ * The work orders ready, each reference's detail beginning with a word the app's State holds — read as its block is
+ * evaluated, so a write to it reads every row another way.
+ */
+const notedOrders = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const record = $.let(Record.bind(ex.indexedWorkOrders));
+    const slice = $.let(Slice.bindRecords("test.lens.noted", {
+        rows: {
+            source: Data.bindPaged(ex.indexedWorkOrders, { indexes: ["by_status_due", "by_due", "by_job", "by_quantity", "by_urgent", "by_tag"] }),
+            fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] } }, initial: { status: ["Ready"] },
+        },
+    }));
+    const note = $.let(State.bind([StringType], NOTE, "ref"));
+    const word = $.let(note.read());
+    return Sheet({
+        name: "notedOrders", slice: { slice },
+        columns: {
+            reference: Sheet.column.text(ex.IndexedWork, { header: "Reference", detail: (order) => East.str`${word} ${order.reference}` }),
+            job: Sheet.column.text(ex.IndexedWork, { header: "Job" }),
+        },
+        onApply: Record.onApply(record, { keyed: true }), edits: { insertRows: false },
+    });
+}))) };
+
+/** The app changes the word. */
+const renote = East.function([StringType], NullType, ($, to) => {
+    const note = $.const(State.bind([StringType], NOTE, "ref"));
+    $(note.write(to));
+}).toIR().compile(StateImpl);
+
+test("the narrowing's rows read another way while they are read again stand in, retained, until they land: the app's block evaluated again takes no row off the sheet, and the rows of the last reading take no gesture (#1599)", async () => {
+    const ui = await h.mount(notedOrders, { storageKey: "sheet-lens-noted" });
+    const main = () => ui.container.querySelector<HTMLElement>('[data-frame-slot="main"]')!;
+    const ids = () => [...main().querySelectorAll<HTMLElement>('[data-slot="row"][data-row-id]')].map((row) => row.dataset["rowId"]);
+    const grid = () => main().querySelector<HTMLElement>('[role="grid"]')!;
+    const said = (id: string) => main().querySelector<HTMLElement>(`[data-slot="row"][data-row-id="${id}"] [data-key="reference"]`)?.getAttribute("title");
+    await waitFor(() => expect(ids().slice(0, 3)).toEqual(["JOB-10000", "JOB-10003", "JOB-10006"]));
+    await settle();
+    const shown = ids();
+    expect(said("JOB-10000")).toContain("ref ");
+    // Another session changes an order at the record's end — a field the narrowing chooses nothing on.
+    const before = await h.read(ex.indexedWorkOrders);
+    const next = new Map(before);
+    const last = before.get("JOB-59999")!;
+    next.set("JOB-59999", { ...last, quantity: last.quantity + 100n });
+    // The rows are read again at its revision, and held on their way.
+    const held = h.e3.hold((request) => request.dataset === ORDERS && request.kind === "page");
+    try {
+        await h.patch(ex.indexedWorkOrders, next);
+        await waitFor(() => expect(held.held, "the lens reads its rows again").toBeGreaterThan(0), { timeout: 10_000 });
+        await settle();
+        // The last layout stands in, live: the same rows, read again.
+        expect(ids()).toEqual(shown);
+        expect(grid().getAttribute("aria-disabled")).toBeNull();
+        // The app's word changes meanwhile: every row is read another way, and none has landed so.
+        await act(async () => { renote("order"); });
+        await settle();
+        // The rows stand as the last reading drew them — retained, until they are read again.
+        expect(ids()).toEqual(shown);
+        expect(said("JOB-10000")).toContain("ref ");
+        expect(grid().getAttribute("aria-disabled")).toBe("true");
+    } finally {
+        await act(async () => { held.release(); });
+    }
+    await settle();
+    // Read again: the same rows, the new way, and live.
+    await waitFor(() => expect(said("JOB-10000")).toContain("order "), { timeout: 10_000 });
+    expect(ids()).toEqual(shown);
+    expect(grid().getAttribute("aria-disabled")).toBeNull();
 });

@@ -338,8 +338,8 @@ describe("the payload (PB8, PB11)", () => {
         for (const [offset, key] of [[0n, "a"], [1n, "b"]] as const) {
             const window = paged.plan.rows.value.page(offset, 1n);
             if (window.type !== "some") assert.fail("expected the window");
-            assert.deepEqual(window.value.map((b) => b.fixed), [false, true, true]);
-            const [own, theStock, theMs] = ids(window.value);
+            assert.deepEqual(window.value.rows.map((b) => b.fixed), [false, true, true]);
+            const [own, theStock, theMs] = ids(window.value.rows);
             assert.ok(rowIds(own!, [variant("entry", { series: "marks", path: [key] })]));
             assert.ok(rowIds(theStock!, STOCK) && rowIds(theMs!, MS));
         }

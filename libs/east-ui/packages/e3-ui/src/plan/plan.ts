@@ -93,6 +93,7 @@ import { scheduleOptimiseBinding } from "../schedule/optimise.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
+import { heldHandle } from "../utils/held.js";
 import { PlanRootType } from "./ir.js";
 import {
     PlanAxisType, PlanBlockType, PlanBlocksType, PlanLinkType, PlanRowsCollectionType, PlanRunRefType, type PlanAxisKindLiteral, type PlanRowsValue,
@@ -712,13 +713,17 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         }
         // Each source's narrowed keys, paged through its own data: what the renderer reads to show a source's rows.
         const narrowed = East.value(new Map(sources.names.map((name) => [name, bound.keys[name]])) as never, NarrowedType) as ExprType<typeof NarrowedType>;
-        const data = bound.data[ROWS] ?? canvas.data;
+        // The author's own handle for the rows, bound once here (`heldHandle`, #1599): the page the canvas's rows are
+        // read through captures this block's constant, never the author's own variable, so it is the same function from
+        // one evaluation of the author's block to the next.
+        const data = bound.data[ROWS] ?? heldHandle($, canvas.data);
         // The canvas first, then the event kinds' rows, then the library: each refuses in that order.
         // The binding the `rows` source narrows (#1438): what the canvas reads its rows' nested series index through.
         const rowsBinding = pagesRows ? (bound.parts[ROWS] as unknown as { source: ExprType<StructType> }).source : undefined;
         // The pick held once: every read of its series reads this variable, where the handle written out at each would
-        // copy all its series' code into each.
-        const pick = canvas.pick === undefined ? undefined : $.let(canvas.pick as never) as unknown as ExprType<StructType>;
+        // copy all its series' code into each. A constant: a function captures it as its value, never as a box of its
+        // own each evaluation (#1599).
+        const pick = canvas.pick === undefined ? undefined : $.const(canvas.pick as never) as unknown as ExprType<StructType>;
         const plan = buildPlanRoot(
             { ...canvas, data, axis, links, ...(canvasCanDrop === undefined ? {} : { canDrop: canvasCanDrop }) } as Parameters<typeof buildPlanRoot>[0],
             rows === undefined ? (events !== undefined && data === undefined ? East.value([], PlanBlocksType) : undefined) : rowsBlocks(rows),

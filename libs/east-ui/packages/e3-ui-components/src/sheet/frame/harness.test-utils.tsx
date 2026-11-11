@@ -32,13 +32,13 @@ import type { EastIR } from "@elaraai/east";
 import type { SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { I18nProvider, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
-import { e3Harness, type E3Harness, type Example, type UIProgram } from "../../e3-web-mount.test-utils.js";
+import { e3Harness, useEvaluated, type E3Harness, type Example, type UIProgram } from "../../e3-web-mount.test-utils.js";
 import { boundFrame } from "../frame.test-utils.js";
 // The Sheet is an extension: its renderer registers as it loads.
 import { EastChakraSheet } from "./index.js";
 
 /** The `act` the harness's tests take: each scope its test's work, until it closes (#1280). */
-export { act, programOf, settle } from "../../e3-web-mount.test-utils.js";
+export { act, evaluateAgain, programOf, settle } from "../../e3-web-mount.test-utils.js";
 
 /** The frame over the grid's rows: 400px, a screenful of a dozen rows. */
 const VIEWPORT = 400;
@@ -94,9 +94,10 @@ export interface SheetHarnessOptions {
     frame?: number;
 }
 
-/** A payload, built under the runtimes a surface installs, rendered by the Sheet's renderer as given. */
+/** A payload, built under the runtimes a surface installs — and again at each `evaluateAgain` — rendered by the Sheet's renderer as given. */
 function PayloadSheet({ payload, storageKey }: { payload: PayloadFunction; storageKey: string }) {
-    const value = useMemo(() => payload.toIR().compile(getRegisteredPlatformImplementations())(), [payload]);
+    const run = useMemo(() => payload.toIR().compile(getRegisteredPlatformImplementations()), [payload]);
+    const value = useEvaluated(run);
     return <EastChakraSheet value={value} storageKey={storageKey} />;
 }
 

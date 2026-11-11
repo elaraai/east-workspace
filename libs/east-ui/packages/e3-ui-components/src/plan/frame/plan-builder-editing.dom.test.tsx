@@ -41,11 +41,12 @@ import { carrySaid, keyOn } from "../plan-move.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { offering } from "../../shared/schedule/keys.test-utils.js";
 import { act, el, elementKey, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
-import { conflictCards, reloadPage } from "../../e3-web-mount.test-utils.js";
+import { conflictCards, evaluatesAgain, reloadPage } from "../../e3-web-mount.test-utils.js";
 import type { E3Request } from "../../e3-web.test-utils.js";
-import { editedThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
+import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
 
 const h = planHarness({ "plan/plan-events": ex, "plan/plan": rowDrop });
+evaluatesAgain();
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.
 Element.prototype.scrollTo ??= function scrollTo() { /* jsdom lays nothing out */ };
 
@@ -810,10 +811,13 @@ describe("a Save of the jobs read over the window: what it landed, as it left it
         });
     });
 
-    test("a Save never stops the editing: other jobs moved while the window is read again after a Save are taken at once — from their bars as they stand — stay where they were put as the reads land, and the next Save writes them", async () => {
-        const c = await shifted("window-save-again");
+    test.each([
+        ["a Save never stops the editing: other jobs moved while the window is read again after a Save are taken at once — from their bars as they stand — stay where they were put as the reads land, and the next Save writes them", editedThroughReload, "window-save-again"],
+        ["the page evaluated again while the window is read again after a Save moves no job's bar, and takes none off the canvas: other jobs moved meanwhile are taken at once, stay where they were put as the page is evaluated again and the reads land, and the next Save writes them", redrawnThroughReload, "window-save-redrawn"],
+    ])("%s", async (_name, check, storageKey) => {
+        const c = await shifted(storageKey);
         const before = await readJobs();
-        await editedThroughReload({
+        await check({
             e3: h.e3,
             container: c,
             reads: afterCommit(),

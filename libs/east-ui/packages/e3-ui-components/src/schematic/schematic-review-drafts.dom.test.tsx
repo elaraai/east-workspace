@@ -33,13 +33,14 @@ import { StateRuntime, editingMessages } from "@elaraai/east-ui-components";
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import type { E3Hold, E3Request } from "../e3-web.test-utils.js";
-import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
-import { editedThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
+import { e3Harness, evaluatesAgain, settle, slot } from "../e3-web-mount.test-utils.js";
+import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
 import { entityId } from "./canvas/drawn.js";
 import { at, cameraOf, card, fitted, layOutCanvas, near, tap, unsaved, zoomInto } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
+evaluatesAgain();
 
 // jsdom lays nothing out: the canvas is given the box a page would give it, 1080 × 540 px.
 const canvasLayout = layOutCanvas();
@@ -633,10 +634,13 @@ async function moveFrom(c: HTMLElement, from: readonly [number, number], to: rea
     await settle();
 }
 
-test("a Save never stops the editing: another rack moved while its window is read again after a Save is taken at once — from the card as it stands — stays where it was put as the reads land, and the next Save writes it", async () => {
+test.each([
+    ["a Save never stops the editing: another rack moved while its window is read again after a Save is taken at once — from the card as it stands — stays where it was put as the reads land, and the next Save writes it", editedThroughReload],
+    ["the page evaluated again while the racks' window is read again after a Save moves no rack's card, and takes none off the drawing: another rack moved meanwhile is taken at once, stays where it was put as the page is evaluated again and the reads land, and the next Save writes it", redrawnThroughReload],
+])("%s", async (_name, through) => {
     const { container } = await open();
     await moveA01(container, 2.4, 5.0);
-    await editedThroughReload({
+    await through({
         e3: h.e3,
         container,
         reads: areaRead,
@@ -646,10 +650,13 @@ test("a Save never stops the editing: another rack moved while its window is rea
     });
 });
 
-test("a Save never stops the editing, over racks read whole: another rack moved while its record is read again is taken at once, and the next Save writes it", async () => {
+test.each([
+    ["a Save never stops the editing, over racks read whole: another rack moved while its record is read again is taken at once, and the next Save writes it", editedThroughReload],
+    ["the page evaluated again, over racks read whole, while their record is read again after a Save moves no rack's card, and takes none off the drawing: another rack moved meanwhile is taken at once, and the next Save writes it", redrawnThroughReload],
+])("%s", async (_name, through) => {
     const { container } = await open(runsFloor);
     await moveA01(container, 2.4, 5.0);
-    await editedThroughReload({
+    await through({
         e3: h.e3,
         container,
         reads: (request) => request.dataset === RACKS_DATASET,

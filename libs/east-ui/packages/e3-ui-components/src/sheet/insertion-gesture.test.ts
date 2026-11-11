@@ -16,7 +16,6 @@ import type { SheetRowValue } from "./values.js";
 /** Two resident groups: `g1` at 199, then — window 1 (200–399) failed — `g2` at 400. */
 const GROUPS: SheetRowValue[] = ["g1", "g2"].map((id) => ({
     id, owned: false, cells: new Map(), lines: [{ key: "0", cells: new Map(), subRows: [] }], band: some({ sub: "", folded: false }), subRows: [],
-    entry: none,
 }));
 const GROUPS_AT = [199, 400];
 
@@ -31,8 +30,8 @@ test("a line inserted into a group carries the group's position, a failed window
 
 /** A group `g`, then a loose row `l` (#846). */
 const LOOSE: SheetRowValue[] = [
-    { id: "g", owned: false, cells: new Map(), lines: [{ key: "0", cells: new Map(), subRows: [] }], band: some({ sub: "", folded: false }), subRows: [], entry: none },
-    { id: "l", owned: false, cells: new Map(), lines: [], band: none, subRows: [], entry: none },
+    { id: "g", owned: false, cells: new Map(), lines: [{ key: "0", cells: new Map(), subRows: [] }], band: some({ sub: "", folded: false }), subRows: [] },
+    { id: "l", owned: false, cells: new Map(), lines: [], band: none, subRows: [] },
 ];
 
 test("a row goes loose above a band, beside a loose row or on an empty sheet — never below a band, at a line or at a group's blank line (#846)", () => {

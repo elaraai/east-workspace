@@ -408,6 +408,7 @@ export function usePlanCanvas({
     const whole = usePlanWholeRows(hostData.nested.type === "some" ? hostData.nested.value : undefined);
     const editing = usePlanEditing({
         value: hostValue, data: hostData, rows: sourceRows, origin: paging.origin, storageKey, labelOf, history: historyRef, whole,
+        entryOf: controller.entryOf, landedAt: controller.landedAt,
     });
 
     // ── The event kinds' editing (#1194) ──────────────────────────────────

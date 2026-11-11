@@ -21,7 +21,7 @@ const absent: EntryVersion = { draft: undefined, wire: undefined, place: none };
 const row = (id: string, qty = 1n) => ({ id, qty, hidden: `hidden ${id}` });
 const version = (id: string, qty = 1n): EntryVersion => ({
     draft: liftDraft(Draft, row(id, qty)),
-    wire: { id, owned: false, cells: new Map(), lines: [], band: none, subRows: [], entry: none },
+    wire: { id, owned: false, cells: new Map(), lines: [], band: none, subRows: [] },
     place: some(variant("ordered", variant("end", null))),
 });
 const binding = (overrides: Partial<SheetTransactionBinding> = {}): SheetTransactionBinding => ({
@@ -57,7 +57,7 @@ test("a child discard follows stable identity after reorder and Undo restores ex
     const session = create({ entryType: Group, draftType: GroupDraft, children: "rows" });
     const group = (keys: string[]): EntryVersion => ({
         draft: liftDraft(GroupDraft, { id: "g", rows: keys.map(key => row(key)) }),
-        wire: { id: "g", owned: false, cells: new Map(), lines: keys.map(key => ({ key, cells: new Map(), subRows: [] })), band: some({ sub: "", folded: false }), subRows: [], entry: none },
+        wire: { id: "g", owned: false, cells: new Map(), lines: keys.map(key => ({ key, cells: new Map(), subRows: [] })), band: some({ sub: "", folded: false }), subRows: [] },
         place: some(variant("ordered", variant("end", null))),
     });
     const before = group(["a", "b"]);
@@ -82,7 +82,7 @@ test("with loose rows between the groups (#846) a child's draft and its discard 
     const place = some(variant("ordered", variant("end", null)));
     const group = (keys: string[]): EntryVersion => ({
         draft: liftDraft(EntryDraft, variant("group", { id: "g", rows: keys.map(key => row(key)) })),
-        wire: { id: "g", owned: false, cells: new Map(), lines: keys.map(key => ({ key, cells: new Map(), subRows: [] })), band: some({ sub: "", folded: false }), subRows: [], entry: none },
+        wire: { id: "g", owned: false, cells: new Map(), lines: keys.map(key => ({ key, cells: new Map(), subRows: [] })), band: some({ sub: "", folded: false }), subRows: [] },
         place,
     });
     const before = group(["a"]);
@@ -96,7 +96,7 @@ test("with loose rows between the groups (#846) a child's draft and its discard 
     // A new loose row: the entry's row arm, incomplete, discarded as a whole.
     const loose: EntryVersion = {
         draft: variant("row", { id: variant("value", "l"), qty: variant("missing", null), hidden: variant("value", "hidden l") }),
-        wire: { id: "l", owned: false, cells: new Map(), lines: [], band: none, subRows: [], entry: none },
+        wire: { id: "l", owned: false, cells: new Map(), lines: [], band: none, subRows: [] },
         place,
     };
     session.record([{ id: "l", before: absent, after: loose }], "insert", "Add row");

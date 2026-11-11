@@ -8,7 +8,7 @@ import {
     ArrayType, BlobType, DictType, East, Expr, IntegerType, OptionType, SetType, StringType, type EastType, type ExprType, type FunctionType, type StructType,
     none, some,
 } from "@elaraai/east";
-import { type ResolvedRowSource } from "@elaraai/east-ui/internal";
+import { CarriedEntryType, CarriedWindowType, type ResolvedRowSource } from "@elaraai/east-ui/internal";
 import { orderedRowSource } from "../utils/ordered-source.js";
 import { PlanBlocksType, PlanEditingType, PlanRowsCollectionType } from "./types.js";
 import { applySeries, type PlanSeriesInput } from "./series.js";
@@ -37,8 +37,11 @@ export const planIndexOrder = East.function([PlanBlocksType, ArrayType(StringTyp
 
 /** Build one bounded window adapter; its primary-key map is never a predicate. */
 export function orderedPlanSource(source: Ordered) {
-    const { resolved, entries: _entries, window, rows, keys, idOf } = orderedRowSource(source, "Plan");
+    const { resolved, entries: _entries, window, rows, keys, idOf, valueOf } = orderedRowSource(source, "Plan");
     const order = planIndexOrder;
+    // A window's stored entries, each under its key's text, in the index's order (#1599).
+    const carriedOf = East.function([_entries], ArrayType(CarriedEntryType), (_$, values) =>
+        values.map((_$2, value) => ({ id: idOf(value.key!), entry: East.Blob.encodeBeast(valueOf(value), "v2") })));
     const make = (series: PlanSeriesInput, values: ExprType<EastType>): ExprType<PlanBlocksType> => {
         const input = values as ExprType<typeof _entries>;
         return order(applySeries(series, rows(input)), keys(input));
@@ -52,16 +55,30 @@ export function orderedPlanSource(source: Ordered) {
             const ids = $.const(keys);
             return read(offset, limit).match({ some: (_$2, values) => East.value(some(ids(values)), OptionType(ArrayType(StringType))), none: () => East.value(none, OptionType(ArrayType(StringType))) });
         });
-        const derive = East.function([IntegerType, IntegerType, DictType(StringType, BlobType)], OptionType(PlanBlocksType), ($, offset, limit, drafts) => {
-            const read = $.const(entryIds);
+        const WindowType = CarriedWindowType(PlanBlocksType);
+        const derive = East.function([IntegerType, IntegerType, DictType(StringType, BlobType)], OptionType(WindowType), ($, offset, limit, drafts) => {
+            const read = $.const(window);
+            const ids = $.const(keys);
+            const stored = $.const(carriedOf);
             const sort = $.const(order);
             const build = $.const(session.derive);
+            // The window's blocks in the index's order, and its entries in that order too, as the canvas's own windows carry them.
             return read(offset, limit).match({
-                some: (_$2, ids) => build(offset, limit, drafts).match({ some: (_$3, blocks) => East.value(some(sort(blocks, ids)), OptionType(PlanBlocksType)), none: () => East.value(none, OptionType(PlanBlocksType)) }),
-                none: () => East.value(none, OptionType(PlanBlocksType)),
+                some: (_$2, values) => build(offset, limit, drafts).match({
+                    some: (_$3, built) => East.value(some({ rows: sort(built.rows, ids(values)), entries: stored(values) }), OptionType(WindowType)),
+                    none: () => East.value(none, OptionType(WindowType)),
+                }),
+                none: () => East.value(none, OptionType(WindowType)),
             });
         });
-        return East.value(Object.fromEntries(Object.keys(PlanEditingType.fields).map(field => [field, field === "entryIds" ? entryIds : field === "derive" ? derive : (session as unknown as ExprType<StructType>)[field]])) as never, PlanEditingType);
+        // A window's blocks from the entries it carried, in the order it carried them: the index's.
+        const deriveWindow = East.function([ArrayType(CarriedEntryType), DictType(StringType, BlobType)], PlanBlocksType, ($, entries, drafts) => {
+            const sort = $.const(order);
+            const build = $.const(session.deriveWindow);
+            return sort(build(entries, drafts), entries.map((_$2, entry) => entry.id));
+        });
+        const own: Record<string, unknown> = { entryIds, derive, deriveWindow };
+        return East.value(Object.fromEntries(Object.keys(PlanEditingType.fields).map(field => [field, own[field] ?? (session as unknown as ExprType<StructType>)[field]])) as never, PlanEditingType);
     }) as ExprType<PlanEditingType>;
     /**
      * A window's blocks over the rows' nested series index (#1438), the seam's `rows`: `(offset, limit, cells,
@@ -102,5 +119,13 @@ export function orderedPlanSource(source: Ordered) {
                 });
             });
     };
-    return { resolved, make, editing, nestedRows };
+    /**
+     * A window's stored entries, each under its id, in the index's order (#1599): what the canvas's windows carry
+     * beside their rows where it edits rows it pages whole.
+     *
+     * @param values - The window's index entries
+     * @returns Each one's row as the record holds it, encoded, under its key's text
+     */
+    const carried = (values: ExprType<EastType>): ExprType<ArrayType<CarriedEntryType>> => carriedOf(values as ExprType<typeof _entries>);
+    return { resolved, make, editing, nestedRows, carried };
 }

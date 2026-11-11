@@ -48,6 +48,12 @@ export interface RecordSourcesSpec {
  * its narrowed keys. A function captures what it reads, so one reading a source through these holds that source
  * alone. One reading through the slice would hold every source's methods, and beast2 writes a captured value
  * wherever a function holding it is written.
+ *
+ * Each is bound as a constant (#1599): a function captures a constant as its value, which the slice gives the same
+ * from one evaluation of the author's block to the next, so the functions a builder makes over its sources are the
+ * same too. A mutable variable is captured as its box, which every evaluation makes anew — the functions over it then
+ * differed each time (East's `equivalentFor`), and a renderer that keeps what it read by the function that read it
+ * let all of it go whenever the author's block was evaluated again (`utils/held.ts`).
  */
 export interface BoundSources {
     /** Each source's part of the slice, its typed record Slice handle: what a kind narrowed through it reads (a Calendar's event kind), and its record's identity. */
@@ -120,12 +126,12 @@ export function recordSources(slice: RecordSlicesChromeOptions | undefined, spec
             const data: Record<string, ExprType<StructType>> = {};
             const keys: Record<string, RowSource<ArrayType<StringType>>> = {};
             for (const name of names) {
-                const part = $.let(handle.sources[name]!);
-                const rows = $.let((part as unknown as { data: ExprType<StructType> }).data);
+                const part = $.const(handle.sources[name]!);
+                const rows = $.const((part as unknown as { data: ExprType<StructType> }).data);
                 // Its keys page through its own data, each its text.
                 const visible = keyVisibility(rows, prop(name), spec.anyKey === true);
                 if (visible.source === undefined) throw unkeyed(name);
-                const shown = $.let(visible.source);
+                const shown = $.const(visible.source);
                 parts[name] = part;
                 data[name] = rows;
                 keys[name] = shown;

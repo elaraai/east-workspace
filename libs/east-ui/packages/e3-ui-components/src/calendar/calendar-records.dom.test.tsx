@@ -29,9 +29,9 @@ import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore, editingMessages, system } from "@elaraai/east-ui-components";
 import { SEARCH_DELAY_MS } from "@elaraai/east-ui-components/internal";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar-records";
-import { act, e3Harness, settle, slot, width } from "../e3-web-mount.test-utils.js";
+import { act, e3Harness, evaluatesAgain, settle, slot, width } from "../e3-web-mount.test-utils.js";
 import { readsRow, type E3Request } from "../e3-web.test-utils.js";
-import { editedThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
+import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
 import { setNavigatorStylesProbe } from "../shared/time/navigation.js";
 import { DAY, eventKey } from "./model.js";
 import { TIMELINE_GUTTER, timelineDayWidth, timelineDays, timelineOpensAt, timelineScrollTo } from "./timeline.js";
@@ -39,6 +39,7 @@ import { setBookedProbe, setEventBlockRenderProbe, setFitMeasureProbe } from "./
 import "./index.js";
 
 const h = e3Harness({ "calendar/calendar-records": ex }, { main: "data-calendar-main" });
+evaluatesAgain();
 /** The record, as its dataset's requests name it. */
 const EVENTS = "records.indexed_calendar_events";
 // The job kind's source of the rail's one Slice.bindRecords (#1343).
@@ -928,12 +929,15 @@ describe("a Save: what it landed, as it left it, while the window is read again"
         await savedThroughReload({ e3: h.e3, container, reads: afterCommit(), look: () => drawnOnDay(container) });
     });
 
-    test("a Save never stops the editing: another event returned to the backlog while the window is read again after a Save is taken at once — from its block as it stands — stays off the day as the reads land, and the next Save writes it", async () => {
-        const container = await selectJob("save-landed-again");
+    test.each([
+        ["a Save never stops the editing: another event returned to the backlog while the window is read again after a Save is taken at once — from its block as it stands — stays off the day as the reads land, and the next Save writes it", editedThroughReload, "save-landed-again"],
+        ["the page evaluated again while the window is read again after a Save takes no event off the day, and puts none back: another event returned to the backlog meanwhile is taken at once, stays off the day as the page is evaluated again and the reads land, and the next Save writes it", redrawnThroughReload, "save-landed-redrawn"],
+    ])("%s", async (_name, through, storageKey) => {
+        const container = await selectJob(storageKey);
         await act(async () => { fireEvent.click(within(slot(container, "end")).getByRole("button", { name: "Return to backlog" })); });
         await settle();
         expect(event(container, "job")).toBeNull();
-        await editedThroughReload({
+        await through({
             e3: h.e3,
             container,
             reads: afterCommit(),

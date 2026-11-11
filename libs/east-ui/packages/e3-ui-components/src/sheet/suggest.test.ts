@@ -25,7 +25,7 @@ const cell = (type: string, value: unknown): SheetCellValue => variant(type, val
 const NULL = cell("Null", null);
 const yields = (value: SheetCellValue, meta: string): FillOut => some({ value, meta });
 const NOTHING: FillOut = none;
-const row = (cells: Record<string, SheetCellValue>, owned = false): SheetRowValue => ({ id: "r1", owned, cells: new Map(Object.entries(cells)), lines: [], band: none, subRows: [], entry: none });
+const row = (cells: Record<string, SheetCellValue>, owned = false): SheetRowValue => ({ id: "r1", owned, cells: new Map(Object.entries(cells)), lines: [], band: none, subRows: [] });
 const contextOf = (r: SheetRowValue): SheetContextValue => ({ row: r.cells } as unknown as SheetContextValue);
 /** Stub wire functions — sync and async arms, built through `variant()` like the bridge's. */
 const sync = <T,>(fn: (ctx: SheetContextValue) => T) => variant("sync", fn);

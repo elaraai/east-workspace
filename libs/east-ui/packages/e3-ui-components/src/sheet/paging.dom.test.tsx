@@ -42,9 +42,9 @@ function source(total: number, opts: { holdWindow?: number; faults?: Faults; inF
             if (opts.holdWindow === w || opts.inFlight?.has(w) === true) return none;
             const rows: SheetRowValue[] = [];
             for (let i = Number(offset); i < Math.min(total, Number(offset) + Number(limit)); i++) {
-                rows.push({ id: `r${String(i).padStart(5, "0")}`, owned: false, cells: new Map(), lines: [], band: none, subRows: [], entry: none });
+                rows.push({ id: `r${String(i).padStart(5, "0")}`, owned: false, cells: new Map(), lines: [], band: none, subRows: [] });
             }
-            return some(rows);
+            return some({ rows, entries: [] });
         },
         total: () => {
             if (opts.faults?.total !== undefined) throw new Error(opts.faults.total);
@@ -354,7 +354,7 @@ describe("sheet paging — content revisions", () => {
         const oldVersion = latest!.sizeVersion;
         const page: SheetPagedSourceValue["page"] = (offset, limit) => {
             const window = base.value.page(offset, limit);
-            return window.type === "none" ? none : some(window.value.map(row => ({ ...row, id: `updated-${row.id}` })));
+            return window.type === "none" ? none : some({ ...window.value, rows: window.value.rows.map(row => ({ ...row, id: `updated-${row.id}` })) });
         };
         rerender(<Harness src={{ ...base.value, page, revision: () => some("B") }} />);
         await waitFor(() => expect(latest!.rows[0]!.id).toBe("updated-r00000"));
@@ -378,9 +378,9 @@ function revisioned(total: number) {
             if (!state.open.has(state.revision)) return none;
             const rows: SheetRowValue[] = [];
             for (let i = Number(offset); i < Math.min(size(), Number(offset) + Number(limit)); i++) {
-                rows.push({ id: `r${String(i).padStart(5, "0")}`, owned: false, cells: new Map([["rev", variant("String", state.revision)]]), lines: [], band: none, subRows: [], entry: none } as SheetRowValue);
+                rows.push({ id: `r${String(i).padStart(5, "0")}`, owned: false, cells: new Map([["rev", variant("String", state.revision)]]), lines: [], band: none, subRows: [] } as SheetRowValue);
             }
-            return some(rows);
+            return some({ rows, entries: [] });
         },
         total: () => (state.open.has(state.revision) ? some(BigInt(size())) : none),
         seek: none,

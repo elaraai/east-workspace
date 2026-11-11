@@ -32,9 +32,8 @@ const text = (value: string): SheetCellValue => variant("String", value);
 const line = (key: string, task: string): SheetLineValue => ({ key, cells: new Map([["task", text(task)]]), subRows: [] });
 const group = (id: string, title: string, ...lines: SheetLineValue[]): SheetRowValue => ({
     id, owned: false, cells: new Map([[TITLE_KEY, text(title)]]), lines, band: some({ sub: "", folded: false }), subRows: [],
-    entry: none,
 });
-const row = (id: string, task: string): SheetRowValue => ({ id, owned: false, cells: new Map([["task", text(task)]]), lines: [], band: none, subRows: [], entry: none });
+const row = (id: string, task: string): SheetRowValue => ({ id, owned: false, cells: new Map([["task", text(task)]]), lines: [], band: none, subRows: [] });
 
 /** A flat sheet: three rows, then its blank tail — row space 0–2, the tail at 3. */
 const FLAT = [row("a", "Cut"), row("b", "Band"), row("c", "Route")];

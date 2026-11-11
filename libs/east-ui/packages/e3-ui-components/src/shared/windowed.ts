@@ -15,7 +15,14 @@
  *   is a failure recorded against its window (#811, #853), asked again only
  *   once its record goes — a Retry ({@link retryWindows}), or the window
  *   leaving the run; and across a new revision the previous one's windows
- *   stand in, each until its own lands (#821, #851).
+ *   stand in, each until its own lands (#821, #851). A window that carries the
+ *   stored entries its rows were made from (east-ui's `CarriedWindowType`,
+ *   #1599) is kept with them, so an edit of a row a driver shows begins from
+ *   the entry that row's own window read ({@link WindowStore.entryOf}),
+ *   whatever revision its source has moved to since.
+ * - **The source** ({@link sourceChange}): whether the source a driver is
+ *   handed is the one that filled its store, the same one read another way —
+ *   whose rows stand in, retained, while they are read again — or another.
  * - **The run** ({@link runAround}): the stretch of the resident windows that
  *   are in — landed, or failed — around the one nearest the element the view
  *   is centred on (#876). A window still in flight ends it at either end, so a
@@ -39,11 +46,13 @@
  * @packageDocumentation
  */
 
-import { none, type option } from "@elaraai/east";
+import { StringType, equalFor, none, type option } from "@elaraai/east";
 import {
-    advance, documentHeight, elementAtOffset, isEmpty, offsetOfWindow, pin, slotHeight, travelOf, unpinAll,
-    type Residency, type ResidencyOptions, type Travel, type WindowLedger,
+    advance, documentHeight, elementAtOffset, entryLookup, isEmpty, offsetOfWindow, pin, slotHeight, travelOf, unpinAll,
+    type CarriedEntry, type EntryLookup, type Residency, type ResidencyOptions, type Travel, type WindowLedger,
 } from "@elaraai/east-ui-components/internal";
+
+const stringEqual = equalFor(StringType);
 
 // ── The stand-in ──────────────────────────────────────────────────────────
 
@@ -59,6 +68,41 @@ export interface WindowReader<T, R> {
     readonly decode: (value: T) => R;
     /** The driver's name in the console (`[Sheet]`, `[Plan]`). */
     readonly label: string;
+    /**
+     * The stored entries a landed window carries beside its rows (#1599, east-ui's `CarriedWindowType`), where the
+     * source's windows carry theirs: kept with the window for as long as it stands ({@link WindowStore.entryOf}).
+     */
+    readonly entries?: ((value: T) => readonly CarriedEntry[]) | undefined;
+    /**
+     * What stands in for a window in flight (#1599): the last read of it, as the driver draws it NOW — a driver that
+     * draws its unsaved changes into its windows lays them over the entries the window carried ({@link carriedOf}),
+     * reading nothing, so a change made while the window is read again is drawn at once. Left out, the last read
+     * stands in as it was read. The window kept is the last read's own either way: what is returned is only drawn.
+     */
+    readonly standIn?: ((previous: R) => R) | undefined;
+}
+
+/** The entries each landed window carried, by the window as its driver keeps it: the list, and its lookup by id. */
+interface Carried {
+    readonly entries: readonly CarriedEntry[];
+    readonly lookup: EntryLookup;
+}
+
+/**
+ * The entries each landed window carried, by the window as its driver keeps it — the entries of the very read that
+ * made it, asked for as long as it stands: landed, or standing in from a revision before.
+ */
+const carried = new WeakMap<object, Carried>();
+
+/**
+ * The stored entries a window carried beside its rows (#1599), by the window as its driver keeps it — a landed
+ * window's `read`, or one standing in.
+ *
+ * @param read - The window, as the driver's reader decoded it
+ * @returns Its entries, in the source's order; `undefined` for a window of a source whose windows carry none
+ */
+export function carriedOf(read: object): readonly CarriedEntry[] | undefined {
+    return carried.get(read)?.entries;
 }
 
 /** What one read of some windows found. */
@@ -99,7 +143,8 @@ function readFailure(err: unknown): string {
  * @param cache - The caller's read-once cache (mutated: it is a cache)
  * @param pageSize - Elements per window
  * @param failures - The caller's failure record (mutated: a new failure is recorded)
- * @param stale - The previous revision's windows, served for a window still in flight at this one
+ * @param stale - The previous revision's windows, served for a window still in flight at this one — each as the
+ *   reader draws it now, where it says ({@link WindowReader.standIn})
  * @returns The windows resident, in flight and failed, and those served from `stale`
  */
 export function readWindows<T, R>(
@@ -142,12 +187,17 @@ export function readWindows<T, R>(
             inFlight.push(w);
             const previous = stale?.get(w);
             if (previous !== undefined) {
-                resident.push({ w, read: previous });
+                resident.push({ w, read: reader.standIn === undefined ? previous : reader.standIn(previous) });
                 standing.push(w);
             }
             continue;
         }
         const read = reader.decode(win.value);
+        // What the window carried beside its rows is kept with it: its own read's, whatever the source moves to (#1599).
+        if (reader.entries !== undefined) {
+            const entries = reader.entries(win.value);
+            carried.set(read as object, { entries, lookup: entryLookup(entries) });
+        }
         cache.set(w, read);
         resident.push({ w, read });
     }
@@ -213,6 +263,42 @@ export class WindowStore<R> {
         this.windows = new Map();
         this.failures = new Map();
         this.revision = revision;
+    }
+
+    /**
+     * Read every window again for a source that reads the same windows another way — its id the same, its page no
+     * longer equivalent to the one that filled the store (#809): the windows held, landed or standing in from the
+     * revision before, stand in for each until its own lands (#1599), as across a revision, and its failures start
+     * afresh. Dropped instead, the rows went with them — every one, until the source's read landed — whenever its
+     * author's block was evaluated again while that read was on its way.
+     */
+    restart(): void {
+        if (this.windows.size > 0) {
+            const stale = this.stale ?? new Map<number, R>();
+            for (const [w, read] of this.windows) stale.set(w, read);
+            this.stale = stale;
+        }
+        this.windows = new Map();
+        this.failures = new Map();
+    }
+
+    /**
+     * The stored entry the window standing at a source position read with the row of an id (#1599), where the source's
+     * windows carry theirs ({@link WindowReader.entries}): the window landed there at this revision, else the one
+     * standing in for it from before — the window whose rows are the ones a driver draws at that position
+     * ({@link readWindows}). What a gesture on a row the driver shows begins from, with no read of its own: one made as
+     * the gesture runs is read at the revision the source has moved to — on its way, or landed and newer than the row
+     * its person is looking at.
+     *
+     * @param id - The entry's id
+     * @param at - The row's position in the source
+     * @param pageSize - Elements per window
+     * @returns The entry's bytes; `undefined` for a position no window stands at, and for an id its window carries no entry of
+     */
+    entryOf(id: string, at: number, pageSize: number): Uint8Array | undefined {
+        const w = Math.floor(at / pageSize);
+        const read = this.windows.get(w) ?? this.stale?.get(w);
+        return read === undefined ? undefined : carried.get(read as object)?.lookup(id);
     }
 
     /** Drop everything: the rows of a source, or of a narrowing, that the next one does not serve. */
@@ -285,6 +371,36 @@ export function retryWindows(source: { readonly refresh?: ((target: option<strin
     }
     source.refresh(none);
     queueMicrotask(ask);
+}
+
+// ── The source ────────────────────────────────────────────────────────────
+
+/**
+ * How a source a driver is handed stands to the one that filled what it holds (#809, #1599).
+ *
+ * - `same` — the source that read the rows: its id the same and its page equivalent. What is held is its own.
+ * - `reread` — the same source, read another way: its id the same, its page no longer equivalent — a value its
+ *   author's block read moved, so its rows are made another way, or the block was evaluated again over a handle
+ *   bound as a variable. Every window is read again, and the rows held stand in for it meanwhile, RETAINED: they are
+ *   the last reading's rows, and take no gesture until they are read again.
+ * - `other` — another source: nothing held is its rows.
+ */
+export type SourceChange = "same" | "reread" | "other";
+
+/**
+ * How a source a driver is handed stands to the one that filled what it holds (see {@link SourceChange}): the one
+ * rule every driver that keeps rows by the page that read them asks, so none decides it for itself.
+ *
+ * @typeParam S - A windowed source: its id, and whatever reads it
+ * @param held - The source that filled what the driver holds; `undefined` while nothing has
+ * @param next - The source it is handed now
+ * @param equivalent - Whether two sources read the same rows the same way: their ids and their functions, by what they capture
+ * @returns The change
+ */
+export function sourceChange<S extends { readonly id: string }>(held: S | undefined, next: S, equivalent: (a: S, b: S) => boolean): SourceChange {
+    if (held === undefined) return "other";
+    if (equivalent(held, next)) return "same";
+    return stringEqual(held.id, next.id) ? "reread" : "other";
 }
 
 // ── The run and its bands ─────────────────────────────────────────────────

@@ -18,7 +18,7 @@ import { layerCounts } from "./local-rows.js";
 import type { LocalLayer } from "./use-editing.js";
 import type { SheetRowValue } from "./values.js";
 
-const row = (id: string): SheetRowValue => ({ id, owned: false, cells: new Map(), lines: [], band: none, subRows: [], entry: none });
+const row = (id: string): SheetRowValue => ({ id, owned: false, cells: new Map(), lines: [], band: none, subRows: [] });
 
 /** A new row still drafted, one a Save added; a row a draft removes, one a Save removed. */
 const layer: LocalLayer = {

@@ -58,18 +58,18 @@ test("an entry's place among the collection's rows, and its original version, ar
     expect(hook.result.current.available).toBe(true);
 });
 
-test("a gesture on a row the collection draws begins from the entry the collection kept with the row — never a read at the revision now, which is on its way while the row's page is read again (#1599)", () => {
+test("a gesture on a row the collection draws begins from the entry its window read with the row — never a read at the revision now, which is on its way while the row's page is read again (#1599)", () => {
     initializeStore(new UIStore());
     // The source's entries are on their way: a read as a gesture runs has none to give.
     const reading: EditingValue = { ...editingOf(false), sourceId: "bars-kept", readEntry: () => none };
-    // The collection kept each bar's entry as the bar landed.
-    const kept = new Map(BARS.map((bar, i) => [bar, encodeRun(RUNS[i]!)]));
-    const hook = renderHook(() => useEditSession<Bar>(reading, undefined, BARS, POSITIONS, "bars-kept", { idOf, entryOf: (bar) => kept.get(bar) }));
+    // The windows the collection holds carried each bar's entry, by its id.
+    const carried = new Map(BARS.map((bar, i) => [bar.key, encodeRun(RUNS[i]!)]));
+    const hook = renderHook(() => useEditSession<Bar>(reading, undefined, BARS, POSITIONS, "bars-kept", { idOf, entryOf: (id) => carried.get(id) }));
     const b = hook.result.current.original("b");
     expect(b.wire).toEqual({ key: "b", end: 2n });
     expect(b.draft).toEqual({ id: variant("value", "b"), end: variant("value", 2n) });
-    // A row it kept none for is read as the gesture runs — and, on its way, the gesture is refused, saying why.
-    kept.delete(BARS[2]!);
+    // A row it holds none for is read as the gesture runs — and, on its way, the gesture is refused, saying why.
+    carried.delete("c");
     expect(() => hook.result.current.original("c")).toThrow("wait for its page before editing");
 });
 
@@ -124,7 +124,7 @@ test("a keyed paged source's reconcile seeks each entry by its key's `.east` lit
     const queries: string[] = [];
     let revision = "r1";
     const source: EditSource<Bar> = {
-        page: (offset, count) => some(BARS.slice(Number(offset), Number(offset + count))),
+        page: (offset, count) => some({ rows: BARS.slice(Number(offset), Number(offset + count)) }),
         revision: () => some(revision),
         refresh: () => { revision = "r2"; return null; },
         seek: some((query) => {
@@ -160,7 +160,7 @@ test("a keyed paged source's conflicting Save carries its drafts over to the rev
     const sourceAt = (): EditSource<Bar> => ({
         page: (offset, count) => {
             pages.push(`${held.revision} ${offset}+${count}`);
-            return some(held.runs.slice(Number(offset), Number(offset + count)).map((run) => ({ key: run.id, end: run.end })));
+            return some({ rows: held.runs.slice(Number(offset), Number(offset + count)).map((run) => ({ key: run.id, end: run.end })) });
         },
         revision: () => some(held.revision),
         refresh: () => null,
@@ -224,7 +224,7 @@ test("a positional source's entries are read back from the windows its rows are 
         page: (offset, count) => {
             const start = Number(offset);
             asked.push(start);
-            return held.landed(start) ? some(held.runs.slice(start, start + Number(count)).map((run) => ({ key: run.id, end: run.end }))) : none;
+            return held.landed(start) ? some({ rows: held.runs.slice(start, start + Number(count)).map((run) => ({ key: run.id, end: run.end })) }) : none;
         },
         revision: () => some(held.revision),
         refresh: () => null,
@@ -273,20 +273,19 @@ test("a positional source's entries are read back from the windows its rows are 
     expect([session().status, session().pending]).toEqual(["idle", 0]);
 });
 
-test("a Save's entries are read back from the entry each window's row was read with, where the collection's rows carry theirs — never an entry read on its own, which may be on its way though its window has landed (#1599)", async () => {
+test("a Save's entries are read back from the entry each window read with its row, where the source's windows carry theirs — never an entry read on its own, which may be on its way though its window has landed (#1599)", async () => {
     initializeStore(new UIStore());
     const stored = [{ id: "a", end: 1n }, { id: "b", end: 2n }, { id: "c", end: 3n }, { id: "d", end: 4n }];
     const held = { revision: "r1", runs: stored };
-    // Each bar a window reads carries the entry it was read with.
-    const carried = new WeakMap<Bar, Uint8Array>();
-    const barOf = (run: (typeof stored)[number]): Bar => {
-        const bar = { key: run.id, end: run.end };
-        carried.set(bar, encodeRun(run));
-        return bar;
-    };
+    const barOf = (run: (typeof stored)[number]): Bar => ({ key: run.id, end: run.end });
+    // Each window arrives with the entries its bars were made from: one read, the bars and their entries.
     const sourceAt = (): EditSource<Bar> => ({
         pageSize: 2,
-        page: (offset, count) => some(held.runs.slice(Number(offset), Number(offset + count)).map(barOf)),
+        page: (offset, count) => {
+            const runs = held.runs.slice(Number(offset), Number(offset + count));
+            const entries = new Map(runs.map((run) => [run.id, encodeRun(run)]));
+            return some({ rows: runs.map(barOf), entry: (id) => entries.get(id) });
+        },
         revision: () => some(held.revision),
         refresh: () => null,
         seek: none,
@@ -303,7 +302,9 @@ test("a Save's entries are read back from the entry each window's row was read w
         })),
     };
     const bars = stored.map(barOf);
-    const hook = renderHook(({ source }) => useEditSession<Bar>(editing, source, bars, [0, 1, 2, 3], "bars-carried", { idOf, entryOf: (bar) => carried.get(bar) }),
+    // What the collection shows: the windows it read at r1, each bar's entry with it.
+    const shown = new Map(stored.map((run) => [run.id, encodeRun(run)]));
+    const hook = renderHook(({ source }) => useEditSession<Bar>(editing, source, bars, [0, 1, 2, 3], "bars-carried", { idOf, entryOf: (id) => shown.get(id) }),
         { initialProps: { source: sourceAt() } });
     act(() => {
         const { session, original } = hook.result.current;

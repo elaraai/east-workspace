@@ -56,6 +56,21 @@
  * position, the bands and the blank tail hold. The Plan's driver does the
  * same (#821).
  *
+ * # A source read another way keeps the rows, retained (#1599)
+ *
+ * A source is the page that reads it: its author's projection is among its
+ * `page`'s captures, so a source whose `page` is not EQUIVALENT to the one
+ * that filled the cache serves other rows under the same id and revision
+ * (#809), and every window is read again. The rows it drew stand in for each
+ * window until its own lands, as across a revision — but RETAINED
+ * ({@link SheetPaging.reread}): they are the last reading's rows under this
+ * one's columns, so a gesture on one would be read by this reading's rules.
+ * At rest the windows are read again in the same turn, from the runtime, and
+ * nothing stands in. While a read of the source is on its way — after a Save,
+ * or another session's write — they do: dropped instead, the grid emptied
+ * until that read landed whenever the author's block was evaluated again
+ * meanwhile, a State it reads or a record it reads whole having moved.
+ *
  * # A jump owns the viewport (#854)
  *
  * A key search moves the run onto its target window and pins it, but the
@@ -98,11 +113,11 @@ import {
     isEmpty, residentWindows, unpinAll, type Residency, type ResidencyOptions,
 } from "@elaraai/east-ui-components/internal";
 import {
-    WindowStore, advanceAtRest, anchorAround, bandsAround, elementInBand, failedSpan, firstWindow, pinTarget, retryWindows, runAround,
+    WindowStore, advanceAtRest, anchorAround, bandsAround, elementInBand, failedSpan, firstWindow, pinTarget, retryWindows, runAround, sourceChange,
     type WindowReader, type WindowTravel,
 } from "../shared/windowed.js";
 import { BAND_MIN_PX, type SheetBand, type SheetWindowFailure } from "./model.js";
-import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
+import type { SheetPagedSourceValue, SheetRowValue, SheetWindowValue } from "./values.js";
 
 /** Source elements per window. */
 export const SHEET_PAGE_SIZE = 200;
@@ -167,6 +182,11 @@ export interface SheetPaging {
     /** The last query is still displayed while its replacement loads. */
     replacing: boolean;
     /**
+     * The rows shown were read another way — by a page this source's is not equivalent to (#809) — and stand in while
+     * its windows are read again (#1599): retained, taking no gesture, until every window the run holds has landed.
+     */
+    reread: boolean;
+    /**
      * The rows shown as a key went past them stand in while the window it goes to is read (#1398, CL10): retained,
      * and the line says that window is read (`reading`).
      */
@@ -198,6 +218,12 @@ export interface SheetPaging {
     clearJump: () => void;
     /** Ask again (#853): the failed window `w`, or — with none — the source and every failed window. At once (#1398): a source that can refresh rearms what failed first, and the windows are read again a microtask on, so the gap a read alone waits after a failure never holds a Retry back. */
     retry: (w?: number) => void;
+    /**
+     * The stored entry the window standing at a source position read with the row of an id (#1599) — the window whose
+     * rows are drawn there, landed or standing in from the revision before: what a gesture on a row the sheet shows
+     * begins from, and what its marks are read over. `undefined` where the source's windows carry none.
+     */
+    entryOf: (id: string, at: number) => Uint8Array | undefined;
 }
 
 /** No window in flight. */
@@ -207,9 +233,9 @@ const NONE_STANDING: readonly number[] = [];
 
 const IDLE: SheetPaging = {
     rows: [], positions: [], rowsOffset: 0, failures: [], head: undefined, tail: undefined, total: undefined, totalRevision: undefined,
-    exhausted: true, loading: false, pending: NONE_PENDING, standing: NONE_STANDING, revision: undefined, viewLoading: false, reading: undefined, replacing: false, held: false,
+    exhausted: true, loading: false, pending: NONE_PENDING, standing: NONE_STANDING, revision: undefined, viewLoading: false, reading: undefined, replacing: false, reread: false, held: false,
     sourceError: undefined, error: undefined, landedOnce: false, sizeVersion: 0, jump: undefined,
-    reportViewport: () => {}, jumpToElement: () => {}, clearJump: () => {}, retry: () => {},
+    reportViewport: () => {}, jumpToElement: () => {}, clearJump: () => {}, retry: () => {}, entryOf: () => undefined,
 };
 
 /**
@@ -281,11 +307,16 @@ interface SourceCache {
     totalRevision: string | undefined;
     /** Whether any window of this source has landed — until one has, a failure is the whole sheet (#853). */
     landedOnce: boolean;
+    /**
+     * Whether its windows are read again for a page that reads them another way (#1599): what stands in for them
+     * meanwhile is the last reading's rows, retained — until every window asked for has landed.
+     */
+    reread: boolean;
 }
 
 /** A cache holding nothing. */
 function emptyCache(source: SheetPagedSourceValue | undefined): SourceCache {
-    return { source, store: new WindowStore(), total: undefined, totalRevision: undefined, landedOnce: false };
+    return { source, store: new WindowStore(), total: undefined, totalRevision: undefined, landedOnce: false, reread: false };
 }
 
 /**
@@ -309,8 +340,8 @@ interface Held {
  * @param source - The source
  * @returns Its window reader
  */
-function sheetWindows(source: SheetPagedSourceValue): WindowReader<unknown, readonly SheetRowValue[]> {
-    return { page: (offset, limit) => source.page(offset, limit), decode: (rows) => rows as readonly SheetRowValue[], label: "[Sheet]" };
+function sheetWindows(source: SheetPagedSourceValue): WindowReader<SheetWindowValue, readonly SheetRowValue[]> {
+    return { page: (offset, limit) => source.page(offset, limit), decode: (window) => window.rows, entries: (window) => window.entries, label: "[Sheet]" };
 }
 
 /** Whether two paged sources serve the same rows: the same id AND equivalent
@@ -380,9 +411,15 @@ export function useSheetPaging(
     const read = useCallback(() => {
         void retries;
         if (source === undefined) return undefined;
-        if (cacheRef.current.source === undefined || !pagedSourceEquivalent(cacheRef.current.source, source)) {
-            cacheRef.current = emptyCache(source);
-        }
+        const filled = cacheRef.current;
+        const change = sourceChange(filled.source, source, pagedSourceEquivalent);
+        if (change === "reread") {
+            // The same source, read another way (#809, #1599): every window is read again, and the rows it drew stand
+            // in — retained — for each until its own lands. Its count and its geometry are the source's still.
+            filled.source = source;
+            filled.store.restart();
+            filled.reread = true;
+        } else if (change === "other") cacheRef.current = emptyCache(source);
         const held = cacheRef.current;
         // The snapshot first: every window below is read at it. A new one
         // is read afresh, and the rows each window had stand in until its
@@ -430,6 +467,8 @@ export function useSheetPaging(
         // previous revision; a failed one is not asked again by the reader, only by a Retry (#853).
         const reads = held.store.read(sheetWindows(source), residentWindows(residency), SHEET_PAGE_SIZE, keep);
         if (reads.resident.some(({ w }) => held.store.windows.has(w))) held.landedOnce = true;
+        // Read again for a page that reads them another way: once no window stands in, every row is this reading's.
+        if (held.reread && !reads.stale) held.reread = false;
         return {
             total,
             // The revision the last count was read at: this one's, or the one before while this one gives none.
@@ -445,6 +484,7 @@ export function useSheetPaging(
             standing: reads.standing,
             revision,
             landedOnce: held.landedOnce,
+            reread: held.reread,
         };
     }, [source, residency, retries]);
 
@@ -454,6 +494,8 @@ export function useSheetPaging(
 
     // A Retry asks again now (#1398, `retryWindows`): the source rearms what failed, then the failure records go and
     // the windows are read again.
+    // The entry a row drawn was read with: its own window's, landed or standing in (#1599).
+    const entryOf = useCallback((id: string, at: number) => cacheRef.current.store.entryOf(id, at, SHEET_PAGE_SIZE), []);
     const retry = useCallback((w?: number) => {
         retryWindows(source, () => {
             cacheRef.current.store.forget(w);
@@ -735,6 +777,7 @@ export function useSheetPaging(
         viewLoading: viewPending.length > 0 || viewAwaits,
         reading,
         replacing: false,
+        reread: value?.reread === true,
         held: false,
         sourceError: nothingShown ? undefined : value?.sourceError,
         error: readError ?? (nothingShown ? failure : undefined),
@@ -745,6 +788,7 @@ export function useSheetPaging(
         jumpToElement,
         clearJump,
         retry,
+        entryOf,
     };
     // A key's jump holds the rows shown until it has settled — the window it goes to in the run, the demand met — or
     // until the source cannot be read, or another source takes the sheet (#1398, CL10). Settled, the jump's rows are

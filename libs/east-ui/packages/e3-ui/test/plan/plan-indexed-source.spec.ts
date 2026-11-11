@@ -47,14 +47,22 @@ test("indexed Plan keeps index order through short pages, decoding and draft der
     const page = plan.rows.value.page(0n, 3n);
     assert.equal(page.type, "some");
     if (page.type !== "some") return;
-    assert.deepEqual(page.value[0]!.rows.map(row => row.id.value.path[0]), ["z", "a", "m"]);
+    assert.deepEqual(page.value.rows[0]!.rows.map(row => row.id.value.path[0]), ["z", "a", "m"]);
+    // The window carries its rows' entries (#1599): each person under their primary key, in the index's order.
+    assert.deepEqual(page.value.entries.map((carried) => carried.id), ["z", "a", "m"]);
+    assert.deepEqual(page.value.entries.map((carried) => decodeBeast2For(Person)(carried.entry).name)[1], "Bea");
     assert.equal(plan.editing.type, "some");
     if (plan.editing.type !== "some") return;
     assert.deepEqual(plan.editing.value.entryIds(0n, 3n), some(["z", "a", "m"]));
     const drafted = plan.editing.value.derive(0n, 3n, new Map());
     assert.equal(drafted.type, "some");
     if (drafted.type !== "some") return;
-    assert.deepEqual(drafted.value[0]!.rows.map(row => row.id.value.path[0]), ["z", "a", "m"]);
+    assert.deepEqual(drafted.value.rows[0]!.rows.map(row => row.id.value.path[0]), ["z", "a", "m"]);
+    // The drafted window carries its entries in the index's order too, and a window standing in is derived from them
+    // in that order, reading nothing.
+    assert.deepEqual(drafted.value.entries.map((carried) => carried.id), ["z", "a", "m"]);
+    const standing = plan.editing.value.deriveWindow(drafted.value.entries, new Map());
+    assert.deepEqual(standing[0]!.rows.map(row => row.id.value.path[0]), ["z", "a", "m"]);
     const raw = plan.editing.value.readEntry("a", 1n);
     assert.ok(raw.type === "some" && decodeBeast2For(Person)(raw.value).name === "Bea");
 });

@@ -67,12 +67,14 @@ import {
     IconType,
     LibraryRefType,
     PagedSourceType,
-    RowSourceType,
     StatusValueType,
     TimeResolutionType,
     type TimeResolutionLiteral,
 } from "@elaraai/east-ui";
 import {
+    CarriedEntryType,
+    CarriedRowSourceType,
+    CarriedWindowType,
     ChartDomainType,
     ChartTickValuesType,
     ColorSchemeType,
@@ -1139,8 +1141,8 @@ export type PlanRowEditsType = typeof PlanRowEditsType;
 
 /**
  * The entries in one window a paged canvas reads — it pages its source at
- * `w × PLAN_PAGE_SIZE`, and the editing session reads an entry back from the
- * very window it came from, so a gesture never waits on a new request (#880).
+ * `w × PLAN_PAGE_SIZE`, and the editing session takes an entry from the very
+ * window it came in, so a gesture never waits on a request (#880, #1599).
  */
 export const PLAN_PAGE_SIZE = 200;
 
@@ -1612,23 +1614,34 @@ export type PlanBlocksValue = ExprType<PlanBlocksType>;
  * (`Plan Data Interface.md` §3.8). The factory builds it from the author's
  * source (a `Data.bindPaged` handle — paged data is bound) by wrapping each
  * window with the series' `derive` functions, so the renderer only ever sees
- * typed canvas-row windows — no bytes and no domain types. A window is the
- * canvas's blocks over that window's entries: each data series' block holds
- * the rows it derives from them, every entry with its whole subtree, and each
- * fixed block its rows as ever (#823).
+ * typed canvas-row windows — no domain types. A window is the canvas's blocks
+ * over that window's entries: each data series' block holds the rows it
+ * derives from them, every entry with its whole subtree, and each fixed block
+ * its rows as ever (#823) — and, beside them, the stored entries those rows
+ * were made from, where the canvas edits them (#1599, east-ui's
+ * `CarriedWindowType`).
  */
-export const PlanPagedSourceType = PagedSourceType(PlanBlocksType);
+export const PlanPagedSourceType = PagedSourceType(CarriedWindowType(PlanBlocksType));
 /** Type alias for {@link PlanPagedSourceType}. */
 export type PlanPagedSourceType = typeof PlanPagedSourceType;
 
 /**
- * The root's rows channel — the shared {@link RowSourceType} at the canvas's
+ * The root's rows channel — the shared row-source contract at the canvas's
  * BLOCKS: `inline` blocks (what a `data`+`series` canvas over a collection
  * collapses to) or a `paged` source serving a window of every block at once.
  * One vocabulary across every collection, so a component never sniffs shapes
  * of its own (#567).
+ *
+ * Each window carries the stored entries its rows were made from (#1599,
+ * east-ui's `CarriedRowSourceType`) where the canvas edits rows it pages
+ * whole: a gesture on a row the canvas shows begins from the entry that
+ * arrived with the row's window, never from a read of its own, which is on its
+ * way while the windows are read again — after a Save, or another session's
+ * write. A canvas that edits nothing carries none, nor does one whose rows are
+ * read lean beside their nested series index (#1438), whose entries are read
+ * whole by key.
  */
-export const PlanRowsType = RowSourceType(PlanBlocksType);
+export const PlanRowsType = CarriedRowSourceType(PlanBlocksType);
 /** Type alias for {@link PlanRowsType}. */
 export type PlanRowsType = typeof PlanRowsType;
 
@@ -1682,7 +1695,8 @@ export type PlanReadyEntryType = typeof PlanReadyEntryType;
 
 const PlanEditingTypeImpl = StructType({
     ...EditingSessionFields,
-    derive:      FunctionType([IntegerType, IntegerType, DictType(StringType, BlobType)], OptionType(PlanBlocksType)),
+    derive:      FunctionType([IntegerType, IntegerType, DictType(StringType, BlobType)], OptionType(CarriedWindowType(PlanBlocksType))),
+    deriveWindow: FunctionType([ArrayType(CarriedEntryType), DictType(StringType, BlobType)], PlanBlocksType),
     deriveEntry: FunctionType([StringType, BlobType], PlanBlocksType),
     write:       FunctionType([ArrayType(PlanWriteRequestType)], ArrayType(OptionType(BlobType))),
     entryIds:    FunctionType([IntegerType, IntegerType], OptionType(ArrayType(StringType))),
@@ -1710,7 +1724,8 @@ export interface PlanEditingType extends PlanEditingTypeImpl {}
  * stays a closed type whatever the canvas's entries are.
  *
  * @internal
- * @property derive - The canvas's blocks with drafted entries in place of the source's — `(offset, limit, drafts by id)`: inline the whole source (offset and limit unread), paged the window `(offset, limit)`, `none` while it is in flight. The series applied to the drafted entries, so a draft draws exactly as the applied batch would.
+ * @property derive - The canvas's blocks with drafted entries in place of the source's — `(offset, limit, drafts by id)`: inline the whole source (offset and limit unread), paged the window `(offset, limit)`, `none` while it is in flight. The series applied to the drafted entries, so a draft draws exactly as the applied batch would. A paged window arrives with its stored entries beside its blocks, as the canvas's own windows do (#1599): the source's, never the drafts'.
+ * @property deriveWindow - A window's blocks from the entries it carried, with drafted entries in place of them — `(entries, drafts by id)` — reading nothing (#1599): what a window standing in while it is read again draws a draft made meanwhile from, at once
  * @property deriveEntry - One entry's blocks — `(id, entry)` — the rows a draft is compared by, where it was made
  * @property write - Gestures written into their entries — each request's entry, or `none` when no series takes it; a move carries its item from the request holding its source row to the one holding its target, and is refused whole (every result `none`) unless both take it — a target whose list already holds the item's key does not (#825)
  * @property entryIds - The ids of the source's entries `[offset, offset + limit)`, `none` while in flight — how the session reads an entry back after an Apply

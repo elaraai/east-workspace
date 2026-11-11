@@ -195,7 +195,8 @@ export function blocksSource(src: unknown): PlanPagedSourceValue {
         const rowsPage = source.page;
         page = (offset, limit) => {
             const window = rowsPage(offset, limit);
-            return window.type === "some" ? some(oneBlock(window.value)) : window;
+            // A window as the canvas's source serves one: its blocks, and — a test's rows being no source's entries — no entry beside them.
+            return window.type === "some" ? some({ rows: oneBlock(window.value), entries: [] }) : window;
         };
         blockPages.set(rowsPage, page);
     }

@@ -1545,7 +1545,7 @@ describeEast("Plan", (test) => {
         // header is one row, not one per window.
         const source = $.let(LOADS_SOURCE, Paged.Types.Source(Loads));
         const paged = $.let(Plan.Root({ axis, data: source, series }).rows.unwrap("paged"));
-        const w1 = $.let(paged.page(1n, 1n).unwrap("some"));
+        const w1 = $.let(paged.page(1n, 1n).unwrap("some").rows);
         $(Assert.equal(w1.map((_$, b) => b.fixed), [true, false, false, true]));
         $(Assert.equal(w1.get(0n).rows.map((_$, r) => r.id), [Plan.sectionRef("ops")]));
         $(Assert.equal(w1.get(1n).rows.map((_$, r) => r.id), [Plan.ref("load", "b")]));
@@ -1612,7 +1612,7 @@ describeEast("Plan", (test) => {
             Plan.series.chart(LoadRow, { key: "load-chart", title: "Load", label: (_r, k) => k, layers: () => [] }),
             Plan.series.heat(LoadRow, { key: "load-heat", title: "Load heat", label: (_r, k) => k, cells: (r) => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]) }),
         ];
-        const w0 = $.let(Plan.Root({ axis, data: source, series: loads }).rows.unwrap("paged").page(0n, 2n).unwrap("some"));
+        const w0 = $.let(Plan.Root({ axis, data: source, series: loads }).rows.unwrap("paged").page(0n, 2n).unwrap("some").rows);
         $(Assert.equal(w0.map((_$, b) => b.charts), [some(1n), some(0n)]));
     });
 
@@ -2074,7 +2074,7 @@ describeEast("Plan", (test) => {
         $(Assert.equal(src.total().unwrap("some"), 1n));
         // A window is every block's share of its entries, from ONE read (#823):
         // one block per data series, each its entries' rows in order.
-        const w0 = $.let(src.page(0n, 100n).unwrap("some"));
+        const w0 = $.let(src.page(0n, 100n).unwrap("some").rows);
         $(Assert.equal(w0.size(), 2n));
         $(Assert.equal(w0.get(0n).rows.size(), 1n));
         $(Assert.equal(w0.get(0n).rows.get(0n).id, Plan.ref("presses", "m1")));

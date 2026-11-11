@@ -20,7 +20,7 @@ import { utcDate } from "./parse/date.js";
 import type { SheetCellValue, SheetRowValue, SheetSubRowValue } from "./values.js";
 
 const cell = (type: string, value: unknown): SheetCellValue => variant(type, value) as SheetCellValue;
-const row = (id: string, cells: Record<string, SheetCellValue>): SheetRowValue => ({ id, owned: false, cells: new Map(Object.entries(cells)), lines: [], band: none, subRows: [], entry: none });
+const row = (id: string, cells: Record<string, SheetCellValue>): SheetRowValue => ({ id, owned: false, cells: new Map(Object.entries(cells)), lines: [], band: none, subRows: [] });
 
 describe("the body", () => {
     test("inline: real rows then the padding, numbered on", () => {
@@ -147,7 +147,7 @@ describe("grouped rows (#740)", () => {
     const sub = (name: string): SheetSubRowValue => ({ code: "OP", name, chips: [], facets: [], id: "" });
     const line = (key: string, task: string, subRows: SheetSubRowValue[] = []) => ({ key, cells: new Map([["task", cell("String", task)]]), subRows });
     const group = (id: string, lines: { key: string; cells: Map<string, SheetCellValue>; subRows: SheetSubRowValue[] }[], folded = false): SheetRowValue =>
-        ({ id, owned: false, cells: new Map([["$title", cell("String", id)]]), lines, band: some({ sub: "", folded }), subRows: [], entry: none });
+        ({ id, owned: false, cells: new Map([["$title", cell("String", id)]]), lines, band: some({ sub: "", folded }), subRows: [] });
     const p1 = group("p1", [line("0", "Routing"), line("1", "Spraying")]);
     const p2 = group("p2", [line("0", "Inspection")], true);
     const foldedOf = (r: SheetRowValue) => r.band.type === "some" && r.band.value.folded;

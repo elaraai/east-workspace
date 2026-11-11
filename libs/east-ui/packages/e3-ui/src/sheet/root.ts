@@ -23,7 +23,6 @@ import {
     Expr,
     ArrayType,
     AsyncFunctionType,
-    BlobType,
     BooleanType,
     DateTimeType,
     DictType,
@@ -44,9 +43,10 @@ import {
 
 import { DensityType, StatusValueType, type DensityLiteral, type StatusValueLiteral } from "@elaraai/east-ui";
 import {
+    CarriedEntryType,
     RecordSlicesChromeType,
     TickFormatType,
-    buildRowSource,
+    buildCarriedRowSource,
     resolveRowSource,
     resolveTag,
     type DataRowType,
@@ -1136,20 +1136,13 @@ function buildSheet(
         subAccessor !== undefined ? subAccessor(r) : East.value("", StringType));
     const foldedFn = East.function([groupType], BooleanType, (_$, r) =>
         foldedAccessor !== undefined ? foldedAccessor(r) : East.value(false, BooleanType));
-    // Whether a row carries the stored entry it was made from (#1599): on a sheet that writes over rows read a window at
-    // a time. Its rows stand at the revision they were read at while their pages are read again — after a Save, or
-    // another session's write — and an entry read as a gesture runs is read at the revision now, on its way: carried
-    // with its row, it is at hand, and a gesture on a row the sheet shows is taken at once. A sheet over rows held whole
-    // reads an entry from them, and one that writes nothing begins no gesture: neither carries one.
-    const carriesEntry = writes && resolved.kind !== "inline";
-    const rowWith = (carries: boolean) => East.function([rowType, StringType], SheetRowType, ($, r, id) => {
+    const rowOf = East.function([rowType, StringType], SheetRowType, ($, r, id) => {
         const ownedOf = $.const(ownedFn);
         const owned = $.let(ownedOf(r), BooleanType);
-        const entry = carries ? $.const(some(East.Blob.encodeBeast(r, "v2")), OptionType(BlobType)) : $.const(none, OptionType(BlobType));
         if (groupBridge === undefined) {
             const project = $.const(bridge.projectRow);
             const subRowsOf = $.const(bridge.projectSubRows);
-            return $.let({ id, owned, cells: project(r as ExprType<StructType>), lines: [], band: none, subRows: subRowsOf(r as ExprType<StructType>), entry }, SheetRowType);
+            return $.let({ id, owned, cells: project(r as ExprType<StructType>), lines: [], band: none, subRows: subRowsOf(r as ExprType<StructType>) }, SheetRowType);
         }
         const cellsOf = $.const(groupBridge.projectGroupCells);
         const linesOf = $.const(groupBridge.projectLines);
@@ -1157,26 +1150,23 @@ function buildSheet(
         const foldedOf = $.const(foldedFn);
         if (!loose) {
             const g = r as ExprType<StructType>;
-            return $.let({ id, owned, cells: cellsOf(g), lines: linesOf(g), band: some({ sub: subOf(g), folded: foldedOf(g) }), subRows: [], entry }, SheetRowType);
+            return $.let({ id, owned, cells: cellsOf(g), lines: linesOf(g), band: some({ sub: subOf(g), folded: foldedOf(g) }), subRows: [] }, SheetRowType);
         }
         const project = $.const(bridge.projectRow);
         const subRowsOf = $.const(bridge.projectSubRows);
         return (r as unknown as ExprType<VariantType<{ group: StructType; row: StructType }>>).match({
-            group: ($2, g) => $2.let({ id, owned, cells: cellsOf(g), lines: linesOf(g), band: some({ sub: subOf(g), folded: foldedOf(g) }), subRows: [], entry }, SheetRowType),
-            row: ($2, l) => $2.let({ id, owned, cells: project(l), lines: [], band: none, subRows: subRowsOf(l), entry }, SheetRowType),
+            group: ($2, g) => $2.let({ id, owned, cells: cellsOf(g), lines: linesOf(g), band: some({ sub: subOf(g), folded: foldedOf(g) }), subRows: [] }, SheetRowType),
+            row: ($2, l) => $2.let({ id, owned, cells: project(l), lines: [], band: none, subRows: subRowsOf(l) }, SheetRowType),
         });
     });
-    // A row read from the source: with its entry, where the sheet carries them.
-    const rowOf = rowWith(carriesEntry);
-    // A draft's row, as the record would show its entry: no stored entry stands behind it.
-    const draftRowOf = carriesEntry ? rowWith(false) : rowOf;
+    // A stored entry beside the rows made from it (#1599), as `editing.readEntry` answers one: its id, and its bytes at
+    // the session's entry type.
+    const entryOf = East.function([rowType, StringType], CarriedEntryType, (_$, r, id) => ({ id, entry: East.Blob.encodeBeast(r, "v2") }));
     // A keyed row's id is its key's text (#1182): a String key itself, any
     // other key its `.east` printing, which `Record.onApply` reads back.
     const idOfKey = keyType !== undefined && keyType.type !== "String"
         ? (k: ExprType<EastType>): ExprType<StringType> => East.print(k)
         : (k: ExprType<EastType>): ExprType<StringType> => k as ExprType<StringType>;
-    const makeKeyed = (collection: ExprType<EastType>) =>
-        (collection as unknown as ExprType<DictType<EastType, EastType>>).toArray((_$, v, k) => rowOf(v, idOfKey(k)));
     // A positional row's id is its id field — an entry's, through whichever arm it holds (#846).
     const idAt = (r: ExprType<EastType>): ExprType<StringType> => (loose
         ? (r as unknown as ExprType<VariantType<{ group: StructType; row: StructType }>>).match({
@@ -1184,11 +1174,25 @@ function buildSheet(
             row: (_$, l) => (l as unknown as Record<string, ExprType<StringType>>)[idField!] as ExprType<StringType>,
         })
         : (r as unknown as Record<string, ExprType<StringType>>)[idField!] as ExprType<StringType>);
-    const makePositional = (collection: ExprType<EastType>) =>
-        (collection as unknown as ExprType<ArrayType<EastType>>).map((_$, r) => rowOf(r, idAt(r)));
-    const makeOrdered = (collection: ExprType<EastType>) =>
-        (collection as ExprType<ArrayType<StructType>>).map((_$, entry) => rowOf(ordered!.valueOf(entry), ordered!.idOf(entry.key!)));
-    const rowsValue = buildRowSource(incoming, SheetRowsCollectionType, ordered !== undefined ? makeOrdered : keyed ? makeKeyed : makePositional);
+    // Each of a window's entries through `each`, in the source's order: a keyed source's by its key's text, a positional
+    // one's by its id field, an index's by its entry's key.
+    const over = <T extends EastType>(each: ExprType<FunctionType<[EastType, StringType], T>>) =>
+        (collection: ExprType<EastType>): ExprType<ArrayType<T>> => (ordered !== undefined
+            ? (collection as ExprType<ArrayType<StructType>>).map((_$, entry) => each(ordered.valueOf(entry), ordered.idOf(entry.key!)))
+            : keyed
+                ? (collection as unknown as ExprType<DictType<EastType, EastType>>).toArray((_$, v, k) => each(v, idOfKey(k)))
+                : (collection as unknown as ExprType<ArrayType<EastType>>).map((_$, r) => each(r, idAt(r)))) as unknown as ExprType<ArrayType<T>>;
+    // Whether a window carries the stored entries its rows were made from (#1599): on a sheet that writes over rows read
+    // a window at a time. Its rows stand at the revision they were read at while their windows are read again — after a
+    // Save, or another session's write — and an entry read as a gesture runs is read at the revision now, on its way:
+    // arriving with its window, it is at hand, and a gesture on a row the sheet shows is taken at once. A sheet over rows
+    // held whole reads an entry from them, and one that writes nothing begins no gesture: neither carries any.
+    const carriesEntries = writes && resolved.kind !== "inline";
+    const rowsValue = buildCarriedRowSource(
+        incoming, SheetRowsCollectionType,
+        over(rowOf as unknown as ExprType<FunctionType<[EastType, StringType], typeof SheetRowType>>),
+        carriesEntries ? over(entryOf as unknown as ExprType<FunctionType<[EastType, StringType], typeof CarriedEntryType>>) : undefined,
+    );
 
     // The copilot's row proposals.
     const suggest = opts.suggest !== undefined
@@ -1215,7 +1219,7 @@ function buildSheet(
         ...(internal.applyKeyed !== undefined ? { applyKeyed: internal.applyKeyed } : {}),
         ...(internal.sourceId !== undefined ? { sourceId: internal.sourceId } : {}),
         unsettable,
-    }, draftRowOf as unknown as ExprType<FunctionType<[EastType, StringType], typeof SheetRowType>>, driver?.column);
+    }, rowOf as unknown as ExprType<FunctionType<[EastType, StringType], typeof SheetRowType>>, driver?.column);
     // The group declaration on the wire (#740).
     const groupValue = groupBridge !== undefined && groupDecl !== undefined && cellMetas !== undefined
         ? East.value(some({

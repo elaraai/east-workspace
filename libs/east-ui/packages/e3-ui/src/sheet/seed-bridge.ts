@@ -52,7 +52,7 @@ export function buildSheetSeed(
             }
         }
         const draft = $.const(fields as SubtypeExprOrValue<StructType>, draftType);
-        const row = $.const({ id: "", owned: false, cells: project(patch), lines, band: none, subRows: noSubRows, entry: none }, SheetRowType);
+        const row = $.const({ id: "", owned: false, cells: project(patch), lines, band: none, subRows: noSubRows }, SheetRowType);
         return { draft: East.Blob.encodeBeast(draft, "v2"), row: East.Blob.encodeBeast(row, "v2") };
     });
 }

@@ -285,7 +285,7 @@ describe("the snapshot of a paged source's data, apart from the revision its win
     test("a paged `data` beside the event kinds: its own revision is the snapshot, which the event kinds' rows riding its windows leave", () => {
         const data = { revision: "D1" };
         const src = {
-            id: "data-window", page: () => some([]), total: () => some(0n), seek: none,
+            id: "data-window", page: () => some({ rows: [], entries: [] }), total: () => some(0n), seek: none,
             revision: () => some(data.revision), refresh: () => null,
         };
         const root = rootOf(variant("pinned", src));

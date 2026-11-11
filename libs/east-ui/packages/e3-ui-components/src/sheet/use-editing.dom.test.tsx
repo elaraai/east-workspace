@@ -165,7 +165,7 @@ test("paged deletion retires only once read past the revision it was drafted at,
     const projected = sourceRows(view());
     const source = {
         ...root.rows.value,
-        page: (offset: bigint, count: bigint) => loaded ? some(projected.filter(w => domain.some(r => r.id === w.id)).slice(Number(offset), Number(offset + count))) : none,
+        page: (offset: bigint, count: bigint) => loaded ? some({ rows: projected.filter(w => domain.some(r => r.id === w.id)).slice(Number(offset), Number(offset + count)), entries: [] }) : none,
         revision: () => some(revision),
         refresh: () => { loaded = false; return null; },
         total: () => loaded ? some(BigInt(domain.length)) : none,
@@ -208,7 +208,7 @@ test("a row the sheet no longer draws is removed from the version held of it whi
     const projected = sourceRows(view());
     const source = {
         ...root.rows.value,
-        page: (offset: bigint, count: bigint) => some(projected.filter(w => domain.some(r => r.id === w.id)).slice(Number(offset), Number(offset + count))),
+        page: (offset: bigint, count: bigint) => some({ rows: projected.filter(w => domain.some(r => r.id === w.id)).slice(Number(offset), Number(offset + count)), entries: [] }),
         revision: () => some("r0"),
         refresh: () => null,
         total: () => some(BigInt(domain.length)),
@@ -253,7 +253,7 @@ test("a paged Save's rows are drawn as it left them over the rows read before it
     const projected = () => domain.map((row) => decodeWire(root.editing.project(encode(row), row.id)) as SheetRowValue);
     const source = {
         ...root.rows.value,
-        page: (offset: bigint, count: bigint) => some(projected().slice(Number(offset), Number(offset + count))),
+        page: (offset: bigint, count: bigint) => some({ rows: projected().slice(Number(offset), Number(offset + count)), entries: [] }),
         revision: () => some(revision),
         refresh: () => null,
         total: () => some(BigInt(domain.length)),
@@ -327,7 +327,7 @@ test("a row drafted while a paged Save is read back is none of that Save's: only
     const projected = () => domain.map((row) => decodeWire(root.editing.project(encode(row), row.id)) as SheetRowValue);
     const source = {
         ...root.rows.value,
-        page: (offset: bigint, count: bigint) => some(projected().slice(Number(offset), Number(offset + count))),
+        page: (offset: bigint, count: bigint) => some({ rows: projected().slice(Number(offset), Number(offset + count)), entries: [] }),
         revision: () => some(revision),
         refresh: () => null,
         total: () => some(BigInt(domain.length)),
@@ -395,7 +395,7 @@ test.each([["exactly", false], ["beside another write", true]] as const)("a Save
     const projected = () => domain.map((row) => decodeWire(root.editing.project(encode(row), row.id)) as SheetRowValue);
     const source = {
         ...root.rows.value,
-        page: (offset: bigint, count: bigint) => some(projected().slice(Number(offset), Number(offset + count))),
+        page: (offset: bigint, count: bigint) => some({ rows: projected().slice(Number(offset), Number(offset + count)), entries: [] }),
         revision: () => some(revision),
         refresh: () => null,
         total: () => some(BigInt(domain.length)),
@@ -433,7 +433,7 @@ test.each([["exactly", false], ["beside another write", true]] as const)("a Save
     const cellsOf = (id: string, key: string) => applyLayer(drawn.rows, hook.result.current.layer).filter((row) => stringEqual(row.id, id)).map((row) => row.cells.get(key));
     act(() => hook.result.current.record([
         variant("commit", { rowId: "a", offset: 0n, key: "qty", row: { ...before[0]!, cells: new Map(before[0]!.cells).set("qty", variant("Integer", 7n)) }, source: variant("typed", null) }),
-        variant("insert", { afterRowId: some("b"), row: { id: "c", owned: false, cells: new Map<string, SheetCellValue>([["qty", variant("Integer", 3n)], ["note", variant("String", "third")]]), lines: [], band: none, subRows: [], entry: none }, source: variant("typed", null) }),
+        variant("insert", { afterRowId: some("b"), row: { id: "c", owned: false, cells: new Map<string, SheetCellValue>([["qty", variant("Integer", 3n)], ["note", variant("String", "third")]]), lines: [], band: none, subRows: [] }, source: variant("typed", null) }),
     ]));
     await act(async () => { await hook.result.current.session.apply(); });
     expect(domain).toEqual([{ id: "a", qty: 7n, note: "first" }, { id: "b", qty: 2n, note: "second" }, { id: "c", qty: 3n, note: "third" }]);
@@ -495,7 +495,7 @@ test("a row the rows hold twice — a window read again beside one still standin
     const projected = () => domain.map((row) => decodeWire(root.editing.project(encode(row), row.id)) as SheetRowValue);
     const source = {
         ...root.rows.value,
-        page: (offset: bigint, count: bigint) => some(projected().slice(Number(offset), Number(offset + count))),
+        page: (offset: bigint, count: bigint) => some({ rows: projected().slice(Number(offset), Number(offset + count)), entries: [] }),
         revision: () => some(revision),
         refresh: () => null,
         total: () => some(BigInt(domain.length)),
@@ -555,7 +555,7 @@ test("a positional source's Save is read back from the windows its rows are read
         page: (offset: bigint, count: bigint) => {
             if (revision === "r1") asked.push(`${offset}+${count}`);
             if (revision === "r1" && !landed.has(Number(offset))) return none;
-            return some(projected().slice(Number(offset), Number(offset + count)));
+            return some({ rows: projected().slice(Number(offset), Number(offset + count)), entries: [] });
         },
         revision: () => some(revision),
         refresh: () => null,
@@ -609,7 +609,7 @@ test("creation defaults survive a multi-event gesture, later clearing, and appli
     const getView = () => compile();
     const root = getView();
     const hook = renderHook(({ root }) => useEditing(root), { initialProps: { root } });
-    const inserted: SheetRowValue = { id: "new", owned: false, cells: new Map<string, SheetCellValue>([["qty", variant("Integer", 9n)], ["note", variant("Null", null)]]), lines: [], band: none, subRows: [], entry: none };
+    const inserted: SheetRowValue = { id: "new", owned: false, cells: new Map<string, SheetCellValue>([["qty", variant("Integer", 9n)], ["note", variant("Null", null)]]), lines: [], band: none, subRows: [] };
     act(() => hook.result.current.record([
         variant("insert", { afterRowId: none, row: inserted, source: variant("row", null) }),
         variant("commit", { rowId: "new", offset: 0n, key: "qty", row: { ...inserted, cells: new Map(inserted.cells).set("qty", variant("Integer", 12n)) }, source: variant("row", null) }),
@@ -650,7 +650,7 @@ test("group and child constructors keep hidden fields and receive the actual chi
     }).toIR().compile(StateImpl);
     const result = compile();
     const hook = renderHook(() => useEditing(result));
-    const row: SheetRowValue = { id: "g", owned: false, cells: new Map([["$title", variant("Null", null)]]), lines: [{ key: "new-child", cells: new Map([["qty", variant("Integer", 8n)]]), subRows: [] }], band: some({ sub: "", folded: false }), subRows: [], entry: none };
+    const row: SheetRowValue = { id: "g", owned: false, cells: new Map([["$title", variant("Null", null)]]), lines: [{ key: "new-child", cells: new Map([["qty", variant("Integer", 8n)]]), subRows: [] }], band: some({ sub: "", folded: false }), subRows: [] };
     act(() => hook.result.current.record([
         variant("insert", { afterRowId: none, row, source: variant("typed", null) }),
         variant("commit", { rowId: "g", offset: 0n, key: "$title", row: { ...row, cells: new Map([["$title", variant("String", "Named group")]]) }, source: variant("typed", null) }),

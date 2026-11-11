@@ -6,8 +6,9 @@
 /**
  * A sheet's columns from data, read into its rows (#1559). Each row's cells
  * from data, and every column's marks, are read by the sheet's `cellsAt` at
- * the day: over the row's entry as the source holds it (`readEntry`), and over
- * its draft once a gesture has made one. The source's rows carry none of these
+ * the day: over the row's entry — the one its window read with it, where the
+ * sheet's windows carry theirs (#1599), else as the source holds it (`readEntry`)
+ * — and over its draft once a gesture has made one. The source's rows carry none of these
  * cells, so its projection stays pure, as it does for an age cell's count. A
  * row is read as it arrives, again whenever its draft changes, and every row
  * again as the day turns; the cells read stand over the row's own, and in
@@ -23,7 +24,7 @@
  */
 
 import { useMemo } from "react";
-import { encodeBeast2For, fromEastTypeValue, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
+import { encodeBeast2For, fromEastTypeValue, some, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import type { SheetReadFromType } from "@elaraai/e3-ui/internal";
 import { normalizeDraft } from "./draft-values.js";
@@ -35,8 +36,11 @@ type Cells = SheetRowValue["cells"];
 
 /** What reads a sheet's columns from data into its rows, at one day. */
 export interface SheetCellsFromData {
-    /** The source's rows, each with the cells read over its entry — as they are while nothing is read. */
-    rows: (rows: readonly SheetRowValue[], positions: readonly number[]) => readonly SheetRowValue[];
+    /**
+     * The source's rows, each with the cells read over its entry — as they are while nothing is read. `entryOf` is the
+     * entry the window standing at a row's position read with it (#1599), where the sheet's windows carry theirs.
+     */
+    rows: (rows: readonly SheetRowValue[], positions: readonly number[], entryOf?: (id: string, at: number) => Uint8Array | undefined) => readonly SheetRowValue[];
     /** The session's layer over them, each of its rows with the cells read over its draft. */
     layer: (layer: LocalLayer, entries: ReadonlyMap<string, EntryVersion>, drafts: ReadonlyMap<string, Uint8Array>) => LocalLayer;
     /** What the record holds of an entry a gesture began from, its cells from data read at the day: what a changed cell is told from. */
@@ -103,12 +107,17 @@ export function useCellsFromData(value: SheetRootValue, day: Date, unread: strin
         const byDraft = new WeakMap<SheetRowValue, { draft: unknown; row: SheetRowValue }>();
         const byBegan = new WeakMap<EntryVersion, Cells | undefined>();
         return {
-            rows: (rows, positions) => rows.map((row, i) => {
+            rows: (rows, positions, entryOf) => rows.map((row, i) => {
                 const known = byEntry.get(row);
                 if (known !== undefined) return known;
-                // An entry whose page is not in reads nothing yet: it is asked again with the rows that bring it.
+                // The entry the row's window read with it (#1599): a row stands at the revision it was read at while its
+                // window is read again — after a Save, or another session's write — and its entry read on its own, at the
+                // revision the source reads at now, is on its way then: a row drawn again meanwhile lost its marks, a lock
+                // among them. A row whose window carried none is read through the source — an entry whose page is not in
+                // reads nothing yet, and is asked again with the rows that bring it.
                 const position = positions[i];
-                const entry = position === undefined ? undefined : editing.readEntry(row.id, BigInt(position));
+                const carried = position === undefined ? undefined : entryOf?.(row.id, position);
+                const entry = carried !== undefined ? some(carried) : position === undefined ? undefined : editing.readEntry(row.id, BigInt(position));
                 if (entry?.type !== "some") return row;
                 const out = read(row, variant("entry", entry.value), true);
                 byEntry.set(row, out);

@@ -930,7 +930,7 @@ function heldSheet(n: number) {
             // The renderer is handed the broken row as it draws it; the factory's own reads see it whole.
             rows: variant("pinned", { ...served, page: (offset: bigint, limit: bigint) => {
                 const window = served.page(offset, limit);
-                return window.type === "some" ? some(window.value.map((row) => (row.id === state.broken ? brokenRow(row) : row))) : window;
+                return window.type === "some" ? some({ ...window.value, rows: window.value.rows.map((row) => (row.id === state.broken ? brokenRow(row) : row)) }) : window;
             } }),
             editing: { ...root.editing, onApply: some(variant("sync", apply)) },
         },

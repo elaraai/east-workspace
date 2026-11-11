@@ -176,7 +176,10 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     // once it has one (the layer, below) — the source's rows carry none of them.
     const day = useSheetDay(value.cellsAt.type === "some");
     const fromData = useCellsFromData(value, day, words.m.marksUnread());
-    const sourceRows = useMemo(() => fromData.rows(drawnRows, sourcePositions), [fromData, drawnRows, sourcePositions]);
+    // The entry each row drawn was read with (#1599): its own window's — the pages', or the lens's — whatever revision
+    // the source has moved to since. Rows held whole are read from as they are.
+    const entryOf = decodedRows !== undefined ? undefined : lensDrawn ? lens.entryOf : paging.entryOf;
+    const sourceRows = useMemo(() => fromData.rows(drawnRows, sourcePositions, entryOf), [fromData, drawnRows, sourcePositions, entryOf]);
     // Every row resident: inline, or a paged source read to its end — never under the lens, which draws a part of the record.
     const exhausted = decodedRows !== undefined || (!lensDrawn && paging.exhausted);
     // The source's element count, once known, and the revision it was read at: a Save's rows are counted over a count
@@ -202,8 +205,9 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
         }
     }, [minted, mintAmong]);
     // The rows a key's far jump holds stand in, retained, until its rows replace them (#1398, CL10): the source's own
-    // rows still, which the session holds, but they take no gesture.
-    const keyHeld = !lensDrawn && paging.held;
+    // rows still, which the session holds, but they take no gesture. So do rows read another way than their source
+    // reads them now, while its windows are read again (#1599).
+    const keyHeld = lensDrawn ? lens.reread : paging.held || paging.reread;
     // How the rows drawn were read: a Save's rows are drawn as it left them over those read before it — the pages a window
     // at a time while a new revision's are read (#851), the lens a layout at a time — until their source reads them again.
     const pagesStanding = paging.standing;
@@ -217,7 +221,7 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     }, [decodedRows, lensDrawn, lens.revision, lens.readBefore, paging.revision, pagesStanding]);
     // The inspector's numbers held to bounds (#1585): a changed row's Save waits while one is outside them.
     const bounds = useMemo(() => sheetBoundsOf(host.forms), [host.forms]);
-    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular, day, rowsRead, renumber, bounds, windowedSourceOf(value.rows)?.id, host.autosave);
+    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular, day, rowsRead, renumber, bounds, windowedSourceOf(value.rows)?.id, host.autosave, entryOf);
     const session = editingState.session;
     // A new row given a new key as the drafts carried over, another write having added its own (#1583): the footer says
     // so, once — never again as the sheet mounts over a session that did so before.

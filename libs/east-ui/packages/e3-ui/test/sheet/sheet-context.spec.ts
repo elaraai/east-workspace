@@ -20,7 +20,7 @@ const flat = East.function([], Sheet.Types.Root, () => Sheet.Root(East.value([
 const flatFill = flat.columns[1]!.fill[0]!;
 if (flatFill.type !== "sync") throw new Error("Expected synchronous fill");
 const now = new Date("2026-01-05T00:00:00Z");
-const wire: ValueTypeOf<typeof Sheet.Types.Row> = { id: "a", owned: false, cells: new Map([["qty", variant("Integer", 1n)]]), lines: [], band: none, subRows: [], entry: none };
+const wire: ValueTypeOf<typeof Sheet.Types.Row> = { id: "a", owned: false, cells: new Map([["qty", variant("Integer", 1n)]]), lines: [], band: none, subRows: [] };
 const context: ValueTypeOf<typeof Sheet.Types.WireContext> = {
     drafts: new Map(), rowIndex: 0n, rowId: "a", offset: 0n, line: none, row: new Map(), rows: [wire],
     rowsOffset: 0n, partial: false, driver: none, today: now,
@@ -81,8 +81,8 @@ const three = East.function([], Sheet.Types.Root, () => Sheet.Root(East.value([
 const threeFill = three.columns[1]!.fill[0]!;
 if (threeFill.type !== "sync") throw new Error("Expected synchronous fill");
 
-const wireB: ValueTypeOf<typeof Sheet.Types.Row> = { id: "b", owned: false, cells: new Map([["qty", variant("Integer", 2n)]]), lines: [], band: none, subRows: [], entry: none };
-const wireC: ValueTypeOf<typeof Sheet.Types.Row> = { id: "c", owned: false, cells: new Map([["qty", variant("Integer", 3n)]]), lines: [], band: none, subRows: [], entry: none };
+const wireB: ValueTypeOf<typeof Sheet.Types.Row> = { id: "b", owned: false, cells: new Map([["qty", variant("Integer", 2n)]]), lines: [], band: none, subRows: [] };
+const wireC: ValueTypeOf<typeof Sheet.Types.Row> = { id: "c", owned: false, cells: new Map([["qty", variant("Integer", 3n)]]), lines: [], band: none, subRows: [] };
 
 test("resident rows that a local removal shifted off their offsets keep their source fields", () => {
     // Row a is removed locally: b and c sit one place above where the source holds them.
@@ -117,7 +117,6 @@ test("reordered children retain their hidden draft values and provisional group 
             { key: "1", cells: new Map([["task", variant("String", "Second")]]), subRows: [] },
             { key: "0", cells: new Map([["task", variant("String", "First")]]), subRows: [] },
         ],
-        entry: none,
     };
     const result = groupFill.value({
         ...context, drafts: new Map([["g", bytes]]), rowId: "g", line: some("1"),
@@ -163,7 +162,6 @@ const plannedDraft = (id: string, activity: string, qty: bigint) => encodePlanne
 const plannedWire = (id: string, activity: string, qty: bigint): ValueTypeOf<typeof Sheet.Types.Row> => ({
     id, owned: false, lines: [], band: none, subRows: [],
     cells: new Map<string, ValueTypeOf<typeof Sheet.Types.Cell>>([["activity", variant("String", activity)], ["qty", variant("Integer", qty)], ["note", variant("String", "")]]),
-    entry: none,
 });
 
 test("a readiness batch calls once for every check, each seeing the context a wire context builds for its row", () => {
@@ -214,8 +212,8 @@ test("a grouped readiness batch hands each line the context a wire context build
     });
     const line = (key: string, task: string) => ({ key, cells: new Map([["task", variant("String", task)]]), subRows: [] });
     const rows: ValueTypeOf<typeof Sheet.Types.Row>[] = [
-        { id: "o1", owned: false, cells: new Map([["$title", variant("String", "First")]]), band: some({ sub: "", folded: false }), subRows: [], lines: [line("0", "Cut edited"), line("1", "Fold")], entry: none },
-        { id: "o2", owned: false, cells: new Map([["$title", variant("String", "Second")]]), band: some({ sub: "", folded: false }), subRows: [], lines: [line("0", "Pack")], entry: none },
+        { id: "o1", owned: false, cells: new Map([["$title", variant("String", "First")]]), band: some({ sub: "", folded: false }), subRows: [], lines: [line("0", "Cut edited"), line("1", "Fold")] },
+        { id: "o2", owned: false, cells: new Map([["$title", variant("String", "Second")]]), band: some({ sub: "", folded: false }), subRows: [], lines: [line("0", "Pack")] },
     ];
     const drafts = new Map([["o1", orderDraft]]);
     const results = ordersReady(encodeBatch({
@@ -246,7 +244,7 @@ if (strictSheet.editing.readyRow.type !== "some") throw new Error("Expected a Sh
 const strictReady = strictSheet.editing.readyRow.value;
 
 test("a check that throws fails its own row alone — the batch's other checks still report", () => {
-    const wireOf = (id: string, qty: bigint): ValueTypeOf<typeof Sheet.Types.Row> => ({ id, owned: false, cells: new Map([["qty", variant("Integer", qty)]]), lines: [], band: none, subRows: [], entry: none });
+    const wireOf = (id: string, qty: bigint): ValueTypeOf<typeof Sheet.Types.Row> => ({ id, owned: false, cells: new Map([["qty", variant("Integer", qty)]]), lines: [], band: none, subRows: [] });
     const results = strictReady(encodeBatch({
         drafts: new Map(), rows: [wireOf("a", 0n), wireOf("b", 2n)], rowsOffset: 0n, partial: false, today: now,
         checks: [{ index: 0n, line: none, driver: none }, { index: 1n, line: none, driver: none }],
@@ -279,10 +277,10 @@ const looseReady = looseSheet.editing.readyRow.value;
 const looseFill = looseSheet.columns[0]!.fill[0]!;
 if (looseFill.type !== "sync") throw new Error("Expected synchronous fill");
 const looseRows: ValueTypeOf<typeof Sheet.Types.Row>[] = [
-    { id: "a", owned: false, cells: new Map([["task", variant("String", "Brief")]]), lines: [], band: none, subRows: [], entry: none },
+    { id: "a", owned: false, cells: new Map([["task", variant("String", "Brief")]]), lines: [], band: none, subRows: [] },
     { id: "p", owned: false, cells: new Map([["$title", variant("String", "Package")]]), band: some({ sub: "", folded: false }), subRows: [],
-        lines: [{ key: "0", cells: new Map([["task", variant("String", "Cut")]]), subRows: [] }], entry: none },
-    { id: "b", owned: false, cells: new Map([["task", variant("String", "Handover edited")]]), lines: [], band: none, subRows: [], entry: none },
+        lines: [{ key: "0", cells: new Map([["task", variant("String", "Cut")]]), subRows: [] }] },
+    { id: "b", owned: false, cells: new Map([["task", variant("String", "Handover edited")]]), lines: [], band: none, subRows: [] },
 ];
 const printed = (fill: ReturnType<typeof looseFill.value>): string => {
     if (fill.type !== "some" || fill.value.value.type !== "String") throw new Error("Expected a printed context");
@@ -367,7 +365,6 @@ test("a member check on a loose row sees its own draft and no group; on a line, 
     const groupWire: ValueTypeOf<typeof Sheet.Types.Row> = {
         id: "c", owned: false, cells: new Map([["$title", variant("String", "Crew")]]), band: some({ sub: "", folded: false }), subRows: [],
         lines: [{ key: "0", cells: new Map([["activity", variant("String", "Glue")]]), subRows: [] }],
-        entry: none,
     };
     const line = memberCheck.value({
         drafts: new Map(), group: some(groupWire), rowIndex: 0n, rowId: "c", offset: 1n, line: some("0"),

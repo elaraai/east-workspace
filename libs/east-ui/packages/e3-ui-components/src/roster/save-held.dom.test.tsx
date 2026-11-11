@@ -9,15 +9,19 @@
  * never leaving the board while its record's reads are on their way. And a
  * Save never stops the editing: a stored duty removed while the duties are
  * read again — the board's rows standing in from before the Save — is taken
- * and drawn at once, and the next Save writes it.
+ * and drawn at once, and the next Save writes it. The same with the page
+ * evaluated again at every step: no duty leaves its cell for it, and none
+ * comes back.
  */
 import { expect, test } from "vitest";
 import { within } from "@testing-library/react";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
-import { editedThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
+import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
+import { evaluatesAgain } from "../e3-web-mount.test-utils.js";
 import { cell, drop, libraryCard, press, rosterHarness } from "./harness.test-utils.js";
 
 const h = rosterHarness();
+evaluatesAgain();
 
 /** The duties' record, as its dataset's requests name it. */
 const DUTIES = `records.${ex.rosterDuties.name}`;
@@ -42,11 +46,14 @@ test("a duty Save placed stays in its cell while the day's duties are read again
     expect(placed.length).toBeGreaterThan(0);
 });
 
-test("a stored duty removed while the day's duties are read again after a Save is taken at once — from the board's rows as they stand — stays removed as the reads land, and the next Save writes it", async () => {
+test.each([
+    ["a stored duty removed while the day's duties are read again after a Save is taken at once — from the board's rows as they stand — stays removed as the reads land, and the next Save writes it", editedThroughReload],
+    ["the page evaluated again while the day's duties are read again after a Save takes no duty out of its cell, and puts none back: a stored duty removed meanwhile is taken at once, stays removed as the page is evaluated again and the reads land, and the next Save writes it", redrawnThroughReload],
+])("%s", async (_name, through) => {
     const { container: c } = await h.mount(ex.rosterDaily);
     await drop(await libraryCard(c, "N. Ochre"), cell(c, 4, "inbound", "late"));
     let removed: string | undefined;
-    await editedThroughReload({
+    await through({
         e3: h.e3,
         container: c,
         reads: (request) => request.dataset === DUTIES,

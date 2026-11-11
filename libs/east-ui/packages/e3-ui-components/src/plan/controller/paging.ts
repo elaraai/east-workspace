@@ -149,6 +149,20 @@
  * windows start again from its first. The snapshot names the narrowing its
  * rows belong to (`narrowing`), the stand-in's the last one's.
  *
+ * # A source that derives its rows another way keeps the view (#1599)
+ *
+ * The derived `page` wraps the series pipeline and the Plan's own rows, so a
+ * source whose `page` is not EQUIVALENT to the one that filled the cache
+ * derives other rows from the same windows under the same id and revision
+ * (#809): its windows are read again. At rest the runtime still holds their
+ * raw pages, and they are read in the same settle. While a read of the source
+ * is on its way — after a Save, another session's write, a task run again —
+ * it holds none: the view the last source drew stands in, whole and retained
+ * (`standing`), until the window under the view is in, as a far key's view
+ * does. Dropped with nothing to stand in, every row left the canvas until that
+ * read landed, whenever the author's block was evaluated again meanwhile — a
+ * record it reads whole having moved, the Plan's own rows' among them.
+ *
  * @packageDocumentation
  */
 
@@ -160,7 +174,7 @@ import {
     snapshotOf, type Residency, type ResidencyOptions,
 } from "@elaraai/east-ui-components/internal";
 import {
-    WindowStore, advanceAtRest, bandsAround, elementInBand, failedSpan, firstWindow, pinTarget, retryWindows, runAround,
+    WindowStore, advanceAtRest, bandsAround, elementInBand, failedSpan, firstWindow, pinTarget, retryWindows, runAround, sourceChange,
     type WindowRun, type WindowTravel,
 } from "../../shared/windowed.js";
 import { keyAcrossBlocks, type PlanBand, type PlanRowValue, type PlanWindowFailure, type WindowSkeleton } from "../model.js";
@@ -178,6 +192,8 @@ import {
 const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
 /** Whether two narrowings, as a live source prints them, are the same one (#1354). */
 const sameNarrowing = equalFor(StringType);
+/** Whether two sources' ids are the same one. */
+const sameSourceId = equalFor(StringType);
 
 /** Settle steps before giving up — each block's demand moves one window per
  *  step, so a healthy settle takes a handful per block; only a source whose
@@ -268,7 +284,8 @@ export interface PlanPagingSnapshot {
     replacing: boolean;
     /**
      * Whether the view a far key left stands in while the window it goes to is read (#1398, CL10) — Home or End past
-     * a run: its rows where they were, retained, and the line saying that window is read (`reading`).
+     * a run: its rows where they were, retained, and the line saying that window is read (`reading`). So does the view
+     * a source drew before it derived its rows another way, while the window under it is read again (#1599).
      */
     standing: boolean;
     /** The narrowing the rows belong to, as a live source names it (`query()`,
@@ -389,6 +406,18 @@ export interface PagingDriver {
      * has (#811, #1398). A source with no `refresh` is read again at once.
      */
     retry(w?: number): void;
+    /**
+     * The stored entry the window standing at a source position read with the entry of an id (#1599) — the window
+     * whose rows the canvas draws there, landed or standing in from before: what a gesture on a row the canvas shows
+     * begins from, whatever revision its source has moved to since. `undefined` where the source's windows carry none.
+     */
+    entryOf(id: string, at: number): Uint8Array | undefined;
+    /**
+     * Whether the window at a source position has landed at the revision the driver reads at — its rows the source's
+     * own now, never ones standing in from before (#1599): what a Save landed of an entry there is the window's to
+     * draw from then on.
+     */
+    landedAt(at: number): boolean;
     /** Settle again with the current inputs. */
     refresh(): void;
     /** What the rows draw at changed (a collapse, the grain, a chart toggle,
@@ -611,6 +640,9 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
     let transition: PlanPagingSnapshot | undefined;
     // A far key's jump whose window is not in: the view it left stands in until it is (#1398, CL10).
     let standing: Standing | undefined;
+    // The view the last source drew, standing in while the same source — its id the same, its page deriving the rows
+    // another way (#809) — reads the window under the view again (#1599).
+    let rederiving: PlanPagingSnapshot | undefined;
     let assembled: { pieces: readonly Piece[]; rows: readonly PlanRowValue[]; origin: ReadonlyMap<string, PlanRowOrigin> } =
         { pieces: [], rows: NO_ROWS, origin: NO_ORIGIN };
     let settling = false;
@@ -710,8 +742,9 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
      *  starts at zero, so no offset of the old result drives its requests. */
     function startResult(): void {
         // What stands in is the view drawn last, whoever drew it: a far key's stand-in gives way to the new result's.
-        transition = standing !== undefined ? standing.view : snapshot.rows.length > 0 ? snapshot : transition;
+        transition = standing !== undefined ? standing.view : rederiving !== undefined ? rederiving : snapshot.rows.length > 0 ? snapshot : transition;
         standing = undefined;
+        rederiving = undefined;
         total = 0;
         totalRevision = undefined;
         shape = undefined;
@@ -724,7 +757,12 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
     }
 
     function readOnce(src: PlanPagedSourceValue): ReadOutcome {
-        if (filledBy === undefined || !pagedSourceEquivalent(filledBy, src)) {
+        // How the source handed stands to the one that filled the windows held: the one rule every driver asks (#1599).
+        const change = sourceChange(filledBy, src, pagedSourceEquivalent);
+        if (change !== "same") {
+            // The same source, deriving its rows another way (#809): the view it drew stands in until the window under
+            // the view is read again (#1599) — at rest, in this settle; else for as long as that read is on its way.
+            if (change === "reread" && rederiving === undefined && transition === undefined && standing === undefined && snapshot.rows.length > 0) rederiving = snapshot;
             filledBy = src;
             dropWindows();
             narrowing = undefined;
@@ -858,6 +896,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             located.clear();
             // The geometry a far key's view was drawn in is gone with it: the source's own view is drawn from here.
             standing = undefined;
+            rederiving = undefined;
             return true;
         }
         // The same total at this revision: the geometry holds for it.
@@ -1043,6 +1082,23 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                 return;
             }
             transition = undefined;
+        }
+        if (rederiving !== undefined) {
+            // Read again, then draw (#1599): until the window under the view — a jump's target, where one is pinned — is
+            // in for the source as it derives its rows now, or the source has said it cannot be read, the view the last
+            // one drew stands in, whole and retained, the line saying that window is read.
+            const w = pinnedWindows()[0] ?? lanes.get(focusBlock)?.viewportWindow ?? 0;
+            if (!windowIn(w) && last.sourceError === undefined && last.total !== 0) {
+                const known = last.total ?? (total > 0 ? total : undefined);
+                const end = (w + 1) * PLAN_PAGE_SIZE;
+                const reading = { from: w * PLAN_PAGE_SIZE, to: (known === undefined ? end : Math.min(known, end)) - 1 };
+                if (!snapshot.standing || snapshot.rows !== rederiving.rows || !sameLoading(snapshot.reading, reading)) {
+                    snapshot = { ...rederiving, seq: ++published, loading: true, viewLoading: true, reading, replacing: false, standing: true };
+                    options.onChange();
+                }
+                return;
+            }
+            rederiving = undefined;
         }
         if (standing !== undefined) {
             // Fetch, then move (#1398, CL10): until the far key's window is in — landed, standing in from the last
@@ -1255,6 +1311,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                 transition = undefined;
                 standing = undefined;
             }
+            // Another source's rows are no stand-in for this one's.
+            if (next === undefined || source === undefined || !sameSourceId(next.id, source.id)) rederiving = undefined;
             source = next;
             if (next === undefined) {
                 transition = undefined;
@@ -1271,7 +1329,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             settle();
         },
         reportViewport(at, scrolling) {
-            if (transition !== undefined) return;
+            if (transition !== undefined || rederiving !== undefined) return;
             isScrolling = scrolling;
             // What the view shows is the view's, a jump pending or not: the line follows it (#1398).
             viewShows = at.shows;
@@ -1331,6 +1389,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             unpinEvery();
             settle();
         },
+        entryOf: (id, at) => store.entryOf(id, at, PLAN_PAGE_SIZE),
+        landedAt: (at) => store.windows.has(Math.floor(at / PLAN_PAGE_SIZE)),
         retry(w) {
             // A Retry asks again now (#1398, `retryWindows`): the source rearms what failed for a reason a retry can
             // fix — a read alone waits out the runtime's retry gap after the last failure, so a Retry pressed within it

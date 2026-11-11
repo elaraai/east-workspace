@@ -50,7 +50,7 @@ function edit(row: SheetRowValue, qty: bigint) {
 test("author ready cannot bypass a missing required field", () => {
     const root = render(permissive)();
     const hook = mount(root);
-    const row: SheetRowValue = { id: "new", owned: false, cells: new Map([["qty", variant("Null", null)]]), lines: [], band: none, subRows: [], entry: none };
+    const row: SheetRowValue = { id: "new", owned: false, cells: new Map([["qty", variant("Null", null)]]), lines: [], band: none, subRows: [] };
     // An inserted row, recorded the way the renderer records one: a typed
     // insert event under the gesture's `insert` origin.
     act(() => hook.result.current.record([variant("insert", { afterRowId: some("a"), row, source: variant("typed", null) })], undefined, "insert"));
@@ -66,7 +66,7 @@ test("a new row the app leaves a field of empty that no person can set is never 
         return Sheet.Root(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write, newRow });
     }).toIR().compile(StateImpl);
     const hook = mount(view());
-    const row: SheetRowValue = { id: "new", owned: false, cells: new Map([["qty", variant("Integer", 2n)]]), lines: [], band: none, subRows: [], entry: none };
+    const row: SheetRowValue = { id: "new", owned: false, cells: new Map([["qty", variant("Integer", 2n)]]), lines: [], band: none, subRows: [] };
     let refused: unknown;
     act(() => {
         try { hook.result.current.record([variant("insert", { afterRowId: some("a"), row, source: variant("typed", null) })], undefined, "insert"); }

@@ -30,14 +30,33 @@ import { EditSession, type EditSessionBinding, type EntryVersion, type Placement
 export type EditingValue = ValueTypeOf<typeof EditingType>;
 
 /**
+ * A window of a paged source as a session reads it: its rows, and the stored
+ * entries they were read with where the source's windows carry theirs
+ * (#1599, east-ui's `CarriedWindowType`) — one read, so a row and its entry
+ * are of one revision.
+ *
+ * @typeParam W - The collection's projection of an entry
+ */
+export interface EditWindow<W> {
+    /** Its rows, the collection's projections of its entries, in the source's order. */
+    readonly rows: readonly W[];
+    /**
+     * The stored entry the window read with the row of an id — its bytes at
+     * the entry type — or `undefined` for an id it carries none for. Left out
+     * by a source whose windows carry none: an entry is then read on its own.
+     */
+    readonly entry?: ((id: string) => Uint8Array | undefined) | undefined;
+}
+
+/**
  * A paged source as a session reads it: its revision and refresh, its pages
  * of the collection's projected rows, and a key seek.
  *
  * @typeParam W - The collection's projection of an entry
  */
 export interface EditSource<W> {
-    /** Rows `[offset, offset + count)`, or `none` while the page is not in. */
-    page: (offset: bigint, count: bigint) => option<W[]>;
+    /** The window `[offset, offset + count)`, or `none` while the page is not in. */
+    page: (offset: bigint, count: bigint) => option<EditWindow<W>>;
     /** The source's content revision, or `none` while it resolves. */
     revision: () => option<string>;
     /** Install a committed revision, or discover the current one. */
@@ -114,26 +133,21 @@ export interface EditSessionOptions<W> {
      */
     autosave?: boolean | undefined;
     /**
-     * The stored entry a row was read with — its bytes at the entry type —
-     * where the collection's rows carry theirs (#1599). A collection whose
-     * rows are read apart from the session's own reads holds them at the
-     * revision they were read at while they are read again, after a Save or
-     * another session's write: a gesture on a row it shows then begins from
-     * the entry read with that row (`EditSession.startOf`), never from a read
-     * at the revision now, which is on its way — a Save never stops the
-     * editing. A Save's entries are read back the same way: each from the
-     * entry the window that holds its row read with it, the one that read is
-     * of. `undefined` for a row that carries none, whose entry is read on its
-     * own, as the gesture or the read back runs.
+     * The stored entry the collection read with the row it SHOWS under an id
+     * — its bytes at the entry type — where its source's windows carry theirs
+     * (#1599): the entry of the window it holds that row in, landed or
+     * standing in from the revision before. A collection whose rows are read
+     * apart from the session's own reads holds them at the revision they were
+     * read at while they are read again, after a Save or another session's
+     * write: a gesture on a row it shows then begins from the entry read with
+     * that row (`EditSession.startOf`), never from a read at the revision
+     * now, which is on its way — a Save never stops the editing. `undefined`
+     * for an id it holds no entry of, whose entry is read on its own as the
+     * gesture runs. Asked with the row's id and its position in the source,
+     * which names the window it is shown in. (A Save's entries are read back
+     * from the window that read holds them in: {@link EditWindow.entry}.)
      */
-    entryOf?: ((row: W) => Uint8Array | undefined) | undefined;
-    /**
-     * What of a row is kept with a draft through a reload (`wireType`), where
-     * the collection's rows carry more than a draft is restored with — their
-     * stored entry, read again with the row (#1599): the row without it. A row
-     * is kept whole where none is given.
-     */
-    keptWire?: ((row: W) => W) | undefined;
+    entryOf?: ((id: string, at: number) => Uint8Array | undefined) | undefined;
 }
 
 const entryOffsets = new WeakMap<object, Map<string, number>>();
@@ -162,7 +176,7 @@ const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: 
  * @returns The session; the base it observed; its schemas' codecs; each resident row's index; an entry's placement and original version; the encoded drafts; whether editing is available; and the session's version
  */
 export function useEditSession<W>(editing: EditingValue, source: EditSource<W> | undefined, rows: readonly W[], positions: readonly number[], storageKey: string, options: EditSessionOptions<W>) {
-    const { idOf, ready, prepare, wireOf, carryOver, drawsLanded, wireType, rekey, manualSave, entryOf, keptWire } = options;
+    const { idOf, ready, prepare, wireOf, carryOver, drawsLanded, wireType, rekey, manualSave, entryOf } = options;
     const autosave = options.autosave === true;
     const store = getStore();
     const entryType = useMemo(() => fromEastTypeValue(editing.entryType), [editing.entryType]);
@@ -187,7 +201,7 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
             beginAutosave(next, autosave);
         }
         // Its drafts kept through a reload: what the tab kept restored at its first base.
-        if (wireType !== undefined && carryOver !== false) keepDrafts(next, keptDraftsKey(scope, editing.sourceId, storageKey), wireType, keptWire);
+        if (wireType !== undefined && carryOver !== false) keepDrafts(next, keptDraftsKey(scope, editing.sourceId, storageKey), wireType);
         return next;
     }),
     // Binding callbacks change independently; the layout effect below
@@ -241,7 +255,7 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         const ids = size === undefined ? session.readIdsAt(revision.value) : session.unresolvedIdsAt(revision.value);
         const reading = new Set<number>();
         // Each window read once a pass, however many of its entries are judged: a page builds every row it holds (#1596).
-        const pages = new Map<number, option<W[]>>();
+        const pages = new Map<number, option<EditWindow<W>>>();
         for (const id of ids) {
             if (source.readCurrent !== undefined) {
                 const current = source.readCurrent(id);
@@ -273,21 +287,21 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
                 continue;
             }
             // In a window, the row at the entry's own position; a one-row read holds no other.
-            const rowsAt = size === undefined ? page.value : page.value.slice(at - start, at - start + 1);
+            const rowsAt = size === undefined ? page.value.rows : page.value.rows.slice(at - start, at - start + 1);
             const row = rowsAt.find(candidate => stringEqual(idOf(candidate), id));
             if (row === undefined) {
                 reads.set(id, none);
                 continue;
             }
-            // The entry the page read with its row, where the collection's rows carry theirs: the one this read is of.
-            const kept = entryOf?.(row);
+            // The entry the window read with its row, where the source's windows carry theirs: the one this read is of.
+            const kept = page.value.entry?.(id);
             const raw = kept !== undefined ? some(kept) : editing.readEntry(id, BigInt(at));
             if (raw.type === "some") reads.set(id, some(codecs.decodeEntry(raw.value)));
         }
         return { base: variant("revision", revision.value), reads };
         // Session status and entries change under the external-store version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editing, keyType, source, rows, rowIndex, positions, codecs, session, version, binding, idOf, entryOf]);
+    }, [editing, keyType, source, rows, rowIndex, positions, codecs, session, version, binding, idOf]);
     const { result } = useTrackedEvaluation(read);
     const observed = result.ok ? result.value : undefined;
     useLayoutEffect(() => {
@@ -317,14 +331,14 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         return some(variant("ordered", variant("start", null)));
     }, [keyType, rows, rowIndex, idOf]);
     // Where a gesture on an entry begins (`EditSession.startOf`): the session's own version of it, else what its last Save
-    // left while the collection has yet to show that Save, else the row the collection draws — its entry as the
-    // collection kept it with the row, where it keeps one (`entryOf`), so a row read before the revision the source reads
-    // at now is edited from what its person sees, with no read on its way; else read as the gesture runs.
+    // left while the collection has yet to show that Save, else the row the collection draws — its entry as the window
+    // the collection holds it in read it, where its windows carry theirs (`entryOf`), so a row read before the revision
+    // the source reads at now is edited from what its person sees, with no read on its way; else read as the gesture runs.
     const original = useCallback((id: string): EntryVersion<W> => session.startOf(id, () => {
         const index = rowIndex.get(id);
         if (index === undefined) return ABSENT;
         const at = positions[index]!;
-        const kept = entryOf?.(rows[index]!);
+        const kept = entryOf?.(id, at);
         const raw = kept !== undefined ? some(kept) : editing.readEntry(id, BigInt(at));
         entryOffsets.get(session)?.set(id, at);
         if (raw.type !== "some") throw new Error("The source entry is not available at this revision; wait for its page before editing");

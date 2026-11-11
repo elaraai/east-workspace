@@ -17,12 +17,12 @@ const hidden = (key: string) => `${key} · hidden`;
 
 /** The rows `r0`, `r1`, … at their places: a window of them, read through the source by position. */
 function rowsAt(offset: bigint, limit: bigint): SheetRowValue[] {
-    return Array.from({ length: Number(limit) }, (_x, i) => ({ id: `r${Number(offset) + i}`, owned: false, cells: new Map(), lines: [], band: none, subRows: [], entry: none }));
+    return Array.from({ length: Number(limit) }, (_x, i) => ({ id: `r${Number(offset) + i}`, owned: false, cells: new Map(), lines: [], band: none, subRows: [] }));
 }
 
 function source(revision: string, found: boolean): SheetPagedSourceValue {
     return {
-        id: "shared-source", page: () => some([]), total: () => some(10n),
+        id: "shared-source", page: () => some({ rows: [], entries: [] }), total: () => some(10n),
         revision: () => some(revision), refresh: () => null,
         seek: some(() => found ? some({ found: true, row: 8n, count: 1n }) : none),
     };
@@ -30,7 +30,7 @@ function source(revision: string, found: boolean): SheetPagedSourceValue {
 
 /** A source whose pages are the rows at their places, each asked noted. */
 function listedSource(asked: [bigint, bigint][]): SheetPagedSourceValue {
-    return { ...source("a", true), page: (offset, limit) => { asked.push([offset, limit]); return some(rowsAt(offset, limit)); } };
+    return { ...source("a", true), page: (offset, limit) => { asked.push([offset, limit]); return some({ rows: rowsAt(offset, limit), entries: [] }); } };
 }
 
 /** A narrowing that holds every third row, what the box asks of it noted, and the picks it is asked to reveal. */
