@@ -30,6 +30,13 @@
  *   tab hides, and Save — on — says why. Forward again, nothing waits. A press
  *   of Save sends a step back as the person's, and the next edit is saved by
  *   itself as before.
+ * - A conflict holds its record's changes back: with another person's save
+ *   of the same field landed under an edit, nothing of the record is sent —
+ *   the row in conflict, or another the record holds — however long it waits
+ *   and as the tab hides, Save off and saying why. Chosen, what stands is
+ *   saved by itself a pause after the choice, as one commit — measured over
+ *   the Sheet's jobs, whose example lets another person's save meet the edits
+ *   in one window.
  * - Where a builder's author says so (`autosave`, a literal or the app's own
  *   data), the switch begins on with nothing kept in the browser, and an edit
  *   is saved by itself from the first; the viewer's own flick is kept, and
@@ -73,6 +80,8 @@ import { settled } from "./settle";
 const ORDERS = OPTIMISE_BUILDERS.Sheet;
 /** A phone-sized Sheet with no optimiser: its second row holds the history alone. */
 const PHONE = "e3/sheet/sheet-actions/sheetActionsPhone";
+/** A Sheet over the jobs, with a button that saves another person's change to them: every job's quantity 12 more. */
+const CONFLICTS = "e3/sheet/sheet/sheetConflicts";
 /** A Calendar whose author says where its Autosave begins, from the app's own setting: on. */
 const AUTHORED = "e3/calendar/calendar/calendarAutosave";
 const ROOT = "[data-builder-frame]";
@@ -440,6 +449,71 @@ test("on, an Undo or a Redo is never saved by itself: stepped back over a saved 
     await later(page, 2 * PAUSE_MS + 10 * 60_000);
     await expect(drafts(frame)).toHaveCount(0, { timeout: 15_000 });
     expect(await commits(page)).toBe(3);
+});
+
+test("on, nothing of a record is saved by itself while one of its conflicts waits to be chosen — the row in conflict, or another the record holds — however long, nor as the tab hides, Save off and saying why; chosen, what stands is saved by itself a pause after the choice, as one commit @desktop", async ({ page }) => {
+    await installE3Faults(page);
+    await page.clock.setFixedTime(new Date(HELD));
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const entry = await visitBuilder(page, CONFLICTS, ROOT, "light");
+    const frame = entry.locator(ROOT).first();
+    const toolbar = frame.locator("[data-frame-slot='toolbar']");
+    const save = toolbar.getByRole("button", { name: "Save" });
+    const cell = (job: string, key: string): Locator => frame.locator(`[data-frame-slot=main] [data-slot='row'][data-row-id='${job}'] [data-key='${key}']`);
+    /** Types into a job's cell, as a person does. */
+    const type = async (job: string, key: string, text: string): Promise<void> => {
+        await cell(job, key).dblclick();
+        const input = page.locator("[data-slot='editorInput']");
+        await input.fill(text);
+        await input.press("Enter");
+        await expect(cell(job, key)).toHaveText(text);
+    };
+    await turnOn(page, toolbar.locator("[data-history-autosave]"));
+    // Two edits, the clock held: a quantity another person is about to change, and a task they leave as it is.
+    await type("J-0001", "qty", "70");
+    await type("J-0002", "task", "Edge banding, twice");
+    expect(await commits(page)).toBe(0);
+    // Their save lands before the pause is over — every job's quantity 12 more: one commit, theirs, and a conflict to choose.
+    await entry.getByRole("button", { name: "Someone else saves" }).click();
+    const conflicts = toolbar.locator("[data-conflicts]");
+    await expect(conflicts).toHaveAccessibleName("1 conflict", { timeout: 15_000 });
+    await settled(page);
+    expect(await commits(page)).toBe(1);
+    // The draft's quantity stands at its conflict, and theirs is drawn where no draft is in its way.
+    await expect(cell("J-0001", "qty")).toHaveText("70");
+    await expect(cell("J-0002", "qty")).toHaveText("132");
+    await expect(cell("J-0002", "task")).toHaveText("Edge banding, twice");
+    await expect(drafts(frame)).toHaveCount(2);
+    // Ten minutes on, and the tab hidden — which sends at once whatever an automatic Save has due: nothing of the jobs
+    // was sent, the row in conflict or the other.
+    await later(page, PAUSE_MS + 10 * 60_000);
+    await hideTab(page);
+    await settled(page);
+    expect(await commits(page)).toBe(1);
+    await expect(drafts(frame)).toHaveCount(2);
+    // Save is off, and says why.
+    await expect(save).toBeDisabled();
+    await save.hover({ force: true });
+    await expect(page.locator("[data-scope='tooltip'][data-part='content'][data-state='open']")).toHaveText("Choose 1 conflict to save");
+    await page.mouse.move(0, 0);
+    // Chosen for the draft: a change as any is. It waits its pause, then both rows go by themselves — the second commit.
+    await conflicts.click();
+    await page.locator("[data-conflict-card] [data-choice='draft']").first().click();
+    await expect(toolbar.locator("[data-conflicts]:not([data-settled])")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await settled(page);
+    expect(await commits(page)).toBe(1);
+    await later(page, 2 * PAUSE_MS + 10 * 60_000);
+    await expect(drafts(frame)).toHaveCount(0, { timeout: 15_000 });
+    expect(await commits(page)).toBe(2);
+    // Mounted again over the record: the quantity chosen, the task typed, and theirs beside them.
+    await leaveBuilder(page);
+    const again = (await visitBuilder(page, CONFLICTS, ROOT, undefined)).locator(ROOT).first();
+    const saved = (job: string, key: string): Locator => again.locator(`[data-frame-slot=main] [data-slot='row'][data-row-id='${job}'] [data-key='${key}']`);
+    await expect(saved("J-0001", "qty")).toHaveText("70");
+    await expect(saved("J-0002", "task")).toHaveText("Edge banding, twice");
+    await expect(saved("J-0002", "qty")).toHaveText("132");
+    await expect(drafts(again)).toHaveCount(0);
 });
 
 test("on a phone the chevron is a square on Save's edge; a tap opens the switch in the frame's bottom panel, its row of touch size; flicked on, it is kept, and the panel's close takes the focus back to the chevron @mobile", async ({ page }) => {
