@@ -1434,6 +1434,37 @@ describe("failure is local (#853)", () => {
             logged.mockRestore();
         }
     }, HELD_TEST_MS);
+
+    test("an author's callbacks on a row edited while its window is read again see the rows around it as the sheet shows them, each over the entry it was read with (#1599)", async () => {
+        frameAt(EVERY_ROW_PX);
+        const held = heldSheet(20);
+        const { container, key, editorKey, flush } = mount(held.value);
+        await waitFor(() => expect(container.querySelector('[data-row-id="r005"]')).toBeTruthy(), { timeout: 15_000 });
+        // Another planner's write moves the record: the window is read again, and its read is on its way.
+        held.state.inFlight.add(0);
+        held.rewrite((jobs) => jobs.map((job, i) => (i === 12 ? { ...job, task: "Changed" } : job)));
+        await flush();
+        // The rows stand as they were read. A quantity typed on r005 is taken at once, and runs the copilot and the
+        // readiness check for it: both read the code of the row above, r004 — a field with no column, which reaches
+        // them only through r004's entry. It came with r004's row: nothing waits for the window.
+        const status = () => container.querySelector('[data-row-id="r005"] [data-key="status"]')!;
+        fireEvent.mouseDown(container.querySelector('[data-row-id="r005"] [data-key="qty"]')!, { button: 0 });
+        key("5");
+        await flush();
+        editorKey("Enter");
+        await flush();
+        await waitFor(() => expect(status().hasAttribute("data-proposed")).toBe(true));
+        expect(status().textContent).toBe("C4");
+        const bar = container.querySelector('[data-slot="history"]') as HTMLElement;
+        expect(within(bar).getByRole("button", { name: "0 issues" })).toBeTruthy();
+        expect(within(bar).getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(false);
+        // The window lands: the same proposal, and no issue.
+        held.state.inFlight.delete(0);
+        held.touch();
+        await flush();
+        expect(status().textContent).toBe("C4");
+        expect(within(bar).getByRole("button", { name: "0 issues" })).toBeTruthy();
+    }, HELD_TEST_MS);
 });
 
 // ── The accessible grid (#860) ──────────────────────────────────────────────

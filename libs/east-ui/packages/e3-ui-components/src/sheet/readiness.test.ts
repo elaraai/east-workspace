@@ -31,7 +31,7 @@ const decodeBatch = decodeBeast2For(SheetReadyBatchType);
 const READY = variant("ready", null);
 
 /** A wire row with nothing drawn — what the session and the checks see of a source row. */
-const WIRE = { owned: false, cells: new Map(), lines: [], band: none, subRows: [], entry: none };
+const WIRE = { owned: false, cells: new Map(), lines: [], band: none, subRows: [] };
 
 /**
  * `n` resident rows and `m` drafts whose every id read is counted: a read past
@@ -247,6 +247,85 @@ describe("the author's row check, one batch per evaluation (#882)", () => {
         const entries = new Map<string, EntryVersion>(["a", "b"].map((id) => [id, { draft: liftDraft(Draft, { id, qty: 1n, hidden: id }), wire: { ...WIRE, id } as unknown as SheetRowValue, place: none }]));
         const check = authorReadiness(editing, resident, [0, 1], false)!;
         expect(check(entries)).toEqual(variant("invalid", ["a", "b"].map((entry) => ({ entry, row: none, field: some(""), message: "Row readiness failed: rows unavailable" }))));
+    });
+});
+
+describe("the rows a check reads are the rows the grid shows (#1599)", () => {
+    const decodeDraft = decodeBeast2For(Draft);
+    const encodeDraft = encodeBeast2For(Draft);
+    const rowOf = (id: string, qty = 1n, hidden = `hidden ${id}`) => ({ id, qty, hidden });
+    const wire = (id: string): SheetRowValue => ({ ...WIRE, id }) as unknown as SheetRowValue;
+    const version = (id: string, qty: bigint, hidden?: string): EntryVersion => ({ draft: liftDraft(Draft, rowOf(id, qty, hidden)), wire: wire(id), place: none });
+    /** An editing declaration whose row check keeps each batch it is sent, decoded, and finds nothing wrong; its source's reads listed. */
+    function listening() {
+        const batches: ReturnType<typeof decodeBatch>[] = [];
+        const sourceReads: string[] = [];
+        const editing = {
+            readyRow: some((blob: Uint8Array) => {
+                const batch = decodeBatch(blob);
+                batches.push(batch);
+                return batch.checks.map(() => READY);
+            }),
+            readyGroup: none,
+            draftType: toEastTypeValue(Draft), entryType: toEastTypeValue(Row),
+            children: none, driverColumn: none, keyType: none,
+            // The source's own read of an entry, at the revision it reads at now: on its way.
+            readEntry: (id: string) => { sourceReads.push(id); return none; },
+        } as unknown as Editing;
+        return { editing, batches, sourceReads };
+    }
+    /** Each row's draft as its window carried it, by its id: every field, the one no column shows among them. */
+    const carrying = (...ids: string[]) => {
+        const held = new Map(ids.map((id) => [id, encodeDraft(liftDraft(Draft, rowOf(id)) as ReturnType<typeof decodeDraft>)] as const));
+        const asked: (readonly [string, number])[] = [];
+        return { asked, base: (id: string, at: number) => { asked.push([id, at]); return held.get(id); } };
+    };
+
+    test("each resident row is read over the draft its window carried, asked by its id and its place — the source read only for a row whose window carries none", () => {
+        const { editing, batches, sourceReads } = listening();
+        const { asked, base } = carrying("a", "b");
+        // A failed window stands before c: its place is 400.
+        const check = authorReadiness(editing, ["a", "b", "c"].map(wire), [0, 1, 400], true, base)!;
+        expect(check(new Map([["b", version("b", 7n)]]))).toEqual(READY);
+        expect(asked).toEqual([["a", 0], ["b", 1], ["c", 400]]);
+        // c's window carries no entry of it: the source is asked for it alone, and answers nothing yet.
+        expect(sourceReads).toEqual(["c"]);
+        const { drafts } = batches[0]!;
+        expect([...drafts.keys()].sort()).toEqual(["a", "b"]);
+        // a as its window carried it; b as the session drafted it.
+        expect(decodeDraft(drafts.get("a")!)).toEqual(liftDraft(Draft, rowOf("a")));
+        expect(decodeDraft(drafts.get("b")!)).toEqual(liftDraft(Draft, rowOf("b", 7n)));
+        // The same generation of the rows, checked again: no row is asked for again.
+        expect(check(new Map([["b", version("b", 8n)]]))).toEqual(READY);
+        expect(asked).toHaveLength(3);
+        expect(sourceReads).toEqual(["c"]);
+    });
+
+    test("what a Save landed that the rows have still to read is read as the Save left it — its draft in place of the entry its row was read with, a row it removed off the rows, one it added among them where it placed it — and an entry drafted again is the session's", () => {
+        const { editing, batches } = listening();
+        const { base } = carrying("a", "b", "c");
+        // The Save changed a — its quantity, and the field no column shows — removed b, and added n after a.
+        const landed = new Map<string, { after: EntryVersion }>([
+            ["a", { after: version("a", 5n, "changed") }],
+            ["b", { after: { draft: undefined, wire: undefined, place: none } }],
+            ["n", { after: { ...version("n", 3n), place: some(variant("ordered", variant("after", "a"))) } }],
+        ]);
+        const check = authorReadiness(editing, ["a", "b", "c"].map(wire), [0, 1, 2], true, base, () => landed)!;
+        // c is drafted: its check reads the rows around it.
+        expect(check(new Map([["c", version("c", 9n)]]))).toEqual(READY);
+        const first = batches[0]!;
+        expect(first.rows.map((row) => row.id)).toEqual(["a", "n", "c"]);
+        expect([...first.drafts.keys()].sort()).toEqual(["a", "c", "n"]);
+        expect(decodeDraft(first.drafts.get("a")!)).toEqual(liftDraft(Draft, rowOf("a", 5n, "changed")));
+        expect(decodeDraft(first.drafts.get("n")!)).toEqual(liftDraft(Draft, rowOf("n", 3n)));
+        // a drafted again since the Save: the session's version of it, never the one the Save left.
+        expect(check(new Map([["c", version("c", 9n)], ["a", version("a", 6n, "again")]]))).toEqual(READY);
+        expect(decodeDraft(batches[1]!.drafts.get("a")!)).toEqual(liftDraft(Draft, rowOf("a", 6n, "again")));
+        // The rows read again, nothing landed is left to lay over them: each row over the entry its window carried.
+        landed.clear();
+        expect(check(new Map([["c", version("c", 9n)]]))).toEqual(READY);
+        expect(batches[2]!.rows.map((row) => row.id)).toEqual(["a", "b", "c"]);
+        expect(decodeDraft(batches[2]!.drafts.get("a")!)).toEqual(liftDraft(Draft, rowOf("a")));
     });
 });
 

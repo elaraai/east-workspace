@@ -21,6 +21,7 @@ import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { fieldBreachIssue, getSomeorUndefined, useEditSession } from "@elaraai/east-ui-components";
 import { boundedReadiness, editWindow, normalizeDraft, prepareRecordSliceSave, recordSliceReadEntries } from "@elaraai/east-ui-components/internal";
 import { authorReadiness } from "./readiness.js";
+import { shownDrafts, type ShownDrafts } from "./shown-drafts.js";
 import { entryBreaches, type SheetBounds } from "./bounds.js";
 import { sheetDayOf } from "./day.js";
 import { SHEET_PAGE_SIZE } from "./paging.js";
@@ -123,6 +124,11 @@ export interface SheetEditingResult {
      */
     layerDrafts: { readonly entries: ReadonlyMap<string, EntryVersion>; readonly drafts: ReadonlyMap<string, Uint8Array> };
     /**
+     * The drafts an author's callbacks read the rows over (#1599): each row as its person sees it — the layer's draft of
+     * it, else the entry its window was read with — never an entry read on its own at the revision now.
+     */
+    shown: ShownDrafts;
+    /**
      * An entry's wire row as the record would show its draft — the Sheet's own `project` (#1475): what a gesture whose
      * cells a rule reads (an action's summary) draws at once; `prior` while the draft is not complete.
      */
@@ -171,14 +177,23 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
     const editing = useMemo(() => recordSlice === undefined ? declared : { ...declared, sourceId: recordSlice.sourceId }, [declared, recordSlice]);
     // The session the bounds read each entry's original through, once it is made.
     const sessionRef = useRef<SheetTransactions | undefined>(undefined);
-    // The author's checks, and each changed entry's numbers outside their bounds (#1585), each named at its cell.
+    // The entry of a row the sheet shows, by its place among the rows it shows: its own window's. None while the rows
+    // shown are another query's, which the session holds none of.
+    const shownEntry = useMemo(() => (entryOf === undefined || replacing ? undefined : entryOf), [entryOf, replacing]);
+    // Each row's own draft, for the callbacks that read the rows around the one they are for (#1599).
+    const shown = useMemo(() => shownDrafts(editing, shownEntry), [editing, shownEntry]);
+    // What a Save landed that the rows have still to read, as a check asks for it: set below, once the session is made.
+    const landedRef = useRef<() => Iterable<readonly [string, { readonly after: EntryVersion }]>>(() => []);
+    // The author's checks, and each changed entry's numbers outside their bounds (#1585), each named at its cell. They
+    // read every row as the grid shows it: the entry its window was read with, and what a Save landed over the rows
+    // read before it.
     const ready = useMemo(() => {
-        const author = authorReadiness(editing, currentRows, currentPositions, source !== undefined);
+        const author = authorReadiness(editing, currentRows, currentPositions, source !== undefined, shown.base, () => landedRef.current());
         if (bounds === undefined) return author;
         const lines = getSomeorUndefined(editing.children);
         return boundedReadiness(fromEastTypeValue(editing.draftType), (id, held) => entryBreaches(bounds, held, lines).map(({ line, at, breach }) =>
             fieldBreachIssue(breach, { entry: id, row: line === undefined ? undefined : BigInt(line), field: at })), () => sessionRef.current?.originals, author);
-    }, [editing, currentRows, currentPositions, source, bounds]);
+    }, [editing, currentRows, currentPositions, source, bounds, shown]);
     // A draft the session made itself — carried over to the record's newer value, or settled — drawn as the record
     // would show its entry (the Sheet's own `project`); a draft not yet complete keeps the row it had.
     const wireOf = useMemo(() => {
@@ -225,9 +240,6 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         } : undefined;
     }, [source, recordSlice, entriesByKey]);
     const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
-    // The entry of a row the sheet shows, by its place among the rows it shows: its own window's. None while the rows
-    // shown are another query's, which the session holds none of.
-    const shownEntry = useMemo(() => (entryOf === undefined || replacing ? undefined : entryOf), [entryOf, replacing]);
     // An entry's version before any gesture is the session's to say (`EditSession.startOf`, asked by the hook): its own;
     // else, for one a Save landed that the rows have still to read, what the Save left (#1583) — never the rows read
     // before it, nor nothing for one it added; else the row drawn. The session holds a landed entry exactly while its
@@ -258,6 +270,11 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         // A copy read since the Save never lets the Save's version go while another copy was read before it (#1583).
         return rowsRead.before(currentPositions[at]) || (copies.get(id)?.some((i) => rowsRead.before(currentPositions[i])) ?? false);
     }, [rowsRead, replacing, retained, rowIndex, copies, currentPositions]);
+    landedRef.current = () => {
+        const waiting: (readonly [string, { readonly after: EntryVersion }])[] = [];
+        for (const [id, saved] of session.landed) if (awaiting(id, saved.from)) waiting.push([id, saved]);
+        return waiting;
+    };
     /** Aggregate the renderer's writes — the draft edits beside them, its new entries seeded as it says — into one transaction at the effect boundary. */
     const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds, named?: string, joins?: string, held?: ReadonlyMap<string, EntryVersion>): boolean => {
         if (replacing || retained || (!events.length && !draftEdits?.size) || !observed || !session.writable) return false;
@@ -402,5 +419,5 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         // The version tracks mutations to the session's maps.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session, version, drafts, codecs, awaiting]);
-    return { session, layer, savedFrom, record, recordVersions, original, drafts, layerDrafts, project: wireOf, available: available && !replacing && !retained, version };
+    return { session, layer, savedFrom, record, recordVersions, original, drafts, layerDrafts, shown, project: wireOf, available: available && !replacing && !retained, version };
 }

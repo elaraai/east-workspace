@@ -1246,6 +1246,15 @@ the revision the source reads at now, which is on its way while the windows
 are read again. A row's stored type holds no entry: what the tab keeps of a
 draft through a reload is the row alone.
 
+An author's callbacks read the rows around the one they are for the same way
+(`sheet/shown-drafts.ts`): a column's fill, its options, a custom parse, a
+link's checks and the rows' readiness are each handed every shown row's draft —
+the session's, else what a Save landed of it, else the entry its window
+carried, lifted — so e3-ui's bridge reads the source for none of them. Read
+there, a row whose window was being read again came back with every field no
+column shows missing: a check misfired, and a fill proposed nothing, until the
+pages landed.
+
 The Plan draws its unsaved changes into its windows, so a window standing in
 while it is read again is drawn as its source draws it now
 (`WindowReader.standIn`, the source's `redraft` over what the window carried —

@@ -39,8 +39,12 @@ export function useSheetBody(sheetDecode: SheetDecode, sheetSession: SheetSessio
         allColumns, blanks, columns, driver, driverColumn, group, loose, registers, titleMeta, today, words,
     } = sheetDecode;
     const {
-        drafts, exhausted, foldedOf, lens, lensDrawn, paging, rows, rowsOffset, runLayout, subRowsOpenOf, ui,
+        editingState, exhausted, foldedOf, lens, lensDrawn, paging, rows, rowsOffset, runLayout, subRowsOpenOf, ui,
     } = sheetSession;
+    // What an author's callbacks read the rows over (#1599): each drafted entry's draft and each one a Save landed
+    // that the rows have still to read — and, for a row those hold none of, the entry its window was read with (`shown`).
+    const { shown } = editingState;
+    const drafts = editingState.layerDrafts.drafts as Map<string, Uint8Array>;
     // ── The body ──────────────────────────────────────────────────────────
     // Under the lens, what it laid out over the record, the local layer applied
     // to its rows (#1349); else the rows, the paged arm's bands, and the blanks.
@@ -200,7 +204,8 @@ export function useSheetBody(sheetDecode: SheetDecode, sheetSession: SheetSessio
         const seg = segmentOf(segments, residentIndex);
         const last = seg === segments[segments.length - 1];
         return {
-            drafts,
+            // Each row as the grid shows it: the bridge reads the source for none of them.
+            drafts: shown.over(rowsNow, segments, drafts),
             rowIndex: BigInt(lg !== undefined ? lg.index : residentIndex - seg.start),
             rowId: lg !== undefined ? lg.row.id : row?.id ?? "",
             offset: BigInt(position),
@@ -212,7 +217,7 @@ export function useSheetBody(sheetDecode: SheetDecode, sheetSession: SheetSessio
             driver: driverKey !== undefined ? some(driverKey) : none,
             today,
         };
-    }, [driverColumn, allColumns, runLayout, exhausted, today, drafts]);
+    }, [driverColumn, allColumns, runLayout, exhausted, today, drafts, shown]);
     // The position after the last row — where a blank row or an append lands.
     const lastSegment = runLayout.segments[runLayout.segments.length - 1]!;
     const endPosition = lastSegment.position + (lastSegment.end - lastSegment.start);
@@ -233,7 +238,7 @@ export function useSheetBody(sheetDecode: SheetDecode, sheetSession: SheetSessio
     }, [ui.sugg, idAt]);
     // A link column's options rule narrows what a row is offered.
     const allowedFor = useCallback((r: number, meta: SheetColumnMeta) => candidateCtxFor(r).allowed?.(meta), [candidateCtxFor]);
-    const links = useSheetLinks({ drafts, columns, registers, driver, driverColumn, body, rowAt, predictedLink, allowedFor, words });
+    const links = useSheetLinks({ drafts, shown, columns, registers, driver, driverColumn, body, rowAt, predictedLink, allowedFor, words });
     const { linkVocabularies, linkColumns, linkCellCtx, linkCtxFor } = links;
     const parseCtxFor = useCallback((r: number, meta: SheetColumnMeta): ParseContext => {
         let baseDate: Date | undefined;

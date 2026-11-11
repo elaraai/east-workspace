@@ -36,9 +36,18 @@ const encodeBatch = encodeBeast2For(SheetReadyBatchType);
  * @param resident - The source's resident rows
  * @param positions - Each resident row's source position — a failed window before it does not move it (#853)
  * @param partial - Whether the rows are a window of a paged source
+ * @param base - A resident row's own draft, by its id and its source position — the entry its window was read with,
+ *   lifted — where the sheet's windows carry theirs (#1599): what a check reads the rows around a drafted one over,
+ *   never an entry read on its own at the revision now, which is on its way while the rows are read again
+ * @param landed - What a Save landed that the rows have still to read, asked as a check runs: each entry as the Save
+ *   left it, as the grid draws it over the rows read before it — what a check reads in their place
  * @returns The checker, or `undefined` when the author declared no checks
  */
-export function authorReadiness(editing: Editing, resident: readonly SheetRowValue[], positions: readonly number[], partial: boolean) {
+export function authorReadiness(
+    editing: Editing, resident: readonly SheetRowValue[], positions: readonly number[], partial: boolean,
+    base?: (id: string, at: number) => Uint8Array | undefined,
+    landed?: () => Iterable<readonly [string, { readonly after: EntryVersion }]>,
+) {
     const rowCheck = editing.readyRow.type === "some" ? editing.readyRow.value : undefined;
     const groupCheck = editing.readyGroup.type === "some" ? editing.readyGroup.value : undefined;
     if (rowCheck === undefined && groupCheck === undefined) return undefined;
@@ -61,6 +70,9 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
         if (residentDrafts !== undefined) return residentDrafts;
         const read = new Map<string, Uint8Array>();
         for (const [index, wire] of resident.entries()) {
+            // The row as the grid shows it: over the entry its window was read with, where it carries one (#1599).
+            const own = base?.(wire.id, positions[index]!);
+            if (own !== undefined) { read.set(wire.id, own); continue; }
             // A base read that throws leaves the row to the bridge: a check
             // that needs it reports why, and the sheet stays up (#853).
             let payload: ReturnType<Editing["readEntry"]>;
@@ -94,6 +106,17 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
         // The source rows' drafts, with the session's over them.
         const drafts = new Map(sourceDrafts());
         const byId = new Map(resident.map(row => [row.id, row]));
+        // What a Save landed over the rows read before it (#1599): each entry as the Save left it — one it removed is
+        // off the rows, one it added among them — so a check never reads a saved row as it stood before its Save.
+        const placed: (readonly [string, EntryVersion["place"]])[] = [];
+        for (const [id, saved] of landed?.() ?? []) {
+            if (entries.has(id)) continue;
+            const version = saved.after;
+            if (version.draft === undefined || version.wire === undefined) { byId.delete(id); drafts.delete(id); continue; }
+            drafts.set(id, encodeDraft(version.draft));
+            byId.set(id, version.wire);
+            placed.push([id, version.place]);
+        }
         for (const [id, entry] of entries) {
             if (entry.draft === undefined || entry.wire === undefined) { byId.delete(id); drafts.delete(id); continue; }
             drafts.set(id, encodeDraft(entry.draft));
@@ -101,7 +124,7 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
         }
         let rows = [...byId.values()];
         if (keyOrder !== undefined) rows.sort((a, b) => keyOrder(a.id, b.id));
-        else rows = placeInOrder(rows, row => row.id, Array.from(entries, ([id, entry]) => [id, entry.place] as const));
+        else rows = placeInOrder(rows, row => row.id, [...placed, ...Array.from(entries, ([id, entry]) => [id, entry.place] as const)]);
         const today = new Date();
         today.setUTCHours(0, 0, 0, 0);
         // Each row's position: a source row's own; a new row, the row before
