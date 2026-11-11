@@ -448,8 +448,9 @@ test("a Save's conflict at a revision names the entries another write moved — 
     // Until its entries are read, the source's own issue says what happened.
     expect(session.issues).toEqual([recordIssue]);
     expect(session.naming).toEqual({ revision: "r1", ids: ["J1", "J2"] });
-    // At the revision the Save was drafted at, there is nothing to read.
-    expect(session.nameConflicts(variant("revision", "r1"), () => some(cut))).toBe(false);
+    // At the revision the Save was drafted at, each entry reads as its edit began: nothing is named there, and none is carried over.
+    expect(session.nameConflicts(variant("revision", "r1"), (id) => some(id === "J1" ? cut : band))).toBe(false);
+    expect(session.carrying).toBe(false);
     // At the new one, not while an entry is still unread.
     expect(session.nameConflicts(variant("revision", "r2"), (id) => (id === "J1" ? some({ ...cut, qty: 3n }) : undefined))).toBe(false);
     expect(session.issues).toEqual([recordIssue]);

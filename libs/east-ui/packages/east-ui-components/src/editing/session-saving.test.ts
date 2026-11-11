@@ -105,6 +105,60 @@ test("a gesture is recorded while a Save is on its way and while its saved state
     expect(sent[1]!.base).toEqual(variant("revision", "r2"));
 });
 
+test("a Save the source refuses over an entry first drafted while an earlier Save was out — one another write changed before that Save landed — is carried over at the revision the session is at, with none newer to wait for: the part both changed is a conflict to choose, and the Save goes once it is chosen", async () => {
+    const { session, sent, answer } = saving();
+    setQty(session, "J1", cut, 5n);
+    const first = session.apply();
+    // J2's quantity set to 8, from the 4 the session read of it before the Save.
+    setQty(session, "J2", band, 8n);
+    await answer(saved("r2"));
+    await first;
+    // Another write set J2's quantity to 6 before the Save landed: r2 holds both. The Save's own entry reads back as sent.
+    expect(session.reconcile(variant("revision", "r2"), (id) => (id === "J1" ? some({ ...cut, qty: 5n }) : undefined))).toBe(true);
+    expect([session.status, session.pending]).toEqual(["idle", 1]);
+    const second = session.apply();
+    // The source checks J2's change against the 4 it began from, holds 6, and refuses.
+    await answer(variant("conflict", [{ entry: "", row: none, field: none, message: "The record changed since this edit began" }]));
+    await second;
+    expect([session.status, session.carrying]).toEqual(["conflict", false]);
+    // The session is at the revision the Save was refused at. It reads the entry there, where its change no longer applies…
+    expect(session.readIdsAt("r2")).toEqual(["J2"]);
+    const at = (id: string) => (id === "J2" ? some({ ...band, qty: 6n }) : some({ ...cut, qty: 5n }));
+    expect(session.nameConflicts(variant("revision", "r2"), at)).toBe(false);
+    // …and carries its drafts over there, as to a revision the source moves to — each entry it holds read there.
+    expect([session.status, session.carrying, session.readIdsAt("r2")]).toEqual(["conflict", true, ["J1", "J2"]]);
+    session.observeBase(variant("revision", "r2"));
+    expect(session.merge(variant("revision", "r2"), at)).toBe("merged");
+    // Both set J2's quantity: a conflict to choose, and nothing sent again meanwhile.
+    expect([session.status, session.carrying, session.unsettled, session.pending, session.canApply]).toEqual(["idle", false, 1, 1, false]);
+    expect(idsOf(sent)).toEqual([["J1"], ["J2"]]);
+    // Kept, the draft is a change from what the source holds: the Save goes, from 6 to 8.
+    expect(session.settleAll("draft")).toBe(true);
+    expect(session.canApply).toBe(true);
+    void session.apply();
+    expect(idsOf(sent)).toEqual([["J1"], ["J2"], ["J2"]]);
+    const { entries } = session.drafts;
+    expect([isJob(entries.get("J2")?.before, some({ ...band, qty: 6n })), isJob(entries.get("J2")?.after, some({ ...band, qty: 8n }))]).toEqual([true, true]);
+});
+
+test("a refused Save whose every change still applies at the revision it was drafted at is carried over nowhere there: each entry is read once, and the session waits for the revision the source moved to", async () => {
+    const { session, answer } = saving();
+    setQty(session, "J1", cut, 5n);
+    const save = session.apply();
+    await answer(variant("conflict", [{ entry: "", row: none, field: none, message: "The record changed since this edit began" }]));
+    await save;
+    expect(session.status).toBe("conflict");
+    expect(session.readIdsAt("r1")).toEqual(["J1"]);
+    // At r1 the job is as the edit began: the write that refused it is at a revision the session has not read yet.
+    expect(session.nameConflicts(variant("revision", "r1"), () => some(cut))).toBe(false);
+    session.merge(variant("revision", "r1"), () => some(cut));
+    expect([session.status, session.carrying, session.readIdsAt("r1")]).toEqual(["conflict", false, []]);
+    // There, its entries are named as before.
+    expect(session.readIdsAt("r2")).toEqual(["J1"]);
+    expect(session.nameConflicts(variant("revision", "r2"), () => some({ ...cut, qty: 3n }))).toBe(true);
+    expect(session.issues.map((issue) => issue.entry)).toEqual(["J1"]);
+});
+
 test("a Save confirmed with nothing drafted since leaves nothing to save, and its history stands", async () => {
     const { session, answer } = saving();
     setQty(session, "J1", cut, 5n);

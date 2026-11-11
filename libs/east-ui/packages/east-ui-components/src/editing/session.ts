@@ -1698,7 +1698,9 @@ export class EditSession<W> {
             return [...request.targets.keys()].filter(id => !request.checked.has(id)).slice(0, limit);
         }
         const conflict = this.conflicted;
-        if (conflict === undefined || this.status !== "conflict" || stringEqual(revision, conflict.revision)) return [];
+        if (conflict === undefined || this.status !== "conflict") return [];
+        // At the revision it was drafted at too, each entry once: one whose change no longer applies there began from a
+        // version read before that revision (`nameConflicts`).
         const checked = conflict.checked !== undefined && stringEqual(revision, conflict.checked.revision) ? conflict.checked.matches : undefined;
         return [...conflict.targets.keys()].filter(id => !checked?.has(id)).slice(0, limit);
     }
@@ -1905,13 +1907,23 @@ export class EditSession<W> {
      * in the source's words for it, else the session's; the source's own issue
      * stays only when no entry is named.
      *
+     * At the revision the request was drafted at — the session's own — each
+     * entry is read once too. Every change applies there while the write that
+     * refused it is at a revision the session has yet to read, and the session
+     * waits for it. One that does not began from a version read before that
+     * revision: an entry first drafted while an earlier Save was out, or from
+     * rows standing in while the revision was read, which another write
+     * changed meanwhile. The source has nothing newer to move to, so the
+     * drafts are carried over where it is ({@link EditSession.merge}), as to a
+     * revision it moves to.
+     *
      * @param base - The base the source is at now
      * @param read - An entry the request changed, as the source holds it at that base: its value, `none` for one it does not hold, or `undefined` while it is not read
      * @returns Whether the conflict's entries were named
      */
     nameConflicts(base: Base, read: (id: string) => option<unknown> | undefined): boolean {
         const conflict = this.conflicted;
-        if (conflict === undefined || this.status !== "conflict" || base.type !== "revision" || stringEqual(base.value, conflict.revision)) return false;
+        if (conflict === undefined || this.status !== "conflict" || base.type !== "revision") return false;
         if (conflict.checked === undefined || !stringEqual(conflict.checked.revision, base.value)) {
             conflict.checked = { revision: base.value, matches: new Map() };
         }
@@ -1924,6 +1936,16 @@ export class EditSession<W> {
         }
         if (checked.size !== conflict.targets.size) {
             if (checked.size !== before) this.changed();
+            return false;
+        }
+        if (stringEqual(base.value, conflict.revision)) {
+            // Read at the revision the request was drafted at: named at none, and carried over there where a change no
+            // longer applies — once, the carry-over then reading every draft there for itself.
+            const behind = [...checked.values()].some((applies) => !applies);
+            if (behind && this.moving === undefined && this.binding.carryOver !== false && this.base !== undefined && this.baseEqual(this.base, base)) {
+                this.moving = { base: this.cloneBase(base), read: new Map() };
+                this.changed();
+            } else if (checked.size !== before) this.changed();
             return false;
         }
         const named = [...conflict.targets.keys()].filter(id => !checked.get(id));
