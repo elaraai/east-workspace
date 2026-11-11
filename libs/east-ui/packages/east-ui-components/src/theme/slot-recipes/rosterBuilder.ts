@@ -52,6 +52,13 @@ const DAY_WORDS_LINE = "18px";
  */
 const ASSIGN_WORDS = { textStyle: "mono.sm", lineHeight: "19px", paddingTop: "1px", paddingBottom: "0" } as const;
 
+/**
+ * A mark's fill and ink — a day's in the month, a pattern card's: the shift's colour token and the ink its shade takes
+ * (`--roster-fill`, `--roster-ink`), and for a shift with no colour the theme's neutral, its solid and the paper on it —
+ * 3:1 or more off the row's paper in both themes, which a mark needs to be seen without its letter.
+ */
+const NEUTRAL_MARK = { background: "var(--roster-fill, {colors.neutral.solid})", color: "var(--roster-ink, {colors.neutral.contrast})" } as const;
+
 export const rosterBuilderSlotRecipe = defineSlotRecipe({
     className: "east-roster-builder",
     slots: [...moveGhostSlots, "root", "main", "scroll", "grid", "row", "gutter", "headerGutter", "head", "shiftHead", "shiftHeading", "shiftLabel", "shiftMeta", "time", ...scheduleGroupSlots,
@@ -290,8 +297,10 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             "[data-roster-stale] &": retainedColumn },
         markStrip: { display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "2px", flex: "1 1 0", minWidth: 0, height: "24px", "[data-density=compact] &": { height: "20px" } },
         // A mark: a day's shift in its colour, its letter where the day is wide enough; an off day faint; a placeholder while unread.
+        // A shift the app gives no colour is filled in the theme's neutral (`NEUTRAL_MARK`): a tile has its words to say a duty
+        // by, a mark its fill alone wherever its day has no room for a letter — on the panel's paper it read as a day off.
         mark: { display: "flex", alignItems: "center", justifyContent: "center", minWidth: 0, overflow: "hidden", borderRadius: "3px", textStyle: "mono.xs", fontWeight: "semibold",
-            background: "var(--roster-fill, {colors.bg.panel})", color: "var(--roster-ink, {colors.fg})", borderWidth: "1px", borderColor: "transparent",
+            ...NEUTRAL_MARK, borderWidth: "1px", borderColor: "transparent",
             "&[data-off]": { background: "color-mix(in srgb, {colors.fg} 7%, transparent)", color: "transparent" },
             "&[data-removed]": { textDecoration: "line-through", background: "bg.warning.subtle", color: "fg.subtle" },
             "&[data-drafted]": { borderColor: "brand.solid" },
@@ -301,7 +310,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         // The Patterns tab: each card's strip of marks, Sunday to Saturday as the card's name reads.
         patternStrip: { display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "2px", height: "18px", marginTop: "4px", width: "100%" },
         patternMark: { display: "flex", alignItems: "center", justifyContent: "center", minWidth: 0, overflow: "hidden", borderRadius: "2px", textStyle: "mono.xs", fontWeight: "semibold",
-            background: "var(--roster-fill, {colors.bg.panel})", color: "var(--roster-ink, {colors.fg})",
+            ...NEUTRAL_MARK,
             "&[data-off]": { background: "color-mix(in srgb, {colors.fg} 7%, transparent)", color: "transparent" } },
 
         // ── The People layout's work requirement (#1568, `People Work Requirements` 2a) ──────────────────────────────

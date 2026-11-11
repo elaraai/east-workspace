@@ -20,7 +20,7 @@
  * target.
  */
 import { expect, type Locator, type Page } from "playwright/test";
-import { PatchType, SortedMap, StringType, compareFor, diffFor, encodeBeast2For } from "@elaraai/east";
+import { PatchType, SortedMap, StringType, compareFor, diffFor, encodeBeast2For, none } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import { test } from "./kept-page";
 import { toolbarFaults } from "./builder-frame";
@@ -140,6 +140,51 @@ async function lengthenCodes(page: Page): Promise<void> {
     const after = new SortedMap([...before].map(([key, shift]) => [key, { ...shift, code: LONG_CODES[shift.code] ?? shift.code }] as const), compareFor(StringType));
     await mutateE3(page, "roster", name, "patch", [encodeBeast2For(PatchType(type))(diffFor(type)(before, after))]);
 }
+/**
+ * Takes the warehouse's shifts' colours away, as another session would: each shift's colour none, patched in through the
+ * shift times' patch door — the shifts of an app that gives them no colour.
+ */
+async function uncolour(page: Page): Promise<void> {
+    const { type, name, default: seeded } = ex.rosterShiftTimes;
+    if (seeded === undefined) throw new Error("the warehouse's shift times are seeded");
+    const before = new SortedMap(seeded, compareFor(StringType));
+    const after = new SortedMap([...before].map(([key, shift]) => [key, { ...shift, colour: none }] as const), compareFor(StringType));
+    await mutateE3(page, "roster", name, "patch", [encodeBeast2For(PatchType(type))(diffFor(type)(before, after))]);
+}
+/**
+ * How a month's marks of duties look beside a day off's (the hand test, 11 Nov 2026): each duty's mark's fill and, where
+ * it shows a letter, its ink, as the page computes them; the least contrast of a fill on the paper behind its mark and of
+ * an ink on its fill; how many marks show a letter and how many none; how many still carry a shift's own fill; and the
+ * fills of the days off.
+ */
+const markLooks = (frame: Locator) => frame.locator('[data-roster-grid="people-month"]').evaluate((grid) => {
+    const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
+    // A computed colour's channels, whatever notation the page computes it in: painted, and read back.
+    const channels = (colour: string): readonly [number, number, number, number] => {
+        ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = colour; ctx.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+        return [r!, g!, b!, a! / 255];
+    };
+    const luminance = ([r, g, b]: readonly number[]) => [r!, g!, b!].map(v => v / 255).map(v => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
+        .reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i]!, 0);
+    const contrast = (a: string, b: string) => { const [hi, lo] = [luminance(channels(a)), luminance(channels(b))].sort((x, y) => y - x); return (hi! + 0.05) / (lo! + 0.05); };
+    // The paper a mark is drawn on: the nearest box behind it that paints an opaque ground.
+    const paperOf = (mark: Element) => { for (let el = mark.parentElement; el !== null; el = el.parentElement) { const ground = getComputedStyle(el).backgroundColor; if (channels(ground)[3] === 1) return ground; } return "rgb(255, 255, 255)"; };
+    const fills = new Set<string>(), inks = new Set<string>();
+    let lettered = 0, bare = 0, own = 0, fillContrast = Infinity, inkContrast = Infinity;
+    for (const mark of grid.querySelectorAll<HTMLElement>("[data-roster-mark][data-shift]:not([data-removed]):not([data-preview])")) {
+        const look = getComputedStyle(mark);
+        fills.add(look.backgroundColor);
+        if (mark.style.getPropertyValue("--roster-fill") !== "") own += 1;
+        fillContrast = Math.min(fillContrast, contrast(look.backgroundColor, paperOf(mark)));
+        if ((mark.textContent ?? "") === "") { bare += 1; continue; }
+        lettered += 1;
+        inks.add(look.color);
+        inkContrast = Math.min(inkContrast, contrast(look.color, look.backgroundColor));
+    }
+    const off = new Set([...grid.querySelectorAll("[data-roster-mark][data-off]:not([data-preview])")].map(mark => getComputedStyle(mark).backgroundColor));
+    return { fills: [...fills], inks: [...inks], off: [...off], lettered, bare, own, fillContrast, inkContrast };
+});
 /**
  * What a month's lettered marks draw that is more than a letter, or cut (#1569): each duty's mark whose letter shows —
  * one grapheme, its shift's code's first — measured from its text's own box against the mark's, which clips it.
@@ -730,6 +775,34 @@ for (const theme of ["light", "dark"] as const) {
         const early = library.locator('[data-library-item="e5m"] [data-roster-pattern-strip] > *').nth(1);
         expect(await early.evaluate(el => getComputedStyle(el).backgroundColor)).toBe(await resolve(page, "backgroundColor", "--chakra-colors-teal-300"));
         expect(await library.locator('[data-library-item="e5m"] [data-roster-pattern-strip] > *').nth(0).evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(await resolve(page, "backgroundColor", "--chakra-colors-teal-300"));
+    });
+    test(`by month a day with a duty never reads as a day off: with every shift's colour taken away through e3, each duty's mark is filled in the theme's neutral — 3:1 or more off the paper behind it, its letter 4.5:1 on it — where its day has room for a letter and where it has none, and no day off's mark is filled as it (${theme}) @desktop`, async ({ page }) => {
+        await installE3Faults(page);
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const entry = await open(page, "rosterPeopleMonth", theme), frame = entry.locator("[data-roster-frame]").first();
+        const month = frame.locator('[data-roster-main] [data-roster-grid="people-month"]');
+        await size(page, entry, 1440);
+        await expect(month).toBeVisible();
+        await uncolour(page);
+        // Once the page has heard, no mark carries a colour of its shift's.
+        await expect.poll(async () => (await markLooks(frame)).own, { timeout: 15_000 }).toBe(0);
+        const neutral = await resolve(page, "backgroundColor", "--chakra-colors-neutral-solid"), paper = await resolve(page, "color", "--chakra-colors-neutral-contrast");
+        let lettered = 0, bare = 0;
+        for (const width of [1440, 1024, 768]) {
+            await size(page, entry, width);
+            const looks = await markLooks(frame), where = `${width}px`;
+            expect(looks.lettered + looks.bare, `${where}: a duty's mark`).toBeGreaterThan(0);
+            expect(looks.fills, `${where}: a duty's mark's fill`).toEqual([neutral]);
+            expect(looks.off, `${where}: a day off's mark's fill`).not.toContain(neutral);
+            expect(looks.fillContrast, `${where}: a duty's mark on the paper behind it`).toBeGreaterThanOrEqual(3);
+            if (looks.lettered > 0) {
+                expect(looks.inks, `${where}: a mark's letter`).toEqual([paper]);
+                expect(looks.inkContrast, `${where}: a mark's letter on its fill`).toBeGreaterThanOrEqual(4.5);
+            }
+            lettered += looks.lettered; bare += looks.bare;
+        }
+        expect(lettered, "a width whose days have room for a letter").toBeGreaterThan(0);
+        expect(bare, "a width whose days have none").toBeGreaterThan(0);
     });
 }
 
