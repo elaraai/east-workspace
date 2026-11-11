@@ -1061,7 +1061,11 @@ that refuses, goes into the e3-ui example module it belongs to.
   Calendar and the Plan beside their other held-reload tests. A host whose rows
   are read apart from a Save's confirmation keeps what the Save landed on
   screen by east-ui-components' one rule (`readBeforeSave`), never one of its
-  own.
+  own. Its second check, `editedThroughReload`, holds a Save to never stopping
+  the editing: while those reads are held — the builder's rows standing in
+  from before the Save — a gesture on a row the Save did not hold is taken and
+  drawn at once, stays drawn as the reads land one at a time, and is the next
+  Save's to send. The Roster and the Allocation run it.
 - Use responsive browser checks at 1440/1024/768/390/360, the light theme (dark too where a check holds a colour),
   narrow parent containers and state-preserving resize. Exercise explicit
   narrow actions, folded toolbar access and real drag previews. Verify computed
@@ -1177,7 +1181,16 @@ at (`shared/schedule/records.ts`' `keptAtRevision`, `heldInWindow`,
 `periodRowRead`, and `periodRowsRead` over a span of periods — the Roster's
 month, #1406); a row they do not hold is read by its key. A Save confirms
 every row they hold in one pass (`EditHistoryPaged.held`), and reads only the
-rest by key, a bounded batch at a time.
+rest by key, a bounded batch at a time. While those reads are on their way —
+the record read again after a Save, or after another session's write — a
+gesture finds the row it changes in what the board draws: the frame says what
+it draws to the editing as it commits (`useScheduleEditing`'s `standing`,
+through `useRosterStanding` and `useAllocationStanding`), so no gesture is
+refused for a read in flight. Such a row was read at the revision before;
+where another write changed the same part of it since, the Save that sends it
+is refused, and the session carries its drafts over at its own revision
+(east-ui-components' `EditSession.nameConflicts`), the part both changed a
+conflict to choose.
 
 The period is assembled from the app's rows, never stored. A reader of its own
 (`RosterDataReader`, `AllocationDataReader`, as the Calendar's is, #1343) reads

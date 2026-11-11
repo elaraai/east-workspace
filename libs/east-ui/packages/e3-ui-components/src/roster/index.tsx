@@ -52,7 +52,7 @@ import { useSourceWindow } from "../shared/schedule/source-window.js";
 import { publishChanges, rosterCommands } from "./actions.js";
 import { RosterDataReader, initialRosterData, type RosterData } from "./data.js";
 import { useRosterDrag } from "./drag.js";
-import { PERIODS, TARGETS, useRosterEditing, type RosterEditing } from "./editing.js";
+import { PERIODS, TARGETS, useRosterEditing, useRosterStanding, type RosterEditing } from "./editing.js";
 import { useRosterFind, type FoundPerson } from "./find.js";
 import { sameFind, useRosterFit, type RosterFind } from "./fit.js";
 import { RosterFooter } from "./footer.js";
@@ -178,6 +178,9 @@ function RosterFrame(props: FrameProps) {
     const holds = useCallback((duties: ReadonlyMap<string, StoredDuty>) => place(duties, span.start).assignments.size > 0, [place, span.start]);
     const [data, setData] = useState<RosterData>(() => initialRosterData(span));
     const current = data.ready && compareDate(data.start, span.start) === 0 && data.weeks.length === span.weeks.length;
+    // What the board draws stands while its records are read again — after a Save, or another session's: a gesture finds
+    // the row it changes there, so it is taken at once (a Save never stops the editing).
+    useRosterStanding(editing, current ? data : undefined);
     const periodDrafts = editing?.periods ?? NO_PERIOD_DRAFTS;
     const dutyDrafts = editing?.duties ?? NO_DUTY_DRAFTS, targetDrafts = editing?.targets ?? NO_TARGET_DRAFTS;
     // Each week of the span, assembled from the span's rows with its drafts in place (#1406): one for a week in view, a

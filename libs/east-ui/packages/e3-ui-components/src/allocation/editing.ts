@@ -17,14 +17,16 @@
  * @packageDocumentation
  */
 
-import { useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef, type RefObject } from "react";
 import { StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
 import type { FieldSpecValue, RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined, type EditHistory, type EditSession, type EntryVersion } from "@elaraai/east-ui-components";
 import { isBounded } from "../shared/bounds.js";
-import { useScheduleEditing, type ScheduleEditing, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead } from "../shared/schedule/editing.js";
+import {
+    useScheduleEditing, type ScheduleEditing, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead, type ScheduleStandingRows,
+} from "../shared/schedule/editing.js";
 import { draftedRow, heldInWindow, keptAtRevision, periodRowRead, rowCodec } from "../shared/schedule/records.js";
-import { DAY, allocationDomain, dayKey, periodSpan, type AllocationValue, type DraftedBin } from "./model.js";
+import { DAY, allocationDomain, dayKey, periodSpan, type AllocationValue, type DraftedBin, type StoredBin } from "./model.js";
 
 /** What a change names the periods' record by in the history — its days', or its weeks' (#1550): no bin kind's slot. */
 export const PERIODS = "allocation.periods";
@@ -60,9 +62,37 @@ export interface AllocationEditing {
     readonly bins: ReadonlyMap<string, DraftedBin | undefined>;
     /** Every drafted period's row — a day's, or a week's (#1550) — by its key's text: its bytes, or `undefined` for one removed. */
     readonly periods: ReadonlyMap<string, Uint8Array | undefined>;
+    /**
+     * Where the board says what it draws of each record now: a gesture's original while the record's revision now is
+     * read — after a Save, or another session's — so a gesture on what the board shows is taken at once.
+     */
+    readonly standing: RefObject<ScheduleStandingRows | undefined>;
 }
 
 const NO_JOINED: Parameters<typeof useScheduleEditing>[0]["joined"] = [];
+
+/**
+ * Says what the board draws of each record now ({@link AllocationEditing.standing}): the day's bins, and the own row
+ * of the period holding the day — as the frame holds them, at whatever revision they were read. None while the board
+ * draws no read of the day in view. Said as the frame commits, so a gesture reads what the page shows.
+ *
+ * @param editing - The board's editing; none for a board read only
+ * @param bins - The bins the frame draws, while its read is the day's own
+ * @param period - The period's own row as the frame holds it
+ * @param periodId - The period's key's text
+ */
+export function useAllocationStanding(editing: AllocationEditing | undefined, bins: ReadonlyMap<string, StoredBin> | undefined, period: Uint8Array | undefined, periodId: string): void {
+    const standing = editing?.standing;
+    const bin = editing?.bin;
+    useLayoutEffect(() => {
+        if (standing === undefined || bin === undefined) return undefined;
+        standing.current = bins === undefined ? undefined : {
+            [bin]: id => bins.get(id)?.bytes,
+            [PERIODS]: id => (keyEqual(id, periodId) ? period : undefined),
+        };
+        return () => { standing.current = undefined; };
+    }, [standing, bin, bins, period, periodId]);
+}
 
 /**
  * The Allocation's sessions over its records, and their drafts (see the module docs).
@@ -96,7 +126,8 @@ export function useAllocationEditing(value: AllocationValue, storageKey: string,
     // A reservation holds no quantity yet: none of its quantity's bounds hold its Save (#1585).
     const boundsOf = useMemo(() => ({ [value.bin.kind.key]: binBounds(value.bin) }), [value.bin]);
     // A bin's quantity and its split across resources change together: one conflict, under the board's word for a quantity.
-    const schedule = useScheduleEditing({ kinds, records, reads, storageKey, joined: NO_JOINED, range, recordSlices, quantityLabel: value.labels.quantity, boundsOf });
+    const standing = useRef<ScheduleStandingRows | undefined>(undefined);
+    const schedule = useScheduleEditing({ kinds, records, reads, standing, storageKey, joined: NO_JOINED, range, recordSlices, quantityLabel: value.labels.quantity, boundsOf });
     const bin = value.bin.kind.key;
     const sessionOf = (key: string): EditSession<ScheduleEntryRef> | undefined => schedule.sessions.find(held => held.kind === key)?.session;
     // Each draft decoded once: a session keeps an entry's version the same object until a gesture replaces it.
@@ -138,5 +169,5 @@ export function useAllocationEditing(value: AllocationValue, storageKey: string,
         return out;
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [drafts, value.periods]);
-    return useMemo(() => ({ schedule, history: schedule.history, bin, bins, periods }), [schedule, bin, bins, periods]);
+    return useMemo(() => ({ schedule, history: schedule.history, bin, bins, periods, standing }), [schedule, bin, bins, periods]);
 }

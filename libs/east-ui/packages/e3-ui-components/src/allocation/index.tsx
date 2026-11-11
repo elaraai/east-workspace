@@ -57,7 +57,7 @@ import { BinFocusContext, type BinFocus } from "./bin-focus.js";
 import { AllocationCards } from "./cards.js";
 import { AllocationDataReader, binChoicesOf, initialAllocationData, type AllocationData } from "./data.js";
 import { bookOnto, placeAsk, useAllocationDrag, type DropScene, type LibraryGrip, type Refusal, type Target, type Verdict } from "./drag.js";
-import { PERIODS, binBounds, useAllocationEditing, type AllocationEditing } from "./editing.js";
+import { PERIODS, binBounds, useAllocationEditing, useAllocationStanding, type AllocationEditing } from "./editing.js";
 import { useAllocationFind, type FoundBin } from "./find.js";
 import { useAllocationFit } from "./fit.js";
 import { AllocationFooter } from "./footer.js";
@@ -162,6 +162,9 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const weekly = byWeek(value), unit = weekly ? "week" : "day";
     const periodFrom = periodSpan(value, day).from;
     const periodId = dayKey(periodFrom);
+    // What the board draws stands while its records are read again — after a Save, or another session's: a gesture finds
+    // the row it changes there, so it is taken at once (a Save never stops the editing).
+    useAllocationStanding(editing, current ? data.bins : undefined, current ? data.period : undefined, periodId);
     const periodDrafts = editing?.periods ?? NO_PERIOD_DRAFTS;
     const heldPeriod = useMemo(() => periodOf(value, current ? data.period : undefined), [value, current, data.period]);
     const period = useMemo(() => periodDrafts.has(periodId) ? periodOf(value, periodDrafts.get(periodId)) : heldPeriod, [periodDrafts, periodId, value, heldPeriod]);

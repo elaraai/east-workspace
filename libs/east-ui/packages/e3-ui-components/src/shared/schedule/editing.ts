@@ -164,6 +164,12 @@ export interface ScheduleEditingRecord {
  */
 export type ScheduleRowRead = (id: string) => option<option<Uint8Array>> | undefined;
 
+/**
+ * Each kind's or record's rows as its builder draws them now, by its slot or key, then by the row's key's text: its
+ * bytes, or `undefined` for one the builder draws none of ({@link ScheduleEditingArgs.standing}).
+ */
+export type ScheduleStandingRows = Readonly<Record<string, (id: string) => Uint8Array | undefined>>;
+
 /** An event a confirmed Save landed, as it left it ({@link ScheduleLandedRows}). */
 export interface ScheduleLandedRow {
     /** The event as the Save left it, as the seams take a draft: its row, or `missing` for one the Save deleted. */
@@ -308,6 +314,16 @@ export interface ScheduleEditingArgs<I extends Item = Item> {
      * finds an entry as before it, and what a Save confirms its entries by, before any is read by its key.
      */
     reads?: Readonly<Record<string, ScheduleRowRead>> | undefined;
+    /**
+     * Where the rows the builder draws now are kept, by kind or record ({@link ScheduleStandingRows}): what stands on
+     * the page while the read of a record's revision now is in flight — its rows read again after a Save, or after
+     * another session's write. A gesture's original is found there then, so a gesture on what a person sees is taken at
+     * once, never refused for a read on its way (a Save never stops the editing); never a Save's confirmation, which
+     * reads the revision it committed. A row standing in was read at the revision before: where another write changed
+     * the same part of it since, the source refuses the Save that sends it, and the session carries its drafts over at
+     * its own revision (`EditSession.nameConflicts`). Read as a gesture is recorded, so rows moving make no new session.
+     */
+    standing?: RefObject<ScheduleStandingRows | undefined> | undefined;
     /** The canvas's storage key: the sessions and their history are kept under it. */
     storageKey: string;
     /** Sessions made elsewhere that join the history, ahead of the kinds': `data`'s. */
@@ -438,7 +454,7 @@ function sameDrafts(a: ScheduleEventDraftsValue, b: ScheduleEventDraftsValue): b
  * @returns The history, the kinds' and the records' sessions and drafts, how an event is read, and how a gesture is recorded
  */
 export function useScheduleEditing<I extends Item = Item>({
-    kinds, records = NO_RECORDS, reads, storageKey, joined, range, recordSlices, held: cellRows, drawsLanded, quantityLabel, boundsOf,
+    kinds, records = NO_RECORDS, reads, standing, storageKey, joined, range, recordSlices, held: cellRows, drawsLanded, quantityLabel, boundsOf,
 }: ScheduleEditingArgs<I>): ScheduleEditing<I> {
     // The history, as the kinds' checks read their originals through it.
     const historyRef = useRef<EditHistory<ScheduleEntryRef> | undefined>(undefined);
@@ -640,17 +656,23 @@ export function useScheduleEditing<I extends Item = Item>({
      * none of it: absent for one a gesture makes under a new key — a template's create, a duplicate, a new row — else
      * the record's row where its builder's own reads hold it (`reads`), else a kind's read where the canvas holds it
      * (`read`, with no drafts: the session holds none for it), a record's by its key — absent for a key the record does
-     * not hold, which a gesture writes a new row under.
+     * not hold, which a gesture writes a new row under. While its read at the record's revision now is in flight, the
+     * row as the builder draws it (`standing`), read at the revision before: what the person sees and acts on.
      *
-     * @returns The version; `undefined` while its read is in flight, or for an event the record no longer holds
+     * @returns The version; `undefined` while its read is in flight and the builder draws none of it, or for an event the record no longer holds
      */
     const originalOf = (part: EditedPart<I>, change: ScheduleChange): EntryVersion<ScheduleEntryRef> | undefined => {
         if (("gesture" in change && change.gesture.type === "create") || ("row" in change && change.created === true)) return ABSENT;
         const codec = codecs[indexOf(part.key)]!;
+        // Its read on its way: the row as the builder draws it now, where it draws one.
+        const stood = (): EntryVersion<ScheduleEntryRef> | undefined => {
+            const row = standing?.current?.[part.key]?.(change.id);
+            return row === undefined ? undefined : { draft: variant("value", codec.decodeRow(row)), wire: undefined, place: KEY_ORDER };
+        };
         // Where the builder's own reads hold it: in flight, absent, or its row.
         const held = part.read?.(change.id);
         if (held !== undefined) {
-            if (held.type !== "some") return undefined;
+            if (held.type !== "some") return stood();
             return held.value.type === "some" ? { draft: variant("value", codec.decodeRow(held.value.value)), wire: undefined, place: KEY_ORDER } : ABSENT;
         }
         const kind = part.kind;
@@ -665,7 +687,7 @@ export function useScheduleEditing<I extends Item = Item>({
                 console.error(`[Schedule] ${part.name}'s row ${change.id} could not be read:`, err);
                 return undefined;
             }
-            if (row.type !== "some") return undefined;
+            if (row.type !== "some") return stood();
             return row.value.type === "some" ? { draft: variant("value", codec.decodeRow(row.value.value)), wire: undefined, place: KEY_ORDER } : ABSENT;
         }
         const at = rangeRef.current ?? NO_RANGE;
@@ -676,7 +698,7 @@ export function useScheduleEditing<I extends Item = Item>({
             console.error(`[Schedule] ${kind.name}'s event ${change.id} could not be read:`, err);
             return undefined;
         }
-        if (got.type !== "some") return undefined;
+        if (got.type !== "some") return stood();
         return { draft: variant("value", codec.decodeRow(got.value.row)), wire: undefined, place: KEY_ORDER };
     };
     const api = {

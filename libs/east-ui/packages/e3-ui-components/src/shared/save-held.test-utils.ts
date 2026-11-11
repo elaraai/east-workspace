@@ -24,6 +24,12 @@
  * leaves on the page, and none that lasts less than a task: a frame drawn
  * between an effect and the commit after it is the browser suite's to hold.
  *
+ * A second check holds a Save to never stopping the editing
+ * ({@link editedThroughReload}): while the builder's reads of what it saved
+ * are held — its rows standing in from before the Save — a gesture on a row
+ * the Save did not hold is taken and drawn at once, stays drawn as the reads
+ * land one at a time, and is the next Save's to send.
+ *
  * @packageDocumentation
  */
 
@@ -112,5 +118,74 @@ export async function savedThroughReload(check: SavedThroughReload): Promise<voi
         expect(looks, "once the builder's reads of what it saved have landed").toEqual([drafted]);
     } finally {
         observer.disconnect();
+    }
+}
+
+/** What a builder gives the check of an edit made while its rows are read again. */
+export interface EditedThroughReload extends SavedThroughReload {
+    /**
+     * A second gesture, made while the builder's reads of what it saved are held: on a row the Save did not hold — one
+     * whose original the builder reads from its own rows — as a person makes it on what the page shows.
+     */
+    readonly again: () => void | Promise<void>;
+}
+
+/**
+ * Saves a builder's draft with its own reads held and, while they are, makes a second gesture: it is drawn at once,
+ * every look the builder draws from then on is the look it left — as the held reads land one at a time, and once the
+ * first Save is confirmed — and it waits to be saved, a second Save writing it (see the module docs).
+ *
+ * @param check - The builder's e3, its container, its reads, its look and the second gesture
+ * @returns Once both Saves are confirmed and their reads have landed
+ * @throws An assertion's error where the gesture is not taken, or a look differs from the one it left
+ */
+export async function editedThroughReload(check: EditedThroughReload): Promise<void> {
+    const save = check.save ?? ((): void => { fireEvent.click(historyButton(check.container, editingMessages.apply())); });
+    const unsaved = check.unsaved ?? ((): boolean => !historyButton(check.container, editingMessages.discard()).disabled);
+    expect(unsaved(), "the builder holds a draft to save").toBe(true);
+    const print = (): string => JSON.stringify(check.look());
+    const drafted = print();
+    const held = check.e3.hold(check.reads);
+    let observer: MutationObserver | undefined;
+    try {
+        await act(async () => { save(); });
+        await waitFor(() => expect(held.held, "the builder reads what it saved again").toBeGreaterThan(0), { timeout: 5_000 });
+        await settle();
+        expect(print(), "while the builder's reads of what it saved are held").toBe(drafted);
+        // The second gesture, on what the page shows while its rows are read again: taken, and drawn at once.
+        await act(async () => { await check.again(); });
+        await settle();
+        const edited = print();
+        expect(edited, "a gesture made while the builder's rows are read again is drawn at once").not.toBe(drafted);
+        // Every look from here on is the look it left.
+        const looks: string[] = [edited];
+        const read = (): void => {
+            const now = print();
+            if (looks[looks.length - 1] !== now) looks.push(now);
+        };
+        observer = new MutationObserver(read);
+        observer.observe(check.container, { subtree: true, childList: true, attributes: true, characterData: true });
+        for (let n = 1; held.held > 0 && n <= MOST_READS; n++) {
+            await act(async () => { held.releaseOne(); });
+            await settle();
+            read();
+            expect(looks, `once ${n} of the builder's reads of what it saved landed, the rest held`).toEqual([edited]);
+        }
+        await act(async () => { held.release(); });
+        await settle();
+        read();
+        expect(looks, "once the builder's reads of what it saved have landed").toEqual([edited]);
+        // The first Save confirmed, the second gesture is what is left to save: a press writes it.
+        await waitFor(() => expect(historyButton(check.container, editingMessages.apply()).disabled, "the second gesture waits to be saved").toBe(false), { timeout: 5_000 });
+        expect(unsaved(), "the second gesture is a draft still").toBe(true);
+        await act(async () => { save(); });
+        await settle();
+        await waitFor(() => expect(unsaved()).toBe(false), { timeout: 5_000 });
+        await settle();
+        read();
+        expect(looks, "once the second Save is confirmed").toEqual([edited]);
+    } finally {
+        observer?.disconnect();
+        await act(async () => { held.release(); });
     }
 }
