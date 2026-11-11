@@ -671,3 +671,77 @@ test("turned on over a session, a step back or forward sends nothing however lon
     expect(batches(sent)).toEqual([["J1"], ["J1", "J2"]]);
     autosave.dispose();
 });
+
+test("turned on over a session, nothing of a record is sent by itself while one of its conflicts waits — the row in conflict, or any other of the record's — however long, nor as the tab is hidden; chosen, it goes a pause after the choice", async () => {
+    const { session, sent, answer } = saving();
+    const { clock, advance } = testClock();
+    const autosave = createAutosave(session, clock);
+    autosave.enable(true);
+    setQty(session, "J1", cut, 5n);
+    setQty(session, "J2", band, 8n);
+    // Before the pause runs out, another write changes J1's quantity another way: carried over, a conflict to choose.
+    advance(AUTOSAVE_PAUSE_MS - 1);
+    session.observeBase(variant("revision", "r2"));
+    expect(session.merge(variant("revision", "r2"), (id) => some(id === "J1" ? { ...cut, qty: 3n } : band))).toBe("merged");
+    expect([session.unsettled, session.pending, session.canAutosave, session.canApply]).toEqual([1, 2, false, false]);
+    // For ten minutes, and as the tab is hidden: nothing is sent — not J1, nor J2, which holds no conflict.
+    advance(600_000);
+    autosave.flush();
+    expect(await session.autosave()).toBe(false);
+    expect(sent).toEqual([]);
+    // Chosen for the draft: a change as any is, saved a pause after it — both rows, J1 from the other write's value.
+    expect(session.settleAll("draft")).toBe(true);
+    advance(AUTOSAVE_PAUSE_MS - 1);
+    expect(sent).toEqual([]);
+    advance(1);
+    expect(batches(sent)).toEqual([["J1", "J2"]]);
+    expect(sent[0]!.changes.find((change) => change.id === "J1")!.patch).toEqual(variant("patch", some(variant("patch", {
+        task: variant("unchanged", null), qty: variant("replace", { before: 3n, after: 5n }),
+    }))));
+    await answer(saved("r3"));
+    autosave.dispose();
+});
+
+test("turned on over a session, a conflict's other side taken leaves nothing of that row to send, and the record's other changes go by themselves", async () => {
+    const { session, sent, answer } = saving();
+    const { clock, advance } = testClock();
+    const autosave = createAutosave(session, clock);
+    autosave.enable(true);
+    setQty(session, "J1", cut, 5n);
+    setQty(session, "J2", band, 8n);
+    session.observeBase(variant("revision", "r2"));
+    expect(session.merge(variant("revision", "r2"), (id) => some(id === "J1" ? { ...cut, qty: 3n } : band))).toBe("merged");
+    advance(600_000);
+    expect(sent).toEqual([]);
+    expect(session.settleAll("source")).toBe(true);
+    advance(AUTOSAVE_PAUSE_MS);
+    expect(batches(sent)).toEqual([["J2"]]);
+    await answer(saved("r3"));
+    autosave.dispose();
+});
+
+test("over several records a conflict holds back its own record's changes alone: the others' are sent by themselves, and its own once it is chosen", async () => {
+    const { history, jobs, shifts, change } = several();
+    const { clock, advance } = testClock();
+    const autosave = createAutosave(history, clock);
+    autosave.enable(true);
+    history.record([change("jobs", "J1", cut, 5n)], "typed", "Set quantity");
+    history.record([change("shifts", "J3", route, 2n)], "typed", "Set quantity");
+    // Another write changes J1's quantity another way before the pause runs out: the jobs hold a conflict to choose.
+    jobs.session.observeBase(variant("revision", "r2"));
+    expect(jobs.session.merge(variant("revision", "r2"), () => some({ ...cut, qty: 3n }))).toBe("merged");
+    expect([jobs.session.unsettled, history.unsettled]).toEqual([1, 1]);
+    advance(AUTOSAVE_PAUSE_MS);
+    // The shifts' change goes; the jobs' waits for its choice, however long.
+    expect([batches(jobs.sent), batches(shifts.sent)]).toEqual([[], [["J3"]]]);
+    await shifts.answer(saved("r2"));
+    shifts.session.reconcile(variant("revision", "r2"), () => some({ ...route, qty: 2n }));
+    advance(600_000);
+    autosave.flush();
+    expect(jobs.sent).toEqual([]);
+    expect(history.settleAll("draft")).toBe(true);
+    advance(AUTOSAVE_PAUSE_MS);
+    expect(batches(jobs.sent)).toEqual([["J1"]]);
+    await jobs.answer(saved("r3"));
+    autosave.dispose();
+});

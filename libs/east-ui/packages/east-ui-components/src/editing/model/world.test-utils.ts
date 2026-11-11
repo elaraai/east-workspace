@@ -57,6 +57,9 @@
  *   for the draft, nothing is left unwritten.
  * - **Nothing is sent twice.** One batch a request id, and the record never
  *   refuses a session's Save over that session's own earlier change.
+ * - **A conflict holds its record's Save.** While a conflict of a session's
+ *   waits to be chosen no Save is offered and no request is made — a
+ *   person's, or an automatic one — of the row in conflict or any other.
  * - **A choice stands.** A conflict is asked only of a change still to save;
  *   one chosen for the draft is never asked again; and Undo of a choice no
  *   Save has taken brings its conflict back.
@@ -311,6 +314,10 @@ export class ModelClient {
         // left the steps, and nothing while every draft waits for a person's.
         if (this.sending === "automatic" && (this.allWait || this.left !== this.cursor)) {
             this.misfire = `${this.name}'s automatic Save sent ${this.allWait ? "drafts that wait for a person's Save" : "what Undo or Redo stepped to"}`;
+        }
+        // Nor is any request made of a record while one of its conflicts waits to be chosen: a person's, or an automatic one.
+        if (this.session.unsettled > 0) {
+            this.misfire = `${this.name}'s ${this.sending === "automatic" ? "automatic Save" : "Save"} was sent while ${this.session.unsettled} of its conflicts waited to be chosen`;
         }
         return this.sending === "automatic" ? this.screenForAutomatic() : this.shownRows();
     }
@@ -1133,8 +1140,12 @@ export class ModelWorld {
             const acts = client.acts < (this.options.acts ?? Number.POSITIVE_INFINITY);
             const sends = client.requests < (this.options.sends ?? Number.POSITIVE_INFINITY);
             if (acts && client.canEdit("k1")) ops.push(`${c}.edit(k1,a)`, `${c}.edit(k1,b)`, `${c}.remove(k1)`, `${c}.optimise(k1,a)`);
+            // A row removed — by its person, or by another session — added again under its key.
+            if (acts && client.canAdd("k1")) ops.push(`${c}.add(k1)`);
             if (acts && client.canEdit("k2")) ops.push(`${c}.edit(k2,a)`);
             if (acts && client.canAdd("k3")) ops.push(`${c}.add(k3)`);
+            // A row added — here, or by another session — changed and removed as any is.
+            if (acts && client.canEdit("k3")) ops.push(`${c}.edit(k3,a)`, `${c}.remove(k3)`);
             if (session.canUndo) ops.push(`${c}.undo`);
             if (session.canRedo) ops.push(`${c}.redo`);
             if (session.canDiscard && session.pending > 0) ops.push(`${c}.discard`);
@@ -1152,10 +1163,13 @@ export class ModelWorld {
             if (session.pending > 0 || session.locked) ops.push(`${c}.reload`);
         });
         if (this.remotes > 0) {
+            // Every key's row, as another session may leave it: changed or removed where the record holds it, added where
+            // it does not — a removed key added again, and an added row changed and removed, among them.
             if (this.record.now.has("k1")) ops.push("remote.edit(k1,a)", "remote.edit(k1,b)", "remote.remove(k1)");
-            if (this.record.now.has("k2")) ops.push("remote.edit(k2,a)");
             else ops.push("remote.add(k1)");
-            if (!this.record.now.has("k3")) ops.push("remote.add(k3)");
+            if (this.record.now.has("k2")) ops.push("remote.edit(k2,a)");
+            if (this.record.now.has("k3")) ops.push("remote.edit(k3,a)", "remote.remove(k3)");
+            else ops.push("remote.add(k3)");
         }
         return ops;
     }
@@ -1256,6 +1270,10 @@ export class ModelWorld {
                 throw new ModelFault(`${client.name} ${client.out === undefined && client.preparing === undefined ? "has no request" : "has a request"} on its way, and says it is ${session.status}`);
             }
             if (client.out !== undefined && client.preparing !== undefined) throw new ModelFault(`${client.name} has a request on its way while one is prepared`);
+            // A conflict holds its record's Save: neither a person's nor an automatic one is offered while one waits to be chosen.
+            if (session.unsettled > 0 && (session.canApply || session.canAutosave)) {
+                throw new ModelFault(`${client.name} holds ${session.unsettled} conflicts to choose, and its session offers ${session.canApply ? "a Save" : "an automatic Save"}`);
+            }
             // An automatic Save is there exactly while it has something it may send: a change it may send never waits unsaid.
             const may = client.autosaveMay();
             if (may !== undefined && session.canAutosave !== may) {

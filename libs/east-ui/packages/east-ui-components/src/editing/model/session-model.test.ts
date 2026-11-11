@@ -117,6 +117,10 @@ const OWN = /^c\d\.(edit|remove|add|undo|redo|discard|save|deliver|deliverUnansw
 const BESIDE = /^(c\d\.(edit\(k1,[ab]\)|undo|redo|save|deliver|deliverUnanswered|retry|see|read|redraw|settle)|remote\.(edit|remove))/;
 /** Rows added and removed on both sides. */
 const ROWS = /^(c\d\.(remove|add|edit\(k1,a\)|undo|save|deliver|see|read|redraw|settle)|remote\.(remove|add))/;
+/** A row removed here that another session changes: the removal, its Save and the choice it asks, with the row added again under its key. */
+const REMOVED_HERE = /^(c\d\.(remove\(k1\)|add\(k1\)|edit\(k1,a\)|undo|redo|save|deliver|deliverUnanswered|retry|see|read|redraw|settle)|remote\.edit\(k1,[ab]\))/;
+/** A key removed and added again on either side, and a row added that is then changed or removed — by the one who added it, or by the other. */
+const ADDED = /^(c\d\.(remove\(k1\)|add\(k[13]\)|edit\(k3,a\)|remove\(k3\)|undo|save|deliver|see|read|redraw|settle)|remote\.(remove\(k[13]\)|add\(k[13]\)|edit\(k3,a\)))/;
 /** A person's gestures, an optimiser's result among them, with a Save of their own and an automatic one. */
 const AUTOMATIC = /^c\d\.(edit\(k1,[ab]\)|optimise|undo|redo|save|autosave|deliver|read|redraw)/;
 /** A page reloaded with drafts kept, at every point of a Save and of another session's write. */
@@ -149,7 +153,19 @@ for (const shape of ["fields", "whole"] as const) {
         it("rows added and removed on both sides: every ordering", async () => {
             const found = await explore({ shape, remotes: 2 }, 5 + DEEPER, (op) => ROWS.test(op));
             console.info(said(`${shape} rows`, found));
-            expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_000);
+            expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 4_000);
+        }, 600_000);
+
+        it("a row removed here that another session changes: every ordering of the removal, its Save and the choice it asks", async () => {
+            const found = await explore({ shape, remotes: 2 }, 5 + DEEPER, (op) => REMOVED_HERE.test(op));
+            console.info(said(`${shape} removed here`, found));
+            expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 1_500);
+        }, 600_000);
+
+        it("a key removed and added again, and a row added then changed or removed, on either side: every ordering", async () => {
+            const found = await explore({ shape, remotes: 2 }, 5 + DEEPER, (op) => ADDED.test(op));
+            console.info(said(`${shape} added`, found));
+            expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_500);
         }, 600_000);
 
         it("several rows and several conflicts: reads landing a row at a time, and choices made one at a time", async () => {

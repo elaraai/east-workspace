@@ -697,7 +697,9 @@ component, nothing in east-ui.
   - **One session** (`world.test-utils.ts`, run by `session-model.test.ts`). `record.test-utils.ts` is a small record
     that checks a Save's batch as `Record.onApply` does — East's patch apply a row, a revision a commit, a request id
     answered once — and the world is sessions over it, each with a screen of its own, driven as `useEditSession`
-    drives one, with every operation that can meet in one: gestures, an optimiser's result, Undo, Redo, Discard, a
+    drives one, with every operation that can meet in one: gestures — a row changed, removed and added, a removed key
+    added again and an added row changed and removed, by its person and by another session alike — an optimiser's
+    result, Undo, Redo, Discard, a
     conflict's choice — one at a time, or every one — a Save prepared before it is sent, its preparation failing, its
     answer, an answer lost and asked again, an automatic Save, the page reloaded with its drafts kept, another
     session's write, a revision heard of before its rows are read, reads landing a row at a time, a screen redrawn
@@ -706,8 +708,9 @@ component, nothing in east-ui.
     person's screen showed as it was pressed, and changes a field only from a value they had been shown; an automatic
     Save writes the screen as it stood before an optimiser's result no person's Save has taken, and nothing from
     where Undo or Redo left the steps, and is there exactly while it has something it may send; no change is lost,
-    and none is sent twice; a conflict is asked only of a
-    change still to save, and never again once chosen; Undo then Redo is where it was; and answered, read and
+    and none is sent twice; while a conflict waits no Save is
+    offered and no request made, a person's or an automatic one, of the row in conflict or any other of its record;
+    a conflict is asked only of a change still to save, and never again once chosen; Undo then Redo is where it was; and answered, read and
     chosen, every session is idle with its screen the record.
   - **One history over a session a record** (`desk.test-utils.ts`, run by `history-model.test.ts`): one person over
     two records, as the Roster's duties and weeks are — a gesture in one record or across both, an optimiser's

@@ -50,6 +50,13 @@ async function states(options: WorldOptions, allow: RegExp): Promise<StatesWalke
 const OWN = /^c\d\.(edit\(k1,[ab]\)|undo|redo|discard|save|deliver|deliverUnanswered|lose|retry|see|read|redraw)$/;
 /** The same, with another session's write to the same field, and the choice it asks. */
 const BESIDE = /^(c\d\.(edit\(k1,[ab]\)|undo|redo|discard|save|deliver|deliverUnanswered|lose|retry|see|read|redraw|settle\((draft|source)\))|remote\.edit\(k1,a\))$/;
+/** One person's rows: a row removed and added again under its key, a row added and removed, with every way a request can go. */
+const ROWS_OWN = /^c\d\.(edit\(k1,a\)|remove\(k1\)|add\(k1\)|add\(k3\)|remove\(k3\)|undo|redo|discard|save|deliver|deliverUnanswered|lose|retry|see|read|redraw)$/;
+/**
+ * Rows added and removed on both sides: a row changed here that another session removes, one removed here that it
+ * changes, one both add under a key, a removed key added again — and the choice each asks.
+ */
+const ROWS_BESIDE = /^(c\d\.(edit\(k1,a\)|remove\(k1\)|add\(k3\)|undo|redo|discard|save|deliver|see|read|redraw|settle\((draft|source)\))|remote\.(edit\(k1,a\)|remove\(k1\)|add\(k1\)|add\(k3\)|remove\(k3\)))$/;
 /** An optimiser's result among the gestures, a person's Save and an automatic one. */
 const AUTOMATIC = /^c\d\.(edit\(k1,a\)|optimise\(k1,a\)|undo|redo|save|autosave|deliver|read|redraw)$/;
 /** A source read whole: no reads by key, each new collection read and drawn at once. */
@@ -75,6 +82,18 @@ for (const shape of ["fields", "whole"] as const) {
         it("another session's write to the same field: gestures, Saves, and the choice it asks", async () => {
             const walked = await states({ shape, remotes: 1, ...budgets({ acts: 1, sends: 1 }, { acts: 2, sends: 2 }) }, BESIDE);
             console.info(said(`${shape} beside`, walked));
+            expect(walked.closed).toBe(true);
+        }, 3_600_000);
+
+        it("one person's rows: a row removed and added again, a row added and removed, with every way a request can go", async () => {
+            const walked = await states({ shape, remotes: 0, ...budgets({ acts: 2, sends: 1 }, { acts: 3, sends: 2 }) }, ROWS_OWN);
+            console.info(said(`${shape} rows own`, walked));
+            expect(walked.closed).toBe(true);
+        }, 3_600_000);
+
+        it("rows added and removed on both sides: a row changed here and removed there, removed here and changed there, added by both, and the choice each asks", async () => {
+            const walked = await states({ shape, ...budgets({ remotes: 1, acts: 1, sends: 1 }, { remotes: 2, acts: 2, sends: 2 }) }, ROWS_BESIDE);
+            console.info(said(`${shape} rows beside`, walked));
             expect(walked.closed).toBe(true);
         }, 3_600_000);
 
