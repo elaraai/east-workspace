@@ -363,10 +363,9 @@ function EditableCalendar(props: Omit<HostProps, "editing" | "onHeld" | "onBackl
         }
         return out;
     }, [value]);
-    // The kinds a view may read by their cells (#1424): what each Save lands of them draws as the Save left it over cells
-    // read before the commit, until they are read again.
-    const pagedSlot = value.paged.type === "some" ? value.paged.value.kind : undefined;
-    const drawsLanded = useMemo(() => calendarCellKinds(pagedSlot, props.dates.eventParts), [pagedSlot, props.dates.eventParts]);
+    // The kinds the reader may give cells (#1424, #1599) — every kind read a window at a time: what each Save lands of
+    // them draws as the Save left it over cells read before the commit, until they are read again.
+    const drawsLanded = useMemo(() => calendarCellKinds(value.events), [value.events]);
     const editing = useScheduleEditing({ kinds: value.events, storageKey: props.storageKey, joined: NO_JOINED, range: props.dates.range,
         recordSlices, held, reads, drawsLanded, autosave: value.settings.autosave });
     return <CalendarFrame {...props} editing={editing} onHeld={onHeld} onBacklog={onBacklog} />;
@@ -524,8 +523,12 @@ function CalendarFrame(props: HostProps) {
     const cellsDrawn = data.cells?.drawn;
     const commands = useMemo(() => editing === undefined ? undefined : calendarCommands(value, editing, select, items, shown, { rows: pagedRows, known: cellsDrawn }),
         [value, editing, select, items, shown, pagedRows, cellsDrawn]);
-    // A paged kind's last view standing in for a new narrowing's is retained (CL8): no gesture until its windows land.
-    const available = current && !reading && data.error === undefined && data.apart.error === undefined && !resourcesBusy && pages?.stale !== true;
+    // Held back only while what it shows is another view's (ruled 11 Nov 2026, `../shared/view-read.ts`): the last
+    // choices' events standing in for new ones', a resource kind's narrowing resolving, a paged kind's last view standing
+    // in for a new narrowing's (CL8) — no gesture until they land. A read again of the view shown — after a Save, or
+    // another session's write — leaves it live: a gesture begins from the row its event was drawn from, and a Save never
+    // stops the editing.
+    const available = current && !data.filtering && data.error === undefined && data.apart.error === undefined && !resourcesBusy && pages?.stale !== true;
     // The app's optimiser (#1409, #1417): one run over the window in view, its result landed on the events as one
     // edit, and what it left on them until Apply — the landing and the highlight over the whole frame.
     const landing = useLanding(root);
@@ -553,7 +556,7 @@ function CalendarFrame(props: HostProps) {
     // The eye is listed only where the window can be optimised (ruled 25 Oct 2026): never read only; while its reads
     // are in flight it waits, disabled, in its place.
     const parts = useOptimiseParts<CalendarOptimiseRequest>({
-        run, landing, period: periodName, readOnly: value.settings.readOnly || editing === undefined, busy: !available,
+        run, landing, period: periodName, readOnly: value.settings.readOnly || editing === undefined, busy: !available || reading,
         request: n => calendarOptimiseRequest(value, editing!, range, latest.current.items, latest.current.backlog, n), landKey: data.items,
     });
     landAfter.current = parts.landAfter;
@@ -725,9 +728,10 @@ function CalendarFrame(props: HostProps) {
     // its grid and the failure said once (CL11) — never "Calendar unavailable" over the grid.
     const read = useMemo(() => periodRead({ current, error: data.error, name: periodName, retry: retryWindow }),
         [current, data.error, periodName, retryWindow]);
-    // A newer read of what is shown — a narrowing, a revision, a paged kind's new narrowing — keeps its events, stale
-    // (#1398, CL5): their words in the third ink, the grid's rules dashed, and nothing dragged or dropped until it lands.
-    const stale = current && (reading || [...followed.values()].some(source => source.shown.busy) || pages?.stale === true);
+    // What stands in for other choices — an event kind's, a followed source's, a paged kind's new narrowing — is stale
+    // (#1398, CL5): its words in the third ink, the grid's rules dashed, and nothing dragged or dropped until the new
+    // choices' land. A read again of the view shown — a new revision — draws as it did, live.
+    const stale = current && (data.filtering || [...followed.values()].some(source => source.shown.busy) || pages?.stale === true);
     // Whether the events carry their drag handles and edges (#1398, CL9): wherever the board takes edits — through a read
     // in flight too, whose retained content refuses the gesture itself (the shared drag sensors, inside the aria-disabled
     // main, CL8) while `gestures` are withheld — so an event draws the same through a read;
@@ -779,8 +783,9 @@ function CalendarFrame(props: HostProps) {
             </>}
             footer={<CalendarFooter styles={styles} kinds={value.events} parts={dates.eventParts} locale={format.locale} line={parts.line ?? line} elara={parts.legend} />}>
             {/* The period read now's grid, whatever the read: what it holds of the period is `items` and `read` (#1398, CL5). While
-                it is read, what it shows is retained (CL8): readable, focusable and selectable, aria-disabled, every editing
-                gesture off (`gestures`). A failed period's main is not: its Retry is in it. */}
+                it stands in for another view — other choices of the period, a period not read yet — what it shows is retained
+                (CL8): readable, focusable and selectable, aria-disabled, every editing gesture off (`gestures`); read again as it
+                stands, it is live. A failed period's main is not retained: its Retry is in it. */}
             {/* The board: the keyboard's surface and its anchor, but not a tab stop (retest C4), as the Plan's body is — a click
                 on a part of it that holds nothing focusable puts the keyboard here, in the Calendar, where `[` and `]` step
                 its period, and an event Delete takes away leaves it here. */}

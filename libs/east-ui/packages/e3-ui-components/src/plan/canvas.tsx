@@ -133,7 +133,7 @@ import {
     ALL_SHOWN, PlanEventsReader, eventReadRange, initialEventLead, usePlanEventRoot,
     type PlanEventLead, type PlanEventRows, type PlanEventShownValue,
 } from "./root/events.js";
-import { cellKinds, createCellSpanStore, shownCellSpan } from "./root/cells.js";
+import { cellKinds, createCellSpanStore, seriesKinds, shownCellSpan } from "./root/cells.js";
 import { NO_BREACHES, PlanBoundsReader, type PlanBreaches } from "./root/bounds.js";
 import { PlanNestedReader, createNestedViewStore, usePlanNestedRoot, usePlanWholeRows, type PlanNestedLead, type PlanNestedSpanRead, type SPAN_READING } from "./root/nested.js";
 import { NONE_HIDDEN, hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
@@ -426,9 +426,10 @@ export function usePlanCanvas({
     // A kind read by its cells (#1039) finds a gesture's event in the rows its cells hold, as the gesture runs.
     const heldCells = useRef(lead.cells?.held);
     heldCells.current = lead.cells?.held;
-    // Their cells stand at the revision they were read at (#1039): what each Save lands of such a kind draws as the Save
-    // left it, over cells read before the commit, until they are read again.
-    const drawsLanded = useMemo(() => new Set(cellKinds(eventParts)), [eventParts]);
+    // The cells the reader gives a kind read a window at a time — its series index's, or its window's own rows — stand at
+    // the revision they were read at (#1039, #1599): what each Save lands of such a kind draws as the Save left it, over
+    // cells read before the commit, until they are read again.
+    const drawsLanded = useMemo(() => new Set(cellKinds(kinds)), [kinds]);
     const eventEditing = usePlanEventEditing({
         kinds, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: heldCells, drawsLanded, autosave,
     });
@@ -631,7 +632,7 @@ export function usePlanCanvas({
     const cellsRead = lead.cells;
     const cellsReading = cellsRead?.drawn !== undefined && cellsRead.reading;
     const cellsNoun = useMemo(() => {
-        const slot = cellKinds(eventParts)[0];
+        const slot = seriesKinds(eventParts)[0];
         const kind = slot === undefined ? undefined : kinds.find((k) => stringEqual(k.key, slot));
         return kind === undefined ? undefined : words.m.saveNoticeNoun({ kind: kind.name.toLocaleLowerCase(words.locale), n: 2 });
     }, [eventParts, kinds, words]);

@@ -59,7 +59,7 @@ import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
 import { act, el, elementKey, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
-import { savedThroughReload } from "../../shared/save-held.test-utils.js";
+import { editedThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
 import { keptName } from "@elaraai/east-ui-components/internal";
 
 const h = planHarness({ "plan/plan-windows": ex });
@@ -593,6 +593,37 @@ describe("a Save of the jobs read a cell at a time: what it landed, as it left i
             save: () => { fireEvent.click(save(c)); },
             unsaved: () => pending(c) !== "0 pending",
         });
+    });
+
+    test("a Save never stops the editing: other jobs moved while the cells are read again after a Save are taken at once — from their bars as they stand — stay where they were put as the reads land, and the next Save writes them", async () => {
+        const { container: c } = await h.mount(seriesPlan);
+        await settle();
+        await select(bar(c, "W-0001", "P-1001")!);
+        await select(guide(c)!, true);
+        await press(action(c, "shift:1day"));
+        expect(pending(c)).toBe("2 pending");
+        // The night catalogue, on Press 1001, and the course handbooks, on Press 1003, which the Save does not hold: each
+        // one's original is the canvas's own row of it.
+        const night = () => bar(c, "W-0002", "P-1001");
+        const handbooks = () => bar(c, "W-0004", "P-1003");
+        expect([night() !== null, handbooks() !== null], "both of their bars are drawn").toEqual([true, true]);
+        await editedThroughReload({
+            e3: h.e3,
+            container: c,
+            reads: through(SERIES),
+            // When each of the bars says it starts.
+            look: () => [guide(c), night(), handbooks()].map((node) => named(node)?.split(" – ")[0] ?? null),
+            save: () => { fireEvent.click(save(c)); },
+            unsaved: () => pending(c) !== "0 pending",
+            // Picked, then — their Details drawn from the rows their bars were drawn from — shifted a day.
+            again: [
+                () => select(night()!),
+                () => select(handbooks()!, true),
+                () => press(action(c, "shift:1day")),
+            ],
+        });
+        const jobs = await readJobs();
+        expect([jobs.get("W-0002")!.start, jobs.get("W-0004")!.start]).toEqual([some(new Date("2026-10-06T22:00:00Z")), some(new Date("2026-10-08T06:00:00Z"))]);
     });
 
     test("Details shows a job's field as Save wrote it while the cells are read again, never its old value, nor marked a change", async () => {

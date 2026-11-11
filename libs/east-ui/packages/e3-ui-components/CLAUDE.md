@@ -1070,8 +1070,13 @@ that refuses, goes into the e3-ui example module it belongs to.
   the editing: while those reads are held — the builder's rows standing in
   from before the Save — a gesture on a row the Save did not hold is taken and
   drawn at once, stays drawn as the reads land one at a time, and is the next
-  Save's to send. The Roster, the Allocation, the Schematic — its racks read
-  by area and read whole — and the Flowchart run it.
+  Save's to send. A gesture of more than one act of its person's — a row
+  picked, then a button of its form pressed — is given as its steps, each an
+  act of its own, the page settling between them: what one act leaves the page
+  to draw a moment later is drawn only once the act is over. The Roster, the
+  Allocation, the Schematic — its racks read by area and read whole — the
+  Flowchart, and the Calendar and the Plan, each for events read by their
+  cells and for events read over the window, run it.
 - Use responsive browser checks at 1440/1024/768/390/360, the light theme (dark too where a check holds a colour),
   narrow parent containers and state-preserving resize. Exercise explicit
   narrow actions, folded toolbar access and real drag previews. Verify computed
@@ -1202,6 +1207,27 @@ revision before; where another write changed the same part of it since, the
 Save that sends it is refused, and the session carries its drafts over at its
 own revision (east-ui-components' `EditSession.nameConflicts`), the part both
 changed a conflict to choose.
+
+**One rule for a read on its way** (`shared/view-read.ts`, ruled 11 Nov 2026).
+What a board shows is its last complete read, made for a view: a period, under
+the choices its rail holds. Asked for another period (`stepping`), it draws
+none of the old one's rows; under other choices of the same period
+(`filtering`), the last choices' rows stand in, retained — readable, focusable
+and selectable, taking no gesture — until the new ones land; and read again as
+it stands (`rereading`) — a Save of the page's own, another session's write —
+it is live: a gesture is taken at once, from the row shown. A board is held
+back only while what it shows is another view's, never for a read again of its
+own; a reader gives its period and its choices as text and asks `viewState`,
+and keeps no rule of its own. The Calendar's and the Plan's event kinds read
+through one reader (`shared/schedule/cells.ts`), which says the state
+(`ScheduleCellsRead.view`) and keeps a kind's rows standing through a read
+again — a series index's cells, and, for a kind read a window at a time
+through its source's interval index or a day index, the rows its window's read
+holds (the kind's `stored` seam, #1599), kept at the revision they were read at
+while its record, its narrowing and the range hold. Both builders draw such a
+kind from those rows, so a draft made meanwhile draws at once, a gesture and an
+inspector find its row among them (`held`), what a Save landed is laid over
+rows read before it (`readBeforeSaves`), and a draft's redraw asks e3 nothing.
 
 The period is assembled from the app's rows, never stored. A reader of its own
 (`RosterDataReader`, `AllocationDataReader`, as the Calendar's is, #1343) reads
@@ -2317,10 +2343,13 @@ grid's column's as it draws them, each lane searched by its events' starts
 every lane it stretches over: a year-long reservation joins a press's every
 job in one cluster, and the Month's whole-day spans join more.
 An event keeps its handle, its edges, its draft and its marks through a read in
-flight (the views' `grips` and `editing`): retained content refuses the gesture
-itself — the shared drag sensors pick nothing up inside the `aria-disabled`
-main — and the commands are withheld meanwhile, so no read draws every event
-off and back on; the recipe draws a retained event inert to the pointer, the
+flight (the views' `grips` and `editing`). The board is held back only while
+what it shows is another view's (`shared/view-read.ts`): other choices of the
+period standing in, a resource kind's narrowing resolving, a paged kind's last
+view. Retained content then refuses the gesture itself — the shared drag
+sensors pick nothing up inside the `aria-disabled` main — and the commands are
+withheld meanwhile, so no read draws every event off and back on; read again
+as it stands, after a Save or another session's write, the board is live; the recipe draws a retained event inert to the pointer, the
 default cursor over it and its edges rather than the grab and the resize ones
 (the `event` slot's retained rule); where the read failed, main takes the
 pointer for its Retry, and the events carry no handle. Its ruler

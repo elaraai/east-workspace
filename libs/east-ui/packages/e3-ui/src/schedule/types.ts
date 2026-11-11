@@ -381,6 +381,7 @@ export const ScheduleRolesType = StructType({
  * @property inspector - The author's form in place of the default fields
  * @property seriesKey - The `.east` text of the value its resource field holds for a resource, or for no resource (#1039): what a series or a summary index of its record files that resource's events under, the key a reader's cells search for; `none` where the field cannot hold it — a resource of a kind it does not take, or no resource for a field that must name one
  * @property cellsType - What a reader encodes the entries it read by cells in for `items`, `unscheduled` and `event` (#1039): an Array of `{ key, row }`, at the record's key and row types
+ * @property stored - The stored rows its window's read holds over `[from, to)`, as a reader holds a kind's cells (#1599): one beast2 of `cellsType`, each row once by its key, no draft in place — the rows `items` draws its drafts over: the window's, and its backlog's where the kind reads the two as one (a kind narrowed by its builder's slice that does not page its backlog itself). What a builder keeps standing of a kind read a window at a time while that window is read again: the rows `items` and `event` are then given, so a draft made meanwhile draws at once and a gesture begins from the row shown. `none` while a read is in flight, and past the cap its window is read under; a record read whole is every row it holds
  * @property count - How many of its stored events overlap `[from, to)`, counted before one is read (#1039) — every kind's are: a kind read through its source of the slice counted through the source's interval index — the count its window's read asks first, so asking it costs no request of its own; a kind read through its day index (`window`) by the entries it files under the days of `[from, to)`, the search its window's read asks first — an event under each day it runs on, so an upper bound on the events, never their number (`countExact`); and a kind whose record is read whole counted in memory. `none` while the count is in flight
  * @property countExact - Whether `count` counts its events themselves (#1039): `false` for a kind read through its day index, whose count is the days its events run on — what a builder's figures never take for its events, saying they are not counted
  */
@@ -407,6 +408,7 @@ export const ScheduleKindType = StructType({
     inspector: OptionType(RowInspectorType),
     seriesKey: FunctionType([OptionType(ScheduleResourceRefType)], OptionType(StringType)),
     cellsType: EastTypeType,
+    stored: FunctionType([DateTimeType, DateTimeType], OptionType(BlobType)),
     count: FunctionType([DateTimeType, DateTimeType], OptionType(IntegerType)),
     countExact: BooleanType,
 });

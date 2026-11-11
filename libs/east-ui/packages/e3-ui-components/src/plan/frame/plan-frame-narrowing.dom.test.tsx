@@ -26,9 +26,10 @@
  * payload is decoded (#1354). The Backlog never blinks (#1398, ruled 25 Oct
  * 2026): a narrowing keeps its cards and its count as one, retained while
  * either is read again, and swaps them whole once both have landed. Drafts
- * whose rows the window leaves out are read by their keys, once apiece,
- * however many more of them there are than the windows the paging runtime
- * keeps (#1409, R24).
+ * whose rows the window leaves out ask e3 nothing, however many more of them
+ * there are than the windows the paging runtime keeps (#1409, R24; #1599): a
+ * draft of an event the window does not hold is told from a new event's by the
+ * row its session began from.
  */
 
 import { describe, expect, test } from "vitest";
@@ -586,7 +587,7 @@ describe("the Backlog never blinks (#1398, ruled 25 Oct 2026)", () => {
 });
 
 // ============================================================================
-// Drafts the window leaves out are read by their keys, once apiece (#1409, R24)
+// Drafts the window leaves out ask e3 nothing (#1409, R24; #1599)
 // ============================================================================
 
 /** A job's row read by its key: the key sought among the record's own entries. */
@@ -598,8 +599,8 @@ const jobRowPage = (request: E3Request) => request.kind === "page" && request.da
 /** A paged read of any of the works' records: a search, a page, its rows or its runs, a placement or a membership. */
 const pagedRead = (request: E3Request) => ["find", "page", "rows", "runs", "place", "within"].includes(request.kind);
 
-describe("drafts the window leaves out are read by their keys, once apiece (#1409, R24)", () => {
-    test("more drafts than the windows the paging runtime keeps, each of whose rows a step of the dates leaves out, are read by key once apiece — each job's key sought once and its row's one-row page read once — and the reads settle", async () => {
+describe("drafts the window leaves out ask e3 nothing (#1409, R24; #1599)", () => {
+    test("more drafts than the windows the paging runtime keeps, each of whose rows a step of the dates leaves out, read no row by its key — each is told from a new event's by the row its session began from — and the reads settle", async () => {
         // Another planner adds proof runs on the window's first day, more than the runtime keeps windows, a press apiece in turn.
         const presses = [["Hall A", "a1"], ["Hall A", "a2"], ["Hall A", "a3"], ["Hall B", "b1"], ["Hall B", "b2"], ["Hall B", "b3"]] as const;
         const added = Array.from({ length: MAX_RETAINED_WINDOWS + 6 }, (_, i) => ({ key: `J-2${String(i).padStart(3, "0")}`, on: presses[i % presses.length]! }));
@@ -620,8 +621,11 @@ describe("drafts the window leaves out are read by their keys, once apiece (#140
         await act(async () => { fireEvent.keyDown(bar(container, first.key, first.on[0], first.on[1])!, { key: "Delete" }); });
         await settle();
         expect(added.every(({ key, on }) => bar(container, key, on[0], on[1]) === null)).toBe(true);
-        // A day on: the window leaves the first day, and every draft's row with it, so each is read by its key. Every paged
-        // read is held on its way to e3 and let land a round at a time, so a read asked again is counted, never run on.
+        // A day on: the window leaves the first day, and every draft's row with it. The window's read once sought each such
+        // draft's key, to tell an event the record holds from a new one — a search and a one-row page apiece, at every step
+        // of the dates; the reader that keeps the window's rows tells them by the row each draft's session began from, and
+        // asks nothing. Every paged read is held on its way to e3 and let land a round at a time, so a read asked again is
+        // counted, never run on.
         const reads = h.e3.hold(pagedRead);
         const from = h.requests().length;
         await press(toolbar(container).getByRole("button", { name: "Next day" }));
@@ -632,8 +636,10 @@ describe("drafts the window leaves out are read by their keys, once apiece (#140
         expect(reads.held, "the reads settle: none asked again").toBe(0);
         const since = h.requests().slice(from);
         const sought = since.filter(jobByKey).flatMap((request) => request.searches.flatMap((search) => ("key" in search ? [search.key] : [])));
-        expect(sought.sort(), "each draft's key sought once").toEqual(added.map(({ key }) => text(key)).sort());
-        const rowPages = since.filter(jobRowPage).map((request) => Number(request.query.get("offset")));
-        expect([rowPages.length, new Set(rowPages).size], "each draft's row read once").toEqual([added.length, added.length]);
+        expect(sought, "no draft's key is sought").toEqual([]);
+        expect(since.filter(jobRowPage).length, "no draft's row is read on its own").toBe(0);
+        // And none of them draws: each is a job the record holds, deleted in a draft, on a day the window no longer reads.
+        expect(added.every(({ key, on }) => bar(container, key, on[0], on[1]) === null)).toBe(true);
+        expect(slot(container, "footer")!.querySelector('[data-plan-count="pending"]')?.textContent).toBe(`${added.length} pending`);
     });
 });

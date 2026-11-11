@@ -29,14 +29,23 @@
  *
  * Every kind is counted before one of its events is read (#1424), by the
  * shared schedule reader (`cells.ts`), which reads beside the window in the
- * same component: within `SCHEDULE_EVENT_CAP` over the window, the window's
- * read reads it — once its count there says so, never by what the reader last
- * decided, which a new narrowing outruns; past it, none of its events is read
- * or drawn (`capped`), its drafts alone drawn where they place their events,
- * and its backlog read alone, beside them. Where the view lays out the paged
- * resource kind's resources (`pages.ts`), a kind placed on it is read a cell
- * at a time instead, around the rows the views say they show, and the window's
- * read takes its events from the cells — never over the window.
+ * same component. A kind read a window at a time — one event by its key — is
+ * the reader's to read (#1599): within `SCHEDULE_EVENT_CAP` over the window it
+ * gives the window's read the kind's cells, its window's own rows, which stand
+ * while they are read again, so a draft made meanwhile draws at once; past the
+ * cap, none of its events is read or drawn (`capped`), its drafts alone drawn
+ * where they place their events, and its backlog read alone, beside them. A
+ * kind read whole is counted in memory and read here, within the cap. Where the
+ * view lays out the paged resource kind's resources (`pages.ts`), a kind placed
+ * on it is read a cell at a time instead, around the rows the views say they
+ * show. Either way the window's read takes a paged kind's events from the
+ * reader's cells — never over the window.
+ *
+ * What the frame is told of a read on its way is the one rule every builder
+ * reads its rows by (`../shared/view-read.ts`): a period stepped to holds none
+ * of the last one's events; other choices of the same period leave the last
+ * choices' standing in (`filtering`); and a read again of the view shown — a
+ * Save, another session's write — leaves the frame live.
  *
  * @packageDocumentation
  */
@@ -44,6 +53,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } f
 import { DateTimeType, SetType, SortedMap, SortedSet, StringType, compareFor, equalFor, none, some } from "@elaraai/east";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { scheduleWithinCap, type ScheduleCellResources, type ScheduleCellSpan, type ScheduleCellsRead } from "../shared/schedule/cells.js";
+import { viewOfPeriod } from "../shared/view-read.js";
 import { EMPTY_SCHEDULE_DRAFTS, type ScheduleEditing, type ScheduleEventDraftsValue } from "../shared/schedule/editing.js";
 import { useReadAhead } from "../shared/schedule/use-read-ahead.js";
 import { calendarCellSpan, calendarCellsPaged, useCalendarCells, type CalendarBucket } from "./cells.js";
@@ -99,6 +109,11 @@ export interface CalendarDataState extends CalendarData {
     range: CalendarRange;
     /** Whether any read has completed. */
     ready: boolean;
+    /**
+     * Whether what it holds stands in for other choices of the same period (`../shared/view-read.ts`): the last choices'
+     * events, retained until the new ones' land. A read again of the view shown is no filtering.
+     */
+    filtering: boolean;
     /** Why the latest read failed. */
     error: string | undefined;
     /** The backlog of each kind that reads its backlog apart from the window. */
@@ -115,7 +130,7 @@ const NO_APART: CalendarApartBacklog = { items: [], ready: false, loading: true,
  * @returns The state
  */
 export function initialCalendarData(range: CalendarRange): CalendarDataState {
-    return { ...EMPTY, range, ready: false, error: undefined, apart: NO_APART };
+    return { ...EMPTY, range, ready: false, filtering: false, error: undefined, apart: NO_APART };
 }
 
 /**
@@ -160,8 +175,9 @@ export function windowedBacklogKinds(value: CalendarValue): ReadonlySet<string> 
  * @param range - The window shown
  * @param editing - The editing whose drafts the reads hold
  * @param view - The view: what a step from it goes to is read ahead
- * @param cells - What the shared reader read of the kinds (#1424): a kind it gives cells — past the cap, none — is read
- *   from them; every other is counted over the window and read only within the cap
+ * @param cells - What the shared reader read of the kinds (#1424, #1599): a kind it gives cells — its series index's, or
+ *   its window's own rows; past the cap, none — is read from them; a kind read a window at a time it has given none yet
+ *   waits on it; a kind read whole is counted over the window and read only within the cap
  * @returns What the frame shows
  */
 export function useCalendarData(value: CalendarValue, range: CalendarRange, editing: ScheduleEditing | undefined, view: CalendarView,
@@ -181,13 +197,19 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
             const changes = cells.drafts.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS;
             const given = held === undefined ? none : some(held);
             if (held === undefined) {
-                // Every other kind is read over the window once its count there says it is within the cap — never by what
-                // the reader last decided, which a new narrowing outruns: past it, or in flight, the window waits on the
-                // reader, which gives it no cells.
+                // A kind read a window at a time is the reader's to read (#1599): until it gives the kind cells, the
+                // window waits on it, and nothing reads the kind's window apart from it.
+                if (kind.entries.type === "some") { loading = true; continue; }
+                // A kind read whole is read here once its count over the window says it is within the cap: past it, the
+                // window waits on the reader, which gives it no cells.
                 const within = scheduleWithinCap(kind.count, range.from, range.to);
                 if (within.type !== "some" || !within.value) { loading = true; continue; }
             } else if (cells.capped.has(kind.key)) {
                 capped.add(kind.key);
+            } else if (cells.windowed.has(kind.key) && !viewOfPeriod(cells.view)) {
+                // Its window's rows are another period's, the period's own on their way: none of them is this one's to draw.
+                loading = true;
+                continue;
             }
             const scheduled = kind.items(range.from, range.to, changes, given);
             if (scheduled.type === "some") { for (const item of scheduled.value) items.push(item); } else loading = true;
@@ -213,18 +235,19 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
     // Once the window has landed, what a step goes to is read ahead (CL7), each as it is read — in a read of its own, so a
     // page of it landing runs the window's read no more.
     const ahead = useMemo(() => calendarAhead(view, value.settings), [view, value.settings]);
-    // All a read ahead asks of the reader, which hands on a new read as a draft moves: the kinds it gives cells, the same
-    // object while they are the same kinds.
+    // All a read ahead asks of the reader, which hands on a new read as a draft moves: the kinds it reads by their series
+    // index's cells — never over a window — the same object while they are the same kinds. A kind given its window's own
+    // rows is read ahead as any kind read over the window is: the same read, which a step to the period then finds held.
     const givenCells = useRef(NO_SLOTS);
-    const nowGiven = new SortedSet(cells.reads.keys(), compareString);
+    const nowGiven = new SortedSet([...cells.reads.keys()].filter(slot => !cells.windowed.has(slot)), compareString);
     if (!sameSlots(givenCells.current, nowGiven)) givenCells.current = nowGiven;
     const byCells = givenCells.current;
     // Asked with no drafts: what it works out is never drawn, and they read nothing a step waits on (#1594).
     const readNext = useCallback((next: CalendarRange) => {
         readAheadProbe?.(next);
         for (const kind of value.events) {
-            // A kind the reader gives cells is never read over a window (#1424). Every other is counted there first, and
-            // read only within the cap.
+            // A kind read by its series index's cells is never read over a window (#1424). Every other is counted there
+            // first, and read only within the cap.
             if (byCells.has(kind.key)) continue;
             kind.items(next.from, next.to, EMPTY_SCHEDULE_DRAFTS, none);
         }
@@ -237,8 +260,13 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
     if (result.ok && !result.value.loading) { held.current = result.value; heldRange.current = range; }
     const complete = held.current;
     const completeRange = heldRange.current;
-    const loading = result.ok && result.value.loading;
-    const error = result.ok ? undefined : reasonOf(result.error);
+    // A read on its way: the window's own, or the reader's of a windowed kind's rows, whatever stands in for them meanwhile.
+    const windowReading = cells.windowed.size > 0 && (cells.view === "rereading" || cells.view === "filtering");
+    const loading = result.ok && (result.value.loading || windowReading);
+    const filtering = cells.view === "filtering";
+    // Why the period could not be read: the window's own read, or the reader's of a kind's window. A read of the paged
+    // kind's blocks that failed is said where those rows are, never as the period's.
+    const error = result.ok ? (cells.error?.window === true ? cells.error.reason : undefined) : reasonOf(result.error);
     const heldApart = useRef<readonly CalendarItem[] | undefined>(undefined);
     if (apartResult.ok && !apartResult.value.loading) heldApart.current = apartResult.value.items;
     const apartItems = heldApart.current;
@@ -252,9 +280,9 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
     // Intermediate page arrivals advance the tracked read, but do not change
     // the displayed window. Keep its identity until there is something to show.
     return useMemo(() => first || error !== undefined
-        ? { ...complete, range: completeRange, ready: complete !== EMPTY, loading, error, apart }
-        : { ...EMPTY, range: completeRange, ready: false, loading: true, error: undefined, apart: NO_APART },
-    [first, complete, completeRange, loading, error, apart]);
+        ? { ...complete, range: completeRange, ready: complete !== EMPTY, loading, filtering, error, apart }
+        : { ...EMPTY, range: completeRange, ready: false, loading: true, filtering: false, error: undefined, apart: NO_APART },
+    [first, complete, completeRange, loading, filtering, error, apart]);
 }
 
 /** Nothing to hear: no paged resource kind. */
@@ -300,7 +328,7 @@ export function CalendarDataReader({ value, range, editing, view, resources, buc
         const was = reported.current;
         // The same held read over the same range, in the same state, and the same cells: nothing the frame shows has moved.
         if (was !== undefined && Object.is(was.items, data.items) && Object.is(was.range, data.range)
-            && was.ready === data.ready && was.loading === data.loading && was.error === data.error && Object.is(was.apart, data.apart)
+            && was.ready === data.ready && was.loading === data.loading && was.filtering === data.filtering && was.error === data.error && Object.is(was.apart, data.apart)
             && Object.is(was.cells, data.cells)) return;
         reported.current = data;
         onData(data);

@@ -43,14 +43,25 @@
  * kinds {@link calendarCellKinds} names (the shared reader's "What a Save
  * landed").
  *
+ * A kind read a window at a time — through its source's interval index, or a
+ * day index, one event by its key — gives the reader its window's own stored
+ * rows (`stored`, #1599), which the reader keeps as it keeps a kind's cells: the
+ * window's read draws the kind from them, so they stand while they are read
+ * again — after a Save, after another session's write — a draft made meanwhile
+ * draws at once, and a gesture finds its event's row among them. Its range is a
+ * period (`period`): a step draws none of the last period's rows.
+ *
  * A kind with a backlog narrowed through its source reads its window's rows
  * alone (#1424): the Backlog tab pages its backlog through the source itself
  * (`backlog-pages.ts`), so nothing reads it whole, and every draft the kind's
  * seams are given draws where it places its event. The reader asks the
- * narrowing — but the window — of the stored rows of its drafted events
- * (`windowField`), and leaves out the drafts of those it does not hold, as it
- * leaves out a cells kind's: a backlog event a gesture scheduled draws where it
- * is placed, and a draft of an event another narrowing holds draws nowhere.
+ * narrowing — but the window — of the stored rows of its drafted events its
+ * window does not hold (`windowField`), and leaves out the drafts of those the
+ * narrowing does not hold either, as it leaves out a cells kind's: a backlog
+ * event a gesture scheduled draws where it is placed, and a draft of an event
+ * another narrowing holds draws nowhere. A narrowed kind with no backlog draws a
+ * draft only of an event its window holds, or of a new one (`isNew`, #1343), as
+ * its window's own read drew them.
  *
  * @packageDocumentation
  */
@@ -170,25 +181,23 @@ export interface CalendarCellsArgs {
     readonly span: ScheduleCellSpan | undefined;
     /**
      * The editing's say of what confirmed Saves landed of the kinds it names ({@link calendarCellKinds}), and how it is
-     * let go: drawn over a kind's cells read before the commit until they are read again; `undefined` for a Calendar
-     * read only.
+     * let go: drawn over a kind's cells read before the commit until they are read again — and the row each drafted
+     * event's session began from, which tells a new event from one the record holds; `undefined` for a Calendar read
+     * only.
      */
-    readonly editing?: Pick<ScheduleEditing, "landed" | "shown"> | undefined;
+    readonly editing?: Pick<ScheduleEditing, "landed" | "shown" | "held"> | undefined;
 }
 
 /**
- * The kinds the Calendar may read by their cells (see the module docs): placed on the paged resource kind, their sources
- * listing a series index of their records — whose cells stand at the revision they were read at, so the editing keeps
- * what each Save lands of them for the reader to draw until they are read again.
+ * The kinds the reader may give cells (see the module docs): every kind read a window at a time, one event by its key —
+ * by its series index's cells, or its window's own rows — whose cells stand at the revision they were read at, so the
+ * editing keeps what each Save lands of them for the reader to draw until they are read again.
  *
- * @param paged - The paged resource kind's slot; `undefined` where none pages
- * @param parts - Each event kind narrowed through its source of the slice
+ * @param kinds - The event kinds, as the payload carries them
  * @returns Their slots
  */
-export function calendarCellKinds(paged: string | undefined, parts: readonly CalendarEventPart[]): ReadonlySet<string> {
-    if (paged === undefined) return new Set();
-    return new Set(parts.filter(({ kind, part }) => kind.takes.some((slot) => stringEqual(slot, paged))
-        && part.config.indexes.some((index) => index.series.type === "some")).map(({ kind }) => kind.key));
+export function calendarCellKinds(kinds: readonly CalendarKind[]): ReadonlySet<string> {
+    return new Set(kinds.filter((kind) => kind.entries.type === "some").map((kind) => kind.key));
 }
 
 /**
@@ -203,6 +212,7 @@ export function calendarCellKinds(paged: string | undefined, parts: readonly Cal
  */
 export function useCalendarCells(args: CalendarCellsArgs): ScheduleCellsRead {
     const { kinds, parts, resources, range, bucket, drafts, paged, span, editing } = args;
+    const held = editing?.held;
     const cellKinds = useMemo((): ScheduleCellKind[] => kinds.map((kind) => ({
         key: kind.key,
         name: kind.name,
@@ -219,16 +229,26 @@ export function useCalendarCells(args: CalendarCellsArgs): ScheduleCellsRead {
         hidden: false,
         wanted: NO_WANTED,
         // A kind with a backlog narrowed through its source reads its window's rows alone, its backlog paged by the Backlog
-        // tab (#1424): the reader asks the narrowing but the window of its drafted events, so a backlog event a gesture
-        // scheduled draws where it is placed, and a draft of an event the narrowing does not hold draws nowhere.
+        // tab (#1424): the reader asks the narrowing but the window of its drafted events its window does not hold, so a
+        // backlog event a gesture scheduled draws where it is placed, and a draft of an event the narrowing does not hold
+        // draws nowhere.
         windowField: kind.backlog && parts.some((p) => stringEqual(p.kind.key, kind.key)) ? kind.schedule.start : undefined,
-    })), [kinds, parts]);
+        // A narrowed kind with no backlog draws a draft only of an event its window holds, or of a new one (#1343): one its
+        // session began from no stored row.
+        isNew: !kind.backlog && held !== undefined && parts.some((p) => stringEqual(p.kind.key, kind.key)) ? (id: string) => held(kind.key, id) === undefined : undefined,
+        // A kind read a window at a time gives the reader the rows its window's read holds to keep standing (#1599), and —
+        // no source narrowing it — the revision its record reads at.
+        stored: kind.entries.type === "some" ? kind.stored : undefined,
+        revision: kind.entries.type === "some" ? kind.entries.value.revision : undefined,
+    })), [kinds, parts, held]);
     const from = range.from.getTime();
     const to = range.to.getTime();
     const over = useMemo(() => ({ from: new Date(from), to: new Date(to) }), [from, to]);
     const buckets = useMemo(() => (bucket === undefined ? [] : calendarBuckets(over, bucket)), [over, bucket]);
+    // The window is a period: a read for another is a step, and none of a windowed kind's rows of the last draws under it.
+    const period = `${from}\u0000${to}`;
     return useScheduleCells({
-        host: "Calendar", kinds: cellKinds, resources, paged, range: over, buckets, resolution: bucket, drafts, span,
+        host: "Calendar", kinds: cellKinds, resources, paged, range: over, period, buckets, resolution: bucket, drafts, span,
         landed: editing?.landed, shown: editing?.shown,
     });
 }

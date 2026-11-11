@@ -1540,6 +1540,32 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             return result;
         });
     };
+    /**
+     * The stored rows a kind's window's read holds over `[from, to)`, as a reader holds a kind's cells (#1599): one
+     * beast2 of `CellsType`, each row once by its key, no draft in place — the rows `items` draws its drafts over
+     * (`reads.days`: the window's, and, where the kind reads its backlog with its window as one, its backlog's). What a
+     * builder keeps standing while the window is read again: the rows its drafts draw over and a gesture begins from.
+     * `none` while a read is in flight, and past the cap its window is read under. A record read whole is every row it
+     * holds.
+     */
+    const storedOver = (reads: Reads) => East.function([DateTimeType, DateTimeType], OptionType(BlobType), ($, from, to) => {
+        const result = $.let(East.value(none, OptionType(BlobType)), OptionType(BlobType));
+        let read: ExprType<OptionType<DictType<EastType, EastType>>>;
+        if (reads.days === undefined) {
+            read = $.let(East.value(some(readAll()), OptionType(HeldType)));
+        } else {
+            const days = $.const(reads.days);
+            read = $.let(days(from, to));
+        }
+        $.match(read, {
+            some: ($2, rows) => {
+                const out = $2.let([], CellsType);
+                $2.for(rows, ($3, row, key) => { $3(out.pushLast({ key, row } as never)); });
+                $2.assign(result, East.value(some(East.Blob.encodeBeast(out, "v2")), OptionType(BlobType)));
+            },
+        });
+        return result;
+    });
     // The `.east` text of the value the resource field holds for a resource, or for none: what a series or a summary
     // index of the record files the resource's events under (#1039), the key a reader's cells search for.
     const seriesKey = East.function([RefOption], OptionType(StringType), ($, ref) => {
@@ -1732,6 +1758,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             inspector: inspector === undefined ? none : some(inspector),
             seriesKey,
             cellsType: toEastTypeValue(CellsType),
+            stored: storedOver(reads),
             count,
             // Every count but a day index's counts the events themselves.
             countExact: part !== undefined || dayWindow === undefined,

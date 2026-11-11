@@ -16,7 +16,10 @@
  * last rows standing; one that throws leaves them too, and says why — and
  * which kinds' own events it could not read, each kind read alone in the read
  * that failed (#1398): what the footer's line names the failure by, and what
- * its Retry asks again. The rows
+ * its Retry asks again. A kind read a window at a time is read by the shared
+ * reader (#1599), which keeps its window's rows standing while they are read
+ * again and names the kind whose window it could not read: said the same way.
+ * The rows
  * move only when they differ, so a write that changes none of them redraws
  * nothing. A resource kind the rail narrows draws the resources its source
  * shows (#1344).
@@ -335,20 +338,28 @@ export function usePlanEventBlocks(
     // The last failure, kept by identity while a read fails the same way — its words and its kinds — so the reader hands
     // the canvas nothing new for it.
     const failed = useRef<PlanEventFailure | undefined>(undefined);
+    // A kind's window the reader could not read (#1599): the reader reads each kind read a window at a time, and names
+    // the kind whose window's read threw — said as the rows' own failure is, on the footer's line, with its Retry.
+    const cellsFailure = cells?.error?.window === true ? cells.error : undefined;
     const error = useMemo((): PlanEventFailure | undefined => {
-        if (result.ok) return undefined;
-        const failure = result.error instanceof EventRowsFailure ? result.error : undefined;
-        const thrown = failure?.thrown ?? result.error;
-        console.error("[Plan] the event kinds' rows could not be read:", thrown);
-        const next: PlanEventFailure = {
-            reason: thrown instanceof Error ? thrown.message : String(thrown),
-            kinds: failure?.kinds ?? NO_KINDS_FAILED,
-        };
+        if (result.ok && cellsFailure === undefined) return undefined;
+        let next: PlanEventFailure;
+        if (result.ok) {
+            next = { reason: cellsFailure!.reason, kinds: cellsFailure!.kinds };
+        } else {
+            const failure = result.error instanceof EventRowsFailure ? result.error : undefined;
+            const thrown = failure?.thrown ?? result.error;
+            console.error("[Plan] the event kinds' rows could not be read:", thrown);
+            next = {
+                reason: thrown instanceof Error ? thrown.message : String(thrown),
+                kinds: failure?.kinds ?? NO_KINDS_FAILED,
+            };
+        }
         const was = failed.current;
         if (was !== undefined && was.reason === next.reason && sameKinds(was.kinds, next.kinds)) return was;
         failed.current = next;
         return next;
-    }, [result]);
+    }, [result, cellsFailure]);
     const now = useMemo(() => {
         const previous = held.current;
         if (!result.ok || result.value === undefined) return previous;

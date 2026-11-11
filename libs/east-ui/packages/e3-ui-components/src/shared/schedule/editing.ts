@@ -44,10 +44,30 @@ export type ScheduleEditingKind<I extends Item = Item> = Omit<ValueTypeOf<typeof
     readonly event: (id: string, drafts: ScheduleKindDraftsValue, from: Date, to: Date, held: option<option<Uint8Array>>) => option<ScheduleRead<I>>;
 };
 /**
- * The rows each kind a reader reads by its cells holds (#1039), by the kind's slot, then by the event's key's text: where
- * a gesture, the inspector and a banner find one of its events, with no read of its own.
+ * The rows a builder's reads hold of one kind, by the event's key's text: each its row's bytes — read one at a time by a
+ * gesture or an inspector, or every one in turn by a check over them all.
  */
-export type ScheduleHeldRows = ReadonlyMap<string, ReadonlyMap<string, { readonly row: Uint8Array }>>;
+export interface ScheduleKindRows extends Iterable<readonly [string, { readonly row: Uint8Array }]> {
+    /**
+     * Whether they hold an event.
+     *
+     * @param id - The event's key's text
+     */
+    has(id: string): boolean;
+    /**
+     * An event's row.
+     *
+     * @param id - The event's key's text
+     * @returns Its row's bytes; `undefined` for an event they do not hold
+     */
+    get(id: string): { readonly row: Uint8Array } | undefined;
+}
+/**
+ * The rows each kind a reader gives cells holds (#1039, #1599) — a kind read by its series index's cells, or its
+ * window's own rows — by the kind's slot, then by the event's key's text: where a gesture, the inspector and a banner
+ * find one of its events, with no read of its own.
+ */
+export type ScheduleHeldRows = ReadonlyMap<string, ScheduleKindRows>;
 /**
  * What the cells' reader holds of one event of a kind (#1039), as the kind's `event` takes it: `none` for a kind it gives
  * no cells, which reads the window; `some(none)` for an event they do not hold, read by its key; else the event's row.

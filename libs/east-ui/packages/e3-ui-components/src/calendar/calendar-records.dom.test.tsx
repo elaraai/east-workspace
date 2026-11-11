@@ -31,6 +31,7 @@ import { SEARCH_DELAY_MS } from "@elaraai/east-ui-components/internal";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar-records";
 import { act, e3Harness, settle, slot, width } from "../e3-web-mount.test-utils.js";
 import { readsRow, type E3Request } from "../e3-web.test-utils.js";
+import { editedThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
 import { setNavigatorStylesProbe } from "../shared/time/navigation.js";
 import { DAY, eventKey } from "./model.js";
 import { TIMELINE_GUTTER, timelineDayWidth, timelineDays, timelineOpensAt, timelineScrollTo } from "./timeline.js";
@@ -906,6 +907,46 @@ describe("a Save: what it landed, as it left it, while the window is read again"
         expect(slot(container, "main").getAttribute("aria-busy")).toBe("false");
         expect(event(container, "job")).toBeNull();
         await waitFor(() => expect(backlogShown(container).cards).toEqual([job("backlog"), job("job")]));
+    });
+
+    /** The window's reads, from a Save's commit on: what the shared checks hold. */
+    const afterCommit = () => {
+        let committed = false;
+        return (request: E3Request) => {
+            if (request.kind === "mutate") committed = true;
+            return committed && windowRead(request);
+        };
+    };
+    /** The events the day draws a block of, by their keys. */
+    const drawnOnDay = (container: HTMLElement) => [...container.querySelectorAll("[data-calendar-event]")].map((el) => el.getAttribute("data-calendar-event"));
+
+    test("the check every builder runs: an event Save returned to the backlog draws nowhere on the day at any change of the page, from the press of Save until the window is read again", async () => {
+        const container = await selectJob("save-landed-check");
+        await act(async () => { fireEvent.click(within(slot(container, "end")).getByRole("button", { name: "Return to backlog" })); });
+        await settle();
+        expect(event(container, "job")).toBeNull();
+        await savedThroughReload({ e3: h.e3, container, reads: afterCommit(), look: () => drawnOnDay(container) });
+    });
+
+    test("a Save never stops the editing: another event returned to the backlog while the window is read again after a Save is taken at once — from its block as it stands — stays off the day as the reads land, and the next Save writes it", async () => {
+        const container = await selectJob("save-landed-again");
+        await act(async () => { fireEvent.click(within(slot(container, "end")).getByRole("button", { name: "Return to backlog" })); });
+        await settle();
+        expect(event(container, "job")).toBeNull();
+        await editedThroughReload({
+            e3: h.e3,
+            container,
+            reads: afterCommit(),
+            look: () => drawnOnDay(container),
+            // The overnight run, which the Save did not hold: its original is the day's own row of it. Picked, then — its
+            // Details drawn from the row its block was drawn from — returned to the backlog.
+            again: [
+                () => { fireEvent.click(event(container, "carry")!); },
+                () => { fireEvent.click(within(slot(container, "end")).getByRole("button", { name: "Return to backlog" })); },
+            ],
+        });
+        const events = await h.read(ex.indexedCalendarEvents);
+        expect([events.get("job")!.start.type, events.get("carry")!.start.type]).toEqual(["none", "none"]);
     });
 
     test("Details shows a field as Save wrote it while the window is read again, never its old value, nor marked a change", async () => {

@@ -125,9 +125,12 @@ export async function savedThroughReload(check: SavedThroughReload): Promise<voi
 export interface EditedThroughReload extends SavedThroughReload {
     /**
      * A second gesture, made while the builder's reads of what it saved are held: on a row the Save did not hold — one
-     * whose original the builder reads from its own rows — as a person makes it on what the page shows.
+     * whose original the builder reads from its own rows — as a person makes it on what the page shows. Given as its
+     * steps where it takes more than one act of the person's — a row picked, then a button of its form pressed — the
+     * page settling between them, as it does between a person's acts: what one step leaves the page to draw a moment
+     * later (a pane's body, drawn after what selected it) is there for the next.
      */
-    readonly again: () => void | Promise<void>;
+    readonly again: (() => void | Promise<void>) | readonly (() => void | Promise<void>)[];
 }
 
 /**
@@ -152,9 +155,12 @@ export async function editedThroughReload(check: EditedThroughReload): Promise<v
         await waitFor(() => expect(held.held, "the builder reads what it saved again").toBeGreaterThan(0), { timeout: 5_000 });
         await settle();
         expect(print(), "while the builder's reads of what it saved are held").toBe(drafted);
-        // The second gesture, on what the page shows while its rows are read again: taken, and drawn at once.
-        await act(async () => { await check.again(); });
-        await settle();
+        // The second gesture, on what the page shows while its rows are read again: taken, and drawn at once. Each step
+        // is an act of its own: what a step leaves React to draw later is drawn only once its act is over.
+        for (const step of typeof check.again === "function" ? [check.again] : check.again) {
+            await act(async () => { await step(); });
+            await settle();
+        }
         const edited = print();
         expect(edited, "a gesture made while the builder's rows are read again is drawn at once").not.toBe(drafted);
         // Every look from here on is the look it left.

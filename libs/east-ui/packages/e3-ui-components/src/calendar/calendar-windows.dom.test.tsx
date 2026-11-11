@@ -61,7 +61,7 @@ import * as pe from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
 import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { savedThroughReload } from "../shared/save-held.test-utils.js";
+import { editedThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
 import { eventKey, parseResourceKey, resourceKey, DAY } from "./model.js";
 import { TIMELINE_GUTTER, timelinePixels } from "./timeline.js";
 import type { CalendarCommands } from "./actions.js";
@@ -1125,6 +1125,27 @@ describe("a Save over the paged presses: what it landed, as it left it, while th
             // The events the timeline draws a block of, by their keys.
             look: () => [...c.querySelectorAll("[data-calendar-event]")].map((el) => el.getAttribute("data-calendar-event")),
         });
+    });
+
+    test("a Save never stops the editing: another job returned to the backlog while the cells are read again after a Save is taken at once — from its block as it stands — stays off its press's row as the reads land, and the next Save writes it", async () => {
+        const c = await selectBrochure("windows-save-again");
+        await act(async () => { fireEvent.click(within(slot(c, "end")).getByRole("button", { name: "Return to backlog" })); });
+        await settle();
+        expect(jobEvent(c, "W-0001")).toBeNull();
+        await editedThroughReload({
+            e3: h.e3,
+            container: c,
+            reads: jobCells,
+            look: () => [...c.querySelectorAll("[data-calendar-event]")].map((el) => el.getAttribute("data-calendar-event")),
+            // W-0002, which the Save did not hold: its original is the timeline's own row of it. Picked, then — its Details
+            // drawn from the row its block was drawn from — returned to the backlog.
+            again: [
+                () => { fireEvent.click(jobEvent(c, "W-0002")!); },
+                () => { fireEvent.click(within(slot(c, "end")).getByRole("button", { name: "Return to backlog" })); },
+            ],
+        });
+        const jobs = await readJobs();
+        expect([jobs.get("W-0001")!.start.type, jobs.get("W-0002")!.start.type]).toEqual(["none", "none"]);
     });
 
     test("Details shows a job's field as Save wrote it while the cells are read again, never its old value, nor marked a change", async () => {

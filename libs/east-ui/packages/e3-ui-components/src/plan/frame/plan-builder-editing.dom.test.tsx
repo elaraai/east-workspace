@@ -42,6 +42,8 @@ import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { offering } from "../../shared/schedule/keys.test-utils.js";
 import { act, el, elementKey, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 import { conflictCards, reloadPage } from "../../e3-web-mount.test-utils.js";
+import type { E3Request } from "../../e3-web.test-utils.js";
+import { editedThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
 
 const h = planHarness({ "plan/plan-events": ex, "plan/plan": rowDrop });
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.
@@ -763,6 +765,76 @@ describe("Save per kind (PB45–PB48)", () => {
  * The print works' jobs beside a crew roster the works has locked for the
  * week: its patch door refuses a Save that takes a shift off it.
  */
+// ============================================================================
+// A Save: what it landed, as it left it, while the jobs' window is read again
+// ============================================================================
+
+describe("a Save of the jobs read over the window: what it landed, as it left it, while their window is read again", () => {
+    /** The jobs' record, as a request names it. */
+    const JOBS = `records.${ex.planPrintJobs.name}`;
+    /**
+     * The window's reads of the jobs' record — its batches of key searches, the rows of its runs and what the narrowing
+     * holds — from a Save's commit on: a Save's own confirmation, a key's search and its row, is none of them, and what a
+     * Save asks before it commits goes through.
+     */
+    const afterCommit = () => {
+        let committed = false;
+        return (request: E3Request) => {
+            if (request.kind === "mutate") committed = true;
+            return committed && request.dataset === JOBS
+                && ((request.kind === "find" && request.query.get("findKeys") !== null) || request.kind === "runs" || request.kind === "within");
+        };
+    };
+    /** When each job's bar says it starts, by its key. */
+    const starts = (c: HTMLElement, keys: readonly string[]) => keys.map((key) => bar(c, key)?.getAttribute("aria-label")?.split(" – ")[0] ?? null);
+    /** The spring catalogue and the museum guide, on Press A1, an hour on. */
+    async function shifted(storageKey: string) {
+        const { container: c } = await h.mount(ex.planPrintWorks, { storageKey });
+        await settle();
+        await select(bar(c, "J-1001")!);
+        await select(bar(c, "J-1002")!, true);
+        await press(action(c, "shift:1hour"));
+        expect(pending(c)).toBe("2 pending");
+        return c;
+    }
+
+    test("the check every builder runs: the jobs a Save moved draw where the Save left them at every change of the page, from the press of Save until their window is read again", async () => {
+        const c = await shifted("window-save-check");
+        await savedThroughReload({
+            e3: h.e3,
+            container: c,
+            reads: afterCommit(),
+            look: () => starts(c, ["J-1001", "J-1002"]),
+            save: () => { fireEvent.click(historyButton(c, SAVE)); },
+            unsaved: () => pending(c) !== "0 pending",
+        });
+    });
+
+    test("a Save never stops the editing: other jobs moved while the window is read again after a Save are taken at once — from their bars as they stand — stay where they were put as the reads land, and the next Save writes them", async () => {
+        const c = await shifted("window-save-again");
+        const before = await readJobs();
+        await editedThroughReload({
+            e3: h.e3,
+            container: c,
+            reads: afterCommit(),
+            look: () => starts(c, ["J-1001", "J-1002", "J-1003", "J-1004"]),
+            save: () => { fireEvent.click(historyButton(c, SAVE)); },
+            unsaved: () => pending(c) !== "0 pending",
+            // The event posters and the course handbook, on Press A1, which the Save did not hold: each one's original is
+            // the canvas's own row of it. Picked, then — their Details drawn from the rows their bars were drawn from —
+            // shifted an hour.
+            again: [
+                () => select(bar(c, "J-1003")!),
+                () => select(bar(c, "J-1004")!, true),
+                () => press(action(c, "shift:1hour")),
+            ],
+        });
+        const after = await readJobs();
+        const hourOn = (key: string) => some(new Date(before.get(key)!.start.value!.getTime() + 3_600_000));
+        expect(["J-1001", "J-1002", "J-1003", "J-1004"].map((key) => after.get(key)!.start)).toEqual(["J-1001", "J-1002", "J-1003", "J-1004"].map(hourOn));
+    });
+});
+
 const lockedRoster = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const crews = $.let(Record.bind(ex.planPrintCrews, []));

@@ -1134,7 +1134,7 @@ function useWindowFacts(
             const held = cells?.reads.get(kind.key);
             // Read by its cells, which the reader holds none of for this resource — scrolled out of the blocks read, or
             // not landed yet: its figures are on their way, never 0 (#1398, CL13).
-            if (held !== undefined && target.kind === "resource" && cells!.drawn !== undefined && !cells!.drawn.has(target.key)) return ROW_LOADING;
+            if (held !== undefined && !cells!.windowed.has(kind.key) && target.kind === "resource" && cells!.drawn !== undefined && !cells!.drawn.has(target.key)) return ROW_LOADING;
             // Every kind is counted before it is read: given no cells, it is read over the window once it is within the cap.
             if (held === undefined) {
                 const within = scheduleWithinCap(kind.count, new Date(readFrom), new Date(readTo));
