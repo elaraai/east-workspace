@@ -610,7 +610,16 @@ component, nothing in east-ui.
   (`Hours: 450`, the first three, then that there are more) against
   `Removed`, with what those fields began as; both added, the fields the two
   hold otherwise — never the entry's first fields, which may hold nothing of
-  the change. Discard
+  the change. A collection's own words for a value (`conflictValue` — a date
+  as its column writes it, a lane by its label) are asked the same for a
+  part's conflict and for each field of a whole entry's: over the value
+  itself and its own type, at its place in the entry's draft — under its
+  draft's `value` case, never the draft's wrapper, which no collection reads
+  — and never of a field its draft holds no value for. What is written in
+  full, because two readings were alike, is written as the card reads it: a
+  collection's words have no fuller form to tell two values apart. A whole
+  entry's field is written in full where its own two readings are alike, the
+  fields beside it as they read. Discard
   while the drafts are being carried over — kept drafts restored as a page
   loads, not yet read at the page's revision — leaves the session holding no
   row: put back as they began, they would be the rows of the page before,

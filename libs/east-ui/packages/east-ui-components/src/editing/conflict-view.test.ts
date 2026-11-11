@@ -156,14 +156,51 @@ describe("a conflict in words", () => {
         expect(points).toHaveLength(1);
         const view = conflictViewOf(Whole, { id: "Works 10012", key: "Works 10012", keyType: StringType, at: points[0]!.at, was: whole(row()), draft: whole(row({ hours: 1500 })), source: none }, WORDS);
         expect([view.label, view.yours, view.theirs, view.was]).toEqual([[], "Hours: 1,500", "Removed", "Hours: 442"]);
+        // Its collection's own words are asked at the field under that case, over the field's value.
+        const asked: string[] = [];
+        const worded = conflictViewOf(Whole, { id: "Works 10012", key: "Works 10012", keyType: StringType, at: points[0]!.at, was: whole(row()), draft: whole(row({ hours: 1500 })), source: none }, WORDS,
+            (at, value, type) => { asked.push(`${at.map((step) => (step.kind === "field" ? step.name : step.kind)).join("/")}: ${type?.type} ${typeof value}`); return `${String(value)} h`; });
+        expect([worded.yours, worded.was, [...new Set(asked)]]).toEqual(["Hours: 1500 h", "Hours: 442 h", ["variant/hours: Float number"]]);
     });
 
-    test("a collection's own words for a value are asked for each field changed, at the field's place", () => {
-        const points = merger.conflicts(draft(row()), draft(row({ hours: 1500 })), none);
+    test("a collection's own words for a value are asked for each field changed, at the field's place, over the field's own value and type — never its draft's wrapper", () => {
+        const points = merger.conflicts(draft(row()), draft(row({ hours: 1500, note: "Late" })), none);
         const asked: string[] = [];
-        const view = conflictViewOf(Draft, { id: "Works 10012", key: "Works 10012", keyType: StringType, at: points[0]!.at, was: draft(row()), draft: draft(row({ hours: 1500 })), source: none }, WORDS,
-            (at, value) => { asked.push(at.map((step) => (step.kind === "field" ? step.name : step.kind)).join("/")); return typeof value === "object" ? "a lot" : undefined; });
-        expect([view.yours, view.was, [...new Set(asked)]]).toEqual(["Hours: a lot", "Hours: a lot", ["hours"]]);
+        const view = conflictViewOf(Draft, { id: "Works 10012", key: "Works 10012", keyType: StringType, at: points[0]!.at, was: draft(row()), draft: draft(row({ hours: 1500, note: "Late" })), source: none }, WORDS,
+            (at, value, type) => {
+                asked.push(`${at.map((step) => (step.kind === "field" ? step.name : step.kind)).join("/")}: ${type?.type} ${typeof value}`);
+                // The collection has words for its numbers alone: the rest read as the card reads them.
+                return typeof value === "number" ? `${value} h` : undefined;
+            });
+        expect([view.yours, view.was]).toEqual(["Hours: 1500 h · Note: Late", "Hours: 442 h · Note: On track"]);
+        // The place is the one a conflict of the field alone is at: the field, then its draft's own case.
+        expect([...new Set(asked)]).toEqual(["hours/variant: Float number", "note/variant: String string"]);
+    });
+
+    test("a field of a whole entry whose two sides read alike is written in full on both, the fields beside it as they read", () => {
+        const view = viewOf(draft(row({ hours: 1.2341 })), draft(row({ hours: 1.2342, note: "Late" })), none);
+        expect(WORDS.number(1.2341)).toBe(WORDS.number(1.2342));
+        expect([view.yours, view.was]).toEqual([`Hours: ${WORDS.float(1.2342)} · Note: Late`, `Hours: ${WORDS.float(1.2341)} · Note: On track`]);
+    });
+
+    test("values that read alike in their collection's own words are written in full as the card reads them, so they read apart", () => {
+        // A collection that writes its hours to the hour: 1,500.2 and 1,500.4 both read 1500 h.
+        const hours = (_at: unknown, value: unknown) => (typeof value === "number" ? `${Math.round(value)} h` : undefined);
+        const [was, mine, theirs] = [draft(row()), draft(row({ hours: 1500.2 })), draft(row({ hours: 1500.4 }))];
+        const points = merger.conflicts(was, mine, theirs);
+        const part = conflictViewOf(Draft, { id: "Works 10012", key: "Works 10012", keyType: StringType, at: points[0]!.at, was, draft: mine, source: theirs }, WORDS, hours);
+        expect([part.yours, part.theirs, part.was]).toEqual([WORDS.float(1500.2), WORDS.float(1500.4), WORDS.float(442)]);
+        // Apart in the collection's words, they read in them.
+        const apart = conflictViewOf(Draft, { id: "Works 10012", key: "Works 10012", keyType: StringType, at: points[0]!.at, was, draft: mine, source: draft(row({ hours: 450 })) }, WORDS, hours);
+        expect([apart.yours, apart.theirs, apart.was]).toEqual(["1500 h", "450 h", "442 h"]);
+        // A whole entry's field alike: that field in full on both sides.
+        const whole = conflictViewOf(Draft, { id: "Works 10012", key: "Works 10012", keyType: StringType, at: [], was: mine, draft: theirs, source: none }, WORDS, hours);
+        expect([whole.yours, whole.was]).toEqual([`Hours: ${WORDS.float(1500.4)}`, `Hours: ${WORDS.float(1500.2)}`]);
+    });
+
+    test("a field cleared reads Cleared, whatever words its collection has for a value", () => {
+        const view = conflictViewOf(Draft, { id: "Works 10012", key: "Works 10012", keyType: StringType, at: [], was: draft(row()), draft: cleared(row(), "hours"), source: none }, WORDS, () => "never asked");
+        expect([view.yours, view.was]).toEqual(["Hours: Cleared", "Hours: never asked"]);
     });
 
     test("an entry of a source with no key is named by its id", () => {

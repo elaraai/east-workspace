@@ -28,6 +28,8 @@
  * The removals run the checks every builder runs
  * (`shared/remote-rows.test-utils.ts`), the grid's own reads held and let go
  * one at a time.
+ * - The status line's note of a removal goes once the removal's conflict is
+ *   chosen: taken as theirs, nothing it said is so any more.
  * - A member another session adds, and one it removes, that no draft touches:
  *   the grid shows it, nothing is asked, and Save writes what was typed here
  *   alone.
@@ -86,6 +88,8 @@ const saveButton = (c: HTMLElement) => toolbar(c).getByRole<HTMLButtonElement>("
 const discardButton = (c: HTMLElement) => toolbar(c).getByRole<HTMLButtonElement>("button", { name: editingMessages.discard() });
 /** Whether a button of the history bar is off: disabled, or waiting with the focus kept. */
 const off = (button: HTMLButtonElement) => button.disabled || button.getAttribute("aria-disabled") === "true";
+/** The status line's words. */
+const status = (c: HTMLElement) => slot(c, "toolbar")!.querySelector('[data-slot="status"]')?.textContent;
 
 /** The crew mounted, as e3 holds them to begin with. */
 async function mounted(storageKey: string): Promise<HTMLElement> {
@@ -240,6 +244,7 @@ const member = (c: HTMLElement) => ({
     drawn: () => rowOf(c, "2") !== undefined,
     theirRemoval: () => theirs((crew) => { crew.delete(2n); }),
     held: async () => (await h.read(fx.numberedCrew)).has(2n),
+    name: "A. Morgan",
 });
 
 test.each([["kept, the next Save puts them back as drafted", "draft"], ["let go, the row leaves and nothing is left to save", "source"]] as const)(
@@ -257,6 +262,23 @@ test.each([["kept, the next Save removes them", "draft"], ["let go, the row is b
         }, choice);
         if (choice === "source") expect(look(c)[0]).toEqual(["2", "yes", "3"]);
     });
+
+test("the status line's note of a removal stands while its conflict waits, and goes once it is chosen — taken as theirs, the member is back and nothing it said is so", async () => {
+    const c = await mounted("record-remote-removed-note");
+    await remove(c, "2");
+    const note = "Deleted 1 crew member · Apply writes it, Undo restores";
+    expect(status(c)).toBe(note);
+    await theirs((crew) => { crew.set(2n, { ...crew.get(2n)!, forklift: "3" }); });
+    await waitFor(() => expect(c.querySelector("[data-conflicts]")).not.toBeNull());
+    // The removal stands until a person chooses: so does what the line says of it.
+    expect(status(c)).toBe(note);
+    const [card] = await conflictCards(c);
+    await act(async () => { fireEvent.click(card!.radio("source")); });
+    await settle();
+    await waitFor(() => expect(look(c)[0]).toEqual(["2", "yes", "3"]));
+    expect(status(c)).not.toContain("Deleted");
+    expect(discardButton(c).disabled, "nothing is left to save").toBe(true);
+});
 
 test("a member removed here and by another session is nothing to choose and nothing to save, and the grid never draws them again — nor while its window, standing from before the other session's write, is read again", async () => {
     const c = await mounted("record-remote-removed-both");

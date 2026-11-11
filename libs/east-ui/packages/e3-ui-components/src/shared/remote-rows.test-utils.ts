@@ -31,6 +31,9 @@
  *   kept, the next Save removes it; let go, the row is back as the other
  *   session left it and nothing is left to save.
  *
+ * A conflict's card names its row as the builder names it — its name, never
+ * its key — whether the builder draws the row or the draft removed it.
+ *
  * jsdom draws no frame, so a check sees every state a read's round trip
  * leaves on the page, and none that lasts less than a task.
  *
@@ -63,6 +66,11 @@ export interface RemoteRow {
     readonly theirRemoval: () => Promise<void>;
     /** Whether the record holds the row now. */
     readonly held: () => Promise<boolean>;
+    /**
+     * The row as the builder names it — a member's name, an event's title — which a conflict's card names it by: on
+     * the builder or removed from it, never its key where it has a name.
+     */
+    readonly name: string;
 }
 
 /** What a builder gives the checks of a row removed here. */
@@ -194,6 +202,7 @@ export async function removedThere(check: ChangedHere, choice: "draft" | "source
     expect(off(historyButton(check.container, editingMessages.apply())), "Save waits on the conflict").toBe(true);
     const [card, ...more] = await conflictCards(check.container);
     expect(more, "one conflict, the row's").toEqual([]);
+    expect(card!.item, "the card names the row as the builder names it").toBe(check.name);
     expect(card!.theirs, "the other side reads removed").toContain(`, ${editingMessages.conflictRemoved()}`);
     await act(async () => { fireEvent.click(card!.radio(choice)); });
     await settle();
@@ -257,6 +266,7 @@ export async function removedHere(check: RemovedHereChangedThere, choice: "draft
     expect(off(historyButton(check.container, editingMessages.apply())), "Save waits on the conflict").toBe(true);
     const [card, ...more] = await conflictCards(check.container);
     expect(more, "one conflict, the row's").toEqual([]);
+    expect(card!.item, "the card names the row removed here as the builder named it, never by its key").toBe(check.name);
     expect(card!.yours, "this side reads removed").toBe(`${editingMessages.conflictYours()}, ${editingMessages.conflictRemoved()}`);
     await act(async () => { fireEvent.click(card!.radio(choice)); });
     await settle();

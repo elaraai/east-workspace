@@ -568,13 +568,14 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         }).catch(() => { /* superseded or cleared */ });
     }, [onIssue, body, seekSearch, keyIsText, rowsPick, issueSought, revealRef]);
     // A conflict's row as the sheet shows it, in the cards of the history's popover: its first text column's text —
-    // `Panel cutting` — where it holds one, else its key. Read as the popover draws, so the history item is the same
-    // while the rows move.
-    const namingNow = useRef({ rows, columns });
-    namingNow.current = { rows, columns };
+    // `Panel cutting` — where it holds one, else its key. A row the draft removed is off the rows shown, and is named
+    // all the same: by the row the session holds of what the record does, wherever the sheet has scrolled to. Read as
+    // the popover draws, so the history item is the same while the rows move.
+    const namingNow = useRef({ rows, columns, session });
+    namingNow.current = { rows, columns, session };
     const rowWhere = useCallback((issue: EditIssue) => {
-        const { rows: shown, columns: drawn } = namingNow.current;
-        return rowNameOf(shown.find((r) => stringEqual(r.id, issue.entry)), drawn) ?? issue.entry;
+        const { rows: shown, columns: drawn, session: held } = namingNow.current;
+        return rowNameOf(shown.find((r) => stringEqual(r.id, issue.entry)) ?? held.originals.get(issue.entry)?.wire, drawn) ?? issue.entry;
     }, []);
     // A conflict's value as its column writes it — a date in the column's format — where the field it is in is a
     // column's own; else as the card reads it.
@@ -625,6 +626,17 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         }
         dispatchStore({ t: "patch", patch: { msg: null } });
     }, [noted, issueList, session, draftVersion, dispatchStore]);
+    // A conflict's choice is a step of the history too, taken in the conflicts popover and never through the history's
+    // runner: the footer's note of the last gesture goes with it, as it does with an Undo (F13 of the hand test) — a
+    // removal's `Apply writes it, Undo restores` is so no more once the other side is taken. The session is mutable:
+    // draftVersion moves with its conflicts.
+    const chosen = session.settled.length;
+    const chosenBefore = useRef(chosen);
+    useEffect(() => {
+        const more = chosen > chosenBefore.current;
+        chosenBefore.current = chosen;
+        if (more) dispatchStore({ t: "patch", patch: { msg: null } });
+    }, [chosen, dispatchStore]);
     const kindOf = useCallback((issue: EditIssue): "incomplete" | "invalid" | "warning" => {
         const ready = session.readiness;
         // The very issue the readiness raised (identity, not equality): an Apply's look alike and are not its; nor are a

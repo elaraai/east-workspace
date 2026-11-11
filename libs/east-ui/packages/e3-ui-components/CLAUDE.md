@@ -1291,6 +1291,24 @@ rows — and the Schematic, by area and whole, run all three. The Plan's rows
 read lean run the first, and hold a change made meanwhile to being taken and
 saved (`plan/frame/plan-nested-save-held.dom.test.tsx`).
 
+**The checks of a row another session removes or changes under a draft**
+(`shared/remote-rows.test-utils.ts`): `removedOnBothSides`, `removedThere` and
+`removedHere` hold the builder's own reads at the harness's fetch, commit the
+other session's write, let the reads go one at a time and read what the
+builder draws of the row at every change of the page — a row removed on both
+sides never drawn again, a row changed here and removed there standing as
+drafted, a row removed here and changed there staying off — then the choice,
+each way. A conflict's card names its row as the builder names it, never by
+its key, whether the builder draws the row or the draft removed it: a row off
+the rows drawn is named from what the session holds of it (the Sheet's
+`rowWhere`, from its `originals`). The Record runs them
+(`record/remote-edits.dom.test.tsx`).
+
+The Sheet's footer note of a gesture goes with a step of the history, and
+with a conflict's choice, which is one taken in the conflicts popover: a
+removal's `Apply writes it, Undo restores` is so no more once the other side
+is taken, and the Record's status line, which says the note, goes with it.
+
 The period is assembled from the app's rows, never stored. A reader of its own
 (`RosterDataReader`, `AllocationDataReader`, as the Calendar's is, #1343) reads
 the period's events through the kind's `rows` — each stored row's roles beside

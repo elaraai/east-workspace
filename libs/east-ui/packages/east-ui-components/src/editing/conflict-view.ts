@@ -14,11 +14,19 @@
  * range written in full writes its date once where it falls in one day, and a
  * moment, its two ends the same, once.
  *
+ * A collection may have words of its own for a value ({@link
+ * ConflictValueWords}) — a date as its column writes it, a lane by its label.
+ * They are asked over the value itself, at its place in the entry's draft, and
+ * never of a field its draft holds no value for; and what is written in full
+ * is written as the card reads it, a collection's words having no fuller form
+ * to tell two values apart.
+ *
  * A conflict of a whole entry — one side removed it while the other changed
  * it, or both added it — reads as what was changed, never the entry's first
  * fields: the side that holds the entry, each field it changed (`Hours: 450`,
  * the first three, then that there are more) against `Removed`, with what
- * those fields began as; both added, the fields the two hold otherwise.
+ * those fields began as; both added, the fields the two hold otherwise. A
+ * field whose two readings are alike is written in full in both.
  *
  * @packageDocumentation
  */
@@ -71,7 +79,9 @@ export interface ConflictView {
 /**
  * A collection's own words for the value at a part — a lane's label where a
  * step holds the lane's key, a date as its column writes it — or `undefined`
- * to read it as a card does by default.
+ * to read it as a card does by default. `at` is the value's place in the
+ * entry's draft — a field's own value is under its draft's `value` case — and
+ * `type` the type the value has there.
  */
 export type ConflictValueWords = (at: PatchPath, value: unknown, type: EastType | undefined) => string | undefined;
 
@@ -311,10 +321,39 @@ function entryFields(draftType: EastType, value: option<unknown>): EntryFields |
 }
 
 /**
+ * One of an entry's fields as a side holds it, in words: its collection's own
+ * words for its value, asked at the place a conflict of the field alone is at
+ * — over the field's own value and type, through its draft's own case — else
+ * as the card reads it. A field its draft holds no value for — cleared, or
+ * text that could not be read — is never asked of; nor is one written in
+ * full.
+ *
+ * @param side - The entry's fields on that side
+ * @param name - The field
+ * @param words - The words
+ * @param valueWords - The collection's own words for a value
+ * @param full - Every digit, and the time beside a date
+ * @returns The field's value in words
+ */
+function fieldWords(side: EntryFields, name: string, words: EditingWords, valueWords: ConflictValueWords | undefined, full: boolean): string {
+    const type = side.types[name];
+    const held = side.held[name];
+    if (full || valueWords === undefined) return describe(type, { held }, words, full);
+    const at: PatchPath = [...side.at, { kind: "field", name }];
+    if (type?.type === "Variant" && isDraftField(type)) {
+        const cell = held as variant<string, unknown>;
+        const said = textEqual(cell.type, "value") ? valueWords([...at, { kind: "variant", tag: "value" }], cell.value, (type.cases as Record<string, EastType>)["value"]) : undefined;
+        return said ?? describe(type, { held }, words, false);
+    }
+    return valueWords(at, held, type) ?? describe(type, { held }, words, false);
+}
+
+/**
  * A whole entry's conflict as what its sides changed — see the module docs.
  * The side that holds the entry is read against what both began from, where
  * the other side removed it; each side against the other, where both added
- * it. Two readings alike in short are both written in full.
+ * it. A field whose two readings are alike in short is written in full in
+ * both.
  *
  * @param draftType - The entry's draft type
  * @param conflict - Its three values
@@ -332,16 +371,17 @@ function entryView(draftType: EastType, conflict: ConflictValues, words: Editing
     if (a === undefined || b === undefined) return undefined;
     const changed = Object.keys(a.types).filter((name) => !(name in b.types) || !equalFor(toEastTypeValue(a.types[name]!))(a.held[name], b.held[name]));
     if (changed.length === 0) return undefined;
-    const list = (side: EntryFields, full: boolean): string => {
-        const read = changed.slice(0, MOST_FIELDS).map((name) => {
-            const type = side.types[name];
-            const said = valueWords?.([...side.at, { kind: "field", name }], side.held[name], type) ?? describe(type, { held: side.held[name] }, words, full);
-            return `${words.m.conflictField({ field: name })}: ${said}`;
-        });
-        return changed.length > MOST_FIELDS ? `${read.join(" · ")} · …` : read.join(" · ");
+    // Each field read on both sides: one whose two readings are alike is written in full in both, so they read apart.
+    const read = changed.slice(0, MOST_FIELDS).map((name) => {
+        const full = textEqual(fieldWords(a, name, words, valueWords, false), fieldWords(b, name, words, valueWords, false));
+        const label = words.m.conflictField({ field: name });
+        return [`${label}: ${fieldWords(a, name, words, valueWords, full)}`, `${label}: ${fieldWords(b, name, words, valueWords, full)}`] as const;
+    });
+    const list = (side: 0 | 1): string => {
+        const fields = read.map((pair) => pair[side]).join(" · ");
+        return changed.length > MOST_FIELDS ? `${fields} · …` : fields;
     };
-    const full = textEqual(list(a, false), list(b, false));
-    const [first, second] = [list(a, full), list(b, full)];
+    const [first, second] = [list(0), list(1)];
     const removed = words.m.conflictRemoved();
     if (removedThere) return { yours: first, theirs: removed, yoursForm: "text", theirsForm: "absent", was: second };
     if (removedHere) return { yours: removed, theirs: first, yoursForm: "absent", theirsForm: "text", was: second };
@@ -369,9 +409,10 @@ export function conflictViewOf(draftType: EastType, conflict: ConflictValues, wo
     const yoursAt = walk(draftType, conflict.draft, conflict.at, words);
     const theirsAt = walk(draftType, conflict.source, conflict.at, words);
     const wasAt = walk(draftType, conflict.was, conflict.at, words);
-    // A value in the collection's words where it has them, else as the card reads it.
+    // A value in the collection's words where it has them, else as the card reads it — and in full as the card reads
+    // it: a collection's words have no fuller form to tell two values apart.
     const read = (type: EastType | undefined, value: { readonly held: unknown }, full: boolean): string =>
-        valueWords?.(conflict.at, value.held, type) ?? describe(type, value, words, full);
+        (full ? undefined : valueWords?.(conflict.at, value.held, type)) ?? describe(type, value, words, full);
     // A part one side does not hold is removed there: the entry, an item or a key of it.
     const side = (at: { part: Part }, full: boolean): string =>
         at.part.value === undefined ? words.m.conflictRemoved() : read(at.part.type, at.part.value, full);

@@ -500,3 +500,30 @@ test("a conflict's card names its row as the sheet shows it — by its task — 
     expect(more).toEqual([]);
     expect(card!.item).toBe("Panel cutting");
 });
+
+test("a job removed here that another session changed is a conflict whose card names the job by its task — never its key, though the sheet draws it no more — and reads what they changed as each column writes it; the footer's note of the removal goes once the other side is taken", async () => {
+    const { container } = await h.mount(ex.sheetBasic);
+    // J-0001 picked by its number and deleted.
+    fireEvent.mouseDown(cells(container, "task")[0]!.closest('[data-slot="row"]')!.querySelector('[data-slot="gutter"]')!, { button: 0 });
+    fireEvent.keyDown(card(container), { key: "Backspace" });
+    await settle();
+    expect(tasks(container)).toEqual(["Edge banding", "CNC routing", "Spray finish"]);
+    const note = () => container.querySelector('[data-slot="footerMessage"]')?.textContent ?? "";
+    const deleted = note();
+    expect(deleted).toContain("Deleted 1");
+    // Another planner moves the job a day on, and sets its quantity.
+    await writeJob("J-0001", { start: some(new Date("2026-10-13T00:00:00Z")), qty: some(60.0) });
+    await waitFor(() => expect(banners(container)).toEqual(["conflicts"]));
+    expect(tasks(container)).toEqual(["Edge banding", "CNC routing", "Spray finish"]);
+    const [conflict, ...more] = await conflictCards(container);
+    expect(more).toEqual([]);
+    expect([conflict!.item, conflict!.yours, conflict!.theirs]).toEqual([
+        "Panel cutting", "Yours, Removed", "Theirs, Start: 13 Oct 26 · Qty: 60, Changed since you started editing · was Start: 12 Oct 26 · Qty: 48",
+    ]);
+    // The note of the removal stands while the removal does; their job taken, it is back and the note is gone.
+    expect(note()).toBe(deleted);
+    await press(conflict!.radio("source"));
+    await waitFor(() => expect(tasks(container)).toEqual(["Panel cutting", "Edge banding", "CNC routing", "Spray finish"]));
+    expect(note()).toBe("");
+    expect(drafted(container)).toBe(0);
+});
