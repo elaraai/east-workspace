@@ -76,8 +76,10 @@ export function draftPresentation(session: SheetTransactions, type: EastType, fi
         if (current === undefined) return CLEAN_DRAFT;
         row = entry.wire?.lines.findIndex(line => line.key === child) ?? -1;
     }
+    // A row never applied is dropped by its discard only while no request for its source is unresolved — the session's
+    // own, or another view's: one the session has sent may have landed, and a gesture is taken meanwhile all the same.
     const presented = presentDraft({
-        type, current, before, entry: id, row, readiness, writable: session.writable,
+        type, current, before, entry: id, row, readiness, writable: session.writable && session.canDiscard,
         text: (message) => issueText(message, words),
     });
     // Where it holds a conflict not yet chosen: the cells that wear the warn ring, or the row whole.
@@ -106,7 +108,9 @@ export function draftChanges(type: EastType): (before: unknown, current: unknown
 }
 
 /**
- * Discard only a never-applied row/group or child, as one ordinary undoable gesture.
+ * Discard only a never-applied row/group or child, as one ordinary undoable gesture — and only while no request for
+ * its source is unresolved: a row the session has sent may have landed, and put back to nothing it would be a removal
+ * to save, never a draft dropped.
  *
  * @param session - The editing session
  * @param type - The entry's draft type — on a sheet with loose rows (#846), the variant of a group and a row
@@ -116,7 +120,7 @@ export function draftChanges(type: EastType): (before: unknown, current: unknown
  * @returns Whether the draft was discarded
  */
 export function discardDraft(session: SheetTransactions, type: EastType, field: string | undefined, id: string, child?: string): boolean {
-    if (!session.writable) return false;
+    if (!session.writable || !session.canDiscard) return false;
     const before = session.entries.get(id);
     if (before?.draft === undefined || before.wire === undefined) return false;
     const baseline = session.originals.get(id);
