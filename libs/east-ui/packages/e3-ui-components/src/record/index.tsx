@@ -236,7 +236,9 @@ export const EastChakraRecord = memo(function EastChakraRecord({ value, storageK
         onHistory,
         cellEditor,
         forms,
-    }), [rowPx, readOnly, phone, styles, inspector, onOpen, onHistory, cellEditor, forms]);
+        // Whether its Autosave begins on, as its author says.
+        autosave: value.autosave,
+    }), [rowPx, readOnly, phone, styles, inspector, onOpen, onHistory, cellEditor, forms, value.autosave]);
     const noun = useMemo((): RecordNoun => getSomeorUndefined(value.noun) ?? rm.rowNoun(), [value.noun]);
     const title = getSomeorUndefined(value.title);
     const grid = useMemo((): RecordGrid => ({ styles, ticks, groups: value.columnGroups, noun, title, inspector }), [styles, ticks, value.columnGroups, noun, title, inspector]);

@@ -20,6 +20,7 @@ import type { EditingType } from "@elaraai/east-ui/internal";
 import { getStore } from "../platform/state-runtime.js";
 import { useTrackedEvaluation } from "../reactive/index.js";
 import { liftDraft } from "./draft.js";
+import { autosaveChoiceKey, beginAutosave, keepAutosaveChoice } from "./autosave-choice.js";
 import { bindingOf, gateOf, keptSession, sessionKeyOf, sourceSessionsOf } from "./kept.js";
 import { useEditingScope } from "./scope.js";
 import { keepDrafts, keptDraftsKey } from "./keep.js";
@@ -97,6 +98,21 @@ export interface EditSessionOptions<W> {
      * None by default: the two are a conflict.
      */
     rekey?: EditSessionBinding<W>["rekey"];
+    /**
+     * Whether every Save of the collection is a person's: `true` for one whose
+     * Save asks the person something first — a query never saved asks its
+     * name — which no automatic Save may pass by. Its builder then keeps no
+     * choice of an automatic Save, and its history bar draws none
+     * (`autosave-choice.ts`). `false` by default.
+     */
+    manualSave?: boolean;
+    /**
+     * What the builder's author begins its choice of an automatic Save at
+     * (`autosave-choice.ts`' `beginAutosave`): on, or — the default — off. It
+     * may move, as data drives it; the viewer's own choice, once made, stands
+     * over it. Nothing where every Save is a person's (`manualSave`).
+     */
+    autosave?: boolean | undefined;
 }
 
 const entryOffsets = new WeakMap<object, Map<string, number>>();
@@ -125,7 +141,8 @@ const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: 
  * @returns The session; the base it observed; its schemas' codecs; each resident row's index; an entry's placement and original version; the encoded drafts; whether editing is available; and the session's version
  */
 export function useEditSession<W>(editing: EditingValue, source: EditSource<W> | undefined, rows: readonly W[], positions: readonly number[], storageKey: string, options: EditSessionOptions<W>) {
-    const { idOf, ready, prepare, wireOf, carryOver, drawsLanded, wireType, rekey } = options;
+    const { idOf, ready, prepare, wireOf, carryOver, drawsLanded, wireType, rekey, manualSave } = options;
+    const autosave = options.autosave === true;
     const store = getStore();
     const entryType = useMemo(() => fromEastTypeValue(editing.entryType), [editing.entryType]);
     const draftType = useMemo((): EastType => fromEastTypeValue(editing.draftType), [editing.draftType]);
@@ -142,6 +159,12 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
     const session = useMemo(() => keptSession<W>(sourceSessions, schemaKey, () => {
         const next = new EditSession<W>(binding);
         entryOffsets.set(next, new Map());
+        // Its builder's choice of an automatic Save is kept by its data set and its view — but where every Save is a person's.
+        // It begins where the builder's author says, from the render that makes the session: nobody hears it yet.
+        if (manualSave !== true) {
+            keepAutosaveChoice(next, autosaveChoiceKey(scope, storageKey));
+            beginAutosave(next, autosave);
+        }
         // Its drafts kept through a reload: what the tab kept restored at its first base.
         if (wireType !== undefined && carryOver !== false) keepDrafts(next, keptDraftsKey(scope, editing.sourceId, storageKey), wireType);
         return next;
@@ -154,6 +177,8 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
     useLayoutEffect(() => {
         session.bind({ ...binding, gate: gateOf(sourceSessions, session) });
     }, [session, binding, sourceSessions]);
+    // The author's word as it moves, and for a session found again as it was kept: told once drawn, never while drawing.
+    useLayoutEffect(() => { beginAutosave(session, autosave); }, [session, autosave]);
     // Each resident row's place by its id, once per rows: a gesture's entries,
     // a reconcile's reads and the layer look rows up here, never by a scan of
     // the rows per entry (#859).

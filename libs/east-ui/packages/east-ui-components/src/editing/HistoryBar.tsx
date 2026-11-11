@@ -19,26 +19,52 @@
  * (#1585) — its words saying which are warnings; a press goes to the first
  * issue, else the first warning.
  *
+ * Where its builder keeps a choice of an automatic Save (`autosave-choice.ts`),
+ * Save is a split button: Save, and a chevron that opens the choice — one
+ * switch, Autosave, off as it begins, kept for the builder — in the shared
+ * edit popover. On, the session's changes are saved a pause after the
+ * person's last act (`autosave.ts`, `use-autosave.ts`), each Save shown on the
+ * button alone: its words would come and go in the toolbar's row every few
+ * seconds. An optimiser's result is never saved by itself: while one waits,
+ * the split button — Save and its chevron, one outline — wears the Elara ring
+ * and glow, and Save's tooltip and the panel say why.
+ *
  * In a phone's frame it is the toolbar's second row (`phone`, `Mobile Builder
- * Frame Spec.md` FR6, FR8): the drafts' count at its start, then the issues —
- * there whatever their number, off at none — and the four buttons at touch
- * size, Save filled while it would save; Discard asks first, in the band
+ * Frame Spec.md` FR6, FR8): the drafts' count at its start — its number whole
+ * or not there at all — then the issues, there whatever their number, off at
+ * none, and the four buttons at touch size, Save filled while it would save.
+ * The row holds its five squares whatever waits: the conflicts have no button
+ * of their own there, the Issues square counting them and opening them — in
+ * the frame's bottom panel — while one waits (`conflicts.tsx`). Discard asks
+ * first, in the band
  * under the row (ruled 4 Nov 2026: no anchored popover on a phone), never a dialog.
+ * Save's chevron is a square of the row on Save's edge, in the row where the
+ * row holds its six squares whole — the recipe's rule, over the row's own
+ * width, the drafts' count giving way to them until the row holds it too —
+ * and its choice opens in the frame's bottom panel, as the row's conflicts do
+ * (FR9.3). Where the row is short of a sixth square (ruled 11 Nov 2026: the
+ * buttons themselves wherever they fit), More stands in Discard's place and
+ * holds the two — the row its five squares still — opening, in the same
+ * panel, the Autosave switch and Discard changes: so the switch can be
+ * reached at every width, and an author's on is never one nobody can turn off.
  *
  * @packageDocumentation
  */
-import { useContext, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { useContext, useEffect, useId, useMemo, useRef, useState, type ComponentPropsWithRef, type CSSProperties, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
-import { Box, chakra, Portal, Text, Tooltip, useRecipe, useSlotRecipe, VisuallyHidden, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, chakra, Portal, Switch, Text, Tooltip, useRecipe, useSlotRecipe, VisuallyHidden, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowRotateLeft, faArrowRotateRight, faCheck, faRotate, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faArrowRotateLeft, faArrowRotateRight, faCheck, faChevronDown, faEllipsis, faRotate, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import type { EastType, PatchPath } from "@elaraai/east";
 import type { EditHistory } from "./history.js";
 import type { EditIssue, EditSession } from "./session.js";
-import { ConflictsControl } from "./conflicts.js";
+import { autosaveChoiceOf, type AutosaveKept } from "./autosave-choice.js";
+import { ConflictsControl, type ConflictsSquare } from "./conflicts.js";
 import { useDraftsKeeping } from "./keep.js";
 import { sessionErrorText, type EditingWords } from "./messages.js";
+import { useAutosave, type AutosaveChoice } from "./use-autosave.js";
+import { SliceEditPopover } from "../slice/edit/index.js";
 import { FrameSessionBand } from "../layout/builder-frame/session-row.js";
 import { layerOpen } from "../layout/builder-frame/view-escape.js";
 
@@ -183,11 +209,15 @@ function issuesWords(words: EditingWords, n: number, warnings: NonNullable<Histo
 }
 
 /** Keep an accessible name and a hover/focus tooltip when the control has no text. */
-function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onClick, ready, busy, content, expanded, buttonRef }: {
+function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onClick, ready, busy, waits, content, expanded, buttonRef, holds, holder }: {
     label: string; tip?: string | undefined; icon: IconDefinition; disabled: boolean; locked: boolean;
     styles: Styles; onClick: () => void;
+    /** Its holder's styles — the row's item: a phone's Discard, which its row leaves out where More stands in its place. */
+    holder?: Record<string, unknown> | undefined;
     /** Save while it would save: filled, on a phone. */
     ready?: boolean | undefined;
+    /** Save while an optimiser's result waits for a person's Save, the automatic Save on: the Elara ring and glow. */
+    waits?: boolean | undefined;
     /** Save while a Save is out or its saved state is read back (#1573): `aria-busy`, at full strength over its disabled look. */
     busy?: boolean | undefined;
     /** What it shows in place of its icon: the live dot while a Save is out or read back. */
@@ -196,24 +226,27 @@ function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onC
     expanded?: boolean | undefined;
     /** The button: where the focus goes back to as what it opened closes. */
     buttonRef?: Ref<HTMLButtonElement> | undefined;
+    /** Off, it stays focusable all the same: what it opened is going from under the focus, which it is to take back. */
+    holds?: boolean | undefined;
 }) {
     const iconRecipe = useRecipe({ key: "iconButton" });
     const iconStyles = iconRecipe({ size: "sm", variant: "outline" });
     // Run out under the focus — Discard pressed from the keyboard, leaving nothing to discard — it keeps the focus,
-    // aria-disabled, until the focus moves on: `disabled` under it, the browser drops the focus to the page.
+    // aria-disabled, until the focus moves on: `disabled` under it, the browser drops the focus to the page. And so one
+    // that is to take the focus back from what it opened, off by the time that closes.
     const [focused, setFocused] = useState(false);
-    const held = disabled && focused;
+    const held = disabled && (focused || holds === true);
     return <Tooltip.Root openDelay={250}>
         <Tooltip.Trigger asChild>
-            <span>
+            <chakra.span css={holder as SystemStyleObject | undefined}>
                 <chakra.button ref={buttonRef} type="button" css={[iconStyles, styles.button]} aria-label={label} aria-expanded={expanded}
-                    disabled={disabled && !focused} aria-disabled={locked || held ? true : undefined} aria-busy={busy === true ? true : undefined}
-                    data-ready={ready === true ? "" : undefined}
+                    disabled={disabled && !held} aria-disabled={locked || held ? true : undefined} aria-busy={busy === true ? true : undefined}
+                    data-ready={ready === true ? "" : undefined} data-held={waits === true ? "" : undefined}
                     onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
                     onMouseDown={event => event.preventDefault()} onClick={locked || disabled ? undefined : onClick}>
                     {content ?? <FontAwesomeIcon icon={icon} />}
                 </chakra.button>
-            </span>
+            </chakra.span>
         </Tooltip.Trigger>
         <Portal><Tooltip.Positioner><Tooltip.Content>{tip}</Tooltip.Content></Tooltip.Positioner></Portal>
     </Tooltip.Root>;
@@ -261,6 +294,110 @@ function DiscardAsk({ head, title, body, cancel, confirm, styles, confirmCss, ca
     </Box>;
 }
 
+/** Props of a button that opens the choice — Save's chevron, or a phone's More: what it says, how the choice stands, and the popover's trigger props, which it takes as its own. */
+type AutosaveButtonProps = {
+    /** Its accessible name. */
+    label: string;
+    /** Its tooltip. */
+    tip: string;
+    /** Whether the automatic Save is on. */
+    on: boolean;
+    /** Which it is: the chevron beside Save, or a phone's More, which holds Discard too. */
+    part: "autosave" | "more";
+    /** Its styles: the icon button's, then the bar's slots, as the bar's recipe made them. */
+    chrome: readonly (SystemStyleObject | Record<string, unknown> | undefined)[];
+} & Omit<ComponentPropsWithRef<"button">, "children" | "color">;
+
+/**
+ * A button that opens the choice — the chevron beside Save, or a phone's More: the popover's trigger, and a tooltip's —
+ * the popover's props land on it last, so the toolbar reads its state, and its id is the popover's, which the tooltip is
+ * told too, as the conflicts button's is.
+ */
+function AutosaveButton({ label, tip, on, part, chrome, ...trigger }: AutosaveButtonProps) {
+    return (
+        <Tooltip.Root openDelay={250} ids={trigger.id === undefined ? undefined : { trigger: trigger.id }}>
+            <Tooltip.Trigger asChild>
+                <chakra.button type="button" {...trigger} css={chrome as SystemStyleObject[]} aria-label={label} {...{ [`data-history-${part}`]: "" }} data-on={on ? "" : undefined}
+                    onMouseDown={(event) => event.preventDefault()}>
+                    <FontAwesomeIcon icon={part === "more" ? faEllipsis : faChevronDown} />
+                </chakra.button>
+            </Tooltip.Trigger>
+            <Portal><Tooltip.Positioner><Tooltip.Content>{tip}</Tooltip.Content></Tooltip.Positioner></Portal>
+        </Tooltip.Root>
+    );
+}
+
+/**
+ * The automatic Save's switch — one row, Autosave, on or off (ruled 11 Nov 2026: a pair of choices to read was one too
+ * many), kept as it is flicked — and, while an optimiser's result waits for a person's Save, why.
+ */
+function AutosaveSwitch({ choice, held, words, styles }: { choice: AutosaveChoice; held: boolean; words: EditingWords; styles: Styles }) {
+    const { m } = words;
+    return <>
+        {/* The theme's switch, its word at the row's start: a switch to whoever asks the page, never a checkbox. */}
+        <Switch.Root css={styles.autosaveSwitch} checked={choice.on} onCheckedChange={(details) => choice.set(details.checked)}>
+            <Switch.HiddenInput role="switch" />
+            <Switch.Label>{m.autosave()}</Switch.Label>
+            <Switch.Control />
+        </Switch.Root>
+        {held && <Box css={styles.autosaveHeld} role="status" data-history-autosave-held="">{m.autosaveHeld()}</Box>}
+    </>;
+}
+
+/** The automatic Save's choice, beside Save: the chevron, and the panel it opens in the shared edit popover — its switch. */
+function AutosaveControl({ choice, held, words, styles }: { choice: AutosaveChoice; held: boolean; words: EditingWords; styles: Styles }) {
+    const { m } = words;
+    const iconRecipe = useRecipe({ key: "iconButton" });
+    const iconStyles = useMemo(() => iconRecipe({ size: "sm", variant: "outline" }), [iconRecipe]);
+    const [open, setOpen] = useState(false);
+    const panel = useId();
+    return (
+        <SliceEditPopover open={open} onOpenChange={setOpen} label={m.apply()} size="sm" flush
+            initialFocusEl={() => document.getElementById(panel)?.querySelector<HTMLElement>("input") ?? null}
+            trigger={<AutosaveButton part="autosave" label={m.autosaveButton()} tip={m.autosaveTip({ on: choice.on })} on={choice.on} chrome={[iconStyles, styles.button, styles.saveMore]} />}>
+            <Box id={panel} css={styles.autosave} data-history-autosave-panel="">
+                <AutosaveSwitch choice={choice} held={held} words={words} styles={styles} />
+            </Box>
+        </SliceEditPopover>
+    );
+}
+
+/**
+ * A phone's More (ruled 11 Nov 2026): where its row is short of Discard and Save's chevron both, the square that stands
+ * in Discard's place and holds the two, the row its five squares still. It opens them where the chevron opens its
+ * switch — the frame's bottom panel: the Autosave switch, on More as on the chevron while it is on, and Discard changes,
+ * which asks no further: the press of More came first, and the button says what it does. Off with nothing to discard;
+ * locked, as the row's own is, while a run of the optimiser is out.
+ */
+function MoreControl({ choice, held, words, styles, discardOff, locked, onDiscard }: {
+    choice: AutosaveChoice; held: boolean; words: EditingWords; styles: Styles;
+    /** Nothing to discard. */
+    discardOff: boolean;
+    /** A run of the app's optimiser is out. */
+    locked: boolean;
+    /** Discard the drafts. */
+    onDiscard: () => void;
+}) {
+    const { m } = words;
+    const iconRecipe = useRecipe({ key: "iconButton" });
+    const iconStyles = useMemo(() => iconRecipe({ size: "sm", variant: "outline" }), [iconRecipe]);
+    const buttonRecipe = useRecipe({ key: "button" });
+    const discardStyles = useMemo(() => buttonRecipe({ variant: "outline", size: "md" }), [buttonRecipe]);
+    const [open, setOpen] = useState(false);
+    const panel = useId();
+    return (
+        <SliceEditPopover open={open} onOpenChange={setOpen} label={m.more()} size="sm" flush
+            initialFocusEl={() => document.getElementById(panel)?.querySelector<HTMLElement>("input") ?? null}
+            trigger={<AutosaveButton part="more" label={m.more()} tip={m.moreTip({ on: choice.on })} on={choice.on} chrome={[iconStyles, styles.button, styles.more]} />}>
+            <Box id={panel} css={styles.autosave} data-history-autosave-panel="" data-history-more-panel="">
+                <AutosaveSwitch choice={choice} held={held} words={words} styles={styles} />
+                <chakra.button type="button" css={[discardStyles, styles.askButton]} disabled={discardOff} aria-disabled={locked && !discardOff ? true : undefined}
+                    data-history-discard-confirm="" onClick={locked ? undefined : () => { setOpen(false); onDiscard(); }}>{m.discardAskConfirm()}</chakra.button>
+            </Box>
+        </SliceEditPopover>
+    );
+}
+
 /**
  * The history bar: a visible serial apply state, where a failed refresh and a
  * write of unknown outcome each have their own retry.
@@ -269,10 +406,23 @@ function DiscardAsk({ head, title, body, cancel, confirm, styles, confirmCss, ca
  * @param props - The session, the collection's words, and its callbacks
  * @returns The bar
  */
-export function HistoryBar<W>({
+export function HistoryBar<W>(props: HistoryBarProps<W>) {
+    // Where its builder keeps a choice of an automatic Save, the bar binds one to the page while it is mounted.
+    const choice = autosaveChoiceOf(props.session);
+    return choice === undefined ? <Bar {...props} autosave={undefined} /> : <AutosavingBar {...props} choice={choice} />;
+}
+
+/** The bar over a session whose builder keeps a choice of an automatic Save: bound to the page, and to that choice. */
+function AutosavingBar<W>({ choice, ...props }: HistoryBarProps<W> & { choice: AutosaveKept }) {
+    const autosave = useAutosave(props.session, choice, { editing: props.editing, locked: props.locked === true });
+    return <Bar {...props} autosave={autosave} />;
+}
+
+/** The bar itself, given its builder's choice of an automatic Save where it keeps one. */
+function Bar<W>({
     session, words, editing, onAction, onIssue, onConflict, conflictItem, conflictValue, where, issueText, buttonsOnly = false, showError = true, locked = false, phone = false,
-    onOpenIssues, warnings = NO_WARNINGS,
-}: HistoryBarProps<W>) {
+    onOpenIssues, warnings = NO_WARNINGS, autosave,
+}: HistoryBarProps<W> & { autosave: AutosaveChoice | undefined }) {
     const buttonRecipe = useRecipe({ key: "button" });
     // A phone's Discard asks first (FR8), in the band under the row.
     const [asking, setAsking] = useState(false);
@@ -299,6 +449,12 @@ export function HistoryBar<W>({
     const readBack = session.readBack;
     const stalled = useStalled(readBack === "waiting", session.getSnapshot());
     const saving = status === "applying" || (status === "reconciling" && readBack === "waiting" && !stalled);
+    // An automatic Save is shown on Save alone, as any Save is: its words in the row would come and go every few seconds.
+    const statusLine = autosave?.on === true && saving ? undefined : message;
+    // An optimiser's result waits for a person's Save, the automatic Save on: Save wears the Elara ring, and says why.
+    const held = autosave?.on === true && session.autosaveHeld;
+    // What Undo or Redo left waits for one too (ruled 11 Nov 2026): no automatic Save sends a step back, and Save says so.
+    const stepped = autosave?.on === true && session.autosaveStepped;
     const n = issues.length;
     const unsettled = session.unsettled;
     // Save waits for the conflicts to be chosen aria-disabled, never disabled: it keeps the focus, and its Tooltip says why.
@@ -312,41 +468,69 @@ export function HistoryBar<W>({
     const saveOff = !waiting && status !== "unknown" && !session.canApply && !commitToSave;
     if (phone) {
         const askingNow = asking && !discardOff;
-        // The focus back on Discard before what holds it goes.
-        const stopAsking = () => { discardRef.current?.focus({ preventScroll: true }); setAsking(false); };
+        // The focus back on Discard before what holds it goes — or on More, where the row has since put it in Discard's place.
+        const stopAsking = () => {
+            const discard = discardRef.current;
+            const gone = discard?.parentElement !== null && discard?.parentElement !== undefined && getComputedStyle(discard.parentElement).display === "none";
+            (gone ? discard.closest("[data-slot=history]")?.querySelector<HTMLElement>("[data-history-more]") ?? discard : discard)?.focus({ preventScroll: true });
+            setAsking(false);
+        };
         const ask = askingNow && <DiscardAsk head={m.discardAskHead()} title={m.discardAskTitle({ n: pending, count: words.number(pending) })} body={m.discardAskBody()}
             cancel={m.discardAskCancel()} confirm={m.discardAskConfirm()} styles={styles}
             cancelCss={buttonRecipe({ variant: "outline", size: "md" })} confirmCss={buttonRecipe({ variant: "solid", size: "md" })}
             onCancel={stopAsking} onConfirm={() => { stopAsking(); onAction("discard"); }} />;
         return <Box data-slot="history" data-history-form="phone" data-history-locked={locked ? "" : undefined} css={styles.root}>
             <Box css={styles.actions}>
-                {/* The row's start: what a Save is doing, else the drafts' count — a chip while there are any. */}
-                <Box css={styles.summary} role="status" aria-live="polite" data-history-summary={message !== undefined ? "message" : "count"}>
-                    {message !== undefined ? <Text as="span" css={styles.status}>{message}</Text>
-                        : <Box as="span" css={styles.changes} data-changes={pending > 0 ? "" : undefined}>{pending > 0 ? <CountWords text={m.historyChanges({ n: pending, count: words.number(pending) })} /> : m.historyChanges({ n: pending, count: words.number(pending) })}</Box>}
+                {/* The row's start: what a Save is doing, else the drafts' count — a chip while there are any, which says how
+                    many figures its number holds, for the row to show the number whole or not at all. */}
+                <Box css={styles.summary} role="status" aria-live="polite" data-history-summary={statusLine !== undefined ? "message" : "count"}>
+                    {statusLine !== undefined ? <Text as="span" css={styles.status}>{statusLine}</Text>
+                        : (() => {
+                            const counted = m.historyChanges({ n: pending, count: words.number(pending) });
+                            if (pending === 0) return <Box as="span" css={styles.changes}>{counted}</Box>;
+                            const space = counted.indexOf(" ");
+                            return <Box as="span" css={styles.changes} data-changes="" style={{ "--history-figures": (space < 0 ? counted : counted.slice(0, space)).length } as CSSProperties}>
+                                <CountWords text={counted} />
+                            </Box>;
+                        })()}
                 </Box>
-                {onOpenIssues === undefined
-                    ? <ConflictsControl session={session} words={words} onIssue={onConflict ?? onIssue} where={where} item={conflictItem} value={conflictValue} issueText={issueText} locked={locked} />
-                    : <VisuallyHidden aria-live="polite" data-conflicts-said="">{unsettled > 0 ? m.conflictsAppeared({ n: unsettled, count: words.number(unsettled) }) : ""}</VisuallyHidden>}
-                {/* The issues there whatever their number, off at none (FR6.3). */}
+                {/* The issues there whatever their number, off at none (FR6.3) — and the conflicts with them: the row holds its
+                    five squares whatever waits, so while a conflict waits, or they show, the square is theirs to open, named
+                    as their own button is, and the focus comes back to it as they close. A host that lists them in a view of
+                    its own opens that (ST7). */}
                 {(() => {
-                    const shown = onOpenIssues === undefined ? n : n + unsettled;
-                    const said = issuesWords(words, shown, warnings);
-                    const all = shown + warnings.length;
-                    return <HistoryButton styles={styles} label={said.label} tip={said.tip} locked={false} icon={faTriangleExclamation} disabled={all === 0}
-                        onClick={() => { if (onOpenIssues !== undefined) onOpenIssues(); else if (issues[0]) onIssue(issues[0]); else warnings[0]?.go(); }}
-                        content={all === 0 ? undefined : <Box as="span" css={styles.issuesCount} data-history-issues=""><FontAwesomeIcon icon={faTriangleExclamation} /><span>{words.number(all)}</span></Box>} />;
+                    const square = (conflicts: ConflictsSquare | undefined) => {
+                        const shown = n + unsettled;
+                        const all = shown + warnings.length;
+                        const theirs = conflicts !== undefined && conflicts.shown ? conflicts : undefined;
+                        const said = theirs ?? issuesWords(words, shown, warnings);
+                        return <HistoryButton styles={styles} label={said.label} tip={said.tip} locked={false} icon={faTriangleExclamation} disabled={all === 0 && theirs === undefined}
+                            expanded={theirs?.open} buttonRef={conflicts?.button} holds={conflicts?.closing}
+                            onClick={() => { if (theirs !== undefined) theirs.toggle(); else if (onOpenIssues !== undefined) onOpenIssues(); else if (issues[0]) onIssue(issues[0]); else warnings[0]?.go(); }}
+                            content={all === 0 ? undefined : <Box as="span" css={styles.issuesCount} data-history-issues=""><FontAwesomeIcon icon={faTriangleExclamation} /><span>{words.number(all)}</span></Box>} />;
+                    };
+                    return onOpenIssues === undefined
+                        ? <ConflictsControl session={session} words={words} onIssue={onConflict ?? onIssue} where={where} item={conflictItem} value={conflictValue} issueText={issueText} locked={locked} square={square} />
+                        : <><VisuallyHidden aria-live="polite" data-conflicts-said="">{unsettled > 0 ? m.conflictsAppeared({ n: unsettled, count: words.number(unsettled) }) : ""}</VisuallyHidden>{square(undefined)}</>;
                 })()}
                 <HistoryButton styles={styles} label={m.undo()} tip={m.undoTip()} icon={faArrowRotateLeft} disabled={!session.canUndo && !commitEditor} locked={locked} onClick={() => onAction("undo")} />
                 <HistoryButton styles={styles} label={m.redo()} tip={m.redoTip()} icon={faArrowRotateRight} disabled={!session.canRedo} locked={locked} onClick={() => onAction("redo")} />
+                {/* Discard, and — where the builder keeps a choice of an automatic Save — More after it: the row shows Discard
+                    where it holds it and Save's chevron both, and More in its place where it is short of them (the recipe's
+                    rule, over the row's own width). */}
                 <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={discardOff} locked={locked} expanded={askingNow} buttonRef={discardRef}
-                    onClick={() => setAsking(!asking)} />
-                {status === "reconciling" && !saving ? <HistoryButton styles={styles} label={m.retryRefresh()} icon={faRotate} disabled={false} locked={locked} onClick={() => onAction("refresh")} />
-                    : <HistoryButton styles={styles} label={status === "unknown" ? m.retryRequest() : m.apply()}
-                        tip={waiting ? m.applySettleFirst({ n: unsettled, count: words.number(unsettled) }) : saving ? message : undefined}
-                        icon={status === "unknown" ? faRotate : faCheck} disabled={saveOff} ready={!saveOff && !waiting && status === "idle"} busy={saving}
-                        content={saving ? <Box as="span" css={styles.live} aria-hidden data-history-live="" /> : undefined}
-                        locked={locked || waiting} onClick={() => onAction("apply")} />}
+                    holder={autosave === undefined ? undefined : styles.fits} onClick={() => setAsking(!asking)} />
+                {autosave !== undefined && <MoreControl choice={autosave} held={held} words={words} styles={styles} discardOff={discardOff} locked={locked} onDiscard={() => onAction("discard")} />}
+                {(() => {
+                    const save = status === "reconciling" && !saving ? <HistoryButton styles={styles} label={m.retryRefresh()} icon={faRotate} disabled={false} locked={locked} onClick={() => onAction("refresh")} />
+                        : <HistoryButton styles={styles} label={status === "unknown" ? m.retryRequest() : m.apply()}
+                            tip={waiting ? m.applySettleFirst({ n: unsettled, count: words.number(unsettled) }) : saving ? message : held ? m.applyHeld() : stepped ? m.applyStepped() : undefined}
+                            icon={status === "unknown" ? faRotate : faCheck} disabled={saveOff} ready={!saveOff && !waiting && status === "idle"} busy={saving} waits={held}
+                            content={saving ? <Box as="span" css={styles.live} aria-hidden data-history-live="" /> : undefined}
+                            locked={locked || waiting} onClick={() => onAction("apply")} />;
+                    return autosave === undefined ? save
+                        : <Box css={styles.save} data-history-save="">{save}<AutosaveControl choice={autosave} held={held} words={words} styles={styles} /></Box>;
+                })()}
             </Box>
             {ask !== false && (band !== null ? createPortal(ask, band) : ask)}
         </Box>;
@@ -355,7 +539,7 @@ export function HistoryBar<W>({
     const counted = n + warnings.length;
     return <Box data-slot="history" data-history-form={buttonsOnly ? "buttons" : "full"} data-history-locked={locked ? "" : undefined} css={styles.root}>
         <Box css={styles.actions}>
-            {!buttonsOnly && message !== undefined && <Text role="status" aria-live="polite" css={styles.status}>{message}</Text>}
+            {!buttonsOnly && statusLine !== undefined && <Text role="status" aria-live="polite" css={styles.status}>{statusLine}</Text>}
             {/* The conflicts button first, before Issues: it is what turns Save back on. */}
             <ConflictsControl session={session} words={words} onIssue={onConflict ?? onIssue} where={where} item={conflictItem} value={conflictValue} issueText={issueText} locked={locked} />
             {!buttonsOnly && <Box data-slot="historyIssues" data-empty={counted === 0 ? "" : undefined} data-warnings={warnings.length > 0 ? "" : undefined} css={styles.issues}>
@@ -365,12 +549,16 @@ export function HistoryBar<W>({
             <HistoryButton styles={styles} label={m.undo()} tip={m.undoTip()} icon={faArrowRotateLeft} disabled={!session.canUndo && !commitEditor} locked={locked} onClick={() => onAction("undo")} />
             <HistoryButton styles={styles} label={m.redo()} tip={m.redoTip()} icon={faArrowRotateRight} disabled={!session.canRedo} locked={locked} onClick={() => onAction("redo")} />
             <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={discardOff} locked={locked} onClick={() => onAction("discard")} />
-            {status === "reconciling" && !saving ? <HistoryButton styles={styles} label={m.retryRefresh()} icon={faRotate} disabled={false} locked={locked} onClick={() => onAction("refresh")} />
-                : <HistoryButton styles={styles} label={status === "unknown" ? m.retryRequest() : m.apply()}
-                    tip={waiting ? m.applySettleFirst({ n: unsettled, count: words.number(unsettled) }) : saving ? message : undefined}
-                    icon={status === "unknown" ? faRotate : faCheck} disabled={saveOff} busy={saving}
-                    content={saving ? <Box as="span" css={styles.live} aria-hidden data-history-live="" /> : undefined}
-                    locked={locked || waiting} onClick={() => onAction("apply")} />}
+            {(() => {
+                const save = status === "reconciling" && !saving ? <HistoryButton styles={styles} label={m.retryRefresh()} icon={faRotate} disabled={false} locked={locked} onClick={() => onAction("refresh")} />
+                    : <HistoryButton styles={styles} label={status === "unknown" ? m.retryRequest() : m.apply()}
+                        tip={waiting ? m.applySettleFirst({ n: unsettled, count: words.number(unsettled) }) : saving ? message : held ? m.applyHeld() : stepped ? m.applyStepped() : undefined}
+                        icon={status === "unknown" ? faRotate : faCheck} disabled={saveOff} busy={saving} waits={held}
+                        content={saving ? <Box as="span" css={styles.live} aria-hidden data-history-live="" /> : undefined}
+                        locked={locked || waiting} onClick={() => onAction("apply")} />;
+                return autosave === undefined ? save
+                    : <Box css={styles.save} data-history-save="">{save}<AutosaveControl choice={autosave} held={held} words={words} styles={styles} /></Box>;
+            })()}
         </Box>
         {showError && session.error !== undefined && <Text css={styles.error} role="alert">{sessionErrorText(session.error, words)}</Text>}
         {showError && session.error === undefined && keepingText !== undefined && <Text css={styles.notice} data-history-keeping="">{keepingText}</Text>}

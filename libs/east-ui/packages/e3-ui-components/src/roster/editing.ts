@@ -121,7 +121,7 @@ export function useRosterEditing(value: RosterValue, storageKey: string, span: R
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [value.duty, value.periods, value.targets, epoch, until]);
     const standing = useRef<ScheduleStandingRows | undefined>(undefined);
-    const schedule = useScheduleEditing({ kinds, records, reads, standing, storageKey, joined: NO_JOINED, range, recordSlices });
+    const schedule = useScheduleEditing({ kinds, records, reads, standing, storageKey, joined: NO_JOINED, range, recordSlices, autosave: value.settings.autosave });
     const duty = value.duty.kind.key;
     const sessionOf = (key: string): EditSession<ScheduleEntryRef> | undefined => schedule.sessions.find(held => held.kind === key)?.session;
     // Each draft decoded once: a session keeps an entry's version the same object until a gesture replaces it.

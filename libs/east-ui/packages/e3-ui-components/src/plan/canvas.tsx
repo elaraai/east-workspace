@@ -303,6 +303,8 @@ export interface PlanCanvasArgs {
     busy?: boolean | undefined;
     /** The app's optimiser (#1409): its binding, which the Elara eye calls by name; none, no eye. */
     optimise?: { readonly name: string } | undefined;
+    /** Whether the Plan's Autosave begins on, as its author says: its one history's choice begins there. */
+    autosave?: boolean | undefined;
 }
 
 /** No panel tab whose cards land on the rows. */
@@ -314,12 +316,12 @@ const NO_PANEL: readonly string[] = [];
  * toolbar, banners and footer are drawn from — see the module docs. The
  * frame calls it once per render and places what it hands back.
  *
- * @param args - The root, its storage key, the event kinds' rows, what the viewer hides, the panel's tabs whose cards land, the event kinds, the resource kinds, the library's tabs, the event kinds' drop veto, the resources the rail shows, and whether their narrowing is resolving
+ * @param args - The root, its storage key, the event kinds' rows, what the viewer hides, the panel's tabs whose cards land, the event kinds, the resource kinds, the library's tabs, the event kinds' drop veto, the resources the rail shows, whether their narrowing is resolving, and whether its Autosave begins on
  * @returns The canvas's parts: its contexts, main, its declared bound, and its chrome's facts
  */
 export function usePlanCanvas({
     value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds = NO_KINDS,
-    resources = NO_RESOURCES, tabs = NO_TABS, canDrop, shown: shownResources = ALL_SHOWN, busy = false, optimise,
+    resources = NO_RESOURCES, tabs = NO_TABS, canDrop, shown: shownResources = ALL_SHOWN, busy = false, optimise, autosave = false,
 }: PlanCanvasArgs): PlanCanvasParts {
     planRootRenderProbe?.();
     // Changes identity on a DATA change only — read data fields through it,
@@ -428,7 +430,7 @@ export function usePlanCanvas({
     // left it, over cells read before the commit, until they are read again.
     const drawsLanded = useMemo(() => new Set(cellKinds(eventParts)), [eventParts]);
     const eventEditing = usePlanEventEditing({
-        kinds, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: heldCells, drawsLanded,
+        kinds, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: heldCells, drawsLanded, autosave,
     });
     const history = eventEditing.history;
     historyRef.current = history;

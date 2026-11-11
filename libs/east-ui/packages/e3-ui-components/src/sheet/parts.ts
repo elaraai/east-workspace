@@ -247,6 +247,11 @@ export interface SheetHost {
      * inspector, whose fields have no bounds.
      */
     forms?: SheetForms | undefined;
+    /**
+     * Whether the Autosave of the builder the sheet is laid in begins on, as its payload carries its author's word: what
+     * the editing session's choice begins at, until its viewer chooses. Absent, off.
+     */
+    autosave?: boolean | undefined;
 }
 
 /**

@@ -972,6 +972,7 @@ describe("<Schematic>'s payload, through its carrier", () => {
         assert.deepEqual([payload.zones.length, payload.links.length, payload.nets.length, payload.layers.length, payload.library.length], [0, 0, 0, 0, 0]);
         assert.equal(payload.inspector, false, "the inspector is opted into, as the Plan's, the Roster's and the Calendar's");
         assert.equal(payload.readOnly, false);
+        assert.equal(payload.autosave, false, "Autosave begins off unless its author says otherwise");
         assert.equal(payload.slice.type, "none");
         assert.equal(payload.shown.size, 0);
         assert.equal(payload.narrowed.show.type, "hide", "a narrowed-out row is hidden by default");
@@ -983,12 +984,13 @@ describe("<Schematic>'s payload, through its carrier", () => {
         }
     });
 
-    hostTest("`narrowed`, `inspector`, `readOnly`, `id`, the layers and the host's callbacks cross as given", () => {
+    hostTest("`narrowed`, `inspector`, `readOnly`, `autosave`, `id`, the layers and the host's callbacks cross as given", () => {
         const payload = carried(($) => {
             const systems = $.const(SYSTEMS, DictType(StringType, System));
             return floor($, {
                 narrowed: { show: "dim", opacity: 0.2, dot: true, emphasis: "pulse", frame: true, fit: true },
-                inspector: true, readOnly: true, id: "hall-1",
+                // Where Autosave begins is data's to drive: an expression, as a literal.
+                inspector: true, readOnly: true, autosave: systems.size().greater(0n), id: "hall-1",
                 layers: Schematic.layers(systems, { label: (s) => s.label, color: (s) => some(s.colour), order: (s) => s.order, locked: (s) => s.fixed }),
                 onSelect: East.function([ArrayType(Schematic.Types.Ref)], NullType, (_$, _selected) => null),
                 canConnect: East.function([Schematic.Types.Candidate], OptionType(StringType), (_$, c) =>
@@ -1001,6 +1003,7 @@ describe("<Schematic>'s payload, through its carrier", () => {
         assert.ok(equalFor(OptionType(Schematic.Types.Emphasis))(payload.narrowed.emphasis, some(variant("pulse", null))));
         assert.equal(payload.inspector, true);
         assert.equal(payload.readOnly, true);
+        assert.equal(payload.autosave, true, "Autosave begins on, as the expression its author gave says");
         assert.ok(equalFor(OptionType(StringType))(payload.id, some("hall-1")));
         assert.ok(equalFor(ArrayType(Schematic.Types.Layer))(payload.layers, [
             { key: "structure", label: "Structure", visible: none, locked: some(true), opacity: none, tone: none, color: some("fg.muted") },

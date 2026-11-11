@@ -15,7 +15,7 @@ import { calendarAhead, calendarRange, DAY, inputInstant, inWindow, navigate, pe
 import { TIMELINE_GUTTER, timelineDayWidth, timelineDays, timelineLanes, timelineOpensAt, timelinePixels, timelineScrollTo, timelineVisible } from "./timeline.js";
 import { ScheduleItemType } from "@elaraai/e3-ui/internal";
 const settings: CalendarValue["settings"] = { layout: variant("calendar", null), views: [], viewPeriods: [], period: variant("week", null), date: none,
-    hours: { from: 6n, to: 22n }, weekStart: variant("monday", null), weekends: true, density: variant("comfortable", null), now: none, readOnly: false };
+    hours: { from: 6n, to: 22n }, weekStart: variant("monday", null), weekends: true, density: variant("comfortable", null), now: none, readOnly: false, autosave: false };
 const view: CalendarView = { layout: "calendar", period: "week", date: Date.UTC(2026, 9, 1) };
 test("UTC week/month/day windows and weekends, including a year boundary", () => {
     expect(calendarRange(view, settings).days.map(day => day.getUTCDay())).toEqual([1, 2, 3, 4, 5, 6, 0]);

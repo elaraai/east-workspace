@@ -17,6 +17,7 @@
 import { EastTypeType, StringType, StructType, printFor, type EastType, type EastTypeValue, type ValueTypeOf } from "@elaraai/east";
 import type { EditingType } from "@elaraai/east-ui/internal";
 import type { UIStoreInterface } from "../platform/state-store.js";
+import { autosaveChoiceKey, beginAutosave, keepAutosaveChoice } from "./autosave-choice.js";
 import { EditHistory } from "./history.js";
 import type { EditSession, EditSessionBinding } from "./session.js";
 
@@ -158,13 +159,21 @@ export function bindingOf<W>(
  * @param store - The UI store
  * @param scope - The data set, as its host names it (the host's `EditingScope`)
  * @param view - The view's key
+ * @param autosave - What the builder's author begins its choice of an automatic Save at, where the history is made now
  * @returns The history
  */
-export function keptHistory<W>(store: UIStoreInterface, scope: string, view: string): EditHistory<W> {
+export function keptHistory<W>(store: UIStoreInterface, scope: string, view: string, autosave = false): EditHistory<W> {
     let views = histories.get(store);
     if (!views) { views = new Map(); histories.set(store, views); }
     const key = viewKey({ scope, view });
     let history = views.get(key);
-    if (!history) { history = new EditHistory<unknown>(); views.set(key, history); }
+    if (!history) {
+        history = new EditHistory<unknown>();
+        // Its builder's choice of an automatic Save is kept by its data set and its view, and begins where its author
+        // says, from the render that makes the history: nobody hears it yet.
+        keepAutosaveChoice(history, autosaveChoiceKey(scope, view));
+        beginAutosave(history, autosave);
+        views.set(key, history);
+    }
     return history as EditHistory<W>;
 }

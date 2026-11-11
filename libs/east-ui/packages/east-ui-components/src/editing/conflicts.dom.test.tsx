@@ -318,6 +318,93 @@ test("locked while an optimiser run is out: it opens, its choices and its foot a
     expect(session.unsettled).toBe(1);
 });
 
+test("in a phone's row the conflicts are the Issues square's: no button of their own joins the row's five; the square counts them and a press opens them; every one chosen and closed, the square is Issues' again", async () => {
+    const session = conflicted(["a", "b"]);
+    const { container } = mount(session, { phone: true });
+    const squares = () => [...container.querySelectorAll<HTMLButtonElement>("[data-history-form='phone'] button")].map((b) => b.getAttribute("aria-label"));
+    const square = () => container.querySelector<HTMLButtonElement>("[data-history-form='phone'] button")!;
+    // The row's five, whatever waits: a sixth would take the count's room, and push Save past a narrow row's end.
+    expect(button()).toBeNull();
+    expect(squares()).toEqual(["2 conflicts", "Undo", "Redo", "Discard", "Save"]);
+    expect([square().disabled, square().getAttribute("aria-expanded"), square().textContent]).toEqual([false, "false", "2"]);
+    // A press opens the conflicts, as their own button does in a toolbar's row.
+    fireEvent.click(square());
+    await waitFor(() => expect(cards()).toHaveLength(2));
+    expect(square().getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Keep all mine" }));
+    await waitFor(() => expect(session.unsettled).toBe(0));
+    // Still the conflicts' while they show, each folded to how it was chosen, and named as their own button is then; pressed
+    // again, they close, and the square is Issues'.
+    expect([square().getAttribute("aria-expanded"), square().getAttribute("aria-label")]).toEqual(["true", "All 2 conflicts chosen. Save is on."]);
+    fireEvent.click(square());
+    await waitFor(() => expect(cards()).toHaveLength(0));
+    await waitFor(() => expect(squares()).toEqual(["0 issues", "Undo", "Redo", "Discard", "Save"]));
+    // Off, with nothing left to open: aria-disabled while it holds the focus the conflicts gave back, disabled once that moves on.
+    expect([square().disabled, square().getAttribute("aria-disabled"), square().getAttribute("aria-expanded")]).toEqual([false, "true", null]);
+    act(() => { square().blur(); });
+    expect([square().disabled, square().getAttribute("aria-disabled")]).toEqual([true, null]);
+});
+
+test("in a phone's row an issue beside the conflicts is counted with them, and the press is the conflicts' while one waits", async () => {
+    const session = conflicted(["a"]);
+    const go = vi.fn();
+    const { container } = mount(session, { phone: true, warnings: [{ text: "Run b · End: at least 0", go }] });
+    const square = () => container.querySelector<HTMLButtonElement>("[data-history-form='phone'] button")!;
+    // One conflict and one warning: two to look at, the conflict first — it is what holds Save.
+    expect([square().getAttribute("aria-label"), square().textContent]).toEqual(["1 conflict", "2"]);
+    fireEvent.click(square());
+    await waitFor(() => expect(cards()).toHaveLength(1));
+    expect(go).not.toHaveBeenCalled();
+});
+
+/** A phone's row over one conflict, its conflicts opened from the Issues square and the focus in them, as it lands a frame after they open. */
+async function phoneOpened(session: EditSession<string>) {
+    const { container } = mount(session, { phone: true });
+    const square = () => container.querySelector<HTMLButtonElement>("[data-history-form='phone'] button")!;
+    fireEvent.click(square());
+    await waitFor(() => expect(cards()).toHaveLength(1));
+    await waitFor(() => expect(document.activeElement?.closest('[role="dialog"]')).not.toBeNull());
+    return square;
+}
+
+test("in a phone's row the square takes the focus back as the conflicts close: off by then, every one chosen, it keeps it — aria-disabled — until the focus moves on", async () => {
+    const session = conflicted(["a"]);
+    const square = await phoneOpened(session);
+    fireEvent.click(screen.getByRole("button", { name: "Keep all mine" }));
+    await waitFor(() => expect(session.unsettled).toBe(0));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(square().getAttribute("aria-expanded")).toBeNull());
+    // Nothing left for the square to open, so it is off — and the focus is on it all the same, never dropped to the page.
+    expect(document.activeElement).toBe(square());
+    expect([square().getAttribute("aria-label"), square().disabled, square().getAttribute("aria-disabled")]).toEqual(["0 issues", false, "true"]);
+    // The focus moved on, it is off as any square with nothing to do.
+    act(() => { square().blur(); });
+    expect([square().disabled, square().getAttribute("aria-disabled")]).toEqual([true, null]);
+});
+
+test("in a phone's row conflicts that go from under the focus — their drafts discarded — hand it to the square too, which has nothing left to open", async () => {
+    const session = conflicted(["a"]);
+    const square = await phoneOpened(session);
+    act(() => { session.discard(); });
+    await waitFor(() => expect(cards()).toHaveLength(0));
+    expect([session.unsettled, session.chosen]).toEqual([0, 0]);
+    expect(document.activeElement).toBe(square());
+    expect([square().getAttribute("aria-label"), square().disabled, square().getAttribute("aria-disabled")]).toEqual(["0 issues", false, "true"]);
+});
+
+test("in a phone's row a focus a person moved elsewhere stays there as the conflicts close: the square takes back only what they held", async () => {
+    const session = conflicted(["a"]);
+    const square = await phoneOpened(session);
+    // Discard: the row's one other square that acts while a conflict waits.
+    const elsewhere = screen.getByRole("button", { name: "Discard" }) as HTMLButtonElement;
+    expect(elsewhere.disabled).toBe(false);
+    act(() => { elsewhere.focus(); });
+    expect(document.activeElement).toBe(elsewhere);
+    fireEvent.click(square());
+    await waitFor(() => expect(square().getAttribute("aria-expanded")).toBe("false"));
+    expect(document.activeElement).toBe(elsewhere);
+});
+
 test("once every one is chosen, the button leaves as the popover closes", async () => {
     const session = conflicted(["a"]);
     const ui = mount(session);

@@ -34,8 +34,9 @@
  * The sheet is an interface. Its payload holds the sheet whole — its grid,
  * its rows, its narrowing's chrome and its session ({@link SheetRootType}) —
  * beside the templates' cards and seeds, the library's tabs, each source's
- * narrowed keys, the inspector's pane, the record's history and the sheet's
- * name. The `Sheet` renderer in `@elaraai/e3-ui-components` draws it.
+ * narrowed keys, the inspector's pane, the record's history, whether its
+ * Autosave begins on, and the sheet's name. The `Sheet` renderer in
+ * `@elaraai/e3-ui-components` draws it.
  *
  * @packageDocumentation
  */
@@ -183,6 +184,7 @@ export const SheetVocabularyType = StructType({
  * @property history - Over a record, its commits: the last save, and who changed it; `none` over `data`
  * @property missing - With `entry`, the entry's key while the record does not hold it: what the frame's banner names
  * @property vocabulary - The app's words for what the sheet draws of its own (#1516)
+ * @property autosave - Whether its Autosave begins on
  * @property name - Names the sheet, when a surface holds two
  */
 export const SheetPayloadType = StructType({
@@ -195,6 +197,7 @@ export const SheetPayloadType = StructType({
     history: OptionType(SheetHistoryType),
     missing: OptionType(StringType),
     vocabulary: SheetVocabularyType,
+    autosave: BooleanType,
     name: OptionType(StringType),
 });
 
@@ -362,6 +365,13 @@ export interface SheetCommon<L extends StructType, G extends StructType = never>
      * `unassigned`, a link's `source` and `destination`, and a dated column's `wanted` and `actual`.
      */
     vocabulary?: SheetVocabularyProp;
+    /**
+     * Whether Autosave — the switch in Save's menu — begins on; off by default. On, the sheet's changes are saved by
+     * themselves a pause after the viewer's last act: never an optimiser's result, an Undo or a Redo, which wait for a press of Save. A
+     * literal, or an expression data drives. The viewer's own choice, once made, is kept in their browser for the data
+     * set and the sheet, and stands over it.
+     */
+    autosave?: SubtypeExprOrValue<BooleanType>;
     /** Names the sheet — needed only when one surface holds two. */
     name?: string;
 }
@@ -389,6 +399,7 @@ type SheetAnyProps = {
     optimise?: unknown;
     views?: unknown;
     vocabulary?: SheetVocabularyProp;
+    autosave?: SubtypeExprOrValue<BooleanType>;
     name?: string;
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
     newRow?: unknown;
@@ -409,7 +420,7 @@ const NarrowedType = DictType(StringType, RowSourceType(ArrayType(StringType)));
  * `Sheet` carrier — for the tests and the renderer's fixtures, which read it
  * whole: the sheet over its rows, its templates, its library's tabs, each
  * source's narrowed keys, its inspector pane, the record's history, the
- * missing entry's key and the sheet's name.
+ * missing entry's key, whether its Autosave begins on and the sheet's name.
  *
  * @param props - The sheet's props, as `<Sheet>` takes them
  * @param internal - What only e3-ui's own builders pass: `recordKinds`, for `<Record>`'s columns
@@ -419,7 +430,7 @@ const NarrowedType = DictType(StringType, RowSourceType(ArrayType(StringType)));
  */
 export function createSheetPayload(props: { columns: unknown } & { [prop: string]: unknown }, internal: { recordKinds?: boolean } = {}): ExprType<SheetPayloadType> {
     const recordKinds = internal.recordKinds === true ? { recordKinds: true } : {};
-    const { record, entry, window, data, columns, slice, templates, library, fields, groupFields, inspector, optimise, views, vocabulary, name, ...sheet } = props as SheetAnyProps;
+    const { record, entry, window, data, columns, slice, templates, library, fields, groupFields, inspector, optimise, views, vocabulary, autosave, name, ...sheet } = props as SheetAnyProps;
     const words = sheetVocabulary(vocabulary);
     // The narrowing's props #1345 retired, refused by name for an app that still passes them.
     if (slice instanceof Expr || (slice !== undefined && (typeof slice !== "object" || slice === null || !("slice" in slice)))) {
@@ -499,7 +510,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
         // The bridge's functions, each bound once here for every wire function the sheet builds to refer to.
         const hold = <T extends EastType>(value: ExprType<T>): ExprType<T> => $.const(value) as ExprType<T>;
         const narrowed = East.value(new Map(Object.entries(bound.keys)) as never, NarrowedType) as ExprType<typeof NarrowedType>;
-        const parts = { templates: checked, library, sources: sources.names, narrowed, fields, groupFields, inspector, optimise, vocabulary: words, name, newRow: sheet.newRow, newGroup: sheet.newGroup };
+        const parts = { templates: checked, library, sources: sources.names, narrowed, fields, groupFields, inspector, optimise, vocabulary: words, autosave, name, newRow: sheet.newRow, newGroup: sheet.newGroup };
         if (pagesRows) {
             // The rows source's record, every row in its own order (#1349) — the renderer draws the source's narrowing
             // over them as the lens — and its record's identity, which names the session over them.
@@ -576,7 +587,7 @@ function recordRowsOf(part: RecordRowsPart): ExprType<StructType> {
     } as never, PinnedSourceType(collection)) as unknown as ExprType<StructType>;
 }
 
-/** The payload around a built sheet: its templates, its library, each source's narrowed keys, its inspector pane, its history and its name. */
+/** The payload around a built sheet: its templates, its library, each source's narrowed keys, its inspector pane, its history, whether its Autosave begins on and its name. */
 function payloadOf(built: SheetBuild, parts: {
     templates: readonly SheetTemplatesList[];
     library: SheetAnyProps["library"];
@@ -587,6 +598,7 @@ function payloadOf(built: SheetBuild, parts: {
     inspector: unknown;
     optimise: unknown;
     vocabulary: ValueTypeOf<typeof SheetVocabularyType>;
+    autosave: SubtypeExprOrValue<BooleanType> | undefined;
     name: string | undefined;
     newRow: unknown;
     newGroup: unknown;
@@ -605,6 +617,7 @@ function payloadOf(built: SheetBuild, parts: {
         history: parts.history,
         missing: parts.missing,
         vocabulary: parts.vocabulary,
+        autosave: parts.autosave ?? false,
         name: parts.name === undefined ? none : some(parts.name),
     }, SheetPayloadType);
 }

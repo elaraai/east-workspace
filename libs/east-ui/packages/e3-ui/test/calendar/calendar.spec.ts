@@ -15,7 +15,8 @@ import * as ex from "./calendar.examples.js";
 describeEast("Calendar — bound examples", test => {
     Assert.examples(test, { calendarMinimal: ex.calendarMinimal, calendarViews: ex.calendarViews, calendarOperations: ex.calendarOperations, calendarWording: ex.calendarWording,
         calendarMobile: ex.calendarMobile, calendarReadOnly: ex.calendarReadOnly, calendarWindowed: ex.calendarWindowed, calendarQuickstart: ex.calendarQuickstart, calendarCustomInspector: ex.calendarCustomInspector,
-        calendarConflicts: ex.calendarConflicts, calendarEventTitles: ex.calendarEventTitles, calendarTimelineAlone: ex.calendarTimelineAlone });
+        calendarConflicts: ex.calendarConflicts, calendarEventTitles: ex.calendarEventTitles, calendarTimelineAlone: ex.calendarTimelineAlone,
+        calendarAutosave: ex.calendarAutosave });
 }, { platformFns: TestImpl });
 
 // What the payload and its kinds read of e3 — the machines, the jobs and their templates, a window, the backlog, an
@@ -89,6 +90,14 @@ describe("the layouts and periods a Calendar offers (#1589)", () => {
 
     test("a `view` both lists hold builds", () => {
         assert.doesNotThrow(() => offered({ views: ["timeline"], viewPeriods: ["week", "month"], view: { layout: "timeline", period: "week" } }));
+    });
+
+    test("`autosave` says where Autosave begins: left out, a literal, or an expression data drives — a Boolean, and nothing else", () => {
+        assert.doesNotThrow(() => offered({}));
+        assert.doesNotThrow(() => offered({ autosave: true }));
+        assert.doesNotThrow(() => offered({ autosave: East.value(1n).greater(0n) }));
+        assert.throws(() => offered({ autosave: "on" }));
+        assert.throws(() => offered({ autosave: East.value(1n) }));
     });
 });
 

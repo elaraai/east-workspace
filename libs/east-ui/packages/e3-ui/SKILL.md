@@ -283,9 +283,8 @@ datasets in `inputs` (their values passed to `fn`), every dataset, record and
 paged source the body binds, and every `Func.bind`. `fn` returns
 `UIComponentType` exactly. It runs on `east-c` by default; where only the Node
 runner is installed, pass `{ runner: { runtime: "east-node" } }` as
-`options`. Bindings
-take the def itself (`e3.input`, `e3.task`, `e3.record`, `e3.function`), so the
-path and type are fixed when the IR is built.
+`options`. Bindings take the def itself (`e3.input`, `e3.task`, `e3.record`,
+`e3.function`), so the path and type are fixed when the IR is built.
 
 ### `Data.bind(dataset, options?)`
 
@@ -373,6 +372,7 @@ launches a call from a button and shows its result;
   narrowing and remount. While a kind's `ready` refuses a draft, Save waits:
   the entry's panel shows the refusal over its form, the field ringed, an
   Issues tab lists it, and the history's warning button selects the entry.
+  Save's menu holds Autosave, off unless `autosave` (a Boolean) begins it on.
 - **It renders in its own frame**: one toolbar, the canvas, a footer, and the
   panes its props ask for (`library`, `inspector`). Give it a box with a height.
 - **One rail narrows it**: `slice={{ slice: Slice.bindRecords(key, { … }) }}`,

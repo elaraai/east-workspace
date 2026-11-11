@@ -302,6 +302,13 @@ describe("the People layout's periods, its patterns and its display props (#1406
         assert.throws(() => payload(() => ({ tileTimes: "sometimes" } as never)), /Roster: `tileTimes` is "always" or "different" — .* — and it is sometimes/);
         assert.throws(() => payload(() => ({ letters: "yes" } as never)), /Roster: `letters` is true or false — .* — and it is yes/);
     });
+
+    test("`autosave` says where Autosave begins: left out, a literal, or an expression data drives — a Boolean, and nothing else", () => {
+        assert.doesNotThrow(() => payload(() => ({ autosave: true })));
+        assert.doesNotThrow(() => payload(() => ({ autosave: East.value(1n).greater(0n) })));
+        assert.throws(() => payload(() => ({ autosave: "on" } as never)));
+        assert.throws(() => payload(() => ({ autosave: East.value(1n) } as never)));
+    });
 });
 
 describe("Roster.targets", () => {

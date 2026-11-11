@@ -127,7 +127,9 @@ export function useAllocationEditing(value: AllocationValue, storageKey: string,
     const boundsOf = useMemo(() => ({ [value.bin.kind.key]: binBounds(value.bin) }), [value.bin]);
     // A bin's quantity and its split across resources change together: one conflict, under the board's word for a quantity.
     const standing = useRef<ScheduleStandingRows | undefined>(undefined);
-    const schedule = useScheduleEditing({ kinds, records, reads, standing, storageKey, joined: NO_JOINED, range, recordSlices, quantityLabel: value.labels.quantity, boundsOf });
+    const schedule = useScheduleEditing({
+        kinds, records, reads, standing, storageKey, joined: NO_JOINED, range, recordSlices, quantityLabel: value.labels.quantity, boundsOf, autosave: value.settings.autosave,
+    });
     const bin = value.bin.kind.key;
     const sessionOf = (key: string): EditSession<ScheduleEntryRef> | undefined => schedule.sessions.find(held => held.kind === key)?.session;
     // Each draft decoded once: a session keeps an entry's version the same object until a gesture replaces it.

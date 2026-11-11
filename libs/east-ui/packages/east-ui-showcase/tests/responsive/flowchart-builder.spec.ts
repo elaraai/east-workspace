@@ -59,8 +59,8 @@ const COMBINATIONS = [
 /** A frame wide enough to pin both panes beside main's 480px. */
 const WIDE = 1200;
 
-/** The history item's last button: Save, in the toolbar's row or, in a phone's frame, its second row. */
-const saveOf = (root: Locator): Locator => root.locator("[data-slot='history'] button").last();
+/** The history item's Save, by its name — the chevron of its choice of an automatic Save stands after it: in the toolbar's row or, in a phone's frame, its second row. */
+const saveOf = (root: Locator): Locator => root.locator("[data-slot='history']").getByRole("button", { name: "Save", exact: true });
 
 /**
  * Where each region's box meets the next: main's start against the library's

@@ -235,6 +235,14 @@ describe("<Query.Builder> — the editing session (#935)", () => {
         expect(await h.commits()).toEqual(before);
     });
 
+    test("E6: every Save of a query is a person's — its history item keeps no choice of an automatic Save, and draws no chevron beside Save", async () => {
+        const { state, container } = await mountSession();
+        await gesture(state, withStep(state(), "limit"), "Keep the first");
+        expect(enabled("Save")).toBe(true);
+        // Save alone, no split: an automatic Save would pass a new query's name by.
+        expect(container.querySelector("[data-history-save], [data-history-autosave]")).toBeNull();
+    });
+
     test("E6: a new query saved under its name opens as that saved query, once its session has taken the save", async () => {
         const { state, container } = await mountSession();
         // The save popover (#936) names the query — one gesture — and applies it.

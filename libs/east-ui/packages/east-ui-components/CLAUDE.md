@@ -391,10 +391,13 @@ component, nothing in east-ui.
   Frame Spec.md` in `libs/east-ui/docs/proposals`, ruled 3 Nov 2026) stacks
   its regions and gives main the frame's whole width. The items that draw a
   `secondRow` (`ToolbarItem.secondRow`: the history's phone form,
-  `HistoryBar`'s `phone` — the drafts' count, Issues off at none, the four
-  buttons at 44px, Discard asking first in a band under the row
-  (`FrameSessionBand`), its conflicts in the bottom panel — and the
-  Elara eye before it) leave the first row for the toolbar's second row,
+  `HistoryBar`'s `phone` — the drafts' count, its number whole or not there,
+  Issues off at none, the four buttons at 44px, Discard asking first in a
+  band under the row (`FrameSessionBand`) — or, in a row short of Discard and
+  Save's chevron both, More in its place, holding the two — and no conflicts button: the row
+  holds its five squares whatever waits, Issues counting the conflicts and
+  opening them in the bottom panel, the focus back on it as they close — and
+  the Elara eye before it) leave the first row for the toolbar's second row,
   44px, always shown. The footer's `LoadingLine` draws itself at that row's
   start in its short form (`SessionRowSlot`), the count stepping aside while
   it shows, and a footer whose line it so takes is not shown, mounted still;
@@ -611,7 +614,62 @@ component, nothing in east-ui.
   Discard stays off until the request resolves. A host that tells a Save's own entries from those drafted since it
   was sent asks `sends(id)` (the Sheet's counts). Over several sessions (`EditHistory`), a session whose drafts fail
   their checks, or that holds a conflict still to choose, holds back its own changes alone: Save sends the others',
-  and waits, saying why, only once nothing else can be sent.
+  and waits, saying why, only once nothing else can be sent. An entry first drafted while a Save was out began from
+  a version read before the revision that Save made: where another write changed the same part of it meanwhile, the
+  source refuses the next Save with nothing newer to move to. The session reads a refused Save's entries at its own
+  revision too, once (`nameConflicts`), and where a change no longer applies there carries its drafts over at that
+  revision, as to one the source moves to — the part both changed a conflict to choose — rather than wait for a
+  revision that never comes.
+- **An automatic Save** (`src/editing/autosave.ts`, `use-autosave.ts`, `autosave-choice.ts`). Where a builder keeps a
+  session or a history (`useEditSession`, `useEditHistory`), the history bar's Save is a split button: its chevron opens
+  the choice — one switch, Autosave (ruled 11 Nov 2026: the theme's switch and its one word, never a pair of choices to
+  read). It begins where the builder's author says — `useEditSession`'s and `useEditHistory`'s `autosave`, which each
+  builder gives its payload's (ruled 11 Nov 2026: a Boolean the author writes or data drives); off, said nothing — and
+  follows the author's word as it moves, until its viewer flicks it: the viewer's own choice is then kept for the
+  builder in the browser, by its data set (`EditingScope`) and its view, and stands over the author's, so a choice made
+  over one data set never saves another's (`autosave-choice.ts`' `beginAutosave`; kept state's `useKeptValue` reads a
+  choice as kept, nothing while none is). The switch is within reach in every form of the bar, so an author's on is
+  never one nobody can turn off: a phone's row shows the buttons themselves where they fit — Discard, and Save's chevron
+  a square on Save's edge — and where it is short of them (ruled 11 Nov 2026) More, an ellipsis square in Discard's
+  place, which opens the switch and Discard changes in the frame's bottom panel; the row is its five squares either way
+  (`HistoryBar.tsx`' `MoreControl`, the `editHistory` recipe's `whereRowIsShort`). On, the changes are sent a pause (two seconds) after
+  the person's last act — a gesture, a key pressed, a pointer let go — one request at a time; never under a held
+  pointer, a drag, an open editor (the bar's `editing`) or a run of the optimiser (`locked`); at once as the tab is
+  hidden; and what fails is tried again, each wait twice the last up to a minute. One timer a session or history, shared
+  by every form of the bar its toolbar draws, there while a bar shows it. It sends through the session itself, never the
+  bar's `onAction`, so it commits no open editor. An optimiser's result is never sent by itself
+  (`EditSession.heldFrom`): what was changed before it goes, and the result and every change made after it — in any
+  session of a history, in the order the gestures were made — wait for a person's Save, which takes every step done so
+  far; an Undo of the result ends the wait too. While one waits, the split button — Save and its chevron, one outline —
+  wears the Elara ring (`theme/elara-ring.ts`), and Save's tooltip and the panel say why. Nor is an Undo or a Redo
+  ever sent by itself (ruled 11 Nov 2026, `EditSession.stepped`): an automatic Save sends only from where the last
+  change left the steps, so a person who steps back to look has saved nothing, and one who wants an earlier state
+  saved presses Save, which takes where the steps stand as theirs — Save's tooltip says so meanwhile. Back where the
+  last change left them nothing waits; the next change is saved with what stands under it; over several sessions the
+  step is the history's; and where the history goes, or the page reloads, what Undo left waits as it did. Where the history that held a result goes — a carry-over, a read back beside
+  another write, a reload — every draft waits. An automatic Save shows on Save alone, its live dot: its words in the row
+  would come and go every few seconds. A collection whose every Save is a person's keeps no choice
+  (`useEditSession`'s `manualSave`): the query builder, whose Save asks a new query its name, which an automatic Save
+  would pass by — so a host whose Save asks the person something first opts out, never the bar. The chevron is named
+  `Automatic saving`: beside Save, no second button holds `Save` in its name, so whoever asks the page for Save by a
+  part of its name — a script's `getByRole("button", { name: "Save" })`, a voice — finds Save alone. The two parts
+  stand edge to edge, the edge between them the chevron's, and the bar is no wider for the chevron: with the split
+  its five squares stand 4 apart in place of 8 and the chevron takes the 16 that leaves (12 where the bar is its
+  buttons alone), so no toolbar's row folds sooner than it did — a row may have a few pixels to spare at a width
+  that matters, as the Calendar's has at 768. Under a touch pointer each square, and the chevron, takes its target's
+  height alone, none a tap meant for the one beside it (`editHistory`). In a phone's frame the chevron is a square of the second row on Save's edge, there
+  where the row holds its six squares whole — the recipe's rule over the row's own width (`ROW_HOLDS`: 280px of the
+  row's content, the five squares and its own, the eye's 48 more while it is in the row; so from a 308px frame, 356px
+  with the eye) — and its choice opens in the frame's bottom panel, as the row's conflicts do. The drafts' count gives
+  way to the six until the row holds its room too (`ROW_COUNTS`: 310px; a 338px frame, 386px with the eye): between
+  the two widths it is a pixel wide, its words wrapped under its clip, and takes none of the row. Short of the six
+  (ruled 11 Nov 2026: the buttons themselves wherever they fit, More only where they do not) there is no room for a
+  sixth square of any kind: the chevron is not there, Save is a whole square
+  and More stands in Discard's place: one press opens the Autosave switch and Discard changes in the bottom panel, and
+  Discard changes discards at its one press — the press of More came first, as the row's own Discard asks first in its
+  band. Both forms are in the page and the recipe shows one (`whereRowIsShort`, the exact other side of the chevron's
+  width); a bar no row asks its width — outside a frame, or in a page that lays nothing out — draws the buttons
+  themselves. The browser suite holds all of it on the page's e3 (`autosave.spec.ts`, `builder-frame-phone.spec.ts`).
 - **The data set editing belongs to** (`EditingScope`, `src/editing/scope.ts`).
   A host whose sources are one data set's names it — e3-ui-components'
   `E3Provider` names the server, repository and workspace — and each

@@ -159,6 +159,70 @@ describe("drafts kept through a reload", () => {
         expect(stored()).toBeNull();
     });
 
+    test("an optimiser's result that waited for a person's Save waits still after a reload: no automatic Save sends the restored drafts until a person's Save takes them", () => {
+        const s = drafted();
+        s.record([{ id: "J2", before: version("J2", band), after: version("J2", { ...band, qty: 9n }) }], "optimise", "Elara run #1");
+        expect([s.autosaveHeld, s.canAutosave]).toEqual([true, true]);
+        reload();
+        const after = session();
+        after.observeBase(jobs());
+        // Restored with no history to tell the result from the rest: every draft waits.
+        expect([after.pending, after.canUndo, after.autosaveHeld, after.canAutosave, after.canApply]).toEqual([2, false, true, false, true]);
+        void after.apply();
+        expect(after.autosaveHeld).toBe(false);
+    });
+
+    test("restored drafts with no optimiser's result among them are an automatic Save's to send, as they were", () => {
+        drafted();
+        reload();
+        const after = session();
+        after.observeBase(jobs());
+        expect([after.pending, after.autosaveHeld, after.canAutosave]).toEqual([1, false, true]);
+    });
+
+    test("a result its Undo took back before the reload is no result to wait for after it: what the Undo left waits as a step back does", () => {
+        const s = drafted();
+        s.record([{ id: "J2", before: version("J2", band), after: version("J2", { ...band, qty: 9n }) }], "optimise", "Elara run #1");
+        s.undo();
+        reload();
+        const after = session();
+        after.observeBase(jobs());
+        expect([after.pending, after.autosaveHeld, after.autosaveStepped, after.canAutosave]).toEqual([1, false, true, false]);
+    });
+
+    test("a step back that waited for a person's Save waits still after a reload: no automatic Save sends what Undo left until a person's Save takes it, or the next change is made", () => {
+        const s = drafted();
+        s.record([{ id: "J2", before: version("J2", band), after: version("J2", { ...band, qty: 9n }) }], "typed", "Set quantity");
+        s.undo();
+        expect([s.pending, s.autosaveStepped, s.canAutosave]).toEqual([1, true, false]);
+        reload();
+        const after = session();
+        after.observeBase(jobs());
+        // Restored with no history to step back with: the draft waits as it did.
+        expect([after.pending, after.canUndo, after.autosaveStepped, after.canAutosave, after.canApply]).toEqual([1, false, true, false, true]);
+        // The next change is the person's newest: nothing waits.
+        after.record([{ id: "J2", before: version("J2", band), after: version("J2", { ...band, qty: 7n }) }], "typed", "Set quantity");
+        expect([after.autosaveStepped, after.canAutosave]).toEqual([false, true]);
+        // And through another reload, nothing waits either.
+        reload();
+        const again = session();
+        again.observeBase(jobs());
+        expect([again.pending, again.autosaveStepped, again.canAutosave]).toEqual([2, false, true]);
+    });
+
+    test("a step back a person's Save took is no step to wait for after a reload", () => {
+        const s = drafted();
+        s.record([{ id: "J2", before: version("J2", band), after: version("J2", { ...band, qty: 9n }) }], "typed", "Set quantity");
+        s.undo();
+        // A person's Save of what stands there, its answer still to come as the page reloads: the draft is theirs.
+        void s.apply();
+        expect(s.autosaveStepped).toBe(false);
+        reload();
+        const after = session();
+        after.observeBase(jobs());
+        expect([after.pending, after.autosaveStepped]).toEqual([1, false]);
+    });
+
     test("a sign-out clears what is kept: a reload restores nothing", () => {
         drafted();
         clearKept();

@@ -16,6 +16,7 @@ import { IntegerType, StringType, StructType, encodeBeast2For, none, some, toEas
 import { Editing } from "@elaraai/east-ui/internal";
 import { getStore, initializeStore, trackKey } from "../platform/state-runtime.js";
 import { UIStore } from "../platform/state-store.js";
+import { autosaveChoiceOf } from "./autosave-choice.js";
 import { liftDraft } from "./draft.js";
 import type { EntryVersion } from "./session.js";
 import { useEditHistory, type EditHistoryPaged, type EditHistorySource } from "./use-edit-history.js";
@@ -158,4 +159,24 @@ test("a read of several entries by their keys in flight is asked again as it was
     await waitFor(() => expect(session.status).toBe("idle"));
     expect(session.pending).toBe(0);
     expect(asked.filter((batch, i) => batch !== asked[i - 1])).toEqual([unheld, "J29"]);
+});
+
+test("a history's builder's choice of an automatic Save begins where its author says — off, said nothing — from the history's first render, and moves as the author's word does", () => {
+    const { sources } = jobs(() => true);
+    const begins: boolean[] = [];
+    const hook = renderHook(({ autosave }: { autosave: boolean }) => {
+        const state = useEditHistory(sources, "begun", undefined, { autosave });
+        // As the history's bar reads it, in the render that makes the history.
+        begins.push(autosaveChoiceOf(state.history)!.begins());
+        return state;
+    }, { initialProps: { autosave: true } });
+    expect(begins[0]).toBe(true);
+    const choice = autosaveChoiceOf(hook.result.current.history)!;
+    let heard = 0;
+    const stop = choice.subscribe(() => { heard++; });
+    hook.rerender({ autosave: false });
+    expect([choice.begins(), heard]).toEqual([false, 1]);
+    stop();
+    const silent = renderHook(() => useEditHistory(sources, "silent"));
+    expect(autosaveChoiceOf(silent.result.current.history)!.begins()).toBe(false);
 });

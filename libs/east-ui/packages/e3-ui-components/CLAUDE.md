@@ -898,7 +898,12 @@ chrome's `writable` (no run out, nothing retained) beside each kind's
 `available` — its Delete key as much as the inspector's form, its kind's own
 inspector's `update`, Duplicate, Delete and bulk edit — as the Sheet's ask its
 `canEdit` beside its session's `available`. Reuse the shared Save label,
-banners, validation, conflict and unknown-outcome retry behavior. Keep domain
+banners, validation, conflict and unknown-outcome retry behavior. Each builder
+hands its payload's `autosave` — where its author begins the Autosave switch
+(ruled 11 Nov 2026) — to its session: `useScheduleEditing` takes it and will
+not compile without it, the Sheet's and the Record's frames give it through
+their `SheetHost`, and the query builder, whose every Save is a person's, has
+none. Keep domain
 actions such as Publish separate from Save, following Studio/Query. Use shared
 anchored forms/popovers; follow the library's prohibition on modal dialogs.
 

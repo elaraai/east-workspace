@@ -40,7 +40,8 @@
  *   - A phone's frame (`data-phone`, 560px or narrower; `Mobile Builder
  *     Frame Spec.md`, the designer's `WorkOrdersPhone` measures): the session
  *     row, the toolbar's second row — 56px, its 44px controls 6px clear of
- *     either rule, padded 0 12 0 16 and 4px apart; the footer, laid over
+ *     either rule, padded 0 12 0 16 and 4px apart, a container its items ask
+ *     its width (`session-row`); the footer, laid over
  *     main's foot while it says something — its loading line, a live notice —
  *     with no height of its own in the flow, so main never resizes for it
  *     (ruled 7 Nov 2026), and what main draws at its foot standing clear of
@@ -243,9 +244,12 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
                 },
             },
         },
-        /* A phone's second row of the toolbar: the drafts' count, then the eye and the history. */
+        /* A phone's second row of the toolbar: the drafts' count, then the eye and the history. What stands in it only where
+         * the row holds it whole — Save's chevron, `editHistory` — asks the row its width (`session-row`). */
         sessionRow: {
             flex: "none",
+            containerType: "inline-size",
+            containerName: "session-row",
             display: "flex",
             alignItems: "center",
             gap: "{spacing.1}",
@@ -341,9 +345,11 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             /* The tray's own rules are the view's: none on its own edges. */
             "& > :not([data-frame-slot=bottomPanel])": { flex: "1", minHeight: "0", borderWidth: "0" },
         },
-        /* Where main's popovers and a pane's draw (FR9): what is above gives way to it, never it to what is above. */
+        /* Where main's popovers and a pane's draw (FR9): what is above gives way to it, never it to what is above — main, or
+         * the pane. In a frame too short for it under the rows that give no way (the toolbar's two, a banner), it takes
+         * what they leave, its body scrolling: its actions and the pane strip stay in the frame, never past its foot. */
         bottomPanel: {
-            flex: "none", display: "flex", flexDirection: "column", minHeight: "0", maxHeight: "min(420px, 70%)",
+            flex: "0 1 auto", display: "flex", flexDirection: "column", minHeight: "0", maxHeight: "min(420px, 70%)",
             "&:empty": { display: "none" },
             /* Main's, under a footer laid over main's foot: the band stands over main, never over the panel's actions. */
             "[data-phone]:has(> [data-frame-slot=footer] :is([data-footer-line], [data-footer-live])) > &": { order: 1 },

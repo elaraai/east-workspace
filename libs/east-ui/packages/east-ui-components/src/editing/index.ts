@@ -42,6 +42,7 @@ export {
     type EditHistorySource,
     type EditHistoryPaged,
     type EditHistoryJoined,
+    type EditHistoryOptions,
     type EditHistoryState,
 } from "./use-edit-history.js";
 export { historyKeyOf } from "./kept.js";

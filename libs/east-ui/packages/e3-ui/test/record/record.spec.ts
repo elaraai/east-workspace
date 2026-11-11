@@ -439,6 +439,12 @@ describe("<Record> refuses", () => {
         assert.ok(equalFor(field.noun)(payload.noun, some({ singular: "crew member", plural: "crew members" })));
         assert.ok(equalFor(field.columnGroups)(payload.columnGroups, [{ label: "Skills", columnKeys: ["inducted", "forklift"] }]));
         assert.ok(equalFor(field.name)(payload.name, none));
+        // Where Autosave begins: off unless its author says, by a literal or an expression data drives.
+        assert.equal(payload.autosave, false);
+        const begun = East.compile(East.function([], RecordPayloadType, () => Record.Payload({
+            record: Record.bind(ex.recordCrew), window: Data.bindPaged(ex.recordCrew), columns, registers, autosave: East.value(1n).greater(0n),
+        })), refusingPlatform)();
+        assert.equal(begun.autosave, true);
         const narrowEqual = equalFor(field.sheet.fields.narrow);
         assert.ok(narrowEqual(payload.sheet.narrow, some({ pin: some("name"), columns: none })));
         // With no title column, a phone pins none: every column pages. No column sets a name, so this Record adds no one.

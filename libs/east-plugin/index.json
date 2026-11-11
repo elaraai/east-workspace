@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1345,
+    "totalEntries": 1346,
     "totalFiles": 222,
     "packages": {
       "east": 587,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 308,
-      "e3-ui": 200,
+      "e3-ui": 201,
       "e3": 24,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -41599,7 +41599,7 @@
         "out of range"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
         "import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41628,7 +41628,7 @@
         "Slice.bindRecords"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
         "import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41657,7 +41657,7 @@
         "templates"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
         "import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41682,7 +41682,7 @@
         "overlaps"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
         "import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41708,7 +41708,7 @@
         "optional panes"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
         "import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41745,7 +41745,7 @@
         "Reactive"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
         "import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41776,7 +41776,7 @@
         "Record.bind"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
         "import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41806,7 +41806,7 @@
         "Record.bind"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
         "import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41835,7 +41835,7 @@
         "Save"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
         "import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41860,7 +41860,7 @@
         "Save"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
         "import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41886,7 +41886,7 @@
         "Record.bind"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
         "import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41895,6 +41895,36 @@
         "tsx"
       ],
       "source": "// A typed custom appointment inspector updates the whole row through Calendar's shared Undo, Redo and Save session.\n// inputs: []\n/** The smallest event record needs only its title and two instants. */\nexport const CalendarAppointment = StructType({ title: StringType, start: DateTimeType, end: DateTimeType });\n\nexport const calendarAppointments = e3.record(\"calendar_appointments\", DictType(StringType, CalendarAppointment), {\n    initial: new Map([\n        [\"check\", { title: \"Safety check\", start: new Date(\"2026-10-01T09:00:00Z\"), end: new Date(\"2026-10-01T10:00:00Z\") }],\n        [\"review\", { title: \"Production review\", start: new Date(\"2026-10-01T11:00:00Z\"), end: new Date(\"2026-10-01T12:00:00Z\") }],\n    ]),\n    mutations: (mutation) => ({\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, _$ => <Reactive>{$ => {\n        const appointments = $.let(Record.bind(calendarAppointments));\n        const inspect = $.const(East.function([CalendarAppointment, FunctionType([CalendarAppointment], NullType)], UIComponentType, ($2, row, update) => {\n            const change = $2.const(East.function([StringType], NullType, ($3, title) => { $3(update({ title, start: row.start, end: row.end })); }));\n            return <Input.String value={row.title} placeholder=\"Appointment title\" onChange={change} />;\n        }));\n        return <Box height=\"640px\"><Calendar inspector view={{ period: \"day\", date: new Date(\"2026-10-01T00:00:00Z\") }}\n            events={{ appointment: Calendar.events(appointments, { name: \"Appointment\", icon: \"calendar\", title: \"title\", start: \"start\", end: \"end\", inspector: inspect }) }} />\n        </Box>;\n    }}</Reactive>)"
+    },
+    {
+      "id": "e3-ui:calendar.examples.tsx:calendarAutosave",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/calendar/calendar.examples.tsx",
+      "suite": "",
+      "test": "Where Autosave begins is the author's to say: `autosave` takes a literal (`autosave`, `autosave={false}`) or an expression — here an input of the app's, so its data decides. The switch in Save's menu starts on, and each change is saved by itself a pause after the viewer's last act; an Undo or a Redo waits for a press of Save. A viewer's own flick of the switch is kept in their browser, and stands over what the author says.",
+      "keywords": [
+        "Calendar",
+        "autosave",
+        "Autosave",
+        "Save",
+        "default",
+        "Data.bind",
+        "input",
+        "Record.bind",
+        "editing",
+        "history"
+      ],
+      "imports": [
+        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Where Autosave begins is the author's to say: `autosave` takes a literal (`autosave`, `autosave={false}`) or an expression — here an input of the app's, so its data decides. The switch in Save's menu starts on, and each change is saved by itself a pause after the viewer's last act; an Undo or a Redo waits for a press of Save. A viewer's own flick of the switch is kept in their browser, and stands over what the author says.\n// inputs: []\n/** The smallest event record needs only its title and two instants. */\nexport const CalendarAppointment = StructType({ title: StringType, start: DateTimeType, end: DateTimeType });\n\n/** Where the visits' Autosave begins: the app's own setting — a Boolean a settings screen or a task writes. */\nexport const calendarAutosaveSetting = e3.input(\"calendar_autosave_setting\", BooleanType, variant(\"value\", true));\n\n/** The visits the Autosave example edits, in a record of their own: what it saves by itself meets no other example's rows. */\nexport const calendarVisits = e3.record(\"calendar_visits\", DictType(StringType, CalendarAppointment), {\n    initial: new Map([\n        [\"intake\", { title: \"Intake call\", start: new Date(\"2026-10-01T09:00:00Z\"), end: new Date(\"2026-10-01T10:00:00Z\") }],\n        [\"survey\", { title: \"Site survey\", start: new Date(\"2026-10-01T13:00:00Z\"), end: new Date(\"2026-10-01T14:30:00Z\") }],\n    ]),\n    mutations: (mutation) => ({\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, _$ => <Reactive>{$ => {\n        const visits = $.let(Record.bind(calendarVisits));\n        // The app's own setting: whoever writes the input decides where every viewer's switch begins.\n        const setting = $.let(Data.bind(calendarAutosaveSetting));\n        const begins = $.let(setting.read());\n        return <Box height=\"640px\"><Calendar id=\"autosave\" autosave={begins} view={{ period: \"day\", date: new Date(\"2026-10-01T00:00:00Z\") }}\n            events={{ visit: Calendar.events(visits, { name: \"Visit\", icon: \"calendar\", title: \"title\", start: \"start\", end: \"end\" }) }} />\n        </Box>;\n    }}</Reactive>)"
     },
     {
       "id": "e3-ui:calendar.examples.tsx:calendarConflicts",
@@ -41918,7 +41948,7 @@
         "Save"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from \"@elaraai/east\";",
         "import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"

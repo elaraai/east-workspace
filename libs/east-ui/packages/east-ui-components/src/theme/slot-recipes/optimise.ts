@@ -57,15 +57,16 @@
 import { defineSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { CONFLICT_RING, CONFLICT_RING_INSET } from "../conflict-ring.js";
+import { ELARA_RING, ELARA_RING_INSET } from "../elara-ring.js";
 
 /** The live-pulse cycle the eye's echo and halo run on (§8): 1440ms. */
 const PULSE = "calc({durations.slow} * 4)";
 
-/** The steady highlight on an entry a run added or changed, kept for the highlight. */
-const STEADY = "0 0 0 1px {colors.elara.edge}, 0 0 8px 1px {colors.elara.soft}";
+/** The steady highlight on an entry a run added or changed, kept for the highlight: the theme's Elara ring. */
+const STEADY = ELARA_RING;
 
 /** The same, inset, on a Sheet cell. */
-const STEADY_INSET = "inset 0 0 0 1px {colors.elara.edge}, inset 0 0 8px 0 {colors.elara.soft}";
+const STEADY_INSET = ELARA_RING_INSET;
 
 /** A ghost — an entry a run removed, or moved from — for the highlight: dashed, the dirty fill, its words `--ink-4`. */
 const GHOST = {

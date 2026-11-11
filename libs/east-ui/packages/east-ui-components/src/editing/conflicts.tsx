@@ -25,9 +25,18 @@
  * the button leaves as the popover closes. A host's banner opens it with its
  * Choose ({@link useConflictsOpener}).
  *
+ * In a phone's row the conflicts have no button of their own
+ * ({@link ConflictsControlProps.square}): the row holds its five squares
+ * whatever waits — a sixth took the count's room, and pushed Save past a
+ * narrow row's end — so its Issues square counts the conflicts and opens
+ * them, in the frame's bottom panel, while one waits or they show. They lie
+ * there in the flow, over no item, so a Go to leaves them open; and as they
+ * close the focus goes back to the square, which keeps it — off by then,
+ * every one chosen — until it moves on.
+ *
  * @packageDocumentation
  */
-import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentPropsWithRef, type Ref } from "react";
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentPropsWithRef, type ReactNode, type Ref } from "react";
 import { Box, Button, chakra, Portal, Tooltip, VisuallyHidden, useRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faNotEqual } from "@fortawesome/free-solid-svg-icons";
@@ -319,6 +328,33 @@ export interface ConflictsControlProps<W> {
     value?: ((issue: EditIssue, at: PatchPath, value: unknown, type: EastType | undefined) => string | undefined) | undefined;
     /** Locked while a run of the app's optimiser is out: it opens, and its choices are off. */
     locked: boolean;
+    /**
+     * In a phone's row, the square that opens the conflicts in place of a button of their own — the row's Issues:
+     * drawn always, a conflict waiting or none, and told what it opens ({@link ConflictsSquare}). The conflicts open
+     * from it where the row's popovers open, the frame's bottom panel, and the focus goes back to it as they close.
+     */
+    square?: ((conflicts: ConflictsSquare) => ReactNode) | undefined;
+}
+
+/** What a phone's row is told of the conflicts, for the square that opens them ({@link ConflictsControlProps.square}). */
+export interface ConflictsSquare {
+    /** Whether the conflicts are the square's to open: one waits, or they show, every one chosen. */
+    readonly shown: boolean;
+    /** Whether they show. */
+    readonly open: boolean;
+    /** Opens them, or closes them. */
+    readonly toggle: () => void;
+    /** What the square is named while they are its to open, as their own button is: how many wait, or that every one is chosen. */
+    readonly label: string;
+    /** Its tooltip then: what a press chooses, why the choices are off, or what is left to save. */
+    readonly tip: string;
+    /** The square's button: where the focus goes back to as they close. */
+    readonly button: Ref<HTMLButtonElement>;
+    /**
+     * Whether they are going from under the focus with nothing left to choose or to show — their drafts discarded
+     * while they showed: the square, off by then, stays focusable for the focus they hand back.
+     */
+    readonly closing: boolean;
 }
 
 /**
@@ -329,7 +365,7 @@ export interface ConflictsControlProps<W> {
  * @param props - The session, the collection's words, and how it goes to and names an issue
  * @returns The button while a conflict waits, or while its popover is open; else nothing
  */
-export function ConflictsControl<W>({ session, words, onIssue, where, item, issueText, value, locked }: ConflictsControlProps<W>) {
+export function ConflictsControl<W>({ session, words, onIssue, where, item, issueText, value, locked, square }: ConflictsControlProps<W>) {
     const serial = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
     const { m } = words;
     const bar = useSlotStyles("editHistory");
@@ -374,8 +410,22 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
     const waiting = session.unsettled;
     const chosen = session.chosen;
     const shown = waiting > 0 || (open && chosen > 0);
-    // Nothing left to choose, and nothing chosen to show: it closes.
-    useEffect(() => { if (!shown && open) setOpen(false); }, [shown, open]);
+    // A phone's square takes the focus back before what held it goes — the conflicts' view, or nothing at all, the page:
+    // never from a control a person moved it to. Off by then, every one chosen, the square keeps it until it moves on, as
+    // a button run out under the focus does (`HistoryBar`).
+    const inRow = square !== undefined;
+    const giveBack = useCallback(() => {
+        if (!inRow) return;
+        const active = document.activeElement;
+        const view = document.getElementById(bodyId)?.closest('[role="dialog"]');
+        if (active === null || active === document.body || view?.contains(active) === true) anchor.current?.focus({ preventScroll: true });
+    }, [inRow, bodyId]);
+    // Nothing left to choose, and nothing chosen to show: it closes, before the page is drawn again.
+    useLayoutEffect(() => {
+        if (shown || !open) return;
+        giveBack();
+        setOpen(false);
+    }, [shown, open, giveBack]);
 
     // The cards, read while it is open: each keeps its place, and one new to it goes last.
     const order = useRef(new Map<string, number>());
@@ -416,7 +466,7 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
         : (session.pending > 0 ? m.conflictsSettled : m.conflictsSettledNothing)({ n: chosen, count: words.number(chosen) });
     // The cards whose long values are open in place.
     const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
-    const close = () => { setOpen(false); setReopened(new Set()); setOpened(new Set()); };
+    const close = () => { giveBack(); setOpen(false); setReopened(new Set()); setOpened(new Set()); };
     // The side of the builder's frame the popover hangs by, off the item a Go to showed under it, until it closes; and
     // the watch for that item.
     const [away, setAway] = useState<"start" | "end" | undefined>(undefined);
@@ -444,8 +494,9 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
         let placing = 0;
         const place = () => {
             placing = 0;
-            const content = document.getElementById(bodyId)?.closest<HTMLElement>('[data-part="content"]');
-            if (item === null || !item.isConnected || content === null || content === undefined) return;
+            // The popover's own box, as it holds it: a phone's view, which floats over nothing, has none.
+            const content = popover.current;
+            if (item === null || !item.isConnected || content === null) return;
             // One found by its selection is still selected: a selection Go to replaced is no longer its item.
             if (selected && !item.matches(SHOWN)) return;
             const at = item.getBoundingClientRect();
@@ -491,6 +542,8 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
     };
     const goTo = (card: ConflictCard) => {
         onIssue(card.issue, card.at, popover.current?.getBoundingClientRect());
+        // A phone's row: its conflicts lie in the frame's bottom panel, in the flow, over no item — they stay as they are.
+        if (inRow) return;
         // In a narrow frame the popover would cover the item: it closes, and the button stays. A frame not laid out has no width.
         const toolbar = anchor.current?.closest<HTMLElement>("[data-toolbar]") ?? anchor.current?.parentElement;
         const width = toolbar?.getBoundingClientRect().width ?? 0;
@@ -570,47 +623,66 @@ export function ConflictsControl<W>({ session, words, onIssue, where, item, issu
             </Box>
         );
     };
+    // What the popover holds, whatever opens it: its head, where the focus lands, its foot and its cards.
+    const label = session.carrying ? m.conflictsTitle() : <>{m.conflictsTitle()} · <Box as="span" css={styles.headCount}>{words.number(n)}</Box></>;
+    const onOpenChange = (next: boolean) => (next ? setOpen(true) : close());
+    const initialFocusEl = () => {
+        // The first conflict still waiting, else the first card.
+        const at = document.getElementById(bodyId);
+        return at?.querySelector<HTMLElement>("[data-waiting] input") ?? at?.querySelector<HTMLElement>("[data-conflict-card] button") ?? null;
+    };
+    const footActions = <>
+        <Button size="xs" variant="outline" aria-disabled={off ? true : undefined} onClick={() => { if (!off) session.settleAll("draft"); }}>{m.conflictsKeepAll()}</Button>
+        <Button size="xs" variant="outline" aria-disabled={off ? true : undefined} onClick={() => { if (!off) session.settleAll("source"); }}>{m.conflictsTakeAll()}</Button>
+    </>;
+    const body = (
+        <Box id={bodyId} data-conflicts-body="" data-hung={away}>
+            {session.carrying ? (
+                // Still checking: the live dot and its line, then Skeleton cards in the cards' final layout.
+                <>
+                    <Box css={styles.notice} data-conflicts-notice="checking"><Box as="span" css={styles.live} aria-hidden />{m.historyStatus({ status: "carrying" })}</Box>
+                    {Array.from({ length: SKELETONS }, (_, i) => <Box key={i} css={styles.skeleton} data-conflict-skeleton="" aria-hidden><span /><span /><span /></Box>)}
+                </>
+            ) : (
+                <>
+                    {done
+                        ? <Box css={styles.intro} data-done=""><FontAwesomeIcon icon={faCheck} />
+                            {(session.pending > 0 ? m.conflictsSettled : m.conflictsSettledNothing)({ n, count: words.number(n) })}</Box>
+                        : <Box css={styles.intro}>{m.conflictsIntro()}</Box>}
+                    {locked && <Box css={styles.notice} data-conflicts-notice="locked"><Box as="span" css={styles.live} aria-hidden />{m.conflictsLocked()}</Box>}
+                    {cards.map(cardOf)}
+                </>
+            )}
+        </Box>
+    );
     return (
         <>
             {/* Said as conflicts appear, from a region there before them. */}
             <VisuallyHidden aria-live="polite" data-conflicts-said="">{waiting > 0 ? m.conflictsAppeared({ n: waiting, count: words.number(waiting) }) : ""}</VisuallyHidden>
-            {shown && (
-                <SliceEditPopover open={open} onOpenChange={(next) => (next ? setOpen(true) : close())} label={session.carrying ? m.conflictsTitle() : <>{m.conflictsTitle()} · <Box as="span" css={styles.headCount}>{words.number(n)}</Box></>} size="lg" flush
+            {square !== undefined ? (
+                // A phone's row: its Issues square opens them, there whatever waits — never a button of their own.
+                <SliceEditPopover open={open && shown} onOpenChange={onOpenChange} label={label} size="lg" flush keepOnFocusOut contentRef={popover}
+                    initialFocusEl={initialFocusEl} footActions={footActions}
+                    anchor={square({
+                        shown, open: open && shown, toggle: () => (open ? close() : setOpen(true)),
+                        label: waiting > 0 ? m.conflicts({ n: waiting, count: words.number(waiting) }) : tip, tip,
+                        button: anchor, closing: open && !shown,
+                    })}>
+                    {body}
+                </SliceEditPopover>
+            ) : shown && (
+                <SliceEditPopover open={open} onOpenChange={onOpenChange} label={label} size="lg" flush
                     // Go to moves the focus to the item: the popover stays open beside it, but in a narrow frame.
                     keepOnFocusOut
                     hangFrom={hangFrom}
                     contentRef={popover}
-                    initialFocusEl={() => {
-                        // The first conflict still waiting, else the first card.
-                        const at = document.getElementById(bodyId);
-                        return at?.querySelector<HTMLElement>("[data-waiting] input") ?? at?.querySelector<HTMLElement>("[data-conflict-card] button") ?? null;
-                    }}
+                    initialFocusEl={initialFocusEl}
                     trigger={
                         <ConflictsButton tip={tip} label={waiting > 0 ? m.conflicts({ n: waiting, count: words.number(waiting) }) : tip}
                             count={waiting > 0 ? count : undefined} chrome={[iconStyles, bar.conflicts]} countChrome={bar.conflictsCount} anchor={anchor} />
                     }
-                    footActions={<>
-                        <Button size="xs" variant="outline" aria-disabled={off ? true : undefined} onClick={() => { if (!off) session.settleAll("draft"); }}>{m.conflictsKeepAll()}</Button>
-                        <Button size="xs" variant="outline" aria-disabled={off ? true : undefined} onClick={() => { if (!off) session.settleAll("source"); }}>{m.conflictsTakeAll()}</Button>
-                    </>}>
-                    <Box id={bodyId} data-conflicts-body="" data-hung={away}>
-                        {session.carrying ? (
-                            // Still checking: the live dot and its line, then Skeleton cards in the cards' final layout.
-                            <>
-                                <Box css={styles.notice} data-conflicts-notice="checking"><Box as="span" css={styles.live} aria-hidden />{m.historyStatus({ status: "carrying" })}</Box>
-                                {Array.from({ length: SKELETONS }, (_, i) => <Box key={i} css={styles.skeleton} data-conflict-skeleton="" aria-hidden><span /><span /><span /></Box>)}
-                            </>
-                        ) : (
-                            <>
-                                {done
-                                    ? <Box css={styles.intro} data-done=""><FontAwesomeIcon icon={faCheck} />
-                                        {(session.pending > 0 ? m.conflictsSettled : m.conflictsSettledNothing)({ n, count: words.number(n) })}</Box>
-                                    : <Box css={styles.intro}>{m.conflictsIntro()}</Box>}
-                                {locked && <Box css={styles.notice} data-conflicts-notice="locked"><Box as="span" css={styles.live} aria-hidden />{m.conflictsLocked()}</Box>}
-                                {cards.map(cardOf)}
-                            </>
-                        )}
-                    </Box>
+                    footActions={footActions}>
+                    {body}
                 </SliceEditPopover>
             )}
         </>

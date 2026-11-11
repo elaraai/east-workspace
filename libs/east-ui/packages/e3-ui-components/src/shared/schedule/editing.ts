@@ -360,6 +360,12 @@ export interface ScheduleEditingArgs<I extends Item = Item> {
      * quantity until an arrival is booked into it, so none of its quantity's bounds are its own.
      */
     boundsOf?: Readonly<Record<string, (row: unknown) => readonly FieldSpecValue[]>> | undefined;
+    /**
+     * What the builder's author begins its Autosave at — its payload's `autosave`, which every builder hands on, so none
+     * leaves its author's word unread. Its viewer's own choice, once made, stands over it (east-ui-components'
+     * `useEditHistory`).
+     */
+    autosave: boolean;
 }
 
 /** An event kind or a record, as the history holds its session. */
@@ -454,7 +460,7 @@ function sameDrafts(a: ScheduleEventDraftsValue, b: ScheduleEventDraftsValue): b
  * @returns The history, the kinds' and the records' sessions and drafts, how an event is read, and how a gesture is recorded
  */
 export function useScheduleEditing<I extends Item = Item>({
-    kinds, records = NO_RECORDS, reads, standing, storageKey, joined, range, recordSlices, held: cellRows, drawsLanded, quantityLabel, boundsOf,
+    kinds, records = NO_RECORDS, reads, standing, storageKey, joined, range, recordSlices, held: cellRows, drawsLanded, quantityLabel, boundsOf, autosave,
 }: ScheduleEditingArgs<I>): ScheduleEditing<I> {
     // The history, as the kinds' checks read their originals through it.
     const historyRef = useRef<EditHistory<ScheduleEntryRef> | undefined>(undefined);
@@ -551,7 +557,8 @@ export function useScheduleEditing<I extends Item = Item>({
         };
         return { editing, ready, paged, prepare, wireType: EntryRefType, ranges, together, drawsLanded: kind.drawsLanded };
     }), [parts, codecs, storageKey, recordSlices, quantityLabel]);
-    const state = useEditHistory<ScheduleEntryRef>(sources, storageKey, joined);
+    const historyOptions = useMemo(() => ({ autosave }), [autosave]);
+    const state = useEditHistory<ScheduleEntryRef>(sources, storageKey, joined, historyOptions);
     historyRef.current = state.history;
     const { history, keys, version } = state;
     const indexOf = useCallback((kind: string) => parts.findIndex((k) => stringEqual(k.key, kind)), [parts]);

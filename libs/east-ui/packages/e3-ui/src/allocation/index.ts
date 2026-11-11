@@ -149,11 +149,12 @@ export type AllocationTableOptionsType = typeof AllocationTableOptionsType;
  * @property horizon - The Timeline's resource axis around the day
  * @property title - The summary's heading
  * @property readOnly - No edits; a published day is always read-only
+ * @property autosave - Whether the board's Autosave begins on
  * @property weekStart - The day a week starts on, where the board publishes a week at a time (#1550)
  */
 export const AllocationSettingsType = StructType({
     layout: T.AllocationLayoutType, views: ArrayType(T.AllocationLayoutType), date: OptionType(DateTimeType), horizon: StructType({ before: TimeStepType, after: TimeStepType }),
-    title: StringType, readOnly: BooleanType, weekStart: VariantType({ monday: NullType, sunday: NullType }),
+    title: StringType, readOnly: BooleanType, autosave: BooleanType, weekStart: VariantType({ monday: NullType, sunday: NullType }),
 });
 
 /** Type representing {@link AllocationSettingsType}. */
@@ -330,6 +331,13 @@ export interface AllocationProps<R extends EastType = EastType, P extends EastTy
     title?: string;
     /** No edits; a published day is always read-only. */
     readOnly?: SubtypeExprOrValue<BooleanType>;
+    /**
+     * Whether Autosave — the switch in Save's menu — begins on; off by default. On, the board's changes are saved by
+     * themselves a pause after the viewer's last act: never an optimiser's result, an Undo or a Redo, which wait for a
+     * press of Save. A literal, or an expression data drives. The viewer's own choice, once made, is kept in their
+     * browser for the data set and the board, and stands over it.
+     */
+    autosave?: SubtypeExprOrValue<BooleanType>;
     /** Where a week starts, for a board publishing a week at a time (`periods` every `"week"`); Monday by default. */
     week?: { start?: "monday" | "sunday" };
     /** Storage keys and drag-source ids, when a surface holds two boards. */
@@ -707,7 +715,7 @@ export function createAllocationPayload<R extends EastType, P extends EastType =
             settings: {
                 layout: variant(props.view?.layout ?? firstView(["timeline", "table"] as const, props.views), null), views, date: props.view?.date === undefined ? none : some(props.view.date),
                 horizon: { before: props.horizon?.before ?? variant("days", 3.0), after: props.horizon?.after ?? variant("days", 10.0) },
-                title: props.title ?? "Allocation", readOnly: props.readOnly ?? false, weekStart: variant(props.week?.start ?? "monday", null),
+                title: props.title ?? "Allocation", readOnly: props.readOnly ?? false, autosave: props.autosave ?? false, weekStart: variant(props.week?.start ?? "monday", null),
             },
             id: props.id === undefined ? none : some(props.id),
             labels,

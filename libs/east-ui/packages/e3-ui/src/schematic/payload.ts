@@ -8,9 +8,9 @@
  * what `<Schematic>` hands the renderer through its `Schematic` carrier — the
  * drawing's extent and scale, its kinds by slot, its layers, its narrowing and
  * how a narrowed-out row draws, its library's tabs, whether it has an
- * inspector, whether it is read only, its `id`, the canvas's options, the
- * connect veto and what the host hears — and every refusal of its props, made
- * when the surface is built.
+ * inspector, whether it is read only, whether its Autosave begins on, its
+ * `id`, the canvas's options, the connect veto and what the host hears — and
+ * every refusal of its props, made when the surface is built.
  *
  * Its props are the Plan's, the Roster's and the Calendar's (D31–D34): `id`
  * keeps its state apart, the inspector is opted into, the library's tabs cover
@@ -102,6 +102,7 @@ export const SchematicVocabularyType = StructType({
  * @property inspector - Whether the inspector pane shows (§9): off unless `inspector` is given
  * @property vocabulary - The app's words for what the Schematic draws of its own (#1516)
  * @property readOnly - No gesture, drop or inspector edit; selection stays
+ * @property autosave - Whether its Autosave begins on
  * @property id - Keeps the Schematic's state apart, when a surface holds two
  * @property grid - The metric grid; on by default
  * @property minimap - The minimap; shown at 25 items or more by default
@@ -123,6 +124,7 @@ export const SchematicPayloadType = StructType({
     inspector: BooleanType,
     vocabulary: SchematicVocabularyType,
     readOnly: BooleanType,
+    autosave: BooleanType,
     id: OptionType(StringType),
     grid: OptionType(BooleanType),
     minimap: OptionType(BooleanType),
@@ -275,6 +277,13 @@ export interface SchematicProps {
     vocabulary?: SchematicVocabularyProp;
     /** No gesture, drop or inspector edit; selection stays. */
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
+    /**
+     * Whether Autosave — the switch in Save's menu — begins on; off by default. On, the Schematic's changes are saved by
+     * themselves a pause after the viewer's last act: never an Undo or a Redo, which wait for a press of Save. A
+     * literal, or an expression data drives. The viewer's own choice, once made, is kept in their browser for the data
+     * set and the Schematic, and stands over it.
+     */
+    autosave?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Keeps this Schematic's panes, layers and tools apart when one surface holds two (`schematicKeys(id)`, D31). */
     id?: string;
     /** The metric grid; on by default. */
@@ -366,7 +375,7 @@ const REMOVED: Readonly<Record<string, string>> = {
 
 /** Every prop `<Schematic>` takes. */
 const PROPS: ReadonlySet<string> = new Set([
-    "extent", "scaleUnit", "items", "zones", "links", "nets", "layers", "slice", "narrowed", "library", "inspector", "vocabulary", "readOnly", "id",
+    "extent", "scaleUnit", "items", "zones", "links", "nets", "layers", "slice", "narrowed", "library", "inspector", "vocabulary", "readOnly", "autosave", "id",
     "grid", "minimap", "canConnect", "onSelect",
 ]);
 
@@ -638,6 +647,7 @@ export function createSchematicPayload(props: object): ExprType<SchematicPayload
             inspector,
             vocabulary,
             readOnly: given.readOnly ?? false,
+            autosave: given.autosave ?? false,
             id: id === undefined ? none : some(id),
             grid: optional(given.grid),
             minimap: optional(given.minimap),

@@ -171,6 +171,10 @@ describe("its rows' two sources (#1216)", () => {
         assert.deepEqual(payload.history, none, "no record: no commits to read a last save from");
         assert.deepEqual(payload.missing, none);
         assert.deepEqual(payload.name, none);
+        // Where Autosave begins: off unless its author says, by a literal or an expression data drives.
+        assert.equal(payload.autosave, false);
+        assert.equal(overJobs(() => ({ autosave: true })).autosave, true);
+        assert.equal(overJobs(() => ({ autosave: East.value(1n).greater(0n) })).autosave, true);
         inBlock(($) => {
             const bound = $.let(State.bind([Jobs], "sheet.payload.spec.jobs", JOBS));
             assert.ok(isTypeEqual(typeOf(Sheet.Payload({ data: bound, id: "id", columns: DATA_COLUMNS, onUpdate: bound.write })), SheetPayloadType), "a bind handle");

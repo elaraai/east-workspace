@@ -636,6 +636,7 @@ export {
     type BatchReadiness,
     type DraftedEntry,
     type EditHistoryJoined,
+    type EditHistoryOptions,
     type EditHistoryPaged,
     type EditHistoryPart,
     type EditHistorySource,

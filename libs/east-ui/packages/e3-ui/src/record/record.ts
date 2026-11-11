@@ -31,6 +31,7 @@
 
 import {
     ArrayType,
+    BooleanType,
     East,
     Expr,
     OptionType,
@@ -41,6 +42,7 @@ import {
     type EastType,
     type ExprType,
     type StructType as StructTypeOf,
+    type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { Table, type UIElement } from "@elaraai/east-ui";
 import { EastUI, type FieldHints, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
@@ -56,7 +58,7 @@ import { groupMembers } from "../sheet/registers.js";
 /** The Sheet's payload, as the Record reads the parts it keeps. */
 type SheetPayloadParts = ExprType<StructType<{
     sheet: SheetRootType; inspector: OptionType<SheetInspectorPaneType>; history: OptionType<SheetHistoryType>;
-    missing: OptionType<StringType>; name: OptionType<StringType>;
+    missing: OptionType<StringType>; autosave: BooleanType; name: OptionType<StringType>;
 }>>;
 
 // ============================================================================
@@ -73,6 +75,7 @@ type SheetPayloadParts = ExprType<StructType<{
  * @property inspector - The inspector pane: the selected row's every field, and the batch's issues; `none`, no pane
  * @property history - Over `record`, its commits; `none` over the rail's rows
  * @property missing - The entry's key while the record does not hold it — never, for a Record over the record's own entries
+ * @property autosave - Whether its Autosave begins on
  * @property name - Names the Record, when a surface holds two
  */
 export const RecordPayloadType = StructType({
@@ -83,6 +86,7 @@ export const RecordPayloadType = StructType({
     inspector: OptionType(SheetInspectorPaneType),
     history: OptionType(SheetHistoryType),
     missing: OptionType(StringType),
+    autosave: BooleanType,
     name: OptionType(StringType),
 });
 
@@ -168,6 +172,13 @@ export interface RecordCommon<R extends StructTypeOf, C> {
     inspector?: SheetCommon<R>["inspector"];
     /** Hints for the inspector's form, by the row's field — `Record.field.*`. */
     fields?: FieldHints<R["fields"]>;
+    /**
+     * Whether Autosave — the switch in Save's menu — begins on; off by default. On, the Record's changes are saved by
+     * themselves a pause after the viewer's last act: never an Undo or a Redo, which wait for a press of Save. A
+     * literal, or an expression data drives. The viewer's own choice, once made, is kept in their browser for the data
+     * set and the Record, and stands over it.
+     */
+    autosave?: SubtypeExprOrValue<BooleanType>;
     /** Names the Record — needed only when one surface holds two. */
     name?: string;
 }
@@ -295,7 +306,7 @@ export function createRecordPayload(props: { columns: unknown } & { [prop: strin
         return $.const({
             sheet: payload.sheet, ...own,
             columnGroups: parts.slice(1).reduce((all, part) => all.concat(part), parts[0]!),
-            inspector: payload.inspector, history: payload.history, missing: payload.missing, name: payload.name,
+            inspector: payload.inspector, history: payload.history, missing: payload.missing, autosave: payload.autosave, name: payload.name,
         }, RecordPayloadType);
     }) as ExprType<RecordPayloadType>;
 }

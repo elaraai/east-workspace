@@ -86,6 +86,26 @@ export interface EditingMessages {
     applyNoRevision: () => string;
     /** Save's tooltip while conflicts wait to be chosen — `Choose 2 conflicts to save`. */
     applySettleFirst: (p: { n: number; count: string }) => string;
+    /** Save's tooltip while an optimiser's result waits for a person's Save, the automatic Save on. */
+    applyHeld: () => string;
+    /** Save's tooltip while what Undo or Redo left waits for a person's Save, the automatic Save on. */
+    applyStepped: () => string;
+    /** The automatic Save's switch, by its one word — `Autosave`: on, changes are saved by themselves; off, on a press alone. */
+    autosave: () => string;
+    /**
+     * The control beside Save that opens the choice, by name — `Automatic saving`. Its words hold no `Save`: beside
+     * Save, a second button named with it would answer whoever asks the page for Save by a part of its name, as a
+     * script or a voice does.
+     */
+    autosaveButton: () => string;
+    /** The control's tooltip, saying how the choice stands — `Autosave is on`. */
+    autosaveTip: (p: { on: boolean }) => string;
+    /** Why changes wait while it is on: an optimiser's result is among them, which only a person's Save sends. */
+    autosaveHeld: () => string;
+    /** A phone's More, by name: the square that holds Discard and the automatic Save's switch where its row is short of them. */
+    more: () => string;
+    /** Its tooltip, saying how the automatic Save stands — `More · Autosave is on`. */
+    moreTip: (p: { on: boolean }) => string;
     /** The conflicts button — `2 conflicts`. */
     conflicts: (p: { n: number; count: string }) => string;
     /** Its tooltip. */
@@ -238,6 +258,14 @@ export const editingMessages: EditingMessages = {
     apply: () => "Save",
     applyNoRevision: () => "Saved, but it could not be confirmed — reload to see the newest",
     applySettleFirst: ({ n, count }) => `Choose ${count} ${plural(n, "conflict", "conflicts")} to save`,
+    applyHeld: () => "Save · Elara's changes wait for you",
+    applyStepped: () => "Save · Undo and Redo are not saved automatically",
+    autosave: () => "Autosave",
+    autosaveButton: () => "Automatic saving",
+    autosaveTip: ({ on }) => (on ? "Autosave is on" : "Autosave is off"),
+    autosaveHeld: () => "Elara's changes, and what you changed after them, are saved when you press Save.",
+    more: () => "More",
+    moreTip: ({ on }) => (on ? "More · Autosave is on" : "More · Autosave is off"),
     conflicts: ({ n, count }) => `${count} ${plural(n, "conflict", "conflicts")}`,
     conflictsTip: ({ n, count }) => `${count} ${plural(n, "conflict", "conflicts")} · Choose which changes to keep`,
     conflictsHead: ({ count }) => `Conflicts · ${count}`,

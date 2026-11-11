@@ -19,7 +19,9 @@
  * In a phone's frame — 560px or narrower (`Mobile Builder Frame Spec.md`, ruled
  * 3 Nov 2026) — the history is the toolbar's second row, and the Elara eye
  * before it: held there the same way, each item inside the row and each of
- * Undo, Redo, Discard and Save taking the pointer at its centre.
+ * Undo, Redo, Discard and Save taking the pointer at its centre — More in
+ * Discard's place where the row is too short for Discard and Save's chevron
+ * (ruled 11 Nov 2026), which holds it.
  *
  * Measured at the page's widths — 1440, 1024, 768, 390 and 360, where the
  * showcase's own chrome takes its share — and in a 294px parent, in both
@@ -70,7 +72,8 @@ const ROOT = "[data-builder-frame]";
 
 /**
  * What is wrong with the toolbar row of an entry's builder: an item past the row's content box, the history item gone
- * from the row where it showed, or one of its controls that does not take the pointer at its centre.
+ * from the row where it showed, or one of its controls — Undo, Redo, Discard or More in its place, and Save — that does
+ * not take the pointer at its centre.
  *
  * @param entry - The example's entry
  * @param history - Whether the history item showed at the widest width: it must stay in the row at every width
@@ -109,9 +112,14 @@ function rowFaults(entry: Locator, history: boolean): Promise<string[]> {
             if (wanted) faults.push(phone ? "the history left a phone's second row" : "the history item left the row");
             return faults;
         }
-        const names = ["Undo", "Redo", "Discard", "Save"];
-        for (const name of names) {
-            const button = item.querySelector<HTMLElement>(`button[aria-label='${name}']`);
+        const named = (name: string) => item.querySelector<HTMLElement>(`button[aria-label='${name}']`);
+        const shows = (button: HTMLElement | null) => button !== null && button.getBoundingClientRect().width > 0;
+        // Discard — or, in a phone's row short of it and Save's chevron, More in its place, which holds it: one of the two.
+        const more = item.querySelector<HTMLElement>("button[data-history-more]");
+        const short = shows(more);
+        if (short && shows(named("Discard"))) faults.push("Discard and More are both in the history item");
+        const controls: [string, HTMLElement | null][] = [["Undo", named("Undo")], ["Redo", named("Redo")], short ? ["More", more] : ["Discard", named("Discard")], ["Save", named("Save")]];
+        for (const [name, button] of controls) {
             if (button === null) { faults.push(`no ${name} in the history item`); continue; }
             const b = button.getBoundingClientRect();
             const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);

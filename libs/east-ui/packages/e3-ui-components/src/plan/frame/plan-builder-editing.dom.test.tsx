@@ -237,7 +237,7 @@ describe("every gesture is one transaction (PB43)", () => {
     test("each kind's session reads its events' start and end as one range, its dates: a conflict at either is one card of the popover", async () => {
         await h.install({ fn: printKindsFn });
         const payload = printKinds();
-        const { result } = renderHook(() => usePlanEventEditing({ kinds: payload.events, storageKey: "plan-ranges", joined: NO_JOINED }));
+        const { result } = renderHook(() => usePlanEventEditing({ kinds: payload.events, storageKey: "plan-ranges", joined: NO_JOINED, autosave: false }));
         await settle();
         const roles = new Map(payload.events.map((kind) => [kind.key, kind.schedule] as const));
         const ranges = result.current.sessions.map((held) => [held.kind, held.session.ranges] as const);
@@ -250,7 +250,7 @@ describe("every gesture is one transaction (PB43)", () => {
         await h.install({ fn: printKindsFn });
         const payload = printKinds();
         const kinds = new Map(payload.events.map((kind) => [kind.key, kind] as const));
-        const { result } = renderHook(() => usePlanEventEditing({ kinds: payload.events, storageKey: "plan-gestures", joined: NO_JOINED }));
+        const { result } = renderHook(() => usePlanEventEditing({ kinds: payload.events, storageKey: "plan-gestures", joined: NO_JOINED, autosave: false }));
         await settle();
         const editing = () => result.current;
         /** An event as Plan draws it, the drafts in place: when it runs, and where. */

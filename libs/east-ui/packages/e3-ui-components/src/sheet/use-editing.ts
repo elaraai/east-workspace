@@ -158,9 +158,10 @@ export interface SheetEditingResult {
  *   outside them, as while a field is still missing; `undefined` holds none
  * @param rowsId - The id of the windowed source that gives the rows, no narrowing printed into it: what a Save's entries
  *   are read back by key through where no record Slice gives them (#1596)
+ * @param autosave - Whether the builder's Autosave begins on, as its author says; off unless given
  * @returns The session, its layer and gesture recorder, the drafts, and whether editing is available
  */
-export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string, recordSlice?: ValueTypeOf<RecordSliceBindType>, replacing = false, retained = false, noun?: string, day?: Date, rowsRead?: SheetRowsRead, renumber?: (id: string) => string | undefined, bounds?: SheetBounds, rowsId?: string): SheetEditingResult {
+export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string, recordSlice?: ValueTypeOf<RecordSliceBindType>, replacing = false, retained = false, noun?: string, day?: Date, rowsRead?: SheetRowsRead, renumber?: (id: string) => string | undefined, bounds?: SheetBounds, rowsId?: string, autosave?: boolean): SheetEditingResult {
     const currentRows = replacing ? NO_ROWS : rows;
     const currentPositions = replacing ? NO_POSITIONS : positions;
     const editing = useMemo(() => recordSlice === undefined ? declared : { ...declared, sourceId: recordSlice.sourceId }, [declared, recordSlice]);
@@ -216,7 +217,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
     }, [source, recordSlice, entriesByKey]);
     const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
     const { session, observed, draftType, codecs, rowIndex, original: asRead, drafts, available, version } =
-        useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare, wireOf, drawsLanded: true, wireType: Sheet.Types.Row, rekey });
+        useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare, wireOf, drawsLanded: true, wireType: Sheet.Types.Row, rekey, autosave });
     sessionRef.current = session;
     // Each row's copies past its first: a window read again at a new revision beside one still standing from before it
     // holds a row twice where a change moved it from the one to the other.

@@ -361,11 +361,16 @@ export function captionOf(page: Page): Promise<{ text: string; refused: boolean 
  * The history's Discard, which drops the changes waiting on Save: on while any wait (#1388). The footer says nothing of
  * them (ruled 23 Oct 2026).
  *
+ * A phone's row too short for Discard shows More in its place, which holds it (ruled 11 Nov 2026): there the row's
+ * control that is on while a change waits is Save, and this is it.
+ *
  * @param root - The Schematic's root
  * @returns The button
  */
 export function discard(root: Locator): Locator {
-    return root.locator("[data-frame-slot='toolbar'], [data-frame-slot='sessionRow']").getByRole("button", { name: editingMessages.discard(), exact: true });
+    const row = root.locator("[data-frame-slot='toolbar'], [data-frame-slot='sessionRow']");
+    const short = row.locator("[data-slot='history']:has([data-history-more]:visible)").getByRole("button", { name: editingMessages.apply(), exact: true });
+    return row.getByRole("button", { name: editingMessages.discard(), exact: true }).or(short);
 }
 
 /**

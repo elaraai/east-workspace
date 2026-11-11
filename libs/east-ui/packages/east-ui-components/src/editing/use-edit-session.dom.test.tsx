@@ -13,6 +13,7 @@ import { ArrayType, DictType, IntegerType, StringType, StructType, encodeBeast2F
 import { Editing } from "@elaraai/east-ui/internal";
 import { initializeStore } from "../platform/state-runtime.js";
 import { UIStore } from "../platform/state-store.js";
+import { autosaveChoiceKey, autosaveChoiceOf } from "./autosave-choice.js";
 import { useEditSession, type EditingValue, type EditSource } from "./use-edit-session.js";
 
 afterEach(cleanup);
@@ -55,6 +56,41 @@ test("an entry's place among the collection's rows, and its original version, ar
     expect(b.wire).toEqual({ key: "b", end: 2n });
     expect(b.draft).toEqual({ id: variant("value", "b"), end: variant("value", 2n) });
     expect(hook.result.current.available).toBe(true);
+});
+
+test("a session's builder keeps its choice of an automatic Save by its view — but a collection whose every Save is a person's keeps none, so no Save of it goes by itself", () => {
+    initializeStore(new UIStore());
+    const kept = renderHook(() => useEditSession<Bar>(editingOf(false), undefined, BARS, POSITIONS, "bars", { idOf }));
+    expect(autosaveChoiceOf(kept.result.current.session)?.key).toBe(autosaveChoiceKey("", "bars"));
+    // One whose Save asks the person something first — a query never saved asks its name.
+    const manual = renderHook(() => useEditSession<Bar>(editingOf(false), undefined, BARS, POSITIONS, "bars-by-hand", { idOf, manualSave: true }));
+    expect(autosaveChoiceOf(manual.result.current.session)).toBeUndefined();
+});
+
+test("a session's builder's choice begins where its author says — off, said nothing — from the session's first render, and moves as the author's word does", () => {
+    initializeStore(new UIStore());
+    const silent = renderHook(() => useEditSession<Bar>(editingOf(false), undefined, BARS, POSITIONS, "bars-silent", { idOf }));
+    expect(autosaveChoiceOf(silent.result.current.session)?.begins()).toBe(false);
+    const begins: boolean[] = [];
+    const hook = renderHook(({ autosave }: { autosave: boolean }) => {
+        const edit = useEditSession<Bar>(editingOf(false), undefined, BARS, POSITIONS, "bars-begun", { idOf, autosave });
+        // As the session's bar reads it, in the render that makes the session.
+        begins.push(autosaveChoiceOf(edit.session)!.begins());
+        return edit;
+    }, { initialProps: { autosave: true } });
+    expect(begins[0]).toBe(true);
+    const choice = autosaveChoiceOf(hook.result.current.session)!;
+    let heard = 0;
+    const stop = choice.subscribe(() => { heard++; });
+    hook.rerender({ autosave: false });
+    expect([choice.begins(), heard]).toEqual([false, 1]);
+    // Said again as it stands, nobody is told.
+    hook.rerender({ autosave: false });
+    expect([choice.begins(), heard]).toEqual([false, 1]);
+    stop();
+    // A collection whose every Save is a person's has no choice to begin.
+    const manual = renderHook(() => useEditSession<Bar>(editingOf(false), undefined, BARS, POSITIONS, "bars-by-hand-begun", { idOf, manualSave: true, autosave: true }));
+    expect(autosaveChoiceOf(manual.result.current.session)).toBeUndefined();
 });
 
 test("a keyed source places every entry in key order, and its base is its Dict snapshot", () => {

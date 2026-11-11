@@ -54,13 +54,13 @@ const textSheet = East.compile(East.function([], SheetPayloadType, ($) => {
     const jobs = $.const(BY_TEXT, DictType(StringType, JobType));
     const next = $.const(East.function([SetType(StringType)], StringType, (_$, _taken) => "J-0002"));
     const sheet = $.const(createSheetRootWith(jobs, COLUMNS, { newKey: next, blanks: 2n }, { keyOrdered: true, applyKeyed: APPLY_TEXT }));
-    return East.value({ sheet, templates: [], library: [], narrowed: new Map(), inspector: none, optimise: none, history: none, missing: none, vocabulary: { members: none, unassigned: none, source: none, destination: none, wanted: none, actual: none }, name: none }, SheetPayloadType);
+    return East.value({ sheet, templates: [], library: [], narrowed: new Map(), inspector: none, optimise: none, history: none, missing: none, vocabulary: { members: none, unassigned: none, source: none, destination: none, wanted: none, actual: none }, autosave: false, name: none }, SheetPayloadType);
 }), getRegisteredPlatformImplementations());
 /** The jobs keyed by text, a new row's key a UUID the renderer mints. */
 const mintedSheet = East.compile(East.function([], SheetPayloadType, ($) => {
     const jobs = $.const(BY_TEXT, DictType(StringType, JobType));
     const sheet = $.const(createSheetRootWith(jobs, COLUMNS, { blanks: 2n }, { keyOrdered: true, applyKeyed: APPLY_TEXT }));
-    return East.value({ sheet, templates: [], library: [], narrowed: new Map(), inspector: none, optimise: none, history: none, missing: none, vocabulary: { members: none, unassigned: none, source: none, destination: none, wanted: none, actual: none }, name: none }, SheetPayloadType);
+    return East.value({ sheet, templates: [], library: [], narrowed: new Map(), inspector: none, optimise: none, history: none, missing: none, vocabulary: { members: none, unassigned: none, source: none, destination: none, wanted: none, actual: none }, autosave: false, name: none }, SheetPayloadType);
 }), getRegisteredPlatformImplementations());
 /** The jobs keyed by number, a new row's key the first number from the keys' count up that none of them is — `3`. */
 const numberSheet = East.compile(East.function([], SheetPayloadType, ($) => {
@@ -73,14 +73,14 @@ const numberSheet = East.compile(East.function([], SheetPayloadType, ($) => {
         return n;
     }));
     const sheet = $.const(createSheetRootWith(jobs, COLUMNS, { newKey: next, blanks: 2n }, { keyOrdered: true, applyKeyed: APPLY_NUMBER }));
-    return East.value({ sheet, templates: [], library: [], narrowed: new Map(), inspector: none, optimise: none, history: none, missing: none, vocabulary: { members: none, unassigned: none, source: none, destination: none, wanted: none, actual: none }, name: none }, SheetPayloadType);
+    return East.value({ sheet, templates: [], library: [], narrowed: new Map(), inspector: none, optimise: none, history: none, missing: none, vocabulary: { members: none, unassigned: none, source: none, destination: none, wanted: none, actual: none }, autosave: false, name: none }, SheetPayloadType);
 }), getRegisteredPlatformImplementations());
 /** The jobs keyed by number, a new row's key always `10`: one the record holds. */
 const takenSheet = East.compile(East.function([], SheetPayloadType, ($) => {
     const jobs = $.const(BY_NUMBER, DictType(IntegerType, JobType));
     const next = $.const(East.function([SetType(IntegerType)], IntegerType, (_$, _taken) => 10n));
     const sheet = $.const(createSheetRootWith(jobs, COLUMNS, { newKey: next, blanks: 2n }, { keyOrdered: true, applyKeyed: APPLY_NUMBER }));
-    return East.value({ sheet, templates: [], library: [], narrowed: new Map(), inspector: none, optimise: none, history: none, missing: none, vocabulary: { members: none, unassigned: none, source: none, destination: none, wanted: none, actual: none }, name: none }, SheetPayloadType);
+    return East.value({ sheet, templates: [], library: [], narrowed: new Map(), inspector: none, optimise: none, history: none, missing: none, vocabulary: { members: none, unassigned: none, source: none, destination: none, wanted: none, actual: none }, autosave: false, name: none }, SheetPayloadType);
 }), getRegisteredPlatformImplementations());
 
 const decodeBatch = decodeBeast2For(Editing.Types.ChangeSet(JobType, StringType));
@@ -187,3 +187,14 @@ test("readiness: a new row missing a required field holds Save back until it is 
     await ui.paste(ui.cellOf("J-0002", "qty"), "6");
     expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
 });
+
+test("the sheet's Autosave begins where its payload says — its author's word: off, said nothing; on as it says, for a sheet found again as it was kept too", () => {
+    const sheet = withApplySpy(textSheet()).value;
+    const autosaves = (ui: ReturnType<typeof mount>) => ui.container.querySelector<HTMLElement>("[data-history-autosave]")!.hasAttribute("data-on");
+    const silent = mount(sheet);
+    expect(autosaves(silent)).toBe(false);
+    silent.unmount();
+    // The same sheet, its session kept from the mount before: its author now says on.
+    expect(autosaves(mount({ ...sheet, autosave: true }))).toBe(true);
+});
+

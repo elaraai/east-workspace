@@ -18,7 +18,10 @@
  * drafts where its collection says how its projection is written
  * (`wireType`); one whose drafts storage refuses, or whose kept drafts cannot
  * be restored, says so ({@link useDraftsKeeping}). The history is not kept:
- * it starts at the restored drafts, as after any carry-over.
+ * it starts at the restored drafts, as after any carry-over. Whether an
+ * optimiser's result among them waited for a person's Save is kept beside them,
+ * and whether they stood where Undo or Redo had left them, so no automatic Save
+ * sends restored drafts that waited for a person's (`autosave.ts`).
  *
  * @packageDocumentation
  */
@@ -28,7 +31,7 @@ import {
     toEastTypeValue, type EastType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { EditingPlacementType } from "@elaraai/east-ui/internal";
-import { kept, keptBytes, type KeptFailureReason } from "../platform/kept.js";
+import { kept, keptBytes, keptFlag, type KeptFailureReason } from "../platform/kept.js";
 import type { EditSession, KeptEntry } from "./session.js";
 
 /**
@@ -179,6 +182,11 @@ function cachedEncoder(type: EastType): (value: unknown) => Uint8Array {
  */
 export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: EastType): void {
     const handle = kept(key, keptBytes, { where: "tab" });
+    // Beside the drafts, under a key of its own — their own bytes are read by every version that kept them: whether an
+    // optimiser's result among them waited for a person's Save.
+    const waiting = kept(`${key}:held`, keptFlag, { where: "tab" });
+    // And whether they stood where Undo or Redo had left them, which no automatic Save sends either.
+    const stepped = kept(`${key}:stepped`, keptFlag, { where: "tab" });
     const types = { entryType: toEastTypeValue(session.entryType), draftType: toEastTypeValue(session.draftType), wireType: toEastTypeValue(wireType) };
     const encodeDraft = cachedEncoder(session.draftType);
     const encodeWire = cachedEncoder(wireType);
@@ -209,20 +217,31 @@ export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: Ea
         try {
             const value = decodeDrafts(stored);
             if (!sameType(value.entryType, types.entryType) || !sameType(value.draftType, types.draftType) || !sameType(value.wireType, types.wireType)) lost = "schema";
-            else session.restore(value.entries.map(entryOf));
+            else session.restore(value.entries.map(entryOf), waiting.read() === true, stepped.read() === true);
         } catch {
             lost = "unreadable";
         }
         if (lost !== undefined) {
             handle.remove();
+            waiting.remove();
+            stepped.remove();
             setKeeping(session, { state: "lost", reason: lost });
         }
+    } else {
+        waiting.remove();
+        stepped.remove();
     }
 
     // Written as each change is made: the same versions as last written write nothing.
     let last: readonly KeptEntry<W>[] | undefined;
     session.subscribe(() => {
         const entries = session.keptEntries;
+        // Kept with the drafts, and gone with them: a person's Save, or an Undo of the result, ends the wait with no draft moving.
+        if (entries.length > 0 && session.autosaveHeld) waiting.write(true);
+        else waiting.remove();
+        // A step back, too: a person's Save of it, a Redo back to where the last change left the steps, or the next change ends it.
+        if (entries.length > 0 && session.autosaveStepped) stepped.write(true);
+        else stepped.remove();
         if (last !== undefined && sameEntries(last, entries)) return;
         last = entries;
         if (entries.length === 0) {

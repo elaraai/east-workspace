@@ -24,6 +24,7 @@ import { DictType, StringType, decodeBeast2For, equalFor, fromEastTypeValue, non
 import { getStore } from "../platform/state-runtime.js";
 import { useTrackedEvaluation } from "../reactive/index.js";
 import { liftDraft } from "./draft.js";
+import { beginAutosave } from "./autosave-choice.js";
 import type { EditHistory } from "./history.js";
 import { bindingOf, gateOf, historyKeyOf, keptHistory, keptSession, sessionKeyOf, sourceSessionsOf, type SourceSessions } from "./kept.js";
 import { keepDrafts, keptDraftsKey } from "./keep.js";
@@ -104,6 +105,17 @@ export interface EditHistoryJoined<W> {
     readonly key: string;
     /** The session. */
     readonly session: EditSession<W>;
+}
+
+/** What a builder adds to its history over several sessions. */
+export interface EditHistoryOptions {
+    /**
+     * What the builder's author begins its choice of an automatic Save at
+     * (`autosave-choice.ts`' `beginAutosave`): on, or — the default — off. It
+     * may move, as data drives it; the viewer's own choice, once made, stands
+     * over it.
+     */
+    readonly autosave?: boolean | undefined;
 }
 
 /**
@@ -225,6 +237,7 @@ function readByKeys(
  * @param sources - The sources, in order: each a keyed source, read whole or a window at a time
  * @param storageKey - The view's key: the sessions and their history are kept under it
  * @param joined - Sessions made elsewhere that join the history, ahead of the sources'
+ * @param options - What the builder adds: where its author begins its choice of an automatic Save
  * @returns The history, each source's key and entries as last read, an entry's original version, and whether a source takes a gesture now
  * @throws {Error} When a source is not keyed, or is read neither whole (an inline snapshot) nor a window at a time (`paged`, and no snapshot)
  */
@@ -232,11 +245,18 @@ export function useEditHistory<W>(
     sources: readonly EditHistorySource<W>[],
     storageKey: string,
     joined: readonly EditHistoryJoined<W>[] = NO_JOINED as readonly EditHistoryJoined<W>[],
+    options?: EditHistoryOptions,
 ): EditHistoryState<W> {
     const store = getStore();
     // The data set its host names: another's sources of the same names hold sessions, drafts and a history of their own.
     const scope = useEditingScope();
-    const history = useMemo(() => keptHistory<W>(store, scope, storageKey), [store, scope, storageKey]);
+    const autosave = options?.autosave === true;
+    const history = useMemo(() => keptHistory<W>(store, scope, storageKey, autosave),
+        // What its author begins its choice at makes no other history: the effect below says it as it moves.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [store, scope, storageKey]);
+    // The author's word as it moves, and for a history found again as it was kept: told once drawn, never while drawing.
+    useLayoutEffect(() => { beginAutosave(history, autosave); }, [history, autosave]);
     // Each source's session, kept by its source, the view and its schema, as
     // `useEditSession` keeps one: sources that share a session share its key.
     const parts = useMemo(() => sources.map((source): Part<W> => {

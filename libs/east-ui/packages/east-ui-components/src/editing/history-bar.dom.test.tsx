@@ -284,8 +284,11 @@ test("a phone's form (Mobile Builder Frame Spec.md FR6): the drafts' count first
     expect(ui.getByRole("button", { name: "⟦Save" }).hasAttribute("data-ready")).toBe(false);
     ui.session.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");
     ui.refresh();
-    const changes = ui.getByRole("status").firstElementChild!;
-    expect([changes.textContent, changes.hasAttribute("data-changes")]).toEqual([`⟦${editingMessages.historyChanges({ n: 1, count: "1" })}`, true]);
+    const changes = ui.getByRole("status").firstElementChild as HTMLElement;
+    const counted = `⟦${editingMessages.historyChanges({ n: 1, count: "1" })}`;
+    expect([changes.textContent, changes.hasAttribute("data-changes")]).toEqual([counted, true]);
+    // The chip says how many characters its number holds — the words before the noun — for the row to show it whole or not at all.
+    expect(changes.style.getPropertyValue("--history-figures")).toBe(String(counted.split(" ")[0]!.length));
     expect(ui.getByRole("button", { name: "⟦Save" }).hasAttribute("data-ready")).toBe(true);
 });
 
@@ -296,7 +299,8 @@ test("a phone's Discard asks first, in the band under its row (FR8, no popover, 
     await act(async () => { fireEvent.click(ui.getByRole("button", { name: "⟦Discard" })); });
     expect(ui.onAction).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain(`⟦${editingMessages.discardAskTitle({ n: 1, count: "1" })}`);
-    expect(document.querySelector('[role="dialog"], [data-scope="popover"]')).toBeNull();
+    // No dialog, and no popover's content: what the row's Issues square would open its conflicts in stays shut.
+    expect(document.querySelector('[role="dialog"], [data-scope="popover"][data-part="positioner"], [data-scope="popover"][data-part="content"]')).toBeNull();
     await act(async () => { fireEvent.click(ui.getByRole("button", { name: "⟦Cancel" })); });
     expect(ui.onAction).not.toHaveBeenCalled();
     await act(async () => { fireEvent.click(ui.getByRole("button", { name: "⟦Discard" })); });

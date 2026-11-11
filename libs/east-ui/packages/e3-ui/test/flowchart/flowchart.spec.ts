@@ -437,7 +437,7 @@ describe("<Flowchart>'s props: each kind by its prop, and every prop the flows t
 
     hostTest("a prop it doesn't take is refused, naming those it does — `id` among them, the Flowchart keeping its state apart by `name`", () => {
         refused(tag({ id: "depot" }), "Flowchart: `id` is not a prop of <Flowchart> — it takes states, transitions, lanes, decisions, slice, narrowed, library, inspector, " +
-            "vocabulary, readOnly, name, orientation, freshness, minimap, legend, onSelectState, onSelectLink, onSelectTrigger, onTracePath, canConnect, narrow");
+            "vocabulary, readOnly, autosave, name, orientation, freshness, minimap, legend, onSelectState, onSelectLink, onSelectTrigger, onTracePath, canConnect, narrow");
         refused(tag({ name: "" }), "Flowchart: `name` keeps the Flowchart's state apart — a string, needed only when one surface holds two");
         refused(tag({ narrowed: "fade" }), "Flowchart: `narrowed` is \"hide\" (the default), which leaves what the narrowing leaves out off the canvas, or \"dim\", which draws it as context");
         refused(tag({ inspector: { state: true } }), "Flowchart: `inspector` is true or false — on unless false — and a kind's own Details is its kind's `inspector`: " +
@@ -795,6 +795,7 @@ describe("<Flowchart>'s payload, through its carrier (R1)", () => {
         assert.equal(payload.inspector, true);
         assert.ok(vocabularyEqual(payload.vocabulary, { planned: "Planned", observed: "Observed" }), "a transition's kinds in the Flowchart's own words");
         assert.equal(payload.readOnly, false);
+        assert.equal(payload.autosave, false, "Autosave begins off unless its author says otherwise");
         assert.equal(payload.name.type, "none");
         assert.equal(payload.slice.type, "none");
         assert.equal(payload.shown.size, 0);
@@ -809,7 +810,7 @@ describe("<Flowchart>'s payload, through its carrier (R1)", () => {
             transitions: Flowchart.transitions($.let(movesRecord()), { from: "src", to: "dst", decision: "trigger" }),
             lanes: Flowchart.lanes($.let(lanesData()), { label: "label" }),
             decisions: Flowchart.decisions($.let(decisionsRecord()), { label: (d) => d.name }),
-            inspector: false, readOnly: true, narrowed: "dim", name: "depot", orientation: "TD", legend: true, narrow: { lanes: 1 },
+            inspector: false, readOnly: true, autosave: true, narrowed: "dim", name: "depot", orientation: "TD", legend: true, narrow: { lanes: 1 },
             vocabulary: { planned: "Designed" },
         }));
         assert.equal(payload.states.name, "Step");
@@ -819,6 +820,7 @@ describe("<Flowchart>'s payload, through its carrier (R1)", () => {
         assert.equal(payload.inspector, false);
         assert.ok(vocabularyEqual(payload.vocabulary, { planned: "Designed", observed: "Observed" }), "the app's word, and the default for the one it leaves out");
         assert.equal(payload.readOnly, true);
+        assert.equal(payload.autosave, true, "Autosave begins on, as its author says");
         assert.equal(payload.narrowed.type, "dim");
         assert.ok(optionString(payload.name, some("depot")));
         if (payload.canvas.orientation.type !== "some") assert.fail("the orientation crosses");

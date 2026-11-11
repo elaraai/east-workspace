@@ -40,6 +40,7 @@ import {
 import { liftDraft, normalizeDraft, type BatchReadiness } from "./draft.js";
 import { EntryMerger, type ConflictPoint } from "./merge.js";
 import { SESSION_TEXT } from "./messages.js";
+import type { AutosaveState } from "./autosave.js";
 
 // The runtime schemas remain exact. The TS algorithm treats domain payloads
 // opaquely instead of infinitely expanding PatchTypeOf<EastType>; a keyed
@@ -626,6 +627,21 @@ export class EditSession<W> {
     private again = false;
     /** How many times in a row the session has sent a Save again itself, since the person's last ({@link RESENDS}). */
     private resent = 0;
+    /** The Save in hand, or the one last refused, was an automatic Save's: sent again by the session itself, it is one still. */
+    private automatic = false;
+    /** How many gestures, Undos, Redos and conflict choices the session has taken ({@link EditSession.edits}). */
+    private made = 0;
+    /** How many of the done steps a person's Save has taken, an optimiser's result among them ({@link EditSession.heldFrom}). */
+    private accepted = 0;
+    /** The history went while it held an optimiser's result no person's Save had taken: every draft waits for one. */
+    private unaccepted = false;
+    /**
+     * How many steps were done as the last change was made — a gesture recorded, a conflict chosen, an optimiser's
+     * result landed — or as a person's Save last took them: the one place an automatic Save sends from
+     * ({@link EditSession.stepped}). `undefined` where the history went while the steps stood away from it: nothing is
+     * left to step back with, so the drafts wait for a person's Save, or for the next change.
+     */
+    private drafted: number | undefined = 0;
     /** The conflicts as last read, at the session's version: the same object while it does not move. */
     private conflictsCache: { readonly serial: number; readonly value: ReadonlyMap<string, EntryConflicts> } | undefined;
     /** A Save's conflict at a revision base whose entries the session has still to name (#1199). */
@@ -733,6 +749,22 @@ export class EditSession<W> {
     /** Redo is available. */
     get canRedo(): boolean { return this.writable && this.cursor < this.history.length; }
     /**
+     * How many gestures, Undos, Redos and conflict choices the session has
+     * taken: it moves with each, whatever a request is doing — what an
+     * automatic Save counts its pause from (`autosave.ts`).
+     */
+    get edits(): number { return this.made; }
+    /** Where its requests stand, as an automatic Save reads them (`autosave.ts`). */
+    get saving(): AutosaveState {
+        switch (this.status) {
+            case "applying": return "sending";
+            // A source that saved without naming its revision is asked nothing again by itself: the same answer would come.
+            case "unknown": return this.error === SESSION_TEXT.noRevision ? "idle" : "unanswered";
+            case "reconciling": return this.error === undefined ? "readingBack" : "readBackFailed";
+            default: return "idle";
+        }
+    }
+    /**
      * How many transactions Undo can take back, and how many Redo can replay
      * (#1194): what a history over several sessions (`EditHistory`) keeps its
      * order of, and what tells it this session's own history went.
@@ -763,6 +795,7 @@ export class EditSession<W> {
      */
     dropRedo(): void {
         if (this.cursor === this.history.length) return;
+        if (this.accepted > this.cursor) this.accepted = this.cursor;
         this.history.splice(this.cursor);
         this.changed();
     }
@@ -790,11 +823,14 @@ export class EditSession<W> {
     recheck(ready: EditSessionBinding<W>["ready"], author: BatchReadiness | undefined): void {
         this.readinessCache = { ready, value: this.composeReadiness(author) };
     }
-    /** Every draft's schema check, then the author's — issues gathered in a loop: a spread of a large batch's issues into a call throws RangeError (#859). */
-    private composeReadiness(author: BatchReadiness | undefined): BatchReadiness {
+    /**
+     * Every draft's schema check, then the author's — issues gathered in a loop: a spread of a large batch's issues into a
+     * call throws RangeError (#859). Over the drafts as they stand, or over some as they stood ({@link EditSession.draftsBefore}).
+     */
+    private composeReadiness(author: BatchReadiness | undefined, drafts: ReadonlyMap<string, EntryVersion<W>> = this.current): BatchReadiness {
         const issues: EditIssue[] = [];
         let invalid = false;
-        for (const [id, entry] of this.current) {
+        for (const [id, entry] of drafts) {
             if (entry.draft === undefined) continue;
             const checked = normalizeDraft(this.binding.draftType, entry.draft, id).readiness;
             if (checked.type === "ready") continue;
@@ -824,8 +860,89 @@ export class EditSession<W> {
      * change to send.
      */
     get canApply(): boolean {
-        return this.canSend && this.unsettled === 0
-            && this.readiness.type === "ready" && this.status === "idle" && this.changes(this.baseline, this.current, false).length > 0;
+        return this.canSend && this.unsettled === 0 && this.status === "idle" && this.sendable(this.current);
+    }
+    /** Whether some drafts — as they stand, or as they stood — pass their checks and hold a change to send. */
+    private sendable(drafts: Map<string, EntryVersion<W>>): boolean {
+        const readiness = drafts === this.current ? this.readiness : this.composeReadiness(this.binding.ready?.(drafts), drafts);
+        return readiness.type === "ready" && this.changes(this.baseline, drafts, false).length > 0;
+    }
+    /**
+     * Where an automatic Save stops (`autosave.ts`): the depth of the first
+     * done step that is an optimiser's result no person's Save has taken.
+     * What was changed before it is saved by itself; the result, and every
+     * change made over it, wait for a person's Save — a change made over a
+     * proposal, saved without it, would store what nobody saw. `"all"` where
+     * the history that held such a result went — the drafts carried over, a
+     * Save read back beside another write, a reload — so every draft waits;
+     * `undefined` with none held.
+     */
+    get heldFrom(): number | "all" | undefined {
+        if (this.unaccepted) return "all";
+        for (let i = this.accepted; i < this.cursor; i++) if (this.history[i]!.origin === "optimise") return i;
+        return undefined;
+    }
+    /** Whether an optimiser's result waits for a person's Save: a change still to save that an automatic Save sends none of. */
+    get autosaveHeld(): boolean {
+        const stop = this.heldFrom;
+        if (stop === undefined) return false;
+        const before = stop === "all" ? undefined : this.draftsBefore(stop);
+        return before === undefined ? this.pending > 0 : this.changes(before, this.current, true).length > 0;
+    }
+    /**
+     * The drafts as they stood before the done step at a depth: what an
+     * automatic Save that stops there sends — the drafts as they stand, where
+     * no done step is at it or past it. `undefined` where a step from there on
+     * settled a conflict: the drafts before it held one still to choose.
+     */
+    private draftsBefore(depth: number | undefined): Map<string, EntryVersion<W>> | undefined {
+        if (depth === undefined || depth >= this.cursor) return this.current;
+        const drafts = new Map(this.current);
+        for (let i = this.cursor - 1; i >= depth; i--) {
+            const step = this.history[i]!;
+            if (step.settled !== undefined || step.ancestors !== undefined) return undefined;
+            for (const [id, entry] of step.before) drafts.set(id, entry);
+        }
+        return drafts;
+    }
+    /**
+     * Whether an automatic Save that stops at a depth has a change it may
+     * send now: a Save can be sent, no conflict waits, and what was drafted
+     * before that depth is a change that passes its checks. One history over
+     * several sessions stops each where its own order of the gestures says
+     * (`EditHistory`).
+     *
+     * @param stop - Where it stops ({@link EditSession.heldFrom}); `undefined` for nowhere
+     * @returns Whether it has
+     */
+    canAutosaveTo(stop: number | "all" | undefined): boolean {
+        if (stop === "all" || this.stepped || !this.canSend || this.unsettled !== 0 || this.status !== "idle") return false;
+        const drafts = this.draftsBefore(stop);
+        return drafts !== undefined && this.sendable(drafts);
+    }
+    /**
+     * Whether an automatic Save has a change it may send now: one made before any optimiser's result that waits, the
+     * steps standing where the last change left them.
+     */
+    get canAutosave(): boolean { return this.canAutosaveTo(this.heldFrom); }
+    /**
+     * Whether the done steps stand where Undo or Redo left them, away from where the last change did (ruled 11 Nov
+     * 2026): an automatic Save sends nothing from there (`autosave.ts`). A person who steps back to look at a change
+     * has changed nothing, and one who wants an earlier state saved presses Save, which takes where the steps stand as
+     * theirs. Back where the last change left them, or once a new change is made — saved with what stands under it —
+     * the steps are an automatic Save's again.
+     */
+    get stepped(): boolean { return this.drafted !== this.cursor; }
+    /** Whether a change waits for a person's Save because Undo or Redo left it: one still to save that an automatic Save sends none of. */
+    get autosaveStepped(): boolean { return this.stepped && this.pending > 0; }
+    /**
+     * A change was made in another session of the one history that steps through this one (`EditHistory`): where this
+     * one's steps stand is part of where that change left the history, so an automatic Save sends them with it.
+     */
+    changedElsewhere(): void {
+        if (!this.stepped) return;
+        this.drafted = this.cursor;
+        this.changed();
     }
     /**
      * A gesture ends what the last request left to say — a refusal, its
@@ -834,6 +951,7 @@ export class EditSession<W> {
      * the refused Save's the carry-over sends again: it stands until then.
      */
     private gestured(): void {
+        this.made++;
         if (this.locked || this.moving !== undefined) return;
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
     }
@@ -997,14 +1115,21 @@ export class EditSession<W> {
      * ({@link EditSession.merge}) — each combined with what changed since,
      * a part both changed a conflict to choose, and a draft the source holds
      * already (a Save that landed before the reload) no draft any more. The
-     * history starts at them.
+     * history starts at them: where an optimiser's result among them waited
+     * for a person's Save ({@link EditSession.autosaveHeld}), nothing is left
+     * to tell it from the rest, so every one of them waits.
      *
      * @param entries - The kept drafts
+     * @param held - Whether an optimiser's result among them waited for a person's Save; `false` by default
+     * @param stepped - Whether they stood where Undo or Redo had left them ({@link EditSession.autosaveStepped}), and so
+     *   wait as they did, for a person's Save or the next change; `false` by default
      * @returns Whether they will be restored: `false` once the session has a base
      */
-    restore(entries: readonly KeptEntry<W>[]): boolean {
+    restore(entries: readonly KeptEntry<W>[], held = false, stepped = false): boolean {
         if (this.base !== undefined) return false;
         this.restoring = entries;
+        this.unaccepted = held && entries.length > 0;
+        this.drafted = stepped && entries.length > 0 ? undefined : 0;
         return true;
     }
 
@@ -1139,7 +1264,7 @@ export class EditSession<W> {
         if (this.pending === 0) {
             this.base = this.cloneBase(base);
             this.baseline.clear(); this.current.clear(); this.ancestors.clear(); this.forgetConflicts(); this.history = []; this.cursor = 0;
-            this.moving = undefined; this.stale = false;
+            this.moving = undefined; this.stale = false; this.accepted = 0; this.unaccepted = false; this.drafted = 0;
             this.draftsChanged();
             this.changed();
             return;
@@ -1225,11 +1350,16 @@ export class EditSession<W> {
         // What the source said of each entry, where it refused a Save for a conflict: kept for the conflicts carried over.
         const said = this.refusalWords();
         const refused = this.status === "conflict";
+        // An optimiser's result no person's Save had taken goes on waiting, with every draft: the steps that told it apart go.
+        const waits = this.heldFrom !== undefined;
+        // And so does what Undo or Redo had left, away from where the last change did: nothing is left to step back with.
+        const stepped = this.stepped;
         this.base = this.cloneBase(base);
         this.baseline = baseline; this.current = current; this.ancestors = ancestors; this.forgetConflicts(); this.said = said;
         this.renumberedIds = renumbered;
         this.moving = undefined;
-        this.history = []; this.cursor = 0;
+        this.history = []; this.cursor = 0; this.accepted = 0; this.unaccepted = waits && current.size > 0;
+        this.drafted = stepped && current.size > 0 ? undefined : 0;
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.draftsChanged();
         // A refused Save goes again with nothing to choose; with a conflict, the person's Save sends it once it is chosen.
@@ -1360,6 +1490,7 @@ export class EditSession<W> {
         this.setSettled(settledAfter);
         this.draftsChanged();
         const label = choice === "source" ? "Use the newer change" : "Keep my change";
+        if (this.accepted > this.cursor) this.accepted = this.cursor;
         this.history.splice(this.cursor);
         this.history.push({
             label, origin: "settle", before, after,
@@ -1367,6 +1498,8 @@ export class EditSession<W> {
             settled: { before: settledBefore, after: settledAfter },
         });
         this.cursor++;
+        // A choice is a change as any is: the steps stand where it left them.
+        this.drafted = this.cursor;
         this.gestured();
         if (before.size > 0) this.emit(before, after, "settle", label);
         this.changed();
@@ -1476,6 +1609,8 @@ export class EditSession<W> {
             after.set(update.id, this.clone(update.after));
         }
         if (this.changes(before, after, true).length === 0) return false;
+        // Nothing drafted any more of what waited for a person's Save — saved, or the source's now: this gesture waits for none.
+        if (this.unaccepted && this.pending === 0) this.unaccepted = false;
         for (const [id, entry] of before) if (!this.baseline.has(id)) this.baseline.set(id, entry);
         for (const [id, entry] of after) this.current.set(id, entry);
         this.draftsChanged();
@@ -1486,8 +1621,12 @@ export class EditSession<W> {
             for (const [id, entry] of after) last.after.set(id, entry);
             if (this.changes(last.before, last.after, true).length === 0) { this.history.pop(); this.cursor--; }
         } else {
+            // What Redo could replay goes, and with it what a person's Save had taken of it.
+            if (this.accepted > this.cursor) this.accepted = this.cursor;
             this.history.splice(this.cursor); this.history.push({ label, origin, before, after, joins }); this.cursor++;
         }
+        // The newest change: the steps stand where it left them, an automatic Save's from here ({@link EditSession.stepped}).
+        this.drafted = this.cursor;
         this.gestured();
         this.emit(before, after, origin, label);
         this.changed();
@@ -1525,7 +1664,8 @@ export class EditSession<W> {
         this.draftsChanged();
         this.emit(before, this.current, "discard", "Discard changes");
         this.ancestors.clear(); this.forgetConflicts(); this.moving = undefined; this.again = false;
-        this.history = []; this.cursor = 0; this.stale = false;
+        this.history = []; this.cursor = 0; this.stale = false; this.accepted = 0; this.unaccepted = false; this.automatic = false;
+        this.drafted = 0;
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.changed();
     }
@@ -1539,32 +1679,105 @@ export class EditSession<W> {
         // Carried over again meanwhile: that carry-over sends it.
         if (!this.again || this.moving !== undefined) return;
         this.again = false;
-        if (!this.canApply) return;
-        this.resent++; void this.send();
+        // An automatic Save's own, sent again, is one still: what an automatic Save may send as the drafts stand now.
+        const stop = this.automatic ? this.heldFrom : undefined;
+        if (stop === "all" || (this.automatic ? !this.canAutosaveTo(stop) : !this.canApply)) return;
+        this.resent++; void this.send(stop);
     }
 
     /** Apply the batch, as the person's Save does; a retry keeps the original immutable bytes and captured callback. */
     async apply(): Promise<void> {
         this.again = false; this.resent = 0;
-        await this.send();
+        // A person's Save takes every step done so far, an optimiser's result among them. Their Retry of a write left with
+        // no answer sends that request again as it was, and takes nothing more.
+        let took = false;
+        if (this.status !== "unknown") { this.automatic = false; took = this.take(); }
+        // What it took is said with the Save itself: whoever hears the session finds the request out, never the drafts
+        // idle after the press — a screen that asked for the Save would read that as one that cannot land.
+        const said = this.serial;
+        const sending = this.send();
+        if (took && this.serial === said) this.changed();
+        await sending;
     }
 
-    /** Send the batch: the person's Save, or the session's own again after a refusal ({@link RESENDS}). */
-    private async send(): Promise<void> {
-        if (this.status === "applying" || this.status === "reconciling") return;
+    /**
+     * A person's Save takes every step done so far — this session's own Save,
+     * or one history's over several, for each of its sessions: an optimiser's
+     * result among them waits for one no more ({@link EditSession.heldFrom}),
+     * and where the steps stand — stepped to or not — is the person's
+     * ({@link EditSession.stepped}).
+     */
+    accept(): void {
+        if (this.take()) this.changed();
+    }
+
+    /** Takes every step done so far for a person's Save, saying nothing of it: whether anything was left to take. */
+    private take(): boolean {
+        if (this.accepted === this.cursor && !this.unaccepted && !this.stepped) return false;
+        this.accepted = this.cursor; this.unaccepted = false; this.drafted = this.cursor;
+        return true;
+    }
+
+    /**
+     * An automatic Save (`autosave.ts`): sends what one may — every change
+     * made before an optimiser's result that waits — and takes nothing, as a
+     * person's Save does.
+     *
+     * @returns Whether the source took it: `false` where it refused it, gave no answer, or was asked nothing
+     */
+    autosave(): Promise<boolean> { return this.autosaveTo(this.heldFrom); }
+
+    /**
+     * An automatic Save that stops at a depth: this session's own
+     * ({@link EditSession.autosave}), or one history's over several, which
+     * stops each of its sessions where its order of the gestures says.
+     *
+     * @param stop - Where it stops ({@link EditSession.heldFrom}); `undefined` for nowhere
+     * @returns Whether the source took it
+     */
+    async autosaveTo(stop: number | "all" | undefined): Promise<boolean> {
+        if (stop === "all" || !this.canAutosaveTo(stop)) return false;
+        this.again = false; this.resent = 0; this.automatic = true;
+        return this.send(stop);
+    }
+
+    /**
+     * Ask again (`autosave.ts`): a write left with no answer is sent again,
+     * its id unchanged; a read back is asked for again.
+     */
+    retry(): void {
+        if (this.status === "unknown") void this.send();
+        else if (this.status === "reconciling") this.refresh();
+    }
+
+    /**
+     * Send the batch: the person's Save, an automatic one, or the session's
+     * own again after a refusal ({@link RESENDS}).
+     *
+     * @param upTo - For an automatic Save that stops before an optimiser's result, the depth it stops at
+     * @returns Whether the source took it
+     */
+    private async send(upTo?: number): Promise<boolean> {
+        if (this.status === "applying" || this.status === "reconciling") return false;
         if (!this.submission) {
-            if (!this.canApply || !this.base || !this.binding.apply) return;
+            // What it sends: the drafts as they stand, or as they stood before the step it stops at.
+            const drafts = this.draftsBefore(upTo);
+            if (drafts === undefined || !this.canSend || this.unsettled !== 0 || this.status !== "idle" || !this.sendable(drafts)) return false;
+            if (!this.base || !this.binding.apply) return false;
+            const depth = upTo === undefined ? this.cursor : Math.min(upTo, this.cursor);
+            // Sent as they stood before steps a person's Save had taken — after an Undo — it holds those no more.
+            if (this.accepted > depth) this.accepted = depth;
             const batch: Batch = {
                 requestId: randomId(), base: this.base,
-                label: this.history[this.cursor - 1]?.label ?? "Apply changes",
-                changes: this.changes(this.baseline, this.current, false),
+                label: this.history[depth - 1]?.label ?? "Apply changes",
+                changes: this.changes(this.baseline, drafts, false),
             };
-            if (!batch.changes.length) return;
+            if (!batch.changes.length) return false;
             let expected: Uint8Array | undefined;
             if (this.base.type === "snapshot") {
                 if (!this.transform) throw new Error("Inline editing requires its entry identity field or its key type");
                 const result = this.transform(this.base.value, batch, none);
-                if (result.type === "conflict") { this.status = "conflict"; this.issues = result.value; this.changed(); return; }
+                if (result.type === "conflict") { this.status = "conflict"; this.issues = result.value; this.changed(); return false; }
                 // A positional source's target is its whole collection, its order
                 // included — beside another write's, the batch's own entries where
                 // it placed them; a keyed source's order is its keys', so its
@@ -1573,12 +1786,12 @@ export class EditSession<W> {
             }
             const targets = new Map(batch.changes.map(change => [change.id, {
                 before: this.optionOf(change.id, this.baseline.get(change.id)),
-                after: this.optionOf(change.id, this.current.get(change.id)),
+                after: this.optionOf(change.id, drafts.get(change.id)),
             }]));
             const payload = this.encodeBatch(batch);
             this.binding.gate?.acquire();
             const placed = batch.changes.filter((change) => change.place.type === "some").map(({ id, place }) => ({ id, place }));
-            this.submission = { prepare: this.binding.prepare, release: this.binding.gate?.release, expected, placed, payload, apply: this.binding.apply, refresh: this.binding.refresh, after: new Map(this.current), targets, checked: new Map(), otherwise: new Map(), base: this.cloneBase(this.base), revision: undefined };
+            this.submission = { prepare: this.binding.prepare, release: this.binding.gate?.release, expected, placed, payload, apply: this.binding.apply, refresh: this.binding.refresh, after: new Map(drafts), targets, checked: new Map(), otherwise: new Map(), base: this.cloneBase(this.base), revision: undefined };
         }
         const request = this.submission;
         this.status = "applying"; this.error = undefined; this.conflicted = undefined; this.changed();
@@ -1592,13 +1805,13 @@ export class EditSession<W> {
                 // drafts, so Retry can prepare a fresh request safely.
                 this.submission = undefined; request.release?.(); this.status = "idle";
                 this.error = error instanceof Error ? error.message : String(error);
-                this.changed(); return;
+                this.changed(); return false;
             }
         }
         let result: ApplyResult;
         try { result = await request.apply(request.payload.slice()); }
         catch (error) {
-            this.status = "unknown"; this.error = error instanceof Error ? error.message : String(error); this.changed(); return;
+            this.status = "unknown"; this.error = error instanceof Error ? error.message : String(error); this.changed(); return false;
         }
         if (result.type !== "applied") {
             this.submission = undefined; request.release?.(); this.status = result.type; this.issues = result.value;
@@ -1611,15 +1824,16 @@ export class EditSession<W> {
                 const own = result.value.filter((issue) => issue.entry === "");
                 if (own.length > 0) this.issues = own;
             }
-            this.changed(); return;
+            this.changed(); return false;
         }
         if (request.base.type === "revision" && result.value.revision.type !== "some") {
             // The session's own text, canonical; the history bar words it (#861).
-            this.status = "unknown"; this.error = SESSION_TEXT.noRevision; this.changed(); return;
+            this.status = "unknown"; this.error = SESSION_TEXT.noRevision; this.changed(); return false;
         }
         request.revision = result.value.revision.type === "some" ? result.value.revision.value : undefined;
         this.status = "reconciling"; this.changed();
         this.refresh();
+        return true;
     }
 
     /** Ask the source for the committed revision again; a retry never calls onApply again. */
@@ -1859,8 +2073,13 @@ export class EditSession<W> {
             current.set(id, this.versionOf(id, merged.draft, mine));
             if (merged.ancestor !== undefined) ancestors.set(id, merged.ancestor);
         }
+        // An optimiser's result no person's Save had taken goes on waiting, with every draft: the steps that told it apart go.
+        const waits = this.heldFrom !== undefined;
+        // And so does what Undo or Redo had left, away from where the last change did.
+        const stepped = this.stepped;
         this.baseline = baseline; this.current = current; this.ancestors = ancestors;
-        this.history = []; this.cursor = 0;
+        this.history = []; this.cursor = 0; this.accepted = 0; this.unaccepted = waits && current.size > 0;
+        this.drafted = stepped && current.size > 0 ? undefined : 0;
         this.draftsChanged();
     }
 

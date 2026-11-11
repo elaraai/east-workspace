@@ -313,8 +313,9 @@ describe("each gesture is one step, writing its roles' fields alone in the recor
         const before = await h.read(ex.depotStates);
         const { container: c } = await h.mountExample(ex.flowchartDepotEditing);
         const history = within(c.querySelector<HTMLElement>("[data-toolbar-item='history']")!);
+        // Issues, the four, and Save's chevron: the flowchart keeps a choice of an automatic Save.
         expect(history.getAllByRole("button").map((b) => b.getAttribute("aria-label")))
-            .toEqual([editingMessages.issues({ n: 0, count: "0" }), UNDO, REDO, DISCARD, SAVE]);
+            .toEqual([editingMessages.issues({ n: 0, count: "0" }), UNDO, REDO, DISCARD, SAVE, editingMessages.autosaveButton()]);
         await gesture(() => { fireEvent.pointerEnter(c.querySelector("[data-flowchart-band='hold']")!); });
         const ghost = c.querySelector("[data-flowchart-ghoststate='hold']")!;
         expect([ghost.textContent, ghost.querySelector("svg[data-prefix='fas'][data-icon='plus']") !== null]).toEqual([m.stateWord(), true]);

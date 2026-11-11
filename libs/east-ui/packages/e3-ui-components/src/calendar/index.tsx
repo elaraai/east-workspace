@@ -368,7 +368,7 @@ function EditableCalendar(props: Omit<HostProps, "editing" | "onHeld" | "onBackl
     const pagedSlot = value.paged.type === "some" ? value.paged.value.kind : undefined;
     const drawsLanded = useMemo(() => calendarCellKinds(pagedSlot, props.dates.eventParts), [pagedSlot, props.dates.eventParts]);
     const editing = useScheduleEditing({ kinds: value.events, storageKey: props.storageKey, joined: NO_JOINED, range: props.dates.range,
-        recordSlices, held, reads, drawsLanded });
+        recordSlices, held, reads, drawsLanded, autosave: value.settings.autosave });
     return <CalendarFrame {...props} editing={editing} onHeld={onHeld} onBacklog={onBacklog} />;
 }
 /**

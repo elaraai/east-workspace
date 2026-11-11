@@ -137,7 +137,7 @@ export type RosterOptimiseBindingType = typeof RosterOptimiseBindingType;
  * @property inspector - Whether the inspector pane shows
  * @property narrowed - Each narrowed source's keys, paged through its part of `slice`: the people, the activities and the patterns that show (#1342)
  * @property slice - The narrowing's chrome: a Slice over the duties', the targets', the staff's and the activities' records, one rail
- * @property settings - The first view and the view settings: the layout, the layouts the instance offers (empty, every one), its period, the periods it offers (empty, every one its layout takes), the date, the week's start, the density, the chip skills, the requirement rows, read-only, the People layout's `tileTimes` and `letters` (#1406), and whether it lists its people under their groups' bands (`peopleBands`, #1567)
+ * @property settings - The first view and the view settings: the layout, the layouts the instance offers (empty, every one), its period, the periods it offers (empty, every one its layout takes), the date, the week's start, the density, the chip skills, the requirement rows, read-only, whether its Autosave begins on (`autosave`), the People layout's `tileTimes` and `letters` (#1406), and whether it lists its people under their groups' bands (`peopleBands`, #1567)
  * @property vocabulary - The Roster's own words for who is on it (#1516), today's where the app gives none
  * @property id - The viewer's identity
  */
@@ -171,7 +171,7 @@ export const RosterPayloadType = StructType({
         layout: RosterLayoutType, views: ArrayType(RosterLayoutType), period: RosterPeriodType, viewPeriods: ArrayType(RosterPeriodType), date: OptionType(DateTimeType),
         weekStart: VariantType({ monday: NullType, sunday: NullType }),
         density: VariantType({ compact: NullType, comfortable: NullType }), chipSkills: BooleanType, requirements: BooleanType, readOnly: BooleanType,
-        tileTimes: RosterTileTimesType, letters: BooleanType, peopleBands: BooleanType,
+        autosave: BooleanType, tileTimes: RosterTileTimesType, letters: BooleanType, peopleBands: BooleanType,
     }),
     vocabulary: RosterVocabularyType,
     id: OptionType(StringType),
@@ -339,6 +339,13 @@ export interface RosterProps<R extends EastType = EastType, P extends EastType =
     requirements?: SubtypeExprOrValue<BooleanType>;
     /** Disables edits; published weeks are always read-only. */
     readOnly?: SubtypeExprOrValue<BooleanType>;
+    /**
+     * Whether Autosave — the switch in Save's menu — begins on; off by default. On, the Roster's changes are saved by
+     * themselves a pause after the viewer's last act: never an optimiser's result, an Undo or a Redo, which wait for a
+     * press of Save. A literal, or an expression data drives. The viewer's own choice, once made, is kept in their
+     * browser for the data set and the Roster, and stands over it.
+     */
+    autosave?: SubtypeExprOrValue<BooleanType>;
     /** Whether a People tile shows the shift's hours (`06–14`) always, or only a duty's own times where they differ from the shift's (#1406); `"always"` by default. */
     tileTimes?: "always" | "different";
     /** Whether a month's marks carry the shift's letter — its code's first; the week, the Shifts layout and the patterns' cards draw the whole code (#1406, #1569); `true` by default. */
@@ -736,7 +743,7 @@ export function createRosterPayload<R extends EastType, P extends EastType = nev
                 layout: variant(layout, null), views, period: variant(period, null), viewPeriods,
                 date: props.view?.date === undefined ? none : some(props.view.date), weekStart: variant(props.week?.start ?? "monday", null),
                 density: variant(props.density ?? "comfortable", null), chipSkills: props.chipSkills ?? true,
-                requirements: props.requirements ?? true, readOnly: props.readOnly ?? false,
+                requirements: props.requirements ?? true, readOnly: props.readOnly ?? false, autosave: props.autosave ?? false,
                 tileTimes: variant(props.tileTimes ?? "always", null), letters: props.letters ?? true, peopleBands: props.peopleBands ?? true,
             },
             vocabulary: {

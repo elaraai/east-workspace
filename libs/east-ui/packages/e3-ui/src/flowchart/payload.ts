@@ -8,8 +8,9 @@
  * `<Flowchart>` hands the renderer through its `Flowchart` carrier — its
  * canvas, its kinds, its narrowing and how a narrowed-out row draws, its
  * library's tabs, whether it has an inspector, the app's own words for a
- * transition's kinds (#1516), whether it is read only, and its name — and
- * every refusal of its props, made when the surface is built. A kind's noun
+ * transition's kinds (#1516), whether it is read only, whether its Autosave
+ * begins on, and its name — and every refusal of its props, made when the
+ * surface is built. A kind's noun
  * is its own `name`, wherever the Flowchart says it.
  *
  * Its kinds are the app's records (R1, `kinds.ts`): `states`, and beside them
@@ -89,6 +90,7 @@ export const FlowchartVocabularyType = StructType({ planned: StringType, observe
  * @property inspector - Whether the inspector pane shows: on unless `inspector={false}`
  * @property vocabulary - The app's words for a transition's kinds (#1516)
  * @property readOnly - No gesture, drop or inspector edit; selection stays
+ * @property autosave - Whether its Autosave begins on
  * @property name - Keeps the Flowchart's state apart, when a surface holds two
  */
 export const FlowchartPayloadType = StructType({
@@ -104,6 +106,7 @@ export const FlowchartPayloadType = StructType({
     inspector: BooleanType,
     vocabulary: FlowchartVocabularyType,
     readOnly: BooleanType,
+    autosave: BooleanType,
     name: OptionType(StringType),
 });
 
@@ -195,6 +198,13 @@ export interface FlowchartProps extends FlowchartCanvasOptions {
     vocabulary?: FlowchartVocabularyProp;
     /** No gesture, drop or inspector edit; selection stays. */
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
+    /**
+     * Whether Autosave — the switch in Save's menu — begins on; off by default. On, the Flowchart's changes are saved by
+     * themselves a pause after the viewer's last act: never an Undo or a Redo, which wait for a press of Save. A
+     * literal, or an expression data drives. The viewer's own choice, once made, is kept in their browser for the data
+     * set and the Flowchart, and stands over it.
+     */
+    autosave?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Keeps this Flowchart's panes, library and orientation apart when one surface holds two (`flowchartKeys(name)`). */
     name?: string;
 }
@@ -256,7 +266,7 @@ const REMOVED: Readonly<Record<string, string>> = {
 
 /** Every prop `<Flowchart>` takes. */
 const PROPS: ReadonlySet<string> = new Set([
-    "states", "transitions", "lanes", "decisions", "slice", "narrowed", "library", "inspector", "vocabulary", "readOnly", "name",
+    "states", "transitions", "lanes", "decisions", "slice", "narrowed", "library", "inspector", "vocabulary", "readOnly", "autosave", "name",
     "orientation", "freshness", "minimap", "legend", "onSelectState", "onSelectLink", "onSelectTrigger", "onTracePath", "canConnect", "narrow",
 ]);
 
@@ -551,6 +561,7 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
             inspector,
             vocabulary,
             readOnly: given.readOnly ?? false,
+            autosave: given.autosave ?? false,
             name: name === undefined ? none : some(name),
         } as never, FlowchartPayloadType);
     });

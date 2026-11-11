@@ -126,6 +126,15 @@ describe("the props §2 removed, each refused naming its replacement (B4)", () =
     });
 });
 
+describe("the board's settings", () => {
+    test("`autosave` says where Autosave begins: left out, a literal, or an expression data drives — a Boolean, and nothing else", () => {
+        assert.doesNotThrow(() => payload(() => ({ autosave: true })));
+        assert.doesNotThrow(() => payload(() => ({ autosave: East.value(1n).greater(0n) })));
+        assert.throws(() => payload(() => ({ autosave: "on" } as never)));
+        assert.throws(() => payload(() => ({ autosave: East.value(1n) } as never)));
+    });
+});
+
 describe("the bins, the lanes and the resources", () => {
     test("`events` holds one kind, the bins", () => {
         assert.throws(() => payload((base) => ({ events: { bin: base.props.events.bin!, other: base.props.events.bin! } })),

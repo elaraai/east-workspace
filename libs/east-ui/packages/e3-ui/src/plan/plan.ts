@@ -48,8 +48,9 @@
  * kinds and resources as Plan takes them (`PlanEventKindType`,
  * `PlanResourcesType`, #1190), the resources' rows over a window (`blocks`,
  * #1192) and a paged resource kind's a window of its resources at a time
- * (`paged`, #1199), the event kinds' drop veto, the settings, the library's
- * tabs, whether it has an inspector, and each source's narrowed keys. The
+ * (`paged`, #1199), the event kinds' drop veto, the settings — where it opens,
+ * and whether its Autosave begins on — the library's tabs, whether it has an
+ * inspector, and each source's narrowed keys. The
  * `Plan` renderer in `@elaraai/e3-ui-components` draws it.
  *
  * @packageDocumentation
@@ -157,12 +158,14 @@ export const PlanEventCanDropType = FunctionType([ScheduleCandidateType], Option
 export type PlanEventCanDropType = typeof PlanEventCanDropType;
 
 /**
- * Where a Plan opens.
+ * Where a Plan opens, and how it begins.
  *
  * @property date - The date brought into view first; `none`, the axis's window from its start
+ * @property autosave - Whether its Autosave begins on
  */
 export const PlanSettingsType = StructType({
     date: OptionType(DateTimeType),
+    autosave: BooleanType,
 });
 
 /** Type representing {@link PlanSettingsType}. */
@@ -211,7 +214,7 @@ export const PlanVocabularyType = StructType({
  * @property canDrop - The event kinds' drop veto; `none`, every drop the kinds take lands
  * @property optimise - The app's optimiser, by its `e3.function`'s name (#1409): what the Elara eye calls over the plan window in
  *   view, its result one edit of the session; `none`, no eye
- * @property settings - The date brought into view first
+ * @property settings - The date brought into view first, and whether its Autosave begins on
  * @property library - The library pane's tabs, in the order `library` lists them; empty, no pane (#1195)
  * @property inspector - Whether the Plan has an inspector pane, showing what is selected (#1197)
  * @property vocabulary - The app's words for what the Plan draws of its own (#1516)
@@ -350,6 +353,13 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, 
     rows?: readonly PlanRowsItem<NoInfer<K>>[];
     /** The date brought into view first; omitted, the axis's window from its start. */
     date?: SubtypeExprOrValue<DateTimeType>;
+    /**
+     * Whether Autosave — the switch in Save's menu — begins on; off by default. On, the Plan's changes are saved by
+     * themselves a pause after the viewer's last act: never an optimiser's result, an Undo or a Redo, which wait for a
+     * press of Save. A literal, or an expression data drives. The viewer's own choice, once made, is kept in their
+     * browser for the data set and the Plan, and stands over it.
+     */
+    autosave?: SubtypeExprOrValue<BooleanType>;
     /**
      * The library pane's tabs, in order (#1195) — `Plan.library.events()`,
      * `Plan.library.backlog()`, `Plan.library.series()` and
@@ -581,7 +591,7 @@ function checkedRowsRange(source: string, config: ExprType<RecordSliceConfigType
  * @internal
  */
 export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
-    const { resources, events, rows, date, canDrop, optimise, library, inspector, vocabulary, slice, ...canvas } = props as PlanAnyProps;
+    const { resources, events, rows, date, autosave, canDrop, optimise, library, inspector, vocabulary, slice, ...canvas } = props as PlanAnyProps;
     const words = planVocabulary(vocabulary);
     // The narrowing's form #1344 retired, refused by name for an app that still passes it: the bare handle.
     if (slice instanceof Expr || (slice !== undefined && (typeof slice !== "object" || slice === null || !("slice" in slice)))) {
@@ -689,7 +699,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         }
     }
     const veto = East.value(eventCanDrop === undefined ? none : some(eventCanDrop), OptionType(PlanEventCanDropType));
-    const settings = East.value({ date: date === undefined ? none : some(date) } as never, PlanSettingsType);
+    const settings = East.value({ date: date === undefined ? none : some(date), autosave: autosave ?? false } as never, PlanSettingsType);
     // `data`'s series a viewer can hide are its picked ones, through the pick.
     const picked = canvas.pick !== undefined;
     return Expr.block(($) => {

@@ -40,6 +40,17 @@ frame assembly or invent parallel framed/frameless APIs without a requirement.
 Keep tag factories to validation, typed accessor adapters and payload assembly.
 Do not emit an East program implementing layout, sessions or gestures there.
 
+A builder that saves takes `autosave` (ruled 11 Nov 2026): where the Autosave
+switch in Save's menu begins, a `SubtypeExprOrValue<BooleanType>` — a literal,
+or an expression the app's data drives — off when left out. Its payload carries
+the Boolean beside its other settings, and the viewer's own flick, kept in
+their browser, stands over it. The switch is within reach at every width — on a
+phone too narrow for Save's chevron, in the More square that stands in
+Discard's place — so an author's on is never one nobody can turn off. The
+Allocation, the Calendar, the Flowchart, the Plan, the Record, the Roster, the
+Schematic and the Sheet take it; the Calendar's `calendarAutosave` example
+reads it from an input.
+
 ### Bind data and Slice as Plan does
 
 Bind editable records with their mutation doors inside `Reactive`. Resources,

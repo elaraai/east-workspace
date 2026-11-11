@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 
-import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from "@elaraai/east";
+import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from "@elaraai/east";
 import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Calendar, Data, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -596,6 +596,34 @@ export const calendarCustomInspector = example({
         }));
         return <Box height="640px"><Calendar inspector view={{ period: "day", date: new Date("2026-10-01T00:00:00Z") }}
             events={{ appointment: Calendar.events(appointments, { name: "Appointment", icon: "calendar", title: "title", start: "start", end: "end", inspector: inspect }) }} />
+        </Box>;
+    }}</Reactive>),
+});
+
+/** Where the visits' Autosave begins: the app's own setting — a Boolean a settings screen or a task writes. */
+export const calendarAutosaveSetting = e3.input("calendar_autosave_setting", BooleanType, variant("value", true));
+/** The visits the Autosave example edits, in a record of their own: what it saves by itself meets no other example's rows. */
+export const calendarVisits = e3.record("calendar_visits", DictType(StringType, CalendarAppointment), {
+    initial: new Map([
+        ["intake", { title: "Intake call", start: new Date("2026-10-01T09:00:00Z"), end: new Date("2026-10-01T10:00:00Z") }],
+        ["survey", { title: "Site survey", start: new Date("2026-10-01T13:00:00Z"), end: new Date("2026-10-01T14:30:00Z") }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+/** The author says where Autosave begins — here from the app's own data. */
+export const calendarAutosave = example({
+    inputs: [],
+    description: "Where Autosave begins is the author's to say: `autosave` takes a literal (`autosave`, `autosave={false}`) or an expression — here an input of the app's, so its data decides. The switch in Save's menu starts on, and each change is saved by itself a pause after the viewer's last act; an Undo or a Redo waits for a press of Save. A viewer's own flick of the switch is kept in their browser, and stands over what the author says.",
+    keywords: ["Calendar", "autosave", "Autosave", "Save", "default", "Data.bind", "input", "Record.bind", "editing", "history"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const visits = $.let(Record.bind(calendarVisits));
+        // The app's own setting: whoever writes the input decides where every viewer's switch begins.
+        const setting = $.let(Data.bind(calendarAutosaveSetting));
+        const begins = $.let(setting.read());
+        return <Box height="640px"><Calendar id="autosave" autosave={begins} view={{ period: "day", date: new Date("2026-10-01T00:00:00Z") }}
+            events={{ visit: Calendar.events(visits, { name: "Visit", icon: "calendar", title: "title", start: "start", end: "end" }) }} />
         </Box>;
     }}</Reactive>),
 });

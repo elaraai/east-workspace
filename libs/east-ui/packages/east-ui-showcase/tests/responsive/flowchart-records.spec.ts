@@ -111,7 +111,7 @@ async function findMoveAndSave(page: Page, root: Locator): Promise<void> {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
     await expect.poll(() => bandOf(root, "SCN")).toBe("intake");
     // Nor is a state moved: Scanned carried by the mouse onto Arrived, above it in Intake, stays after it, nothing to save.
-    const save = root.locator("[data-slot='history'] button").last();
+    const save = root.locator("[data-slot='history']").getByRole("button", { name: "Save", exact: true });
     const arrived = root.locator("[data-flowchart-node='ARV']");
     await carry(page, root.locator("[data-flowchart-node='SCN']"), arrived);
     await expect(save).toBeDisabled();
