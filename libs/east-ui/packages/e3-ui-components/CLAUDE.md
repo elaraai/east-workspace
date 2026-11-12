@@ -1300,9 +1300,12 @@ sides never drawn again, a row changed here and removed there standing as
 drafted, a row removed here and changed there staying off — then the choice,
 each way. A conflict's card names its row as the builder names it, never by
 its key, whether the builder draws the row or the draft removed it: a row off
-the rows drawn is named from what the session holds of it (the Sheet's
-`rowWhere`, from its `originals`). The Record runs them
-(`record/remote-edits.dom.test.tsx`).
+the rows drawn is named from what the session holds of it — the Sheet's
+`rowWhere`, from its `originals`; a board's event from the row its record
+held when last read, read as its kind reads a row with no draft in place
+(`shared/schedule/editing.ts`' `heldEvent`, which `scheduleIssueName` falls
+back to). The Record (`record/remote-edits.dom.test.tsx`) and the Calendar
+(`calendar/remote-rows.dom.test.tsx`) run them.
 
 The Sheet's footer note of a gesture goes with a step of the history, and
 with a conflict's choice, which is one taken in the conflicts popover: a

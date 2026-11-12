@@ -368,7 +368,8 @@ describe("Calendar explicit action forms", () => {
         expect(history(container, editingMessages.apply()).getAttribute("aria-disabled")).toBe("true");
         const [conflict, ...more] = await conflictCards(container);
         expect(more).toEqual([]);
-        expect([conflict!.item, conflict!.yours]).toEqual(["job1", "Yours, Removed"]);
+        // The job is off the board, and its card names it by its title all the same, never by its key.
+        expect([conflict!.item, conflict!.yours]).toEqual(["Mounting brackets · batch 42", "Yours, Removed"]);
         expect((await jobs()).get("job1")!.customer).toBe("Changed elsewhere");
         expect((await h.read(ex.calendarServices)).has("service1")).toBe(false);
         expect(event(container, "job", "job1")).toBeNull();

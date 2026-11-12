@@ -85,19 +85,21 @@ export function heldRowOf(held: ScheduleHeldRows | undefined, kind: string, id: 
 }
 /**
  * Where an issue of a kind's session is, as a builder names it — its event's
- * title, read with the drafts in place — or its key's text while the event is
- * read, where its read fails, or for an event the drafts removed; empty for
- * the source as a whole.
+ * title, read with the drafts in place; for an event the drafts removed, its
+ * title as its record held it when last read ({@link ScheduleEditing.heldEvent}):
+ * a conflict's card names the event a person removed, never its key — or its
+ * key's text while the event is read, or where its read fails; empty for the
+ * source as a whole.
  *
  * @param editing - The shared editing
  * @param kind - The kind's slot
  * @param entry - The issue's entry: its event's key's text
  * @returns The event's name
  */
-export function scheduleIssueName(editing: Pick<ScheduleEditing, "read">, kind: string, entry: string): string {
+export function scheduleIssueName(editing: Pick<ScheduleEditing, "read" | "heldEvent">, kind: string, entry: string): string {
     if (entry === "") return "";
     try {
-        return editing.read(kind, entry)?.item.title ?? entry;
+        return (editing.read(kind, entry) ?? editing.heldEvent(kind, entry))?.item.title ?? entry;
     } catch {
         return entry;
     }
@@ -284,6 +286,17 @@ export interface ScheduleEditing<I extends Item = Item> {
      *   a time (#1199), for one its drafts do not hold, which stands as the record holds it
      */
     held(kind: string, id: string): unknown;
+    /**
+     * An event as its kind's record held it when last read ({@link ScheduleEditing.held}), read as its kind reads a row
+     * — its title, its start and its end — with none of its drafts in place and no read of the record: what names an
+     * event its drafts removed.
+     *
+     * @param kind - The kind's slot
+     * @param id - The event's key's text
+     * @returns The event; `undefined` for one {@link ScheduleEditing.held} holds no row of, or a record beside the kinds
+     * @throws {Error} When the kind's read of the row fails
+     */
+    heldEvent(kind: string, id: string): ScheduleRead<I> | undefined;
     /**
      * One event as its kind reads it now, its drafts in place (#1197, #1199):
      * what a gesture, the inspector and a banner read of it. Where the
@@ -730,6 +743,19 @@ export function useScheduleEditing<I extends Item = Item>({
         if (got.type !== "some") return undefined;
         return { draft: variant("value", codec.decodeRow(got.value.row)), wire: undefined, place: KEY_ORDER };
     };
+    /** An event's row as its kind's record held it when last read, or a row of a record a builder writes ({@link ScheduleEditing.held}). */
+    const heldRow = (kind: string, id: string): unknown => {
+        const i = indexOf(kind);
+        if (i < 0) return undefined;
+        // A kind read a window at a time holds no snapshot (#1199): an event its session holds was read before
+        // its first gesture, and one it does not hold stands as the record holds it.
+        if (parts[i]!.entries.type === "some") {
+            const original = history.session(keys[i]!)?.originals.get(id);
+            return original === undefined ? undefined : rowOf(original);
+        }
+        const at = codecs[i]!.keyOf(id);
+        return at === undefined ? undefined : state.held(keys[i]!)?.get(at);
+    };
     const api = {
         shown(kind: string, ids: Iterable<string>): void {
             const i = indexOf(kind);
@@ -747,16 +773,20 @@ export function useScheduleEditing<I extends Item = Item>({
             return i >= 0 && history.session(keys[i]!)?.conflicts.has(id) === true;
         },
         held(kind: string, id: string): unknown {
+            return heldRow(kind, id);
+        },
+        heldEvent(kind: string, id: string): ScheduleRead<I> | undefined {
             const i = indexOf(kind);
-            if (i < 0) return undefined;
-            // A kind read a window at a time holds no snapshot (#1199): an event its session holds was read before
-            // its first gesture, and one it does not hold stands as the record holds it.
-            if (parts[i]!.entries.type === "some") {
-                const original = history.session(keys[i]!)?.originals.get(id);
-                return original === undefined ? undefined : rowOf(original);
-            }
-            const at = codecs[i]!.keyOf(id);
-            return at === undefined ? undefined : state.held(keys[i]!)?.get(at);
+            const event = i < 0 ? undefined : parts[i]!.kind;
+            if (event === undefined) return undefined;
+            const row = heldRow(kind, id);
+            if (row === undefined) return undefined;
+            const at = rangeRef.current ?? NO_RANGE;
+            // The row as the one draft in place: the kind reads its event from a draft before anything else, so it reads
+            // nothing of the record — nor the event's other drafts, which removed it.
+            const alone = new SortedMap<string, Uint8Array>([[id, codecs[i]!.encodeDraft(variant("value", row))]], compareString);
+            const got = event.event(id, alone, at.from, at.to, heldRowOf(cellRows?.current, kind, id));
+            return got.type === "some" ? got.value : undefined;
         },
         read(kind: string, id: string): ScheduleRead<I> | undefined {
             const i = indexOf(kind);
@@ -894,12 +924,13 @@ export function useScheduleEditing<I extends Item = Item>({
     const available = useCallback((kind: string) => latest.current.available(kind), []);
     const conflicted = useCallback((kind: string, id: string) => latest.current.conflicted(kind, id), []);
     const held = useCallback((kind: string, id: string) => latest.current.held(kind, id), []);
+    const heldEvent = useCallback((kind: string, id: string) => latest.current.heldEvent(kind, id), []);
     const read = useCallback((kind: string, id: string) => latest.current.read(kind, id), []);
     const mint = useCallback((kind: string, from: string, minted: ReadonlySet<string>) => latest.current.mint(kind, from, minted), []);
     const record = useCallback((changes: readonly ScheduleChange[], origin: Origin, label: string) => latest.current.record(changes, origin, label), []);
 
     return useMemo(() => ({
         history, sessions, drafts: drafts.drafts, draftsVersion: drafts.version, landed, version,
-        shown, draftsOf, available, conflicted, held, read, mint, record,
-    }), [history, sessions, drafts, landed, version, shown, draftsOf, available, conflicted, held, read, mint, record]);
+        shown, draftsOf, available, conflicted, held, heldEvent, read, mint, record,
+    }), [history, sessions, drafts, landed, version, shown, draftsOf, available, conflicted, held, heldEvent, read, mint, record]);
 }
