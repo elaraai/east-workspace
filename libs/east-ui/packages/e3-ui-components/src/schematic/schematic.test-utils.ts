@@ -29,9 +29,10 @@ export type ElementAt = (x: number, y: number) => Element | null;
 
 /**
  * Lays the canvas out for each of the file's tests: a box of 1080 × 540 px,
- * pointer capture, and the element at a point, which hits nothing until a test
- * says what it hits. An element scrolls into view, as the index scrolls to
- * what is selected, though jsdom scrolls nothing.
+ * pointer capture — taken and let go of as a page takes it, held by none — and
+ * the element at a point, which hits nothing until a test says what it hits. An
+ * element scrolls into view, as the index scrolls to what is selected, though
+ * jsdom scrolls nothing.
  *
  * @returns What says, for the test it is called in, which element a point hits
  */
@@ -47,11 +48,12 @@ export function layOutCanvas(): { hits: (elementAt: ElementAt) => void } {
         }
         Object.defineProperty(HTMLElement.prototype, "setPointerCapture", { configurable: true, value: () => undefined });
         Object.defineProperty(HTMLElement.prototype, "releasePointerCapture", { configurable: true, value: () => undefined });
+        Object.defineProperty(HTMLElement.prototype, "hasPointerCapture", { configurable: true, value: () => false });
         elementAt = () => null;
         (document as unknown as { elementFromPoint: ElementAt }).elementFromPoint = (x, y) => elementAt(x, y);
     });
     afterEach(() => {
-        for (const name of [...Object.keys(CANVAS), "setPointerCapture", "releasePointerCapture"]) {
+        for (const name of [...Object.keys(CANVAS), "setPointerCapture", "releasePointerCapture", "hasPointerCapture"]) {
             delete (HTMLElement.prototype as unknown as { [name: string]: unknown })[name];
         }
         delete (document as unknown as { [name: string]: unknown })["elementFromPoint"];

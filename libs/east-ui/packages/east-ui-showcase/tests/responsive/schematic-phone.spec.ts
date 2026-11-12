@@ -13,7 +13,11 @@
  * rail shows its Position, its Connect to… and its Delete, each a 44px tap
  * target by its box or its halo and inside the pane, Connect to…'s list opening
  * inside the window; nothing scrolls the page sideways. One finger pans the
- * canvas and two pinch it about their midpoint. The inspector's actions go
+ * canvas and two pinch it, the drawing staying under them — drawn apart they
+ * zoom it, carried together they pan it, and drawn all the way together they
+ * land it on Fit as they lift; and a touch the system takes back, its lift
+ * never heard, leaves the next finger panning, never zooming
+ * (`canvas/CLAUDE.md` invariant 33). The inspector's actions go
  * through Save and a remount: a run Connect to… records and a Backlog card's
  * Place, each read back from e3; and Place with the view's centre panned off
  * the drawing is refused in the footer, in words that say what brings the
@@ -135,6 +139,18 @@ async function touch(page: Page, paths: readonly (readonly [Point, Point])[]): P
     await settled(page);
 }
 
+/**
+ * A finger put down that the system takes back before it lifts — an edge swipe, a pull of the notification shade, a
+ * palm: the page hears its touch cancelled, never ended.
+ */
+async function touchTakenBack(page: Page, at: Point): Promise<void> {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ id: 0, x: at.x, y: at.y }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+    await cdp.detach();
+    await settled(page);
+}
+
 /** The data centre unmounted and mounted again, as a viewer leaving it and coming back does: what it shows read back from e3. */
 async function remount(page: Page): Promise<Locator> {
     await leaveBuilder(page);
@@ -213,31 +229,70 @@ test.describe("The Schematic on a phone (#1394)", () => {
         });
     }
 
-    test("one finger pans the canvas and two pinch it about their midpoint, the point of the drawing under it standing still (D15)", async ({ page }) => {
+    test("one finger pans the canvas and two pinch it, the drawing staying under them: drawn apart they zoom it about their midpoint, carried together they pan it, and drawn all the way together they land it on Fit; a touch the system takes back leaves the next finger panning, never zooming (D15, invariant 33)", async ({ page }) => {
         await page.setViewportSize({ width: 390, height: 844 });
         const root = await openSchematic(page, DATA_CENTRE);
         await centred(page, root);
-        // The hot aisle's floor, clear of every item: a drag there pans.
-        const from = await screenPoint(root, 10.0, 13.3);
-        const before = await cameraOf(root);
-        await touch(page, [[from, { x: from.x + 60, y: from.y - 20 }]]);
-        const panned = await cameraOf(root);
-        expect([Math.round(panned.x - before.x), Math.round(panned.y - before.y), panned.ppu]).toEqual([60, -20, before.ppu]);
-        // Two fingers 40px either side of a point, drawn apart to 80px: the zoom doubles about the point between them.
+        const fitted = await cameraOf(root);
+        /** How far a camera stands from another, in px, and by what zoom. */
+        const moved = (from: { ppu: number; x: number; y: number }, to: { ppu: number; x: number; y: number }) => ({ zoom: to.ppu / from.ppu, dx: to.x - from.x, dy: to.y - from.y });
+        let panned = fitted;
+        await test.step("one finger pans", async () => {
+            // The hot aisle's floor, clear of every item: a drag there pans.
+            const from = await screenPoint(root, 10.0, 13.3);
+            await touch(page, [[from, { x: from.x + 60, y: from.y - 20 }]]);
+            panned = await cameraOf(root);
+            expect([Math.round(panned.x - fitted.x), Math.round(panned.y - fitted.y), panned.ppu]).toEqual([60, -20, fitted.ppu]);
+        });
         const mid = await screenPoint(root, 14.0, 7.0);
-        const world = (camera: { ppu: number; x: number; y: number }) => ({ x: (mid.x - camera.x) / camera.ppu, y: (mid.y - camera.y) / camera.ppu });
-        const under = world(panned);
-        await touch(page, [
-            [{ x: mid.x - 40, y: mid.y }, { x: mid.x - 80, y: mid.y }],
-            [{ x: mid.x + 40, y: mid.y }, { x: mid.x + 80, y: mid.y }],
-        ]);
-        const pinched = await cameraOf(root);
-        expect(pinched.ppu / panned.ppu).toBeCloseTo(2, 2);
-        // Each finger's move lands a moment apart, the midpoint between them shifting half a step meanwhile: the point
-        // stands within 2px — a zoom about the canvas's middle would carry it the pan's 63px.
-        const still = world(pinched);
-        expect(Math.abs(still.x - under.x) * pinched.ppu, "the point under the midpoint, in px").toBeLessThan(2);
-        expect(Math.abs(still.y - under.y) * pinched.ppu, "the point under the midpoint, in px").toBeLessThan(2);
+        let pinched = panned;
+        await test.step("two fingers drawn apart zoom about their midpoint", async () => {
+            // Two fingers 40px either side of a point, drawn apart to 80px: the zoom doubles about the point between them.
+            const world = (camera: { ppu: number; x: number; y: number }) => ({ x: (mid.x - camera.x) / camera.ppu, y: (mid.y - camera.y) / camera.ppu });
+            const under = world(panned);
+            await touch(page, [
+                [{ x: mid.x - 40, y: mid.y }, { x: mid.x - 80, y: mid.y }],
+                [{ x: mid.x + 40, y: mid.y }, { x: mid.x + 80, y: mid.y }],
+            ]);
+            pinched = await cameraOf(root);
+            expect(pinched.ppu / panned.ppu).toBeCloseTo(2, 2);
+            // Each finger's move lands a moment apart, the midpoint between them shifting half a step meanwhile, and the
+            // drawing is carried with it: the point stands under the midpoint — a zoom about the canvas's middle would
+            // carry it the pan's 63px.
+            const still = world(pinched);
+            expect(Math.abs(still.x - under.x) * pinched.ppu, "the point under the midpoint, in px").toBeLessThan(0.5);
+            expect(Math.abs(still.y - under.y) * pinched.ppu, "the point under the midpoint, in px").toBeLessThan(0.5);
+        });
+        await test.step("a touch the system takes back leaves the next finger panning, and zooming by nothing", async () => {
+            // Its lift is never heard. Held as a finger still down, it made every later finger the second of a pinch: the
+            // drawing zoomed under one finger until the page was loaded again.
+            await touchTakenBack(page, { x: mid.x - 90, y: mid.y + 60 });
+            for (const [dx, dy] of [[60, -20], [-40, 30]] as const) {
+                const before = await cameraOf(root);
+                await touch(page, [[mid, { x: mid.x + dx, y: mid.y + dy }]]);
+                const after = moved(before, await cameraOf(root));
+                expect([after.zoom, Math.round(after.dx), Math.round(after.dy)], `a drag of ${dx}, ${dy}`).toEqual([1, dx, dy]);
+            }
+        });
+        await test.step("two fingers carried together pan", async () => {
+            const before = await cameraOf(root);
+            await touch(page, [
+                [{ x: mid.x - 50, y: mid.y - 20 }, { x: mid.x, y: mid.y + 10 }],
+                [{ x: mid.x + 50, y: mid.y + 20 }, { x: mid.x + 100, y: mid.y + 50 }],
+            ]);
+            const after = moved(before, await cameraOf(root));
+            expect(after.zoom).toBeCloseTo(1, 6);
+            expect([Math.abs(after.dx - 50), Math.abs(after.dy - 30)].every((off) => off < 0.5), `moved ${after.dx}, ${after.dy}`).toBe(true);
+        });
+        await test.step("two fingers drawn all the way together land the drawing on Fit as they lift", async () => {
+            // From twice Fit's zoom, to a tenth of their distance: the zoom stops at Fit's, and Fit's camera frames the drawing.
+            await touch(page, [
+                [{ x: mid.x - 100, y: mid.y }, { x: mid.x - 10, y: mid.y }],
+                [{ x: mid.x + 100, y: mid.y }, { x: mid.x + 10, y: mid.y }],
+            ]);
+            const landed = moved(fitted, await cameraOf(root));
+            expect([landed.zoom, Math.round(landed.dx), Math.round(landed.dy)]).toEqual([1, 0, 0]);
+        });
         expect(await discard(root).isDisabled()).toBe(true);
     });
 

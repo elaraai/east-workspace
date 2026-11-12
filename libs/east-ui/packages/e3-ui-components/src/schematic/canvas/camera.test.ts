@@ -9,15 +9,16 @@
  * coalescer (many requests → one frame), the shared world→screen projector
  * (card transform and canvas footprint resolve to the same screen point —
  * issue #57 P1), the viewport-cull geometry (a cross-viewport link / a shape
- * bowing outside its rect must NOT be culled — P6/1e), `zoomAbout`, and when a
- * moving camera tells its reader where its view stands (#1398, CL6).
+ * bowing outside its rect must NOT be culled — P6/1e), `zoomAbout`, a pinch's
+ * step (`pinchAbout`: the drawing kept under the fingers), and when a moving
+ * camera tells its reader where its view stands (#1398, CL6).
  */
 
 import { describe, it, expect } from "vitest";
 import {
     FIT_MARGIN_PX, FLY_DURATION_MS, IDENTITY, SLOW_READ_MS,
     bboxOverlaps, cancelsFly, cardTranslateCss, fitView, flyStep, makeRafCoalescer, nextMode,
-    pointsBbox, project, tellsAsItMoves, viewportWorldBbox, zoomAbout,
+    pinchAbout, pointsBbox, project, tellsAsItMoves, viewportWorldBbox, zoomAbout,
 } from "./camera";
 
 describe("nextMode / cancelsFly (interaction-mode machine)", () => {
@@ -159,6 +160,77 @@ describe("zoomAbout", () => {
     it("snaps to the camera Fit takes at minimum zoom, so a full zoom-out recentres (#1393)", () => {
         const home = { zoom: 1, tx: 24, ty: 71 };
         expect(zoomAbout({ zoom: 3, tx: -400, ty: -90 }, 0.2, 10, 10, 1, 40, home)).toBe(home);
+    });
+});
+
+describe("pinchAbout (a pinch's step)", () => {
+    /** The point of the drawing a camera shows at a screen point, in px at zoom 1. */
+    const under = (cam: { zoom: number; tx: number; ty: number }, p: { x: number; y: number }) => ({ x: (p.x - cam.tx) / cam.zoom, y: (p.y - cam.ty) / cam.zoom });
+    const mid = (p: { x: number; y: number }, q: { x: number; y: number }) => ({ x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 });
+
+    it("keeps each finger on the point of the drawing it touched: the fingers drawn apart, carried, and both at once", () => {
+        const cam = { zoom: 2, tx: -40, ty: 25 };
+        // Two fingers, and where each goes: apart to twice their distance while their midpoint moves 30 right and 12 down.
+        const a = { x: 100, y: 200 }, b = { x: 200, y: 200 };
+        const a2 = { x: 80, y: 212 }, b2 = { x: 280, y: 212 };
+        const next = pinchAbout(cam, 2, mid(a, b), mid(a2, b2), 1, 40);
+        expect([next.camera.zoom, next.over]).toEqual([4, 1]);
+        for (const [was, now] of [[a, a2], [b, b2]] as const) {
+            expect(under(next.camera, now).x).toBeCloseTo(under(cam, was).x, 9);
+            expect(under(next.camera, now).y).toBeCloseTo(under(cam, was).y, 9);
+        }
+    });
+
+    it("two fingers carried together, their distance kept, pan: the zoom as it was, the drawing moved as they moved", () => {
+        const cam = { zoom: 3, tx: 10, ty: -5 };
+        expect(pinchAbout(cam, 1, { x: 150, y: 90 }, { x: 110, y: 140 }, 1, 40)).toEqual({ camera: { zoom: 3, tx: -30, ty: 45 }, over: 1 });
+        // At the least zoom too, where Fit's camera stands: a pinch never jumps to it.
+        expect(pinchAbout({ zoom: 1, tx: 24, ty: 71 }, 1, { x: 150, y: 90 }, { x: 110, y: 140 }, 1, 40)).toEqual({ camera: { zoom: 1, tx: -16, ty: 121 }, over: 1 });
+    });
+
+    it("the steps of a pinch compose: by one finger's moves then the other's, or both at once, the camera ends the same", () => {
+        const cam = { zoom: 1.5, tx: 12, ty: 34 };
+        // One finger moves, then the other: two steps, each of what the pair did in it.
+        const first = pinchAbout(cam, 150 / 100, { x: 150, y: 200 }, { x: 175, y: 200 }, 1, 40);
+        const both = pinchAbout(first.camera, 240 / 150, { x: 175, y: 200 }, { x: 130, y: 200 }, 1, 40, first.over).camera;
+        // The same fingers, from where they began to where they end, in one step.
+        const once = pinchAbout(cam, 240 / 100, { x: 150, y: 200 }, { x: 130, y: 200 }, 1, 40).camera;
+        expect(both.zoom).toBeCloseTo(once.zoom, 12);
+        expect(both.tx).toBeCloseTo(once.tx, 9);
+        expect(both.ty).toBeCloseTo(once.ty, 9);
+    });
+
+    it("at either limit the zoom holds, what the fingers ask past it is kept, and the drawing is carried by the midpoint's move alone", () => {
+        // Pinched in at the least zoom: no closer to Fit than Fit, and no jump to its camera.
+        expect(pinchAbout({ zoom: 1, tx: 30, ty: 40 }, 0.5, { x: 100, y: 100 }, { x: 108, y: 97 }, 1, 40)).toEqual({ camera: { zoom: 1, tx: 38, ty: 37 }, over: 0.5 });
+        // Drawn apart at the limit.
+        expect(pinchAbout({ zoom: 40, tx: -900, ty: 40 }, 3, { x: 100, y: 100 }, { x: 108, y: 97 }, 1, 40)).toEqual({ camera: { zoom: 40, tx: -892, ty: 37 }, over: 3 });
+        // Reaching the least zoom part way through a step: the zoom stops there, about where the midpoint stood.
+        const reached = pinchAbout({ zoom: 1.2, tx: 0, ty: 0 }, 0.5, { x: 60, y: 60 }, { x: 60, y: 60 }, 1, 40);
+        expect(reached.camera.zoom).toBe(1);
+        expect(reached.camera.tx).toBeCloseTo(60 - (1 / 1.2) * 60, 9);
+        expect(reached.over).toBeCloseTo(0.6, 12);
+    });
+
+    it("a limit is no ratchet: two fingers carried together at the least zoom, one move at a time, pan and zoom by nothing", () => {
+        // Two fingers 100 right and 40 down of one another, each carried 70 right and 25 up: the first's move draws them
+        // closer, the second's puts their distance back. Dropped at the limit, the first would leave the second to zoom in.
+        const a = { x: 200, y: 300 }, b = { x: 300, y: 340 };
+        const a2 = { x: 270, y: 275 }, b2 = { x: 370, y: 315 };
+        const dist = (p: { x: number; y: number }, q: { x: number; y: number }) => Math.hypot(p.x - q.x, p.y - q.y);
+        const home = { zoom: 1, tx: 24, ty: 71 };
+        const first = pinchAbout(home, dist(a2, b) / dist(a, b), mid(a, b), mid(a2, b), 1, 40);
+        expect([first.camera.zoom, first.over < 1]).toEqual([1, true]);
+        const second = pinchAbout(first.camera, dist(a2, b2) / dist(a2, b), mid(a2, b), mid(a2, b2), 1, 40, first.over);
+        expect(second.camera.zoom).toBe(1);
+        expect(second.over).toBeCloseTo(1, 12);
+        expect(second.camera.tx).toBeCloseTo(home.tx + 70, 9);
+        expect(second.camera.ty).toBeCloseTo(home.ty - 25, 9);
+        // And past the limit and back: drawn together to a quarter, then apart to where they began — the drawing as it was.
+        const in4 = pinchAbout({ zoom: 1.5, tx: 0, ty: 0 }, 0.25, { x: 50, y: 50 }, { x: 50, y: 50 }, 1, 40);
+        const out4 = pinchAbout(in4.camera, 4, { x: 50, y: 50 }, { x: 50, y: 50 }, 1, 40, in4.over);
+        expect(out4.camera.zoom).toBeCloseTo(1.5, 12);
+        expect(out4.over).toBeCloseTo(1, 12);
     });
 });
 

@@ -15,6 +15,19 @@
  * invariant 12). Every gesture that writes is one step of the editing's
  * history (`../edits.ts`, #1388).
  *
+ * The fingers the canvas holds are a record of their own
+ * (`../../shared/touches.ts`, invariant 33): a finger is gone as it lifts, as
+ * the browser takes it back and as the canvas loses its capture, and one whose
+ * end is never heard is let go of as the next first finger lands or the window
+ * loses the page — so no finger is remembered into a pinch that never ends.
+ * Two fingers pinch: the drawing zooms by how far apart they are drawn and is
+ * carried with them, each finger staying on the point of the drawing it
+ * touched (`camera.ts`' `pinchAbout`).
+ * One gesture is in flight at a time, its pointer's (invariant 34): another
+ * pointer's moves and release are not its, and a second finger, a new press, a
+ * lost pointer and the window losing the page each let go of it, recording
+ * nothing, in one place ({@link useGestures}' `dropGesture`).
+ *
  * The commit-phase snapshot reads the gestures' state (`use-paint.ts`,
  * invariant 1), and the handlers read the snapshot: {@link useGestureState}
  * holds the state — the tool in force, a Move's preview, Connect's draft and
@@ -31,6 +44,7 @@ import { SCHEMATIC_WINDOW_ROWS } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, takeKey, typedInto, type Origin } from "@elaraai/east-ui-components";
 import { keepsSpace, keyFromPage, keyInFrame } from "../../shared/frame-keys.js";
 import { unjoined } from "../../shared/links/canvas.js";
+import { makeTouches, pinchMoves } from "../../shared/touches.js";
 import { densityInView } from "../area.js";
 import type { SchematicValue } from "../data.js";
 import type { SchematicMove } from "../editing.js";
@@ -41,7 +55,7 @@ import {
 } from "../edits.js";
 import type { SchematicStep, SchematicWords } from "../messages.js";
 import type { SchematicTool } from "../tools.js";
-import { zoomAbout } from "./camera";
+import { pinchAbout } from "./camera";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./drawn";
 import type { SchematicLayerState } from "./layers";
 import { markerHit, markerHitbox } from "./markers";
@@ -678,11 +692,58 @@ export function useGestures({
     // inner <canvas> — so a click handler there never fires for a marker /
     // footprint tap (issue #57, P11). `moved` distinguishes a pan from a tap.
     const panRef = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
-    // Pinch-zoom (#353): live touch points on the canvas; two concurrent
-    // touches zoom about their midpoint (the wheel-zoom math reused).
-    const touchesRef = useRef(new Map<number, { x: number; y: number }>());
-    const pinchRef = useRef<{ dist: number } | null>(null);
+    // The fingers the canvas holds (`../../shared/touches.ts`, #353, invariant 33): one presses, two pinch — the
+    // drawing zoomed by how far apart they are drawn and carried with them (`pinchAbout`) — and a third does nothing.
+    // A finger is gone as it lifts, as the browser takes it back and as the canvas loses its capture; one whose end is
+    // never heard is let go of as the next first finger lands, or the window loses the page.
+    const [touches] = useState(makeTouches);
+    // The pinch under way: the zoom it began at, and how far past a limit of the zoom its fingers stand (`pinchAbout`'s
+    // `over`), so a limit is no ratchet; `null` while fewer than two fingers are held. A pinch in from a closer zoom
+    // that ends at the least zoom is a full zoom out, and lands on Fit's camera as it ends (invariant 23).
+    const pinchRef = useRef<{ readonly from: number; over: number } | null>(null);
+    // The pinch is over once fewer than two fingers are held — one lifted, taken back or lost.
+    const settlePinch = useCallback(() => {
+        const pinch = pinchRef.current;
+        if (pinch === null || touches.size >= 2) return;
+        pinchRef.current = null;
+        // Zoomed all the way out: Fit's camera, as the wheel's and the toolbar's zoom out land on it. A pinch that began
+        // at the least zoom stays where its fingers carried the drawing, as a one-finger pan there does.
+        if (pinch.from > 1 && cameraRef.current.zoom <= 1) {
+            cameraRef.current = renderSnapRef.current.home;
+            requestRender();
+        }
+    }, [touches, cameraRef, renderSnapRef, requestRender]);
+    // The pointer whose press began the gesture in flight (invariant 34): its moves drive the gesture and its release
+    // ends it, no other's. `null` while none is pressed, and once a second finger, a lost pointer or the window has
+    // let go of what it began.
+    const ownerRef = useRef<number | null>(null);
     const movedRef = useRef(false);
+    // End an in-progress canvas drag-pan (panning → idle). Returns whether a pan
+    // was active; never disturbs a running fly.
+    const endPan = useCallback(() => {
+        if (panRef.current === null) return false;
+        panRef.current = null;
+        transition("pointerUp");
+        return true;
+    }, [transition]);
+    // Lets go of the gesture in flight, recording nothing (invariants 4, 34): a Move's preview, Connect's draft and a
+    // handle's press, the box, and the pan — and its pointer, whose later moves and release are then no gesture's.
+    // What a second finger, a new press, a lost pointer and the window losing the page each do, in this one place.
+    const dropGesture = useCallback(() => {
+        ownerRef.current = null;
+        movedRef.current = false;
+        // A move that loses its pointer records nothing: its items stay where they were (SC8).
+        if (moveDragRef.current !== null) {
+            moveDragRef.current = null;
+            setDragMoves(NO_MOVES);
+        }
+        connectDragRef.current = null;
+        handlePressRef.current = null;
+        setConnectDraft(null);
+        selStartRef.current = null;
+        setBoxDrag(null);
+        endPan();
+    }, [endPan, setDragMoves, setConnectDraft, setBoxDrag]);
 
     // The order the markers not drawn as cards paint in, as the last commit drew them (`paint.ts`' `planMarkers`): what
     // a tap where markers overlap picks the one drawn on top by (invariant 9). Made again only as a commit or the reveal
@@ -860,26 +921,32 @@ export function useGestures({
         drawPending();
         // A press is a gesture: the link lit goes out until no button is held again (#1403).
         setLit(undefined);
-        // Pinch-zoom (#353): the second touch starts a pinch — cancel any
-        // pan/press in flight; moves are consumed by the pinch until a
-        // finger lifts.
+        // Presses on the canvas's own buttons are theirs — a finger's among them, which is then no finger of the
+        // canvas's. Cards are NOT excluded — a drag-pan can start anywhere, including over a card; a tap (no drag)
+        // over the card is resolved by pickAt on pointerup.
+        if ((e.target as HTMLElement).closest("button") !== null) return;
+        // Every pointer the canvas takes it captures — each finger of a pinch too (invariant 33): its release, or the
+        // browser taking it back, is heard here wherever it ends and whatever becomes of the element it landed on. A
+        // card a pinch zooms out of goes from under its finger.
+        capturePointer(e.currentTarget as HTMLElement, e.pointerId);
         if (e.pointerType === "touch") {
-            touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-            if (touchesRef.current.size === 2) {
-                const [a, b] = [...touchesRef.current.values()];
-                pinchRef.current = { dist: Math.hypot(a!.x - b!.x, a!.y - b!.y) };
-                panRef.current = null;
-                moveDragRef.current = null;
-                handlePressRef.current = null;
-                movedRef.current = true;
+            const began = touches.down(e.pointerId, { x: e.clientX, y: e.clientY }, e.isPrimary);
+            if (began !== "press") {
+                // The second finger starts a pinch (#353): what the first began is let go of, recording nothing, and
+                // the two own the canvas until one is gone. A third starts nothing.
+                if (began === "pinch") {
+                    pinchRef.current = { from: cameraRef.current.zoom, over: 1 };
+                    dropGesture();
+                }
                 return;
             }
+            // A pinch whose fingers were never heard to end is over, where it stands.
+            pinchRef.current = null;
         }
-        // Presses on the canvas's own buttons are theirs. Cards are NOT
-        // excluded — a drag-pan can start anywhere, including over a card; a
-        // tap (no drag) over the card is resolved by pickAt on pointerup.
-        if ((e.target as HTMLElement).closest("button") !== null) return;
-        capturePointer(e.currentTarget as HTMLElement, e.pointerId);
+        // One gesture at a time, its pointer's (invariant 34): a press while another's is in flight — a pointer whose
+        // release the canvas never heard — lets go of that one first, recording nothing.
+        if (ownerRef.current !== null) dropGesture();
+        ownerRef.current = e.pointerId;
         movedRef.current = false;
         // Move tool (#179): a press ON AN ITEM of a kind bound with its patch door
         // starts a reposition drag; when the pressed item is part of the selection
@@ -993,29 +1060,35 @@ export function useGestures({
         transition("pointerDown");
         panRef.current = { x: e.clientX, y: e.clientY, tx: cameraRef.current.tx, ty: cameraRef.current.ty };
     }, [drawPending, transition, itemKeyAt, data.links, data.nets, endLinkSession, refById, movableKinds, kinds, routesAt, setLit, renderSnapRef, cameraRef,
-        setConnectDraft, setBoxDrag]);
+        setConnectDraft, setBoxDrag, touches, dropGesture]);
     const onCanvasPointerMove = useCallback((e: React.PointerEvent) => {
-        // Pinch-zoom (#353): with two live touches the gesture owns the
-        // canvas — zoom about the midpoint, ratio of successive distances.
-        if (e.pointerType === "touch" && touchesRef.current.has(e.pointerId)) {
-            touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-            const pinch = pinchRef.current;
-            if (pinch && touchesRef.current.size >= 2) {
-                const [a, b] = [...touchesRef.current.values()];
-                const dist = Math.hypot(a!.x - b!.x, a!.y - b!.y);
-                if (dist > 0 && pinch.dist > 0) {
+        // Pinch (#353): two fingers held own the canvas — each move of either zooms the drawing by how much further
+        // apart they stand, about the point midway between them, and carries it as that point moves, so each finger
+        // stays on the point of the drawing it touched. A third finger's move, and one to where the finger stood, moves
+        // nothing.
+        if (e.pointerType === "touch") {
+            const step = touches.move(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (step !== undefined) {
+                if (pinchMoves(step)) {
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    const mx = (a!.x + b!.x) / 2 - rect.left;
-                    const my = (a!.y + b!.y) / 2 - rect.top;
                     transition("wheel");
-                    const snap = renderSnapRef.current;
-                    cameraRef.current = zoomAbout(cameraRef.current, dist / pinch.dist, mx, my, 1, snap.maxZoom, snap.home);
+                    // Two are held only after the second landed, which began the pinch; one found with none begins here.
+                    const pinch = pinchRef.current ?? { from: cameraRef.current.zoom, over: 1 };
+                    const next = pinchAbout(cameraRef.current, step.factor, { x: step.from.x - rect.left, y: step.from.y - rect.top },
+                        { x: step.to.x - rect.left, y: step.to.y - rect.top }, 1, renderSnapRef.current.maxZoom, pinch.over);
+                    pinchRef.current = { from: pinch.from, over: next.over };
+                    cameraRef.current = next.camera;
                     requestRender();
                 }
-                pinch.dist = dist;
                 return;
             }
         }
+        // The gesture in flight is its pointer's (invariant 34): another's move is not its.
+        const owner = ownerRef.current;
+        if (owner !== null && e.pointerId !== owner) return;
+        // A mouse moved with no button held let go where the canvas could not hear it — off the window, its capture
+        // refused: what it began is let go of, recording nothing.
+        if (owner !== null && e.pointerType === "mouse" && e.buttons === 0) dropGesture();
         // Move drag (#179, SC8): every mover follows the shared world delta,
         // clamped so each stays within the extent — rigidly, the movers keeping
         // their places to one another — previewed until the release records it.
@@ -1120,22 +1193,17 @@ export function useGestures({
         cameraRef.current = { ...cameraRef.current, tx: pan.tx + e.clientX - pan.x, ty: pan.ty + e.clientY - pan.y };
         requestRender();
     }, [requestRender, collectMarquee, itemKeyAt, W, H, candidateRefusal, transition, linkKeyAt, dragging, renderSnapRef, cameraRef, setDragMoves,
-        setConnectDraft, setBoxDrag, setLit]);
-    // End an in-progress canvas drag-pan (panning → idle). Returns whether a pan
-    // was active; never disturbs a running fly.
-    const endPan = useCallback(() => {
-        if (panRef.current === null) return false;
-        panRef.current = null;
-        transition("pointerUp");
-        return true;
-    }, [transition]);
+        setConnectDraft, setBoxDrag, setLit, touches, dropGesture]);
     const onCanvasPointerUp = useCallback((e: React.PointerEvent) => {
-        // Pinch-zoom (#353): a lifted finger ends the pinch; the remaining
-        // touch resumes ordinary pan/tap handling.
+        // A lifted finger is gone (invariant 33): a pinch goes on only while two are held.
         if (e.pointerType === "touch") {
-            touchesRef.current.delete(e.pointerId);
-            if (touchesRef.current.size < 2) pinchRef.current = null;
+            touches.end(e.pointerId);
+            settlePinch();
         }
+        // The release is the gesture's only from the pointer whose press began it (invariant 34): a pinch's fingers, a
+        // third, and a pointer pressed on one of the canvas's buttons release nothing.
+        if (ownerRef.current !== e.pointerId) return;
+        ownerRef.current = null;
         // A press on a handle let go where it began (SC10): a tap, which selects what is under it.
         if (handlePressRef.current !== null) {
             handlePressRef.current = null;
@@ -1211,25 +1279,22 @@ export function useGestures({
         // The host hears the whole selection after each change, through the funnels' one report.
         tapAt(e.currentTarget as HTMLElement, e.clientX, e.clientY, e.shiftKey);
     }, [endPan, pickAt, tapAt, flyTo, collectMarquee, commitSelection, clearSelection, itemKeyAt, commitConnect, commitRetarget, candidateRefusal, commitNetExtend, recordStep, endLinkSession,
-        setDragMoves, setConnectDraft, setBoxDrag, cameraRef, renderSnapRef]);
+        setDragMoves, setConnectDraft, setBoxDrag, cameraRef, renderSnapRef, touches, settlePinch]);
     // pointercancel / lost capture: a pan OR select-drag that loses its grip
-    // mid-gesture must still end (issue #57, P10). After a normal release the
-    // pan is already ended (panRef null) so this is a no-op then, and it never
-    // cancels a fly the tap may have just started.
-    const onCanvasPointerCancel = useCallback(() => {
-        movedRef.current = false;
-        // A move that loses its pointer records nothing: its items stay where they were (SC8).
-        if (moveDragRef.current !== null) {
-            moveDragRef.current = null;
-            setDragMoves(NO_MOVES);
+    // mid-gesture must still end (issue #57, P10), and a finger the browser
+    // takes back, or whose capture the canvas loses, is gone as one lifted is
+    // (invariant 33). The gesture is its pointer's: another's loss is not its
+    // (invariant 34). After a normal release its pointer's capture goes too,
+    // and there is no gesture left to lose — so this never cancels a fly the
+    // tap may have just started.
+    const onCanvasPointerCancel = useCallback((e: React.PointerEvent) => {
+        if (e.pointerType === "touch") {
+            touches.end(e.pointerId);
+            settlePinch();
         }
-        connectDragRef.current = null;
-        handlePressRef.current = null;
-        setConnectDraft(null);
-        selStartRef.current = null;
-        setBoxDrag(null);
-        endPan();
-    }, [endPan, setDragMoves, setConnectDraft, setBoxDrag]);
+        if (ownerRef.current !== e.pointerId) return;
+        dropGesture();
+    }, [touches, settlePinch, dropGesture]);
     // Double-click: on an entity it opens the selection in the inspector's
     // Details (#1391) — the first click of the pair has already selected it; on
     // the background it fits the view. Locked entities never resolve.
@@ -1298,6 +1363,22 @@ export function useGestures({
         if (e.code === "Space" && keepsSpace(e.target, canvasRef.current)) return;
         if (hoverKey(e)) takeKey(e);
     }, [canvasHears, hoverKey, canvasRef]);
+    // The window losing the page — another app taken up, the tab hidden — ends what no event may ever say ended
+    // (invariants 33, 34): every finger is let go of, and the gesture in flight with them, recording nothing.
+    useEffect(() => {
+        const lose = () => {
+            touches.clear();
+            settlePinch();
+            if (ownerRef.current !== null) dropGesture();
+        };
+        const onVisibility = () => { if (document.visibilityState === "hidden") lose(); };
+        window.addEventListener("blur", lose);
+        document.addEventListener("visibilitychange", onVisibility);
+        return () => {
+            window.removeEventListener("blur", lose);
+            document.removeEventListener("visibilitychange", onVisibility);
+        };
+    }, [touches, settlePinch, dropGesture]);
     // A key from the page, which no part of the frame hears: the window's.
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {

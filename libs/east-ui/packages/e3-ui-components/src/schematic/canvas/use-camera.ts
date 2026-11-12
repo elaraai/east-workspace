@@ -195,7 +195,7 @@ export interface CameraMovesProps {
  * @param props - The canvas's element and the drawing's extent, what the camera tells and whom, the narrowing's look and
  *   its matches, the camera, and the snapshot and the painter's apply
  * @returns The frame applier, a press's draw of a frame still waiting, the mode machine's transition, the fly, Fit, a
- *   zoom about the middle, and the minimap's jump and whether it is dragged
+ *   zoom about the middle, and the minimap's jump and the pointer dragging it
  */
 export function useCameraMoves({
     canvasRef, W, H, lod, shownZones, narrowedOut, onZoneInView, viewport, onZoomRange, onAction, narrowingFit, fitBox, camera, paint,
@@ -411,8 +411,10 @@ export function useCameraMoves({
         requestRender();
     }, [transition, requestRender, renderSnapRef, cameraRef]);
 
-    // Minimap is a camera writer (jump on press, follow on drag — invariant 8).
-    const minimapDragRef = useRef(false);
+    // Minimap is a camera writer (jump on press, follow on drag — invariant 8): the pointer dragging it, `null` while none
+    // is. Its moves alone follow, and its release, the browser taking it back or its capture lost ends the drag
+    // (invariant 34).
+    const minimapDragRef = useRef<number | null>(null);
     const minimapJump = useCallback((el: HTMLElement, clientX: number, clientY: number) => {
         const sz = renderSnapRef.current.size;
         if (sz === null) return;

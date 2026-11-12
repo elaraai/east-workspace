@@ -83,7 +83,9 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref } from "react";
+import {
+    memo, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type Ref,
+} from "react";
 import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import RBush from "rbush";
 import { StringType, equalFor, type option } from "@elaraai/east";
@@ -620,6 +622,15 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     });
     // The canvas's drop cell: where a library card's drag rests over it, marked (`use-canvas-drop.ts`).
     const dropCell = useCanvasDrop({ value, drop, canvasRef, refById, inertKeys, size, cameraRef, renderSnapRef, itemKeyAt, zoneKeyAt, linkKeyAt, setDropMark });
+    // The minimap's drag ends as its pointer lifts, is taken back by the browser or loses its capture (invariant 34): a
+    // drag left standing would follow every later pointer over the minimap. The canvas hears none of a pointer the
+    // minimap holds.
+    const endMinimapDrag = useCallback((e: ReactPointerEvent) => {
+        if (minimapDragRef.current !== e.pointerId) return;
+        e.stopPropagation();
+        minimapDragRef.current = null;
+        releasePointer(e.currentTarget as HTMLElement, e.pointerId);
+    }, [minimapDragRef]);
     const setCanvasElement = useCallback((el: HTMLDivElement | null) => {
         canvasRef.current = el;
         dropCell(el);
@@ -803,18 +814,17 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                                 const el = e.currentTarget as HTMLElement;
                                 capturePointer(el, e.pointerId);
                                 transition("cancel");   // cancels a running fly via the mode machine
-                                minimapDragRef.current = true;
+                                minimapDragRef.current = e.pointerId;
                                 minimapJump(el, e.clientX, e.clientY);
                             }}
                             onPointerMove={e => {
-                                if (!minimapDragRef.current) return;
+                                if (minimapDragRef.current !== e.pointerId) return;
                                 e.stopPropagation();
                                 minimapJump(e.currentTarget as HTMLElement, e.clientX, e.clientY);
                             }}
-                            onPointerUp={e => {
-                                minimapDragRef.current = false;
-                                releasePointer(e.currentTarget as HTMLElement, e.pointerId);
-                            }}
+                            onPointerUp={endMinimapDrag}
+                            onPointerCancel={endMinimapDrag}
+                            onLostPointerCapture={endMinimapDrag}
                         >
                             {/* The zones, each kind read by area's whole drawing's density and the items' dots, painted (`minimap.ts`). */}
                             <chakra.canvas ref={minimapPaintRef} css={styles.minimapPaint} />
