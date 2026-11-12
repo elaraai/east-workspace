@@ -919,6 +919,20 @@ component, nothing in east-ui.
   same view over another data set in the tab, its sources of the same names,
   never takes them. With none named, a page's sources are its own.
 
+## A drag a part draws itself
+
+A drag off the shared drag layer — a resize handle, a line drawn out of a
+port — follows the pointer that pressed through `followPointer`
+(`src/dnd/follow-pointer.ts`, exported from `./internal`), never listeners of
+its own on the window: its pointer's moves alone, ended once by that
+pointer's release, by the browser taking it back (`pointercancel`) or by the
+window losing the page, and hearing nothing after. The drag layer's sensor
+holds its drags to the same (`src/dnd/sensor.ts`). The Matrix's slice resize
+is one (`collections/matrix/`): left on window listeners with no cancel, a
+touch the browser took back left every later pointer resizing the slice.
+e3-ui-components' builders' rules, and a canvas's fingers, are in its
+CLAUDE.md › A drag a part draws itself, and fingers.
+
 ## Field form
 
 A builder's inspector shows the selection as a typed form: east-ui's

@@ -249,6 +249,8 @@ component is not automatically a correct reference for every shared behavior.
 | Drafts, validation, Save, retry, undo/redo | Shared `EditSession`, `EditHistory`, `historyToolbarItem` and `SessionBanners`; `src/shared/schedule/editing.ts` where the domain is event records; `src/shared/schedule/records.ts` for a builder over the app's own records (a minted key, a window kept at its revision, Publish after Save) |
 | Library cards/search/tabs and inspector fields | Shared Library, Fields and FieldForm; existing builder integrations |
 | Drag targets, keyboard drag, ghosts and cancellation | `east-ui-components/src/dnd/` |
+| A drag a part draws itself, off the drag layer | `east-ui-components/src/dnd/follow-pointer.ts` (`followPointer`, `./internal`); below, "A drag a part draws itself, and fingers" |
+| Fingers on a surface that pans and pinches | `src/shared/touches.ts`; the Schematic's canvas, `src/schematic/canvas/CLAUDE.md` invariants 33 and 34 |
 | Typography, icons and visual states | `east-ui-components/src/theme/text-styles.ts`, slot recipes, `theme/icon-size.ts` |
 
 Use the shared internal entry rather than reaching into another package's
@@ -1124,6 +1126,43 @@ runs' labels (A29) and the links read it outside React's renders. A new drop
 target of the board's, such as a fit in the inspector's drop list (A26, A34),
 is `dropTarget(drag, { kind: "resource", resource })` at
 `rowCoord(drag.surface, resource)`, as a resource row is.
+
+### A drag a part draws itself, and fingers
+
+A drag belongs to the pointer that pressed, whoever draws it (ruled 12 Nov
+2026, after a phone's canvas was left zooming under one finger). The shared
+drag layer's sensor holds its drags to that (`east-ui-components`'
+`dnd/sensor.ts`). A drag a part draws itself, off the layer — the Flowchart's
+carried state and its transition drawn out of a handle, the Matrix's slice
+resize — follows its pointer through `followPointer`
+(`east-ui-components/src/dnd/follow-pointer.ts`, `./internal`), never
+listeners of its own on the window:
+
+- its pointer's moves alone carry it, and another finger's lift neither ends
+  it nor lands it;
+- it ends once — its pointer released, taken back by the browser
+  (`pointercancel`: a system gesture, a scroll of its own), or the window
+  losing the page, when no release may ever be heard — and hears nothing
+  after, so no later pointer moves what it was dragging;
+- one is in flight at a time: a new press lets go of one still held, landing
+  nothing, as its part going does (the Flowchart's `followDrag`).
+
+A surface that pans and pinches keeps the fingers it holds in
+`shared/touches.ts` (`makeTouches`, pure): a finger is gone as it lifts, as
+the browser takes it back and as the surface loses its capture, and one whose
+end is never heard is let go of as the page's next first finger lands or the
+window loses the page — a finger remembered past its end makes every later
+one the second finger of a pinch that never ends. The Schematic's canvas is
+the one such surface, its gestures over its own mode machine by the same
+rules: every finger captured by the canvas as it lands, one gesture in flight
+and its pointer's, a pinch that keeps the drawing under its fingers
+(`schematic/canvas/CLAUDE.md`, invariants 33 and 34).
+
+A test of a drag fires what a second pointer and a cancelled one would: a
+move and a release under another `pointerId` mid-drag, a `pointerCancel`, the
+window's `blur` — each proved to fail over the drag as it stood. A phone's
+canvas is held in a browser too (`schematic-phone.spec.ts`: a touch the
+system takes back, then one finger).
 
 ### Footer rails and drag previews are shared parts too
 

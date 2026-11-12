@@ -10,9 +10,13 @@
  * keep addressing a row by its key, at any depth. The trees are built by the
  * east-ui factory and COMPILED, so the renderer reads what an author's
  * program produces.
+ *
+ * A slice's resize is its pointer's (`dnd/follow-pointer.ts`): no other
+ * pointer's moves resize it or end it, and once the browser has taken its
+ * pointer back nothing resizes it.
  */
 
-import { describe, test, expect, afterEach, beforeEach } from "vitest";
+import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
@@ -178,5 +182,64 @@ describe("nested Matrix rows (#955)", () => {
         const { container } = renderMatrix(rootOf(FLAT), "matrix-flat");
         expect(shown(container)).toEqual(["p@-", "q@-"]);
         expect(container.querySelector('[data-slot="treeIndent"]')).toBeNull();
+    });
+});
+
+describe("a slice's resize", () => {
+    /** A bar laid out 200px along its row, as a page lays it out: jsdom lays nothing out, and observes no resize. */
+    function layOutBars(): () => void {
+        const observer = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+            private readonly heard: () => void;
+            constructor(heard: () => void) { this.heard = heard; }
+            observe() { this.heard(); }
+            unobserve() {}
+            disconnect() {}
+        };
+        const box = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+            return this.getAttribute("data-slot") === "bar" ? new DOMRect(0, 0, 200, 24) : new DOMRect(0, 0, 0, 0);
+        });
+        return () => {
+            box.mockRestore();
+            (globalThis as { ResizeObserver?: unknown }).ResizeObserver = observer;
+        };
+    }
+
+    test("follows the pointer that pressed its handle alone, another pointer's release ending nothing; taken back by the browser it is over, and no pointer resizes the slice after", async () => {
+        const restore = layOutBars();
+        try {
+            const changes: { row: string; column: string; segmentIndex: bigint; weight: number }[] = [];
+            const { container } = renderMatrix(rootOf(NESTED, {
+                onSegmentChange: some((e: { row: string; column: string; segmentIndex: bigint; weight: number }) => { changes.push(e); return null; }),
+            } as unknown as Partial<MatrixRootValue>), "matrix-resize");
+            /** The weights heard since last asked, to a thousandth. */
+            const heard = async () => {
+                await act(async () => { await Promise.resolve(); });
+                return changes.splice(0).map((e) => `${e.row}/${e.column}/${e.segmentIndex} ${e.weight.toFixed(3)}`);
+            };
+            // Row a books half of Monday: its slice's handle, pressed at 100px of the 200px bar.
+            const handle = rowAt(container, "a", 0).querySelector<HTMLElement>('[data-slot="resizeHandle"]')!;
+            fireEvent.pointerDown(handle, { pointerId: 3, clientX: 100 });
+            fireEvent.pointerMove(window, { pointerId: 3, clientX: 140 });
+            expect(await heard()).toEqual(["a/mon/0 0.700"]);
+            // Another pointer moves, and lifts: neither is the resize's.
+            fireEvent.pointerMove(window, { pointerId: 9, clientX: 20 });
+            fireEvent.pointerUp(window, { pointerId: 9, clientX: 20 });
+            fireEvent.pointerMove(window, { pointerId: 3, clientX: 120 });
+            expect(await heard()).toEqual(["a/mon/0 0.600"]);
+            // The browser takes the pointer back: no release is heard, and the resize is over all the same.
+            fireEvent.pointerCancel(window, { pointerId: 3 });
+            fireEvent.pointerMove(window, { pointerId: 3, clientX: 180 });
+            fireEvent.pointerMove(window, { pointerId: 9, clientX: 180 });
+            expect(await heard()).toEqual([]);
+            // A new press resizes again, and its own release ends it.
+            fireEvent.pointerDown(handle, { pointerId: 4, clientX: 100 });
+            fireEvent.pointerMove(window, { pointerId: 4, clientX: 60 });
+            fireEvent.pointerUp(window, { pointerId: 4, clientX: 60 });
+            fireEvent.pointerMove(window, { pointerId: 4, clientX: 10 });
+            expect(await heard()).toEqual(["a/mon/0 0.300"]);
+        } finally {
+            restore();
+        }
     });
 });

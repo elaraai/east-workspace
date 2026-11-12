@@ -59,6 +59,7 @@ export { createPickHandOff, usePickHandOff, type PickHandOff, type PickingSource
 // Density, the drag grammar's IR veto, and its slot codecs.
 export { DensityProvider, useDensity } from "./contracts/density.js";
 export { useIRCanDrop, type CanDropFn } from "./dnd/ir-can-drop.js";
+export { followPointer, type PointerFollow, type PointerPress } from "./dnd/follow-pointer.js";
 export { dateTimeSlot, numberSlot, stringSlot } from "./dnd/slot-key.js";
 // The date field's parts and its conversions — the Sheet's date editor.
 export { CompoundDateField, CompoundDateInput, CompoundDateSegment } from "./forms/input/date/index.js";

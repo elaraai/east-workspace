@@ -51,10 +51,13 @@
  *   repeat a transition pulsing it instead; and Del — in the canvas, never in
  *   a field being typed into — deleting the selected state or states with
  *   their transitions, the transition, the decision, or the lane while it
- *   holds no state. A drag the browser takes the pointer back from lands
- *   nothing, and the canvas selects no text (the recipe's), so a card's drag
- *   never turns into the browser's own drag of its words, however often it is
- *   carried.
+ *   holds no state. A drag is its pointer's (east-ui-components'
+ *   `followPointer`): no other pointer's moves carry it, and another finger's
+ *   lift neither ends it nor lands it. One the browser takes the pointer back
+ *   from, or the window loses the page under, lands nothing; one is in flight
+ *   at a time, a new press letting go of one still held. And the canvas
+ *   selects no text (the recipe's), so a card's drag never turns into the
+ *   browser's own drag of its words, however often it is carried.
  * - **Drops**: where a tab of the library drops, the canvas is one drop cell
  *   of the shared drag layer, on the frame's drop target (`use-drop.ts`): it
  *   works out where a drag rests from its own drawing (`drop.ts`'
@@ -117,7 +120,7 @@ import { StringType, equalFor } from "@elaraai/east";
 import {
     getSomeorUndefined, takeKey, typedInto, useDragLayerOptional, useDropCell, type CellCoord, type DragPayload,
 } from "@elaraai/east-ui-components";
-import { LoadingFailedBox } from "@elaraai/east-ui-components/internal";
+import { LoadingFailedBox, followPointer, type PointerFollow } from "@elaraai/east-ui-components/internal";
 import { keyFromPage, keyInFrame } from "../shared/frame-keys.js";
 import type { FlowchartWords } from "./messages.js";
 import type { FlowchartCanvasValue, FlowchartModel, ModelBand, ModelLink, ModelNode } from "./model.js";
@@ -956,53 +959,64 @@ export function FlowchartCanvasView({
         return node === undefined || node.dimmed ? null : key;
     }, [layout, model]);
 
+    // The drag in flight — a transition drawn out of a handle, or a state carried by its card — is its pointer's
+    // (`followPointer`): its moves alone carry it, and its own release lands it. One at a time: a new press lets go of
+    // one still in flight, landing nothing, as the canvas going does.
+    const dropDrag = useRef<(() => void) | undefined>(undefined);
+    const followDrag = useCallback((pressed: React.PointerEvent, follow: Required<PointerFollow>): void => {
+        dropDrag.current?.();
+        const stop = followPointer(pressed, {
+            move: follow.move,
+            up: (event) => { dropDrag.current = undefined; follow.up(event); },
+            cancel: () => { dropDrag.current = undefined; follow.cancel(); },
+        });
+        dropDrag.current = () => {
+            dropDrag.current = undefined;
+            stop();
+            follow.cancel();
+        };
+    }, []);
+    useEffect(() => () => dropDrag.current?.(), []);
+
     const connectEdit = edit?.connect;
     const beginDraft = useCallback((from: string, side: "left" | "right" | "top" | "bottom", e: React.PointerEvent) => {
         if (connectEdit === undefined) return;
         e.preventDefault();
         e.stopPropagation();
         const p = svgPoint(e);
+        followDrag(e, {
+            move: (ev) => {
+                const q = svgPoint(ev);
+                const fromKey = draftRef.current?.from ?? from;
+                // The WHOLE node (plus DROP_PAD) is the target — nobody has to
+                // land a 7px ring.
+                const over = connectTarget(q);
+                const dup = over !== null ? existingLink(model, fromKey, over) : undefined;
+                const allowed = over !== null && dup === undefined && canConnect(fromKey, over);
+                setDraft(d => (d === null ? d : { ...d, x: q.x, y: q.y, over, allowed, dup }));
+            },
+            // The browser took the pointer back — a scroll of its own, say — or the window lost the page: the transition
+            // is let go of, and none is drawn.
+            cancel: () => { setDraft(null); },
+            up: () => {
+                const d = draftRef.current;
+                setDraft(null);
+                if (!d || d.over === null) return;
+                if (d.dup !== undefined) {
+                    // Already connected — absorb the drop and pulse the existing
+                    // link (or the node itself for a folded in-place loop).
+                    setPulse(p => ({ from: d.from, to: d.over!, seq: (p?.seq ?? 0) + 1 }));
+                    return;
+                }
+                if (d.allowed) {
+                    connectEdit(d.from, d.over);
+                    setPulse(p => ({ from: d.from, to: d.over!, seq: (p?.seq ?? 0) + 1 }));
+                }
+            },
+        });
+        // After the follow: it lets go of a drag still in flight, whose draft this one's replaces.
         setDraft({ from, side, x: p.x, y: p.y, over: null, allowed: false, dup: undefined });
-        const move = (ev: PointerEvent): void => {
-            const q = svgPoint(ev);
-            const fromKey = draftRef.current?.from ?? from;
-            // The WHOLE node (plus DROP_PAD) is the target — nobody has to
-            // land a 7px ring.
-            const over = connectTarget(q);
-            const dup = over !== null ? existingLink(model, fromKey, over) : undefined;
-            const allowed = over !== null && dup === undefined && canConnect(fromKey, over);
-            setDraft(d => (d === null ? d : { ...d, x: q.x, y: q.y, over, allowed, dup }));
-        };
-        const end = (): void => {
-            window.removeEventListener("pointermove", move);
-            window.removeEventListener("pointerup", up);
-            window.removeEventListener("pointercancel", cancel);
-        };
-        // The browser took the pointer back — a scroll of its own, say: the transition is let go of, and none is drawn.
-        const cancel = (): void => {
-            end();
-            setDraft(null);
-        };
-        const up = (): void => {
-            end();
-            const d = draftRef.current;
-            setDraft(null);
-            if (!d || d.over === null) return;
-            if (d.dup !== undefined) {
-                // Already connected — absorb the drop and pulse the existing
-                // link (or the node itself for a folded in-place loop).
-                setPulse(p => ({ from: d.from, to: d.over!, seq: (p?.seq ?? 0) + 1 }));
-                return;
-            }
-            if (d.allowed) {
-                connectEdit(d.from, d.over);
-                setPulse(p => ({ from: d.from, to: d.over!, seq: (p?.seq ?? 0) + 1 }));
-            }
-        };
-        window.addEventListener("pointermove", move);
-        window.addEventListener("pointerup", up);
-        window.addEventListener("pointercancel", cancel);
-    }, [connectEdit, svgPoint, connectTarget, model, canConnect]);
+    }, [connectEdit, svgPoint, connectTarget, model, canConnect, followDrag]);
 
     /**
      * Where a moved state lands at a point: the band under it, where the band
@@ -1024,55 +1038,48 @@ export function FlowchartCanvasView({
         if (moveEdit === undefined) return;
         const startP = svgPoint(e);
         let started = false;
+        followDrag(e, {
+            move: (ev) => {
+                const q = svgPoint(ev);
+                if (!started) {
+                    if (Math.abs(q.x - startP.x) + Math.abs(q.y - startP.y) < 5) return;
+                    started = true;
+                    movedRef.current = true;
+                }
+                setMoveDrag({ key, x: q.x, y: q.y, ...moveLanding(q) });
+            },
+            // The browser took the pointer back — a touch's scroll, a drag of its own — or the window lost the page: the
+            // state stays where it stands, and the gesture was no move, so the next click on a card selects it.
+            cancel: () => {
+                movedRef.current = false;
+                setMoveDrag(null);
+            },
+            up: () => {
+                const d = moveDragRef.current;
+                setMoveDrag(null);
+                if (!started || d === null || d.overLane === null) return;
+                const node = model.nodesByKey.get(key);
+                const index = model.lanes.findIndex((lane) => keyEqual(lane.key, d.overLane!));
+                if (node === undefined || index < 0) return;
+                const same = node.laneIndex === index;
+                // States carrying no order stand by key: a move writes their lane alone, and one within its own lane does nothing.
+                if (d.row === null) {
+                    if (!same) moveEdit([key], d.overLane);
+                    return;
+                }
+                // Among the band's other states: past the moved state's own row, one fewer; its own row, nothing moves.
+                let at = d.row;
+                if (same) {
+                    const own = bandStates(model, index).findIndex((state) => keyEqual(state.key, key));
+                    if (at > own) at -= 1;
+                    if (at === own) return;
+                }
+                moveEdit([key], d.overLane, at);
+            },
+        });
+        // After the follow: it lets go of a drag still in flight, which says its gesture was no move.
         movedRef.current = false;
-        const move = (ev: PointerEvent): void => {
-            const q = svgPoint(ev);
-            if (!started) {
-                if (Math.abs(q.x - startP.x) + Math.abs(q.y - startP.y) < 5) return;
-                started = true;
-                movedRef.current = true;
-            }
-            setMoveDrag({ key, x: q.x, y: q.y, ...moveLanding(q) });
-        };
-        const end = (): void => {
-            window.removeEventListener("pointermove", move);
-            window.removeEventListener("pointerup", up);
-            window.removeEventListener("pointercancel", cancel);
-        };
-        // The browser took the pointer back — a touch's scroll, a drag of its own: the state stays where it stands, and
-        // the gesture was no move, so the next click on a card selects it.
-        const cancel = (): void => {
-            end();
-            movedRef.current = false;
-            setMoveDrag(null);
-        };
-        const up = (): void => {
-            end();
-            const d = moveDragRef.current;
-            setMoveDrag(null);
-            if (!started || d === null || d.overLane === null) return;
-            const node = model.nodesByKey.get(key);
-            const index = model.lanes.findIndex((lane) => keyEqual(lane.key, d.overLane!));
-            if (node === undefined || index < 0) return;
-            const same = node.laneIndex === index;
-            // States carrying no order stand by key: a move writes their lane alone, and one within its own lane does nothing.
-            if (d.row === null) {
-                if (!same) moveEdit([key], d.overLane);
-                return;
-            }
-            // Among the band's other states: past the moved state's own row, one fewer; its own row, nothing moves.
-            let at = d.row;
-            if (same) {
-                const own = bandStates(model, index).findIndex((state) => keyEqual(state.key, key));
-                if (at > own) at -= 1;
-                if (at === own) return;
-            }
-            moveEdit([key], d.overLane, at);
-        };
-        window.addEventListener("pointermove", move);
-        window.addEventListener("pointerup", up);
-        window.addEventListener("pointercancel", cancel);
-    }, [moveEdit, svgPoint, moveLanding, model]);
+    }, [moveEdit, svgPoint, moveLanding, model, followDrag]);
 
     // ── render helpers ────────────────────────────────────────────────────
     const linksByKey = useMemo(() => new Map(model.links.map(l => [l.key, l])), [model]);
