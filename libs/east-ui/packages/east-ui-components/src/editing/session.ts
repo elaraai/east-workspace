@@ -2155,10 +2155,15 @@ export class EditSession<W> {
             after.set(update.id, this.clone(update.after));
         }
         if (this.changes(before, after, true).length === 0) return false;
+        // What the gesture leaves of the conflicts of the entries it changes: the other side's value, where it left one
+        // by going back to what both began from.
+        const over = this.overConflicts(before, after);
         // Nothing drafted any more of what waited for a person's Save — saved, or the source's now: this gesture waits for none.
         if (this.unaccepted && this.pending === 0) this.unaccepted = false;
         for (const [id, entry] of before) if (!this.baseline.has(id)) this.baseline.set(id, entry);
         for (const [id, entry] of after) this.current.set(id, entry);
+        if (over?.ancestors !== undefined) this.setAncestors(over.ancestors.after);
+        if (over?.settled !== undefined) this.setSettled(over.settled.after);
         // A key the session made, its entry recorded: its own from here ({@link EditSession.ownKeys}).
         for (const id of after.keys()) {
             if (!this.offered.has(id)) continue;
@@ -2167,7 +2172,8 @@ export class EditSession<W> {
         }
         this.draftsChanged();
         const last = this.cursor > 0 && this.cursor === this.history.length ? this.history[this.cursor - 1] : undefined;
-        if (joins !== undefined && last?.joins !== undefined && stringEqual(last.joins, joins) && last.ancestors === undefined && last.settled === undefined) {
+        // (A gesture that moved a conflict is a step of its own: what it keeps of the conflict is its alone to take back.)
+        if (over === undefined && joins !== undefined && last?.joins !== undefined && stringEqual(last.joins, joins) && last.ancestors === undefined && last.settled === undefined) {
             // One step with the last: it begins where that one began, and ends here.
             for (const [id, entry] of before) if (!last.before.has(id)) last.before.set(id, entry);
             for (const [id, entry] of after) last.after.set(id, entry);
@@ -2175,7 +2181,9 @@ export class EditSession<W> {
         } else {
             // What Redo could replay goes, and with it what a person's Save had taken of it.
             if (this.accepted > this.cursor) this.accepted = this.cursor;
-            this.history.splice(this.cursor); this.history.push({ label, origin, before, after, joins }); this.cursor++;
+            this.history.splice(this.cursor);
+            this.history.push(over === undefined ? { label, origin, before, after, joins } : { label, origin, before, after, ...over });
+            this.cursor++;
         }
         // The newest change: the steps stand where it left them, an automatic Save's from here ({@link EditSession.stepped}).
         this.drafted = this.cursor;
@@ -2184,6 +2192,61 @@ export class EditSession<W> {
         this.changed();
         return true;
     }
+    /**
+     * What a gesture leaves of the conflicts of the entries it changes, each still to choose.
+     *
+     * A conflict stands on three values: what both sides began from, the draft, and the source's. A gesture that puts
+     * the draft back, at a conflict, to what both began from — a value typed back, a new entry removed again, a
+     * removed one put back as it was — leaves its person no change there, and makes no choice: the three values read
+     * no conflict, yet the draft differs from the source's still. Left so, it read as a change from the source's value
+     * with nothing to hold it, and Save wrote it over the other side's: a value its person was never asked about, a
+     * row they never saw. The draft is carried over again instead, as it is whenever its source moves
+     * ({@link EntryMerger.merge}): the other side's value stands wherever the draft holds what both began from — at
+     * the conflict, and at each place that goes with it — and each conflict left so is settled for the other side,
+     * which its person may still settle the other way. What both began from follows the conflicts the entry still
+     * reads, so a later change where one was left is a change of the value shown there.
+     *
+     * @param before - Each entry the gesture changes, as it found it
+     * @param after - Each as the gesture leaves it: replaced where its draft is carried over
+     * @returns What the step keeps of it, for Undo and Redo; `undefined` where the gesture moves no conflict
+     */
+    private overConflicts(before: ReadonlyMap<string, EntryVersion<W>>, after: Map<string, EntryVersion<W>>): Pick<History<W>, "ancestors" | "settled"> | undefined {
+        const ancestorsBefore = new Map<string, option<unknown> | undefined>();
+        const ancestorsAfter = new Map<string, option<unknown> | undefined>();
+        const settledBefore = new Map<string, SettledConflict | undefined>();
+        const settledAfter = new Map<string, SettledConflict | undefined>();
+        for (const [id, next] of [...after]) {
+            const was = this.ancestors.get(id);
+            if (was === undefined) continue;
+            const source = draftOf(this.baseline.get(id));
+            const draft = draftOf(next);
+            const merged = this.merger.merge(was, draft, source, this.joined);
+            if (!this.merger.equal(merged.draft, draft)) {
+                // Each conflict the entry read as the gesture found it, and reads no more, the draft not at the other
+                // side's value there: left by going back.
+                for (const point of this.merger.conflicts(was, draftOf(before.get(id) ?? ABSENT), source)) {
+                    if (merged.points.some((still) => stringEqual(still.path, point.path))) continue;
+                    const at = pathFromString(point.path);
+                    const places = [at, ...this.joined(at)];
+                    if (this.merger.equal(this.merger.takeSourceAt(draft, source, places), draft)) continue;
+                    const key = settledKey(id, point.path);
+                    settledBefore.set(key, this.settledPoints.get(key));
+                    settledAfter.set(key, { id, key: this.keyOf?.(id), point, choice: "source", draft, source, was, said: this.said.get(id) });
+                }
+                after.set(id, this.versionOf(id, merged.draft, next));
+            }
+            if (merged.ancestor === undefined || !this.merger.equal(merged.ancestor, was)) {
+                ancestorsBefore.set(id, was);
+                ancestorsAfter.set(id, merged.ancestor);
+            }
+        }
+        if (ancestorsAfter.size === 0 && settledAfter.size === 0) return undefined;
+        return {
+            ancestors: ancestorsAfter.size === 0 ? undefined : { before: ancestorsBefore, after: ancestorsAfter },
+            settled: settledAfter.size === 0 ? undefined : { before: settledBefore, after: settledAfter },
+        };
+    }
+
     /** Undo the last transaction. */
     undo(): void {
         if (!this.canUndo) return;

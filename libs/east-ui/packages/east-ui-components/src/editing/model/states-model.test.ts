@@ -68,6 +68,18 @@ const INLINE_ANSWERED = /^(c\d\.(edit\(k1,[ab]\)|undo|save|deliver|see|settle\((
  * Undo, Redo, Save, an automatic Save, and each record's answer and reads. A proof run runs every operation a desk has.
  */
 const DESK = /^(edit\(|both$|optimise\(A\)|undo$|redo$|save$|autosave$|deliver\(|read\(|redraw\()/;
+/**
+ * A Save's answer that comes late: the record takes the Save apart from its answer's arrival, another session writes
+ * between the two, and the answer arrives before the page has heard of that write, after it, or in the very turn it does.
+ */
+const LATE = /^(c\d\.(edit\(k1,a\)|save|land|deliver|deliverPast|see|read|redraw)|remote\.edit\(k[12],a\))$/;
+/**
+ * A change taken back by hand while its conflict waits — a field typed back to what both sides began from — among
+ * the gestures, the choices, Undo, Redo and the Saves.
+ */
+const BACK = /^(c\d\.(edit\(k1,[ab]\)|revert\(k1,[ab]\)|undo|redo|save|deliver|see|read|redraw|settle\((draft|source)\))|remote\.edit\(k1,a\))$/;
+/** The same of rows: a new row both sides added removed again, a removed row put back as it was, a changed row typed back. */
+const BACK_ROWS = /^(c\d\.(edit\(k1,a\)|revert\(k1,a\)|remove\(k1\)|restore\(k1\)|add\(k3\)|remove\(k3\)|undo|save|deliver|see|read|redraw|settle\((draft|source)\))|remote\.(edit\(k1,a\)|remove\(k1\)|add\(k3\)))$/;
 /** The page reloaded with its drafts kept, at every point of a Save. */
 const RELOADED = /^(c\d\.(edit\(k1,a\)|undo|save|deliver|deliverUnanswered|retry|reload|see|read|redraw|settle\(draft\))|remote\.edit\(k1,a\))$/;
 
@@ -106,6 +118,24 @@ for (const shape of ["fields", "whole"] as const) {
         it("a source read whole, with another session's write", async () => {
             const walked = await states({ shape, remotes: 1, inline: true, ...budgets({ acts: 2, sends: 1 }, { acts: 2, sends: 2 }) }, PROOF ? INLINE : INLINE_ANSWERED);
             console.info(said(`${shape} inline`, walked));
+            expect(walked.closed).toBe(true);
+        }, 3_600_000);
+
+        it("a Save's answer that comes late: the record taking the Save, another session's writes, the page hearing of them, and the answer — before, after, or as the page moves on", async () => {
+            const walked = await states({ shape, ...budgets({ remotes: 1, acts: 1, sends: 1 }, { remotes: 2, acts: 2, sends: 2 }) }, LATE);
+            console.info(said(`${shape} late`, walked));
+            expect(walked.closed).toBe(true);
+        }, 3_600_000);
+
+        it("a change taken back by hand while its conflict waits: a field typed back to what both sides began from, with the choices, Undo, Redo and the Saves around it", async () => {
+            const walked = await states({ shape, remotes: 1, flips: true, ...budgets({ acts: 2, sends: 1 }, { acts: 3, sends: 2 }) }, BACK);
+            console.info(said(`${shape} taken back`, walked));
+            expect(walked.closed).toBe(true);
+        }, 3_600_000);
+
+        it("a row's change taken back by hand while its conflict waits: a new row removed again, a removed row put back, a changed row typed back", async () => {
+            const walked = await states({ shape, remotes: 1, flips: true, ...budgets({ acts: 2, sends: 1 }, { acts: 3, sends: 2 }) }, BACK_ROWS);
+            console.info(said(`${shape} rows taken back`, walked));
             expect(walked.closed).toBe(true);
         }, 3_600_000);
 

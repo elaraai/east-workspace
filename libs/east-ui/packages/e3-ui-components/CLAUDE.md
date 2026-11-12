@@ -1379,7 +1379,14 @@ apart), and the Plan the row added on both sides
 the Schematic and the Flowchart. The
 Sheet's check of a row added on both sides holds no read: its session learns
 that the new row's key is taken from the very page its grid reads the row's
-place in. A Save whose answer never comes — saved all the same, another
+place in. A change taken back by hand while its conflict waits — a level
+typed back to what it was, the edit of a member another session removed typed
+back — makes no choice and writes nothing over the other session's: their
+level shows, their removal stands, and nothing is left to save
+(east-ui-components' `EditSession.overConflicts`, the Record's
+`record/remote-edits.dom.test.tsx`). Left as typed, the grid read no conflict
+and Save was on: it wrote the old level over theirs, and put the removed
+member back. A Save whose answer never comes — saved all the same, another
 session's write, then Retry — is held on e3 in the Record
 (`record/unanswered-save.dom.test.tsx`): e3 answers the request it remembers,
 so a new member is saved once, a change put back by Undo since is still to

@@ -1415,3 +1415,114 @@ test("an inline source that moved under the drafts carries them over at once: a 
     clash.observeBase(variant("snapshot", [{ ...a, end: 4n }]));
     expect([clash.carrying, clash.unsettled, clash.canApply]).toEqual([false, 1, false]);
 });
+
+// ── A conflict left by a gesture, with no choice made ─────────────────────────
+
+/**
+ * A keyed session over the jobs at r1 whose drafts met another write as they were carried over to r2.
+ *
+ * @param mine - What was drafted here, over the jobs as they began
+ * @param theirs - The jobs as the source holds them at r2
+ */
+const met = (mine: Parameters<EditSession<Bar>["record"]>[0], theirs: (id: string) => option<unknown>) => {
+    const batches: ValueTypeOf<typeof JobBatch>[] = [];
+    const session = new EditSession<Bar>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, patch: undefined, refresh: undefined,
+        apply: (bytes) => { batches.push(decodeBeast2For(JobBatch)(bytes)); return variant("applied", { revision: some("r3") }); },
+    });
+    session.observeBase(variant("revision", "r1"));
+    session.record(mine, "typed", "Edit jobs");
+    session.observeBase(variant("revision", "r2"));
+    expect(session.merge(variant("revision", "r2"), theirs)).toBe("merged");
+    return { session, batches };
+};
+/** Whether a session holds a job as given: its draft, or none of it. */
+const jobIs = (session: EditSession<Bar>, id: string, value: JobValue | undefined): boolean => {
+    const draft = session.entries.get(id)?.draft;
+    return value === undefined ? draft === undefined : (equalFor(JobDraft) as (a: unknown, b: unknown) => boolean)(draft, liftDraft(JobDraft, value));
+};
+/** J1's quantity set to 5 here, and to 3 there: one conflict to choose. */
+const quantities = () => met(
+    [{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }],
+    (id) => (id === "J1" ? some({ ...cut, qty: 3n }) : some(band)),
+);
+
+test("a value in conflict typed back to what both sides began from makes no choice and overwrites nothing: the other side's value stands there, settled so — Undo brings the conflict back, and settled the other way the value typed is kept, a choice", async () => {
+    // Left as typed, the three values read no conflict — the draft is as both began — yet the draft differed from the
+    // source's: Save was on, and wrote 2 over the other side's 3, which its person was never asked about.
+    const { session, batches } = quantities();
+    expect([session.unsettled, session.canApply]).toEqual([1, false]);
+    expect(session.record([{ id: "J1", before: job({ ...cut, qty: 5n }), after: job(cut) }], "typed", "Set quantity")).toBe(true);
+    expect([session.unsettled, session.pending, session.canApply, jobIs(session, "J1", { ...cut, qty: 3n })]).toEqual([0, 0, false, true]);
+    expect(session.settled.map((settled) => [settled.id, settled.choice])).toEqual([["J1", "source"]]);
+    // One step, which Undo takes back whole: the conflict waits again, the draft as it stood.
+    session.undo();
+    expect([session.unsettled, session.settled.length, jobIs(session, "J1", { ...cut, qty: 5n })]).toEqual([1, 0, true]);
+    session.redo();
+    expect([session.unsettled, session.pending, jobIs(session, "J1", { ...cut, qty: 3n })]).toEqual([0, 0, true]);
+    // Settled the other way: what was typed, kept over the other side's — theirs to save now, by their choice.
+    expect(session.settleAll("draft")).toBe(true);
+    expect([session.unsettled, session.pending, session.canApply, jobIs(session, "J1", cut)]).toEqual([0, 1, true, true]);
+    await session.apply();
+    expect(batches).toHaveLength(1);
+});
+
+test("a third value typed at a conflict keeps it: Save waits on the choice still", () => {
+    const { session } = quantities();
+    session.record([{ id: "J1", before: job({ ...cut, qty: 5n }), after: job({ ...cut, qty: 7n }) }], "typed", "Set quantity");
+    expect([session.unsettled, session.canApply, session.settled.length, jobIs(session, "J1", { ...cut, qty: 7n })]).toEqual([1, false, 0, true]);
+});
+
+test("a conflict left by typing the other side's value settles nothing and leaves nothing to save — and a later change there is a change of the value shown: typed to what both once began from, it is kept", () => {
+    const { session } = quantities();
+    session.record([{ id: "J1", before: job({ ...cut, qty: 5n }), after: job({ ...cut, qty: 3n }) }], "typed", "Set quantity");
+    expect([session.unsettled, session.pending, session.settled.length]).toEqual([0, 0, 0]);
+    // The quantity shown is 3: typed to 2 now, that is a change of the 3 its person sees — never the conflict's "as it began".
+    session.record([{ id: "J1", before: job({ ...cut, qty: 3n }), after: job(cut) }], "typed", "Set quantity");
+    expect([session.unsettled, session.pending, session.canApply, jobIs(session, "J1", cut)]).toEqual([0, 1, true, true]);
+    // And Undo walks back through both: the conflict again at the first.
+    session.undo();
+    session.undo();
+    expect([session.unsettled, jobIs(session, "J1", { ...cut, qty: 5n })]).toEqual([1, true]);
+});
+
+test("a new entry both sides added, removed again here, removes nothing of the other side's: their entry stands, and nothing is left to save", async () => {
+    // Left removed, the draft read as a removal of the entry under that key — the other side's, which its person had
+    // never seen — and Save removed it.
+    const theirs = { task: "Their spray", qty: 9n };
+    const { session, batches } = met([{ id: "J4", before: absentJob, after: job(spray) }], (id) => (id === "J4" ? some(theirs) : some(band)));
+    expect(session.unsettled).toBe(1);
+    session.record([{ id: "J4", before: job(spray), after: absentJob }], "typed", "Remove a job");
+    expect([session.unsettled, session.pending, session.canApply, jobIs(session, "J4", theirs)]).toEqual([0, 0, false, true]);
+    expect(session.settled.map((settled) => [settled.id, settled.choice, settled.point.kind])).toEqual([["J4", "source", "added-by-both"]]);
+    await session.apply();
+    expect(batches).toHaveLength(0);
+});
+
+test("an entry changed here that the other side removed, its change typed back, is gone as they left it; one removed here that they changed, put back as it was, stands as they left it", () => {
+    const changed = met([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], (id) => (id === "J1" ? none : some(band)));
+    expect(changed.session.unsettled).toBe(1);
+    changed.session.record([{ id: "J1", before: job({ ...cut, qty: 5n }), after: job(cut) }], "typed", "Set quantity");
+    expect([changed.session.unsettled, changed.session.pending, jobIs(changed.session, "J1", undefined)]).toEqual([0, 0, true]);
+    // Settled the other way: the entry as it was typed back, kept — the next Save puts it back, by their choice.
+    expect(changed.session.settleAll("draft")).toBe(true);
+    expect([changed.session.pending, jobIs(changed.session, "J1", cut)]).toEqual([1, true]);
+
+    const removed = met([{ id: "J1", before: job(cut), after: absentJob }], (id) => (id === "J1" ? some({ ...cut, qty: 3n }) : some(band)));
+    expect(removed.session.unsettled).toBe(1);
+    removed.session.record([{ id: "J1", before: absentJob, after: job(cut) }], "typed", "Add a job");
+    expect([removed.session.unsettled, removed.session.pending, jobIs(removed.session, "J1", { ...cut, qty: 3n })]).toEqual([0, 0, true]);
+});
+
+test("times put at the other side's by hand take the other side's shift with them: nothing of theirs is written over, and nothing is left to save", () => {
+    // Moved to the early shift there, and later here: its times one conflict, the shift both began from standing with
+    // mine while it waits. Typed to their times, the conflict is left — and the shift, never changed here, read as a
+    // change of their early shift still to save.
+    const later: DutyValue = { ...late, start: 16n, end: 23n };
+    const theirs: DutyValue = { start: 6n, end: 14n, shift: "early", person: "w1" };
+    const session = carriedDuty(later, theirs);
+    expect([session.unsettled, holds(session.entries.get("d1"), later)]).toEqual([1, true]);
+    session.record([{ id: "d1", before: dutyVersion(later), after: dutyVersion({ ...later, start: 6n, end: 14n }) }], "move", "Move");
+    expect([session.unsettled, session.pending, holds(session.entries.get("d1"), theirs)]).toEqual([0, 0, true]);
+});
+

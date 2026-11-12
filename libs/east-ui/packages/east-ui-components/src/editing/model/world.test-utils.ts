@@ -49,7 +49,10 @@
  *   it may send: nothing on its way and nothing to read or choose, a change
  *   it may send never waits unsaid.
  * - **Nothing is overwritten unseen.** A commit changes a field only from a
- *   value its person had been shown: on their screen, or by a conflict.
+ *   value its person had been shown: on their screen, or on the card of a
+ *   conflict they chose at. A conflict that waits shows nothing by itself —
+ *   its builder rings the row — so a gesture that leaves one with no choice
+ *   made leaves nothing of the other side's to be written over.
  * - **No change is lost.** What a person put a field at stays on their screen
  *   until a Save of theirs writes it, the record comes to hold it by another's
  *   write, or they take it back: by Undo, by Discard, or by taking the other
@@ -182,6 +185,8 @@ interface Step {
     readonly optimise: boolean;
     /** For a choice: how many conflicts it left to choose. */
     readonly left: number;
+    /** For a choice: how many waited as it was made — as many as it left, where it only settled the other way one settled before. */
+    readonly waited?: number | undefined;
     /** Each field it changed on the screen. */
     readonly shifts: readonly Shift[];
     /** For a choice of the draft: each conflict it settled, by its field and the write it stood against. */
@@ -190,6 +195,8 @@ interface Step {
     readonly saves: number;
     /** Whether a Save of theirs was unresolved as it was made: a conflict read then — its choice undone under the Save that took it — goes as that Save is read back. */
     readonly unresolved: boolean;
+    /** For a gesture: whether it left a conflict that waited — put at the other side's value by hand, or back at what both began from. */
+    readonly moved?: boolean | undefined;
     /**
      * The changes it made theirs or theirs no more, by `key.field` — as they stood before it, and after: what Undo and
      * Redo put back, while no Save of theirs has taken the step.
@@ -316,7 +323,7 @@ export class ModelClient {
      * person puts the field at is a change from what the Save wrote.
      */
     private readonly unread = new Map<string, Map<Field, { readonly value: Value; readonly at: number }>>();
-    /** Every value its person has been shown of each field, on the screen or by a conflict. */
+    /** Every value its person has been shown of each field: on the screen, or on the card of a conflict they chose at. */
     private readonly shownValues = new Map<string, Map<Field, Value[]>>();
     /** Each conflict its person chose the draft at. */
     private chosen: Chosen[] = [];
@@ -528,21 +535,91 @@ export class ModelClient {
     /** A row removed: one gesture. */
     remove(key: string): void { this.gesture(key, undefined, `Remove ${key}`); }
 
+    /** What both sides of a row's conflict began from, while one waits: the row, or none of it — `undefined` where no conflict of the row waits. */
+    private beganAt(key: string): { readonly row: RowValue | undefined } | undefined {
+        const entry = this.session.conflicts.get(key);
+        if (entry === undefined) return undefined;
+        return { row: entry.was.type === "some" ? this.rowOfDraft(key, entry.was.value) : undefined };
+    }
+
+    /**
+     * Whether a field of a row its person sees is in a conflict that waits — its own, or its row's — and stands
+     * otherwise than both sides began it: what {@link ModelClient.revert} takes back.
+     */
+    canRevert(key: string, field: Field): boolean {
+        const row = this.shown(key);
+        const began = this.beganAt(key)?.row;
+        if (!this.session.writable || row === undefined || began === undefined) return false;
+        return this.fieldsAt(this.session.conflicts.get(key)!.points).includes(field) && !sameValue(row[field], began[field]);
+    }
+
+    /** A field typed back to what both sides began from, while its conflict waits: one gesture, and no choice made. */
+    revert(key: string, field: Field): void {
+        const row = this.shown(key);
+        const began = this.beganAt(key)?.row;
+        if (row === undefined || began === undefined) throw new Error(`${this.name} has no change at ${key}.${field} to take back`);
+        this.gesture(key, { ...row, [field]: began[field] }, `Take back ${key}.${field}`);
+    }
+
+    /** Whether its person removed a row another session changed, the conflict waiting: what {@link ModelClient.restore} puts back. */
+    canRestore(key: string): boolean {
+        return this.session.writable && this.shown(key) === undefined && this.beganAt(key)?.row !== undefined;
+    }
+
+    /** A removed row put back as both sides began it, while its conflict waits: one gesture, and no choice made. */
+    restore(key: string): void {
+        const began = this.beganAt(key)?.row;
+        if (began === undefined) throw new Error(`${this.name} has no removal of ${key} to take back`);
+        this.gesture(key, began, `Put back ${key}`);
+    }
+
+    /**
+     * A row as a gesture leaves it on its person's screen. A gesture that puts a row back, at a conflict that waits,
+     * to what both sides began from — a field typed back, a new row removed again, a removed one put back as it was —
+     * leaves its person no change there, and makes no choice: the other side's value stands there, as it would once
+     * the drafts were next carried over. Left as the gesture had it, the next Save wrote it over the other side's.
+     */
+    private leftAs(key: string, next: RowValue | undefined): RowValue | undefined {
+        const entry = this.session.conflicts.get(key);
+        const conflict = this.beganAt(key);
+        if (entry === undefined || conflict === undefined) return next;
+        const began = conflict.row;
+        const theirs = entry.source.type === "some" ? this.rowOfDraft(key, entry.source.value) : undefined;
+        // Whether two rows are the same: neither there, or both, with every field the same.
+        const same = (a: RowValue | undefined, b: RowValue | undefined): boolean =>
+            (a === undefined || b === undefined ? a === undefined && b === undefined : FIELDS.every((field) => sameValue(a[field], b[field])));
+        // A conflict of the row itself — one side removed it, or both added it — reads no more once the row is as both began it.
+        if (entry.points.some((point) => conflictFieldOf(point) === undefined)) return same(next, began) ? theirs : next;
+        // Each field in conflict that is put back at what both began from takes the other side's.
+        if (next === undefined || theirs === undefined || began === undefined) return next;
+        const row = { ...next };
+        for (const field of this.fieldsAt(entry.points)) if (sameValue(next[field], began[field])) row[field] = theirs[field];
+        return row;
+    }
+
     /** A gesture that leaves a row as given, from the row its person sees. */
     private gesture(key: string, next: RowValue | undefined, label: string, optimise = false): void {
         const start = this.startOf(key);
         const was = this.rowOfDraft(key, start.draft);
         const before = this.shownRows();
+        // What their screen shows of the row once the gesture is made, and how many conflicts waited as it was.
+        const shows = this.leftAs(key, next);
+        const waited = this.session.unsettled;
         // Nothing drafted any more of what waited for a person's Save: this change waits for none.
         if (this.allWait && this.session.pending === 0) this.allWait = false;
         const took = this.session.record([{ id: key, before: start, after: next === undefined ? ABSENT : this.versionOf(next) }], optimise ? "optimise" : "typed", label);
         if (!took) throw new ModelFault(`${this.name}'s gesture was not taken: ${label}`);
         this.acts++;
-        const shifts = FIELDS.filter((field) => !sameValue(was?.[field], next?.[field])).map((field): Shift => ({ key, field, before: was?.[field], after: next?.[field] }));
-        const at = shifts.map((shift) => [shift.key, shift.field] as const);
+        const shifts = FIELDS.filter((field) => !sameValue(was?.[field], shows?.[field])).map((field): Shift => ({ key, field, before: was?.[field], after: shows?.[field] }));
+        // Every field the gesture named, and every one its screen moved.
+        const at = FIELDS.filter((field) => !sameValue(was?.[field], next?.[field]) || !sameValue(was?.[field], shows?.[field])).map((field) => [key, field] as const);
         const claimsBefore = this.claimsAt(at);
         this.acted(shifts, before, label);
-        this.push({ kind: "edit", optimise, left: 0, shifts, chosen: [], saves: this.saves, unresolved: this.session.locked, claims: { at, before: claimsBefore, after: this.claimsAt(at) } });
+        // Put back where its conflict waited, a field is no change of theirs any more: the other side's stands there.
+        for (const field of FIELDS) if (!sameValue(shows?.[field], next?.[field])) this.claims.get(key)?.delete(field);
+        // A gesture that left a conflict made no choice of the draft: a step over which no automatic Save sends, as over a choice.
+        const left = this.session.unsettled < waited;
+        this.push({ kind: "edit", optimise, left: 0, shifts, chosen: [], saves: this.saves, unresolved: this.session.locked, moved: left, claims: { at, before: claimsBefore, after: this.claimsAt(at) } });
     }
 
     /** Undo: the last step taken back. */
@@ -557,7 +634,10 @@ export class ModelClient {
         if (step.saves === this.saves) this.putClaims(step.claims.at, step.claims.before);
         if (step.kind !== "settle") return;
         this.chosen = this.chosen.filter((choice) => !step.chosen.includes(choice));
-        if (step.saves === this.saves && !step.unresolved && this.session.unsettled <= step.left) throw new ModelFault(`${this.name}'s Undo of a conflict's choice did not bring the conflict back`);
+        // As many wait again as waited when it was made: each it settled — none, where it only settled one the other way.
+        if (step.saves === this.saves && !step.unresolved && this.session.unsettled < (step.waited ?? step.left + 1)) {
+            throw new ModelFault(`${this.name}'s Undo of a conflict's choice did not bring the conflict back`);
+        }
     }
 
     /** Redo: the next step replayed. */
@@ -646,6 +726,8 @@ export class ModelClient {
         this.acted(shifts, before, `Choose ${choice}`);
         for (const [key, { row, fields }] of theirs) {
             for (const field of fields) {
+                // Chosen at: the conflict's card showed its person both sides.
+                this.show(key, field, row?.[field]);
                 // The other side taken: no change of theirs there. Their own kept: a change from the other side's value —
                 // or from what their own Save wrote there, where the session has still to read that Save back.
                 const wrote = this.unread.get(key)?.get(field);
@@ -656,7 +738,27 @@ export class ModelClient {
         }
         this.chosen = this.chosen.filter((choice) => !unchosen.some((part) => textEqual(part.key, choice.key) && sameField(part.field, choice.field)));
         this.chosen.push(...chosen);
-        this.push({ kind: "settle", optimise: false, left: this.session.unsettled, shifts, chosen, saves: this.saves, unresolved, claims: { at, before: claimsBefore, after: this.claimsAt(at) } });
+        this.push({ kind: "settle", optimise: false, left: this.session.unsettled, waited: unsettled, shifts, chosen, saves: this.saves, unresolved, claims: { at, before: claimsBefore, after: this.claimsAt(at) } });
+    }
+
+    /**
+     * Whether a conflict settled before may be settled the other way now, with none left to choose: the draft put back
+     * only while it holds the other side there, as its choice left it — changed since by a gesture, it is its person's
+     * as it stands — and the other side taken at a part of a row only while the row is there.
+     *
+     * @param choice - Which side would stand
+     * @returns Whether some settled conflict takes it
+     */
+    canFlip(choice: ConflictChoice): boolean {
+        if (!this.session.writable || this.session.carrying || this.session.unsettled > 0) return false;
+        const rows = this.shownRows();
+        return this.session.settled.some((flip) => {
+            if (flip.choice === choice) return false;
+            const mine = rows.get(flip.id);
+            if (choice === "source") return !(mine === undefined && flip.point.at.length > 0);
+            const theirs = flip.source.type === "some" ? this.rowOfDraft(flip.id, flip.source.value) : undefined;
+            return this.fieldsAt([flip.point]).every((field) => sameValue(mine?.[field], theirs?.[field]));
+        });
     }
 
     /** A step made: what Redo could replay goes, with what a person's Save had taken of it, and the steps stand where it leaves them. */
@@ -1067,9 +1169,9 @@ export class ModelClient {
         const base = this.sessionRevision;
         const rows = this.shownRows();
         for (const [key, row] of rows) for (const field of FIELDS) this.show(key, field, row?.[field]);
+        // (A conflict that waits shows its person nothing by itself: the builder rings the row, and the other side's value
+        // is on the conflict's card, which they see as they choose at it.)
         for (const [key, entry] of this.session.conflicts) {
-            const theirs = entry.source.type === "some" ? this.rowOfDraft(key, entry.source.value) : undefined;
-            for (const field of this.fieldsAt(entry.points)) this.show(key, field, theirs?.[field]);
             for (const part of this.partsAt(key, entry.points, base)) {
                 // Asked only of a change still to save: in the conflict's field, or — for one of the row itself — in the row.
                 // (A choice undone while the Save that took it is unresolved reads until that Save is read back.)
@@ -1174,7 +1276,7 @@ export class ModelClient {
         if (this.out !== undefined || this.preparing !== undefined || session.status !== "idle" || session.locked || session.carrying || session.unsettled !== 0 || this.reading) return undefined;
         if (this.allWait || this.left !== this.cursor) return false;
         const stop = this.steps.findIndex((step, i) => i >= this.taken && i < this.cursor && step.optimise);
-        if (stop >= 0 && this.steps.slice(stop, this.cursor).some((step) => step.kind === "settle")) return false;
+        if (stop >= 0 && this.steps.slice(stop, this.cursor).some((step) => step.kind === "settle" || step.moved === true)) return false;
         const send = this.screenForAutomatic();
         return KEYS.some((key) => {
             if (!session.entries.has(key)) return false;
@@ -1245,6 +1347,8 @@ export interface WorldOptions {
      * collection of the page's own — whose sessions read a Save back by what the collection's entries show.
      */
     readonly says?: boolean | undefined;
+    /** Whether a person settles the other way a conflict settled before while none is left to choose, as the conflicts popover lets them: off by default. */
+    readonly flips?: boolean | undefined;
     /** The most gestures and choices each person makes: unbounded by default. With `sends`, what makes the world's states finite. */
     readonly acts?: number | undefined;
     /** The most requests each session's person starts — a Save, an automatic Save: unbounded by default. */
@@ -1377,6 +1481,10 @@ export class ModelWorld {
             if (acts && client.canAdd("k3")) ops.push(`${c}.add(k3)`);
             // A row added — here, or by another session — changed and removed as any is.
             if (acts && client.canEdit("k3")) ops.push(`${c}.edit(k3,a)`, `${c}.remove(k3)`);
+            // A change taken back by hand while its conflict waits: a field typed back to what both sides began from, a
+            // removed row put back as it was. (A new row removed again is `remove`.)
+            for (const [key, field] of [["k1", "a"], ["k1", "b"], ["k3", "a"]] as const) if (acts && client.canRevert(key, field)) ops.push(`${c}.revert(${key},${field})`);
+            for (const key of ["k1", "k3"] as const) if (acts && client.canRestore(key)) ops.push(`${c}.restore(${key})`);
             if (session.canUndo) ops.push(`${c}.undo`);
             if (session.canRedo) ops.push(`${c}.redo`);
             if (session.canDiscard && session.pending > 0) ops.push(`${c}.discard`);
@@ -1394,6 +1502,11 @@ export class ModelWorld {
             if (client.readsOut > 1) ops.push(`${c}.read1`);
             if (!textEqual(client.screen.revision, client.known.revision)) ops.push(`${c}.redraw`);
             if (acts && session.unsettled > 0 && !session.carrying) ops.push(`${c}.settle(draft)`, `${c}.settle(source)`);
+            // With none left to choose, one settled before may still be settled the other way.
+            else if (acts && this.options.flips === true) {
+                if (client.canFlip("draft")) ops.push(`${c}.settle(draft)`);
+                if (client.canFlip("source")) ops.push(`${c}.settle(source)`);
+            }
             if (acts && session.unsettled > 1 && !session.carrying) ops.push(`${c}.settle1(draft)`, `${c}.settle1(source)`);
             if (session.pending > 0 || session.locked) ops.push(`${c}.reload`);
         });
@@ -1472,6 +1585,8 @@ export class ModelWorld {
             case "autosave": await client.autosave(); break;
             case "add": client.add(args[0]!); break;
             case "remove": client.remove(args[0]!); break;
+            case "revert": client.revert(args[0]!, args[1] as Field); break;
+            case "restore": client.restore(args[0]!); break;
             case "undo": client.undo(); break;
             case "redo": client.redo(); break;
             case "discard": client.discard(); break;

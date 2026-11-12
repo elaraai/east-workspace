@@ -197,6 +197,34 @@ test("taken as theirs, a conflict's field reads the other session's value and no
     expect((await h.read(fx.numberedCrew)).get(2n)).toEqual({ name: "A. Morgan", inducted: true, forklift: "3" });
 });
 
+test("a level in conflict typed back to what it was makes no choice, and writes nothing over the other session's: their level shows, nothing is left to save, and the conflict is settled as theirs", async () => {
+    // Left as typed, the grid read no conflict — the level as both began — and Save was on: it wrote 2 over the other
+    // session's 3, which the person here had never been asked about.
+    const c = await mounted("record-remote-typed-back");
+    await type(c, "2", "5");
+    await theirs((crew) => { crew.set(2n, { ...crew.get(2n)!, forklift: "3" }); });
+    await waitFor(() => expect(c.querySelector("[data-conflicts]")).not.toBeNull());
+    expect([look(c)[0], off(saveButton(c))]).toEqual([["2", "yes", "5"], true]);
+    await type(c, "2", "2");
+    await waitFor(() => expect(look(c)[0]).toEqual(["2", "yes", "3"]));
+    await waitFor(() => expect(discardButton(c).disabled, "nothing is left to save").toBe(true));
+    expect(off(saveButton(c))).toBe(true);
+    expect((await h.read(fx.numberedCrew)).get(2n)).toEqual({ name: "A. Morgan", inducted: true, forklift: "3" });
+});
+
+test("a member edited here whom another session removed, the edit typed back, is gone as they left the crew: no choice made, and nobody put back", async () => {
+    // Left as typed, the member stood on the grid as they had been — a row of the session's own, which Save added
+    // again: the other session's removal undone, with nothing asked.
+    const c = await mounted("record-remote-typed-back-removed");
+    await type(c, "2", "5");
+    await theirs((crew) => { crew.delete(2n); });
+    await waitFor(() => expect(c.querySelector("[data-conflicts]")).not.toBeNull());
+    await type(c, "2", "2");
+    await waitFor(() => expect(drawn(c)).toEqual(["9", "10"]));
+    await waitFor(() => expect(discardButton(c).disabled, "nothing is left to save").toBe(true));
+    expect((await h.read(fx.numberedCrew)).has(2n)).toBe(false);
+});
+
 test("another session's change of another member is drawn beside the edit made here: nothing is asked, and Save writes what was typed here alone", async () => {
     const c = await mounted("record-remote-elsewhere");
     await type(c, "2", "5");

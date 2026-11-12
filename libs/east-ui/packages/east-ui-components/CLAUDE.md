@@ -589,6 +589,24 @@ component, nothing in east-ui.
   choice made — began from the source's value once the drafts are carried
   over again (`EntryMerger.began`): the source's next change there is the
   source's to make, never a conflict over a change the person no longer has.
+  A gesture that leaves a conflict the other way — the draft put back, there,
+  at what both began from: a value typed back, a new row removed again, a
+  removed one put back as it was — makes no choice either, and leaves its
+  person no change there (hardened 12 Nov 2026, `EditSession.overConflicts`).
+  The draft is carried over again as the gesture ends (`EntryMerger.merge`):
+  the other side's value stands wherever the draft holds what both began
+  from — at the conflict, and at each place that goes with it, so times put
+  at the other side's by hand take the other side's shift with them — and
+  each conflict left so is settled for the other side, one step with the
+  gesture: Undo takes both back, and the conflicts popover settles it the
+  other way. Left as the gesture had it, the three values read no conflict
+  while the draft still differed from the source's, so Save was on and wrote
+  it over the other side's: a value its person was never asked about; a row
+  another session added, removed by the removal of one's own new row under
+  its key; a row another session removed, added again. What both began from
+  follows the conflicts an entry still reads from then on (kept in the step,
+  for Undo), so a later change where one was left is a change of the value
+  shown there.
   A choice a Save has taken is no conflict to bring back: Undo past it puts
   back the versions its step moved, nothing of the conflict. A Save takes the
   choices of the steps done as it was sent (`Submission.took`), and no
@@ -861,7 +879,10 @@ component, nothing in east-ui.
     holds, of every ordering: a gesture is taken and changes what it names alone; a Save writes what its
     person's screen showed as it was pressed, and changes a field only from a value they had been shown; an automatic
     Save writes the screen as it stood before an optimiser's result no person's Save has taken, and nothing from
-    where Undo or Redo left the steps, and is there exactly while it has something it may send; no change is lost,
+    where Undo or Redo left the steps, and is there exactly while it has something it may send; a Save changes a
+    field only from a value its person's screen showed, or the card of a conflict they chose at — a conflict that
+    waits shows nothing by itself, so a change taken back by hand while one waits (`revert`, `restore`, a new row
+    removed again) leaves nothing of the other side's to be written over; no change is lost,
     and none is sent twice; while a conflict waits no Save is
     offered and no request made, a person's or an automatic one, of the row in conflict or any other of its record;
     a conflict is asked only of a change still to save, and never again once chosen; Undo then Redo is where it was; and answered, read and

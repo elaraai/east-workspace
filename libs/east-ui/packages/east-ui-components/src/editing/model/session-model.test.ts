@@ -127,6 +127,10 @@ const INLINE = /^(c\d\.(edit\(k1,[ab]\)|remove|undo|redo|save|deliver|deliverUna
 const INLINE_TWO = /^c\d\.(add|remove\(k3\)|edit\(k1,a\)|save|deliver|see|settle\(draft\))/;
 /** A Save's answer that comes late: the record takes the Save, another session writes, the page hears of that write — and then the answer arrives. */
 const LATE = /^(c\d\.(edit\(k1,a\)|save|land|deliver|see|read|redraw|settle\(draft\))|remote\.edit\(k[12],a\))/;
+/** A field's change taken back by hand while its conflict waits — typed back to what both sides began from — and what a Save may then write. */
+const BACK_FIELD = /^(c\d\.(edit\(k1,[ab]\)|revert|undo|save|deliver|see|read|redraw|settle\((draft|source)\))|remote\.edit\(k1,a\))/;
+/** A row's change taken back by hand while its conflict waits: a new row removed again, a removed row put back, a changed row typed back. */
+const BACK_ROWS = /^(c\d\.(add\(k3\)|remove\(k[13]\)|edit\(k1,a\)|revert|restore|save|deliver|see|read|redraw|settle\((draft|source)\))|remote\.(add\(k3\)|remove\(k1\)|edit\(k1,a\)))/;
 /** Two people on one field and its neighbour. */
 const TWO = /^c\d\.(edit\(k1,[ab]\)|save|deliver|see|read|redraw|settle\(draft\))/;
 
@@ -220,6 +224,18 @@ for (const shape of ["fields", "whole"] as const) {
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 5_000);
             // The answer names the revision the Save committed, which the page may have passed: it is never put back there.
             expect(found.lateAnswer).toBe(0);
+        }, 600_000);
+
+        it("a field's change taken back by hand while its conflict waits: every ordering of it with the choices, Undo and the Saves around it", async () => {
+            const found = await explore({ shape, remotes: 1, flips: true }, 8 + DEEPER, (op) => BACK_FIELD.test(op));
+            console.info(said(`${shape} taken back, a field`, found));
+            expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 1);
+        }, 600_000);
+
+        it("a row's change taken back by hand while its conflict waits: every ordering of a new row removed again, a removed row put back and a changed row typed back", async () => {
+            const found = await explore({ shape, remotes: 1, flips: true }, 7 + DEEPER, (op) => BACK_ROWS.test(op));
+            console.info(said(`${shape} taken back, a row`, found));
+            expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 1);
         }, 600_000);
 
         it("two people: every ordering of their gestures, Saves, reads and choices on one row", async () => {
@@ -522,6 +538,58 @@ describe("a Save's answer that comes after the page has heard of a later write",
             await world.rest();
             expect([client.session.status, client.session.pending, client.shown("k3"), world.record.now.has("k3"), world.lateAnswer]).toEqual(["idle", 0, undefined, false, 0]);
         });
+    }
+});
+
+describe("a change taken back by hand while its conflict waits makes no choice, and overwrites nothing", () => {
+    for (const shape of ["fields", "whole"] as const) {
+        for (const inline of [false, true]) {
+            // The other session's write heard of, read and drawn: the conflict waits.
+            const read = inline ? ["c0.see"] : ["c0.see", "c0.read", "c0.redraw"];
+            const where = `${shape}${inline ? ", read whole" : ""}`;
+
+            it(`a field typed back to what both sides began from takes the other side's value: nothing is left to save, and nothing of theirs is written over (${where})`, async () => {
+                // Left as typed, the three values read no conflict — the draft as both began — yet the draft differed
+                // from the record's: Save was on, and wrote 1 over the other session's 900, which its person had never
+                // been asked about.
+                const world = await worldAfter({ shape, remotes: 1, inline }, ["c0.edit(k1,a)", "remote.edit(k1,a)", ...read, "c0.revert(k1,a)"]);
+                const client = world.clients[0]!;
+                expect([client.shown("k1")?.a, client.session.unsettled, client.session.pending, client.session.canApply]).toEqual([900n, 0, 0, false]);
+                await world.rest();
+                expect(world.record.now.get("k1")).toEqual({ a: 900n, b: 2n });
+            });
+
+            it(`a new row both sides added, removed again here, removes nothing of the other side's: their row stands (${where})`, async () => {
+                // Left removed, the draft read as a removal of the row under that key — the other session's, which its
+                // person had never seen — and Save removed it.
+                const world = await worldAfter({ shape, remotes: 1, inline }, ["c0.add(k3)", "remote.add(k3)", ...read, "c0.remove(k3)"]);
+                const client = world.clients[0]!;
+                expect([client.shown("k3"), client.session.unsettled, client.session.pending]).toEqual([{ a: 900n, b: 901n }, 0, 0]);
+                await world.rest();
+                expect(world.record.now.get("k3")).toEqual({ a: 900n, b: 901n });
+            });
+
+            it(`a row changed here that the other side removed, its change typed back, is gone as they left it; one removed here that they changed, put back as it was, stands as they left it (${where})`, async () => {
+                const changed = await worldAfter({ shape, remotes: 1, inline }, ["c0.edit(k1,a)", "remote.remove(k1)", ...read, "c0.revert(k1,a)"]);
+                expect([changed.clients[0]!.shown("k1"), changed.clients[0]!.session.pending]).toEqual([undefined, 0]);
+                await changed.rest();
+                expect(changed.record.now.has("k1")).toBe(false);
+                const removed = await worldAfter({ shape, remotes: 1, inline }, ["c0.remove(k1)", "remote.edit(k1,a)", ...read, "c0.restore(k1)"]);
+                expect([removed.clients[0]!.shown("k1"), removed.clients[0]!.session.pending]).toEqual([{ a: 900n, b: 2n }, 0]);
+                await removed.rest();
+                expect(removed.record.now.get("k1")).toEqual({ a: 900n, b: 2n });
+            });
+
+            it(`taken back, a change is one step: Undo brings the conflict back as it waited, and settled the other way the value typed is kept, and saved by its person's choice (${where})`, async () => {
+                const undone = await worldAfter({ shape, remotes: 1, inline }, ["c0.edit(k1,a)", "remote.edit(k1,a)", ...read, "c0.revert(k1,a)", "c0.undo"]);
+                expect([undone.clients[0]!.shown("k1")?.a, undone.clients[0]!.session.unsettled]).toEqual([100n, 1]);
+                await undone.rest();
+                const kept = await worldAfter({ shape, remotes: 1, inline, flips: true }, ["c0.edit(k1,a)", "remote.edit(k1,a)", ...read, "c0.revert(k1,a)", "c0.settle(draft)"]);
+                expect([kept.clients[0]!.shown("k1")?.a, kept.clients[0]!.session.unsettled, kept.clients[0]!.session.canApply]).toEqual([1n, 0, true]);
+                await kept.rest();
+                expect(kept.record.now.get("k1")).toEqual({ a: 1n, b: 2n });
+            });
+        }
     }
 });
 

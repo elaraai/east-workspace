@@ -190,6 +190,27 @@ test("Keep all mine and Use all theirs choose every one, chosen or not, in one s
     expect([session.unsettled, session.canApply]).toEqual([0, true]);
 });
 
+test("a change taken back by hand while its conflict waits is that conflict settled as theirs: the other side's value stands, one fewer waits — and its card, beside one still to choose, says theirs was used, where Yours puts back what was typed, to save", async () => {
+    const session = conflicted(["a", "b"]);
+    const ui = mount(session);
+    expect(button()!.textContent).toBe("2");
+    // Run a's end typed back to 1, what both sides began from: no choice made, and nothing of theirs to write over.
+    act(() => { session.record([{ id: "a", before: version("a", 4n), after: version("a", 1n) }], "resize", "Resize a"); });
+    expect(session.unsettled).toBe(1);
+    expect(session.entries.get("a")!.draft).toEqual(liftDraft(Draft, { id: "a", end: 7n }));
+    expect(button()!.textContent).toBe("1");
+    await opened(2);
+    // Run a's card stands after the one still to choose, settled as theirs.
+    expect(cards().map((each) => each.querySelector("[data-conflict-item]")!.textContent)).toEqual(["Run b", "Run a"]);
+    const card = cards()[1]!;
+    expect([radio(card, "draft").checked, radio(card, "source").checked]).toEqual([false, true]);
+    // Yours is what was typed: kept over theirs now, by a choice.
+    expect(ui.getByRole("radio", { name: "Yours, 1" })).toBe(radio(card, "draft"));
+    fireEvent.click(radio(card, "draft"));
+    expect(session.entries.get("a")!.draft).toEqual(liftDraft(Draft, { id: "a", end: 1n }));
+    expect([session.unsettled, session.settled.map((settled) => [settled.id, settled.choice])]).toEqual([1, [["a", "draft"]]]);
+});
+
 test("Go to goes to a conflict's item as an issue's click does: a history finds its session by it", async () => {
     const history = new EditHistory<string>();
     history.sync([["runs", conflicted(["a"])], ["shifts", conflicted(["c"])]]);
